@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type OfferPolicyStatus =
   | "none"
   | "suppressed"
@@ -7,6 +9,39 @@ export type OfferPolicyStatus =
   | "interested"
   | "declined"
   | "open_lead";
+
+/** OfferPolicyResponse (backend/schemas.py) — nested in insights, handoff and floor payloads. */
+export const offerPolicySchema = z.object({
+  status: z.enum([
+    "none",
+    "suppressed",
+    "shadow",
+    "ready",
+    "presented",
+    "interested",
+    "declined",
+    "open_lead",
+  ]),
+  decisionId: z.string().nullable(),
+  customerId: z.string().nullable(),
+  interactionId: z.string().nullable(),
+  mode: z.string().nullable(),
+  channel: z.string().nullable(),
+  suppressionReason: z.string().nullable(),
+  suppressionLabel: z.string().nullable(),
+  productId: z.string().nullable(),
+  productName: z.string().nullable(),
+  suggestedAmount: z.number().nullable(),
+  talkTrack: z.string().nullable(),
+  reasonCodes: z.array(z.string()),
+  score: z.number().nullable(),
+  presented: z.boolean(),
+  response: z.string().nullable(),
+  leadId: z.string().nullable(),
+  leadStage: z.string().nullable(),
+  preferredWindow: z.string().nullable(),
+  createdAt: z.string().nullable(),
+});
 
 export type OfferPolicy = {
   status: OfferPolicyStatus;

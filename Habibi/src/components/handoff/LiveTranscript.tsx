@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownCircle, Bot, User, Headphones, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Speaker, TranscriptTurn } from "@/api/types/handoff";
+import type { TranscriptTurn } from "@/api/types/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   turns: TranscriptTurn[];
   streaming: boolean;
-  latestSpeaker?: Speaker;
+  latestSpeaker?: TranscriptTurn["speaker"];
   speakers?: Record<string, string>;
 };
 
@@ -92,7 +92,7 @@ function LegendPill({ color, label }: { color: string; label: string }) {
   );
 }
 
-function speakerMeta(sp: Speaker, speakers?: Record<string, string>) {
+function speakerMeta(sp: TranscriptTurn["speaker"], speakers?: Record<string, string>) {
   switch (sp) {
     case "agent":
       return {
@@ -206,7 +206,7 @@ function TranscriptBubble({
   );
 }
 
-function TypingIndicator({ speaker }: { speaker: Speaker }) {
+function TypingIndicator({ speaker }: { speaker: TranscriptTurn["speaker"] }) {
   const meta = speakerMeta(speaker);
   const isRight = meta.align === "right";
   return (

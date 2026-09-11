@@ -44,10 +44,10 @@ export type NbaItem = {
   scheduledAt?: string | null;
   decisionId?: string | null;
   treatmentAction?: string | null;
-  source?: "treatment_engine" | null;
+  source?: string | null;
   /** The engine decided but is not acting — shadow mode. Labelled rather than
    *  hidden, so nobody reads a shadow recommendation as queued work. */
-  advisory?: boolean;
+  advisory?: boolean | null;
 };
 
 export type BehaviorMetrics = {
@@ -66,7 +66,8 @@ export type ActivityPreviewItem = {
   kind: string;
   label: string;
   note?: string | null;
-  at: string;
+  /** Read off startedAt / createdAt / filedAt / requestedAt server-side — any of which can be null. */
+  at: string | null;
   tone?: string | null;
 };
 
@@ -469,7 +470,7 @@ function synthesizeActivity(customer: Customer): ActivityPreviewItem[] {
   }
 
   return items
-    .filter((item) => item.at)
+    .filter((item): item is ActivityPreviewItem & { at: string } => item.at != null)
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 8);
 }

@@ -1,7 +1,31 @@
+import { z } from "zod";
+
 import { fmtOfferAmount } from "@/lib/offer-policy";
 
 export type AuthorityPolicyStatus =
   "none" | "escalate" | "shadow" | "cap" | "auto_approve" | "applied";
+
+/** AuthorityPolicyResponse (backend/schemas.py) — nested in insights, handoff and floor payloads. */
+export const authorityPolicySchema = z.object({
+  status: z.enum(["none", "escalate", "shadow", "cap", "auto_approve", "applied"]),
+  decisionId: z.string().nullable(),
+  customerId: z.string().nullable(),
+  accountId: z.string().nullable(),
+  interactionId: z.string().nullable(),
+  mode: z.string().nullable(),
+  feeType: z.string().nullable(),
+  askedAmount: z.number().nullable(),
+  verdict: z.string().nullable(),
+  approvedAmount: z.number().nullable(),
+  capAmount: z.number().nullable(),
+  reason: z.string().nullable(),
+  reasonLabel: z.string().nullable(),
+  reasonCodes: z.array(z.string()),
+  talkTrack: z.string().nullable(),
+  enacted: z.boolean(),
+  disputeId: z.string().nullable(),
+  createdAt: z.string().nullable(),
+});
 
 export type AuthorityPolicy = {
   status: AuthorityPolicyStatus;

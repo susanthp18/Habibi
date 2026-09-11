@@ -173,7 +173,7 @@ export function retryUnlessClientError(failureCount: number, error: unknown): bo
 
 export type TransportSchema<T> = { parse: (value: unknown) => T };
 
-type ApiInit<T> = {
+export type ApiInit<T> = {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   schema?: TransportSchema<T>;
@@ -229,12 +229,12 @@ export function apiPost<T>(path: string, body: unknown, init?: ApiInit<T>): Prom
   return apiSend<T>("POST", path, body, init);
 }
 
-export function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  return apiSend<T>("PATCH", path, body);
+export function apiPatch<T>(path: string, body: unknown, init?: ApiInit<T>): Promise<T> {
+  return apiSend<T>("PATCH", path, body, init);
 }
 
-export function apiDelete<T = void>(path: string): Promise<T> {
-  return apiSend<T>("DELETE", path);
+export function apiDelete<T = void>(path: string, init?: ApiInit<T>): Promise<T> {
+  return apiSend<T>("DELETE", path, undefined, init);
 }
 
 /** GET that returns a binary Blob (skill zip, reports). */
@@ -269,8 +269,43 @@ export async function apiPostBlob(
   return { blob: await res.blob(), headers: res.headers };
 }
 
-/** Multipart upload helper (no Content-Type — browser sets boundary). */
-export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+/** `api_support._MAX_UPLOAD_BYTES` — the platform cap every route reads unless it narrows it. */
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Multipart upload helper (no Content-Type — browser sets boundary).
+ *
+ * The file is checked before it leaves: the server caps by size and reads the
+ * extension, and a 25 MB body that is going to be refused anyway is 25 MB the
+ * user waits on for nothing. `accept` is the same list the file input carries
+ * — an extension (".zip") or a MIME type ("text/plain").
+ */
+export async function apiUpload<T>(
+  path: string,
+  form: FormData,
+  opts: { maxBytes?: number; accept?: readonly string[] } = {},
+): Promise<T> {
+  const maxBytes = opts.maxBytes ?? MAX_UPLOAD_BYTES;
+  for (const value of form.values()) {
+    if (!(value instanceof File)) continue;
+    if (value.size > maxBytes) {
+      throw new ApiError(
+        "POST",
+        path,
+        413,
+        `${value.name} is ${(value.size / 1_048_576).toFixed(1)} MB; the limit is ${(maxBytes / 1_048_576).toFixed(0)} MB`,
+      );
+    }
+    if (opts.accept?.length) {
+      const name = value.name.toLowerCase();
+      const ok = opts.accept.some((a) =>
+        a.startsWith(".") ? name.endsWith(a.toLowerCase()) : value.type === a,
+      );
+      if (!ok) {
+        throw new ApiError("POST", path, 415, `${value.name} is not one of ${opts.accept.join(", ")}`);
+      }
+    }
+  }
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: authHeaders(),

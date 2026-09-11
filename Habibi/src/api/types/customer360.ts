@@ -19,7 +19,6 @@ export type EmiStatus = "paid" | "upcoming" | "overdue" | "partial";
 export type PtpStatus = "upcoming" | "kept" | "broken" | "partial";
 export type DisputeStatus = "new" | "under_review" | "awaiting_customer" | "resolved" | "rejected";
 export type DocStatus = "requested" | "generating" | "sent" | "failed";
-export type Product = "Credit Card" | "Personal Loan" | "Auto Loan";
 export interface LedgerEntry {
   id: string;
   date: string; // ISO
@@ -82,9 +81,9 @@ export interface DocumentRequest {
   type: string;
   requestedVia: Channel;
   requestedAt: string;
-  deliveryChannel: "email" | "whatsapp";
+  deliveryChannel: "email" | "whatsapp" | "sms";
   status: DocStatus;
-  source?: string;
+  source?: string | null;
 }
 export interface CustomerNote {
   id: string;
@@ -96,12 +95,13 @@ export interface CustomerNote {
 export interface Consent {
   channel: "call" | "whatsapp" | "sms" | "email";
   optedIn: boolean;
-  source: "self-serve" | "bot-captured" | "agent-captured";
+  /** Plain `str` on ConsentResponse (the seed rows say "seed"). */
+  source: string;
   capturedAt: string | null;
 }
 export interface Contact {
   phonePrimary: string;
-  phoneAlt?: string;
+  phoneAlt?: string | null;
   email: string;
   address: string;
   timezone: string;
@@ -116,11 +116,12 @@ export interface Contact {
   dnd: boolean;
 }
 export interface AccountFacts {
-  product: Product;
+  /** Plain `str` on AccountResponse — the wire is not limited to the seed's three. */
+  product: string;
   openedOn: string | null;
   apr: number | null;
   sanctionedAmount: number | null;
-  bucket: "0-30" | "31-60" | "61-90" | "91+" | null;
+  bucket: string | null;
   dpd: number;
   riskScore: number | null;
 }

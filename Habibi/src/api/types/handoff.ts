@@ -8,12 +8,13 @@
 export type Speaker = "customer" | "agent" | "bot" | "system";
 export type TranscriptTurn = {
   id: string;
-  speaker: Speaker;
+  /** Plain `str` on HandoffTranscriptTurn; `Speaker` names the four the cockpit styles. */
+  speaker: Speaker | (string & {});
   text: string;
   /** Absolute second offset from call start when this line appears. */
   at: number;
   /** Sentiment delta this turn contributes (-1..+1). */
-  sentimentDelta?: number;
+  sentimentDelta?: number | null;
 };
 export type Suggestion = {
   id: string;

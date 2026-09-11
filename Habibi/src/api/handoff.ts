@@ -12,6 +12,7 @@
 // -----------------------------------------------------------------------------
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 
 import type {
   ComplianceItem as SeedComplianceItem,
@@ -27,8 +28,132 @@ import {
   transcriptScript as seedTranscript,
 } from "@/data/handoff-seed";
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
-import type { OfferPolicy } from "@/lib/offer-policy";
-import type { AuthorityPolicy } from "@/lib/authority-policy";
+import { disputeSchema, ptpPromiseSchema } from "./customers";
+import { offerPolicySchema, type OfferPolicy } from "@/lib/offer-policy";
+import { authorityPolicySchema, type AuthorityPolicy } from "@/lib/authority-policy";
+
+// -----------------------------------------------------------------------------
+// Wire schemas — field-for-field with backend/schemas.py. The handoff routes
+// set no exclude_unset, so `| None = None` is `.nullable()`; the wrap-up route
+// does, so its spawned children are `.nullable().optional()`.
+// -----------------------------------------------------------------------------
+
+const handoffStatusSchema = z.enum(["pending_claim", "active", "completed"]);
+
+/** HandoffSessionResponse — GET /handoff/active, GET /handoff/:id, and the three POSTs. */
+const handoffSessionSchema = z.object({
+  interactionId: z.string(),
+  handoffId: z.string(),
+  customerId: z.string(),
+  conversationId: z.string().nullable(),
+  status: handoffStatusSchema,
+  claimed: z.boolean(),
+  monitor: z.boolean(),
+  activeCall: z.object({
+    interactionId: z.string(),
+    handoffId: z.string(),
+    customerId: z.string(),
+    conversationId: z.string().nullable(),
+    customerName: z.string(),
+    accountId: z.string(),
+    phone: z.string(),
+    channel: z.string(),
+    agentName: z.string(),
+    transferredFrom: z.string(),
+    escalationReason: z.string(),
+    startedAt: z.number(),
+    status: handoffStatusSchema,
+    claimed: z.boolean(),
+    risk: z.string(),
+    handlerUserId: z.string().nullable(),
+  }),
+  // HandoffCustomerContext has no `liveQa`; pydantic drops it before the wire.
+  customerContext: z.object({
+    risk: z.string(),
+    outstanding: z.number(),
+    currency: z.string(),
+    lastPromise: z.object({ amount: z.number(), date: z.string(), status: z.string() }).nullable(),
+    nextEmi: z
+      .object({ amount: z.number(), dueDate: z.string(), daysOverdue: z.number() })
+      .nullable(),
+    openDisputes: z.number(),
+    dnd: z.object({ allowed: z.boolean(), window: z.string(), channels: z.array(z.string()) }),
+    tenureMonths: z.number(),
+    product: z.string(),
+    offerPolicy: offerPolicySchema.nullable(),
+    authorityPolicy: authorityPolicySchema.nullable(),
+  }),
+  transcriptScript: z.array(
+    z.object({
+      id: z.string(),
+      speaker: z.string(),
+      text: z.string(),
+      at: z.number(),
+      sentimentDelta: z.number().nullable(),
+    }),
+  ),
+  sentimentSeries: z.array(z.number()),
+  suggestions: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      body: z.string(),
+      source: z.string(),
+      showAfter: z.number(),
+      accepted: z.boolean(),
+    }),
+  ),
+  complianceItems: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      required: z.boolean(),
+      checked: z.boolean(),
+      locked: z.boolean(),
+      ruleId: z.string().nullable(),
+    }),
+  ),
+  alerts: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      severity: z.string(),
+      reason: z.string().nullable(),
+    }),
+  ),
+  dispositions: z.array(z.string()),
+  speakers: z.record(z.string()),
+});
+
+/** HandoffQueueResponse — GET /handoff/queue. */
+const handoffQueueSchema = z.object({
+  items: z.array(
+    z.object({
+      interactionId: z.string(),
+      handoffId: z.string(),
+      customerId: z.string(),
+      customerName: z.string(),
+      accountId: z.string(),
+      reason: z.string(),
+      queue: z.string().nullable(),
+      risk: z.string(),
+      waitSec: z.number(),
+      requestedAt: z.string().nullable(),
+    }),
+  ),
+  activeInteractionId: z.string().nullable(),
+});
+
+/** WrapUpResponse — POST /interactions/:id/wrap-up, response_model_exclude_unset. */
+const wrapUpSchema = z.object({
+  id: z.string(),
+  spawned: z.object({
+    promise: ptpPromiseSchema.nullable().optional(),
+    dispute: disputeSchema.nullable().optional(),
+    callback: z.object({ id: z.string(), status: z.string().nullable() }).nullable().optional(),
+  }),
+});
+export type WrapUpResult = z.infer<typeof wrapUpSchema>;
 
 export type Speaker = "customer" | "agent" | "bot" | "system";
 
@@ -168,7 +293,7 @@ export async function fetchHandoffQueue(customerId?: string): Promise<HandoffQue
     return mockDelay({ items: [], activeInteractionId: "mock-handoff", scriptedReplay: true });
   }
   const q = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
-  return apiGet<HandoffQueue>(`/handoff/queue${q}`);
+  return apiGet<HandoffQueue>(`/handoff/queue${q}`, { schema: handoffQueueSchema });
 }
 
 export function useHandoffQueue(customerId?: string) {
@@ -182,13 +307,17 @@ export function useHandoffQueue(customerId?: string) {
 
 export async function fetchHandoffActive(): Promise<HandoffSession | null> {
   if (USE_MOCK) return mockDelay(MOCK_SESSION);
-  const session = await apiGet<HandoffSession | undefined>("/handoff/active");
+  const session = await apiGet<HandoffSession | undefined>("/handoff/active", {
+    schema: handoffSessionSchema,
+  });
   return session ?? null;
 }
 
 export async function fetchHandoffSession(interactionId: string): Promise<HandoffSession> {
   if (USE_MOCK) return mockDelay(MOCK_SESSION);
-  return apiGet<HandoffSession>(`/handoff/${encodeURIComponent(interactionId)}`);
+  return apiGet<HandoffSession>(`/handoff/${encodeURIComponent(interactionId)}`, {
+    schema: handoffSessionSchema,
+  });
 }
 
 export function useHandoffActive() {
@@ -218,7 +347,11 @@ export function useHandoffSession(interactionId: string | undefined, opts?: { po
 
 export async function claimHandoff(interactionId: string): Promise<HandoffSession> {
   if (USE_MOCK) return mockDelay({ ...MOCK_SESSION, claimed: true, status: "active" });
-  return apiPost<HandoffSession>(`/handoff/${encodeURIComponent(interactionId)}/claim`, {});
+  return apiPost<HandoffSession>(
+    `/handoff/${encodeURIComponent(interactionId)}/claim`,
+    {},
+    { schema: handoffSessionSchema },
+  );
 }
 
 export function useClaimHandoff() {
@@ -242,6 +375,7 @@ export async function postHandoffDisclosure(
   return apiPost<HandoffSession>(
     `/handoff/${encodeURIComponent(interactionId)}/disclosures`,
     payload,
+    { schema: handoffSessionSchema },
   );
 }
 
@@ -253,6 +387,7 @@ export async function acceptHandoffSuggestion(
   return apiPost<HandoffSession>(
     `/handoff/${encodeURIComponent(interactionId)}/suggestions/${encodeURIComponent(suggestionId)}/accept`,
     {},
+    { schema: handoffSessionSchema },
   );
 }
 
@@ -268,7 +403,7 @@ export async function wrapUpHandoff(
   interactionId: string,
   customerId: string,
   payload: WrapUpPayload,
-): Promise<unknown> {
+): Promise<WrapUpResult> {
   if (USE_MOCK) return mockDelay({ id: interactionId, spawned: {} });
   const body: Record<string, unknown> = {
     disposition: payload.disposition,
@@ -288,6 +423,7 @@ export async function wrapUpHandoff(
   // in the key made every retry a first attempt.
   return apiPost(`/interactions/${encodeURIComponent(interactionId)}/wrap-up`, body, {
     headers: { "Idempotency-Key": `wrap-${interactionId}` },
+    schema: wrapUpSchema,
   });
 }
 

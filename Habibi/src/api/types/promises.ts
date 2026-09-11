@@ -12,7 +12,7 @@ export type ReminderStatus = "off" | "scheduled" | "sent";
 export interface PtpEvent {
   at: string;
   label: string;
-  tone?: "info" | "success" | "warn" | "danger";
+  tone?: "info" | "success" | "warn" | "danger" | null;
 }
 export interface Promise {
   id: string;
@@ -27,9 +27,9 @@ export interface Promise {
   owner: string;
   reminderStatus: ReminderStatus;
   status: PromiseStatus;
-  paidAmount?: number;
-  notes?: string;
-  planId?: string;
+  paidAmount?: number | null;
+  notes?: string | null;
+  planId?: string | null;
   events: PtpEvent[];
   confirmChannel?: "whatsapp" | "sms" | null;
   confirmStatus?: string | null;
@@ -45,7 +45,7 @@ export interface Installment {
   dueDate: string;
   amount: number;
   paid: boolean;
-  paidOn?: string;
+  paidOn?: string | null;
 }
 export interface PaymentPlan {
   id: string;

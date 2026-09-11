@@ -6,8 +6,256 @@
 // were guesses, and the reach estimator was being fitted to its own numerator.
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 
 import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+
+// -----------------------------------------------------------------------------
+// Wire schemas — field-for-field with backend/schemas.py. A `datetime` is an
+// ISO string on the wire. Where a value is `str` server-side but the column
+// carries a CHECK constraint (sql/21_outbound.sql, sql/22_campaigns.sql) or the
+// card model pins a Literal (agent_core/cards/schema.py), the enum here is that
+// list; everything else is z.string(). Routes marked exclude_unset below get
+// `.optional()` on every defaulted field.
+// -----------------------------------------------------------------------------
+
+const isoDate = z.string();
+const isoDateOrNull = z.string().nullable();
+
+/** ReachStatsResponse — every count is a float on the wire (`12.0`). */
+const reachStatsSchema = z.object({
+  attempts: z.number(),
+  suppressed: z.number(),
+  answered: z.number(),
+  right_party: z.number(),
+  voicemail: z.number(),
+  invalid_number: z.number(),
+  no_answer: z.number(),
+  busy: z.number(),
+  avg_ring_sec: z.number().nullable(),
+  avg_talk_sec: z.number().nullable(),
+  talk_sec_total: z.number().nullable(),
+  answerRate: z.number().nullable(),
+  rightPartyRate: z.number().nullable(),
+  attemptsPerConnect: z.number().nullable(),
+  windowDays: z.number(),
+});
+
+/** CallAttemptResponse — GET /outbound/attempts. */
+const callAttemptSchema = z.object({
+  id: z.string(),
+  customer_id: z.string(),
+  customer_name: z.string(),
+  objective: z.string(),
+  attempt_no: z.number(),
+  state: z.string(),
+  suppressed_reason: z.string().nullable(),
+  to_phone_last4: z.string().nullable(),
+  answered_by: z.string().nullable(),
+  right_party: z.boolean().nullable(),
+  ring_sec: z.number().nullable(),
+  talk_sec: z.number().nullable(),
+  provider_call_id: z.string().nullable(),
+  provider_status: z.string().nullable(),
+  provider_error: z.string().nullable(),
+  interaction_id: z.string().nullable(),
+  decision_id: z.string().nullable(),
+  reserved_at: isoDate,
+  placed_at: isoDateOrNull,
+  answered_at: isoDateOrNull,
+  ended_at: isoDateOrNull,
+  connection: z.string().nullable(),
+  business: z.string().nullable(),
+  objective_met: z.boolean().nullable(),
+  nonpayment_reason: z.string().nullable(),
+  summary: z.string().nullable(),
+  summary_source: z.string().nullable(),
+});
+
+/** MissionsResponse — GET /outbound/missions. direction / poolKind are card Literals. */
+const missionsSchema = z.object({
+  botId: z.string(),
+  direction: z.enum(["inbound", "outbound", "both"]),
+  poolKind: z.enum(["service_1600", "promotional", "general"]),
+  numberPool: z.string().nullable(),
+  objectives: z.array(
+    z.object({
+      key: z.string(),
+      entryNode: z.string(),
+      graphEntryNode: z.string().nullable(),
+      agrees: z.boolean(),
+      maxDurationSec: z.number(),
+      allowedOffers: z.array(z.string()),
+      authorityProfile: z.string().nullable(),
+      cadence: z.string(),
+      success: z.array(z.string()),
+      brief: z.string(),
+    }),
+  ),
+  graphEntries: z.record(z.string()),
+  available: z.array(z.string()),
+});
+
+/** OutboundCardVocabularyResponse — the closed lists are the card model's Literals. */
+const outboundVocabularySchema = z.object({
+  objectives: z.array(z.string()),
+  objectiveBriefs: z.record(z.string()),
+  directions: z.array(z.enum(["inbound", "outbound", "both"])),
+  voicemailModes: z.array(z.enum(["always", "never", "first_attempt_only", "engine"])),
+  poolKinds: z.array(z.enum(["service_1600", "promotional", "general"])),
+  qaModes: z.array(z.enum(["always", "sampled", "never"])),
+  outcomeCodes: z.array(z.string()),
+  postCallActions: z.array(z.string()),
+  retryStates: z.array(z.string()),
+  authorityProfiles: z.array(z.object({ name: z.string(), ceilingInr: z.number().nullable() })),
+  numberPools: z.array(z.object({ name: z.string(), kind: z.string() })),
+  dailyCap: z.number(),
+});
+
+/**
+ * CampaignRunResponse — list / create / status all set response_model_exclude_unset,
+ * so every defaulted field may be absent; `status` is campaign_runs' CHECK list.
+ */
+const campaignRunSchema = z.object({
+  id: z.string(),
+  tenant_id: z.string(),
+  bot_id: z.string().nullable().optional(),
+  deployment_id: z.string().nullable().optional(),
+  name: z.string(),
+  objective: z.string(),
+  cadence: z.string(),
+  source: z.string(),
+  selector: z.record(z.unknown()).optional(),
+  status: z.enum(["draft", "running", "paused", "finished", "cancelled"]),
+  window_start_hour: z.number(),
+  window_end_hour: z.number(),
+  max_concurrent: z.number(),
+  max_attempts_total: z.number().nullable().optional(),
+  targets_total: z.number(),
+  targets_done: z.number(),
+  created_by_user_id: z.string().nullable().optional(),
+  started_at: isoDateOrNull.optional(),
+  paused_at: isoDateOrNull.optional(),
+  finished_at: isoDateOrNull.optional(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  pending: z.number().nullable().optional(),
+  done: z.number().nullable().optional(),
+  skipped: z.number().nullable().optional(),
+  progress: z
+    .object({
+      total: z.number(),
+      pending: z.number(),
+      dialing: z.number(),
+      done: z.number(),
+      skipped: z.number(),
+      failed: z.number(),
+    })
+    .nullable()
+    .optional(),
+});
+
+/** CampaignCohortPreviewResponse — POST /outbound/campaigns/preview. */
+const cohortPreviewSchema = z.object({
+  matched: z.number(),
+  capped: z.boolean(),
+  sample: z.array(
+    z.object({
+      customer_id: z.string(),
+      name: z.string(),
+      risk: z.string(),
+      account_id: z.string(),
+      dpd: z.number(),
+      bucket: z.string().nullable(),
+      outstanding: z.number(),
+    }),
+  ),
+});
+
+/** CadenceCaseResponse — `state` is cadence_cases' CHECK list. */
+const cadenceCaseSchema = z.object({
+  id: z.string(),
+  tenant_id: z.string(),
+  customer_id: z.string(),
+  objective: z.string(),
+  case_ref: z.string(),
+  cadence: z.string(),
+  attempts: z.number(),
+  max_attempts: z.number(),
+  next_attempt_at: isoDateOrNull,
+  last_attempt_id: z.string().nullable(),
+  last_outcome: z.string().nullable(),
+  state: z.enum(["open", "exhausted", "stopped", "escalated"]),
+  stopped_reason: z.string().nullable(),
+  campaign_run_id: z.string().nullable(),
+  bot_id: z.string().nullable(),
+  escalate_to: z.string().nullable(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  customer_name: z.string(),
+});
+
+/** NumberPoolResponse — `kind` and `state` are number_pools' / pool_numbers' CHECK lists. */
+const numberPoolSchema = z.object({
+  id: z.string(),
+  tenant_id: z.string(),
+  name: z.string(),
+  kind: z.enum(["service_1600", "promotional", "general"]),
+  enabled: z.boolean(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  numbers: z.array(
+    z.object({
+      id: z.string(),
+      pool_id: z.string(),
+      e164: z.string(),
+      state: z.enum(["active", "cooling", "retired"]),
+      last_used_at: isoDateOrNull,
+      attempts_7d: z.number(),
+      answer_rate_7d: z.number().nullable(),
+      state_changed_at: isoDate,
+      health_checked_at: isoDateOrNull,
+      note: z.string().nullable(),
+      created_at: isoDate,
+      updated_at: isoDate,
+    }),
+  ),
+});
+
+/** NonpaymentReasonResponse — GET /outbound/reasons. */
+const reasonCountSchema = z.object({ reason: z.string(), calls: z.number(), resolved: z.number() });
+
+/** AgentObligationResponse — `state` is agent_obligations' CHECK list. */
+const agentObligationSchema = z.object({
+  id: z.string(),
+  tenant_id: z.string(),
+  customer_id: z.string(),
+  interaction_id: z.string().nullable(),
+  attempt_id: z.string().nullable(),
+  kind: z.string(),
+  due_at: isoDate,
+  detail: z.record(z.unknown()),
+  verbatim: z.string().nullable(),
+  state: z.enum(["open", "honoured", "missed", "cancelled"]),
+  honoured_at: isoDateOrNull,
+  honoured_ref: z.string().nullable(),
+  created_at: isoDate,
+  updated_at: isoDate,
+  customer_name: z.string(),
+});
+
+/** TwilioOutboundCallResponse — three branches share one model, exclude_unset. */
+const placedCallSchema = z.object({
+  placed: z.boolean().nullable().optional(),
+  attemptId: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
+  idempotent: z.boolean().nullable().optional(),
+  to: z.string().nullable().optional(),
+  callSid: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  from: z.string().nullable().optional(),
+});
+import { OBJECTIVES } from "./agent-card";
 
 export type ReachStats = {
   attempts: number;
@@ -40,6 +288,7 @@ export type CallAttempt = {
   right_party: boolean | null;
   ring_sec: number | null;
   talk_sec: number | null;
+  provider_call_id: string | null;
   provider_status: string | null;
   provider_error: string | null;
   interaction_id: string | null;
@@ -124,10 +373,10 @@ export type CampaignRun = {
   max_concurrent: number;
   targets_total: number;
   targets_done: number;
-  pending?: number;
-  done?: number;
-  skipped?: number;
-  started_at: string | null;
+  pending?: number | null;
+  done?: number | null;
+  skipped?: number | null;
+  started_at?: string | null;
   created_at: string;
 };
 
@@ -184,28 +433,14 @@ const MOCK_MISSIONS: MissionConfig = {
   numberPool: null,
   objectives: [],
   graphEntries: {},
-  available: [
-    "inbound",
-    "pre_due_reminder",
-    "bounce_cure",
-    "dpd_reminder",
-    "broken_ptp_chase",
-    "hardship_intake",
-    "mandate_reregistration",
-    "document_chase",
-    "callback_honour",
-    "welcome_onboarding",
-    "retention_save",
-    "cross_sell",
-    "manual_outbound",
-  ],
+  available: [...OBJECTIVES],
 };
 
 export async function fetchReachStats(days = 14): Promise<ReachStats> {
   if (USE_MOCK) {
     return mockDelay(MOCK_STATS);
   }
-  return apiGet<ReachStats>(`/outbound/stats?days=${days}`);
+  return apiGet<ReachStats>(`/outbound/stats?days=${days}`, { schema: reachStatsSchema });
 }
 
 export async function fetchAttempts(params: { customerId?: string; limit?: number } = {}) {
@@ -215,7 +450,9 @@ export async function fetchAttempts(params: { customerId?: string; limit?: numbe
   const q = new URLSearchParams();
   if (params.customerId) q.set("customerId", params.customerId);
   q.set("limit", String(params.limit ?? 50));
-  return apiGet<CallAttempt[]>(`/outbound/attempts?${q.toString()}`);
+  return apiGet<CallAttempt[]>(`/outbound/attempts?${q.toString()}`, {
+    schema: z.array(callAttemptSchema),
+  });
 }
 
 export async function fetchMissions(botId?: string): Promise<MissionConfig> {
@@ -226,7 +463,7 @@ export async function fetchMissions(botId?: string): Promise<MissionConfig> {
   // the default one, and the Outbound tab renders that under whatever card you
   // happen to have open.
   const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
-  return apiGet<MissionConfig>(`/outbound/missions${q}`);
+  return apiGet<MissionConfig>(`/outbound/missions${q}`, { schema: missionsSchema });
 }
 
 /**
@@ -244,7 +481,6 @@ export type OutboundVocabulary = {
   objectiveBriefs: Record<string, string>;
   directions: Array<"inbound" | "outbound" | "both">;
   voicemailModes: Array<"always" | "never" | "first_attempt_only" | "engine">;
-  timeOfDay: Array<"engine" | "fixed" | "spread">;
   poolKinds: Array<"service_1600" | "promotional" | "general">;
   qaModes: Array<"always" | "sampled" | "never">;
   /** The Closer's taxonomy — `success`, `partial`, `stop_on`, and a post-call
@@ -266,7 +502,6 @@ const EMPTY_VOCABULARY: OutboundVocabulary = {
   objectiveBriefs: {},
   directions: ["inbound", "outbound", "both"],
   voicemailModes: ["always", "never", "first_attempt_only", "engine"],
-  timeOfDay: ["engine", "fixed", "spread"],
   poolKinds: ["service_1600", "promotional", "general"],
   qaModes: ["always", "sampled", "never"],
   outcomeCodes: [],
@@ -279,7 +514,9 @@ const EMPTY_VOCABULARY: OutboundVocabulary = {
 
 export async function fetchOutboundVocabulary(): Promise<OutboundVocabulary> {
   if (USE_MOCK) return mockDelay(EMPTY_VOCABULARY);
-  return apiGet<OutboundVocabulary>("/outbound/card-vocabulary");
+  return apiGet<OutboundVocabulary>("/outbound/card-vocabulary", {
+    schema: outboundVocabularySchema,
+  });
 }
 
 export function useOutboundVocabulary() {
@@ -295,15 +532,12 @@ export async function fetchCampaigns(): Promise<CampaignRun[]> {
   if (USE_MOCK) {
     return mockDelay([]);
   }
-  return apiGet<CampaignRun[]>("/outbound/campaigns");
+  return apiGet<CampaignRun[]>("/outbound/campaigns", { schema: z.array(campaignRunSchema) });
 }
 
 /**
- * Caller-ID pools — GET /outbound/number-pools.
- *
- * This endpoint has no response_model on the server: it returns raw table rows,
- * so these field names ARE the contract and they are snake_case, unlike every
- * other type in this file. Mirrors sql/22_campaigns.sql.
+ * Caller-ID pools — GET /outbound/number-pools (NumberPoolResponse, a row-star,
+ * hence snake_case). Mirrors sql/22_campaigns.sql.
  */
 export type PoolNumber = {
   id: string;
@@ -387,7 +621,7 @@ export async function fetchNumberPools(): Promise<NumberPool[]> {
   if (USE_MOCK) {
     return mockDelay(MOCK_NUMBER_POOLS);
   }
-  return apiGet<NumberPool[]>("/outbound/number-pools");
+  return apiGet<NumberPool[]>("/outbound/number-pools", { schema: z.array(numberPoolSchema) });
 }
 
 /**
@@ -408,21 +642,27 @@ export async function fetchCadenceCases(): Promise<CadenceCase[]> {
   if (USE_MOCK) {
     return mockDelay([]);
   }
-  return apiGet<CadenceCase[]>("/outbound/cadence?limit=50");
+  return apiGet<CadenceCase[]>("/outbound/cadence?limit=50", {
+    schema: z.array(cadenceCaseSchema),
+  });
 }
 
 export async function fetchReasons(days = 30): Promise<ReasonCount[]> {
   if (USE_MOCK) {
     return mockDelay([]);
   }
-  return apiGet<ReasonCount[]>(`/outbound/reasons?days=${days}`);
+  return apiGet<ReasonCount[]>(`/outbound/reasons?days=${days}`, {
+    schema: z.array(reasonCountSchema),
+  });
 }
 
 export async function fetchObligations(): Promise<AgentObligation[]> {
   if (USE_MOCK) {
     return mockDelay([]);
   }
-  return apiGet<AgentObligation[]>("/outbound/obligations?state=open");
+  return apiGet<AgentObligation[]>("/outbound/obligations?state=open", {
+    schema: z.array(agentObligationSchema),
+  });
 }
 
 export function useReachStats(days = 14) {
@@ -466,7 +706,11 @@ export function usePreviewCohort() {
   return useMutation({
     meta: { errors: "caller" },
     mutationFn: async (selector: CampaignSelector) =>
-      apiPost<CohortPreview>("/outbound/campaigns/preview", { selector, sample: 8 }),
+      apiPost<CohortPreview>(
+        "/outbound/campaigns/preview",
+        { selector, sample: 8 },
+        { schema: cohortPreviewSchema },
+      ),
   });
 }
 
@@ -485,19 +729,13 @@ export function useCreateCampaign() {
       windowStartHour?: number;
       windowEndHour?: number;
       maxConcurrent?: number;
-    }) => apiPost<CampaignRun>("/outbound/campaigns", payload),
+    }) => apiPost<CampaignRun>("/outbound/campaigns", payload, { schema: campaignRunSchema }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outbound", "campaigns"] }),
   });
 }
 
 /** What the dial owner reports back for one operator-placed call. */
-export type PlacedCall = {
-  placed: boolean;
-  attemptId?: string;
-  state?: string;
-  reason?: string;
-  callSid?: string;
-};
+export type PlacedCall = z.infer<typeof placedCallSchema>;
 
 /**
  * Place one call to a customer through the dial owner -- reserve, admit,
@@ -520,7 +758,7 @@ export function usePlaceCall() {
       apiPost<PlacedCall>(
         "/twilio/voice/outbound",
         { customerId, to: phone, objective: "manual_outbound" },
-        { headers: { "Idempotency-Key": idempotencyKey } },
+        { headers: { "Idempotency-Key": idempotencyKey }, schema: placedCallSchema },
       ),
   });
 }
@@ -530,7 +768,7 @@ export function useSetCampaignStatus() {
   return useMutation({
     meta: { errors: "toast" },
     mutationFn: async ({ runId, status }: { runId: string; status: string }) =>
-      apiPost(`/outbound/campaigns/${runId}/status`, { status }),
+      apiPost(`/outbound/campaigns/${runId}/status`, { status }, { schema: campaignRunSchema }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outbound", "campaigns"] }),
   });
 }

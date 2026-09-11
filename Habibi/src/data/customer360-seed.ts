@@ -13,7 +13,6 @@ import type {
   PtpStatus,
   DisputeStatus,
   DocStatus,
-  Product,
   LedgerEntry,
   EmiRow,
   Interaction,

@@ -38,7 +38,7 @@ describe("CustomerResponse nullability", () => {
     expect(types).toContain("openedOn: string | null;");
     expect(types).toContain("apr: number | null;");
     expect(types).toContain("sanctionedAmount: number | null;");
-    expect(types).toContain('bucket: "0-30" | "31-60" | "61-90" | "91+" | null;');
+    expect(types).toContain("bucket: string | null;");
     expect(types).toContain("riskScore: number | null;");
   });
 });
@@ -54,10 +54,11 @@ describe("CallResponse nullability", () => {
 });
 
 describe("POST /interactions response", () => {
-  it("does not assert CallResponse.summary as string", () => {
+  it("parses CallResponse.startedAt / disposition / summary as nullable", () => {
     const src = read("api/customers.ts");
-    expect(src).toContain("startedAt: string | null;");
-    expect(src).toContain("disposition: string | null;");
-    expect(src).toContain("summary: string | null;");
+    const callSchema = src.slice(src.indexOf("const callSchema = z.object({"));
+    expect(callSchema).toContain("startedAt: z.string().nullable(),");
+    expect(callSchema).toContain("disposition: z.string().nullable(),");
+    expect(callSchema).toContain("summary: z.string().nullable(),");
   });
 });

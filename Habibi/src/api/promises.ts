@@ -11,6 +11,7 @@
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 
 import type { CreateInput, CustomerOption } from "@/components/promises/PromiseSheet";
 import type { PlanInput } from "@/components/promises/PlanBuilderSheet";
@@ -26,16 +27,95 @@ import {
 } from "@/data/promises-seed";
 import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { ptpPromiseSchema } from "./customers";
 import { resolveActor, type Staff } from "./staff";
+
+// -----------------------------------------------------------------------------
+// Wire schemas — field-for-field with backend/schemas.py. No route in
+// routers/payments.py that these hit sets response_model_exclude_unset, so a
+// `| None = None` field is `.nullable()`, never `.optional()`.
+// -----------------------------------------------------------------------------
+
+/** PromiseListResponse — GET /promises. */
+const promiseListSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  accountTail: z.string(),
+  amount: z.number(),
+  promisedDate: z.string(),
+  createdAt: z.string(),
+  channel: z.enum(["voice", "whatsapp", "chat", "email", "sms"]),
+  source: z.enum(["bot", "agent", "self"]),
+  owner: z.string(),
+  reminderStatus: z.enum(["off", "scheduled", "sent"]),
+  status: z.enum(["upcoming", "due_today", "kept", "broken", "partial"]),
+  paidAmount: z.number().nullable(),
+  notes: z.string().nullable(),
+  planId: z.string().nullable(),
+  events: z.array(
+    z.object({
+      at: z.string(),
+      label: z.string(),
+      tone: z.enum(["info", "success", "warn", "danger"]).nullable(),
+    }),
+  ),
+  confirmChannel: z.enum(["whatsapp", "sms"]).nullable(),
+  confirmStatus: z.string().nullable(),
+  paymentIntentStatus: z.string().nullable(),
+  paymentIntentId: z.string().nullable(),
+  payLinkSent: z.boolean(),
+  phoneLast4: z.string().nullable(),
+});
+
+/** PaymentPlanResponse — GET /payment-plans. */
+const paymentPlanSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  accountTail: z.string(),
+  total: z.number(),
+  cadence: z.enum(["weekly", "biweekly", "monthly"]),
+  startDate: z.string(),
+  installments: z.array(
+    z.object({
+      index: z.number(),
+      dueDate: z.string(),
+      amount: z.number(),
+      paid: z.boolean(),
+      paidOn: z.string().nullable(),
+    }),
+  ),
+  owner: z.string(),
+  status: z.enum(["on_track", "slipped", "completed"]),
+  createdAt: z.string(),
+});
+
+/** PromiseResendConfirmResponse — the promise row plus the underscore keys the builder emits. */
+const promiseResendConfirmSchema = ptpPromiseSchema.extend({
+  _fulfillment: z.object({
+    promiseId: z.string(),
+    intentId: z.string().nullable(),
+    confirmChannel: z.string().nullable(),
+    phoneLast4: z.string().nullable(),
+    payLinkSent: z.boolean(),
+    suppressed: z.boolean(),
+    suppressionReason: z.string().nullable(),
+  }),
+  _spoken: z.string().nullable(),
+});
+
+/** PaymentPlanCreateResponse — POST /payment-plans. */
+const paymentPlanCreateSchema = z.object({ id: z.string(), promise: ptpPromiseSchema });
 
 export async function fetchPromises(): Promise<Ptp[]> {
   if (USE_MOCK) return mockDelay(seedPromises);
-  return apiGet<Ptp[]>("/promises");
+  return apiGet<Ptp[]>("/promises", { schema: z.array(promiseListSchema) });
 }
 
 export async function fetchPaymentPlans(): Promise<PaymentPlan[]> {
   if (USE_MOCK) return mockDelay(seedPlans);
-  return apiGet<PaymentPlan[]>("/payment-plans");
+  return apiGet<PaymentPlan[]>("/payment-plans", { schema: z.array(paymentPlanSchema) });
 }
 
 export function usePromises() {
@@ -69,15 +149,19 @@ export async function createPromise(input: CreateInput): Promise<{ id: string }>
   // The owner triplet is authoritative (see DATA_MODEL.md): `source` is derived
   // from owner_kind on read, so resolving the chosen owner sets both.
   const actor = await resolveActor(input.owner);
-  return apiPost<{ id: string }>("/promises", {
-    customerId: input.customerId,
-    amount: input.amount,
-    promisedDate: input.promisedDate,
-    channel: input.channel,
-    reminderStatus: input.reminder,
-    ownerUserId: actor.kind === "human" ? actor.id : undefined,
-    ownerBotId: actor.kind === "bot" ? actor.id : undefined,
-  });
+  return apiPost<{ id: string }>(
+    "/promises",
+    {
+      customerId: input.customerId,
+      amount: input.amount,
+      promisedDate: input.promisedDate,
+      channel: input.channel,
+      reminderStatus: input.reminder,
+      ownerUserId: actor.kind === "human" ? actor.id : undefined,
+      ownerBotId: actor.kind === "bot" ? actor.id : undefined,
+    },
+    { schema: ptpPromiseSchema },
+  );
 }
 
 export async function movePromise(
@@ -89,7 +173,11 @@ export async function movePromise(
     moveSeedPromise(p.id, status, opts);
     return;
   }
-  await apiPatch(`/promises/${p.id}`, { status, paidAmount: opts?.paidAmount });
+  await apiPatch(
+    `/promises/${p.id}`,
+    { status, paidAmount: opts?.paidAmount },
+    { schema: ptpPromiseSchema },
+  );
 }
 
 export async function resendPromiseConfirm(p: Ptp): Promise<void> {
@@ -103,7 +191,7 @@ export async function resendPromiseConfirm(p: Ptp): Promise<void> {
     ];
     return;
   }
-  await apiPost(`/promises/${p.id}/resend-confirm`, {});
+  await apiPost(`/promises/${p.id}/resend-confirm`, {}, { schema: promiseResendConfirmSchema });
 }
 
 export async function reschedulePromise(p: Ptp, newDate: string): Promise<void> {
@@ -111,7 +199,7 @@ export async function reschedulePromise(p: Ptp, newDate: string): Promise<void> 
     rescheduleSeedPromise(p.id, newDate);
     return;
   }
-  await apiPatch(`/promises/${p.id}`, { promisedDate: newDate });
+  await apiPatch(`/promises/${p.id}`, { promisedDate: newDate }, { schema: ptpPromiseSchema });
 }
 
 export async function createPlan(input: PlanInput): Promise<{ id: string }> {
@@ -122,9 +210,13 @@ export async function createPlan(input: PlanInput): Promise<{ id: string }> {
     startDate: input.startDate,
     cadence: input.cadence,
   });
-  return apiPost<{ id: string }>("/payment-plans", {
-    customerId: input.customerId,
-    totalAmount: input.total,
-    installments: schedule.map((s) => ({ dueDate: s.dueDate, amount: s.amount })),
-  });
+  return apiPost<{ id: string }>(
+    "/payment-plans",
+    {
+      customerId: input.customerId,
+      totalAmount: input.total,
+      installments: schedule.map((s) => ({ dueDate: s.dueDate, amount: s.amount })),
+    },
+    { schema: paymentPlanCreateSchema },
+  );
 }

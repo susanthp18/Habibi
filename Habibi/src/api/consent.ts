@@ -9,6 +9,7 @@
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 
 import type {
   AllowedWindow,
@@ -27,10 +28,71 @@ import {
   allowedWindowsEqual,
 } from "@/data/consent-seed";
 import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { customerSchema } from "./customers";
+
+// -----------------------------------------------------------------------------
+// Wire schema — field-for-field with ConsentListResponse (extra="forbid").
+// No exclude_unset on GET /consent, so `| None = None` is `.nullable()`. The
+// writes answer with CustomerResponse; customerSchema covers those.
+// -----------------------------------------------------------------------------
+
+const consentChannelSchema = z.enum(["call", "whatsapp", "sms", "email"]);
+const optOutSourceSchema = z.enum([
+  "IVR",
+  "Agent",
+  "Web",
+  "Regulator",
+  "Bulk Import",
+  "WhatsApp Reply",
+]);
+
+const consentRecordSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  accountId: z.string(),
+  phone: z.string(),
+  email: z.string(),
+  timezone: z.string(),
+  segment: z.enum(["Retail", "SME", "Priority"]),
+  channels: z.array(
+    z.object({
+      channel: consentChannelSchema,
+      status: z.enum(["opted_in", "opted_out", "dnd", "expired"]),
+      capturedAt: z.string(),
+      source: z.enum([...optOutSourceSchema.options, "Onboarding"]),
+      frequencyCapPerWeek: z.number(),
+      usedThisWeek: z.number(),
+    }),
+  ),
+  allowedWindow: z.object({
+    days: z.array(z.number()),
+    startHour: z.number(),
+    endHour: z.number(),
+  }),
+  consentExpiresAt: z.string(),
+  onDndRegistry: z.boolean(),
+  optOutLog: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      channel: z.enum([...consentChannelSchema.options, "all"]),
+      source: optOutSourceSchema,
+      actor: z.string(),
+      note: z.string(),
+    }),
+  ),
+  audit: z.array(
+    z.object({ id: z.string(), at: z.string(), actor: z.string(), action: z.string() }),
+  ),
+  outreachToday: z.number(),
+  dailyCap: z.number(),
+  lastDecisionReason: z.string().nullable(),
+});
 
 export async function fetchConsent(): Promise<ConsentRecord[]> {
   if (USE_MOCK) return mockDelay(seedConsent);
-  return apiGet<ConsentRecord[]>("/consent");
+  return apiGet<ConsentRecord[]>("/consent", { schema: z.array(consentRecordSchema) });
 }
 
 export function useConsent() {
@@ -64,7 +126,9 @@ export async function saveConsent(
     saveSeedConsent(rec.id, patch, note);
     return;
   }
-  await apiPatch(`/consent/${rec.customerId}`, consentPatchBody(rec, patch, note));
+  await apiPatch(`/consent/${rec.customerId}`, consentPatchBody(rec, patch, note), {
+    schema: customerSchema,
+  });
 }
 
 export async function renewConsent(rec: ConsentRecord): Promise<void> {
@@ -74,13 +138,17 @@ export async function renewConsent(rec: ConsentRecord): Promise<void> {
   }
   const newExp = new Date();
   newExp.setFullYear(newExp.getFullYear() + 1);
-  await apiPatch(`/consent/${rec.customerId}`, {
-    consentExpiresAt: newExp.toISOString(),
-    channels: rec.channels.map((c) =>
-      c.status === "expired" ? { ...c, status: "opted_in" as const } : c,
-    ),
-    note: "Consent renewed for 12 months.",
-  });
+  await apiPatch(
+    `/consent/${rec.customerId}`,
+    {
+      consentExpiresAt: newExp.toISOString(),
+      channels: rec.channels.map((c) =>
+        c.status === "expired" ? { ...c, status: "opted_in" as const } : c,
+      ),
+      note: "Consent renewed for 12 months.",
+    },
+    { schema: customerSchema },
+  );
 }
 
 export async function captureOptOut(
@@ -91,11 +159,11 @@ export async function captureOptOut(
     captureSeedOptOut(rec.id, evt);
     return;
   }
-  await apiPost(`/consent/${rec.customerId}/opt-out`, {
-    channel: evt.channel,
-    source: evt.source,
-    note: evt.note,
-  });
+  await apiPost(
+    `/consent/${rec.customerId}/opt-out`,
+    { channel: evt.channel, source: evt.source, note: evt.note },
+    { schema: customerSchema },
+  );
 }
 
 export async function toggleDnd(rec: ConsentRecord, on: boolean): Promise<void> {
@@ -108,10 +176,14 @@ export async function toggleDnd(rec: ConsentRecord, on: boolean): Promise<void> 
     : rec.channels.map((c) =>
         c.channel === "call" && c.status === "dnd" ? { ...c, status: "opted_in" as const } : c,
       );
-  await apiPatch(`/consent/${rec.customerId}`, {
-    onDndRegistry: on,
-    dnd: on,
-    channels,
-    note: on ? "Added to DND registry (calls blocked)." : "Removed from DND registry.",
-  });
+  await apiPatch(
+    `/consent/${rec.customerId}`,
+    {
+      onDndRegistry: on,
+      dnd: on,
+      channels,
+      note: on ? "Added to DND registry (calls blocked)." : "Removed from DND registry.",
+    },
+    { schema: customerSchema },
+  );
 }
