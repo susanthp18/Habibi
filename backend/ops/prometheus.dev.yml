@@ -1,0 +1,18 @@
+# Laptop-only Prometheus (docker-compose.dev.yml `prometheus` service).
+#
+# Scrapes the API's /metrics every 15 s. The dev stack runs with no API_KEY,
+# so the route answers as ACTOR_USER_ID; a deployed scraper needs its own
+# API_KEY_MAP entry for a service user holding perm-observability-read and
+# sends it as X-API-Key (see routers/platform.py::metrics).
+#
+# The voice runner has no /metrics: its HTTP app belongs to pipecat's runner.
+# Voice call metrics reach Prometheus through the API's collectors
+# (observability.register_collectors), which read the shared tables.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: habibi-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]

@@ -49,3 +49,17 @@ services:
       - .:/app
       - /app/__pycache__
       - voice_sessions:/app/.cache/voice_sandbox_sessions
+
+  # Something finally reads /metrics. Laptop only -- the production envelope
+  # brings its own scraper -- so it lives in this overlay, not the base file.
+  #   http://localhost:9090  (Status -> Targets shows habibi-api up)
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: collections_prometheus
+    volumes:
+      - ./ops/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      api:
+        condition: service_healthy
