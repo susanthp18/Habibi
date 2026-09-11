@@ -53,3 +53,24 @@ def test_the_walker_sees_an_offending_router() -> None:
         "        conn.execute(_text('SELECT 1'))\n"
     )
     assert len(_offences(ast.parse(src))) == 3
+
+
+def test_db_py_is_the_crm_kernel() -> None:
+    """WP-036: db.py holds engine/readiness/users/roles, Customer 360, promises,
+    disputes, payment plans, interactions and the re-export shim -- ~3,000
+    lines. Everything else lives in a db_*.py peel."""
+    lines = (BACKEND / "db.py").read_text(encoding="utf-8").count("\n")
+    assert lines <= 3_200, f"db.py is {lines} lines; peel, do not grow"
+
+
+def test_peels_reach_the_engine_through_db() -> None:
+    """A ``db_*.py`` that binds ``engine`` from ``db_core`` bypasses the
+    ``db_tx`` savepoint proxy the tests wrap around ``db.engine``."""
+    bad: list[str] = []
+    for path in sorted(BACKEND.glob("db_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "db_core":
+                if any(alias.name == "engine" for alias in node.names):
+                    bad.append(path.name)
+    assert bad == [], bad

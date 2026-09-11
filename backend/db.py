@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -1491,36 +1490,6 @@ def _dispute_evidence(conn: Any, dispute_ids: list[str]) -> dict[str, list[dict[
     return grouped
 
 
-def _document_events(conn: Any, document_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    """activity_events grouped by document_request id, for the Documents timeline."""
-    if not document_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT ae.entity_id, ae.at, ae.label, ae.tone, ae.kind, ae.note,
-                       u.name AS actor
-                FROM activity_events ae
-                LEFT JOIN users u ON u.id = ae.actor_user_id
-                WHERE ae.entity_type = 'document_request' AND ae.entity_id = ANY(:ids)
-                ORDER BY ae.at
-                """
-            ),
-            {"ids": document_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["entity_id"], []).append(
-            {
-                "at": r["at"],
-                "label": r["label"],
-                "actor": r["actor"],
-                "tone": r["tone"] or _doc_event_tone(r["kind"], r["note"]),
-            }
-        )
-    return grouped
 
 
 def list_staff() -> list[dict[str, Any]]:
@@ -1587,609 +1556,64 @@ def list_teams() -> list[dict[str, Any]]:
         return _rows(conn.execute(text("SELECT id, name FROM teams ORDER BY name")))
 
 
-CB_REASONS = {
-    "payment_discussion",
-    "dispute_followup",
-    "document_query",
-    "hardship_review",
-    "upsell_interest",
-    "general",
-}
-CB_DISPOSITIONS = {"reached", "no_answer", "ptp_captured", "not_interested", "callback_again"}
-
-
-def _callback_reason(reason: str | None) -> str:
-    if reason in CB_REASONS:
-        return reason  # type: ignore[return-value]
-    return "general"
-
-
-def _callback_disposition(disposition: str | None) -> str | None:
-    return disposition if disposition in CB_DISPOSITIONS else None
-
-
-def _callback_window(mins: int | None) -> int:
-    if mins in {30, 60, 120}:
-        return mins  # type: ignore[return-value]
-    if mins is None or mins <= 45:
-        return 30
-    if mins <= 90:
-        return 60
-    return 120
-
-
-def _callback_source(handler_kind: str | None, interaction_channel: str | None, has_interaction: bool) -> str:
-    """Derive screen source from the origin interaction (callbacks have no source column)."""
-    if not has_interaction or handler_kind == "human":
-        return "agent"
-    if interaction_channel in {"chat", "whatsapp", "sms", "email"}:
-        return "bot_chat"
-    return "bot_voice"
-
-
-def _callback_reminder_channel(channel: str | None) -> str:
-    if channel in {"whatsapp", "sms", "email"}:
-        return channel  # type: ignore[return-value]
-    return "whatsapp"
-
-
-def _callback_reminder_status(status: str | None) -> str:
-    if status in {"queued", "sent", "acknowledged"}:
-        return status  # type: ignore[return-value]
-    if status == "scheduled":
-        return "queued"
-    return "queued"
-
-
-def _outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:
-    """True when the scheduled IST hour falls outside HH:MM–HH:MM preferred window.
-
-    The rule itself lives in :mod:`contact_window` because ``agent_core``'s
-    code-mode script runs the same check and cannot import this module. It used
-    to hold its own copy, and the copy's default bounds had drifted.
-    """
-    return contact_window.outside_preferred_window(scheduled_at, preferred_window)
-
-
-def _callback_dnd_active(
-    customer_dnd: bool,
-    dnd_registry: bool,
-    preferred_window: str | None,
-    scheduled_at: str,
-) -> bool:
-    """Is this callback slot blocked — by either DND store, or by the window?
-
-    Two stores record "do not disturb" and this read only ever consulted one.
-    ``customers.dnd`` is the operator's own flag; ``consent_records.dnd_registry``
-    is the national registry. ``contact_policy.admit`` ORs them and so does the
-    consent screen, so a registry-flagged borrower was refused by the contact
-    Gate and shown as callable on the callback board.
-
-    ``dnd_registry`` is required rather than defaulted. A default of ``False``
-    would let a caller that forgets to join ``consent_records`` keep exactly the
-    behaviour this fixes, and nothing would fail.
-    """
-    return (
-        bool(customer_dnd)
-        or bool(dnd_registry)
-        or _outside_preferred_window(scheduled_at, preferred_window)
-    )
-
-
-def _callback_event_tone(kind: str | None, note: str | None) -> str | None:
-    if kind in {"callback_created", "callback_reminder_created"}:
-        return "info"
-    if kind == "callback_updated":
-        if note == "completed":
-            return "success"
-        if note == "missed":
-            return "danger"
-        if note == "cancelled":
-            return "warn"
-        return "info"
-    return None
-
-
-def _callback_events(conn: Any, callback_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not callback_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT ae.entity_id, ae.at, ae.label, ae.tone, ae.kind, ae.note,
-                       u.name AS actor
-                FROM activity_events ae
-                LEFT JOIN users u ON u.id = ae.actor_user_id
-                WHERE ae.entity_type = 'callback' AND ae.entity_id = ANY(:ids)
-                ORDER BY ae.at
-                """
-            ),
-            {"ids": callback_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["entity_id"], []).append(
-            {
-                "at": r["at"],
-                "label": r["label"],
-                "actor": r["actor"],
-                "tone": r["tone"] or _callback_event_tone(r["kind"], r["note"]),
-            }
-        )
-    return grouped
-
-
-def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not callback_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT callback_id, channel, scheduled_at, sent_at, status, created_at
-                FROM callback_reminders
-                WHERE callback_id = ANY(:ids)
-                ORDER BY COALESCE(sent_at, scheduled_at, created_at)
-                """
-            ),
-            {"ids": callback_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["callback_id"], []).append(
-            {
-                "at": r["sent_at"] or r["scheduled_at"] or r["created_at"],
-                "channel": _callback_reminder_channel(r["channel"]),
-                "status": _callback_reminder_status(r["status"]),
-            }
-        )
-    return grouped
-
-
-def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Callback & Scheduling Manager feed (richer than the Phase 3A write contract)."""
-    page, skip = clamp_list_limit(limit), clamp_offset(offset)
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                _sql(
-                    """
-                    SELECT cb.id, cb.customer_id, c.name AS customer_name, cb.account_id,
-                           cb.reason, cb.scheduled_at, cb.window_mins, cb.dnd_active,
-                           cb.status, cb.disposition, cb.priority, cb.transcript_snippet,
-                           cb.outcome_notes, cb.interaction_id, cb.created_at,
-                           c.timezone AS customer_timezone, c.preferred_window,
-                           c.dnd AS customer_dnd,
-                           COALESCE(cr.dnd_registry, false) AS dnd_registry,
-                           u.name AS assignee, t.name AS queue,
-                           i.channel AS interaction_channel, i.handler_kind
-                    FROM callbacks cb
-                    JOIN customers c ON c.id = cb.customer_id
-                     AND c.tenant_id = :tenant_id
-                     /*VISIBILITY*/
-                    LEFT JOIN consent_records cr ON cr.customer_id = cb.customer_id
-                    LEFT JOIN users u ON u.id = cb.assignee_user_id
-                    LEFT JOIN teams t ON t.id = cb.team_id
-                    LEFT JOIN interactions i ON i.id = cb.interaction_id
-                    ORDER BY cb.scheduled_at, cb.id
-                    LIMIT :limit OFFSET :offset
-                    """
-                ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
-            )
-        )
-        ids = [r["id"] for r in rows]
-        events = _callback_events(conn, ids)
-        reminders = _callback_reminders(conn, ids)
-        result = []
-        for r in rows:
-            preferred = r["preferred_window"] or contact_window.DEFAULT_WINDOW
-            scheduled = r["scheduled_at"]
-            customer_dnd = bool(r["customer_dnd"])
-            dnd_registry = bool(r["dnd_registry"])
-            dnd_active = _callback_dnd_active(customer_dnd, dnd_registry, preferred, scheduled)
-            created = r["created_at"]
-            evts = events.get(r["id"]) or [
-                {"at": created, "label": "Callback scheduled", "actor": None, "tone": "info"}
-            ]
-            result.append(
-                {
-                    "id": r["id"],
-                    "customerId": r["customer_id"],
-                    "customerName": r["customer_name"],
-                    "accountId": r["account_id"] or "",
-                    "accountTail": _account_tail(r["account_id"]) or "",
-                    "reason": _callback_reason(r["reason"]),
-                    "scheduledAt": scheduled,
-                    "windowMins": _callback_window(r["window_mins"]),
-                    "customerTimezone": r["customer_timezone"] or f"{clock.DEFAULT_TIMEZONE} (IST)",
-                    "preferredWindow": preferred,
-                    "customerDnd": customer_dnd,
-                    "dndActive": dnd_active,
-                    "source": _callback_source(
-                        r["handler_kind"], r["interaction_channel"], bool(r["interaction_id"])
-                    ),
-                    "assignee": r["assignee"] or "Unassigned",
-                    "queue": r["queue"] or "Unassigned",
-                    "priority": r["priority"] or "normal",
-                    "status": r["status"],
-                    "reminders": reminders.get(r["id"]) or [],
-                    "transcriptSnippet": r["transcript_snippet"] or "",
-                    "originConversationId": r["interaction_id"],
-                    "events": evts,
-                    "createdAt": created,
-                    "disposition": _callback_disposition(r["disposition"]),
-                    "outcomeNotes": r["outcome_notes"],
-                }
-            )
-        return result
-
-
-_DAY_NAME_TO_NUM = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
-_DAY_NUM_TO_NAME = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-_CONSENT_CHANNEL_ORDER = ("call", "whatsapp", "sms", "email")
-_OPT_OUT_SOURCE_MAP = {
-    "ivr": "IVR",
-    "agent": "Agent",
-    "agent-captured": "Agent",
-    "web": "Web",
-    "self-serve": "Web",
-    "customer": "Web",
-    "regulator": "Regulator",
-    "bulk import": "Bulk Import",
-    "bulk_import": "Bulk Import",
-    "whatsapp reply": "WhatsApp Reply",
-    "whatsapp_reply": "WhatsApp Reply",
-    "onboarding": "Onboarding",
-    "seed-default": "Onboarding",
-    "seed": "Onboarding",
-}
-_CONSENT_ACTIVITY_KINDS = (
-    "consent_updated",
-    "consent_renewed",
-    "opt_out",
-    "dnd_updated",
-)
-
-
-def _consent_segment(raw: str | None) -> str:
-    key = (raw or "retail").strip().lower()
-    return {"retail": "Retail", "sme": "SME", "priority": "Priority"}.get(key, "Retail")
-
-
-def _consent_source_screen(raw: str | None) -> str:
-    if not raw:
-        return "Onboarding"
-    if raw in {"IVR", "Agent", "Web", "Regulator", "Bulk Import", "WhatsApp Reply", "Onboarding"}:
-        return raw
-    return _OPT_OUT_SOURCE_MAP.get(raw.strip().lower(), "Agent")
-
-
-def _optout_source_screen(raw: str | None) -> str:
-    mapped = _consent_source_screen(raw)
-    return "Web" if mapped == "Onboarding" else mapped
-
-
-def _consent_channel_db(channel: str) -> str:
-    if channel == "call":
-        return "voice"
-    if channel == "all":
-        return "all"
-    return channel
-
-
-def _consent_channel_screen(channel: str) -> str | None:
-    if channel == "all":
-        return "all"
-    return _consent_channel(channel)
-
-
-def _parse_allowed_days(raw: str | None) -> list[int]:
-    """Consent days for the CRM's screens, substituting Mon-Fri when unrecorded.
-
-    The parsing itself is :func:`contact_window.allowed_days` — the same one the
-    contact Gate vetoes with. This module had its own copy that did not
-    normalise the dash, so ``Mon–Sat`` came back as ``[1]``: the range branch
-    missed, the token split matched the leading "mon", and a six-day consent was
-    displayed and compared as Monday alone.
-
-    The Mon-Fri substitution stays here rather than moving into the shared
-    parser. "Blank consent days means Mon-Fri" is a product claim this screen
-    makes, not a fact about the text, and the Gate deliberately makes the
-    opposite one — absent days there mean no day restriction to apply. Both are
-    defensible; neither should be hidden inside a parser where the other side
-    cannot see it.
-    """
-    return contact_window.allowed_days(raw) or [1, 2, 3, 4, 5]
-
-
-def _format_allowed_days(days: list[int]) -> str:
-    unique = sorted({d for d in days if 0 <= d <= 6})
-    if not unique:
-        return "Mon-Fri"
-    if unique == list(range(unique[0], unique[-1] + 1)):
-        return f"{_DAY_NUM_TO_NAME[unique[0]]}-{_DAY_NUM_TO_NAME[unique[-1]]}"
-    return ",".join(_DAY_NUM_TO_NAME[d] for d in unique)
-
-
-def _parse_allowed_hours(raw: str | None) -> tuple[int, int]:
-    if not raw:
-        return 10, 19
-    m = re.search(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})", raw)
-    if not m:
-        return 10, 19
-    return int(m.group(1)), int(m.group(3))
-
-
-def _format_allowed_hours(start_hour: int, end_hour: int) -> str:
-    return f"{int(start_hour):02d}:00-{int(end_hour):02d}:00 IST"
-
-
-def _optout_actor_label(actor_kind: str | None, user_name: str | None) -> str:
-    if user_name:
-        return user_name
-    kind = (actor_kind or "").lower()
-    if kind == "customer":
-        return "Customer"
-    if kind == "system":
-        return "System"
-    if kind == "regulator":
-        return "Regulator"
-    if kind == "bot":
-        return "Bot"
-    return "System"
-
-
-def _consent_channels_grouped(conn: Any, consent_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not consent_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT consent_id, channel, status, source, captured_at,
-                       weekly_frequency_cap, used_this_week, created_at
-                FROM channel_consents
-                WHERE consent_id = ANY(:ids)
-                ORDER BY channel
-                """
-            ),
-            {"ids": consent_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        mapped = _consent_channel_screen(r["channel"])
-        if mapped is None or mapped == "all":
-            continue
-        grouped.setdefault(r["consent_id"], []).append(
-            {
-                "channel": mapped,
-                "status": r["status"] if r["status"] in {"opted_in", "opted_out", "dnd", "expired"} else "opted_out",
-                "capturedAt": r["captured_at"] or r["created_at"],
-                "source": _consent_source_screen(r["source"]),
-                "frequencyCapPerWeek": int(r["weekly_frequency_cap"] or 3),
-                "usedThisWeek": int(r["used_this_week"] or 0),
-            }
-        )
-    return grouped
-
-
-def _consent_optouts_grouped(conn: Any, consent_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not consent_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT o.id, o.consent_id, o.channel, o.source, o.actor_kind, o.note,
-                       o.occurred_at, u.name AS actor_name
-                FROM optout_events o
-                LEFT JOIN users u ON u.id = o.actor_user_id
-                WHERE o.consent_id = ANY(:ids)
-                ORDER BY o.occurred_at
-                """
-            ),
-            {"ids": consent_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        mapped = _consent_channel_screen(r["channel"])
-        if mapped is None:
-            continue
-        grouped.setdefault(r["consent_id"], []).append(
-            {
-                "id": r["id"],
-                "at": r["occurred_at"],
-                "channel": mapped,
-                "source": _optout_source_screen(r["source"]),
-                "actor": _optout_actor_label(r["actor_kind"], r["actor_name"]),
-                "note": r["note"] or "",
-            }
-        )
-    return grouped
-
-
-def _consent_audit_grouped(conn: Any, customer_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not customer_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT ae.id, ae.entity_id, ae.at, ae.label, u.name AS actor
-                FROM activity_events ae
-                LEFT JOIN users u ON u.id = ae.actor_user_id
-                WHERE ae.entity_type = 'customer'
-                  AND ae.entity_id = ANY(:ids)
-                  AND ae.kind = ANY(:kinds)
-                ORDER BY ae.at
-                """
-            ),
-            {"ids": customer_ids, "kinds": list(_CONSENT_ACTIVITY_KINDS)},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["entity_id"], []).append(
-            {
-                "id": r["id"],
-                "at": r["at"],
-                "actor": r["actor"] or "System",
-                "action": r["label"],
-            }
-        )
-    return grouped
-
-
-def _ensure_channels_complete(channels: list[dict[str, Any]], fallback_at: str) -> list[dict[str, Any]]:
-    by_channel = {c["channel"]: c for c in channels}
-    complete: list[dict[str, Any]] = []
-    for ch in _CONSENT_CHANNEL_ORDER:
-        if ch in by_channel:
-            complete.append(by_channel[ch])
-        else:
-            # No consent row means no consent. Synthesising "opted_in" made the
-            # Consent screen assert a permission nobody captured — the one
-            # place in the product where the answer must never be inferred.
-            complete.append(
-                {
-                    "channel": ch,
-                    "status": "opted_out",
-                    "capturedAt": fallback_at,
-                    # Stays "Onboarding" — the screen's `source` is a closed
-                    # union (ChannelConsent in consent-seed.ts) and the status
-                    # is what carries the correction.
-                    "source": "Onboarding",
-                    "frequencyCapPerWeek": 3,
-                    "usedThisWeek": 0,
-                }
-            )
-    return complete
-
-
-def list_consent(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Consent & Communication Preferences feed (richer than Customer 360 consent)."""
-    page, skip = clamp_list_limit(limit), clamp_offset(offset)
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                _sql(
-                    """
-                    SELECT cr.id, cr.customer_id, cr.dnd_registry, cr.expires_at,
-                           cr.allowed_days, cr.allowed_hours, cr.created_at,
-                           c.name AS customer_name, c.phone_primary, c.email,
-                           c.timezone, c.segment, c.preferred_window, c.dnd AS customer_dnd,
-                           a.id AS account_id
-                    FROM consent_records cr
-                    JOIN customers c ON c.id = cr.customer_id
-                     AND c.tenant_id = :tenant_id
-                     /*VISIBILITY*/
-                    LEFT JOIN LATERAL (
-                      SELECT *
-                      FROM accounts a
-                      WHERE a.customer_id = c.id
-                      ORDER BY
-                        CASE WHEN a.id LIKE 'AC-%' THEN 0 ELSE 1 END,
-                        a.created_at,
-                        a.id
-                      LIMIT 1
-                    ) a ON true
-                    ORDER BY c.name
-                    LIMIT :limit OFFSET :offset
-                    """
-                ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
-            )
-        )
-        consent_ids = [r["id"] for r in rows]
-        customer_ids = [r["customer_id"] for r in rows]
-        channels = _consent_channels_grouped(conn, consent_ids)
-        optouts = _consent_optouts_grouped(conn, consent_ids)
-        audits = _consent_audit_grouped(conn, customer_ids)
-        usage: dict[str, dict[str, Any]] = {}
-        try:
-            import contact_policy
-
-            usage = contact_policy.ledger_usage(conn, customer_ids)
-        except Exception:
-            logger.exception("contact_policy ledger_usage failed")
-        result: list[dict[str, Any]] = []
-        for r in rows:
-            created = r["created_at"]
-            hours_raw = r["allowed_hours"] or r["preferred_window"]
-            start_h, end_h = _parse_allowed_hours(hours_raw)
-            expires = r["expires_at"]
-            if not expires:
-                try:
-                    base = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
-                except ValueError:
-                    base = datetime.now(timezone.utc)
-                expires = (base + timedelta(days=365)).isoformat()
-            audit = audits.get(r["customer_id"]) or [
-                {
-                    "id": f"A-{r['id']}",
-                    "at": created,
-                    "actor": "Onboarding",
-                    "action": "Consent captured",
-                }
-            ]
-            stats = usage.get(r["customer_id"]) or {}
-            by_ch = stats.get("byChannel") or {}
-            complete = _ensure_channels_complete(channels.get(r["id"]) or [], created)
-            for item in complete:
-                db_ch = "voice" if item["channel"] == "call" else item["channel"]
-                if db_ch in by_ch:
-                    item["usedThisWeek"] = by_ch[db_ch]
-            result.append(
-                {
-                    "id": r["id"],
-                    "customerId": r["customer_id"],
-                    "customerName": r["customer_name"],
-                    "accountId": r["account_id"] or "",
-                    "phone": r["phone_primary"] or "",
-                    "email": r["email"] or "",
-                    "timezone": r["timezone"] or clock.DEFAULT_TIMEZONE,
-                    "segment": _consent_segment(r["segment"]),
-                    "channels": complete,
-                    "allowedWindow": {
-                        "days": _parse_allowed_days(r["allowed_days"]),
-                        "startHour": start_h,
-                        "endHour": end_h,
-                    },
-                    "consentExpiresAt": expires,
-                    "onDndRegistry": bool(r["dnd_registry"] or r["customer_dnd"]),
-                    "optOutLog": optouts.get(r["id"]) or [],
-                    "audit": audit,
-                    "outreachToday": int(stats.get("outreachToday") or 0),
-                    "dailyCap": int(stats.get("dailyCap") or 3),
-                    "lastDecisionReason": stats.get("lastDecisionReason"),
-                }
-            )
-        return result
-
-
-def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str = "outreach") -> dict[str, Any]:
-    """Dry-run of the contact gate for Inbox / Floor / Consent pills."""
-    import contact_policy
-
-    with engine.connect() as conn:
-        if _one(conn.execute(text("SELECT 1 FROM customers WHERE id = :id AND tenant_id = :tid"), {"id": customer_id, "tid": _tenant()})) is None:
-            raise KeyError("customer_not_found")
-        decision = contact_policy.evaluate(
-            conn,
-            customer_id=customer_id,
-            channel=channel,
-            purpose=purpose,
-        )
-    payload = decision.as_dict()
-    payload["channel"] = contact_policy.normalize_channel(channel)
-    payload["purpose"] = purpose if purpose in contact_policy.PURPOSES else "outreach"
-    return payload
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def list_disputes(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
@@ -2263,103 +1687,6 @@ def list_disputes(*, limit: int | None = None, offset: int | None = None) -> lis
         return result
 
 
-def list_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Document Fulfilment Desk feed (richer than the Customer 360 contract)."""
-    page, skip = clamp_list_limit(limit), clamp_offset(offset)
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                _sql(
-                    """
-                    SELECT dr.id, dr.customer_id, c.name AS customer_name, dr.account_id,
-                           dr.doc_type, dr.period, dr.requested_via, dr.delivery_channel,
-                           dr.delivery_target, dr.status, dr.template_id, dr.generated_at,
-                           dr.sent_at, dr.failed_reason, dr.size_kb, dr.attempts,
-                           dr.created_at, dr.interaction_id, dr.source,
-                           c.phone_primary, c.email,
-                           u.name AS assignee,
-                           i.channel AS interaction_channel, i.handler_kind,
-                           f.generated_at AS file_generated_at,
-                           f.size_bytes AS file_size_bytes,
-                           da.sent_at AS delivery_sent_at
-                    FROM document_requests dr
-                    JOIN customers c ON c.id = dr.customer_id
-                     AND c.tenant_id = :tenant_id
-                     /*VISIBILITY*/
-                    LEFT JOIN users u ON u.id = dr.assignee_user_id
-                    LEFT JOIN interactions i ON i.id = dr.interaction_id
-                    LEFT JOIN LATERAL (
-                      SELECT generated_at, size_bytes
-                      FROM document_files
-                      WHERE request_id = dr.id
-                      ORDER BY generated_at DESC NULLS LAST, created_at DESC
-                      LIMIT 1
-                    ) f ON true
-                    LEFT JOIN LATERAL (
-                      SELECT sent_at
-                      FROM document_delivery_attempts
-                      WHERE request_id = dr.id AND status IN ('sent', 'delivered')
-                      ORDER BY sent_at DESC NULLS LAST, created_at DESC
-                      LIMIT 1
-                    ) da ON true
-                    ORDER BY dr.created_at DESC
-                    LIMIT :limit OFFSET :offset
-                    """
-                ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
-            )
-        )
-        ids = [r["id"] for r in rows]
-        events = _document_events(conn, ids)
-        result: list[dict[str, Any]] = []
-        for r in rows:
-            doc_type = _doc_type_screen(r["doc_type"])
-            channel = _doc_channel(r["delivery_channel"])
-            requested_at = r["created_at"]
-            generated_at = r["generated_at"] or r["file_generated_at"]
-            sent_at = r["sent_at"] or r["delivery_sent_at"]
-            size_kb = r["size_kb"]
-            if size_kb is None and r["file_size_bytes"] is not None:
-                try:
-                    size_kb = max(1, int(round(int(r["file_size_bytes"]) / 1024)))
-                except (TypeError, ValueError):
-                    size_kb = None
-            evts = events.get(r["id"]) or [
-                {"at": requested_at, "label": "Document requested", "actor": None, "tone": "info"}
-            ]
-            result.append(
-                {
-                    "id": r["id"],
-                    "customerId": r["customer_id"],
-                    "customerName": r["customer_name"],
-                    "accountId": r["account_id"] or "",
-                    "accountTail": _account_tail(r["account_id"]) or "",
-                    "docType": doc_type,
-                    "period": r["period"],
-                    "requestedVia": _doc_requested_via(
-                        r["requested_via"],
-                        r["handler_kind"],
-                        r["interaction_channel"],
-                        bool(r["interaction_id"]),
-                    ),
-                    "source": r.get("source") or "crm",
-                    "requestedAt": requested_at,
-                    "deliveryChannel": channel,
-                    "deliveryTarget": _doc_delivery_target(
-                        channel, r["delivery_target"], r["phone_primary"], r["email"]
-                    ),
-                    "status": r["status"],
-                    "templateId": _doc_template_screen(r["template_id"], doc_type),
-                    "generatedAt": generated_at,
-                    "sentAt": sent_at,
-                    "failedReason": r["failed_reason"],
-                    "sizeKb": size_kb,
-                    "attempts": int(r["attempts"] or 0),
-                    "assignee": r["assignee"] or "Unassigned",
-                    "events": evts,
-                }
-            )
-        return result
 
 
 def list_payment_plans(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
@@ -3115,621 +2442,51 @@ def add_dispute_evidence(dispute_id: str, payload: dict[str, Any]) -> dict[str, 
         return {"id": evidence_id, **payload}
 
 
-def create_callback(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-    endpoint = "POST /callbacks"
-    with engine.begin() as conn:
-        return _create_callback(conn, payload, idempotency_key, endpoint)
-
-
-def _create_callback(
-    conn: Any,
-    payload: dict[str, Any],
-    idempotency_key: str | None = None,
-    endpoint: str = "POST /callbacks",
-) -> dict[str, Any]:
-    """Connection-scoped body of :func:`create_callback` — see _create_promise."""
-    cached = _idempotent_response(conn, idempotency_key, endpoint)
-    if cached:
-        return cached
-    customer_id = payload["customerId"]
-    _ensure_customer(conn, customer_id)
-    cust = _one(
-        conn.execute(
-            text(
-                """
-                SELECT c.dnd, c.preferred_window,
-                       COALESCE(cr.dnd_registry, false) AS dnd_registry
-                FROM customers c
-                LEFT JOIN consent_records cr ON cr.customer_id = c.id
-                WHERE c.id = :id
-                """
-            ),
-            {"id": customer_id},
-        )
-    )
-    reason = payload["reason"]
-    if reason not in CB_REASONS:
-        raise ValueError(f"invalid_reason: {reason}")
-
-    assignee_user_id = payload.get("assigneeUserId")
-    if assignee_user_id is not None:
-        if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee_user_id}).fetchone():
-            raise KeyError(f"user_not_found: {assignee_user_id}")
-
-    team_id = payload.get("teamId") or "retail-collections"
-    if not conn.execute(text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}).fetchone():
-        raise KeyError(f"team_not_found: {team_id}")
-
-    scheduled_at = payload["scheduledAt"]
-    window_mins = _callback_window(payload.get("windowMins") or 30)
-    dnd_active = _callback_dnd_active(
-        bool(cust and cust["dnd"]),
-        bool(cust and cust["dnd_registry"]),
-        cust["preferred_window"] if cust else None,
-        scheduled_at,
-    )
-
-    callback_id = _id("CB")
-    conn.execute(
-        text(
-            """
-            INSERT INTO callbacks
-              (id, customer_id, account_id, interaction_id, assignee_user_id, team_id,
-               reason, scheduled_at, window_mins, dnd_active, status, priority,
-               transcript_snippet, sla_due_at)
-            VALUES
-              (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :team_id,
-               :reason, :scheduled_at, :window_mins, :dnd_active, 'scheduled', :priority,
-               :transcript_snippet, :scheduled_at)
-            """
-        ),
-        {
-            "id": callback_id,
-            "customer_id": customer_id,
-            "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
-            "interaction_id": payload.get("interactionId"),
-            "assignee_user_id": assignee_user_id,
-            "team_id": team_id,
-            "reason": reason,
-            "scheduled_at": scheduled_at,
-            "window_mins": window_mins,
-            "dnd_active": dnd_active,
-            "priority": payload.get("priority") or "normal",
-            "transcript_snippet": payload.get("transcriptSnippet"),
-        },
-    )
-    _activity(conn, "callback", callback_id, "callback_created", "Callback scheduled", reason, customer_id)
-    response = {"id": callback_id, "status": "scheduled"}
-    _store_idempotent_response(conn, idempotency_key, endpoint, response)
-    return response
-
-
-def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is an intentional write,
-    so an explicit None clears assignee_user_id (unassign)."""
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "callbacks", callback_id)
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT cb.customer_id, c.dnd AS customer_dnd, c.preferred_window,
-                           COALESCE(cr.dnd_registry, false) AS dnd_registry
-                    FROM callbacks cb
-                    JOIN customers c ON c.id = cb.customer_id
-                    LEFT JOIN consent_records cr ON cr.customer_id = cb.customer_id
-                    WHERE cb.id = :id
-                    """
-                ),
-                {"id": callback_id},
-            )
-        )
-        if row is None:
-            raise KeyError("callback_not_found")
-
-        if payload.get("assigneeUserId") is not None:
-            assignee = payload["assigneeUserId"]
-            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}).fetchone():
-                raise KeyError(f"user_not_found: {assignee}")
-        if payload.get("teamId") is not None:
-            team_id = payload["teamId"]
-            if not conn.execute(text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}).fetchone():
-                raise KeyError(f"team_not_found: {team_id}")
-        if payload.get("disposition") is not None and payload["disposition"] not in CB_DISPOSITIONS:
-            raise ValueError(f"invalid_disposition: {payload['disposition']}")
-
-        updates: list[str] = []
-        params: dict[str, Any] = {"id": callback_id}
-        mapping = {
-            "scheduledAt": "scheduled_at",
-            "assigneeUserId": "assignee_user_id",
-            "teamId": "team_id",
-            "status": "status",
-            "disposition": "disposition",
-            "priority": "priority",
-            "outcomeNotes": "outcome_notes",
-            "windowMins": "window_mins",
-        }
-        for key, column in mapping.items():
-            if key in payload:  # present == intentional (None clears nullable cols)
-                updates.append(f"{column} = :{column}")
-                params[column] = payload[key]
-
-        # Keep dnd_active honest when the slot moves.
-        if "scheduledAt" in payload and payload["scheduledAt"] is not None:
-            updates.append("dnd_active = :dnd_active")
-            params["dnd_active"] = _callback_dnd_active(
-                bool(row["customer_dnd"]),
-                bool(row["dnd_registry"]),
-                row["preferred_window"],
-                payload["scheduledAt"],
-            )
 
-        if updates:
-            conn.execute(text(f"UPDATE callbacks SET {', '.join(updates)} WHERE id = :id"), params)
 
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
-            label, note = "Callback unassigned", None
-        elif payload.get("assigneeUserId"):
-            label, note = "Callback reassigned", _user_name(conn, payload["assigneeUserId"])
-        elif payload.get("teamId"):
-            team = _one(conn.execute(text("SELECT name FROM teams WHERE id = :id"), {"id": payload["teamId"]}))
-            label, note = "Callback queue updated", team["name"] if team else payload["teamId"]
-        elif payload.get("status"):
-            label, note = "Callback updated", payload["status"]
-        elif payload.get("scheduledAt"):
-            label, note = "Callback rescheduled", payload["scheduledAt"]
-        else:
-            label, note = "Callback updated", None
-        _activity(conn, "callback", callback_id, "callback_updated", label, note, row["customer_id"])
-        return {"id": callback_id, "status": payload.get("status")}
-
-
-def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "callbacks", callback_id)
-        row = _one(
-            conn.execute(
-                text("SELECT customer_id, status FROM callbacks WHERE id = :id"),
-                {"id": callback_id},
-            )
-        )
-        if row is None:
-            raise KeyError("callback_not_found")
-
-        status = payload.get("status") or "queued"
-        if status not in {"queued", "scheduled", "sent", "acknowledged"}:
-            raise ValueError(f"invalid_reminder_status: {status}")
-        # DB also allows 'scheduled'; treat UI 'queued' as queued.
-        db_status = "scheduled" if status == "queued" else status
-        sent_at = datetime.now(timezone.utc).isoformat() if db_status == "sent" else None
-
-        reminder_id = _id("CBR")
-        conn.execute(
-            text(
-                """
-                INSERT INTO callback_reminders
-                  (id, callback_id, channel, scheduled_at, sent_at, status)
-                VALUES
-                  (:id, :callback_id, :channel, :scheduled_at, :sent_at, :status)
-                """
-            ),
-            {
-                "id": reminder_id,
-                "callback_id": callback_id,
-                "channel": payload["channel"],
-                "scheduled_at": payload.get("scheduledAt") or datetime.now(timezone.utc).isoformat(),
-                "sent_at": sent_at,
-                "status": db_status,
-            },
-        )
-        # Sending a reminder advances scheduled → reminded.
-        if db_status == "sent" and row["status"] == "scheduled":
-            conn.execute(
-                text("UPDATE callbacks SET status = 'reminded' WHERE id = :id"),
-                {"id": callback_id},
-            )
-        label = "Callback reminder sent" if db_status == "sent" else "Callback reminder queued"
-        _activity(conn, "callback", callback_id, "callback_reminder_created", label, payload["channel"], row["customer_id"])
-        return {"id": reminder_id, "status": _callback_reminder_status(db_status)}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def create_document_request(
-    payload: dict[str, Any], idempotency_key: str | None = None
-) -> dict[str, Any]:
-    endpoint = "POST /documents"
-    with engine.begin() as conn:
-        cached = _idempotent_response(conn, idempotency_key, endpoint)
-        if cached:
-            return cached
-        customer_id = payload["customerId"]
-        _ensure_customer(conn, customer_id)
-        document_id = _id("DOC")
-        doc_type = _doc_type_screen(payload.get("docType"))
-        channel = _doc_channel(payload.get("deliveryChannel"))
-        customer = _one(
-            conn.execute(
-                text("SELECT phone_primary, email FROM customers WHERE id = :id"),
-                {"id": customer_id},
-            )
-        ) or {}
-        delivery_target = payload.get("deliveryTarget") or _doc_delivery_target(
-            channel, None, customer.get("phone_primary"), customer.get("email")
-        )
-        # Present key wins (including explicit null → Unassigned). Omitted → acting user.
-        if "assigneeUserId" in payload:
-            assignee = payload["assigneeUserId"]
-            if assignee is not None and not conn.execute(
-                text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}
-            ).fetchone():
-                raise KeyError(f"user_not_found: {assignee}")
-        else:
-            assignee = _actor_user_id()
-
-        template_id = payload.get("templateId") or _DEFAULT_TEMPLATE_FOR_DOC.get(doc_type)
-        if template_id:
-            _ensure_document_template(conn, template_id, doc_type)
-
-        requested_via = payload.get("requestedVia") or "agent"
-        if requested_via not in {
-            "bot_voice",
-            "bot_chat",
-            "agent",
-            "mcp",
-            "clerk",
-            "vision",
-            "inbox",
-        }:
-            requested_via = "agent"
-        source = payload.get("source") or {
-            "vision": "vision",
-            "inbox": "vision",
-            "mcp": "mcp",
-            "clerk": "clerk",
-        }.get(requested_via, "crm")
-        if source not in {"crm", "vision", "clerk", "mcp"}:
-            source = "crm"
-
-        conn.execute(
-            text(
-                """
-                INSERT INTO document_requests
-                  (id, customer_id, account_id, interaction_id, assignee_user_id,
-                   doc_type, period, requested_via, template_id,
-                   delivery_channel, delivery_target, status, attempts, priority, sla_due_at,
-                   source)
-                VALUES
-                  (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id,
-                   :doc_type, :period, :requested_via, :template_id,
-                   :delivery_channel, :delivery_target, 'requested', 0, 'normal', now() + interval '1 day',
-                   :source)
-                """
-            ),
-            {
-                "id": document_id,
-                "customer_id": customer_id,
-                "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
-                "interaction_id": payload.get("interactionId"),
-                "assignee_user_id": assignee,
-                "doc_type": doc_type,
-                "period": payload.get("period"),
-                "requested_via": requested_via,
-                "template_id": template_id,
-                "delivery_channel": channel,
-                "delivery_target": delivery_target,
-                "source": source,
-            },
-        )
-        # Optional file metadata — server owns storage_ref; never trust a client path.
-        if payload.get("filename") or payload.get("mimeType"):
-            _ensure_document_file(
-                conn,
-                document_id,
-                filename=payload.get("filename"),
-                mime_type=payload.get("mimeType"),
-            )
-        label = f"Document requested · {doc_type}"
-        _activity(conn, "document_request", document_id, "document_requested", label, doc_type, customer_id)
-        response = _document_by_id(conn, document_id)
-        _store_idempotent_response(conn, idempotency_key, endpoint, response)
-        return response
-
-
-def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is an intentional write."""
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "document_requests", document_id)
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT customer_id, status, attempts, delivery_channel, delivery_target, doc_type
-                    FROM document_requests WHERE id = :id
-                    """
-                ),
-                {"id": document_id},
-            )
-        )
-        if row is None:
-            raise KeyError("document_not_found")
-
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is not None:
-            if not conn.execute(
-                text("SELECT 1 FROM users WHERE id = :id"), {"id": payload["assigneeUserId"]}
-            ).fetchone():
-                raise KeyError(f"user_not_found: {payload['assigneeUserId']}")
-
-        if "templateId" in payload and payload["templateId"]:
-            _ensure_document_template(
-                conn, payload["templateId"], _doc_type_screen(row["doc_type"])
-            )
-
-        updates: list[str] = []
-        params: dict[str, Any] = {"id": document_id}
-        mapping = {
-            "status": "status",
-            "assigneeUserId": "assignee_user_id",
-            "deliveryChannel": "delivery_channel",
-            "deliveryTarget": "delivery_target",
-            "templateId": "template_id",
-            "period": "period",
-            "generatedAt": "generated_at",
-            "sentAt": "sent_at",
-            "failedReason": "failed_reason",
-            "sizeKb": "size_kb",
-            "attempts": "attempts",
-        }
-        for key, column in mapping.items():
-            if key in payload:
-                updates.append(f"{column} = :{column}")
-                params[column] = payload[key]
-
-        # Status transitions that imply timestamps when the client didn't send them.
-        status = payload.get("status") if "status" in payload else None
-        if status == "generating":
-            if "generatedAt" not in payload:
-                updates.append("generated_at = COALESCE(generated_at, now())")
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
-            if "attempts" not in payload:
-                updates.append("attempts = attempts + 1")
-            _ensure_document_file(conn, document_id)
-        elif status == "sent":
-            if "sentAt" not in payload:
-                updates.append("sent_at = COALESCE(sent_at, now())")
-            if "generatedAt" not in payload:
-                updates.append("generated_at = COALESCE(generated_at, now())")
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
-            _ensure_document_file(conn, document_id, size_kb=payload.get("sizeKb"))
-        elif status == "failed":
-            pass
-        elif status == "requested":
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
-
-        if "deliveryChannel" in payload and payload["deliveryChannel"] and "deliveryTarget" not in payload:
-            channel = _doc_channel(payload["deliveryChannel"])
-            customer = _one(
-                conn.execute(
-                    text("SELECT phone_primary, email FROM customers WHERE id = :id"),
-                    {"id": row["customer_id"]},
-                )
-            ) or {}
-            updates.append("delivery_target = :delivery_target")
-            params["delivery_target"] = _doc_delivery_target(
-                channel, None, customer.get("phone_primary"), customer.get("email")
-            )
-
-        if updates:
-            conn.execute(
-                text(f"UPDATE document_requests SET {', '.join(updates)}, updated_at = now() WHERE id = :id"),
-                params,
-            )
-
-        note = (payload.get("note") or "").strip() or None
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
-            label = "Document unassigned"
-        elif payload.get("assigneeUserId"):
-            label = f"Assigned to {_user_name(conn, payload['assigneeUserId']) or payload['assigneeUserId']}"
-        elif payload.get("deliveryChannel"):
-            label = f"Channel → {payload['deliveryChannel']}"
-        elif payload.get("templateId"):
-            label = f"Template set · {payload['templateId']}"
-        elif status == "generating":
-            label = "Generation started"
-        elif status == "sent":
-            label = "Document delivered"
-        elif status == "failed":
-            label = f"Failed · {payload.get('failedReason') or 'Delivery failed'}"
-        elif status == "requested":
-            label = "Retry queued" if row["status"] == "failed" else "Status → Requested"
-        elif status:
-            label = f"Status → {status}"
-        else:
-            label = "Document request updated"
-        _activity(
-            conn,
-            "document_request",
-            document_id,
-            "document_updated",
-            label,
-            note or status,
-            row["customer_id"],
-        )
-        return _document_by_id(conn, document_id)
-
-
-def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "document_requests", document_id)
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT customer_id, delivery_channel, delivery_target, attempts
-                    FROM document_requests WHERE id = :id
-                    """
-                ),
-                {"id": document_id},
-            )
-        )
-        if row is None:
-            raise KeyError("document_not_found")
-        import contact_policy
-
-        attempt_id = _id("DLV")
-        channel = contact_policy.normalize_channel(row["delivery_channel"] or "whatsapp")
-        contact_policy.require_admit(
-            conn,
-            customer_id=row["customer_id"],
-            channel=channel,
-            purpose="outreach",
-            session_key=document_id,
-            source="doc_delivery",
-            related_id=attempt_id,
-            actor_kind="human",
-            endpoint=row["delivery_target"],
-        )
-        next_attempt = int(row["attempts"] or 0) + 1
-        status = payload.get("status") or "queued"
-        conn.execute(
-            text(
-                """
-                INSERT INTO document_delivery_attempts
-                  (id, request_id, channel, target, provider, attempt_number, status, error, sent_at)
-                VALUES
-                  (:id, :request_id, :channel, :target, :provider, :attempt_number, :status, :error, now())
-                """
-            ),
-            {
-                "id": attempt_id,
-                "request_id": document_id,
-                "channel": row["delivery_channel"],
-                "target": row["delivery_target"],
-                "provider": payload.get("provider") or "manual",
-                "attempt_number": next_attempt,
-                "status": status,
-                "error": payload.get("error") or payload.get("failedReason"),
-            },
-        )
-        conn.execute(
-            text("UPDATE document_requests SET attempts = :attempts, updated_at = now() WHERE id = :id"),
-            {"attempts": next_attempt, "id": document_id},
-        )
-        _activity(
-            conn,
-            "document_request",
-            document_id,
-            "document_delivery_attempt",
-            "Document delivery attempted",
-            status,
-            row["customer_id"],
-        )
-        return {"id": attempt_id, "status": status, "attemptNumber": next_attempt}
-
-
-def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> None:
-    existing = conn.execute(
-        text("SELECT 1 FROM document_templates WHERE id = :id"), {"id": template_id}
-    ).fetchone()
-    if existing:
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO document_templates (id, tenant_id, name, doc_type, preview_lines)
-            VALUES (:id, :tenant_id, :name, :doc_type, '[]'::jsonb)
-            """
-        ),
-        {"id": template_id, "tenant_id": _tenant(), "name": template_id, "doc_type": doc_type},
-    )
-
-
-def _ensure_document_file(
-    conn: Any,
-    document_id: str,
-    *,
-    filename: str | None = None,
-    mime_type: str | None = None,
-    size_kb: int | None = None,
-) -> None:
-    """Create or refresh the generated file row. storage_ref is always server-owned."""
-    existing = _one(
-        conn.execute(
-            text("SELECT id FROM document_files WHERE request_id = :id ORDER BY created_at DESC LIMIT 1"),
-            {"id": document_id},
-        )
-    )
-    mime = mime_type or "application/pdf"
-    if mime.startswith("image/"):
-        ext = ".jpg" if "jpeg" in mime or mime.endswith("/jpg") else ".png" if "png" in mime else ".webp"
-        storage_ref = f"minio://documents/{_tenant()}/{document_id}{ext}"
-        fname = filename or f"{document_id}{ext}"
-    else:
-        storage_ref = f"minio://documents/{_tenant()}/{document_id}.pdf"
-        fname = filename or f"{document_id}.pdf"
-    size_bytes = int(size_kb * 1024) if size_kb is not None else None
-    if existing:
-        if size_bytes is not None:
-            conn.execute(
-                text(
-                    """
-                    UPDATE document_files
-                    SET size_bytes = :size_bytes, generated_at = now()
-                    WHERE id = :id
-                    """
-                ),
-                {"size_bytes": size_bytes, "id": existing["id"]},
-            )
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO document_files
-              (id, request_id, storage_ref, filename, mime_type, size_bytes, generated_at)
-            VALUES
-              (:id, :request_id, :storage_ref, :filename, :mime_type, :size_bytes, now())
-            """
-        ),
-        {
-            "id": f"FILE-{document_id}",
-            "request_id": document_id,
-            "storage_ref": storage_ref,
-            "filename": fname,
-            "mime_type": mime,
-            "size_bytes": size_bytes or 96000,
-        },
-    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3752,594 +2509,48 @@ def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, An
     return customer
 
 
-def _ensure_consent_record(conn: Any, customer_id: str) -> str:
-    consent_id = f"consent-{customer_id}"
-    existing = _one(
-        conn.execute(text("SELECT id FROM consent_records WHERE customer_id = :id"), {"id": customer_id})
-    )
-    if existing:
-        return existing["id"]
-    conn.execute(
-        text(
-            """
-            INSERT INTO consent_records (id, customer_id, dnd_registry, allowed_days, allowed_hours)
-            VALUES (:id, :customer_id, false, 'Mon-Fri', '10:00-19:00 IST')
-            """
-        ),
-        {"id": consent_id, "customer_id": customer_id},
-    )
-    return consent_id
 
 
-def _channel_status_from_patch(item: dict[str, Any]) -> str:
-    status = item.get("status")
-    if status in {"opted_in", "opted_out", "dnd", "expired"}:
-        return status
-    if "optedIn" in item:
-        return "opted_in" if item.get("optedIn") else "opted_out"
-    raise ValueError("channel status or optedIn is required")
 
 
-def _incoming_window_days(aw: dict[str, Any]) -> list[int] | None:
-    if "days" not in aw:
-        return None
-    try:
-        return sorted(int(d) for d in (aw.get("days") or []))
-    except (TypeError, ValueError):
-        return None
 
 
-def _incoming_window_hours(aw: dict[str, Any]) -> tuple[int, int] | None:
-    """GET always sends both hours. Missing hours are not filled with 10–19."""
-    start = aw.get("startHour")
-    end = aw.get("endHour")
-    if start is None or end is None:
-        return None
-    try:
-        return (int(start), int(end))
-    except (TypeError, ValueError):
-        return None
 
 
-def _window_days_echo_stored(incoming_days: list[int], allowed_days: str | None) -> bool:
-    """True when ``incoming_days`` is the GET serializer's view of ``allowed_days``.
-
-    Writing that view reformats the text: an en-dash ``Mon–Sat`` becomes
-    ``Mon-Mon``. The parser that produces that artefact is WP-030; this only
-    refuses to persist it. Decided per field so an hours edit cannot rewrite days.
-    """
-    return incoming_days == sorted(_parse_allowed_days(allowed_days))
 
 
-def _window_hours_echo_stored(incoming_hours: tuple[int, int], hours_raw: str | None) -> bool:
-    """True when ``incoming_hours`` is the GET serializer's view of the stored hours.
-
-    Writing that view turns a NULL window into ``10:00-19:00 IST`` and drops
-    minutes from a stored ``08:30-17:45 IST``. The parser is WP-030.
-    """
-    return incoming_hours == _parse_allowed_hours(hours_raw)
 
 
-def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is an intentional write.
-
-    ``allowedWindow`` is the exception: the consent screen used to echo the GET
-    serializer on every save, so a present key may be a round-trip of the stored
-    text rather than an operator edit. Each field whose parsed value matches the
-    stored string is left byte-identical; only a real edit is written.
-    """
-    with engine.begin() as conn:
-        _assert_tenant_owns_customer(conn, customer_id)
-        _ensure_customer(conn, customer_id)
-        consent_id = _ensure_consent_record(conn, customer_id)
-
-        dnd_val = None
-        if "dnd" in payload:
-            dnd_val = payload["dnd"]
-        elif "onDndRegistry" in payload:
-            dnd_val = payload["onDndRegistry"]
-        if dnd_val is not None:
-            conn.execute(
-                text("UPDATE customers SET dnd = :dnd WHERE id = :id"),
-                {"dnd": bool(dnd_val), "id": customer_id},
-            )
-            conn.execute(
-                text("UPDATE consent_records SET dnd_registry = :dnd WHERE id = :id"),
-                {"dnd": bool(dnd_val), "id": consent_id},
-            )
-
-        if "consentExpiresAt" in payload and payload["consentExpiresAt"] is not None:
-            conn.execute(
-                text("UPDATE consent_records SET expires_at = :expires_at WHERE id = :id"),
-                {"expires_at": payload["consentExpiresAt"], "id": consent_id},
-            )
-
-        if "allowedWindow" in payload and payload["allowedWindow"] is not None:
-            aw = payload["allowedWindow"]
-            if not isinstance(aw, dict):
-                aw = aw.model_dump() if hasattr(aw, "model_dump") else dict(aw)
-            stored = _one(
-                conn.execute(
-                    text(
-                        """
-                        SELECT cr.allowed_days, cr.allowed_hours, c.preferred_window
-                        FROM consent_records cr
-                        JOIN customers c ON c.id = cr.customer_id
-                        WHERE cr.id = :id
-                        """
-                    ),
-                    {"id": consent_id},
-                )
-            )
-            days_raw = stored["allowed_days"] if stored else None
-            # GET uses allowed_hours, then preferred_window. Match that view so
-            # a round-trip of either column is recognised as an echo.
-            hours_raw = (stored["allowed_hours"] or stored["preferred_window"]) if stored else None
-            incoming_days = _incoming_window_days(aw)
-            incoming_hours = _incoming_window_hours(aw)
-            # Preserve each stored string when its parsed value round-trips
-            # unchanged. A whole-window skip still rewrote days on an hours
-            # edit (Mon–Sat → Mon-Mon) and hours on a days edit.
-            if incoming_days is not None and not _window_days_echo_stored(
-                incoming_days, days_raw
-            ):
-                conn.execute(
-                    text("UPDATE consent_records SET allowed_days = :days WHERE id = :id"),
-                    {"days": _format_allowed_days(incoming_days), "id": consent_id},
-                )
-            if incoming_hours is not None and not _window_hours_echo_stored(
-                incoming_hours, hours_raw
-            ):
-                hours_str = _format_allowed_hours(*incoming_hours)
-                conn.execute(
-                    text("UPDATE consent_records SET allowed_hours = :hours WHERE id = :id"),
-                    {"hours": hours_str, "id": consent_id},
-                )
-                conn.execute(
-                    text("UPDATE customers SET preferred_window = :hours WHERE id = :id"),
-                    {"hours": hours_str, "id": customer_id},
-                )
-
-        for item in payload.get("channels") or []:
-            if not isinstance(item, dict):
-                item = item.model_dump() if hasattr(item, "model_dump") else dict(item)
-            channel_value = _consent_channel_db(item["channel"])
-            status = _channel_status_from_patch(item)
-            source = item.get("source") or "Agent"
-            cap = item.get("frequencyCapPerWeek")
-            # Servicing unless the screen says otherwise. This is the only way a
-            # promotional consent can be captured, and it has to exist: a gate
-            # nobody can satisfy is not a compliance control, it is an outage
-            # with a paragraph number attached.
-            purpose = str(item.get("purpose") or "servicing").strip().lower()
-            if purpose not in ("servicing", "promotional"):
-                purpose = "servicing"
-            params: dict[str, Any] = {
-                "id": f"{consent_id}-{channel_value}-{purpose}",
-                "consent_id": consent_id,
-                "channel": channel_value,
-                "purpose": purpose,
-                "status": status,
-                "source": source,
-                "cap": cap,
-            }
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO channel_consents
-                      (id, consent_id, channel, purpose, status, source,
-                       weekly_frequency_cap, used_this_week, captured_at)
-                    VALUES
-                      (:id, :consent_id, :channel, :purpose, :status, :source,
-                       COALESCE(:cap, 3), 0, now())
-                    ON CONFLICT (consent_id, channel, purpose)
-                    DO UPDATE SET
-                      status = EXCLUDED.status,
-                      source = EXCLUDED.source,
-                      weekly_frequency_cap = COALESCE(:cap, channel_consents.weekly_frequency_cap),
-                      captured_at = now()
-                    """
-                ),
-                params,
-            )
-
-        note = (payload.get("note") or "").strip()
-        if "consentExpiresAt" in payload and payload.get("consentExpiresAt"):
-            kind, label = "consent_renewed", note or "Consent renewed for 12 months."
-        elif dnd_val is not None and not payload.get("channels") and "allowedWindow" not in payload:
-            kind = "dnd_updated"
-            label = note or ("Added to DND registry (calls blocked)." if dnd_val else "Removed from DND registry.")
-        else:
-            kind, label = "consent_updated", note or "Consent preferences updated."
-        _activity(conn, "customer", customer_id, kind, label, note or None, customer_id)
-        # On the consent chain: what was written, hashed, so a later edit of
-        # the row is visible against the last authorised one.
-        from agent_core import change_log
-
-        change_log.record_consent_change(
-            conn,
-            tenant_id=current_tenant(),
-            actor_user_id=_actor_user_id(),
-            customer_id=customer_id,
-            change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
-        )
-
-    customer = get_customer(customer_id)
-    if customer is None:
-        raise KeyError("customer_not_found")
-    return customer
 
 
-def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    channel_raw = payload["channel"]
-    affected = list(_CONSENT_CHANNEL_ORDER) if channel_raw == "all" else [channel_raw]
-    source = payload.get("source") or "Agent"
-    note = (payload.get("note") or "").strip() or None
-    with engine.begin() as conn:
-        _ensure_customer(conn, customer_id)
-        consent_id = _ensure_consent_record(conn, customer_id)
-        for ch in affected:
-            channel_value = _consent_channel_db(ch)
-            # An opt-out closes **both** purposes, and closes the promotional
-            # one even where no promotional consent was ever captured.
-            #
-            # Somebody who says "stop contacting me" has not opted out of
-            # servicing while leaving marketing open, and reading it that way
-            # would be the most self-serving construction available. The
-            # promotional row is inserted rather than merely updated so that a
-            # later promotional capture has an explicit opt-out to overwrite,
-            # deliberately, rather than an absence to fill in.
-            for consent_purpose in ("servicing", "promotional"):
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO channel_consents
-                          (id, consent_id, channel, purpose, status, source, captured_at)
-                        VALUES
-                          (:id, :consent_id, :channel, :purpose, 'opted_out', :source, now())
-                        ON CONFLICT (consent_id, channel, purpose)
-                        DO UPDATE SET status = 'opted_out', source = EXCLUDED.source,
-                                      captured_at = EXCLUDED.captured_at
-                        """
-                    ),
-                    {
-                        "id": f"{consent_id}-{channel_value}-{consent_purpose}",
-                        "consent_id": consent_id,
-                        "channel": channel_value,
-                        "purpose": consent_purpose,
-                        "source": source,
-                    },
-                )
-        # Screen shape stores one opt-out event (channel may be "all").
-        event_channel = "all" if channel_raw == "all" else _consent_channel_db(channel_raw)
-        conn.execute(
-            text(
-                """
-                INSERT INTO optout_events
-                  (id, consent_id, channel, source, actor_kind, actor_user_id, note)
-                VALUES
-                  (:id, :consent_id, :channel, :source, 'human', :actor_user_id, :note)
-                """
-            ),
-            {
-                "id": _id("OPTOUT"),
-                "consent_id": consent_id,
-                "channel": event_channel,
-                "source": source,
-                "actor_user_id": _actor_user_id(),
-                "note": note,
-            },
-        )
-        label = f"Opt-out captured via {source} ({channel_raw})."
-        _activity(conn, "customer", customer_id, "opt_out", label, note, customer_id)
-        from agent_core import change_log
-
-        change_log.record_consent_change(
-            conn,
-            tenant_id=current_tenant(),
-            actor_user_id=_actor_user_id(),
-            customer_id=customer_id,
-            change={"kind": "opt_out", "channel": channel_raw, "source": source},
-        )
-    customer = get_customer(customer_id)
-    if customer is None:
-        raise KeyError("customer_not_found")
-    return customer
 
 
-def _violation_status_screen(status: str | None) -> str:
-    if status in {"open", "in_review", "acknowledged", "resolved"}:
-        return status
-    if status in {"reviewed", "review"}:
-        return "acknowledged"
-    return "open"
 
 
-_RULE_ID_SCREEN = {
-    "rule-recording": "r-rec",
-    "rule-mini-miranda": "r-mm",
-    "rule-identity": "r-verify",
-    "rule-payment": "r-disp",
-}
 
 
-def _violation_rule_screen(rule_id: str | None) -> str:
-    if not rule_id:
-        return "r-rec"
-    return _RULE_ID_SCREEN.get(rule_id, rule_id)
 
 
-def _violation_severity_screen(severity: str | None) -> str:
-    if severity in {"critical", "high", "medium", "low"}:
-        return severity
-    return "medium"
 
 
-def _transcript_turn(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "t": int(row["at_sec"] or 0),
-        "speaker": _speaker_screen(row["speaker"]),
-        "text": row["text"] or "",
-    }
 
 
-def _violation_notes_grouped(conn: Any, violation_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    """Structured notes from activity_events (note_added / violation_note)."""
-    if not violation_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT ae.entity_id, ae.at, ae.label AS text, u.name AS author
-                FROM activity_events ae
-                LEFT JOIN users u ON u.id = ae.actor_user_id
-                WHERE ae.entity_type = 'violation'
-                  AND ae.entity_id = ANY(:ids)
-                  AND ae.kind IN ('note_added', 'violation_note')
-                ORDER BY ae.at
-                """
-            ),
-            {"ids": violation_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["entity_id"], []).append(
-            {
-                "at": r["at"],
-                "author": r["author"] or "System",
-                "text": r["text"] or "",
-            }
-        )
-    return grouped
 
 
-def _transcripts_by_interaction(conn: Any, interaction_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not interaction_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT id, interaction_id, turn_index, speaker, at_sec, text
-                FROM interaction_transcript
-                WHERE interaction_id = ANY(:ids)
-                ORDER BY interaction_id, turn_index
-                """
-            ),
-            {"ids": interaction_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["interaction_id"], []).append(r)
-    return grouped
 
 
-def _build_violation_evidence(
-    turns: list[dict[str, Any]],
-    at_sec: int,
-    description: str | None,
-) -> dict[str, Any]:
-    """Offending turn + neighbours. Falls back to snippet-only when no transcript."""
-    snippet = (description or "").strip() or "No transcript evidence available."
-    if not turns:
-        return {
-            "snippet": snippet,
-            "preceding": None,
-            "offending": {
-                "id": "synthetic-offending",
-                "t": at_sec,
-                "speaker": "system",
-                "text": snippet,
-            },
-            "following": None,
-        }
-
-    # Prefer the turn closest to at_sec; tie-break toward agent/bot speech.
-    best_idx = 0
-    best_dist = abs(int(turns[0]["at_sec"] or 0) - at_sec)
-    for i, t in enumerate(turns):
-        dist = abs(int(t["at_sec"] or 0) - at_sec)
-        speaker = _speaker_screen(t["speaker"])
-        better = dist < best_dist or (
-            dist == best_dist and speaker in {"bot", "agent"} and _speaker_screen(turns[best_idx]["speaker"]) not in {"bot", "agent"}
-        )
-        if better:
-            best_idx = i
-            best_dist = dist
-
-    offending = _transcript_turn(turns[best_idx])
-    if not snippet or snippet == "No transcript evidence available.":
-        snippet = offending["text"]
-    preceding = _transcript_turn(turns[best_idx - 1]) if best_idx > 0 else None
-    following = _transcript_turn(turns[best_idx + 1]) if best_idx + 1 < len(turns) else None
-    return {
-        "snippet": snippet,
-        "preceding": preceding,
-        "offending": offending,
-        "following": following,
-    }
 
 
-def _violation_rows_to_screen(
-    conn: Any,
-    rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    ids = [r["id"] for r in rows]
-    interaction_ids = [r["interaction_id"] for r in rows if r.get("interaction_id")]
-    notes = _violation_notes_grouped(conn, ids)
-    transcripts = _transcripts_by_interaction(conn, interaction_ids)
-    result: list[dict[str, Any]] = []
-    for r in rows:
-        at_sec = int(r["at_sec"] or 0)
-        call_id = r["interaction_id"] or ""
-        actor_kind = "bot" if r["actor_kind"] == "bot" else "human"
-        actor_name = r["actor_bot_name"] if actor_kind == "bot" else r["actor_user_name"]
-        if not actor_name:
-            actor_name = "Kaia v2.4" if actor_kind == "bot" else "Unknown agent"
-        evidence = _build_violation_evidence(
-            transcripts.get(call_id) or [],
-            at_sec,
-            r.get("description"),
-        )
-        result.append(
-            {
-                "id": r["id"],
-                "callId": call_id,
-                "customerName": r["customer_name"],
-                "ruleId": _violation_rule_screen(r["rule_id"]),
-                "severity": _violation_severity_screen(r["rule_severity"]),
-                "occurredAt": r["occurred_at"] or r["created_at"],
-                "atSec": at_sec,
-                "actor": {"kind": actor_kind, "name": actor_name},
-                "evidence": evidence,
-                "status": _violation_status_screen(r["status"]),
-                "assignee": r["assignee"] or None,
-                "notes": notes.get(r["id"]) or [],
-            }
-        )
-    return result
 
 
-_VIOLATION_LIST_SQL = """
-    SELECT v.id, v.interaction_id, v.customer_id, c.name AS customer_name,
-           v.rule_id, cr.severity AS rule_severity, v.actor_kind,
-           v.status, v.description, v.at_sec, v.created_at,
-           COALESCE(i.started_at, v.created_at) AS occurred_at,
-           u.name AS assignee,
-           au.name AS actor_user_name,
-           b.name AS actor_bot_name
-    FROM violations v
-    JOIN customers c ON c.id = v.customer_id
-    JOIN compliance_rules cr ON cr.id = v.rule_id
-    LEFT JOIN users u ON u.id = v.assignee_user_id
-    LEFT JOIN users au ON au.id = v.actor_user_id
-    LEFT JOIN bots b ON b.id = v.actor_bot_id
-    LEFT JOIN interactions i ON i.id = v.interaction_id
-"""
 
 
-def list_violations() -> list[dict[str, Any]]:
-    """Compliance Risk feed — screen Violation shape."""
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                text(
-                    _VIOLATION_LIST_SQL
-                    + """
-                    ORDER BY
-                      CASE cr.severity
-                        WHEN 'critical' THEN 4
-                        WHEN 'high' THEN 3
-                        WHEN 'medium' THEN 2
-                        ELSE 1
-                      END DESC,
-                      COALESCE(i.started_at, v.created_at) DESC
-                    """
-                )
-            )
-        )
-        return _violation_rows_to_screen(conn, rows)
 
 
-def _violation_by_id(conn: Any, violation_id: str) -> dict[str, Any]:
-    row = _one(
-        conn.execute(
-            text(_VIOLATION_LIST_SQL + " WHERE v.id = :id"),
-            {"id": violation_id},
-        )
-    )
-    if row is None:
-        raise KeyError("violation_not_found")
-    items = _violation_rows_to_screen(conn, [row])
-    return items[0]
 
 
-def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is intentional,
-    so an explicit None clears assignee. Notes are NOT written here —
-    use add_violation_note → activity_events."""
-    with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
-        if row is None:
-            raise KeyError("violation_not_found")
-
-        if "status" in payload and payload["status"] is not None:
-            status = payload["status"]
-            if status not in {"open", "in_review", "acknowledged", "resolved"}:
-                raise ValueError(f"invalid_status: {status}")
-
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is not None:
-            assignee = payload["assigneeUserId"]
-            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}).fetchone():
-                raise KeyError(f"user_not_found: {assignee}")
-
-        updates: list[str] = []
-        params: dict[str, Any] = {"id": violation_id}
-        if "status" in payload:
-            updates.append("status = :status")
-            params["status"] = payload["status"]
-        if "assigneeUserId" in payload:
-            updates.append("assignee_user_id = :assignee_user_id")
-            params["assignee_user_id"] = payload["assigneeUserId"]
-        if updates:
-            updates.append("updated_at = now()")
-            conn.execute(text(f"UPDATE violations SET {', '.join(updates)} WHERE id = :id"), params)
-
-        status = payload.get("status")
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
-            label, note = "Violation unassigned", None
-        elif payload.get("assigneeUserId"):
-            label = "Violation assigned"
-            note = _user_name(conn, payload["assigneeUserId"])
-        elif status == "acknowledged":
-            label, note = "Violation acknowledged", status
-        elif status == "resolved":
-            label, note = "Violation resolved", status
-        elif status == "in_review":
-            label, note = "Violation in review", status
-        elif status:
-            label, note = "Violation updated", status
-        else:
-            label, note = "Violation updated", None
-        _activity(conn, "violation", violation_id, "violation_updated", label, note, row["customer_id"])
-        return _violation_by_id(conn, violation_id)
 
 
-def add_violation_note(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Free-text note on a violation. activity_events is the notes store."""
-    with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
-        if row is None:
-            raise KeyError("violation_not_found")
-        text_value = (payload.get("text") or "").strip()
-        if not text_value:
-            raise ValueError("note text is required")
-        _activity(conn, "violation", violation_id, "note_added", text_value, None, row["customer_id"])
-        return {"id": violation_id, "text": text_value}
 
 
 # ---------------------------------------------------------------------------
@@ -4894,4 +3105,84 @@ from db_leads import (  # noqa: E402
     revalidate_lead_eligibility as revalidate_lead_eligibility,
     revalidate_open_leads as revalidate_open_leads,
     sweep_due_followups as sweep_due_followups,
+)
+
+from db_documents import (  # noqa: E402
+    _document_events as _document_events,
+    _ensure_document_file as _ensure_document_file,
+    _ensure_document_template as _ensure_document_template,
+    add_document_delivery_attempt as add_document_delivery_attempt,
+    create_document_request as create_document_request,
+    list_documents as list_documents,
+    patch_document_request as patch_document_request,
+)
+
+from db_callbacks import (  # noqa: E402
+    CB_DISPOSITIONS as CB_DISPOSITIONS,
+    CB_REASONS as CB_REASONS,
+    _callback_disposition as _callback_disposition,
+    _callback_dnd_active as _callback_dnd_active,
+    _callback_event_tone as _callback_event_tone,
+    _callback_events as _callback_events,
+    _callback_reason as _callback_reason,
+    _callback_reminder_channel as _callback_reminder_channel,
+    _callback_reminder_status as _callback_reminder_status,
+    _callback_reminders as _callback_reminders,
+    _callback_source as _callback_source,
+    _callback_window as _callback_window,
+    _create_callback as _create_callback,
+    _outside_preferred_window as _outside_preferred_window,
+    add_callback_reminder as add_callback_reminder,
+    create_callback as create_callback,
+    list_callbacks as list_callbacks,
+    patch_callback as patch_callback,
+)
+
+from db_violations import (  # noqa: E402
+    _RULE_ID_SCREEN as _RULE_ID_SCREEN,
+    _VIOLATION_LIST_SQL as _VIOLATION_LIST_SQL,
+    _build_violation_evidence as _build_violation_evidence,
+    _transcript_turn as _transcript_turn,
+    _transcripts_by_interaction as _transcripts_by_interaction,
+    _violation_by_id as _violation_by_id,
+    _violation_notes_grouped as _violation_notes_grouped,
+    _violation_rows_to_screen as _violation_rows_to_screen,
+    _violation_rule_screen as _violation_rule_screen,
+    _violation_severity_screen as _violation_severity_screen,
+    _violation_status_screen as _violation_status_screen,
+    add_violation_note as add_violation_note,
+    list_violations as list_violations,
+    patch_violation as patch_violation,
+)
+
+from db_consent import (  # noqa: E402
+    _CONSENT_ACTIVITY_KINDS as _CONSENT_ACTIVITY_KINDS,
+    _CONSENT_CHANNEL_ORDER as _CONSENT_CHANNEL_ORDER,
+    _DAY_NAME_TO_NUM as _DAY_NAME_TO_NUM,
+    _DAY_NUM_TO_NAME as _DAY_NUM_TO_NAME,
+    _OPT_OUT_SOURCE_MAP as _OPT_OUT_SOURCE_MAP,
+    _channel_status_from_patch as _channel_status_from_patch,
+    _consent_audit_grouped as _consent_audit_grouped,
+    _consent_channel_db as _consent_channel_db,
+    _consent_channel_screen as _consent_channel_screen,
+    _consent_channels_grouped as _consent_channels_grouped,
+    _consent_optouts_grouped as _consent_optouts_grouped,
+    _consent_segment as _consent_segment,
+    _consent_source_screen as _consent_source_screen,
+    _ensure_channels_complete as _ensure_channels_complete,
+    _ensure_consent_record as _ensure_consent_record,
+    _format_allowed_days as _format_allowed_days,
+    _format_allowed_hours as _format_allowed_hours,
+    _incoming_window_days as _incoming_window_days,
+    _incoming_window_hours as _incoming_window_hours,
+    _optout_actor_label as _optout_actor_label,
+    _optout_source_screen as _optout_source_screen,
+    _parse_allowed_days as _parse_allowed_days,
+    _parse_allowed_hours as _parse_allowed_hours,
+    _window_days_echo_stored as _window_days_echo_stored,
+    _window_hours_echo_stored as _window_hours_echo_stored,
+    get_contact_policy as get_contact_policy,
+    list_consent as list_consent,
+    opt_out as opt_out,
+    patch_consent as patch_consent,
 )
