@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.responses import StreamingResponse as StarletteStreamingResponse
@@ -172,3 +174,16 @@ def test_http_bodies_keep_every_mapper_key(api_headers) -> None:
         )
         assert unknown.status_code == 200, unknown.text
         _assert_same_shape(run_script("no-such-script", {}), unknown.json())
+
+
+def test_the_deployment_row_fits_its_response_model(db_tx) -> None:
+    """`frozenTools` and `bundleHash` were added to the mapped row and not to
+    `BotDeploymentResponse`, whose `extra="forbid"` turned every
+    `/bot-deployments/active` read into a 500 -- on the page that loads first."""
+    import db
+    from schemas import BotDeploymentResponse
+
+    row = db.get_active_deployment(bot_id="kaia-v2-4")
+    if row is None:
+        pytest.skip("no active deployment seeded")
+    BotDeploymentResponse(**row)

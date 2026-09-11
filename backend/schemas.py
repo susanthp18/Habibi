@@ -2426,6 +2426,11 @@ class BotDeploymentResponse(BaseModel):
     trafficPct: int = 100
     shadow: bool = False
     evalReportId: str | None = None
+    #: The grant frozen at publish (`agent_core.tools.grant`) and the compiled
+    #: bundle it came from. The row carried both; the model forbade them, so
+    #: every `/bot-deployments/active` read was a 500.
+    frozenTools: list[str] | None = None
+    bundleHash: str | None = None
 
 
 class PromptVersionCreateRequest(BaseModel):
