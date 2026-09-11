@@ -374,7 +374,8 @@ export type AgentGraph = {
     reachability?: AgentCardSummary["reachability"];
     deploymentStatus?: AgentCardSummary["deploymentStatus"];
   }[];
-  edges: { from: string; to: string }[];
+  /** `to` is null when a handoff row carries no target; the panel filters those. */
+  edges: { from: string; to: string | null }[];
 };
 
 export function useAgentGraph(botId: string) {
@@ -560,11 +561,31 @@ export type DeploymentExperiment = {
   baselineDeploymentId?: string | null;
 };
 
+/** Mirrors `AgentStudioSkillVersionResponse`. */
+export type SkillVersion = {
+  id: string;
+  skillId: string;
+  version: string;
+  status: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  allowedTools: string[];
+  contentHash: string;
+  signature: string | null;
+  signedBy: string | null;
+  pack: Record<string, unknown>;
+  description: string;
+  evalSuite: unknown | null;
+  origin: unknown | null;
+};
+
+/** Library row. Mirrors `AgentStudioSkillSummaryResponse`. */
 export type SkillSummary = {
   id: string;
   slug: string;
   origin: string;
   signatureStatus: string;
+  latestVersionId?: string | null;
   description: string;
   allowedTools: string[];
   version: string;
@@ -572,16 +593,22 @@ export type SkillSummary = {
   attachedCards: string[];
   /** `attachedCards` plus draft versions — which card can rehearse this skill. */
   rehearsalCards?: string[];
+  evalSuite?: unknown | null;
+  contentHash?: string;
   signed: boolean;
   hasSignedVersion?: boolean;
-  latestVersionId?: string;
-  versions?: Array<{ id: string; version: string; status: string }>;
-  body?: string;
-  frontmatter?: Record<string, unknown>;
-  markdown?: string;
-  pack?: { references?: Record<string, string> };
   bodyTokens?: number;
   referenceFiles?: string[];
+};
+
+/** `get_skill`'s detail. Mirrors `AgentStudioSkillResponse`. */
+export type SkillDetail = SkillSummary & {
+  versions?: SkillVersion[] | null;
+  frontmatter?: Record<string, unknown> | null;
+  body?: string | null;
+  pack?: { references?: Record<string, string> } | null;
+  markdown?: string | null;
+  lintWarnings?: Record<string, unknown>[] | null;
 };
 
 const MOCK_SKILLS: SkillSummary[] = [
@@ -751,10 +778,10 @@ export function useAgentStudioSkills() {
 export function useAgentStudioSkill(skillId: string) {
   return useQuery({
     queryKey: ["agent-studio", "skill", skillId],
-    queryFn: async () =>
+    queryFn: async (): Promise<SkillDetail | null> =>
       USE_MOCK
         ? (MOCK_SKILLS.find((s) => s.id === skillId || s.slug === skillId) ?? null)
-        : apiGet<SkillSummary>(`/agent-studio/skills/${skillId}`),
+        : apiGet<SkillDetail>(`/agent-studio/skills/${skillId}`),
     enabled: Boolean(skillId),
     // A 404 is the server's final answer about this id. RQ's default of three
     // tries turned a mistyped URL into roughly seven seconds of spinner before
@@ -1024,6 +1051,7 @@ export type ChangeLogEntry = {
   versionLabel?: string | null;
   previousVersionLabel?: string | null;
   versionId?: string | null;
+  previousVersionId?: string | null;
   deploymentId?: string | null;
   summary?: string | null;
   changed?: ChangedComponent[];

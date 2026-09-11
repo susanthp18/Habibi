@@ -36,7 +36,6 @@
 export const CARD_SCHEMA_VERSION = "1";
 
 export type Channel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
-export type MemoryScope = "turn" | "call" | "case" | "customer";
 export type PinMode = "exact" | "caret";
 export type EvalRequire = "regression" | "redteam" | "twin" | "outbound";
 /**
@@ -128,7 +127,6 @@ export type CardTools = {
   max_voice_tools?: number;
 };
 
-export type HandoffMode = "model" | "expression" | "always";
 export type HandoffCarry = "brief" | "full";
 
 /**
@@ -143,8 +141,6 @@ export type CardHandoff = {
   to_bot_id?: string;
   payload_schema?: Record<string, unknown>;
   when?: string;
-  mode?: HandoffMode;
-  clauses?: { variable?: string; operator?: string; value?: string | null }[];
   carry?: HandoffCarry;
   entry_node?: string;
   bridge_line?: string;
@@ -156,14 +152,7 @@ export type CardConnector = {
   allow_prefixes?: string[];
 };
 
-export type Compaction = {
-  raw_last_n?: number;
-  summarize_over_budget?: boolean;
-};
-
 export type CardMemory = {
-  scopes?: MemoryScope[];
-  compaction?: Compaction;
   /** Hops one call may make before a handoff is refused in the author's words. */
   max_hops_per_call?: number;
 };

@@ -43,6 +43,12 @@ export type BotDeployment = {
   rollbackDeploymentId: string | null;
   voiceConfig: Record<string, unknown>;
   tuning?: Record<string, unknown>;
+  /** The split this deployment is actually taking. */
+  trafficPct?: number;
+  shadow?: boolean;
+  evalReportId?: string | null;
+  frozenTools?: string[] | null;
+  bundleHash?: string | null;
 };
 
 export type PromptVersionDraftInput = {

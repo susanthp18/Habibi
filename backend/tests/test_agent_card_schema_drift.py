@@ -124,3 +124,53 @@ def test_crm_variables_match() -> None:
 
     crm_only = set(prompt_render.KNOWN_VARIABLES) - set(prompt_render.SYSTEM_SAFE_VARIABLES)
     assert _ts_const("CRM_VARIABLES") == crm_only
+
+
+def _ts_type_members(name: str) -> set[str] | None:
+    match = re.search(rf"export type {name} = \{{(.*?)\n\}};", _ts_source(), re.S)
+    if not match:
+        return None
+    return set(re.findall(r"^\s*(\w+)\??:", match.group(1), re.M))
+
+
+def test_every_nested_model_matches_its_typescript_block() -> None:
+    """TYPES-02: the guard stopped at the fourteen top-level names and left
+    every nested model -- all of CardOutbound among them -- unasserted. Walks
+    `AgentCard` into each nested BaseModel and holds the `export type X`
+    block of the same name to the same field set. `Compaction` on the TS side
+    is dead (memory.compaction is retired) and is not a model here."""
+    from pydantic import BaseModel
+
+    from agent_core.cards.schema import AgentCard
+
+    seen: dict[str, set[str]] = {}
+
+    def _walk(model: type[BaseModel]) -> None:
+        if model.__name__ in seen:
+            return
+        seen[model.__name__] = set(model.model_fields)
+        for field in model.model_fields.values():
+            for candidate in _leaf_types(field.annotation):
+                if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+                    _walk(candidate)
+
+    def _leaf_types(annotation):
+        import typing
+
+        origin = typing.get_origin(annotation)
+        if origin is None:
+            return [annotation]
+        out = []
+        for arg in typing.get_args(annotation):
+            out.extend(_leaf_types(arg))
+        return out
+
+    _walk(AgentCard)
+    drift = {}
+    for name, py_fields in seen.items():
+        ts_fields = _ts_type_members(name)
+        if ts_fields is None:
+            drift[name] = "no `export type` block in agent-card.ts"
+        elif ts_fields != py_fields:
+            drift[name] = {"only_in_python": sorted(py_fields - ts_fields), "only_in_ts": sorted(ts_fields - py_fields)}
+    assert not drift, drift
