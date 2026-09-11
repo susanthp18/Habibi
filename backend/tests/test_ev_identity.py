@@ -336,3 +336,64 @@ def test_a_mandate_is_priced_at_what_it_is_authorised_to_collect() -> None:
     assert scoring.rupees_given_cure(
         A.REPRESENT_MANDATE, capped, policy=policy
     ) < scoring.rupees_given_cure(A.REPRESENT_MANDATE, uncapped, policy=policy)
+
+
+def test_the_capacity_price_can_be_taken_back_out_of_the_expected_value() -> None:
+    """The identity W13's allocator depends on, and the one that stops the
+    surcharge compounding.
+
+    ``scoring.score`` writes ``ev = gross − cost − fatigue`` where ``cost``
+    already carries λ·usage, and ``solve_capacity`` reads that ``ev`` back as
+    tomorrow's demand. Without a separately logged ``capacityPrice`` the value
+    of an action falls by the surcharge every day the price holds
+    ``[allocate-dual-price-double-counted-in-next-days-demand]`` — an
+    oscillation with no economic cause, on a number a floor manager reads.
+
+    The identity: pricing an action at λ and then adding the logged
+    ``capacityPrice`` back gives the same number as pricing it at λ = 0.
+    """
+    from agent_core.treatment import allocate as alloc
+    from agent_core.treatment import config as treatment_config
+
+    costs = treatment_config.Costs(
+        sms=1.0,
+        whatsapp=2.0,
+        voice_bot=3.0,
+        human_call=45.0,
+        field_visit=1150.0,
+        legal_notice=250.0,
+        represent_mandate=12.0,
+        emi_date_change=0.0,
+        self_service_plan=0.0,
+    )
+    free = costs.for_action("human_call")
+    assert costs.capacity_price("human_call") == 0.0, "dual pricing is gated off"
+
+    # Six minutes of an agent priced at ₹2.50 a minute.
+    original_enabled = alloc.enabled
+    original_prices = alloc._todays_prices
+    alloc.enabled = lambda: True
+    alloc._todays_prices = lambda: {"agent_minutes": 2.50}
+    try:
+        priced = costs.for_action("human_call")
+        surcharge = costs.capacity_price("human_call")
+    finally:
+        alloc.enabled = original_enabled
+        alloc._todays_prices = original_prices
+
+    assert surcharge == pytest.approx(15.0)
+    assert priced == pytest.approx(free + surcharge)
+    # And the identity, stated the way the allocator uses it: a scored action
+    # plus its logged capacity price is the action valued at λ = 0.
+    scored = scoring.ScoredAction(
+        action="human_call",
+        channel="voice",
+        at=None,
+        expected_value=100.0 - surcharge,
+        p_reach=0.5,
+        p_resolve=0.4,
+        cost=priced,
+        capacity_price=surcharge,
+        explanation="",
+    )
+    assert scored.pre_dual_expected_value == pytest.approx(100.0)

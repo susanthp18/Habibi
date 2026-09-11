@@ -424,6 +424,93 @@ segment model nearly always fits its own stratum better than a pooled one does,
 and on a difference of two noisy quantities that is exactly how confident noise
 ships.
 
+## The allocator, and the price nobody may believe yet (W13, §10)
+
+§10.1 says the optimiser "is not the hard part, and it is already built". That
+is true of the method and was false of `allocate.py`, which ran a different
+algorithm from the one the benchmarks measured and carried all four of §10.1's
+named defects. W13 is not "write a solver" — it is: make the solve the
+benchmarked one, make its output refusable, and put the price behind a gate an
+environment variable cannot open.
+
+**The solve.** Cutting plane over the Lagrangian dual, replacing six sweeps of
+bisection (504 passes over the book, no bound attached to the answer). One
+vectorised O(n) pass per iteration — reduced value, `argmax`, `bincount` — and a
+master LP of `R+1` variables through the same HiGHS the benchmark used. The
+reduced value is float64 even where the inputs are not, because differencing
+expected values of order 10² against λ·usage of similar magnitude near the
+threshold is where float32 loses the comparison the assignment depends on.
+
+**The stopping rule watches λ, not the objective.** §10.1 defect 3: at tol 1e-4
+the dual objective sat within 0.002% of optimal while individual λ_r drifted by
+up to 1.4 on prices of ₹11-19. Measured here on synthetic books of 200 and 5,000
+accounts against HiGHS's exact duals: stopping on the objective alone at 1e-6
+left λ 8.4e-3 out; adding `PRICE_TOLERANCE` brought it to 5.8e-7 and 6.5e-6 for
+six to ten more iterations. That is what makes §10.4's gold-standard gate
+(λ within 1e-3) a gate that can pass rather than a deletion.
+
+**Three different numbers, and they must not be confused:**
+
+| | |
+|---|---|
+| `converged` | the dual loop stopped because both the objective gap and λ's movement cleared their tolerances |
+| `duality_gap` | dual bound vs the **integral** plan the repair produced. Never zero — one account takes one action and the relaxation does not have to |
+| `feasible` | `usage_r <= K_r` for every configured resource, **asserted** after the repair. §10.1 defect 2: the prototype terminated at 2M with an overshoot still present |
+
+**Capacity has three states and `unset` is not `0`.** Measured on `collections`
+2026-09-11, the one row `capacity_duals` held read `capacity = 0.00,
+demand = 486, converged = t`. Read literally it says 486 mandate presentations
+are planned against a budget of nothing. It means nobody ever set
+`TREATMENT_CAPACITY_MANDATE_PRESENTATIONS`. `capacity` is now nullable,
+`capacity_source` says `feed` / `env` / `unset`, and the C9 `bank_capacity` feed
+— landed in W5, read by nothing until now — comes first.
+
+**A price the solver does not believe is not written**, and a price written by an
+older build is not read: `persist` refuses unless `converged and feasible`, and
+`_todays_prices` filters on the same predicate. The published price is damped
+against the day before (`dual_price`) with the solver's own number kept beside it
+(`dual_price_raw`), because §10.3 publishes λ as a business-facing price and a
+series that moves with the solver's numerical state has a floor manager hiring
+against noise.
+
+**The write switch is six measured gates, not an environment variable.**
+`write_switch_objections` returns §10.4's list: a promoted estimator serving, ten
+consecutive green gold-standard nights, |Δλ|/λ < 0.15 under a 5% shock, capacity
+conservation, a real C9 feed, and the objective-mismatch regret filed.
+`TREATMENT_DUAL_PRICING` can only ever turn the price **off**. §8.12: a gate with
+a documented bypass is worse than no gate. **Measured today: all six refuse.**
+
+**λ enters the cost term once and is logged apart from it.** `Costs.for_action`
+is still the only place the surcharge is added, and `capacity_price` is the same
+number nameable. Until W13 it was summed into `cost`, `scoring` subtracted it
+from `expected_value`, and `solve_capacity` read that value back as tomorrow's
+demand — so the surcharge compounded daily
+`[allocate-dual-price-double-counted-in-next-days-demand]`. `capacityPrice` now
+travels on every candidate and `allocator_jobs.demands` adds it back.
+
+**Suppressed borrowers are not demand.** A borrower the veto stack forbade
+contacting cannot consume an agent minute at any price, and counting them bid up
+a resource nobody could spend on them
+`[solve-capacity-counts-suppressed-accounts-as-demand]`.
+
+**`lambda_bucket` carries a real bucket**, which is W13's third exit criterion —
+W2 shipped `'none'` under a CHECK "until W13". The trap is that `lambda_bucket`
+is in `ope.CLASS_COLUMNS`: a bucket carrying λ to two decimal places would make
+every day its own equivalence class and leave nothing with enough rows to
+evaluate. So it names the **binding set and a coarse price band** —
+`agent_minutes:3|bot_minutes:1` — and returns `'none'` whenever pricing is gated
+off or nothing binds, which is the truth rather than a placeholder.
+
+**What is refused, and why.** `REFUSED_RESOURCES` names the five constraints
+§10.2 requires and this tree cannot price, each with its reason, because a
+resource list that does not say what is missing from it reads as a claim that
+nothing is. The NACH return budget is the one that matters: `return_budget`
+measures the ratio — `returned / (confirmed + returned)`, rejects excluded, ₹5
+per return above 50% and a registration bar since 1 Oct 2024 — and declines to
+price it, because §10.2 keys it on `(utility_code, sponsor_bank)` and neither
+column exists, and because consumption is `P(return | x, rail, date, amount)`,
+which no estimator here produces.
+
 ## Drift, calibration and the promotion gate (§15)
 
 `monitor.py` runs three checks that fail in three different ways, which is why

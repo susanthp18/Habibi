@@ -378,6 +378,9 @@ def _decide(
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     decision_id = None
+    # Resolved once per decision, not once per field: it reads the day's dual
+    # prices, and the two places below must agree about what they were.
+    lambda_bucket = logging_contract.lambda_bucket()
     if persist != PERSIST_PREVIEW:
         record_kwargs = dict(
             conn=conn,
@@ -403,7 +406,7 @@ def _decide(
                     "nonce": verdict.replay_nonce,
                     "vetoStackVersion": logging_contract.VETO_STACK_VERSION,
                     "engineImageDigest": logging_contract.engine_image_digest(),
-                    "lambdaBucket": logging_contract.LAMBDA_BUCKET_NONE,
+                    "lambdaBucket": lambda_bucket,
                 },
             },
             candidates=_candidate_log(
@@ -426,7 +429,7 @@ def _decide(
             veto_stack_version=logging_contract.VETO_STACK_VERSION,
             engine_image_digest=logging_contract.engine_image_digest(),
             config_version=logging_contract.config_version(conn=conn),
-            lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
+            lambda_bucket=lambda_bucket,
             logging_contract_version=logging_contract.CONTRACT_VERSION,
             feature_snapshot_build_id=features.snapshot_build_id,
             feature_snapshot_date=features.snapshot_date,

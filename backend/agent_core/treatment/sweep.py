@@ -89,9 +89,57 @@ def process_one(engine: Engine) -> bool:
     with engine.begin() as conn:
         from agent_core.treatment import schema_ready
 
+        blocked = duals_missing(conn)
+        if blocked:
+            # §10.5: "The sweep REFUSES to start without duals_ready or an
+            # operator-set static-quota flag. A degradation with a name and a
+            # page, never a silent fall-back to yesterday's prices."
+            logger.error(
+                "treatment sweep refuses to start: %s. Dual pricing is on, so "
+                "every expected value this sweep would write has a capacity "
+                "surcharge in it, and there is no solve to take it from. Set "
+                "TREATMENT_STATIC_QUOTA=1 to decide without prices and say so "
+                "on the rows, or run the capacity solve.",
+                blocked,
+            )
+            return False
         if schema_ready.w6_ready(conn):
             return _process_sharded(conn)
         return _process_legacy(conn)
+
+
+def duals_missing(conn: Any) -> str | None:
+    """Why this sweep must not start, or ``None``.
+
+    Only ever non-``None`` when dual pricing is switched on. With it off the
+    sweep does not consume λ at all, and refusing to decide the book because a
+    price nobody reads is missing would be a self-inflicted outage — which is
+    why §10.5's refusal is conditional here rather than unconditional.
+
+    ``TREATMENT_STATIC_QUOTA`` is §10.5's named escape: an operator may decide
+    the book on fixed quotas instead. It is not a bypass of the §10.4 gates —
+    it does not turn pricing on, it declares that today runs without it.
+    """
+    from agent_core.treatment import allocate
+
+    if not allocate.enabled():
+        return None
+    if env_bool("TREATMENT_STATIC_QUOTA"):
+        return None
+    try:
+        ready = conn.execute(
+            text(
+                """
+                SELECT 1 FROM capacity_duals
+                WHERE plan_date = CURRENT_DATE AND converged AND feasible
+                LIMIT 1
+                """
+            )
+        ).scalar()
+    except Exception:
+        logger.exception("capacity_duals unreadable")
+        return "duals_unreadable"
+    return None if ready else "no_duals_for_today"
 
 
 def _process_legacy(conn: Any) -> bool:

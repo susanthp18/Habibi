@@ -155,6 +155,77 @@ def test_fresh_sql_vocabulary_includes_w12() -> None:
     ).is_file()
 
 
+def test_fresh_sql_vocabulary_includes_w13() -> None:
+    sql = (BACKEND / "sql" / "33_allocator.sql").read_text(encoding="utf-8")
+    # §10.1 defects 2, 3 and 4: the columns that say whether a price can be
+    # believed. Without them ``converged`` meant only "no bisection moved and
+    # nothing hit the ceiling", which is not a statement about optimality.
+    for column in (
+        "capacity_source",
+        "dual_price_raw",
+        "dual_bound",
+        "primal_value",
+        "duality_gap",
+        "feasible",
+        "damping",
+    ):
+        assert column in sql, column
+    # §10.2: "unconfigured" and "a budget of nothing" stop being the same
+    # number. Measured on `collections` 2026-09-11, one row read
+    # `capacity = 0.00, demand = 486, converged = t` and meant the first.
+    assert "ALTER COLUMN capacity DROP NOT NULL" in sql
+    assert "ck_capacity_duals_source" in sql
+    assert "'feed'" in sql and "'env'" in sql and "'unset'" in sql
+    # §15.2 W0: no ACCESS EXCLUSIVE without NOT VALID or CONCURRENTLY.
+    assert "NOT VALID" in sql and "VALIDATE CONSTRAINT" in sql
+    assert (
+        BACKEND / "alembic" / "versions" / "20260911_0122_allocator.py"
+    ).is_file()
+
+
+def test_the_allocator_write_switch_has_no_bypass() -> None:
+    """§8.12: "a gate with a documented bypass is worse than no gate".
+
+    ``TREATMENT_DUAL_PRICING`` gates λ into the cost term, which changes who gets
+    contacted. §10.4 puts six measured conditions in front of it, so the source
+    of :func:`allocate.enabled` must consult them and must not offer an override
+    flag beside them.
+    """
+    import inspect
+
+    from agent_core.treatment import allocate
+
+    source = inspect.getsource(allocate.enabled)
+    assert "write_switch_objections" in source or "_cached_objections" in source, (
+        "enabled() reads the environment variable alone, so an operator can "
+        "switch on a price no gate has cleared"
+    )
+    for bypass in ("OVERRIDE", "FORCE", "SKIP_GATE", "IGNORE_GATE"):
+        assert bypass not in inspect.getsource(allocate), bypass
+
+
+def test_the_serving_path_carries_no_solver_import() -> None:
+    """``allocate`` is imported by ``costs.for_action`` and therefore by the API.
+
+    Measured 2026-09-11: ``collections_api`` and both batch workers have no
+    numpy. A module-level import in this file is an outage, not a slow start.
+    Asserted here as well as in the wave suite because this file is the one CI
+    runs when it wants to know whether the contracts still hold.
+    """
+    import ast
+
+    tree = ast.parse(
+        (BACKEND / "agent_core" / "treatment" / "allocate.py").read_text("utf-8")
+    )
+    imported = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            imported.add((node.module or "").split(".")[0])
+    assert not (imported & {"numpy", "scipy"}), imported
+
+
 #: What `offer_decisions` costs today, outside alembic history. W12 opened a
 #: dual-write window rather than cutting over, so this number is what says the
 #: window is closing rather than a promise that it will.

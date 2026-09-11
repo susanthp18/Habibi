@@ -540,14 +540,40 @@ def borrower_experience(conn: Any, *, days: int, modes: list[str]) -> dict[str, 
     }
 
 
-def capacity(conn: Any, *, days: int) -> dict[str, Any]:
-    """Utilisation and dual-price stability.
+def capacity(conn: Any, *, days: int, tenant_id: str | None = None) -> dict[str, Any]:
+    """Utilisation and dual-price stability, beside what the control arm cost.
 
     A dual price that swings wildly day to day is not a signal, it is noise
     entering the cost term — and because the cost term feeds every local
     decision, an unstable price makes the whole ladder oscillate. The spread is
     reported rather than the mean for exactly that reason.
+
+    §10.3: λ "shares a dashboard panel with the cumulative borrower-cases
+    withheld by the control arm, because those two numbers together say what the
+    system is spending". They are returned together here for the same reason a
+    P&L does not put revenue and cost on separate pages.
+
+    **The tenant filter is explicit** `[metrics-capacity-no-tenant-filter]`.
+    Row-level security is the primary control and derives a policy for this
+    table automatically — it carries ``tenant_id``, so ``rls.plan`` roots it at
+    depth 0 — but capacity, book size, demand and price together are a complete
+    picture of a competitor's operation, and a reporting connection that is
+    exempt from RLS is a thing that exists. The sibling metrics in this module
+    lean on RLS alone; that is a wider change than this wave.
     """
+    from agent_core.treatment import schema_ready
+
+    if not schema_ready.w13_ready(conn):
+        # sql/33 added the four columns that say whether a solve could be
+        # believed. Reporting utilisation without them would show the same
+        # dashboard W13 exists to stop: a price beside a capacity of 0 that
+        # actually means nobody configured one.
+        return {
+            "resources": [],
+            "solved": False,
+            "reason": "capacity_duals_behind_0122",
+            "withheldCases": withheld_cases(conn, days=days, tenant_id=tenant_id),
+        }
     rows = conn.execute(
         text(
             """
@@ -556,22 +582,31 @@ def capacity(conn: Any, *, days: int) -> dict[str, Any]:
                    COALESCE(avg(dual_price), 0)::float AS avg_price,
                    COALESCE(min(dual_price), 0)::float AS min_price,
                    COALESCE(max(dual_price), 0)::float AS max_price,
+                   COALESCE(avg(dual_price_raw), 0)::float AS avg_price_raw,
+                   COALESCE(min(dual_price_raw), 0)::float AS min_price_raw,
+                   COALESCE(max(dual_price_raw), 0)::float AS max_price_raw,
                    COALESCE(avg(CASE WHEN capacity > 0 THEN demand / capacity END), 0)::float
                      AS utilisation,
-                   count(*) FILTER (WHERE NOT converged)::int AS non_converged
+                   count(*) FILTER (WHERE capacity IS NULL)::int AS unconfigured_days,
+                   count(*) FILTER (WHERE capacity_source = 'feed')::int AS fed_days,
+                   count(*) FILTER (WHERE NOT converged)::int AS non_converged,
+                   count(*) FILTER (WHERE NOT feasible)::int AS infeasible
             FROM capacity_duals
             WHERE plan_date >= (now() - make_interval(days => :days))::date
+              AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)
             GROUP BY 1
             ORDER BY 3 DESC
             """
         ),
-        {"days": days},
+        {"days": days, "tenant": tenant_id},
     ).mappings().all()
 
     out = []
     for r in rows:
         avg = float(r["avg_price"])
         spread = float(r["max_price"]) - float(r["min_price"])
+        raw_avg = float(r["avg_price_raw"])
+        raw_spread = float(r["max_price_raw"]) - float(r["min_price_raw"])
         out.append(
             {
                 "resource": r["resource"],
@@ -586,14 +621,89 @@ def capacity(conn: Any, *, days: int) -> dict[str, Any]:
                     else "stable" if spread / avg < 0.5
                     else "volatile"
                 ),
+                # The same spread on the UNDAMPED series. A price that is
+                # stable only after damping is a damped price, not a stable
+                # one, and the two must be legible apart or the stability
+                # claim is about the smoother.
+                "undampedSpreadInr": round(raw_spread, 2),
+                "undampedStability": (
+                    "unpriced" if raw_avg <= 0
+                    else "stable" if raw_spread / raw_avg < 0.5
+                    else "volatile"
+                ),
                 "utilisation": round(float(r["utilisation"]), 3),
+                # A resource nobody configured is not a resource with no
+                # capacity, and until W13 both arrived in this table as 0.
+                "unconfiguredDays": r["unconfigured_days"],
+                "daysFromFeed": r["fed_days"],
                 "nonConvergedDays": r["non_converged"],
+                "infeasibleDays": r["infeasible"],
             }
         )
-    return {"resources": out, "solved": bool(out)}
+    return {
+        "resources": out,
+        "solved": bool(out),
+        "withheldCases": withheld_cases(conn, days=days, tenant_id=tenant_id),
+    }
 
 
-def report(conn: Any, *, days: int = 28, include_simulated: bool = False) -> dict[str, Any]:
+def withheld_cases(
+    conn: Any, *, days: int, tenant_id: str | None = None
+) -> dict[str, Any]:
+    """Borrower-cases the control arm withheld treatment from, cumulatively.
+
+    §10.3 puts this beside λ because together they are what the system spends:
+    λ is the cost of a scarce resource, and this is the cost of knowing whether
+    spending it helps. A control arm is not free — it is a decision not to act
+    on borrowers who might have been cured — and a dashboard that shows the
+    price without the withholding shows half of a trade.
+
+    Counted in **cases**, not decisions, because the randomisation unit is the
+    customer-spell (§8.7) and a borrower with fourteen decisions on one case was
+    withheld from once.
+    """
+    from agent_core.treatment import schema_ready
+
+    if not schema_ready.has_table(conn, "analysis_panel"):
+        return {"evaluable": False, "reason": "no_analysis_panel"}
+    row = conn.execute(
+        text(
+            """
+            SELECT count(*) FILTER (WHERE variant = 'control')::int AS control_cases,
+                   count(*)::int AS cases,
+                   count(DISTINCT customer_id)
+                     FILTER (WHERE variant = 'control')::int AS control_customers,
+                   count(*) FILTER (WHERE variant = 'control' AND mature)::int
+                     AS mature_control_cases
+            FROM analysis_panel
+            WHERE randomised_at >= now() - make_interval(days => :days)
+              AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)
+            """
+        ),
+        {"days": days, "tenant": tenant_id},
+    ).mappings().first()
+    cases = int((row or {}).get("cases") or 0)
+    control = int((row or {}).get("control_cases") or 0)
+    return {
+        # An empty panel is not "nothing was withheld". It is "the panel that
+        # would say has not been built", which is a different sentence and the
+        # one §8.12 requires.
+        "evaluable": cases > 0,
+        "cases": cases,
+        "controlCases": control,
+        "controlCustomers": int((row or {}).get("control_customers") or 0),
+        "matureControlCases": int((row or {}).get("mature_control_cases") or 0),
+        "controlShare": round(control / cases, 4) if cases else None,
+    }
+
+
+def report(
+    conn: Any,
+    *,
+    days: int = 28,
+    include_simulated: bool = False,
+    tenant_id: str | None = None,
+) -> dict[str, Any]:
     """All six §17 categories over one window."""
     modes = ["shadow", "live"] + (["simulated"] if include_simulated else [])
     from agent_core.treatment import monitor
@@ -607,5 +717,5 @@ def report(conn: Any, *, days: int = 28, include_simulated: bool = False) -> dic
         ),
         "compliance": compliance(conn, days=days),
         "borrowerExperience": borrower_experience(conn, days=days, modes=modes),
-        "capacity": capacity(conn, days=days),
+        "capacity": capacity(conn, days=days, tenant_id=tenant_id),
     }

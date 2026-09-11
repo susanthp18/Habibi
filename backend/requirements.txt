@@ -12,6 +12,8 @@ sqlalchemy==2.0.51
 psycopg==3.3.4
 psycopg-binary==3.3.4
 alembic==1.18.5
+# W6 offline PIT builder. 1.3+ carries the rewritten ASOF planner.
+duckdb==1.3.2
 openai==2.46.0
 tiktoken==0.13.0
 httpx==0.28.1
@@ -42,3 +44,18 @@ pytest-cov==7.1.0
 # importing db were documentation rather than configuration. Pinned because an
 # unpinned linter turns somebody else's release into your red build.
 ruff==0.6.9
+# W13's allocator. numpy is the eighteen-million-row reduced-value pass -- one
+# O(n) argmax and bincount per iteration instead of the 504 pure-Python passes
+# the coordinate-descent solve took -- and scipy is the HiGHS the allocation
+# benchmarks were measured against, used twice: for the cutting-plane master
+# (R+1 variables, <=80 rows) and for the nightly gold-standard LP that asserts
+# the cheap solve got the same duals as the expensive one.
+#
+# BOTH ARE IMPORTED INSIDE THE SOLVE, never at module scope. `allocate.py` is
+# reached from `costs.for_action`, which is on the path that decides whether a
+# borrower is contacted; the read half of that module is pure SQL and must keep
+# working on an image where these are absent. Measured 2026-09-11: they were
+# absent from collections_api and both batch workers, present only in the voice
+# image via pipecat.
+numpy==2.4.6
+scipy==1.18.1

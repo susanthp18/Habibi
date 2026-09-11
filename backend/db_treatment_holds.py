@@ -494,7 +494,10 @@ def treatment_metrics(days: int = 28, *, include_simulated: bool = False) -> dic
 
     with engine.connect() as conn:
         return treatment_metrics_mod.report(
-            conn, days=days, include_simulated=include_simulated
+            conn,
+            days=days,
+            include_simulated=include_simulated,
+            tenant_id=_mod.current_tenant(),
         )
 
 

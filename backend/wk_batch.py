@@ -29,7 +29,37 @@ COST_ROLLUP = "w6.cost_rollup"
 #: here rather than in its own worker because it is the same shape as the
 #: other three: nightly, idempotent, and nothing borrower-facing.
 RETENTION = "w8.retention_sweep"
-JOBS = frozenset({SNAPSHOT, PIT_SKEW, COST_ROLLUP, RETENTION})
+#: W13. The daily capacity solve, its nightly gold-standard check against the
+#: monolithic LP, and the objective-mismatch regret measurement §10.4 requires
+#: filed before the write switch is flipped.
+#:
+#: Here rather than in a scheduler of their own because §10.5 asks for exactly
+#: what this dispatcher already is: a nightly, idempotent, role-scoped job under
+#: a per-job advisory lock, with a row that makes "did it run today" a query
+#: rather than an inference. A third job ledger would be the fourth
+#: contact-window restatement in a different costume.
+CAPACITY_SOLVE = "w13.capacity_solve"
+ALLOCATOR_GOLD = "w13.allocator_gold"
+ALLOCATOR_REGRET = "w13.allocator_regret"
+JOBS = frozenset(
+    {
+        SNAPSHOT,
+        PIT_SKEW,
+        COST_ROLLUP,
+        RETENTION,
+        CAPACITY_SOLVE,
+        ALLOCATOR_GOLD,
+        ALLOCATOR_REGRET,
+    }
+)
+
+#: Jobs that read the primary rather than the reporting standby.
+#:
+#: The three W13 jobs read ``treatment_decisions`` — the decision log as it
+#: stands now, not a replica of it — and the solve writes ``capacity_duals``.
+#: Demanding a REPORTING_DATABASE_URL for a job that neither reads a replica nor
+#: needs one is how a deployment ends up with no capacity price at all.
+PRIMARY_SOURCE_JOBS = frozenset({CAPACITY_SOLVE, ALLOCATOR_GOLD, ALLOCATOR_REGRET})
 
 
 def reporting_engine() -> tuple[Engine, str]:
@@ -74,6 +104,54 @@ def enqueue(
     )
 
 
+def run_now(
+    engine: Engine,
+    *,
+    job_type: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Enqueue one job and run it here, under the same lock and ledger.
+
+    For jobs a human triggers from a script. The alternative -- enqueue and
+    then spin `process_one` until it happens to pick this job -- runs whatever
+    else is queued first, which is not what somebody at a terminal asked for.
+
+    The row it leaves is the same row the scheduled path leaves, which is the
+    point: `allocate.write_switch_objections` counts gold-standard nights out of
+    `work_runtime_jobs`, and a run that did not write one did not happen.
+    """
+    if job_type not in PRIMARY_SOURCE_JOBS:
+        raise ValueError(f"run_now_refuses:{job_type}")
+    job = enqueue(job_type=job_type, payload=payload, idempotency_key=idempotency_key)
+    job_id = str(job["id"])
+    lock_name = f"wk-batch:{job_type}:{idempotency_key}"
+    with engine.connect() as sink:
+        locked = sink.execute(
+            text("SELECT pg_try_advisory_lock(hashtextextended(:name, 0))"),
+            {"name": lock_name},
+        ).scalar()
+        sink.commit()
+        if locked is not True:
+            _finish(engine, job_id, ok=False, error="advisory_lock_busy")
+            return {"id": job_id, "status": "failed", "error": "advisory_lock_busy"}
+        try:
+            with sink.begin():
+                result = _run(job_type, payload, sink, sink, source_kind="primary")
+            _finish(engine, job_id, ok=True, result=result)
+            return {"id": job_id, "status": "completed", "result": result}
+        except Exception as exc:
+            logger.exception("wk-batch run_now failed job=%s", job_type)
+            _finish(engine, job_id, ok=False, error=type(exc).__name__)
+            return {"id": job_id, "status": "failed", "error": type(exc).__name__}
+        finally:
+            sink.execute(
+                text("SELECT pg_advisory_unlock(hashtextextended(:name, 0))"),
+                {"name": lock_name},
+            )
+            sink.commit()
+
+
 def process_one(engine: Engine, *, source_engine: Engine | None = None) -> bool:
     """Claim one W6 job, run it under one session advisory lock, and finish it."""
     with engine.begin() as conn:
@@ -106,7 +184,9 @@ def process_one(engine: Engine, *, source_engine: Engine | None = None) -> bool:
 
     owned_source = source_engine is None
     source_kind = "reporting"
-    if source_engine is None:
+    if str(job["workflow_type"]) in PRIMARY_SOURCE_JOBS:
+        source_engine, source_kind, owned_source = engine, "primary", False
+    elif source_engine is None:
         source_engine, source_kind = reporting_engine()
     lock_name = f"wk-batch:{job['workflow_type']}:{job['idempotency_key']}"
     try:
@@ -186,6 +266,10 @@ def _run(
                 limit=int(payload.get("limit") or 5000),
             )
         }
+    if job_type in PRIMARY_SOURCE_JOBS:
+        from agent_core.treatment import allocator_jobs
+
+        return allocator_jobs.run(job_type, sink, tenant_id=tenant_id, payload=payload)
     if job_type == COST_ROLLUP:
         count = substrate.rollup_decision_costs(
             source, sink, usage_date=date.fromisoformat(str(payload["usage_date"]))

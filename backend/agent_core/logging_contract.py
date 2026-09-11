@@ -105,6 +105,69 @@ def environment_config_version() -> str:
     return f"env:{digest}"
 
 
+#: Price bands, in rupees per unit, that :func:`lambda_bucket` reports λ in.
+#:
+#: Coarse on purpose. ``lambda_bucket`` is one of ``ope.CLASS_COLUMNS``, so it
+#: partitions the off-policy corpus: a bucket carrying λ to two decimal places
+#: would make every day its own equivalence class and leave nothing with enough
+#: rows to evaluate. A band is the grain at which a change in λ actually
+#: changes the argmax, which is what the equivalence class is about.
+LAMBDA_BANDS: tuple[float, ...] = (1.0, 5.0, 20.0, 100.0, 500.0)
+
+
+def lambda_band(price: float) -> int:
+    """Which band a price falls in. 0 is "not binding"."""
+    if price <= 0:
+        return 0
+    for index, edge in enumerate(LAMBDA_BANDS):
+        if price < edge:
+            return index + 1
+    return len(LAMBDA_BANDS) + 1
+
+
+def lambda_bucket(prices: Any = None, *, pricing_enabled: bool | None = None) -> str:
+    """The dual-price equivalence class this decision was made under.
+
+    W2 shipped this column with the stated day-1 value ``'none'`` under a CHECK
+    "until W13", and W13 is where it becomes a real bucket — §15.2's third exit
+    criterion. What it has to be is set by §8.9, which puts ``lambda_bucket`` in
+    the support-equivalence class: "λ is re-solved daily and enters the served
+    score, so it changes the argmax and therefore the logging policy, leaving
+    the corpus an undocumented mixture over dual prices".
+
+    So the bucket names the **binding set and the band each binding price sits
+    in** — ``agent_minutes:3|field_slots:1`` — and nothing finer. A bucket that
+    changed whenever λ moved by a rupee would shatter the corpus into
+    single-day slivers, which is the failure §8.9 warns about for
+    ``policy_binding_hash``, arriving through a different door.
+
+    ``'none'`` is returned when dual pricing is gated off or when nothing is
+    binding, and that is the truth rather than a placeholder: in both cases λ
+    never entered the score, so every such row belongs to one class. Every row
+    in this tree's corpus is one of those, and stays one after this ships.
+    """
+    if pricing_enabled is None or prices is None:
+        from agent_core.treatment import allocate
+
+        if pricing_enabled is None:
+            pricing_enabled = allocate.enabled()
+        if not pricing_enabled:
+            return LAMBDA_BUCKET_NONE
+        if prices is None:
+            prices = allocate._todays_prices()
+    if not pricing_enabled:
+        return LAMBDA_BUCKET_NONE
+
+    binding = sorted(
+        (str(resource), lambda_band(float(price)))
+        for resource, price in dict(prices).items()
+        if float(price or 0.0) > 0
+    )
+    if not binding:
+        return LAMBDA_BUCKET_NONE
+    return "|".join(f"{resource}:{band}" for resource, band in binding)
+
+
 @dataclass(frozen=True)
 class Draw:
     """One pick, and the two probabilities that produced it."""

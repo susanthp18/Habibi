@@ -365,6 +365,10 @@ class TreatmentAlternativeResponse(BaseModel):
     pReach: float | None = None
     pResolve: float | None = None
     cost: float | None = None
+    #: The part of ``cost`` that is today's capacity price rather than the
+    #: ledger price. ``expectedValue`` has it subtracted; an allocator reading
+    #: these values back to price tomorrow's book must add it again.
+    capacityPrice: float | None = None
     #: Which quantity ``expectedValue`` was built from - a response prior or a
     #: fitted uplift. Two rows carrying the same number mean different things
     #: without it (§8.1), so it travels with the number rather than beside it.

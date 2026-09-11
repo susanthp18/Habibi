@@ -281,6 +281,9 @@ def _recommend(
     except Exception:
         logger.exception("reco policy binding failed")
         reco_binding, reco_digest = [], None
+    # Resolved once per decision, not once per field: it reads the day's dual
+    # prices, and the two places below must agree about what they were.
+    lambda_bucket = logging_contract.lambda_bucket()
     decision_id = decisions.record(
         conn=conn,
         customer_id=customer_id,
@@ -299,7 +302,7 @@ def _recommend(
                 "armPropensity": drawn.arm_propensity if drawn else 1.0,
                 "actionPropensity": drawn.action_propensity if drawn else 1.0,
                 "nonce": drawn.nonce if drawn else "",
-                "lambdaBucket": logging_contract.LAMBDA_BUCKET_NONE,
+                "lambdaBucket": lambda_bucket,
             },
         },
         candidates=_candidate_log(features, signals, vetted, scored),
@@ -315,7 +318,7 @@ def _recommend(
         veto_stack_version=logging_contract.VETO_STACK_VERSION,
         engine_image_digest=logging_contract.engine_image_digest(),
         config_version=logging_contract.config_version(),
-        lambda_bucket=logging_contract.LAMBDA_BUCKET_NONE,
+        lambda_bucket=lambda_bucket,
         logging_contract_version=logging_contract.CONTRACT_VERSION,
         policy_binding=reco_binding,
         policy_binding_hash=reco_digest,

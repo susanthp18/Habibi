@@ -214,15 +214,38 @@ class Costs:
         outranked every priced one on its first day. Infinity drives its EV to
         −∞ instead, which excludes it until somebody prices it.
         """
-        from agent_core.treatment import allocate
+        return self.ledger_price(action) + self.capacity_price(action)
 
+    def ledger_price(self, action: str) -> float:
+        """The half of :meth:`for_action` that does not move day to day."""
         price = self.observed.get(action)
         if price is None:
             price = getattr(self, action, None)
         if price is None:
             logger.warning("no unit cost for action=%r — refusing to price it", action)
             return math.inf
-        return float(price) + allocate.price_for_action(action)
+        return float(price)
+
+    def capacity_price(self, action: str) -> float:
+        """Today's λ · usage on this action, in rupees. Zero unless gated on.
+
+        Split out of :meth:`for_action` in W13, and the reason is arithmetic
+        rather than tidiness. ``scoring.score`` writes ``ev = gross - cost -
+        fatigue`` into the decision log, and ``solve_capacity`` reads those
+        logged expected values back to price tomorrow's book — so with dual
+        pricing on, tomorrow's solve priced a book that already had today's
+        surcharge subtracted, and the price compounded daily
+        ``[allocate-dual-price-double-counted-in-next-days-demand]``. Nothing
+        could reconstruct the pre-dual value, because λ was summed into
+        ``cost`` and never logged apart from it.
+
+        It is still added in exactly one place — :meth:`for_action` — so
+        there is one definition of what an action costs. This is the same
+        number, nameable.
+        """
+        from agent_core.treatment import allocate
+
+        return allocate.price_for_action(action)
 
 
 #: Trailing window for a measured unit cost. Ninety days because that is the

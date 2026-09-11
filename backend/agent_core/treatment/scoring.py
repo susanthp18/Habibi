@@ -171,6 +171,26 @@ class ScoredAction:
     #: and a corpus that mixes them without saying so cannot be split by which
     #: one produced each row when somebody later asks whether the model helped.
     estimand: str = ESTIMAND_RESPONSE_PRIOR
+    #: The λ · usage part of ``cost``, in rupees, as it stood when this was
+    #: scored. Zero whenever dual pricing is gated off, which is every row in
+    #: this tree's corpus today.
+    #:
+    #: Logged separately because ``expected_value`` has it subtracted and the
+    #: allocator reads ``expected_value`` back to price tomorrow's book.
+    #: Adding it back is what stops the surcharge compounding day over day
+    #: ``[allocate-dual-price-double-counted-in-next-days-demand]``; the
+    #: identity that holds it in place is in ``tests/test_ev_identity.py``.
+    capacity_price: float = 0.0
+
+    @property
+    def pre_dual_expected_value(self) -> float:
+        """What this action was worth before capacity was priced in.
+
+        The number an allocator must solve against: charging a resource and
+        then re-reading the charged value as demand for it prices the same
+        scarcity twice.
+        """
+        return self.expected_value + self.capacity_price
 
     @property
     def rung(self) -> int:
@@ -186,6 +206,7 @@ class ScoredAction:
             "pResolve": round(self.p_resolve, 4),
             "estimand": self.estimand,
             "cost": round(self.cost, 2),
+            "capacityPrice": round(self.capacity_price, 2),
             "reasonCodes": list(self.reason_codes),
             "components": {k: round(v, 4) for k, v in self.components.items()},
         }
@@ -533,6 +554,7 @@ class EVScorer:
         exposure = capped_exposure(action, features)
         value = rupees_given_cure(action, features, policy=policy)
         cost = costs.for_action(action)
+        capacity_price = costs.capacity_price(action)
         fatigue = fatigue_cost(action, features, policy=policy)
         gross = gross_value(
             p_reach=reach, p_resolve=resolve, rupees=value, decay=decay
@@ -578,6 +600,7 @@ class EVScorer:
             # stops a later corpus mixing this with a τ under one column name.
             estimand=ESTIMAND_RESPONSE_PRIOR,
             cost=cost,
+            capacity_price=capacity_price,
             explanation=self._explain(action, ev, reach, resolve, cost, fatigue),
             timing_rationale=candidate.timing_rationale,
             reason_codes=tuple(reasons),
@@ -589,6 +612,9 @@ class EVScorer:
                 "urgency_decay": decay,
                 "gross": gross,
                 "cost": -cost,
+                # The scarcity half of that cost, so a reader can see how much
+                # of a rejection was the ledger and how much was the book.
+                "capacity_price": -capacity_price,
                 # 1.0 where the ledger price came from measured spend against
                 # this action's own decisions, 0.0 where it is the planning
                 # constant. §11's `cost_basis='observed'` at the decision

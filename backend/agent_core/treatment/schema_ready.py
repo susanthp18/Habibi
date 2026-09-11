@@ -79,6 +79,17 @@ def w12_ready(conn: Any) -> bool:
     return has_column(conn, "treatment_decisions", "action_family")
 
 
+def w13_ready(conn: Any) -> bool:
+    """Whether a capacity solve can record whether it could be believed.
+
+    ``capacity_duals.feasible`` (sql/33, migration 0122). On a database behind
+    it, ``allocate.persist`` has nowhere to write the repair's verdict and
+    ``_todays_prices`` cannot filter on it -- so W13's own reads refuse rather
+    than serving a price whose feasibility nothing recorded.
+    """
+    return has_column(conn, "capacity_duals", "feasible")
+
+
 def suitability_ready(conn: Any) -> bool:
     """Whether a suitability finding can be read at all on this database.
 
