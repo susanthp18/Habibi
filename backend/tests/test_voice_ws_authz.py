@@ -136,9 +136,10 @@ def test_the_ws_and_twilio_gates_do_not_consult_is_prod() -> None:
     import inspect
 
     import main as app_main
+    from routers import telephony as telephony_routes
 
-    ws_src = inspect.getsource(app_main._voice_ws_upgrade_authorized)
-    twilio_src = inspect.getsource(app_main._twilio_signature_ok)
+    ws_src = inspect.getsource(telephony_routes._voice_ws_upgrade_authorized)
+    twilio_src = inspect.getsource(telephony_routes._twilio_signature_ok)
     assert "_IS_PROD" not in ws_src
     assert "_IS_PROD" not in twilio_src
     assert "return not _IS_PROD" not in twilio_src
@@ -157,10 +158,11 @@ def test_upgrade_without_the_secret_is_refused_outside_production(
     the escape would look closed.
     """
     import main as app_main
+    from routers import telephony as telephony_routes
 
     monkeypatch.setattr(app_main, "_IS_PROD", False)
     monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
-    assert app_main._voice_ws_upgrade_authorized(_WS()) is False
+    assert telephony_routes._voice_ws_upgrade_authorized(_WS()) is False
 
 
 def test_upgrade_is_refused_when_the_secret_is_unset(
@@ -168,12 +170,13 @@ def test_upgrade_is_refused_when_the_secret_is_unset(
 ) -> None:
     """An unset secret is a misconfiguration, not an open door."""
     import main as app_main
+    from routers import telephony as telephony_routes
 
     monkeypatch.setattr(app_main, "_IS_PROD", False)
     monkeypatch.delenv("VOICE_WS_PROXY_SECRET", raising=False)
-    assert app_main._voice_ws_upgrade_authorized(_WS()) is False
+    assert telephony_routes._voice_ws_upgrade_authorized(_WS()) is False
     assert (
-        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="anything")
+        telephony_routes._voice_ws_upgrade_authorized(_WS(), path_secret="anything")
         is False
     )
 
@@ -182,21 +185,22 @@ def test_matching_secret_is_accepted_on_path_header_and_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import main as app_main
+    from routers import telephony as telephony_routes
 
     monkeypatch.setattr(app_main, "_IS_PROD", False)
     monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
     assert (
-        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="s3cret-value")
+        telephony_routes._voice_ws_upgrade_authorized(_WS(), path_secret="s3cret-value")
         is True
     )
     assert (
-        app_main._voice_ws_upgrade_authorized(
+        telephony_routes._voice_ws_upgrade_authorized(
             _WS(headers={"x-voice-proxy-secret": "s3cret-value"})
         )
         is True
     )
     assert (
-        app_main._voice_ws_upgrade_authorized(
+        telephony_routes._voice_ws_upgrade_authorized(
             _WS(query_params={"proxy_secret": "s3cret-value"})
         )
         is True
@@ -207,10 +211,11 @@ def test_wrong_secret_is_refused_outside_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import main as app_main
+    from routers import telephony as telephony_routes
 
     monkeypatch.setattr(app_main, "_IS_PROD", False)
     monkeypatch.setenv("VOICE_WS_PROXY_SECRET", "s3cret-value")
     assert (
-        app_main._voice_ws_upgrade_authorized(_WS(), path_secret="other-secret")
+        telephony_routes._voice_ws_upgrade_authorized(_WS(), path_secret="other-secret")
         is False
     )

@@ -531,8 +531,11 @@ def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
     import inspect
 
     import main
+    from routers import telephony as telephony_routes
 
-    for fn in (main.twilio_voice_outbound, main.demo_outbound_call):
+    from routers import outbound as outbound_routes
+
+    for fn in (telephony_routes.twilio_voice_outbound, outbound_routes.demo_outbound_call):
         src = inspect.getsource(fn)
         assert "session_key=customer_id" not in src
         # The session key is the attempt's own, set inside `outbound.gate` —

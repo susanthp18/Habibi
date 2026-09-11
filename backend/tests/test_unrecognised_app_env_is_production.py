@@ -89,6 +89,7 @@ env_loader._ENV_FILE = Path({str(env_file)!r})
 env_loader._LOADED = False
 
 import main
+from routers import telephony as telephony_routes
 import actor_context
 actor_context.reload_api_key_map()
 
@@ -116,13 +117,13 @@ class _TwilioReq:
     headers = {{}}
     url = type("U", (), {{"path": "/twilio/voice/incoming", "query": ""}})()
 
-print("WP013_TWILIO_UNSIGNED=" + str(main._twilio_signature_ok(_TwilioReq(), {{}})))
+print("WP013_TWILIO_UNSIGNED=" + str(telephony_routes._twilio_signature_ok(_TwilioReq(), {{}})))
 
 class _WS:
     headers = {{}}
     query_params = {{}}
 
-print("WP013_WS_AUTH=" + str(main._voice_ws_upgrade_authorized(_WS())))
+print("WP013_WS_AUTH=" + str(telephony_routes._voice_ws_upgrade_authorized(_WS())))
 
 class _Req:
     method = "GET"

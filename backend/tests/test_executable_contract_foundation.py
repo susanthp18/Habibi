@@ -188,13 +188,14 @@ def test_generic_prompt_body_requires_agent_edit_only_when_card_is_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import main
+    from routers import agent_studio as studio_routes
 
     monkeypatch.setattr(main.db, "_actor_user_id", lambda: "prompt-author")
     monkeypatch.setattr(main.authz, "has_permission", lambda *_args: False)
 
-    main._require_agent_edit_for_card({"prompt": "ordinary prompt edit"})
+    studio_routes._require_agent_edit_for_card({"prompt": "ordinary prompt edit"})
     with pytest.raises(Exception) as denied:
-        main._require_agent_edit_for_card({"agentCard": {}})
+        studio_routes._require_agent_edit_for_card({"agentCard": {}})
     assert getattr(denied.value, "status_code", None) == 403
 
 

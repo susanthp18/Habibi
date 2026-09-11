@@ -19,6 +19,7 @@ import pytest
 
 import contact_policy
 import main
+from routers import outbound as outbound_routes
 
 
 # --- what may be waived -----------------------------------------------------
@@ -35,7 +36,7 @@ import main
     ],
 )
 def test_timing_and_frequency_refusals_are_waivable(reason: str) -> None:
-    assert reason in main._DEMO_WAIVABLE_REASONS
+    assert reason in outbound_routes._DEMO_WAIVABLE_REASONS
 
 
 # --- what may never be waived ----------------------------------------------
@@ -55,7 +56,7 @@ def test_timing_and_frequency_refusals_are_waivable(reason: str) -> None:
 )
 def test_consent_refusals_are_never_waivable(reason: str) -> None:
     """A demo does not get to re-answer "did this person agree to be called"."""
-    assert reason not in main._DEMO_WAIVABLE_REASONS
+    assert reason not in outbound_routes._DEMO_WAIVABLE_REASONS
 
 
 def test_an_unreadable_consent_record_still_refuses() -> None:
@@ -65,12 +66,12 @@ def test_an_unreadable_consent_record_still_refuses() -> None:
     Treating "we don't know" as "go ahead" for the sake of a smoother demo is
     the exact trade this codebase refuses everywhere else.
     """
-    assert contact_policy.REASON_UNREADABLE not in main._DEMO_WAIVABLE_REASONS
+    assert contact_policy.REASON_UNREADABLE not in outbound_routes._DEMO_WAIVABLE_REASONS
 
 
 def test_the_waivable_set_is_exactly_the_five_timing_rules() -> None:
     """Pinned as a set, so a sixth reason cannot be added without deciding to."""
-    assert main._DEMO_WAIVABLE_REASONS == frozenset(
+    assert outbound_routes._DEMO_WAIVABLE_REASONS == frozenset(
         {
             contact_policy.REASON_HOURS,
             contact_policy.REASON_WINDOW,
@@ -88,7 +89,7 @@ def test_the_waiver_needs_the_switch_and_the_switch_is_off_by_default() -> None:
     """Waivable is not waived: an operator has to have turned this on."""
     import inspect
 
-    src = inspect.getsource(main.demo_outbound_call)
+    src = inspect.getsource(outbound_routes.demo_outbound_call)
     assert "platform_switches.demo_ignores_window()" in src
     # The waiver is handed to `outbound.gate` as its `waivable` set, and only
     # when the switch is on; off, the set is empty and nothing is waivable.
@@ -105,7 +106,7 @@ def test_every_waiver_is_written_to_the_audit_trail() -> None:
     """Overriding a compliance veto is exactly the event an auditor asks about."""
     import inspect
 
-    src = inspect.getsource(main.demo_outbound_call)
+    src = inspect.getsource(outbound_routes.demo_outbound_call)
     assert "record_activity" in src
     assert "demo_window_waived" in src
     assert 'f"waived:{reason}"' in src
@@ -120,5 +121,5 @@ def test_the_endpoint_still_takes_no_phone_number() -> None:
     """
     import inspect
 
-    sig = inspect.signature(main.demo_outbound_call)
+    sig = inspect.signature(outbound_routes.demo_outbound_call)
     assert list(sig.parameters) == []

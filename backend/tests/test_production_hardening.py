@@ -630,6 +630,7 @@ def test_twilio_signature_fail_closed_in_every_environment(
     returned True, and a production CI run would not see that branch.
     """
     import main as app_main
+    from routers import telephony as telephony_routes
     from voice import twilio_ops
 
     monkeypatch.setattr(app_main, "_IS_PROD", False)
@@ -640,7 +641,7 @@ def test_twilio_signature_fail_closed_in_every_environment(
 
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "")
     monkeypatch.setattr(twilio_ops, "auth_token", lambda: "")
-    assert app_main._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]
+    assert telephony_routes._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]
 
     monkeypatch.setattr(twilio_ops, "auth_token", lambda: "test-twilio-auth-token")
-    assert app_main._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]
+    assert telephony_routes._twilio_signature_ok(_Req(), {}) is False  # type: ignore[arg-type]

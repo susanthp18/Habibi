@@ -1,0 +1,484 @@
+"""Integrations: providers, connectors, MCP, gateway, vault.
+
+Split out of main.py by domain (WS7). Routes are verbatim; the router is
+included by main.py.
+"""
+
+from __future__ import annotations
+
+import logging
+
+import db
+import ops_screens
+import os
+
+from fastapi import APIRouter
+from fastapi import HTTPException, Query
+from schemas import (
+    ProviderBindingInput,
+    ProviderBindingItem,
+    ProviderEnabledPatchRequest,
+    ProviderModelItem,
+    ProviderPoolStatus,
+)
+from typing import Any
+
+from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
+
+router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
+logger = logging.getLogger(__name__)
+
+
+@router.get("/providers")
+def list_providers(env: str = Query(default="sandbox")):
+    return ops_screens.list_providers(env)
+
+@router.patch("/providers/{provider_id}/configs/{environment}")
+def patch_provider_config(
+    provider_id: str, environment: str, payload: ProviderEnabledPatchRequest
+):
+    try:
+        return ops_screens.patch_provider_enabled(
+            provider_id, environment, payload.enabled
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.post("/providers/{provider_id}/test")
+def test_provider(provider_id: str, env: str = Query(default="sandbox")):
+    try:
+        return ops_screens.test_provider(provider_id, env)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.get("/providers/{provider_id}/test-logs")
+def list_provider_test_logs(provider_id: str):
+    return ops_screens.list_provider_test_logs(provider_id)
+
+@router.get("/connectors")
+def list_connectors_api():
+    from agent_core.connectors.persist import list_connectors
+
+    return list_connectors()
+
+@router.post("/connectors")
+def upsert_connector_api(payload: dict[str, Any]):
+    from agent_core.connectors.persist import upsert_connector
+
+    return _handle_write(upsert_connector, payload)
+
+@router.get("/connectors/{connector_id}")
+def get_connector_api(connector_id: str):
+    from agent_core.connectors.persist import get_connector
+
+    row = get_connector(connector_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="connector_not_found")
+    return row
+
+@router.post("/connectors/{connector_id}/approve")
+def approve_connector_api(connector_id: str):
+    from agent_core.connectors.persist import approve
+
+    return _handle_write(approve, connector_id)
+
+@router.post("/connectors/{connector_id}/test")
+def test_connector_api(connector_id: str):
+    from agent_core.connectors.persist import health_test
+
+    return _handle_write(health_test, connector_id)
+
+@router.post("/connectors/{connector_id}/cimd")
+def cimd_connector_api(connector_id: str, payload: dict[str, Any]):
+    from agent_core.connectors.persist import cimd_connect
+
+    issuer = str(payload.get("issuer") or "").strip()
+    return _handle_write(cimd_connect, connector_id, issuer)
+
+@router.get("/vault/refs")
+def list_vault_refs_api():
+    from agent_core.vault.persist import list_refs
+
+    return list_refs()
+
+@router.post("/vault/refs")
+def put_vault_ref_api(payload: dict[str, Any]):
+    from agent_core.vault.persist import put_secret
+
+    return _handle_write(
+        put_secret,
+        name=str(payload.get("name") or ""),
+        purpose=str(payload.get("purpose") or "other"),
+        secret=str(payload.get("secret") or ""),
+    )
+
+@router.post("/vault/refs/{ref_id}/rotate")
+def rotate_vault_ref_api(ref_id: str, payload: dict[str, Any]):
+    from agent_core.vault.persist import rotate
+
+    return _handle_write(rotate, ref_id, str(payload.get("secret") or ""))
+
+@router.get("/mcp/keys")
+def list_mcp_keys_api():
+    from agent_core.mcp_http.auth import list_keys
+
+    return list_keys()
+
+@router.post("/mcp/keys")
+def mint_mcp_key_api(payload: dict[str, Any]):
+    from agent_core.mcp_http.auth import mint_key
+
+    scopes = payload.get("scopes") or []
+    if not isinstance(scopes, list):
+        raise HTTPException(status_code=422, detail="scopes_must_be_list")
+    return _handle_write(mint_key, name=str(payload.get("name") or "key"), scopes=scopes)
+
+@router.post("/mcp/keys/{key_id}/rotate")
+def rotate_mcp_key_api(key_id: str):
+    from agent_core.mcp_http.auth import rotate_key
+
+    return _handle_write(rotate_key, key_id)
+
+@router.post("/mcp/keys/{key_id}/revoke")
+def revoke_mcp_key_api(key_id: str):
+    from agent_core.mcp_http.auth import revoke_key
+
+    _handle_write(revoke_key, key_id)
+    return {"ok": True}
+
+@router.get("/mcp/tasks")
+def list_mcp_tasks_api(status: str | None = None):
+    from agent_core.mcp_http.tasks import list_tasks
+
+    return list_tasks(status=status)
+
+@router.get("/mcp/tasks/{task_id}")
+def get_mcp_task_api(task_id: str):
+    from agent_core.mcp_http.tasks import get_task
+
+    row = get_task(task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="mcp_task_not_found")
+    return row
+
+@router.get("/mcp/status")
+def mcp_status_api():
+    from agent_core.platform_flags import mcp_apps_enabled, mcp_http_enabled, mcp_tasks_enabled
+
+    host = (os.getenv("MCP_HTTP_HOST") or "127.0.0.1").strip()
+    port = os.getenv("MCP_HTTP_PORT") or "8081"
+    return {
+        "stdioCommand": "python -m mcp_server",
+        "httpEnabled": mcp_http_enabled(),
+        "httpUrl": f"http://{host}:{port}/mcp",
+        "tasksEnabled": mcp_tasks_enabled(),
+        "appsEnabled": mcp_apps_enabled(),
+        "mtls": bool((os.getenv("MCP_TLS_CAFILE") or "").strip()),
+        "resources": [
+            "customer://{id}",
+            "account://{id}/ledger",
+            "kb://snapshot/{id}",
+            "interaction://{id}/trace",
+            "policy://authority-matrix",
+        ],
+    }
+
+@router.get("/gateway/status")
+def gateway_status_api():
+    from agent_core.platform_flags import llm_gateway_enabled
+    from llm_gateway import canary as gw_canary
+    from llm_gateway.client import PROFILES, base_url, cap_inr
+
+    profiles = {}
+    for p in PROFILES:
+        env_model = os.getenv(f"LLM_GATEWAY_{p.upper()}_MODEL")
+        override = None
+        try:
+            override = gw_canary.model_for(p)
+        except Exception:
+            override = None
+        profiles[p] = {
+            "capInr": cap_inr(p),
+            "model": override or env_model,
+            "envModel": env_model,
+            "canaryModel": override,
+        }
+    return {
+        "enabled": llm_gateway_enabled(),
+        "baseUrl": base_url() or None,
+        "profiles": profiles,
+        "canary": gw_canary.current(),
+        "killSwitch": "azure_openai" if not llm_gateway_enabled() else None,
+        "voiceSloMs": 800,
+    }
+
+@router.get("/integrations/bank/contracts")
+def bank_contract_status():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.contract_status(conn, tenant_id=db.current_tenant())
+
+@router.get("/integrations/bank/manifests")
+def bank_manifests():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.manifests(conn, tenant_id=db.current_tenant())
+
+@router.post("/integrations/bank/manifests")
+def bank_ingest_manifest(payload: dict[str, Any]):
+    from bank_boundary import api as bank_api
+    from bank_boundary.ingest import IngestRejected
+    from schemas import BankManifestIngestRequest
+
+    body = BankManifestIngestRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return bank_api.ingest_manifest(
+                conn, tenant_id=db.current_tenant(), body=body
+            )
+        except IngestRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@router.get("/integrations/bank/reconciliation")
+def bank_reconciliation():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.reconciliation(conn, tenant_id=db.current_tenant())
+
+@router.get("/integrations/bank/readiness")
+def bank_readiness():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.readiness(conn, tenant_id=db.current_tenant())
+
+@router.get("/integrations/bank/outbox")
+def bank_outbox():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.outbox_state(conn, tenant_id=db.current_tenant())
+
+@router.get("/integrations/bank/breach-coverage")
+def bank_breach_coverage():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.breach_coverage(conn, tenant_id=db.current_tenant())
+
+@router.get("/integrations/bank/fairness")
+def bank_fairness():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.fairness(conn, tenant_id=db.current_tenant())
+
+@router.post("/integrations/bank/complaints")
+def bank_file_complaint(payload: dict[str, Any]):
+    from bank_boundary import api as bank_api
+    from bank_boundary.ingest import IngestRejected
+    from schemas import BankComplaintFileRequest
+
+    body = BankComplaintFileRequest.model_validate(payload)
+    with db.engine.begin() as conn:
+        try:
+            return bank_api.file_complaint(
+                conn,
+                tenant_id=db.current_tenant(),
+                customer_id=body.customerId,
+                kind=body.kind,
+                actor_user_id=db._actor_user_id(),
+            )
+        except IngestRejected as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@router.get("/integrations/bank/complaints")
+def bank_list_complaints():
+    from bank_boundary import api as bank_api
+
+    with db.engine.connect() as conn:
+        return bank_api.list_complaints(conn, tenant_id=db.current_tenant())
+
+@router.get("/gateway/canary")
+def get_gateway_canary():
+    from llm_gateway import canary as gw_canary
+
+    return {"current": gw_canary.current(), "history": gw_canary.list_canaries()}
+
+@router.post("/gateway/canary")
+def propose_gateway_canary(payload: dict[str, Any]):
+    from llm_gateway import canary as gw_canary
+
+    try:
+        return gw_canary.propose(
+            str(payload.get("candidateModel") or payload.get("candidate_model") or ""),
+            skip_redteam=bool(payload.get("skipRedteam") or payload.get("skip_redteam")),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.post("/gateway/canary/{canary_id}/promote")
+def promote_gateway_canary(canary_id: str, payload: dict[str, Any] | None = None):
+    from llm_gateway import canary as gw_canary
+
+    body = payload or {}
+    try:
+        return gw_canary.promote(
+            canary_id,
+            skip_redteam=bool(body.get("skipRedteam") or body.get("skip_redteam")),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.get("/providers/models", response_model=list[ProviderModelItem])
+def list_provider_models(kind: str | None = Query(default=None, pattern="^(stt|tts|llm)$")):
+    """The capability matrix. Unconfigured providers are returned too, marked
+    ``configured: false`` — hiding them makes "why can't I pick X?" unanswerable
+    from the screen."""
+    from agent_core.providers import persist as pv
+    from agent_core.providers.registry import (
+        RUNTIME_LIVE,
+        configured_providers,
+        find_model,
+        runtime_status,
+    )
+
+    live = configured_providers()
+    out = []
+    for row in pv.list_models(kind):
+        # A key makes a provider *configured*; it does not make the model
+        # *runnable*. Both are reported because they fail differently: no key is
+        # something the operator can fix from the Integrations screen, a missing
+        # service class is not.
+        spec = find_model(row["provider_id"], row["model_id"])
+        runtime, detail = runtime_status(spec) if spec is not None else (RUNTIME_LIVE, "")
+        out.append(
+            {
+                "id": row["id"],
+                "providerId": row["provider_id"],
+                "providerName": row["provider_name"],
+                "kind": row["kind"],
+                "modelId": row["model_id"],
+                "displayName": row["display_name"],
+                "serviceClass": row["service_class"],
+                "locales": list(row["locales"] or []),
+                "streaming": bool(row["streaming"]),
+                "codeSwitch": bool(row["code_switch"]),
+                "onPrem": bool(row["on_prem"]),
+                "diarization": bool(row["diarization"]),
+                "styles": list(row["styles"] or []),
+                "costPerUnit": float(row["cost_per_unit"]) if row["cost_per_unit"] is not None else None,
+                "costUnit": row["cost_unit"],
+                "measuredLatencyP50Ms": row["measured_latency_p50_ms"],
+                "measuredLatencyP95Ms": row["measured_latency_p95_ms"],
+                "notes": row["notes"] or "",
+                "paramsSchema": list(row["params_schema"] or []),
+                "enabled": bool(row["enabled"]),
+                "configured": row["provider_id"] in live,
+                "runtime": runtime,
+                "runtimeDetail": detail,
+                # Read off the registry rather than the row: it is a measured
+                # property of the vendor's engine, not tenant configuration, so
+                # it has no business being editable per deployment.
+                "sampling": bool(spec.sampling) if spec is not None else False,
+            }
+        )
+    return out
+
+@router.get("/providers/bindings", response_model=list[ProviderBindingItem])
+def list_provider_bindings(botId: str | None = Query(default=None)):
+    """Bindings for a bot plus the tenant defaults it inherits."""
+    from agent_core.providers import persist as pv
+
+    return [
+        {
+            "id": b["id"],
+            "botId": b["bot_id"],
+            "slot": b["slot"],
+            "locale": b["locale"],
+            "providerModelId": b["provider_model_id"],
+            "providerId": b["provider_id"],
+            "providerName": b["provider_name"],
+            "modelId": b["model_id"],
+            "displayName": b["display_name"],
+            "voiceRef": b["voice_ref"],
+            "priority": int(b["priority"]),
+            "settings": dict(b["settings"] or {}),
+            "enabled": bool(b["enabled"]),
+        }
+        for b in pv.list_bindings(tenant_id=db.current_tenant(), bot_id=botId)
+    ]
+
+@router.post("/providers/bindings", response_model=ProviderBindingItem)
+def upsert_provider_binding(payload: ProviderBindingInput):
+    from agent_core.providers import persist as pv
+
+    binding_id = pv.upsert_binding(
+        tenant_id=db.current_tenant(),
+        slot=payload.slot,
+        provider_model_id=payload.providerModelId,
+        bot_id=payload.botId,
+        locale=payload.locale,
+        voice_ref=payload.voiceRef,
+        priority=payload.priority,
+        settings=payload.settings,
+        enabled=payload.enabled,
+    )
+    rows = [b for b in pv.list_bindings(tenant_id=db.current_tenant(), bot_id=payload.botId)
+            if b["id"] == binding_id]
+    if not rows:
+        raise HTTPException(status_code=500, detail="binding_write_failed")
+    b = rows[0]
+    return {
+        "id": b["id"],
+        "botId": b["bot_id"],
+        "slot": b["slot"],
+        "locale": b["locale"],
+        "providerModelId": b["provider_model_id"],
+        "providerId": b["provider_id"],
+        "providerName": b["provider_name"],
+        "modelId": b["model_id"],
+        "displayName": b["display_name"],
+        "voiceRef": b["voice_ref"],
+        "priority": int(b["priority"]),
+        "settings": dict(b["settings"] or {}),
+        "enabled": bool(b["enabled"]),
+    }
+
+@router.delete("/providers/bindings/{binding_id}")
+def delete_provider_binding(binding_id: str):
+    from agent_core.providers import persist as pv
+
+    if not pv.delete_binding(tenant_id=db.current_tenant(), binding_id=binding_id):
+        raise HTTPException(status_code=404, detail="binding_not_found")
+    return {"ok": True}
+
+@router.get("/providers/pools", response_model=list[ProviderPoolStatus])
+def list_provider_pools():
+    """Key-pool health, so free-tier exhaustion is visible before a demo hits it."""
+    from agent_core.providers import pool as pool_mod
+    from agent_core.providers.registry import SEED
+
+    # Touch every seeded provider so a pool that has never been acquired from
+    # still reports (total=0) rather than being absent from the list.
+    for spec in SEED:
+        pool_mod.get_pool(spec.slug)
+    return [
+        {
+            "provider": s.provider,
+            "total": s.total,
+            "available": s.available,
+            "retired": s.retired,
+            "sessionsBound": s.sessions_bound,
+            "keys": s.keys,
+        }
+        for s in pool_mod.all_stats()
+    ]
+

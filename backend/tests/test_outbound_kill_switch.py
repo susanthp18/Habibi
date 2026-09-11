@@ -264,30 +264,33 @@ def test_the_demo_objective_must_be_one_the_card_declares(
     materially worse call that looks identical from the outside.
     """
     import main
+    from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "collections_demo")
     card = _Card([_Objective("dpd_reminder"), _Objective("bounce_cure")])
-    assert main._demo_outbound_objective(card) == "dpd_reminder"
+    assert outbound_routes._demo_outbound_objective(card) == "dpd_reminder"
 
 
 def test_a_declared_objective_is_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
     import main
+    from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "bounce_cure")
     card = _Card([_Objective("dpd_reminder"), _Objective("bounce_cure")])
-    assert main._demo_outbound_objective(card) == "bounce_cure"
+    assert outbound_routes._demo_outbound_objective(card) == "bounce_cure"
 
 
 def test_the_default_objective_is_declared_by_the_real_card() -> None:
     """The shipped default has to exist on the card that will run it."""
     import db
     import main
+    from routers import outbound as outbound_routes
     import mission as mission_mod
 
     card = mission_mod.card_for_bot(str(db.DEFAULT_BOT_ID))
     declared = {str(o.key) for o in (card.outbound.objectives or [])}
-    assert main.DEMO_OUTBOUND_OBJECTIVE_DEFAULT in declared, (
-        f"{main.DEMO_OUTBOUND_OBJECTIVE_DEFAULT} is not one of {sorted(declared)}"
+    assert outbound_routes.DEMO_OUTBOUND_OBJECTIVE_DEFAULT in declared, (
+        f"{outbound_routes.DEMO_OUTBOUND_OBJECTIVE_DEFAULT} is not one of {sorted(declared)}"
     )
 
 
@@ -296,9 +299,10 @@ def test_a_card_with_no_objectives_falls_back_to_the_request(
 ) -> None:
     """Nothing to validate against is not a reason to refuse to dial."""
     import main
+    from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "dpd_reminder")
-    assert main._demo_outbound_objective(_Card([])) == "dpd_reminder"
+    assert outbound_routes._demo_outbound_objective(_Card([])) == "dpd_reminder"
 
 
 # --- the demo window override, and its limits -------------------------------
@@ -337,8 +341,9 @@ def test_the_override_waives_timing_and_nothing_else() -> None:
     import contact_policy
 
     import main
+    from routers import outbound as outbound_routes
 
-    waivable = main._DEMO_WAIVABLE_REASONS
+    waivable = outbound_routes._DEMO_WAIVABLE_REASONS
     assert waivable == frozenset(
         {
             contact_policy.REASON_HOURS,
@@ -370,8 +375,9 @@ def test_the_override_cannot_reach_any_other_customer() -> None:
     import inspect
 
     import main
+    from routers import outbound as outbound_routes
 
-    sig = inspect.signature(main.demo_outbound_call)
+    sig = inspect.signature(outbound_routes.demo_outbound_call)
     assert not sig.parameters, (
         "the demo endpoint must take no arguments — one that accepted a number "
         "would be a dialer with a compliance override attached"
@@ -383,8 +389,9 @@ def test_waiving_the_window_is_recorded(db_tx) -> None:
     import inspect
 
     import main
+    from routers import outbound as outbound_routes
 
-    src = inspect.getsource(main.demo_outbound_call)
+    src = inspect.getsource(outbound_routes.demo_outbound_call)
     assert "demo_window_waived" in src, "a waiver must write an activity event"
 
 
