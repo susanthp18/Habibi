@@ -44,7 +44,8 @@ def get_billing(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.get("/billing/export.csv")
+# CSV download by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/billing/export.csv", response_class=Response)
 def export_billing_csv(
     period: str = Query("mtd"),
     env: str = Query("production"),
@@ -77,7 +78,8 @@ def patch_budget_rule(budget_id: str, rule_id: str, payload: BudgetRuleUpsertReq
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.delete("/billing/budgets/{budget_id}/rules/{rule_id}", status_code=204)
+# 204 with no body by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.delete("/billing/budgets/{budget_id}/rules/{rule_id}", status_code=204, response_class=Response)
 def delete_budget_rule(budget_id: str, rule_id: str):
     try:
         db.delete_budget_rule(budget_id, rule_id)

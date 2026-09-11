@@ -22,6 +22,9 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from schemas import (
+    AgentCardCloneRequest,
+    AgentCardCompileRequest,
+    AgentCardPatchRequest,
     AgentStudioArchiveResponse,
     AgentStudioCardResponse,
     AgentStudioChangeLogResponse,
@@ -34,6 +37,9 @@ from schemas import (
     AgentStudioSkillSummaryResponse,
     AgentStudioTemplateResponse,
     BotDeploymentResponse,
+    ConnectorAttachRequest,
+    DeploymentExperimentResponse,
+    DeploymentExperimentRollbackResponse,
     EffectiveContractResponse,
     EntryBindingResponse,
     EntryBindingUpsert,
@@ -50,6 +56,16 @@ from schemas import (
     PromptVersionPatchRequest,
     PromptVersionPublishRequest,
     PromptVersionResponse,
+    ExperimentRollbackRequest,
+    RolePermissionsPatchRequest,
+    RoleResponse,
+    RolesCatalogResponse,
+    SkillAttachRequest,
+    SkillCloneRequest,
+    SkillCreateRequest,
+    SkillPatchRequest,
+    SkillRevertRequest,
+    SkillScriptRunRequest,
 )
 from sqlalchemy.exc import IntegrityError
 from typing import Any
@@ -181,14 +197,14 @@ def list_agent_studio_templates():
     return templates()
 
 @router.post("/agent-studio/cards/clone", response_model=AgentStudioCardResponse)
-def clone_agent_studio_card(payload: dict[str, Any]):
+def clone_agent_studio_card(payload: AgentCardCloneRequest):
     from agent_core.cards.clone import clone_card
 
     return _handle_write(
         clone_card,
-        template_id=payload.get("templateId") or payload.get("template_id"),
-        source_bot_id=payload.get("sourceBotId") or payload.get("source_bot_id"),
-        name=payload.get("name"),
+        template_id=payload.templateId,
+        source_bot_id=payload.sourceBotId,
+        name=payload.name,
     )
 
 @router.get("/agent-studio/cards/{bot_id}", response_model=AgentStudioCardResponse)
@@ -199,9 +215,10 @@ def get_agent_studio_card(bot_id: str):
     return row
 
 @router.patch("/agent-studio/cards/{bot_id}", response_model=PromptVersionResponse)
-def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
+def patch_agent_studio_card(bot_id: str, payload: AgentCardPatchRequest):
     """Patch the latest draft for this bot, creating one from published if needed."""
-    card = payload.get("agentCard") or payload.get("agent_card")
+    sent = payload.model_dump(exclude_unset=True)
+    card = payload.agentCard
     versions = db.list_prompt_versions(bot_id=bot_id, limit=20)
     draft = next((v for v in versions if v["status"] == "draft"), None)
     if draft is None:
@@ -212,8 +229,8 @@ def patch_agent_studio_card(bot_id: str, payload: dict[str, Any]):
     body: dict[str, Any] = {}
     if isinstance(card, dict):
         body["agentCard"] = card
-    if "flow" in payload:
-        body["flow"] = payload["flow"]
+    if "flow" in sent:
+        body["flow"] = sent["flow"]
     if not body:
         return draft
     return _handle_write(db.patch_prompt_version, draft["id"], body)
@@ -251,22 +268,20 @@ def get_agent_change_log(
     return db.agent_change_log(botId, limit=limit)
 
 @router.post("/agent-studio/cards/{bot_id}/compile", response_model=CompileReport)
-def compile_agent_studio_card(bot_id: str, payload: dict[str, Any] | None = None):
-    body = payload or {}
-    pct = body.get("trafficPct", body.get("traffic_pct"))
-    triggers = body.get("autoRollback", body.get("auto_rollback"))
+def compile_agent_studio_card(bot_id: str, payload: AgentCardCompileRequest | None = None):
+    body = payload or AgentCardCompileRequest()
     return db.compile_agent_studio_card(
         bot_id,
-        card_raw=body.get("agentCard") or body.get("agent_card"),
-        flow=body.get("flow"),
+        card_raw=body.agentCard or None,
+        flow=body.flow,
         # Preview what publish will ship, not what the card was authored with.
-        traffic_pct=int(pct) if isinstance(pct, (int, float)) else None,
-        auto_rollback=[str(t) for t in triggers] if isinstance(triggers, list) else None,
+        traffic_pct=int(body.trafficPct) if body.trafficPct is not None else None,
+        auto_rollback=body.autoRollback,
         # G15 reads the mouth columns, which the editor holds unsaved between
         # autosaves. Omitted, the preview gates the last saved voice rather than
         # the one the Publish button is about to ship.
-        voice=body.get("voice") if isinstance(body.get("voice"), dict) else None,
-        persona=body.get("persona") if isinstance(body.get("persona"), dict) else None,
+        voice=body.voice,
+        persona=body.persona,
     )
 
 @router.get(
@@ -322,18 +337,17 @@ def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest)
     return publish_prompt_version(drafts[0]["id"], payload)
 
 @router.post("/agent-studio/cards/{bot_id}/connectors", response_model=PromptVersionResponse)
-def attach_agent_studio_connector(bot_id: str, payload: dict[str, Any]):
+def attach_agent_studio_connector(bot_id: str, payload: ConnectorAttachRequest):
     from agent_core.cards.clone import attach_connector_to_card
 
-    connector_id = str(payload.get("connectorId") or payload.get("connector_id") or "").strip()
+    connector_id = payload.connectorId.strip()
     if not connector_id:
         raise HTTPException(status_code=422, detail="connector_id_required")
-    prefixes = payload.get("allowPrefixes") or payload.get("allow_prefixes")
     return _handle_write(
         attach_connector_to_card,
         bot_id,
         connector_id=connector_id,
-        allow_prefixes=prefixes,
+        allow_prefixes=payload.allowPrefixes or None,
     )
 
 @router.get("/agent-studio/cards/{bot_id}/graph", response_model=AgentStudioGraphResponse)
@@ -400,20 +414,21 @@ def get_agent_studio_skill(skill_id: str):
     response_model=AgentStudioSkillResponse,
     response_model_exclude_unset=True,
 )
-def create_agent_studio_skill(payload: dict[str, Any]):
+def create_agent_studio_skill(payload: SkillCreateRequest):
     from agent_core.skills.persist import create_draft_skill
 
-    return _handle_write(create_draft_skill, payload)
+    return _handle_write(create_draft_skill, payload.model_dump())
 
 @router.patch(
     "/agent-studio/skills/{skill_id}",
     response_model=AgentStudioSkillResponse,
     response_model_exclude_unset=True,
 )
-def patch_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+def patch_agent_studio_skill(skill_id: str, payload: SkillPatchRequest):
     from agent_core.skills.persist import patch_skill
 
-    return _handle_write(patch_skill, skill_id, payload)
+    # exclude_unset: patch_skill treats a present key as an intentional write.
+    return _handle_write(patch_skill, skill_id, payload.model_dump(exclude_unset=True))
 
 @router.delete("/agent-studio/skills/{skill_id}", response_model=AgentStudioSkillDeleteResponse)
 def delete_agent_studio_skill(skill_id: str):
@@ -441,38 +456,36 @@ def sign_agent_studio_skill(skill_id: str):
     response_model=AgentStudioSkillResponse,
     response_model_exclude_unset=True,
 )
-def revert_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
+def revert_agent_studio_skill(skill_id: str, payload: SkillRevertRequest | None = None):
     from agent_core.skills.persist import revert_skill
 
-    body = payload or {}
-    return _handle_write(revert_skill, skill_id, body.get("versionId") or body.get("version_id"))
+    return _handle_write(revert_skill, skill_id, payload.versionId if payload else None)
 
 @router.post(
     "/agent-studio/skills/{skill_id}/clone",
     response_model=AgentStudioSkillResponse,
     response_model_exclude_unset=True,
 )
-def clone_agent_studio_skill(skill_id: str, payload: dict[str, Any] | None = None):
+def clone_agent_studio_skill(skill_id: str, payload: SkillCloneRequest | None = None):
     from agent_core.skills.persist import clone_skill
 
-    body = payload or {}
-    return _handle_write(clone_skill, skill_id, body.get("slug"))
+    return _handle_write(clone_skill, skill_id, payload.slug if payload else None)
 
 @router.post("/agent-studio/skills/{skill_id}/attach", response_model=AgentStudioOkResponse)
-def attach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+def attach_agent_studio_skill(skill_id: str, payload: SkillAttachRequest):
     from agent_core.skills.persist import attach_skill_to_prompt
 
-    version_id = str(payload.get("promptVersionId") or payload.get("prompt_version_id") or "").strip()
+    version_id = payload.promptVersionId.strip()
     if not version_id:
         raise HTTPException(status_code=422, detail="prompt_version_id_required")
     _handle_write(attach_skill_to_prompt, version_id, skill_id)
     return {"ok": True}
 
 @router.post("/agent-studio/skills/{skill_id}/detach", response_model=AgentStudioOkResponse)
-def detach_agent_studio_skill(skill_id: str, payload: dict[str, Any]):
+def detach_agent_studio_skill(skill_id: str, payload: SkillAttachRequest):
     from agent_core.skills.persist import detach_skill_from_prompt
 
-    version_id = str(payload.get("promptVersionId") or payload.get("prompt_version_id") or "").strip()
+    version_id = payload.promptVersionId.strip()
     if not version_id:
         raise HTTPException(status_code=422, detail="prompt_version_id_required")
     _handle_write(detach_skill_from_prompt, version_id, skill_id)
@@ -539,27 +552,14 @@ async def import_agent_studio_skill(file: UploadFile = File(...)):
     response_model=AgentStudioScriptRunResponse,
     response_model_exclude_unset=True,
 )
-def run_agent_studio_script(payload: dict[str, Any]):
+def run_agent_studio_script(payload: SkillScriptRunRequest):
+    """`payload` is typed as an object: posting `[1, 2]` is a 422, not a run
+    against no arguments that returns a verdict reading as computed."""
     from agent_core.skills.scripts import run_script
 
-    name = str(payload.get("name") or "").strip()
-    args = payload.get("payload")
-    if args is None:
-        args = {}
-    if not isinstance(args, dict):
-        # Reject rather than coerce. This used to substitute `{}` for anything
-        # that was not a dict, so posting `[1, 2]` ran the script against no
-        # arguments at all and returned `numeric_required` — a verdict that
-        # reads exactly like one computed from the input, on input that was
-        # never looked at. The console tells the user the payload "must be a
-        # JSON object"; this is the endpoint agreeing with it.
-        raise HTTPException(
-            status_code=422,
-            detail="script_payload_must_be_an_object",
-        )
-    return run_script(name, args)
+    return run_script(payload.name.strip(), payload.payload)
 
-@router.get("/roles")
+@router.get("/roles", response_model=RolesCatalogResponse)
 def list_roles_catalog():
     """Roles page. Grants are the resolved set the enforcer will honour."""
     catalog = [
@@ -598,12 +598,9 @@ def list_roles_catalog():
         "roles": roles_out,
     }
 
-@router.patch("/roles/{role_id}/permissions")
-def patch_role_permissions(role_id: str, payload: dict[str, Any]):
-    ids = payload.get("permissionIds") or payload.get("permission_ids") or []
-    if not isinstance(ids, list):
-        raise HTTPException(status_code=422, detail="permission_ids_required")
-    return _handle_write(db.replace_role_permissions, role_id, [str(x) for x in ids])
+@router.patch("/roles/{role_id}/permissions", response_model=RoleResponse)
+def patch_role_permissions(role_id: str, payload: RolePermissionsPatchRequest):
+    return _handle_write(db.replace_role_permissions, role_id, list(payload.permissionIds))
 
 @router.post("/flow/validate", response_model=FlowValidation)
 def validate_flow(graph: FlowGraph):
@@ -644,17 +641,21 @@ def get_active_bot_deployment(
         raise HTTPException(status_code=404, detail="active_deployment_not_found")
     return row
 
-@router.get("/bot-deployments/experiments")
+@router.get("/bot-deployments/experiments", response_model=list[DeploymentExperimentResponse])
 def list_deployment_experiments(botId: str | None = Query(default=None)):
     from agent_core.canary import list_experiments
 
     return list_experiments(bot_id=botId)
 
-@router.post("/bot-deployments/experiments/{experiment_id}/rollback")
-def rollback_deployment_experiment(experiment_id: str, payload: dict[str, Any] | None = None):
+@router.post(
+    "/bot-deployments/experiments/{experiment_id}/rollback",
+    response_model=DeploymentExperimentRollbackResponse,
+    response_model_exclude_unset=True,
+)
+def rollback_deployment_experiment(experiment_id: str, payload: ExperimentRollbackRequest | None = None):
     from agent_core.canary import rollback_experiment
 
-    reason = str((payload or {}).get("reason") or "manual")
+    reason = (payload.reason if payload else "") or "manual"
     try:
         return rollback_experiment(experiment_id, reason=reason)
     except KeyError as exc:

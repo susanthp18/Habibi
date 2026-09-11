@@ -4531,3 +4531,1778 @@ class SecurityIncidentCreateRequest(BaseModel):
     severity: Literal["low", "medium", "high", "critical"]
     summary: str
     evidenceRef: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# --- Outbound / Compliance / Floor / A2A routers (response_model closure) ---
+# Response models list every key the builder emits — a key missing here is
+# silently dropped from the wire. Optional fields mark keys a branch may omit;
+# those routes pair the model with response_model_exclude_unset=True. Raw
+# SQL rows keep their snake_case spelling because the frontend reads it.
+# ---------------------------------------------------------------------------
+
+
+# ── A2A (agent_core.a2a): the Agent Card, partners, tasks ────────────────────
+
+
+class A2aSkillResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+
+
+class A2aCapabilitiesResponse(BaseModel):
+    streaming: bool
+    pushNotifications: bool
+
+
+class A2aAuthenticationResponse(BaseModel):
+    schemes: list[str]
+
+
+class A2aProviderResponse(BaseModel):
+    organization: str
+
+
+class A2aAgentCardResponse(BaseModel):
+    """The A2A 0.2.2 Agent Card exactly as agent_card_document emits it."""
+
+    name: str | None = None
+    description: str
+    url: str
+    version: str
+    protocolVersion: str
+    capabilities: A2aCapabilitiesResponse
+    defaultInputModes: list[str]
+    defaultOutputModes: list[str]
+    skills: list[A2aSkillResponse]
+    authentication: A2aAuthenticationResponse
+    provider: A2aProviderResponse
+
+
+class A2aPartnerResponse(BaseModel):
+    id: str
+    name: str
+    cardUrl: str | None = None
+    certFingerprint: str | None = None
+    certDn: str | None = None
+    botId: str | None = None
+    allowedSkills: list[str]
+    status: str | None = None
+
+
+class A2aPartnerUpsertRequest(BaseModel):
+    """Fields optional on purpose: upsert_partner is the validator (400 with
+    its own reason codes), the model only names the body and forbids extras."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    name: str | None = None
+    certPem: str | None = Field(default=None, validation_alias=AliasChoices("certPem", "cert_pem"))
+    certDn: str | None = Field(default=None, validation_alias=AliasChoices("certDn", "cert_dn"))
+    botId: str | None = Field(default=None, validation_alias=AliasChoices("botId", "bot_id"))
+    cardUrl: str | None = Field(default=None, validation_alias=AliasChoices("cardUrl", "card_url"))
+    allowedSkills: list[str] | None = Field(
+        default=None, validation_alias=AliasChoices("allowedSkills", "allowed_skills")
+    )
+
+
+class A2aTaskResponse(BaseModel):
+    """_map_task. create_task's fallback is {id, status} only, hence exclude_unset."""
+
+    id: str
+    status: str | None = None
+    partnerId: str | None = None
+    botId: str | None = None
+    skillId: str | None = None
+    input: dict[str, Any] = {}
+    output: dict[str, Any] = {}
+    certDn: str | None = None
+    error: str | None = None
+    createdAt: str | None = None
+
+
+class A2aTaskRequest(BaseModel):
+    """Extra keys are kept, not forbidden: with no ``input`` object the whole
+    body is the skill input (``payload=inner or payload``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    botId: str | None = Field(default=None, validation_alias=AliasChoices("botId", "bot_id"))
+    skillId: str | None = Field(default=None, validation_alias=AliasChoices("skillId", "skill_id"))
+    input: dict[str, Any] | None = None
+    inputRequired: bool | None = None
+
+
+class A2aTaskSignalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "approve"
+
+
+# ── Compliance: detector coverage, policy rule sets, replay, export ──────────
+
+
+class RuleCoverageRowResponse(BaseModel):
+    ruleId: str
+    code: str
+    label: str | None = None
+    severity: str | None = None
+    enabled: bool
+    hasDetector: bool
+    state: Literal["clean", "breached", "unverified", "disabled"]
+    total: int
+    open: int
+    lastSeen: str | None = None
+
+
+class RuleCoverageResponse(BaseModel):
+    rules: list[RuleCoverageRowResponse]
+    interactionsEvaluated: int
+    rulesVersion: int
+    detectorsRegistered: int
+
+
+class ComplianceRescanResponse(BaseModel):
+    scanned: int
+    filed: int
+    rulesVersion: int
+
+
+class ViolationNoteResponse(BaseModel):
+    id: str
+    text: str
+
+
+class RedactionAudioMuteResponse(BaseModel):
+    redactionId: str
+    findingId: str
+    muted: bool
+
+
+class PolicyExportCallingHoursResponse(BaseModel):
+    startHour: int
+    endHour: int
+    tz: str
+
+
+class PolicyExportAuthorityResponse(BaseModel):
+    lateFeeCapInr: float
+    lateFeeMidCapInr: float
+    maxOutstandingInr: float
+    maxDpd: int
+    minTenureMonths: int
+
+
+class PolicyExportDndResponse(BaseModel):
+    contactWhenDnd: bool
+
+
+class PolicyExportFactsResponse(BaseModel):
+    callingHours: PolicyExportCallingHoursResponse
+    authority: PolicyExportAuthorityResponse
+    dnd: PolicyExportDndResponse
+    source: str
+    note: str
+
+
+class PolicyExportResponse(BaseModel):
+    format: Literal["opa", "cedar"]
+    facts: PolicyExportFactsResponse
+    text: str
+
+
+class PolicyRuleSetResponse(BaseModel):
+    """policy_rules.list_rule_sets: raw row; the W4 publication columns are
+    selected only once that migration is in (exclude_unset keeps the wire)."""
+
+    id: str
+    scope: str
+    tenant_id: str | None = None
+    product_id: str | None = None
+    version: int
+    label: str | None = None
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
+    publication_state: str | None = None
+    published_by_user_id: str | None = None
+    approved_by_user_id: str | None = None
+    changed_rules: list[str] | None = None
+
+
+class PolicyRuleSetCreatedResponse(BaseModel):
+    id: str
+
+
+class PolicyRuleSetStateResponse(BaseModel):
+    id: str
+    state: Literal["pending_approval", "published", "rejected"]
+
+
+class PolicyReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    windowStart: datetime | None = None
+    windowEnd: datetime | None = None
+    expectedDigest: str | None = None
+
+
+class PolicyReplayResponse(BaseModel):
+    id: str
+    status: Literal["completed", "partial", "refused"]
+    refusalReason: str | None = None
+    compared: int
+    mismatched: int
+    evaluatorDigest: str
+    vetoStackVersion: str
+
+
+class ComplaintPackIdentityResponse(BaseModel):
+    customerId: str
+    tenantId: str
+    timezone: str | None = None
+    language: str | None = None
+
+
+class ComplaintPackResponse(BaseModel):
+    """complaint_pack.compose: every section is raw SQL rows, and ``digest``
+    is computed over exactly those rows, so the sections stay open dicts."""
+
+    identity: ComplaintPackIdentityResponse
+    complaintEvents: list[dict[str, Any]]
+    subjectRequests: list[dict[str, Any]]
+    decisions: list[dict[str, Any]]
+    policyBindings: list[dict[str, Any]]
+    consentHistory: list[dict[str, Any]]
+    endpointOwnership: list[dict[str, Any]]
+    contactLedger: list[dict[str, Any]]
+    receipts: list[dict[str, Any]]
+    suppressions: list[dict[str, Any]]
+    enactmentAttempts: list[dict[str, Any]]
+    incidents: list[dict[str, Any]]
+    externalLedger: list[dict[str, Any]]
+    reconciliation: list[dict[str, Any]]
+    mappings: list[dict[str, Any]]
+    actionContracts: list[dict[str, Any]]
+    acknowledgements: list[dict[str, Any]]
+    generatedAt: str
+    recordingRetentionMonths: int | None = None
+    digest: str
+
+
+class SubjectRequestResponse(BaseModel):
+    id: str
+    tenantId: str
+    customerId: str
+    kind: str
+    state: str
+    receivedAt: datetime | None = None
+    verifiedAt: datetime | None = None
+    dueAt: datetime | None = None
+    fulfilledAt: datetime | None = None
+    evidenceRef: str | None = None
+    ownerUserId: str | None = None
+    escalatedToUserId: str | None = None
+    note: str | None = None
+
+
+class SecurityIncidentCreatedResponse(BaseModel):
+    id: str
+    state: Literal["open"]
+
+
+class SecurityIncidentResponse(BaseModel):
+    id: str
+    severity: str
+    state: str
+    summary: str | None = None
+    detected_at: datetime | None = None
+
+
+# ── Floor: work-runtime jobs, copilot pack, supervisor actions, alerts ───────
+
+
+class WorkRuntimeJobResponse(BaseModel):
+    """work_runtime.adapter_pg._public — also the floor approval row."""
+
+    id: str
+    workflowType: str
+    status: str
+    customerId: str | None = None
+    payload: dict[str, Any] = {}
+    result: dict[str, Any] = {}
+    error: str | None = None
+    idempotencyKey: str
+    inputRequiredReason: str | None = None
+    approvedBy: str | None = None
+    createdAt: str | None = None
+    updatedAt: str | None = None
+
+
+class FloorApprovalSignalRequest(BaseModel):
+    """``name`` or ``signal`` names the verb; ``userId`` is what the adapter
+    records as approver. The whole body is stored on the signal row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    signal: str | None = None
+    userId: str | None = Field(default=None, validation_alias=AliasChoices("userId", "user_id"))
+
+
+class CopilotTreatmentResponse(BaseModel):
+    decisionId: str | None = None
+    action: str | None = None
+    channel: str | None = None
+    rationale: str | None = None
+    enacted: bool = False
+    enactedBy: str | None = None
+    scheduledAt: str | None = None
+
+
+class CopilotEnginesResponse(BaseModel):
+    authority: AuthorityPolicyResponse
+    treatment: CopilotTreatmentResponse
+    #: The latest live-QA row of the interaction pack, or nothing yet.
+    liveQa: dict[str, Any] | None = None
+
+
+class CopilotCardChipResponse(BaseModel):
+    botId: str | None = None
+    displayName: str | None = None
+    skills: list[str] = []
+
+
+class FloorCopilotResponse(BaseModel):
+    interactionId: str
+    customerId: str | None = None
+    whisperDraft: str
+    engineDraft: str
+    engines: CopilotEnginesResponse
+    vetoes: list[str]
+    card: CopilotCardChipResponse
+    approvals: list[WorkRuntimeJobResponse]
+
+
+class SupervisorActionResponse(BaseModel):
+    id: str
+    ok: bool
+    action: str
+    interactionId: str
+    audioJoined: bool
+
+
+class FloorAlertAckResponse(BaseModel):
+    id: str
+    ok: bool
+
+
+# ── Outbound: demo dial, reach, campaigns, cadence, pools, obligations ───────
+
+
+class DemoCustomerResponse(BaseModel):
+    id: str
+    name: str
+    phone: str | None = None
+    dnd: bool
+
+
+class DemoOutboundTargetResponse(BaseModel):
+    phone: str
+    customer: DemoCustomerResponse | None = None
+    objective: str
+    offersAllowed: bool
+    outboundEnabled: bool
+    demoIgnoresWindow: bool
+    policyReason: str | None = None
+    policyWaived: str | None = None
+    twilioConfigured: bool
+
+
+class DemoOutboundCallResponse(BaseModel):
+    placed: bool
+    customerId: str | None = None
+    phone: str
+    attemptId: str | None = None
+    callSid: str | None = None
+
+
+class ReachStatsResponse(BaseModel):
+    """outbound.reach_stats coerces every count to float, so the wire says
+    ``12.0``; the model keeps that rather than quietly rounding the shape."""
+
+    attempts: float
+    suppressed: float
+    answered: float
+    right_party: float
+    voicemail: float
+    invalid_number: float
+    no_answer: float
+    busy: float
+    avg_ring_sec: float | None = None
+    avg_talk_sec: float | None = None
+    talk_sec_total: float | None = None
+    answerRate: float | None = None
+    rightPartyRate: float | None = None
+    attemptsPerConnect: float | None = None
+    windowDays: int
+
+
+class CallAttemptResponse(BaseModel):
+    id: str
+    customer_id: str
+    customer_name: str
+    objective: str
+    attempt_no: int
+    state: str
+    suppressed_reason: str | None = None
+    to_phone_last4: str | None = None
+    answered_by: str | None = None
+    right_party: bool | None = None
+    ring_sec: int | None = None
+    talk_sec: int | None = None
+    provider_call_id: str | None = None
+    provider_status: str | None = None
+    provider_error: str | None = None
+    interaction_id: str | None = None
+    decision_id: str | None = None
+    reserved_at: datetime
+    placed_at: datetime | None = None
+    answered_at: datetime | None = None
+    ended_at: datetime | None = None
+    connection: str | None = None
+    business: str | None = None
+    objective_met: bool | None = None
+    nonpayment_reason: str | None = None
+    summary: str | None = None
+    summary_source: str | None = None
+
+
+class NonpaymentReasonResponse(BaseModel):
+    reason: str
+    calls: int
+    resolved: int
+
+
+class CampaignSelectorRequest(BaseModel):
+    """campaigns.SELECTOR_FIELDS — a closed set; the resolver rejects any other key."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    buckets: list[str] | None = None
+    dpdMin: int | None = None
+    dpdMax: int | None = None
+    minOutstandingInr: float | None = None
+    maxOutstandingInr: float | None = None
+    risk: list[str] | None = None
+    language: list[str] | None = None
+    excludeOpenPromise: bool | None = None
+    excludeOnHold: bool | None = None
+    excludeContactedWithinDays: int | None = None
+    limit: int | None = None
+
+
+class CampaignRunCreateRequest(BaseModel):
+    """Defaults stay in campaigns.create (``int(x or 10)``); the model only
+    names the keys the console sends and the ones db_outbound reads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    objective: str | None = None
+    botId: str | None = None
+    cadence: str | None = None
+    source: str | None = None
+    selector: CampaignSelectorRequest | None = None
+    windowStartHour: int | None = None
+    windowEndHour: int | None = None
+    maxConcurrent: int | None = None
+    customerIds: list[str] | None = None
+
+
+class CampaignCohortPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selector: CampaignSelectorRequest | None = None
+    sample: int | None = None
+
+
+class CampaignTargetsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customerIds: list[str] | None = None
+    selector: CampaignSelectorRequest | None = None
+
+
+class CampaignStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str | None = None
+
+
+class CampaignProgressResponse(BaseModel):
+    total: int
+    pending: int
+    dialing: int
+    done: int
+    skipped: int
+    failed: int
+
+
+class CampaignRunResponse(BaseModel):
+    """campaign_runs row-star. The list adds pending/done/skipped, the detail
+    adds ``progress``; create and status return the bare row."""
+
+    id: str
+    tenant_id: str
+    bot_id: str | None = None
+    deployment_id: str | None = None
+    name: str
+    objective: str
+    cadence: str
+    source: str
+    selector: dict[str, Any] = {}
+    status: str
+    window_start_hour: int
+    window_end_hour: int
+    max_concurrent: int
+    max_attempts_total: int | None = None
+    targets_total: int
+    targets_done: int
+    created_by_user_id: str | None = None
+    started_at: datetime | None = None
+    paused_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    pending: int | None = None
+    done: int | None = None
+    skipped: int | None = None
+    progress: CampaignProgressResponse | None = None
+
+
+class CohortMemberResponse(BaseModel):
+    customer_id: str
+    name: str
+    risk: str
+    account_id: str
+    dpd: int
+    bucket: str | None = None
+    outstanding: float
+
+
+class CampaignCohortPreviewResponse(BaseModel):
+    matched: int
+    capped: bool
+    sample: list[CohortMemberResponse]
+
+
+class CampaignTargetsAddedResponse(BaseModel):
+    runId: str
+    added: int
+    requested: int
+
+
+class CadenceCaseResponse(BaseModel):
+    id: str
+    tenant_id: str
+    customer_id: str
+    objective: str
+    case_ref: str
+    cadence: str
+    attempts: int
+    max_attempts: int
+    next_attempt_at: datetime | None = None
+    last_attempt_id: str | None = None
+    last_outcome: str | None = None
+    state: str
+    stopped_reason: str | None = None
+    campaign_run_id: str | None = None
+    bot_id: str | None = None
+    escalate_to: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    customer_name: str
+
+
+class PoolNumberResponse(BaseModel):
+    id: str
+    pool_id: str
+    e164: str
+    state: str
+    last_used_at: datetime | None = None
+    attempts_7d: int
+    answer_rate_7d: float | None = None
+    state_changed_at: datetime
+    health_checked_at: datetime | None = None
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NumberPoolResponse(BaseModel):
+    id: str
+    tenant_id: str
+    name: str
+    kind: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+    numbers: list[PoolNumberResponse]
+
+
+class AgentObligationResponse(BaseModel):
+    id: str
+    tenant_id: str
+    customer_id: str
+    interaction_id: str | None = None
+    attempt_id: str | None = None
+    kind: str
+    due_at: datetime
+    detail: dict[str, Any] = {}
+    verbatim: str | None = None
+    state: str
+    honoured_at: datetime | None = None
+    honoured_ref: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    customer_name: str
+
+
+class OutboundAuthorityProfileResponse(BaseModel):
+    name: str
+    ceilingInr: float | None = None
+
+
+class OutboundEnabledPoolResponse(BaseModel):
+    name: str
+    kind: str
+
+
+class OutboundCardVocabularyResponse(BaseModel):
+    objectives: list[str]
+    objectiveBriefs: dict[str, str]
+    directions: list[str]
+    voicemailModes: list[str]
+    poolKinds: list[str]
+    qaModes: list[str]
+    outcomeCodes: list[str]
+    postCallActions: list[str]
+    retryStates: list[str]
+    authorityProfiles: list[OutboundAuthorityProfileResponse]
+    numberPools: list[OutboundEnabledPoolResponse]
+    dailyCap: int
+
+
+class MissionObjectiveResponse(BaseModel):
+    """One declared objective on the card, beside what the graph claims."""
+
+    key: str
+    entryNode: str
+    graphEntryNode: str | None = None
+    agrees: bool
+    maxDurationSec: int
+    allowedOffers: list[str]
+    authorityProfile: str | None = None
+    cadence: str
+    success: list[str]
+    brief: str
+
+
+class MissionsResponse(BaseModel):
+    botId: str
+    direction: str
+    poolKind: str
+    numberPool: str | None = None
+    objectives: list[MissionObjectiveResponse]
+    graphEntries: dict[str, str]
+    available: list[str]
+
+
+class DecisionFeedbackResponse(BaseModel):
+    id: str | None = None
+    customerId: str
+    verdict: str
+
+
+# ── Treatment: holds, cases, next (with contract), scoreboards, registry ─────
+
+
+class TreatmentHoldResponse(BaseModel):
+    """_treatment_hold; the list view adds customerName/placedBy/specialist."""
+
+    id: str
+    customerId: str
+    customerName: str | None = None
+    accountId: str | None = None
+    kind: str
+    reason: str | None = None
+    source: str
+    interactionId: str | None = None
+    slaDueAt: datetime | None = None
+    startsAt: datetime | None = None
+    expiresAt: datetime | None = None
+    releasedAt: datetime | None = None
+    releasedReason: str | None = None
+    placedBy: str | None = None
+    specialist: str | None = None
+    active: bool
+    createdAt: datetime | None = None
+
+
+class TreatmentCaseResponse(BaseModel):
+    id: str
+    customerId: str
+    customerName: str | None = None
+    accountId: str | None = None
+    trigger: str
+    triggerRef: str
+    decisions: int
+    attempts: int
+    ladder: list[str]
+    lastAction: str | None = None
+    lastOutcome: str | None = None
+    lastSuppression: str | None = None
+    rationale: str | None = None
+    lastDecidedAt: datetime | None = None
+    lastAttemptAt: datetime | None = None
+
+
+class TreatmentActionContractResponse(BaseModel):
+    """agent_core.treatment.contract.build — snake_case is the bank-boundary
+    envelope, the camelCase twins are the operator payload. Both ship."""
+
+    version: str
+    decision_id: str | None = None
+    tenant_id: str | None = None
+    portfolio_id: str
+    policy_binding: list[Any]
+    policy_binding_hash: str | None = None
+    engine_image_digest: str
+    config_version: str
+    veto_stack_version: str
+    arm_propensity: float | None = None
+    action_propensity: float | None = None
+    propensity: float | None = None
+    action: str
+    channel: str | None = None
+    endpoint: str | None = None
+    scheduled_at: str | None = None
+    expected_value_paise: int
+    ev_lcb_paise: int
+    expected_value_inr: float
+    variant: str | None = None
+    objective: str
+    strategy: str
+    prohibitions: list[str]
+    required_assertions: list[str]
+    retention_class: str
+    policy_version: int | None = None
+    allowed_offers: list[str]
+    decisionId: str | None = None
+    policyVersion: int | None = None
+    scheduledAt: str | None = None
+    expectedValueInr: float
+    prohibited: list[str]
+    allowedOffers: list[str]
+    maxDurationSec: int | None = None
+    max_duration_sec: int | None = None
+    maxWaiverInr: float | None = None
+    waiverRequiresIdentityCheck: bool | None = None
+
+
+class TreatmentNextResponse(TreatmentSnapshotResponse):
+    """to_payload() plus the Action Contract, present only when actionable."""
+
+    contract: TreatmentActionContractResponse | None = None
+
+
+class TreatmentReasonCountResponse(BaseModel):
+    reason: str | None = None
+    count: int
+
+
+class TreatmentActionMixResponse(BaseModel):
+    action: str
+    count: int
+    avgExpectedValue: float
+
+
+class TreatmentModeCountResponse(BaseModel):
+    mode: str | None = None
+    count: int
+
+
+class TreatmentOutcomeCountResponse(BaseModel):
+    outcome: str
+    count: int
+
+
+class TreatmentInsightsResponse(BaseModel):
+    windowDays: int
+    decisions: int
+    actionable: int
+    coverage: float
+    enacted: int
+    customers: int
+    expectedValueInr: float
+    avgLatencyMs: int
+    suppression: list[TreatmentReasonCountResponse]
+    byAction: list[TreatmentActionMixResponse]
+    byMode: list[TreatmentModeCountResponse]
+    outcomes: list[TreatmentOutcomeCountResponse]
+
+
+class TreatmentIntervalResponse(BaseModel):
+    value: float
+    low: float
+    high: float
+    clusters: int
+    observations: int
+    method: str
+    replications: int
+    excludesZero: bool
+
+
+class TreatmentCausalResponse(BaseModel):
+    """Three shapes: schema missing (available/reason), design floor missed
+    (adds the panel figures), measured (adds the causal figures)."""
+
+    available: bool
+    reason: str | None = None
+    controlClusters: int | None = None
+    treatedClusters: int | None = None
+    controlN: int | None = None
+    treatedN: int | None = None
+    panelWeeks: float | None = None
+    casesPerCustomer: float | None = None
+    icc: float | None = None
+    designEffect: float | None = None
+    panelCases: int | None = None
+    panelClusters: int | None = None
+    analysableCases: int | None = None
+    analysableFraction: float | None = None
+    controlCureRate: float | None = None
+    treatedCureRate: float | None = None
+    incrementalCureRate: float | None = None
+    incrementalCureRateInterval: TreatmentIntervalResponse | None = None
+    recoveredInr: float | None = None
+    attributableRecoveryInr: float | None = None
+    spendInr: float | None = None
+    incrementalRecoveryPerRupee: float | None = None
+    note: str | None = None
+
+
+class TreatmentEfficiencyResponse(BaseModel):
+    resolutions: int
+    contacts: int
+    voiceMinutes: float
+    voiceCalls: int
+    contactsPerResolution: float | None = None
+    voiceMinutesPerResolution: float | None = None
+    voiceMinutesPerLakhRecovered: float | None = None
+    recoveredInr: float
+
+
+class TreatmentComplaintsResponse(BaseModel):
+    available: bool
+    reason: str | None = None
+
+
+class TreatmentComplianceResponse(BaseModel):
+    attempts: int
+    allowed: int
+    denied: int
+    denialRate: float | None = None
+    denialsByReason: list[TreatmentReasonCountResponse]
+    windowBreaches: int
+    capBreaches: int
+    worstDayTouches: int
+    dailyCap: int
+    breaches: int
+    breachTarget: int
+    breachNote: str
+    optOuts: int
+    complaints: TreatmentComplaintsResponse
+
+
+class TreatmentBorrowerExperienceResponse(BaseModel):
+    cases: int
+    contactsPerCase: float
+    worstCaseContacts: int
+    casesOverFiveContacts: int
+    heavyCaseShare: float | None = None
+
+
+class TreatmentCapacityResourceResponse(BaseModel):
+    resource: str
+    daysSolved: int
+    avgDualPriceInr: float
+    priceSpreadInr: float
+    stability: str
+    undampedSpreadInr: float
+    undampedStability: str
+    utilisation: float
+    unconfiguredDays: int
+    daysFromFeed: int
+    nonConvergedDays: int
+    infeasibleDays: int
+
+
+class TreatmentWithheldCasesResponse(BaseModel):
+    evaluable: bool
+    reason: str | None = None
+    cases: int | None = None
+    controlCases: int | None = None
+    controlCustomers: int | None = None
+    matureControlCases: int | None = None
+    controlShare: float | None = None
+
+
+class TreatmentCapacityResponse(BaseModel):
+    resources: list[TreatmentCapacityResourceResponse]
+    solved: bool
+    reason: str | None = None
+    withheldCases: TreatmentWithheldCasesResponse
+
+
+class TreatmentCalibrationBinResponse(BaseModel):
+    range: str
+    n: int
+    predicted: float
+    observed: float
+    gap: float
+
+
+class TreatmentReachCalibrationResponse(BaseModel):
+    n: int
+    ece: float | None = None
+    level: str | None = None
+    bins: list[TreatmentCalibrationBinResponse]
+    quantity: str
+
+
+class TreatmentUpliftCalibrationResponse(BaseModel):
+    available: bool
+    reason: str | None = None
+    treatedN: int
+    controlN: int
+    quantity: str | None = None
+    fittedUplift: bool | None = None
+    predictedMeanTau: float | None = None
+    measuredAte: float | None = None
+    gap: float | None = None
+    level: str | None = None
+    note: str | None = None
+
+
+class TreatmentFeatureDriftItemResponse(BaseModel):
+    feature: str
+    trainedMean: float
+    recentMean: float
+    shiftSigma: float
+    n: int
+    level: str
+
+
+class TreatmentFeatureDriftResponse(BaseModel):
+    available: bool
+    reason: str | None = None
+    features: list[TreatmentFeatureDriftItemResponse]
+    modelVersion: str | None = None
+    unmeasurable: list[str] | None = None
+    drifted: list[str] | None = None
+    worst: TreatmentFeatureDriftItemResponse | None = None
+
+
+class TreatmentModelVersionsResponse(BaseModel):
+    reach: str | None = None
+    uplift: str | None = None
+    upliftSegments: int
+
+
+class TreatmentAlertResponse(BaseModel):
+    level: str
+    check: str
+    detail: str
+
+
+class TreatmentModelHealthResponse(BaseModel):
+    windowDays: int
+    decisions: int
+    sampleLimit: int
+    truncated: bool
+    driftSampled: int
+    driftSampleLimit: int
+    reachCalibration: TreatmentReachCalibrationResponse
+    upliftCalibration: TreatmentUpliftCalibrationResponse
+    featureDrift: TreatmentFeatureDriftResponse
+    models: TreatmentModelVersionsResponse
+    alerts: list[TreatmentAlertResponse]
+
+
+class TreatmentMetricsResponse(BaseModel):
+    windowDays: int
+    causal: TreatmentCausalResponse
+    efficiency: TreatmentEfficiencyResponse
+    modelHealth: TreatmentModelHealthResponse
+    compliance: TreatmentComplianceResponse
+    borrowerExperience: TreatmentBorrowerExperienceResponse
+    capacity: TreatmentCapacityResponse
+
+
+class TreatmentModelRecordResponse(BaseModel):
+    """treatment_model_registry row-star; metrics/evaluation are jsonb."""
+
+    id: str
+    target: str
+    version: str
+    status: str
+    corpus: str
+    n_samples: int
+    control_n: int
+    segments_promoted: int
+    registered_at: datetime
+    promoted_at: datetime | None = None
+    promoted_by: str | None = None
+    retired_at: datetime | None = None
+    reason: str | None = None
+    metrics: dict[str, Any] = {}
+    evaluation: dict[str, Any] | None = None
+
+
+class TreatmentServingCheckResponse(BaseModel):
+    target: str
+    state: str
+    detail: str
+    version: str | None = None
+    promotedAt: datetime | None = None
+    promotedBy: str | None = None
+
+
+class TreatmentModelsResponse(BaseModel):
+    history: list[TreatmentModelRecordResponse]
+    serving: list[TreatmentServingCheckResponse]
+
+
+# ── Authority: the matrix's answer, and the goodwill it posted ───────────────
+
+
+class AuthorityPacketResponse(BaseModel):
+    feeType: str
+    askedAmount: float | None = None
+    verdict: str
+    approvedAmount: float | None = None
+    capAmount: float | None = None
+    reason: str | None = None
+    reasonCodes: list[str]
+    talkTrack: str
+    customerId: str | None = None
+
+
+class AuthorityNextResponse(BaseModel):
+    verdict: str
+    approvedAmount: float | None = None
+    capAmount: float | None = None
+    reason: str | None = None
+    reasonCodes: list[str]
+    talkTrack: str
+    feeType: str
+    askedAmount: float | None = None
+    decisionId: str | None = None
+    mode: str
+    suppressed: bool
+    actionable: bool
+    packet: AuthorityPacketResponse | None = None
+    latencyMs: int
+
+
+class AuthorityApplyResponse(BaseModel):
+    ledgerId: str
+    disputeId: str | None = None
+    amount: float
+    accountId: str
+    decisionId: str | None = None
+
+
+# --- CRM / Evals / Studio / Platform / Sandbox / Payments / KB / Catalog / Billing / Routing routers (response_model closure) ---
+# Response models list every key the builder emits — a key missing here is
+# silently dropped from the wire. Sparse builders pair with
+# ``response_model_exclude_unset=True`` on the route so the wire stays identical.
+
+
+# ── CRM: write acknowledgements (db.py) ──────────────────────────────────────
+
+
+class IdStatusResponse(BaseModel):
+    """`{id, status}` — what the callback / follow-up / reminder writes return.
+    ``status`` echoes the patch, so it is None when the patch carried none."""
+
+    id: str
+    status: str | None = None
+
+
+class DisputeNoteWriteResponse(BaseModel):
+    id: str
+    text: str
+
+
+class DisputeEvidenceWriteResponse(BaseModel):
+    """`{id, **payload}` — the optional keys ride only when the client sent them."""
+
+    id: str
+    filename: str
+    mimeType: str
+    storageRef: str | None = None
+    sizeBytes: int | None = None
+    hash: str | None = None
+
+
+class WrapUpSpawnedResponse(BaseModel):
+    """Only the children the wrap-up actually created are present."""
+
+    promise: PromiseResponse | None = None
+    dispute: DisputeResponse | None = None
+    callback: IdStatusResponse | None = None
+
+
+class WrapUpResponse(BaseModel):
+    id: str
+    spawned: WrapUpSpawnedResponse
+
+
+class EligibilityFlagResponse(BaseModel):
+    """One row of `capture.evaluate_product_eligibility`; `status` is set on
+    the profile checks only."""
+
+    ruleId: str | None = None
+    code: str
+    blocking: bool
+    label: str
+    passed: bool
+    reason: str | None = None
+    status: str | None = None
+
+
+class LeadRevalidateResponse(BaseModel):
+    leadId: str
+    eligible: bool
+    blockReason: str | None = None
+    flags: list[EligibilityFlagResponse]
+
+
+class DocumentIngestResponse(BaseModel):
+    """`agent_core.vision.ingest_customer_document` ToolResult.data."""
+
+    documentRequestId: str | None = None
+    documentType: str | None = None
+    source: str
+    filename: str | None = None
+
+
+class DocumentDeliveryAttemptCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str | None = None
+    provider: str | None = None
+    error: str | None = None
+    failedReason: str | None = None
+
+
+class DocumentDeliveryAttemptResponse(BaseModel):
+    id: str
+    status: str
+    attemptNumber: int
+
+
+class OutboundHourResponse(BaseModel):
+    """`outbound.hourly_reach` — one row per local hour with a denominator."""
+
+    hour: int
+    attempts: int
+    answered: int
+    answerRate: float | None = None
+
+
+# ── Evals / QA ───────────────────────────────────────────────────────────────
+
+
+class QaCoverageResponse(BaseModel):
+    windowDays: int
+    completed: int
+    scored: int
+    coverage: float | None = None
+    pendingReview: int
+    criticalFails: int
+
+
+class QaPackFlagResponse(BaseModel):
+    flag: str
+    severity: str | None = None
+    createdAt: str | None = None
+
+
+class QaPackDisclosureResponse(BaseModel):
+    ruleId: str | None = None
+    label: str | None = None
+    read: bool
+    readAtSec: int | None = None
+    createdAt: str | None = None
+
+
+class QaPackViolationResponse(BaseModel):
+    id: str
+    ruleId: str
+    code: str | None = None
+    label: str | None = None
+    status: str | None = None
+    description: str | None = None
+    atSec: int | None = None
+
+
+class QaPackAlertResponse(BaseModel):
+    id: str
+    kind: str | None = None
+    severity: str | None = None
+    reason: str | None = None
+    createdAt: str | None = None
+    acknowledgedAt: str | None = None
+
+
+class QaPackSupervisorActionResponse(BaseModel):
+    id: str
+    action: str | None = None
+    note: str | None = None
+    audioJoined: bool
+    createdAt: str | None = None
+
+
+class QaPackLiveQaResponse(BaseModel):
+    id: str
+    verdict: str | None = None
+    recommendedAction: str | None = None
+    reason: str | None = None
+    reasonCodes: list[Any]
+    mode: str | None = None
+    enacted: bool
+    createdAt: str | None = None
+
+
+class QaPackMediaResponse(BaseModel):
+    id: str
+    kind: str | None = None
+    storageRef: str | None = None
+    durationSec: int | None = None
+    mimeType: str | None = None
+    hash: str | None = None
+
+
+class QaPackScorecardEntryResponse(BaseModel):
+    criterionId: str
+    aiSuggested: float
+    score: float
+    note: str | None = None
+
+
+class QaPackScorecardResponse(BaseModel):
+    id: str
+    status: str | None = None
+    totalScore: float | None = None
+    band: str | None = None
+    scoredAt: str | None = None
+    entries: list[QaPackScorecardEntryResponse]
+
+
+class QaInteractionPackResponse(BaseModel):
+    """`agent_core.live_qa.pack.build_pack` — the tenant-scoped evidence pack."""
+
+    interactionId: str
+    customerId: str | None = None
+    customerName: str | None = None
+    accountId: str | None = None
+    channel: str | None = None
+    direction: str | None = None
+    handlerKind: str | None = None
+    status: str | None = None
+    disposition: str | None = None
+    startedAt: str | None = None
+    endedAt: str | None = None
+    durationSec: int | None = None
+    summary: str | None = None
+    redactionApplied: bool
+    hash: str | None = None
+    transcript: str
+    flags: list[QaPackFlagResponse]
+    disclosures: list[QaPackDisclosureResponse]
+    violations: list[QaPackViolationResponse]
+    alerts: list[QaPackAlertResponse]
+    supervisorActions: list[QaPackSupervisorActionResponse]
+    liveQa: list[QaPackLiveQaResponse]
+    media: list[QaPackMediaResponse]
+    scorecard: QaPackScorecardResponse | None = None
+
+
+class EvalTrialResponse(BaseModel):
+    """`agent_core.eval.harness` — one graded fixture; `verdict` is grader-shaped."""
+
+    taskId: str | None = None
+    name: str | None = None
+    passed: bool
+    verdict: dict[str, Any]
+    fixture: dict[str, Any]
+    error: str | None = None
+
+
+class EvalSuiteRunResponse(BaseModel):
+    """`run_named_suite`: the suite facts plus the harness result spread in."""
+
+    suiteId: str
+    kind: str
+    name: str | None = None
+    reportId: str
+    status: Literal["pass", "fail", "error"]
+    failed: int
+    errored: int
+    total: int
+    trials: list[EvalTrialResponse]
+
+
+class EvalReportRowResponse(BaseModel):
+    """`SELECT *` from eval_reports, snake_case as stored. Columns the running
+    database has not gained yet are simply absent (route excludes unset)."""
+
+    id: str
+    tenant_id: str | None = None
+    suite_id: str | None = None
+    bot_id: str | None = None
+    prompt_version_id: str | None = None
+    status: str | None = None
+    summary: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    origin: str | None = None
+    content_key: str | None = None
+
+
+class EvalScheduleRunResponse(BaseModel):
+    origin: str
+    ran: int
+    failed: int
+    status: Literal["pass", "fail"]
+    reports: list[EvalSuiteRunResponse]
+
+
+class EvalTaskGraduateResponse(BaseModel):
+    sourceTaskId: str
+    regressionTaskId: str
+    suiteId: str
+    signedSkill: bool
+
+
+class QaDisagreementResponse(BaseModel):
+    interactionId: str | None = None
+    liveVerdict: str
+    humanBand: str
+    humanScore: float | None = None
+    suggestedRubricTweak: str
+    applied: bool
+
+
+class QaDisagreementsResponse(BaseModel):
+    applied: bool
+    count: int
+    items: list[QaDisagreementResponse]
+
+
+class TwinCorpusRowResponse(BaseModel):
+    id: str
+    source: str
+    sourceRef: str
+    outcome: dict[str, Any]
+    taskId: str | None = None
+    createdAt: str | None = None
+
+
+class TwinCorpusGrowResponse(BaseModel):
+    created: int
+    skipped: int
+    source: str
+
+
+# ── Agent Studio: request bodies ─────────────────────────────────────────────
+
+
+class AgentCardCloneRequest(BaseModel):
+    """Either a template or a source card; `clone_card` decides which wins."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    templateId: str | None = Field(default=None, validation_alias=AliasChoices("templateId", "template_id"))
+    sourceBotId: str | None = Field(default=None, validation_alias=AliasChoices("sourceBotId", "source_bot_id"))
+    name: str | None = None
+
+
+class AgentCardPatchRequest(BaseModel):
+    """Studio card autosave. The card is stored as authored — the compiler's G0
+    is its validator, so an in-progress card that does not yet parse is still
+    saved and reported, not refused (same contract as PromptVersionPatchRequest)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agentCard: dict[str, Any] | None = Field(default=None, validation_alias=AliasChoices("agentCard", "agent_card"))
+    flow: FlowGraph | None = None
+
+
+class AgentCardCompileRequest(BaseModel):
+    """Compile preview of what Publish will ship. `agentCard` and `flow` are the
+    editor's unsaved JSON — the gates (G0 card, G1 flow) are what judge them, so
+    they are open documents here rather than the strict domain models; a graph
+    that does not parse must reach the compiler to be reported as such."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agentCard: dict[str, Any] | None = Field(default=None, validation_alias=AliasChoices("agentCard", "agent_card"))
+    flow: dict[str, Any] | None = None
+    trafficPct: int | float | None = Field(default=None, validation_alias=AliasChoices("trafficPct", "traffic_pct"))
+    autoRollback: list[str] | None = Field(default=None, validation_alias=AliasChoices("autoRollback", "auto_rollback"))
+    #: The mouth columns the editor holds unsaved between autosaves (G15).
+    voice: dict[str, Any] | None = None
+    persona: dict[str, Any] | None = None
+
+
+class ConnectorAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connectorId: str = Field(validation_alias=AliasChoices("connectorId", "connector_id"))
+    allowPrefixes: list[str] | None = Field(default=None, validation_alias=AliasChoices("allowPrefixes", "allow_prefixes"))
+
+
+class SkillCreateRequest(BaseModel):
+    """`agent_core.skills.persist.create_draft_skill`. Origin is not a client
+    choice: every draft created here is a tenant skill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str = Field(validation_alias=AliasChoices("slug", "name"))
+    description: str | None = None
+    allowedTools: list[str] | None = Field(default=None, validation_alias=AliasChoices("allowedTools", "allowed_tools"))
+    body: str | None = None
+    frontmatter: dict[str, Any] | None = None
+
+
+class SkillPatchRequest(BaseModel):
+    """`patch_skill` distinguishes absent from null — routes dump exclude_unset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str | None = None
+    description: str | None = None
+    allowedTools: list[str] | None = Field(default=None, validation_alias=AliasChoices("allowedTools", "allowed_tools"))
+    body: str | None = None
+    frontmatter: dict[str, Any] | None = None
+    version: str | None = None
+
+
+class SkillRevertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    versionId: str | None = Field(default=None, validation_alias=AliasChoices("versionId", "version_id"))
+
+
+class SkillCloneRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str | None = None
+
+
+class SkillAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    promptVersionId: str = Field(validation_alias=AliasChoices("promptVersionId", "prompt_version_id"))
+
+
+class SkillScriptRunRequest(BaseModel):
+    """`payload` must be an object: the console says so, and `[1, 2]` used to
+    run the script against nothing and return a verdict that read as computed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RolePermissionsPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    permissionIds: list[str] = Field(default_factory=list, validation_alias=AliasChoices("permissionIds", "permission_ids"))
+
+
+class ExperimentRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = "manual"
+
+
+# ── Agent Studio: roles + canary responses ───────────────────────────────────
+
+
+class RolePermissionResponse(BaseModel):
+    id: str
+    module: str
+    action: str
+    description: str
+
+
+class RoleGrantResponse(BaseModel):
+    role_id: str
+    role: str
+    permission_id: str
+
+
+class RoleResponse(BaseModel):
+    id: str
+    name: str
+    permissionIds: list[str]
+
+
+class RolesCatalogResponse(BaseModel):
+    """Roles page. `grants` is the resolved set the enforcer will honour."""
+
+    permissions: list[RolePermissionResponse]
+    agentPublishRoles: list[str]
+    grants: list[RoleGrantResponse]
+    roles: list[RoleResponse]
+
+
+class DeploymentExperimentResponse(BaseModel):
+    """`agent_core.canary.list_experiments` — camelCase projection of the row."""
+
+    id: str
+    botId: str
+    environment: str | None = None
+    canaryDeploymentId: str | None = None
+    baselineDeploymentId: str | None = None
+    trafficPct: int
+    shadow: bool
+    autoRollback: list[str]
+    status: str | None = None
+    rollbackReason: str | None = None
+
+
+class DeploymentExperimentRollbackResponse(BaseModel):
+    """`rollback_experiment` returns the raw deployment_experiments row plus
+    `baselineRestored` — the one key the Ship tab reads. Row columns stay
+    snake_case as stored; the route excludes unset so the wire mirrors the row."""
+
+    id: str
+    tenant_id: str | None = None
+    bot_id: str | None = None
+    environment: str | None = None
+    canary_deployment_id: str | None = None
+    baseline_deployment_id: str | None = None
+    traffic_pct: int | None = None
+    shadow: bool | None = None
+    auto_rollback: Any = None
+    status: str | None = None
+    rollback_reason: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    baselineRestored: bool
+
+
+# ── Platform ─────────────────────────────────────────────────────────────────
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
+
+
+class PoolSnapshotResponse(BaseModel):
+    poolSize: int
+    maxOverflow: int
+    capacity: int
+    checkedOut: int
+    overflow: int
+    available: int
+    statementTimeoutMs: int
+    poolRecycle: int
+
+
+class MinioPingResponse(BaseModel):
+    ok: bool
+    configured: bool
+    detail: str | None = None
+    bucket: str | None = None
+
+
+class CircuitSnapshotResponse(BaseModel):
+    name: str
+    state: Literal["closed", "open", "half_open"]
+    failures: int
+    threshold: int
+    resetTimeoutS: float
+
+
+class ReadinessResponse(BaseModel):
+    """The 200 branch of /ready; the 503 branch carries the same dict as detail."""
+
+    ok: bool
+    db: bool | None = None
+    pool: PoolSnapshotResponse
+    detail: str | None = None
+    minio: MinioPingResponse
+    circuits: list[CircuitSnapshotResponse]
+
+
+class PlatformSwitchResponse(BaseModel):
+    """`platform_switches.get_all` — every known switch, flipped or not."""
+
+    key: str
+    description: str
+    enabled: bool
+    updatedAt: str | None = None
+    updatedByUserId: str | None = None
+    note: str | None = None
+
+
+class PlatformSwitchesResponse(BaseModel):
+    switches: list[PlatformSwitchResponse]
+
+
+class PlatformSwitchPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    note: str | None = None
+
+
+class PlatformSwitchFlipResponse(BaseModel):
+    key: str
+    enabled: bool
+
+
+# ── Sandbox: payment events, twins, tuning presets ───────────────────────────
+
+
+class SandboxPaymentEventRequest(BaseModel):
+    """`payment_events.parse_payload` reads both spellings; `source` and
+    `sourceRef` are defaulted by the route when absent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    accountId: str | None = Field(default=None, validation_alias=AliasChoices("accountId", "account_id"))
+    customerId: str | None = Field(default=None, validation_alias=AliasChoices("customerId", "customer_id"))
+    source: str | None = None
+    sourceRef: str | None = Field(default=None, validation_alias=AliasChoices("sourceRef", "source_ref"))
+    amount: float | str | None = None
+    occurredAt: str | None = Field(default=None, validation_alias=AliasChoices("occurredAt", "occurred_at"))
+    reason: str | None = None
+    emiId: str | None = Field(default=None, validation_alias=AliasChoices("emiId", "emi_id"))
+    bounceFee: float | str | None = Field(default=None, validation_alias=AliasChoices("bounceFee", "bounce_fee"))
+    nextCreditAt: str | None = Field(default=None, validation_alias=AliasChoices("nextCreditAt", "next_credit_at"))
+
+
+class SimulationTwinResponse(BaseModel):
+    id: str
+    name: str
+    state: dict[str, Any]
+    createdAt: str | None = None
+    updatedAt: str | None = None
+
+
+class TwinRunRequest(BaseModel):
+    """State overrides merged onto the twin's stored state before the replay."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    state: dict[str, Any] | None = None
+
+
+class TwinQueuesResponse(BaseModel):
+    whatsapp: list[dict[str, Any]]
+    sms: list[dict[str, Any]]
+    voice: list[dict[str, Any]]
+
+
+class TwinOutcomeResponse(BaseModel):
+    queues: TwinQueuesResponse
+    ledger: dict[str, Any]
+    dialled: bool
+    doubleSms: bool
+
+
+class TwinGraderResponse(BaseModel):
+    passed: bool
+    bounce_ladder: dict[str, Any]
+    no_dial: dict[str, Any]
+
+
+class TwinRunResponse(BaseModel):
+    id: str
+    twinId: str
+    scenario: str
+    status: str
+    outcome: TwinOutcomeResponse
+    grader: TwinGraderResponse
+
+
+class TuningPresetResponse(BaseModel):
+    id: str
+    label: str
+    tuning: dict[str, Any]
+
+
+# ── Payments ─────────────────────────────────────────────────────────────────
+
+
+class PromiseFulfillmentResponse(BaseModel):
+    """`promise_fulfillment.FulfillmentResult.as_dict`."""
+
+    promiseId: str
+    intentId: str | None = None
+    confirmChannel: str | None = None
+    phoneLast4: str | None = None
+    payLinkSent: bool
+    suppressed: bool
+    suppressionReason: str | None = None
+
+
+class PromiseResendConfirmResponse(PromiseResponse):
+    """The promise row plus what the resend did, under the underscore keys the
+    builder has always emitted."""
+
+    fulfillment: PromiseFulfillmentResponse = Field(
+        validation_alias="_fulfillment", serialization_alias="_fulfillment"
+    )
+    spoken: str | None = Field(default=None, validation_alias="_spoken", serialization_alias="_spoken")
+
+
+class PaymentPlanCreateResponse(BaseModel):
+    id: str
+    promise: PromiseResponse
+
+
+# ── KB ───────────────────────────────────────────────────────────────────────
+
+
+class KbReindexAllResponse(BaseModel):
+    """`reindex_all_kb_documents` plus the snapshot hook; `snapshot` is None
+    when the snapshot could not be taken (the reindex itself succeeded)."""
+
+    jobIds: list[str]
+    count: int
+    snapshot: KbSnapshotResponse | None = None
+
+
+# ── TTS catalog counts ───────────────────────────────────────────────────────
+
+
+class TtsProviderCountResponse(BaseModel):
+    providerId: str
+    count: int
+
+
+class TtsLocaleCountResponse(BaseModel):
+    locale: str
+    localeName: str
+    count: int

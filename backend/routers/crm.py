@@ -31,16 +31,22 @@ from schemas import (
     CustomerNoteCreateRequest,
     CustomerResponse,
     DisputeCreateRequest,
+    DisputeEvidenceWriteResponse,
     DisputeListResponse,
     DisputeNoteCreateRequest,
+    DisputeNoteWriteResponse,
     DisputePatchRequest,
     DisputeResponse,
+    DocumentDeliveryAttemptCreateRequest,
+    DocumentDeliveryAttemptResponse,
+    DocumentIngestResponse,
     DocumentListResponse,
     DocumentPatchRequest,
     DocumentRequestCreateRequest,
     DocumentRequestResponse,
     EvidenceCreateRequest,
     FollowupPatchRequest,
+    IdStatusResponse,
     InteractionCostResponse,
     InteractionCreateRequest,
     InteractionWrapUpRequest,
@@ -48,9 +54,12 @@ from schemas import (
     LeadMetricsResponse,
     LeadPatchRequest,
     LeadResponse,
+    LeadRevalidateResponse,
+    OutboundHourResponse,
     ProductResponse,
     ReminderCreateRequest,
     TurnTraceResponse,
+    WrapUpResponse,
 )
 
 from api_support import _handle_write, _read_upload_capped, Utf8JSONResponse, ROUTER_DEPENDENCIES
@@ -92,7 +101,9 @@ def get_contact_policy(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.get("/interactions/{interaction_id}/export")
+# A download by design (JSON or Markdown with Content-Disposition), not a JSON
+# body a model could describe. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/interactions/{interaction_id}/export", response_class=Response)
 def export_interaction(
     interaction_id: str,
     format: str = Query("json", pattern="^(json|md)$"),
@@ -240,7 +251,11 @@ def list_callbacks(
 def create_interaction(payload: InteractionCreateRequest, idempotency_key: str | None = Header(default=None)):
     return _handle_write(db.create_interaction, payload.model_dump(), idempotency_key)
 
-@router.post("/interactions/{interaction_id}/wrap-up")
+@router.post(
+    "/interactions/{interaction_id}/wrap-up",
+    response_model=WrapUpResponse,
+    response_model_exclude_unset=True,
+)
 def wrap_up_interaction(interaction_id: str, payload: InteractionWrapUpRequest, idempotency_key: str | None = Header(default=None)):
     return _handle_write(db.wrap_up_interaction, interaction_id, payload.model_dump(exclude_none=True), idempotency_key)
 
@@ -253,24 +268,28 @@ def patch_dispute(dispute_id: str, payload: DisputePatchRequest):
     # exclude_unset (not exclude_none) so an explicit null clears the assignee.
     return _handle_write(db.patch_dispute, dispute_id, payload.model_dump(exclude_unset=True))
 
-@router.post("/disputes/{dispute_id}/notes")
+@router.post("/disputes/{dispute_id}/notes", response_model=DisputeNoteWriteResponse)
 def add_dispute_note(dispute_id: str, payload: DisputeNoteCreateRequest):
     return _handle_write(db.add_dispute_note, dispute_id, payload.model_dump())
 
-@router.post("/disputes/{dispute_id}/evidence")
+@router.post(
+    "/disputes/{dispute_id}/evidence",
+    response_model=DisputeEvidenceWriteResponse,
+    response_model_exclude_unset=True,
+)
 def add_dispute_evidence(dispute_id: str, payload: EvidenceCreateRequest):
     return _handle_write(db.add_dispute_evidence, dispute_id, payload.model_dump(exclude_none=True))
 
-@router.post("/callbacks")
+@router.post("/callbacks", response_model=IdStatusResponse)
 def create_callback(payload: CallbackCreateRequest):
     return _handle_write(db.create_callback, payload.model_dump(exclude_none=True))
 
-@router.patch("/callbacks/{callback_id}")
+@router.patch("/callbacks/{callback_id}", response_model=IdStatusResponse)
 def patch_callback(callback_id: str, payload: CallbackPatchRequest):
     # exclude_unset (not exclude_none) so an explicit null clears the assignee.
     return _handle_write(db.patch_callback, callback_id, payload.model_dump(exclude_unset=True))
 
-@router.post("/callbacks/{callback_id}/reminders")
+@router.post("/callbacks/{callback_id}/reminders", response_model=IdStatusResponse)
 def add_callback_reminder(callback_id: str, payload: ReminderCreateRequest):
     return _handle_write(db.add_callback_reminder, callback_id, payload.model_dump(exclude_none=True))
 
@@ -289,16 +308,20 @@ def patch_lead(lead_id: str, payload: LeadPatchRequest):
     # into absent, so lossReason could be set but never removed.
     return _handle_write(db.patch_lead, lead_id, payload.model_dump(exclude_unset=True))
 
-@router.post("/leads/{lead_id}/revalidate")
+@router.post(
+    "/leads/{lead_id}/revalidate",
+    response_model=LeadRevalidateResponse,
+    response_model_exclude_unset=True,
+)
 def revalidate_lead(lead_id: str, channel: str | None = Query(default=None)):
     """Re-check a lead's eligibility against today's consent and account facts."""
     return _handle_write(db.revalidate_lead_eligibility, lead_id, channel)
 
-@router.post("/leads/{lead_id}/followups")
+@router.post("/leads/{lead_id}/followups", response_model=IdStatusResponse)
 def add_lead_followup(lead_id: str, payload: ReminderCreateRequest):
     return _handle_write(db.add_lead_followup, lead_id, payload.model_dump(exclude_none=True))
 
-@router.patch("/followups/{followup_id}")
+@router.patch("/followups/{followup_id}", response_model=IdStatusResponse)
 def patch_followup(followup_id: str, payload: FollowupPatchRequest):
     return _handle_write(db.patch_followup, followup_id, payload.model_dump(exclude_none=True))
 
@@ -306,7 +329,7 @@ def patch_followup(followup_id: str, payload: FollowupPatchRequest):
 def create_document_request(payload: DocumentRequestCreateRequest):
     return _handle_write(db.create_document_request, payload.model_dump(exclude_none=True))
 
-@router.post("/document-requests/ingest")
+@router.post("/document-requests/ingest", response_model=DocumentIngestResponse)
 async def ingest_document_request(
     customer_id: str = Form(...),
     conversation_id: str | None = Form(None),
@@ -348,15 +371,20 @@ def patch_document_request(document_id: str, payload: DocumentPatchRequest):
     # exclude_unset (not exclude_none) so explicit nulls clear assignee / failedReason.
     return _handle_write(db.patch_document_request, document_id, payload.model_dump(exclude_unset=True))
 
-@router.post("/document-requests/{document_id}/delivery-attempts")
-def add_document_delivery_attempt(document_id: str, payload: dict):
-    return _handle_write(db.add_document_delivery_attempt, document_id, payload)
+@router.post(
+    "/document-requests/{document_id}/delivery-attempts",
+    response_model=DocumentDeliveryAttemptResponse,
+)
+def add_document_delivery_attempt(document_id: str, payload: DocumentDeliveryAttemptCreateRequest):
+    return _handle_write(
+        db.add_document_delivery_attempt, document_id, payload.model_dump(exclude_none=True)
+    )
 
 @router.post("/customers/{customer_id}/notes", response_model=CustomerResponse)
 def add_customer_note(customer_id: str, payload: CustomerNoteCreateRequest):
     return _handle_write(db.add_customer_note, customer_id, payload.model_dump())
 
-@router.get("/customers/{customer_id}/outbound/hours")
+@router.get("/customers/{customer_id}/outbound/hours", response_model=list[OutboundHourResponse])
 def outbound_hourly(customer_id: str, days: int = Query(default=90, ge=1, le=365)):
     """Per-hour answer rate for one borrower, in their own local time.
 

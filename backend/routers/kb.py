@@ -38,6 +38,7 @@ from schemas import (
     KbIngestSourceDbResponse,
     KbPurgeRequest,
     KbPurgeResponse,
+    KbReindexAllResponse,
     KbReindexResponse,
     KbRetrieveRequest,
     KbRetrieveResponse,
@@ -46,6 +47,7 @@ from schemas import (
     KbStatsResponse,
     KbUploadResponse,
 )
+from schemas import AgentStudioSkillResponse
 
 from api_support import _read_upload_capped, Utf8JSONResponse, ROUTER_DEPENDENCIES
 
@@ -53,7 +55,11 @@ router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_
 logger = logging.getLogger(__name__)
 
 
-@router.post("/kb/gaps/{gap_id}/promote-skill")
+@router.post(
+    "/kb/gaps/{gap_id}/promote-skill",
+    response_model=AgentStudioSkillResponse,
+    response_model_exclude_unset=True,
+)
 def promote_kb_gap_to_skill(gap_id: str):
     from agent_core.skills.gardener import assert_unsigned, draft_from_gap
     from agent_core.skills.persist import create_draft_skill
@@ -179,7 +185,7 @@ def kb_ingest_source_db(product: str | None = Query(default=None)):
         logger.exception("kb_ingest_source_db failed product=%s", product)
         raise HTTPException(status_code=502, detail="kb_ingest_failed") from exc
 
-@router.post("/kb/reindex-all")
+@router.post("/kb/reindex-all", response_model=KbReindexAllResponse)
 def kb_reindex_all():
     result = db.reindex_all_kb_documents()
     # Snapshot hook — freeze post-queue corpus pointer for sandbox readiness.
@@ -285,7 +291,8 @@ def kb_patch_faq(faq_id: str, payload: KbFaqPatchRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.delete("/kb/faqs/{faq_id}", status_code=204)
+# 204 with no body by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.delete("/kb/faqs/{faq_id}", status_code=204, response_class=Response)
 def kb_delete_faq(faq_id: str):
     try:
         db.delete_kb_faq(faq_id)

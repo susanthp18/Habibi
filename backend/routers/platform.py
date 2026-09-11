@@ -20,22 +20,26 @@ from fastapi import HTTPException, Response
 from schemas import (
     BotAnalyticsResponse,
     DashboardResponse,
+    HealthResponse,
     MeResponse,
+    PlatformSwitchFlipResponse,
+    PlatformSwitchPatchRequest,
+    PlatformSwitchesResponse,
     PresencePatchRequest,
     PresenceResponse,
+    ReadinessResponse,
 )
-from typing import Any
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 def health():
     """Process liveness — no dependency checks."""
     return {"status": "ok"}
 
-@router.get("/ready")
+@router.get("/ready", response_model=ReadinessResponse, response_model_exclude_unset=True)
 def ready():
     """Readiness: DB ping + pool headroom (+ optional MinIO ping).
 
@@ -56,7 +60,9 @@ def ready():
         raise HTTPException(status_code=503, detail=result)
     return result
 
-@router.get("/metrics", include_in_schema=False)
+# Prometheus text exposition by design, not JSON. Listed in
+# tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/metrics", include_in_schema=False, response_class=Response)
 def metrics():
     """Prometheus exposition.
 
@@ -100,7 +106,7 @@ def patch_me_presence(payload: PresencePatchRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.get("/platform/switches")
+@router.get("/platform/switches", response_model=PlatformSwitchesResponse)
 def list_platform_switches():
     """Operator-flippable runtime switches and their current state.
 
@@ -112,15 +118,12 @@ def list_platform_switches():
 
     return {"switches": platform_switches.read_all()}
 
-@router.patch("/platform/switches/{key}")
-def patch_platform_switch(key: str, payload: dict[str, Any]):
+@router.patch("/platform/switches/{key}", response_model=PlatformSwitchFlipResponse)
+def patch_platform_switch(key: str, payload: PlatformSwitchPatchRequest):
     import platform_switches
 
-    enabled = payload.get("enabled")
-    if not isinstance(enabled, bool):
-        raise HTTPException(status_code=422, detail="enabled_must_be_boolean")
-    note = payload.get("note")
-    note = str(note).strip()[:200] if note else None
+    enabled = payload.enabled
+    note = payload.note.strip()[:200] if payload.note else None
     try:
         result = platform_switches.flip(key, enabled, note=note)
     except KeyError:

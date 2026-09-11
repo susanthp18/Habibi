@@ -16,12 +16,40 @@ import os
 from fastapi import APIRouter
 from fastapi import HTTPException, Query
 from schemas import (
+    AgentObligationResponse,
     AuthorityApplyRequest,
+    AuthorityApplyResponse,
+    AuthorityNextResponse,
+    CadenceCaseResponse,
+    CallAttemptResponse,
+    CampaignCohortPreviewRequest,
+    CampaignCohortPreviewResponse,
+    CampaignRunCreateRequest,
+    CampaignRunResponse,
+    CampaignStatusRequest,
+    CampaignTargetsAddedResponse,
+    CampaignTargetsRequest,
+    DecisionFeedbackRequest,
+    DecisionFeedbackResponse,
+    DemoOutboundCallResponse,
+    DemoOutboundTargetResponse,
+    MissionsResponse,
+    NonpaymentReasonResponse,
+    NumberPoolResponse,
     OfferHealthResponse,
     OfferResponseRequest,
     OfferResponseResponse,
+    OutboundCardVocabularyResponse,
+    ReachStatsResponse,
+    TreatmentCaseResponse,
     TreatmentHoldCreateRequest,
     TreatmentHoldReleaseRequest,
+    TreatmentHoldResponse,
+    TreatmentInsightsResponse,
+    TreatmentMetricsResponse,
+    TreatmentModelHealthResponse,
+    TreatmentModelsResponse,
+    TreatmentNextResponse,
 )
 from typing import Any
 
@@ -141,7 +169,7 @@ def _demo_outbound_objective(card: Any) -> str:
         return declared[0]
     return wanted
 
-@router.get("/demo/outbound-call")
+@router.get("/demo/outbound-call", response_model=DemoOutboundTargetResponse)
 def demo_outbound_target():
     """Who the demo button will call, and whether it can right now.
 
@@ -212,7 +240,7 @@ def demo_outbound_target():
         "twilioConfigured": twilio_ops.configured(),
     }
 
-@router.post("/demo/outbound-call")
+@router.post("/demo/outbound-call", response_model=DemoOutboundCallResponse)
 async def demo_outbound_call():
     """Place the demo call: one number, the full mission, every real gate.
 
@@ -302,7 +330,7 @@ async def demo_outbound_call():
         "callSid": result.get("callSid"),
     }
 
-@router.get("/treatment/next")
+@router.get("/treatment/next", response_model=TreatmentNextResponse, response_model_exclude_unset=True)
 def treatment_next(
     customerId: str = Query(...),
     accountId: str | None = Query(default=None),
@@ -317,7 +345,7 @@ def treatment_next(
         db.next_treatment, customer_id=customerId, account_id=accountId, trigger=trigger
     )
 
-@router.get("/treatment/insights")
+@router.get("/treatment/insights", response_model=TreatmentInsightsResponse)
 def treatment_insights(days: int = Query(default=14, ge=1, le=90)):
     """Coverage, suppression breakdown and action mix over a window.
 
@@ -326,7 +354,7 @@ def treatment_insights(days: int = Query(default=14, ge=1, le=90)):
     """
     return db.treatment_insights(days)
 
-@router.get("/treatment/metrics")
+@router.get("/treatment/metrics", response_model=TreatmentMetricsResponse, response_model_exclude_unset=True)
 def treatment_metrics(
     days: int = Query(default=28, ge=1, le=180),
     includeSimulated: bool = Query(default=False),
@@ -342,7 +370,9 @@ def treatment_metrics(
     """
     return db.treatment_metrics(days, include_simulated=includeSimulated)
 
-@router.get("/treatment/model-health")
+@router.get(
+    "/treatment/model-health", response_model=TreatmentModelHealthResponse, response_model_exclude_unset=True
+)
 def treatment_model_health(
     days: int = Query(default=14, ge=1, le=180),
     includeSimulated: bool = Query(default=False),
@@ -350,7 +380,7 @@ def treatment_model_health(
     """Feature drift, reach calibration, and predicted tau against measured ATE."""
     return db.treatment_model_health(days, include_simulated=includeSimulated)
 
-@router.get("/treatment/models")
+@router.get("/treatment/models", response_model=TreatmentModelsResponse, response_model_exclude_unset=True)
 def treatment_models(
     target: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -358,7 +388,7 @@ def treatment_models(
     """The champion/challenger ledger, and whether it matches what is serving."""
     return db.treatment_models(target, limit)
 
-@router.get("/treatment/holds")
+@router.get("/treatment/holds", response_model=list[TreatmentHoldResponse], response_model_exclude_unset=True)
 def list_treatment_holds(
     customerId: str | None = Query(default=None),
     activeOnly: bool = Query(default=True),
@@ -369,7 +399,7 @@ def list_treatment_holds(
         customer_id=customerId, active_only=activeOnly, limit=limit, offset=offset
     )
 
-@router.post("/treatment/holds")
+@router.post("/treatment/holds", response_model=TreatmentHoldResponse, response_model_exclude_unset=True)
 def create_treatment_hold(payload: TreatmentHoldCreateRequest):
     """Stop collections outreach for this borrower.
 
@@ -380,7 +410,9 @@ def create_treatment_hold(payload: TreatmentHoldCreateRequest):
     """
     return _handle_write(db.create_treatment_hold, payload.model_dump(exclude_none=True))
 
-@router.post("/treatment/holds/{hold_id}/release")
+@router.post(
+    "/treatment/holds/{hold_id}/release", response_model=TreatmentHoldResponse, response_model_exclude_unset=True
+)
 def release_treatment_hold(hold_id: str, payload: TreatmentHoldReleaseRequest | None = None):
     return _handle_write(
         db.release_treatment_hold,
@@ -388,11 +420,8 @@ def release_treatment_hold(hold_id: str, payload: TreatmentHoldReleaseRequest | 
         payload.model_dump(exclude_none=True) if payload else None,
     )
 
-@router.post("/treatment/decisions/{decision_id}/feedback")
-def treatment_decision_feedback(decision_id: str, payload: dict[str, Any]):
-    from schemas import DecisionFeedbackRequest
-
-    body = DecisionFeedbackRequest.model_validate(payload)
+@router.post("/treatment/decisions/{decision_id}/feedback", response_model=DecisionFeedbackResponse)
+def treatment_decision_feedback(decision_id: str, body: DecisionFeedbackRequest):
     try:
         return db_outbound.record_decision_feedback(
             decision_id,
@@ -405,7 +434,7 @@ def treatment_decision_feedback(decision_id: str, payload: dict[str, Any]):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-@router.get("/treatment/cases")
+@router.get("/treatment/cases", response_model=list[TreatmentCaseResponse])
 def list_treatment_cases(
     customerId: str | None = Query(default=None),
     openOnly: bool = Query(default=True),
@@ -422,7 +451,7 @@ def list_treatment_cases(
         customer_id=customerId, open_only=openOnly, limit=limit, offset=offset
     )
 
-@router.get("/outbound/stats")
+@router.get("/outbound/stats", response_model=ReachStatsResponse)
 def outbound_stats(days: int = Query(default=14, ge=1, le=90)):
     """Answer rate, right-party rate, attempts per connect, denial rate.
 
@@ -438,7 +467,7 @@ def outbound_stats(days: int = Query(default=14, ge=1, le=90)):
     """
     return db_outbound.reach_stats(days, tenant_id=db.current_tenant())
 
-@router.get("/outbound/attempts")
+@router.get("/outbound/attempts", response_model=list[CallAttemptResponse])
 def outbound_attempts(
     customerId: str | None = Query(default=None),
     state: str | None = Query(default=None),
@@ -454,7 +483,7 @@ def outbound_attempts(
         tenant_id=db.current_tenant(),
     )
 
-@router.get("/outbound/reasons")
+@router.get("/outbound/reasons", response_model=list[NonpaymentReasonResponse])
 def outbound_reasons(days: int = Query(default=30, ge=1, le=180)):
     """Why the book is not paying, counted.
 
@@ -465,7 +494,9 @@ def outbound_reasons(days: int = Query(default=30, ge=1, le=180)):
     """
     return db_outbound.nonpayment_reasons(days, tenant_id=db.current_tenant())
 
-@router.get("/outbound/campaigns")
+@router.get(
+    "/outbound/campaigns", response_model=list[CampaignRunResponse], response_model_exclude_unset=True
+)
 def list_campaign_runs(
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
@@ -475,8 +506,8 @@ def list_campaign_runs(
         status=status, limit=limit, tenant_id=db.current_tenant()
     )
 
-@router.post("/outbound/campaigns")
-def create_campaign_run(payload: dict[str, Any]):
+@router.post("/outbound/campaigns", response_model=CampaignRunResponse, response_model_exclude_unset=True)
+def create_campaign_run(body: CampaignRunCreateRequest):
     """Create a run in ``draft``. Nothing dials until it is explicitly started.
 
     Draft-by-default is the point. A campaign is the one object in this system
@@ -485,6 +516,7 @@ def create_campaign_run(payload: dict[str, Any]):
     """
     import campaigns
 
+    payload = body.model_dump(exclude_none=True)
     name = str(payload.get("name") or "").strip()
     objective = str(payload.get("objective") or "").strip()
     if not name or not objective:
@@ -505,8 +537,8 @@ def create_campaign_run(payload: dict[str, Any]):
     except campaigns.SelectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.post("/outbound/campaigns/preview")
-def preview_campaign_cohort(payload: dict[str, Any]):
+@router.post("/outbound/campaigns/preview", response_model=CampaignCohortPreviewResponse)
+def preview_campaign_cohort(payload: CampaignCohortPreviewRequest):
     """Who this selector would call, before a run exists.
 
     Deliberately reachable without a run id. A campaign is the one object here
@@ -518,19 +550,19 @@ def preview_campaign_cohort(payload: dict[str, Any]):
 
     try:
         return db_outbound.preview_campaign_cohort(
-            selector=payload.get("selector") or {},
-            sample=int(payload.get("sample") or 10),
+            selector=payload.selector.model_dump(exclude_none=True) if payload.selector else {},
+            sample=int(payload.sample or 10),
             tenant_id=db.current_tenant(),
         )
     except campaigns.SelectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.post("/outbound/campaigns/{run_id}/targets")
-def add_campaign_targets(run_id: str, payload: dict[str, Any]):
+@router.post("/outbound/campaigns/{run_id}/targets", response_model=CampaignTargetsAddedResponse)
+def add_campaign_targets(run_id: str, payload: CampaignTargetsRequest):
     import campaigns
 
-    ids = [str(c) for c in (payload.get("customerIds") or []) if str(c).strip()]
-    selector = payload.get("selector") or {}
+    ids = [str(c) for c in (payload.customerIds or []) if str(c).strip()]
+    selector = payload.selector.model_dump(exclude_none=True) if payload.selector else {}
     if not ids and not selector:
         raise HTTPException(status_code=400, detail="customer_ids_or_selector_required")
     try:
@@ -543,8 +575,10 @@ def add_campaign_targets(run_id: str, payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"runId": run_id, "added": added, "requested": len(ids)}
 
-@router.post("/outbound/campaigns/{run_id}/status")
-def set_campaign_status(run_id: str, payload: dict[str, Any]):
+@router.post(
+    "/outbound/campaigns/{run_id}/status", response_model=CampaignRunResponse, response_model_exclude_unset=True
+)
+def set_campaign_status(run_id: str, payload: CampaignStatusRequest):
     """start / pause / finish / cancel.
 
     Pause takes effect on the next worker iteration and never mid-call: a call
@@ -553,7 +587,7 @@ def set_campaign_status(run_id: str, payload: dict[str, Any]):
     """
     import campaigns
 
-    status = str(payload.get("status") or "").strip()
+    status = str(payload.status or "").strip()
     allowed = {
         campaigns.STATUS_RUNNING,
         campaigns.STATUS_PAUSED,
@@ -577,14 +611,16 @@ def set_campaign_status(run_id: str, payload: dict[str, Any]):
         raise HTTPException(status_code=404, detail="run_not_found")
     return run
 
-@router.get("/outbound/campaigns/{run_id}")
+@router.get(
+    "/outbound/campaigns/{run_id}", response_model=CampaignRunResponse, response_model_exclude_unset=True
+)
 def get_campaign_run(run_id: str):
     run = db_outbound.get_campaign_run(run_id, tenant_id=db.current_tenant())
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return run
 
-@router.get("/outbound/cadence")
+@router.get("/outbound/cadence", response_model=list[CadenceCaseResponse])
 def list_cadence_cases(
     customerId: str | None = Query(default=None),
     state: str | None = Query(default=None),
@@ -595,12 +631,12 @@ def list_cadence_cases(
         customer_id=customerId, state=state, limit=limit, tenant_id=db.current_tenant()
     )
 
-@router.get("/outbound/number-pools")
+@router.get("/outbound/number-pools", response_model=list[NumberPoolResponse])
 def list_number_pools():
     """Caller-ID pools and the numbers in them, with how each is performing."""
     return db_outbound.list_number_pools(tenant_id=db.current_tenant())
 
-@router.get("/outbound/obligations")
+@router.get("/outbound/obligations", response_model=list[AgentObligationResponse])
 def list_agent_obligations(
     state: str = Query(default="open"),
     limit: int = Query(default=50, ge=1, le=db.MAX_LIST_LIMIT),
@@ -615,7 +651,7 @@ def list_agent_obligations(
         state=state, limit=limit, tenant_id=db.current_tenant()
     )
 
-@router.get("/outbound/card-vocabulary")
+@router.get("/outbound/card-vocabulary", response_model=OutboundCardVocabularyResponse)
 def outbound_card_vocabulary():
     """Every closed vocabulary the Outbound card editor has to offer.
 
@@ -674,7 +710,7 @@ def outbound_card_vocabulary():
         "dailyCap": contact_policy.tenant_daily_cap(),
     }
 
-@router.get("/outbound/missions")
+@router.get("/outbound/missions", response_model=MissionsResponse)
 def list_missions(botId: str | None = Query(default=None)):
     """The missions a card can run, and where each starts.
 
@@ -737,7 +773,7 @@ def list_missions(botId: str | None = Query(default=None)):
         "available": list(fg.OBJECTIVES),
     }
 
-@router.get("/authority/next")
+@router.get("/authority/next", response_model=AuthorityNextResponse)
 def authority_next(
     customerId: str = Query(...),
     accountId: str | None = Query(default=None),
@@ -759,7 +795,7 @@ def authority_next(
         interaction_id=interactionId,
     )
 
-@router.post("/authority/apply")
+@router.post("/authority/apply", response_model=AuthorityApplyResponse)
 def authority_apply(payload: AuthorityApplyRequest):
     """Post the goodwill the matrix already approved. Live mode only."""
     return _handle_write(db.apply_authority, payload.model_dump(exclude_none=True))

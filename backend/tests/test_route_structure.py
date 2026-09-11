@@ -1,9 +1,9 @@
-"""WS7: routes live in routers/<domain>.py and every one declares its wire shape.
+"""Routes live in routers/<domain>.py and every one declares its wire shape.
 
 `main.py` was 6,089 lines with 341 routes and zero routers; 175 routes had no
-`response_model` and the count crept (+50 since the baseline) because the
-guard stopped at the literal prefix `/agent-studio`. The counts here are the
-ratchet: they may go down, never up.
+`response_model`. That was a ratchet with two baseline files; it is a totality
+now: zero untyped routes outside `_UNTYPED_BY_DESIGN`, zero `dict[str, Any]`
+bodies on a route handler.
 """
 
 from __future__ import annotations
@@ -28,14 +28,17 @@ _UNTYPED_BY_DESIGN = frozenset(
         "POST /twilio/voice/stream-status",  # Twilio status callback: 204, no body
         "POST /twilio/voice/call-status",  # Twilio status callback: 204, no body
         "POST /twilio/sms/status",  # Twilio status callback: 204, no body
+        "GET /floor/copilot/{interaction_id}/stream",  # SSE (text/event-stream)
+        "GET /interactions/{interaction_id}/export",  # JSON/Markdown file download
+        "GET /agent-studio/skills/{skill_id}/export",  # zip download
+        "GET /metrics",  # Prometheus text exposition
+        "GET /pay/{token}",  # hosted checkout HTML
+        "POST /tts/preview",  # audio bytes, vendor content type
+        "GET /billing/export.csv",  # CSV download
+        "DELETE /kb/faqs/{faq_id}",  # 204, no body
+        "DELETE /billing/budgets/{budget_id}/rules/{rule_id}",  # 204, no body
     }
 )
-
-
-def _baseline(name: str) -> list[str]:
-    """One entry per line; `#` lines are comments. The file is the ratchet."""
-    lines = (BACKEND / "tests" / name).read_text(encoding="utf-8").splitlines()
-    return [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
 
 
 def _api_routes():
@@ -71,27 +74,38 @@ def test_response_model_totality() -> None:
         and "text/event-stream" not in str(getattr(r, "response_class", ""))
     )
     untyped = [u for u in untyped if u not in _UNTYPED_BY_DESIGN]
-    baseline = _baseline("route_shape_baseline.txt")
-    new = sorted(set(untyped) - set(baseline))
-    assert not new, f"routes added without a response_model: {new}"
-    closed = sorted(set(baseline) - set(untyped))
-    assert not closed, f"routes now typed -- remove them from route_shape_baseline.txt: {closed}"
+    assert untyped == [], f"routes without a response_model: {untyped}"
+    stale = sorted(
+        u
+        for u in _UNTYPED_BY_DESIGN
+        if u not in {f"{sorted(r.methods)[0]} {r.path}" for r in _api_routes()}
+    )
+    assert stale == [], f"_UNTYPED_BY_DESIGN names routes that no longer exist: {stale}"
 
 
-def test_dict_bodies_do_not_grow() -> None:
-    """`payload: dict[str, Any]` on a write is a body nobody validates."""
+def _is_route(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for dec in fn.decorator_list:
+        call = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(call, ast.Attribute) and isinstance(call.value, ast.Name):
+            if call.value.id == "router" and call.attr in {"get", "post", "put", "patch", "delete"}:
+                return True
+    return False
+
+
+def test_no_route_takes_an_untyped_dict_body() -> None:
+    """`payload: dict[str, Any]` on a route is a body nobody validates.
+
+    Helpers that take a parsed dict (`_twilio_signature_ok`, the agent-edit
+    check) are not routes and are not counted.
+    """
     hits: list[str] = []
     for path in sorted((BACKEND / "routers").glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for fn in ast.walk(tree):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not _is_route(fn):
                 continue
             for arg in fn.args.args + fn.args.kwonlyargs:
                 ann = ast.unparse(arg.annotation) if arg.annotation else ""
                 if ann.replace(" ", "").startswith("dict[str,Any]"):
                     hits.append(f"{path.stem}.{fn.name}")
-    baseline = _baseline("dict_body_baseline.txt")
-    new = sorted(set(hits) - set(baseline))
-    assert not new, f"routes added with an untyped dict body: {new}"
-    closed = sorted(set(baseline) - set(hits))
-    assert not closed, f"bodies now typed -- remove them from dict_body_baseline.txt: {closed}"
+    assert hits == [], f"routes with an untyped dict body: {hits}"

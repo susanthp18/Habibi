@@ -13,6 +13,7 @@ import db
 from fastapi import APIRouter
 from fastapi import HTTPException
 from schemas import (
+    OkResponse,
     RoutingAuditEntryResponse,
     RoutingReorderRequest,
     RoutingRuleCreateRequest,
@@ -56,9 +57,10 @@ def patch_routing_rule(rule_id: str, payload: RoutingRulePatchRequest):
 def reorder_routing_rules(payload: RoutingReorderRequest):
     return _handle_write(db.reorder_routing_rules, payload.orderedIds)
 
-@router.delete("/routing-rules/{rule_id}")
+@router.delete("/routing-rules/{rule_id}", response_model=OkResponse)
 def delete_routing_rule(rule_id: str):
-    return _handle_write(db.delete_routing_rule, rule_id)
+    _handle_write(db.delete_routing_rule, rule_id)
+    return {"ok": True}
 
 @router.get("/routing-audit", response_model=list[RoutingAuditEntryResponse])
 def list_routing_audit():

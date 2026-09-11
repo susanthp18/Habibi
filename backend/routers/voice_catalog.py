@@ -26,6 +26,8 @@ from schemas import (
     TtsCatalogVoiceItem,
     TtsPreviewRequest,
     TtsPriceTierResponse,
+    TtsLocaleCountResponse,
+    TtsProviderCountResponse,
     TtsSyncRunResponse,
     TtsVoiceResponse,
     TtsVoiceWarning,
@@ -99,7 +101,9 @@ def sync_tts_voice_catalog():
 
     return run_sync(db.engine, source="admin")
 
-@router.post("/tts/preview")
+# Audio bytes by design (the vendor's content type, cache headers). Listed in
+# tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.post("/tts/preview", response_class=Response)
 def tts_preview(payload: TtsPreviewRequest):
     """TTS preview. Azure keeps its cached path; other vendors dispatch out.
 
@@ -231,7 +235,7 @@ async def stt_transcribe(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result
 
-@router.get("/tts-voices/catalog-provider-counts")
+@router.get("/tts-voices/catalog-provider-counts", response_model=list[TtsProviderCountResponse])
 def tts_voice_provider_counts():
     """Per-provider voice counts for the catalog filter chips.
 
@@ -242,7 +246,7 @@ def tts_voice_provider_counts():
     """
     return db.list_tts_voice_provider_counts()
 
-@router.get("/tts-voices/catalog-locale-counts")
+@router.get("/tts-voices/catalog-locale-counts", response_model=list[TtsLocaleCountResponse])
 def tts_voice_locale_counts(limit: int = Query(default=60, ge=1, le=400)):
     """Locales present in the catalog, most-voices-first, for the locale picker."""
     return db.list_tts_voice_locale_counts(limit=limit)

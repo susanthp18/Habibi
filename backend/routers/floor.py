@@ -18,11 +18,16 @@ from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
 from fastapi import HTTPException, Query
 from fastapi.responses import StreamingResponse
 from schemas import (
+    FloorAlertAckResponse,
+    FloorApprovalSignalRequest,
+    FloorCopilotResponse,
     FloorSnapshotResponse,
     StaffResponse,
     SupervisorActionRequest,
+    SupervisorActionResponse,
     TeamResponse,
     WorkItemResponse,
+    WorkRuntimeJobResponse,
     WorkspaceSummaryResponse,
 )
 from typing import Any
@@ -31,7 +36,7 @@ router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_
 logger = logging.getLogger(__name__)
 
 
-@router.get("/work-runtime/jobs/{job_id}")
+@router.get("/work-runtime/jobs/{job_id}", response_model=WorkRuntimeJobResponse)
 def get_work_runtime_job(job_id: str):
     from work_runtime import query
 
@@ -66,7 +71,7 @@ def list_teams():
 def get_floor():
     return ops_screens.get_floor_snapshot()
 
-@router.get("/floor/copilot/{interaction_id}")
+@router.get("/floor/copilot/{interaction_id}", response_model=FloorCopilotResponse)
 def get_floor_copilot(interaction_id: str):
     from agent_core.copilot import build
 
@@ -75,7 +80,9 @@ def get_floor_copilot(interaction_id: str):
         raise HTTPException(status_code=404, detail="interaction_not_found")
     return pack
 
-@router.get("/floor/copilot/{interaction_id}/stream")
+# text/event-stream by design: the pack, then whisper tokens, as SSE. Listed
+# in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/floor/copilot/{interaction_id}/stream", response_class=StreamingResponse)
 def stream_floor_copilot(interaction_id: str):
 
     from agent_core.copilot import iter_events
@@ -101,32 +108,32 @@ def stream_floor_copilot(interaction_id: str):
         },
     )
 
-@router.get("/floor/approvals")
+@router.get("/floor/approvals", response_model=list[WorkRuntimeJobResponse])
 def list_floor_approvals():
     from work_runtime import list_jobs
 
     return list_jobs(status="input_required")
 
-@router.post("/floor/approvals/{job_id}/signal")
-def signal_floor_approval(job_id: str, payload: dict[str, Any]):
+@router.post("/floor/approvals/{job_id}/signal", response_model=WorkRuntimeJobResponse)
+def signal_floor_approval(job_id: str, payload: FloorApprovalSignalRequest):
     from work_runtime import signal
 
-    name = str(payload.get("name") or payload.get("signal") or "").strip()
+    name = str(payload.name or payload.signal or "").strip()
     if name not in {"approve", "reject"}:
         raise HTTPException(status_code=422, detail="signal_must_be_approve_or_reject")
     try:
-        return signal(job_id, name, payload)
+        return signal(job_id, name, payload.model_dump(exclude_none=True))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/supervisor-actions")
+@router.post("/supervisor-actions", response_model=SupervisorActionResponse)
 def post_supervisor_action(payload: SupervisorActionRequest):
     try:
         return ops_screens.create_supervisor_action(payload.model_dump())
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.post("/floor/alerts/{alert_id}/ack")
+@router.post("/floor/alerts/{alert_id}/ack", response_model=FloorAlertAckResponse)
 def ack_floor_alert(alert_id: str):
     try:
         return ops_screens.ack_floor_alert(alert_id)

@@ -20,10 +20,13 @@ from fastapi import (
 from fastapi.responses import HTMLResponse
 from schemas import (
     PaymentPlanCreateRequest,
+    PaymentPlanCreateResponse,
     PaymentPlanResponse,
+    PaymentWebhookResponse,
     PromiseCreateRequest,
     PromiseListResponse,
     PromisePatchRequest,
+    PromiseResendConfirmResponse,
     PromiseResponse,
 )
 
@@ -33,6 +36,8 @@ router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_
 logger = logging.getLogger(__name__)
 
 
+# Hosted checkout page: HTML by design. Listed in
+# tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
 @router.get("/pay/{token}", response_class=HTMLResponse)
 def hosted_pay_page(token: str):
     """Public hosted checkout for a payment intent. No app shell."""
@@ -43,7 +48,11 @@ def hosted_pay_page(token: str):
         raise HTTPException(status_code=404, detail="pay_link_not_found")
     return HTMLResponse(payments.render_pay_page(intent))
 
-@router.post("/pay/{token}/complete")
+@router.post(
+    "/pay/{token}/complete",
+    response_model=PaymentWebhookResponse,
+    response_model_exclude_unset=True,
+)
 def hosted_pay_complete(token: str, request: Request):
     """Sandbox-only: post a payment against a hosted intent."""
     import payments
@@ -83,11 +92,11 @@ def create_promise(payload: PromiseCreateRequest, idempotency_key: str | None = 
 def patch_promise(promise_id: str, payload: PromisePatchRequest):
     return _handle_write(db.patch_promise, promise_id, payload.model_dump(exclude_none=True))
 
-@router.post("/promises/{promise_id}/resend-confirm")
+@router.post("/promises/{promise_id}/resend-confirm", response_model=PromiseResendConfirmResponse)
 def resend_promise_confirm(promise_id: str):
     return _handle_write(db.resend_promise_confirm, promise_id)
 
-@router.post("/payment-plans")
+@router.post("/payment-plans", response_model=PaymentPlanCreateResponse)
 def create_payment_plan(payload: PaymentPlanCreateRequest):
     return _handle_write(db.create_payment_plan, payload.model_dump())
 

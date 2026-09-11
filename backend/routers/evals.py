@@ -13,9 +13,18 @@ import db
 from fastapi import APIRouter
 from fastapi import HTTPException, Query
 from schemas import (
+    EvalReportRowResponse,
     EvalReportSummaryResponse,
+    EvalScheduleRunResponse,
     EvalSuiteResponse,
+    EvalSuiteRunResponse,
+    EvalTaskGraduateResponse,
+    QaCoverageResponse,
+    QaDisagreementsResponse,
+    QaInteractionPackResponse,
     SkillCritiqueResponse,
+    TwinCorpusGrowResponse,
+    TwinCorpusRowResponse,
     CalibrationSessionPatchRequest,
     CalibrationSessionResponse,
     CoachingActionCreateRequest,
@@ -45,11 +54,11 @@ def get_rubric(rubric_id: str | None = Query(default=None, alias="rubricId")):
 def list_scorecards():
     return db.list_scorecards()
 
-@router.get("/qa/coverage")
+@router.get("/qa/coverage", response_model=QaCoverageResponse)
 def qa_coverage(days: int = Query(default=7, ge=1, le=90)):
     return db.qa_coverage_stats(days=days)
 
-@router.get("/qa/interactions/{interaction_id}/pack")
+@router.get("/qa/interactions/{interaction_id}/pack", response_model=QaInteractionPackResponse)
 def qa_interaction_pack(interaction_id: str):
     from agent_core.live_qa.pack import build_pack
 
@@ -100,7 +109,7 @@ def patch_calibration_session(session_id: str, payload: CalibrationSessionPatchR
         db.patch_calibration_session, session_id, payload.model_dump(exclude_unset=True)
     )
 
-@router.post("/eval/suites/{suite_id}/run")
+@router.post("/eval/suites/{suite_id}/run", response_model=EvalSuiteRunResponse)
 def run_eval_suite(
     suite_id: str,
     botId: str | None = Query(default=None),
@@ -138,14 +147,18 @@ def list_eval_reports(
     scheduler filed against no card."""
     return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit)
 
-@router.get("/eval/reports/{report_id}")
+@router.get(
+    "/eval/reports/{report_id}",
+    response_model=EvalReportRowResponse,
+    response_model_exclude_unset=True,
+)
 def get_eval_report(report_id: str):
     row = db.get_eval_report(report_id)
     if row is None:
         raise HTTPException(status_code=404, detail="eval_report_not_found")
     return row
 
-@router.post("/eval/schedule/run")
+@router.post("/eval/schedule/run", response_model=EvalScheduleRunResponse)
 def run_eval_schedule():
     from agent_core.eval.schedule import run_continuous
 
@@ -154,7 +167,7 @@ def run_eval_schedule():
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-@router.post("/eval/tasks/{task_id}/graduate")
+@router.post("/eval/tasks/{task_id}/graduate", response_model=EvalTaskGraduateResponse)
 def graduate_eval_task(task_id: str):
     from agent_core.eval.graduate import graduate_task
 
@@ -180,19 +193,19 @@ def critique_eval_report(report_id: str):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@router.get("/eval/disagreements")
+@router.get("/eval/disagreements", response_model=QaDisagreementsResponse)
 def list_qa_disagreements(limit: int = Query(default=50, ge=1, le=200)):
     from agent_core.eval.disagreement import disagreements
 
     return disagreements(limit=limit)
 
-@router.get("/eval/twin-corpus")
+@router.get("/eval/twin-corpus", response_model=list[TwinCorpusRowResponse])
 def list_twin_corpus(limit: int = Query(default=50, ge=1, le=200)):
     from agent_core.eval.corpus import list_corpus
 
     return list_corpus(limit=limit)
 
-@router.post("/eval/twin-corpus/grow")
+@router.post("/eval/twin-corpus/grow", response_model=TwinCorpusGrowResponse)
 def grow_twin_corpus(limit: int = Query(default=20, ge=1, le=100)):
     from agent_core.eval.corpus import grow_from_kept_promises
 
