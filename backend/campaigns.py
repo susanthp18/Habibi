@@ -150,13 +150,25 @@ def create(
     return dict(row)
 
 
-def add_targets(conn: Any, run_id: str, customer_ids: list[str]) -> int:
+def add_targets(conn: Any, run_id: str, customer_ids: list[str], *, tenant_id: str) -> int:
     """Add borrowers to a draft run. Duplicates are ignored, not called twice.
 
     ``ON CONFLICT DO NOTHING`` against the (run, customer) unique index: a
     borrower listed twice in an uploaded CSV is a data problem, and treating it
     as permission for a second call would be the worst possible reading of it.
+
+    The run and every borrower must belong to ``tenant_id``: this wrote a
+    borrower from any tenant onto a run from any tenant, given the two ids.
+    An unknown run is a KeyError -- the route turns that into 404 rather than
+    confirming an id that exists elsewhere.
     """
+    tenant = tenant_id
+    owned = conn.execute(
+        text("SELECT 1 FROM campaign_runs WHERE id = :run AND tenant_id = :t"),
+        {"run": run_id, "t": tenant},
+    ).scalar()
+    if not owned:
+        raise KeyError(f"campaign_run_not_found: {run_id}")
     added = 0
     for customer_id in customer_ids:
         result = conn.execute(
@@ -169,11 +181,11 @@ def add_targets(conn: Any, run_id: str, customer_ids: list[str]) -> int:
                        (SELECT a.id FROM accounts a WHERE a.customer_id = c.id
                         ORDER BY a.dpd DESC NULLS LAST LIMIT 1),
                        'pending', now(), now()
-                FROM customers c WHERE c.id = :cid
+                FROM customers c WHERE c.id = :cid AND c.tenant_id = :t
                 ON CONFLICT (run_id, customer_id) DO NOTHING
                 """
             ),
-            {"id": _tid(), "run": run_id, "cid": customer_id},
+            {"id": _tid(), "run": run_id, "cid": customer_id, "t": tenant},
         )
         added += int(result.rowcount or 0)
     conn.execute(
@@ -182,10 +194,10 @@ def add_targets(conn: Any, run_id: str, customer_ids: list[str]) -> int:
             UPDATE campaign_runs
             SET targets_total = (SELECT count(*) FROM campaign_targets WHERE run_id = :run),
                 updated_at = now()
-            WHERE id = :run
+            WHERE id = :run AND tenant_id = :t
             """
         ),
-        {"run": run_id},
+        {"run": run_id, "t": tenant},
     )
     return added
 
@@ -367,7 +379,7 @@ def add_targets_from_selector(
             raise SelectorError("run_not_found")
         selector = row["selector"] if isinstance(row["selector"], dict) else {}
     rows = resolve_selector(conn, tenant_id=tenant_id, selector=selector)
-    return add_targets(conn, run_id, [r["customer_id"] for r in rows])
+    return add_targets(conn, run_id, [r["customer_id"] for r in rows], tenant_id=tenant_id)
 
 
 def set_status(

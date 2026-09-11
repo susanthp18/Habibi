@@ -203,6 +203,11 @@ def get_current_user() -> dict[str, Any]:
         )
         if row is None:
             raise KeyError(f"actor_not_found: {_actor_user_id()}")
+        # The permission set the route table will actually enforce for this
+        # actor, so the shell can hide what it cannot do instead of learning
+        # it from a 403 after the click.
+        import authz
+
         return {
             "id": row["id"],
             "name": row["name"],
@@ -210,6 +215,7 @@ def get_current_user() -> dict[str, Any]:
             "team": row["team"],
             "status": row["status"],
             "tenantId": _tenant(),
+            "permissions": sorted(authz.actor_permissions(row["id"])),
         }
 
 

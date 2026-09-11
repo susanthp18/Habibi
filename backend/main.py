@@ -848,18 +848,6 @@ def _handle_write(fn, *args, **kwargs):
         raise HTTPException(status_code=409, detail="constraint_violation") from exc
 
 
-def require_admin() -> None:
-    """Fail closed when API-key auth is on and the actor is not Admin.
-
-    Local/dev with auth unset stays open (same as the previous inline check).
-    """
-    auth_required = bool(
-        (os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map()
-    )
-    if auth_required and not db.actor_is_admin():
-        raise HTTPException(status_code=403, detail="admin_required")
-
-
 @app.get("/health")
 def health():
     """Process liveness — no dependency checks."""
@@ -3495,7 +3483,7 @@ def tts_voice_warning(shortName: str = Query(...)):
 
 
 @app.post("/tts-voices/catalog/sync", response_model=TtsSyncRunResponse)
-def sync_tts_voice_catalog(_admin: None = Depends(require_admin)):
+def sync_tts_voice_catalog():
     """Admin refresh — pull Azure voices/list (JSON fallback).
 
     When API-key auth is configured, require Admin / perm-admin-write so
@@ -5520,7 +5508,7 @@ def create_campaign_run(payload: dict[str, Any]):
         )
         ids = [str(c) for c in (payload.get("customerIds") or []) if str(c).strip()]
         if ids:
-            campaigns.add_targets(conn, run["id"], ids)
+            campaigns.add_targets(conn, run["id"], ids, tenant_id=db.current_tenant())
         # A selector on the payload is resolved now, against the book as it
         # stands, and the resulting targets are frozen onto the run. Re-resolving
         # at dial time would mean the cohort an operator reviewed and the cohort
@@ -5570,11 +5558,13 @@ def add_campaign_targets(run_id: str, payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="customer_ids_or_selector_required")
     try:
         with db.engine.begin() as conn:
-            added = campaigns.add_targets(conn, run_id, ids) if ids else 0
+            added = campaigns.add_targets(conn, run_id, ids, tenant_id=db.current_tenant()) if ids else 0
             if selector:
                 added += campaigns.add_targets_from_selector(
                     conn, run_id, tenant_id=db.current_tenant(), selector=selector
                 )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="campaign_run_not_found") from exc
     except campaigns.SelectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"runId": run_id, "added": added, "requested": len(ids)}

@@ -123,6 +123,38 @@ def test_a_campaign_cannot_be_cancelled_by_another_tenant(db_tx) -> None:
     assert still["finished_at"] is None
 
 
+def test_a_rivals_borrower_cannot_be_added_to_my_run(db_tx) -> None:
+    """`add_targets` took a run id and a customer id and joined neither to
+    the caller's tenant: one tenant's list upload could put another bank's
+    borrower on its dialler."""
+    import campaigns
+
+    cid = _rival_customer(db_tx)
+    run = campaigns.create(
+        db_tx, tenant_id=db.current_tenant(), name="Mine", objective="dpd_reminder"
+    )
+
+    added = campaigns.add_targets(db_tx, run["id"], [cid], tenant_id=db.current_tenant())
+
+    assert added == 0
+    total = db_tx.execute(
+        text("SELECT targets_total FROM campaign_runs WHERE id = :i"), {"i": run["id"]}
+    ).scalar()
+    assert total == 0
+
+
+def test_a_rivals_run_cannot_be_given_targets(db_tx) -> None:
+    import campaigns
+
+    run_id = _rival_campaign(db_tx, status="draft")
+    cid = db_tx.execute(
+        text("SELECT id FROM customers WHERE tenant_id = :t LIMIT 1"), {"t": db.current_tenant()}
+    ).scalar()
+
+    with pytest.raises(KeyError):
+        campaigns.add_targets(db_tx, run_id, [cid], tenant_id=db.current_tenant())
+
+
 def test_a_campaign_the_tenant_owns_still_starts(db_tx) -> None:
     """The other half of the rule: the predicate must not break the normal path."""
     import campaigns

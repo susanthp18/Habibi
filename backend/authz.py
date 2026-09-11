@@ -91,7 +91,6 @@ BOT_WRITE = "perm-bot-write"
 AGENT_EDIT = "perm-agent-edit"
 AGENT_PUBLISH = "perm-agent-publish"
 EVAL_RUN = "perm-eval-run"
-REDTEAM_RUN = "perm-redteam-run"
 CONNECTOR_ATTACH = "perm-connector-attach"
 POLICY_EXPORT = "perm-policy-export"
 POLICY_READ = "perm-policy-read"
@@ -138,7 +137,6 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (AGENT_EDIT, "agent", "edit", "Author agent cards, tools and handoff allowlists"),
     (AGENT_PUBLISH, "agent", "publish", "Compile and publish an agent card to production"),
     (EVAL_RUN, "eval", "run", "Run regression eval suites against a card"),
-    (REDTEAM_RUN, "redteam", "run", "Run red-team suites against a card"),
     (CONNECTOR_ATTACH, "connector", "attach", "Bind an approved connector to an agent card"),
     (POLICY_EXPORT, "policy", "export", "Download the OPA/Cedar projection of live Python policy"),
     (POLICY_READ, "policy", "read", "Read the versioned policy catalogue"),
@@ -157,6 +155,10 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
 )
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(p[0] for p in PERMISSION_CATALOG)
+
+#: Permissions that existed and gated no route. Removed from the catalog table
+#: on the next boot so the Roles screen stops offering them.
+RETIRED_PERMISSIONS: frozenset[str] = frozenset({"perm-redteam-run"})
 
 
 #: Fallback grants, keyed by normalized role name. Applied only to a role that
@@ -884,14 +886,6 @@ def actor_roles(user_id: str) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 
-def required_permission(method: str, path_template: str) -> str | None:
-    """Permission for a route, or ``None`` when the route is public."""
-    key = (method.upper(), path_template)
-    if key in PUBLIC_ROUTES:
-        return None
-    return ROUTE_PERMISSIONS.get(key)
-
-
 def check(method: str, path_template: str, user_id: str | None) -> None:
     """Raise :class:`PermissionDenied` when ``user_id`` may not call the route.
 
@@ -935,6 +929,20 @@ def ensure_permission_catalog(engine: Any | None = None) -> int:
 
     written = 0
     with engine.begin() as conn:
+        # A permission the route table no longer names is a checkbox on the
+        # Roles screen that controls nothing. `perm-redteam-run` sat there
+        # for months; the red-team route is `EVAL_RUN`. Retired rows go, and
+        # their grants with them -- a grant to nothing is not a revocation.
+        conn.execute(
+            text(
+                "DELETE FROM role_permissions WHERE permission_id = ANY(CAST(:ids AS text[]))"
+            ),
+            {"ids": list(RETIRED_PERMISSIONS)},
+        )
+        conn.execute(
+            text("DELETE FROM permissions WHERE id = ANY(CAST(:ids AS text[]))"),
+            {"ids": list(RETIRED_PERMISSIONS)},
+        )
         for pid, module, action, description in PERMISSION_CATALOG:
             result = conn.execute(
                 text(

@@ -565,6 +565,8 @@ class MeResponse(BaseModel):
     kind: Literal["human", "bot"] = "human"
     team: str | None = None
     status: str | None = None
+    #: What this actor may do, as the route table enforces it.
+    permissions: list[str] = []
     tenantId: str
 
 

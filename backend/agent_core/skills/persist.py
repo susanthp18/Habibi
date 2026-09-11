@@ -427,6 +427,12 @@ def patch_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     current = get_skill(skill_id)
     if current is None:
         raise KeyError("skill_not_found")
+    # The upsert refuses to overwrite a first-party pack unless the caller
+    # says `origin="first_party"` -- and this passed the *current* origin
+    # through, so a PATCH on a first-party pack was exactly the call the
+    # guard waves past. A platform pack is edited by cloning it.
+    if current.get("origin") == "first_party":
+        raise ValueError("skill_first_party")
     latest = next(
         (v for v in (current.get("versions") or []) if v["id"] == current.get("latestVersionId")),
         (current.get("versions") or [None])[0],

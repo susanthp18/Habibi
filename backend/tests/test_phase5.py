@@ -195,7 +195,7 @@ def test_canary_hash_split_and_rollback(db_tx) -> None:
     )
     customer = "cust-stable-split"
     digest = hashlib.sha256(f"{bot_id}:{customer}".encode("utf-8")).digest()
-    bucket = digest[0] % 100
+    bucket = int.from_bytes(digest[:8], "big") % 100
     picked = pick_deployment_id(bot_id, customer_id=customer)
     if bucket < 10:
         assert picked == canary_id

@@ -219,7 +219,7 @@ def _running_campaign(conn, cust: dict, *, bot_id: str):
         window_start_hour=0,
         window_end_hour=24,
     )
-    added = campaigns.add_targets(conn, run["id"], [cust["id"]])
+    added = campaigns.add_targets(conn, run["id"], [cust["id"]], tenant_id=cust["tenant_id"])
     assert added == 1
     started = campaigns.set_status(
         conn, run["id"], campaigns.STATUS_RUNNING, tenant_id=cust["tenant_id"]

@@ -189,6 +189,9 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
                 "status": str(payload.get("status") or "draft"),
             },
         )
+        # Who registered or changed a connector is an audit fact: it widens
+        # what a published card may call. Nothing recorded it.
+        db.record_activity(conn, "connector", cid, "connector_upserted", f"Connector {slug} saved")
     row = get_connector(slug)
     assert row is not None
     return row
@@ -207,6 +210,7 @@ def approve(connector_id: str) -> dict[str, Any]:
             text("UPDATE mcp_connectors SET status = 'approved' WHERE id = :id AND tenant_id = :t"),
             {"id": row["id"], "t": db._tenant()},
         )
+        db.record_activity(conn, "connector", row["id"], "connector_approved", f"Connector {row.get('slug')} approved")
     return get_connector(row["id"])  # type: ignore[return-value]
 
 

@@ -114,7 +114,10 @@ def pick_deployment_id(
     if not customer_id:
         return baseline_id or (active or {}).get("id")
     digest = hashlib.sha256(f"{bot_id}:{customer_id}".encode("utf-8")).digest()
-    bucket = digest[0] % 100
+    # Eight bytes, not one: `digest[0] % 100` maps 256 values onto 100 buckets,
+    # so buckets 0-55 got three values each and 56-99 got two -- a "50%" canary
+    # served about 59% of borrowers. 2^64 % 100 is as uniform as it needs to be.
+    bucket = int.from_bytes(digest[:8], "big") % 100
     if bucket < pct:
         return canary_id or (active or {}).get("id")
     return baseline_id or canary_id or (active or {}).get("id")
@@ -476,12 +479,49 @@ def close_running_experiments(
     )
 
 
+def _required_eval_kinds(bot_id: str) -> list[str]:
+    """The suites the published card requires, `redteam` when it says nothing."""
+    try:
+        import mission
+
+        card = mission.card_for_bot(bot_id)
+        kinds = [str(k) for k in (card.eval.require if card is not None else []) if k in {"regression", "redteam", "outbound"}]
+        return kinds or ["redteam"]
+    except Exception:
+        logger.debug("canary: could not read eval requirements for %s", bot_id, exc_info=True)
+        return ["redteam"]
+
+
 def sweep_rollbacks() -> bool:
-    """Drain-cadence check. Returns True when an experiment rolled back."""
+    """Drain-cadence check, every tenant. Returns True when an experiment rolled back.
+
+    The worker process is bound to one tenant; a canary another tenant was
+    running would never have been swept. `tenants` is global, so the list is
+    readable from any binding, and each tenant's experiments are read and
+    rolled back under that tenant's own binding -- which is also what the
+    row-level policies require.
+    """
+    import tenant_context
+
     try:
         with db.engine.connect() as conn:
             if not _require_table(conn):
                 return False
+            tenants = [str(t) for t in conn.execute(text("SELECT id FROM tenants ORDER BY id")).scalars()]
+        acted = False
+        for tenant in tenants:
+            with tenant_context.bind(tenant):
+                acted = _sweep_tenant_rollbacks() or acted
+        return acted
+    except Exception:
+        logger.exception("canary sweep failed")
+        return False
+
+
+def _sweep_tenant_rollbacks() -> bool:
+    """One tenant's running experiments, under the caller's tenant binding."""
+    try:
+        with db.engine.connect() as conn:
             rows = db._rows(
                 conn.execute(
                     text(
@@ -528,25 +568,29 @@ def sweep_rollbacks() -> bool:
                             )
                         )
                         candidate_version = (row or {}).get("prompt_version_id")
-                    report = None
-                    if candidate_version:
-                        report = db.get_latest_eval_report(
-                            bot_id=exp["bot_id"],
-                            kind="redteam",
-                            prompt_version_id=candidate_version,
-                        )
-                    # Falling back to the bot's newest report when the candidate
-                    # has none of its own is deliberate, and it is the safe
-                    # direction. Scoping alone would mean a report filed without
-                    # provenance — every report predating that column — could
-                    # never pull a canary, and a watchdog that goes quiet is a
-                    # worse failure than one that pulls a healthy candidate.
-                    if report is None:
-                        report = db.get_latest_eval_report(
-                            bot_id=exp["bot_id"], kind="redteam"
-                        )
-                    if report and str(report.get("status") or "") == "fail":
-                        reason = "eval_fail"
+                    # Every kind the card requires, not `redteam` alone: a
+                    # card that requires regression and outbound suites was
+                    # only ever pulled by a failed red-team.
+                    for kind in _required_eval_kinds(exp["bot_id"]):
+                        report = None
+                        if candidate_version:
+                            report = db.get_latest_eval_report(
+                                bot_id=exp["bot_id"],
+                                kind=kind,
+                                prompt_version_id=candidate_version,
+                            )
+                        # Falling back to the bot's newest report when the
+                        # candidate has none of its own is deliberate, and it is
+                        # the safe direction. Scoping alone would mean a report
+                        # filed without provenance -- every report predating that
+                        # column -- could never pull a canary, and a watchdog
+                        # that goes quiet is a worse failure than one that pulls
+                        # a healthy candidate.
+                        if report is None:
+                            report = db.get_latest_eval_report(bot_id=exp["bot_id"], kind=kind)
+                        if report and str(report.get("status") or "") == "fail":
+                            reason = "eval_fail"
+                            break
                 if reason is None and "slo_miss" in triggers:
                     try:
                         if _slo_miss(conn, exp["bot_id"], deployment_id=canary):

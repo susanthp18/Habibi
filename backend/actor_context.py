@@ -206,6 +206,16 @@ def validate_configured_actors() -> None:
         raise RuntimeError(
             "actor identity config references unknown users.id: " + ", ".join(missing)
         )
+    # A shared API_KEY with no per-user map collapses every caller onto
+    # ACTOR_USER_ID -- typically an admin -- so the audit trail names one
+    # person for everything anyone did. Tolerated on a laptop; in production
+    # it is a forged trail, and the process should not start on it.
+    shared = (os.getenv("API_KEY") or "").strip()
+    if shared and not parse_api_key_map() and _app_is_prod() and not _allow_actor_header():
+        raise RuntimeError(
+            "API_KEY is set with no API_KEY_MAP and no ALLOW_ACTOR_HEADER: every "
+            f"caller would be audited as {default} -- configure per-user keys"
+        )
 
 
 def _digest_eq(a: str, b: str) -> bool:

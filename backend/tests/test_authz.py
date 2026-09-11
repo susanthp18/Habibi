@@ -427,6 +427,8 @@ def test_ensure_permission_catalog_grants_nothing(db_tx) -> None:
     """Catalog seeding must never re-add a grant an operator revoked."""
     import db
 
+    # The first run may *remove* grants on a retired permission; it never adds.
+    authz.ensure_permission_catalog(db.engine)
     before = db_tx.execute(text("SELECT count(*) FROM role_permissions")).scalar()
     authz.ensure_permission_catalog(db.engine)
     after = db_tx.execute(text("SELECT count(*) FROM role_permissions")).scalar()

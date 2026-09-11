@@ -55,9 +55,6 @@ logger = logging.getLogger("bot_worker")
 
 import actor_context  # noqa: E402
 
-# Every audit row this process writes is a machine's, not the default user's.
-actor_context.bind_service_actor("system")
-
 _ROLE = "all"
 
 
@@ -173,6 +170,10 @@ def process_one_any() -> bool:
 
 
 def main() -> None:
+    # Every audit row this process writes is a machine's, not the default
+    # user's. Bound here, not at import: a test that imports the module must
+    # not become a machine.
+    actor_context.bind_service_actor("system")
     parser = argparse.ArgumentParser(description="WhatsApp bot turn + outbound worker (SKIP LOCKED)")
     parser.add_argument("--once", action="store_true", help="Process one job and exit")
     parser.add_argument("--drain", action="store_true", help="Drain queues then exit")

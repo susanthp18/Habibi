@@ -122,6 +122,9 @@ def mint_key(*, name: str, scopes: list[str]) -> dict[str, Any]:
                 "scopes": list(allowed),
             },
         )
+        # A credential was created: the actor is the audit fact, and the
+        # table has no column for one.
+        db.record_activity(conn, "mcp_key", kid, "mcp_key_minted", f"MCP key {name.strip() or kid} minted")
     return {"id": kid, "name": name, "scopes": allowed, "key": raw, "prefix": raw[:7]}
 
 
@@ -158,11 +161,22 @@ def list_keys() -> list[dict[str, Any]]:
 
 
 def revoke_key(key_id: str) -> None:
+    """Revoke, and say so only if a key was revoked.
+
+    A typo'd id used to return 200 -- an operator revoking a leaked key was
+    told it was done while the key kept working. KeyError maps to 404.
+    """
     with db.engine.begin() as conn:
-        conn.execute(
-            text("UPDATE mcp_keys SET revoked_at = now() WHERE id = :id AND tenant_id = :t"),
+        result = conn.execute(
+            text(
+                "UPDATE mcp_keys SET revoked_at = now() "
+                "WHERE id = :id AND tenant_id = :t AND revoked_at IS NULL"
+            ),
             {"id": key_id, "t": db._tenant()},
         )
+        if not result.rowcount:
+            raise KeyError("mcp_key_not_found")
+        db.record_activity(conn, "mcp_key", key_id, "mcp_key_revoked", "MCP key revoked")
 
 
 def rotate_key(key_id: str) -> dict[str, Any]:
