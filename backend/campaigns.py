@@ -559,8 +559,18 @@ def process_one(engine: Engine) -> bool:
             campaign_run_id=run_id,
             attempt_no=int(target.get("attempts") or 0) + 1,
         )
-        attempt = outbound.reserve(
+        gated = outbound.gate(
             conn,
+            idempotency_key=f"campaign:{target['id']}:{int(target.get('attempts') or 0) + 1}",
+            admit={
+                # A cross-sell dial is a promotional use of a number collected
+                # to service a loan, and needs its own consent basis. Every
+                # other objective here is servicing. See
+                # flow_graph.PROMOTIONAL_OBJECTIVES.
+                "data_purpose": fg.data_purpose_for(objective),
+                "source": "campaign",
+                "actor_kind": "bot",
+            },
             customer_id=target["customer_id"],
             to_phone=phone,
             objective=objective,
@@ -571,28 +581,19 @@ def process_one(engine: Engine) -> bool:
             phone_slot="primary",
             context={"source": "campaign", "runId": run_id, "mission": built},
         )
+        attempt = gated.attempt
         if attempt is None:
             _mark(conn, target["id"], "skipped", note="customer_gone")
             return True
+        if gated.existing:
+            # This rung was already reserved by an earlier claim of the same
+            # target — the row is dialing, or ended, and the outcome path owns
+            # what happens next. Placing again would ring them twice.
+            _mark(conn, target["id"], "dialing", note=f"already_reserved:{attempt['id']}")
+            return True
 
-        decision = contact_policy.admit(
-            conn,
-            customer_id=target["customer_id"],
-            channel="voice",
-            purpose="outreach",
-            # A cross-sell dial is a promotional use of a number collected to
-            # service a loan, and needs its own consent basis. Every other
-            # objective here is servicing. See flow_graph.PROMOTIONAL_OBJECTIVES.
-            data_purpose=fg.data_purpose_for(objective),
-            session_key=attempt["id"],
-            source="campaign",
-            related_id=attempt["id"],
-            actor_kind="bot",
-            account_id=target.get("account_id"),
-            endpoint=phone,
-        )
-        if not decision.allowed:
-            outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
+        if not gated.allowed:
+            decision = gated.decision
             # Try again later unless the refusal is about *them* rather than
             # about now. An opt-out is permanent; a daily cap is not.
             permanent = decision.reason in {
@@ -633,8 +634,13 @@ def process_one(engine: Engine) -> bool:
     with engine.begin() as conn:
         if not result.get("placed"):
             reason = str(result.get("reason") or "")
-            ambiguous = reason in {"dial_failed", "timeout"} or "timeout" in reason
-            if ambiguous:
+            # `place` classified the failure at the carrier boundary. A dial
+            # that *may* have rung is parked for a person; a dial we chose not
+            # to make (`fleet_busy`, the outbound switch) goes back on the list;
+            # one the carrier provably rejected is skipped with its reason,
+            # because a 4xx retried every five minutes is a target that never
+            # drains and a run that never finishes.
+            if reason == outbound.AMBIGUOUS_REASON:
                 conn.execute(
                     text(
                         """
@@ -647,6 +653,8 @@ def process_one(engine: Engine) -> bool:
                     ),
                     {"id": target_id},
                 )
+            elif result.get("state") == outbound.STATE_FAILED:
+                _mark(conn, target_id, "skipped", note=reason)
             else:
                 # Back to pending: `fleet_busy` is a fact about us, not about them.
                 conn.execute(

@@ -136,7 +136,10 @@ def enact_one(
 
     spec = A.spec(action)
     admitted = None
-    if spec.channel:
+    # A voice plan is gated by `outbound.gate` inside `_dial_bot`, on the
+    # attempt row itself, so the refusal is a suppressed attempt. Gating it
+    # here as well would count the same touch twice against the budget.
+    if spec.channel and action != A.VOICE_BOT:
         admitted = contact_policy.admit(
             conn,
             customer_id=decision["customer_id"],
@@ -151,13 +154,6 @@ def enact_one(
             product_id=decision.get("product_id"),
         )
         if not admitted.allowed:
-            # A voice plan the gate refused is still evidence. Recording it as a
-            # suppressed attempt is what makes the denial rate a query over one
-            # table rather than a join between a log file and an intention —
-            # and it is the row that answers "why did nobody call this borrower
-            # on Tuesday" with a reason instead of a shrug.
-            if action == A.VOICE_BOT:
-                _record_suppressed_dial(decision, customer, admitted.reason)
             decisions.record_outcome(
                 decision_id, "cancelled", conn=conn, cancel_reason=cancel.CONTACT_GATE_REFUSED
             )
@@ -519,8 +515,19 @@ def _dial_bot(
             decision=decision,
         )
         built["actionContract"] = contract
-        attempt = outbound.reserve(
+        # The contact gate for a voice plan runs *here*, on the row it gates —
+        # not in `enact_one` — so a refusal is a suppressed attempt rather
+        # than a decision cancelled with no attempt to show for it. One
+        # reservation per decision: a decision re-claimed after a crash finds
+        # the attempt it already made.
+        gated = outbound.gate(
             own,
+            idempotency_key=f"decision:{decision['id']}",
+            admit={
+                "source": "treatment",
+                "actor_kind": "bot",
+                "product_id": decision.get("product_id"),
+            },
             customer_id=customer["id"],
             to_phone=phone,
             objective=objective,
@@ -540,8 +547,13 @@ def _dial_bot(
                 "mission": built,
             },
         )
+    attempt = gated.attempt
     if attempt is None:
         raise NoExecutor("customer_gone")
+    if gated.existing:
+        return f"voice:{attempt['id']}"
+    if not gated.allowed:
+        raise NoExecutor(f"contact:{gated.reason}")
 
     result = outbound.place(dbmod.engine, attempt, to_phone=phone)
     if not result.get("placed"):
@@ -562,40 +574,6 @@ def _objective_for(decision: dict[str, Any]) -> str:
     import mission as mission_mod
 
     return mission_mod.objective_for_trigger(decision.get("trigger_kind"))
-
-
-def _record_suppressed_dial(
-    decision: dict[str, Any], customer: dict[str, Any], reason: str | None
-) -> None:
-    """Log a refused voice plan as a suppressed attempt. Never raises.
-
-    On its own transaction, and swallowing failures, because this is
-    bookkeeping: an attempt ledger that can abort an enactment would be a
-    measurement that changes what it measures.
-    """
-    import db as dbmod
-    import outbound
-
-    phone = customer.get("phone_primary")
-    if not phone:
-        return
-    try:
-        with dbmod.engine.begin() as own:
-            attempt = outbound.reserve(
-                own,
-                customer_id=customer["id"],
-                to_phone=phone,
-                objective=_objective_for(decision),
-                account_id=decision.get("account_id"),
-                decision_id=decision["id"],
-                policy_version=decision.get("policy_version"),
-                tenant_id=customer.get("tenant_id"),
-                context={"trigger": decision.get("trigger_kind")},
-            )
-            if attempt:
-                outbound.suppress(own, attempt["id"], reason or "contact_policy")
-    except Exception:
-        logger.exception("could not log suppressed dial for %s", decision.get("id"))
 
 
 def _queue_human(

@@ -147,6 +147,12 @@ def record_payment(
         raise KeyError("payment_intent_not_found")
 
     if intent["status"] == "paid":
+        # A replay of the settlement we already posted is idempotent. A second
+        # settlement — the provider's reference differs from the one on the
+        # paid row — is real money we would otherwise discard with a 200.
+        prior = str(intent.get("provider_ref") or "")
+        if provider_ref and prior and str(provider_ref) != prior:
+            raise ValueError(f"duplicate_settlement:{provider_ref}")
         return {"ok": True, "intentId": intent["id"], "status": "paid", "idempotent": True}
     if intent["status"] in {"expired", "cancelled"}:
         raise ValueError(f"intent_{intent['status']}")
@@ -216,26 +222,35 @@ def record_payment(
         preferred_promise_id=intent.get("promise_id"),
     )
     cured: list[str] = []
+    cure_failed = False
+    # Under a savepoint: a cure that raises half-way has already written to
+    # `emi_installments` and `payment_events` on this connection, and without
+    # the savepoint those writes commit with the payment while the bounce
+    # stays open — the record says cured-and-not-cured at once. The payment
+    # itself still posts; the failure is reported, not hidden behind `ok`.
     try:
         import payment_events as pe
 
-        preferred_emi = None
-        peid = intent.get("payment_event_id")
-        if peid:
-            ev = conn.execute(
-                text("SELECT emi_installment_id FROM payment_events WHERE id = :id"),
-                {"id": peid},
-            ).mappings().first()
-            if ev:
-                preferred_emi = ev["emi_installment_id"]
-        cured = pe.cure_for_account(
-            conn,
-            account_id=intent["account_id"],
-            amount=paid,
-            preferred_emi_id=preferred_emi,
-            intent_id=intent["id"],
-        )
+        with conn.begin_nested():
+            preferred_emi = None
+            peid = intent.get("payment_event_id")
+            if peid:
+                ev = conn.execute(
+                    text("SELECT emi_installment_id FROM payment_events WHERE id = :id"),
+                    {"id": peid},
+                ).mappings().first()
+                if ev:
+                    preferred_emi = ev["emi_installment_id"]
+            cured = pe.cure_for_account(
+                conn,
+                account_id=intent["account_id"],
+                amount=paid,
+                preferred_emi_id=preferred_emi,
+                intent_id=intent["id"],
+            )
     except Exception:
+        cure_failed = True
+        cured = []
         logger.exception("bounce cure failed account=%s", intent["account_id"])
     _close_treatment_cases(conn, bounce_ids=cured, promises=allocated)
     # Inside the caller's transaction, so the notification commits with the
@@ -262,6 +277,7 @@ def record_payment(
         "ledgerEntryId": ledger_id,
         "allocated": allocated,
         "curedEvents": cured,
+        "cureFailed": cure_failed,
     }
 
 
@@ -421,6 +437,12 @@ def allocate_to_promises(
 
 
 def load_intent_by_token(conn: Any, token: str) -> dict[str, Any] | None:
+    """The intent behind a hosted pay link, expired on read if its time is up.
+
+    ``record_payment`` already refuses an expired intent. The page did not: a
+    borrower opening a week-old link saw a live checkout, paid, and got a 409.
+    Flipping the status here is the same rule applied one screen earlier.
+    """
     row = conn.execute(
         text(
             """
@@ -435,7 +457,19 @@ def load_intent_by_token(conn: Any, token: str) -> dict[str, Any] | None:
         ),
         {"token": token},
     ).mappings().first()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    intent = dict(row)
+    expires = intent.get("expires_at")
+    if expires is not None and intent.get("status") not in {"paid", "expired", "cancelled"}:
+        exp = expires if getattr(expires, "tzinfo", None) else expires.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            conn.execute(
+                text("UPDATE payment_intents SET status = 'expired' WHERE id = :id AND status <> 'paid'"),
+                {"id": intent["id"]},
+            )
+            intent["status"] = "expired"
+    return intent
 
 
 def mark_opened(conn: Any, intent_id: str) -> None:

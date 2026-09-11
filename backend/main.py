@@ -940,8 +940,9 @@ async def payment_provider_webhook(provider: str, request: Request):
     amount = parsed.get("amount")
     if amount is None:
         raise HTTPException(status_code=400, detail="amount_required")
-    with db.engine.begin() as conn:
-        try:
+
+    def _record() -> dict[str, Any]:
+        with db.engine.begin() as conn:
             return payments.record_payment(
                 conn,
                 intent_id=parsed.get("intent_id"),
@@ -949,10 +950,13 @@ async def payment_provider_webhook(provider: str, request: Request):
                 amount=amount,
                 provider_ref=parsed.get("provider_ref"),
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        return await asyncio.to_thread(_record)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/webhooks/collections/payment-events")
@@ -973,11 +977,12 @@ async def payment_events_webhook(request: Request):
         raise HTTPException(status_code=400, detail="invalid_json") from exc
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid_json")
-    with db.engine.begin() as conn:
-        try:
-            return pe.ingest(conn, body)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Off the event loop: the ingest holds row locks and the delivery talks to
+    # the carrier, and neither belongs on the thread every other request shares.
+    try:
+        return await asyncio.to_thread(pe.ingest_and_deliver, db.engine, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/sandbox/payment-events")
@@ -992,11 +997,10 @@ def sandbox_payment_event(payload: dict[str, Any]):
     body.setdefault("source", "sandbox")
     if not body.get("sourceRef") and not body.get("source_ref"):
         body["sourceRef"] = f"sandbox-{secrets.token_hex(8)}"
-    with db.engine.begin() as conn:
-        try:
-            return pe.ingest(conn, body)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        return pe.ingest_and_deliver(db.engine, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/twins")
@@ -4250,38 +4254,41 @@ async def twilio_sms_status(request: Request):
         # how a receipt log becomes an incident.
         return Response(status_code=204)
 
-    with db.engine.begin() as conn:
-        origin = conn.execute(
-            text(
-                """
-                SELECT tenant_id, customer_id, related_id
-                FROM contact_delivery_events
-                WHERE provider = 'twilio' AND provider_ref = :sid
-                ORDER BY occurred_at ASC
-                LIMIT 1
-                """
-            ),
-            {"sid": sid},
-        ).mappings().first()
-        if origin is None:
-            logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)
-            return Response(status_code=204)
-        delivery_receipts.record(
-            conn,
-            tenant_id=str(origin["tenant_id"]),
-            customer_id=str(origin["customer_id"]),
-            channel="sms",
-            provider="twilio",
-            provider_ref=sid,
-            related_id=origin["related_id"],
-            state=state,
-            reason=str(form.get("ErrorCode") or "") or None,
-        )
+    def _record() -> None:
+        with db.engine.begin() as conn:
+            origin = conn.execute(
+                text(
+                    """
+                    SELECT tenant_id, customer_id, related_id
+                    FROM contact_delivery_events
+                    WHERE provider = 'twilio' AND provider_ref = :sid
+                    ORDER BY occurred_at ASC
+                    LIMIT 1
+                    """
+                ),
+                {"sid": sid},
+            ).mappings().first()
+            if origin is None:
+                logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)
+                return
+            delivery_receipts.record(
+                conn,
+                tenant_id=str(origin["tenant_id"]),
+                customer_id=str(origin["customer_id"]),
+                channel="sms",
+                provider="twilio",
+                provider_ref=sid,
+                related_id=origin["related_id"],
+                state=state,
+                reason=str(form.get("ErrorCode") or "") or None,
+            )
+
+    await asyncio.to_thread(_record)
     return Response(status_code=204)
 
 
 @app.post("/twilio/voice/outbound")
-async def twilio_voice_outbound(payload: dict[str, Any]):
+async def twilio_voice_outbound(payload: dict[str, Any], request: Request):
     """Start an outbound PSTN call that connects into the same Media Stream bot.
 
     The order here is the design's, not a convenience: the attempt row is
@@ -4301,50 +4308,47 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
     objective = str(payload.get("objective") or "manual_outbound").strip() or "manual_outbound"
     account_id = str(payload.get("accountId") or payload.get("account_id") or "").strip() or None
 
-    import contact_policy
     import mission as mission_mod
     import outbound
 
-    attempt: dict[str, Any] | None = None
-    with db.engine.begin() as conn:
-        if customer_id:
+    # An operator's double-click, or a client that retried a 502, must not ring
+    # the borrower twice. The header is the key when the client sends one; a
+    # client that does not gets one dial per request, as before.
+    idem = (request.headers.get("Idempotency-Key") or "").strip() or None
+
+    def _gate() -> outbound.Gated:
+        with db.engine.begin() as conn:
+            built = None
             bot_id = str(payload.get("botId") or db.DEFAULT_BOT_ID)
-            built = mission_mod.build(
+            if customer_id:
+                built = mission_mod.build(
+                    conn,
+                    customer_id=customer_id,
+                    objective=objective,
+                    account_id=account_id,
+                    card=mission_mod.card_for_bot(bot_id),
+                    bot_id=bot_id,
+                )
+            return outbound.gate(
                 conn,
-                customer_id=customer_id,
-                objective=objective,
-                account_id=account_id,
-                card=mission_mod.card_for_bot(bot_id),
-                bot_id=bot_id,
-            )
-            attempt = outbound.reserve(
-                conn,
-                customer_id=customer_id,
+                idempotency_key=f"operator:{idem}" if idem else None,
+                admit={"source": "voice_outbound", "actor_kind": "human"},
+                customer_id=customer_id or None,
                 to_phone=to,
                 objective=objective,
                 account_id=account_id,
                 bot_id=bot_id,
                 context={"source": "manual_endpoint", "mission": built},
             )
-        decision = contact_policy.admit(
-            conn,
-            customer_id=customer_id or None,
-            channel="voice",
-            purpose="outreach",
-            # Each reserved attempt is its own session. Keying this on the
-            # borrower coalesced a burst of operator clicks into one counted
-            # touch and left the daily cap recording a single ring for the
-            # whole burst. Cadence and campaigns already pass attempt id.
-            session_key=attempt["id"] if attempt else None,
-            source="voice_outbound",
-            related_id=attempt["id"] if attempt else to,
-            actor_kind="human",
-            endpoint=to,
-        )
-        if not decision.allowed and attempt:
-            outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
-    if not decision.allowed:
-        raise HTTPException(status_code=409, detail=decision.reason or "contact_policy")
+
+    gated = await asyncio.to_thread(_gate)
+    attempt = gated.attempt
+    if gated.existing:
+        # Same key, same answer: the attempt this key already made.
+        return {"placed": True, "attemptId": attempt["id"], "state": attempt.get("state"),
+                "idempotent": True}
+    if not gated.allowed:
+        raise HTTPException(status_code=409, detail=gated.reason or "contact_policy")
 
     custom = {
         k: str(v)
@@ -4359,7 +4363,9 @@ async def twilio_voice_outbound(payload: dict[str, Any]):
     # customer row to satisfy a foreign key would be worse than the gap.
     if attempt is None:
         try:
-            return twilio_ops.start_outbound_call(to=to, custom=custom or None)
+            return await asyncio.to_thread(
+                twilio_ops.start_outbound_call, to=to, custom=custom or None
+            )
         except Exception as exc:
             logger.exception("Twilio outbound failed")
             raise HTTPException(status_code=502, detail="twilio_outbound_failed") from exc
@@ -4594,7 +4600,6 @@ async def demo_outbound_call():
     demo: a call declined at 21:00 because the statutory window closed is a
     better thing to show than one that goes through.
     """
-    import contact_policy
     import mission as mission_mod
     import outbound
     import platform_switches
@@ -4608,104 +4613,94 @@ async def demo_outbound_call():
     phone = _demo_outbound_phone()
     digits = "".join(ch for ch in phone if ch.isdigit())
 
-    with db.engine.begin() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT id FROM customers
-                WHERE tenant_id = :t
-                  AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
-                LIMIT 1
-                """
-            ),
-            {"t": db._tenant(), "d": digits},
-        ).mappings().first()
-        if row is None:
-            raise HTTPException(status_code=404, detail="demo_customer_not_found")
-        customer_id = str(row["id"])
-        account_id = conn.execute(
-            text(
-                "SELECT id FROM accounts WHERE customer_id = :c"
-                " ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id LIMIT 1"
-            ),
-            {"c": customer_id},
-        ).scalar()
+    def _prepare() -> tuple[Any, str, str | None, str]:
+        """Reserve, gate and (maybe) waive, off the event loop."""
+        with db.engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT id FROM customers
+                    WHERE tenant_id = :t
+                      AND regexp_replace(COALESCE(phone_primary, ''), '\\D', '', 'g') = :d
+                    LIMIT 1
+                    """
+                ),
+                {"t": db._tenant(), "d": digits},
+            ).mappings().first()
+            if row is None:
+                raise HTTPException(status_code=404, detail="demo_customer_not_found")
+            customer_id = str(row["id"])
+            account_id = conn.execute(
+                text(
+                    "SELECT id FROM accounts WHERE customer_id = :c"
+                    " ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id LIMIT 1"
+                ),
+                {"c": customer_id},
+            ).scalar()
 
-        bot_id = _demo_outbound_bot_id()
-        card = mission_mod.card_for_bot(bot_id)
-        objective = _demo_outbound_objective(card)
-        built = mission_mod.build(
-            conn,
-            customer_id=customer_id,
-            objective=objective,
-            account_id=account_id,
-            card=card,
-            bot_id=bot_id,
-        )
-        attempt = outbound.reserve(
-            conn,
-            customer_id=customer_id,
-            to_phone=phone,
-            objective=objective,
-            account_id=account_id,
-            bot_id=bot_id,
-            context={"source": "demo_button", "mission": built},
-        )
-        decision = contact_policy.admit(
-            conn,
-            customer_id=customer_id,
-            channel="voice",
-            purpose="outreach",
-            # Each reserved attempt is its own session. Keying this on the
-            # borrower coalesced a burst of operator clicks into one counted
-            # touch and left the daily cap recording a single ring for the
-            # whole burst. Cadence and campaigns already pass attempt id.
-            session_key=attempt["id"] if attempt else None,
-            source="voice_outbound",
-            related_id=attempt["id"] if attempt else phone,
-            actor_kind="human",
-            endpoint=phone,
-        )
-        # The one override, and its limits.
-        #
-        # Waivable: *when* and *how often*. The calling hours, the borrower's
-        # preferred window, the cooling-off gap and the daily and weekly caps
-        # all exist to stop a borrower being rung repeatedly. The demo endpoint
-        # takes no phone number — it dials one configured handset, the one the
-        # operator running the demo is holding — so rehearsing on it is not the
-        # harm any of those rules were written to prevent. Hitting `cooling_off`
-        # after three rehearsal calls to your own phone is the rule working
-        # correctly on the wrong subject.
-        #
-        # Not waivable, at any switch setting: consent, opt-out, DND, the
-        # registry and the DPDP promotional-purpose basis. Those answer "may we
-        # contact this person at all", which a demo does not get to re-answer —
-        # and they are not what is blocking anyone here, so waiving them would
-        # buy nothing and cost the one guarantee worth keeping.
-        reason = decision.reason or "contact_policy"
-        waivable_for_demo = reason in _DEMO_WAIVABLE_REASONS
-        waived = (
-            not decision.allowed
-            and waivable_for_demo
-            and platform_switches.demo_ignores_window()
-        )
-        if waived:
-            logger.warning(
-                "demo call: waiving %s for the demo number by operator switch", reason
-            )
-            db.record_activity(
+            bot_id = _demo_outbound_bot_id()
+            card = mission_mod.card_for_bot(bot_id)
+            objective = _demo_outbound_objective(card)
+            built = mission_mod.build(
                 conn,
-                "customer",
-                customer_id,
-                "demo_window_waived",
-                f"Demo call placed despite {reason}",
-                f"waived:{reason}",
-                customer_id,
+                customer_id=customer_id,
+                objective=objective,
+                account_id=account_id,
+                card=card,
+                bot_id=bot_id,
             )
-        elif not decision.allowed and attempt:
-            outbound.suppress(conn, attempt["id"], reason)
+            # The one override, and its limits.
+            #
+            # Waivable: *when* and *how often*. The calling hours, the borrower's
+            # preferred window, the cooling-off gap and the daily and weekly caps
+            # all exist to stop a borrower being rung repeatedly. The demo endpoint
+            # takes no phone number — it dials one configured handset, the one the
+            # operator running the demo is holding — so rehearsing on it is not the
+            # harm any of those rules were written to prevent. Hitting `cooling_off`
+            # after three rehearsal calls to your own phone is the rule working
+            # correctly on the wrong subject.
+            #
+            # Not waivable, at any switch setting: consent, opt-out, DND, the
+            # registry and the DPDP promotional-purpose basis. Those answer "may we
+            # contact this person at all", which a demo does not get to re-answer —
+            # and they are not what is blocking anyone here, so waiving them would
+            # buy nothing and cost the one guarantee worth keeping.
+            gated = outbound.gate(
+                conn,
+                admit={"source": "voice_outbound", "actor_kind": "human"},
+                waivable=(
+                    _DEMO_WAIVABLE_REASONS
+                    if platform_switches.demo_ignores_window()
+                    else frozenset()
+                ),
+                customer_id=customer_id,
+                to_phone=phone,
+                objective=objective,
+                account_id=account_id,
+                bot_id=bot_id,
+                context={"source": "demo_button", "mission": built},
+            )
+            attempt = gated.attempt
+            reason = gated.reason or "contact_policy"
+            if gated.waived:
+                logger.warning(
+                    "demo call: waiving %s for the demo number by operator switch", reason
+                )
+                db.record_activity(
+                    conn,
+                    "customer",
+                    customer_id,
+                    "demo_window_waived",
+                    f"Demo call placed despite {reason}",
+                    f"waived:{reason}",
+                    customer_id,
+                )
 
-    if not decision.allowed and not waived:
+        return gated, customer_id, account_id, reason
+
+    gated, customer_id, account_id, reason = await asyncio.to_thread(_prepare)
+    attempt = gated.attempt
+    if not gated.allowed:
         # 409 with the engine's own reason. `outside_allowed_window` here is the
         # calling window doing its job, not a bug in the button.
         raise HTTPException(status_code=409, detail=reason)

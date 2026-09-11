@@ -149,23 +149,32 @@ def main() -> None:
     print(f"dialling   {outbound.to_e164(phone)}   (stored as {phone})")
     print(f"objective  {args.objective}")
 
+    # Only the clock, never consent. An opt-out or a DND flag is a decision
+    # the borrower made and no test flag overrides it.
+    waivable: frozenset[str] = frozenset()
+    if args.force_hours:
+        if env_bool("OUTBOUND_TEST_ANY_HOUR"):
+            waivable = frozenset({contact_policy.REASON_HOURS})
+        else:
+            print("  ! --force-hours needs OUTBOUND_TEST_ANY_HOUR=1 as well")
+
+    reserve_kwargs = dict(
+        customer_id=cust["id"],
+        to_phone=phone,
+        objective=args.objective,
+        account_id=cust["account_id"],
+        context={"source": "dial_test"},
+    )
     with db.engine.begin() as conn:
-        attempt = outbound.reserve(
-            conn,
-            customer_id=cust["id"],
-            to_phone=phone,
-            objective=args.objective,
-            account_id=cust["account_id"],
-            context={"source": "dial_test"},
-        )
-        if attempt is None:
-            sys.exit("could not reserve an attempt")
-        # `evaluate` on a rehearsal, `admit` on a real dial. They answer the
-        # same question and only one of them *books* the touch: a --dry-run that
-        # called admit would spend the borrower's daily contact budget and put
-        # the next two hours behind a cooling-off veto, so rehearsing would make
-        # the thing it rehearses impossible.
         if args.dry_run:
+            # `evaluate` on a rehearsal, `gate` on a real dial. They answer the
+            # same question and only one of them *books* the touch: a --dry-run
+            # that admitted would spend the borrower's daily contact budget and
+            # put the next two hours behind a cooling-off veto, so rehearsing
+            # would make the thing it rehearses impossible.
+            attempt = outbound.reserve(conn, **reserve_kwargs)
+            if attempt is None:
+                sys.exit("could not reserve an attempt")
             decision = contact_policy.evaluate(
                 conn,
                 customer_id=cust["id"],
@@ -173,33 +182,29 @@ def main() -> None:
                 purpose="outreach",
                 session_key=attempt["id"],
             )
-        else:
-            decision = contact_policy.admit(
-                conn,
-                customer_id=cust["id"],
-                channel="voice",
-                purpose="outreach",
-                session_key=attempt["id"],
-                source="dial_test",
-                related_id=attempt["id"],
-                actor_kind="human",
-                account_id=cust["account_id"],
-            )
-        allowed = decision.allowed
-        if not allowed and args.force_hours and decision.reason == contact_policy.REASON_HOURS:
-            # Only the clock, never consent. An opt-out or a DND flag is a
-            # decision the borrower made and no test flag overrides it.
-            if env_bool("OUTBOUND_TEST_ANY_HOUR"):
+            allowed = decision.allowed
+            if not allowed and decision.reason in waivable:
                 print("  ! calling-window veto overridden for a rehearsal")
                 allowed = True
-            else:
-                print("  ! --force-hours needs OUTBOUND_TEST_ANY_HOUR=1 as well")
-        if not allowed:
-            outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
+            reason = decision.reason
+        else:
+            gated = outbound.gate(
+                conn,
+                admit={"source": "dial_test", "actor_kind": "human"},
+                waivable=waivable,
+                **reserve_kwargs,
+            )
+            attempt = gated.attempt
+            if attempt is None:
+                sys.exit("could not reserve an attempt")
+            if gated.waived:
+                print("  ! calling-window veto overridden for a rehearsal")
+            allowed = gated.allowed
+            reason = gated.reason
 
     print(f"attempt    {attempt['id']}  (attempt #{attempt['attemptNo']})")
     if not allowed:
-        print(f"gate       DENIED · {decision.reason}")
+        print(f"gate       DENIED · {reason}")
         print("           the attempt is recorded as suppressed — that is the point")
         return
     print("gate       allowed")

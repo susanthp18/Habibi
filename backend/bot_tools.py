@@ -520,6 +520,9 @@ def _tool_decline_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     """Record a refusal so the same product is not raised again."""
     from agent_core.reco import decisions
 
+    # The in-call latch is set either way: the borrower said no, and the
+    # model must not raise it again this conversation. Whether the refusal is
+    # on the *record* is what `ok` reports, and it is decided by the write.
     ctx.offer_declined = True
     reason = (args.get("reason") or "").strip() or None
     if ctx.offer_decision_id:
@@ -536,6 +539,11 @@ def _tool_decline_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
             )
     except Exception:
         logger.exception("record_offer_declined failed")
+        return {
+            "ok": False,
+            "error": "crm_write_failed",
+            "say": "acknowledge briefly and move on; do not raise it again",
+        }
     return {"ok": True, "say": "acknowledge briefly and move on; do not raise it again"}
 
 

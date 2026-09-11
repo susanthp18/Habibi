@@ -151,7 +151,14 @@ def _ingest(db_tx, account_id: str, *, now: datetime, **extra):
         "occurredAt": extra.pop("occurredAt", now.isoformat()),
         **extra,
     }
-    return pe.ingest(db_tx, payload, now=now), payload["sourceRef"] if "sourceRef" not in extra else payload
+    # `ingest` decides; `deliver` performs the carrier I/O it put off. The
+    # route handlers do both (`ingest_and_deliver`); the tests here call the
+    # two halves so the shared `db_tx` transaction stays the one connection.
+    import db as dbmod
+
+    out = pe.ingest(db_tx, payload, now=now)
+    pe.deliver(dbmod.engine, out.pop("deferred", []))
+    return out, payload["sourceRef"] if "sourceRef" not in extra else payload
 
 
 def test_midnight_ingest_opens_case_and_sends_digital(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:

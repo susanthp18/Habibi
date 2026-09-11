@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
+import pg_errors
 from contact_policy import BLOCKING_CONSENT
 from env_loader import load_env
 from env_utils import env_bool
@@ -170,12 +171,18 @@ def _bounce_copy(
 
 
 def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
-    """Persist a bounce, book EMI/DPD, send statutory pay-link. Never double-sends.
+    """Persist a bounce, book EMI/DPD, decide the statutory pay-link. Never double-sends.
 
     Raises ``ValueError`` for a missing/unknown account (HTTP 400). Idempotent
     replays return ``{ok, eventId, idempotent: True}`` without a second send
     once first-touch is recorded.
+
+    No carrier I/O happens on ``conn``. A WhatsApp notice is queued (durable on
+    commit); an SMS or a last-resort dial is returned under ``"deferred"`` for
+    :func:`deliver` to perform once the caller has committed. Use
+    :func:`ingest_and_deliver` unless you are inside a transaction you own.
     """
+    deferred: list[dict[str, Any]] = []
     parsed = parse_payload(payload)
     account_id = (parsed.get("account_id") or "").strip()
     source_ref = (parsed.get("source_ref") or "").strip()
@@ -218,13 +225,13 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
     if existing:
         event = dict(existing)
         if event.get("first_touch_at") or event["status"] in {"cured", "suppressed"}:
-            return _result(event, idempotent=True)
-        _first_touch(conn, event, account=dict(account), now=instant)
+            return _result(event, idempotent=True, deferred=deferred)
+        _first_touch(conn, event, account=dict(account), now=instant, deferred=deferred)
         refreshed = conn.execute(
             text("SELECT * FROM payment_events WHERE id = :id"),
             {"id": event["id"]},
         ).mappings().first()
-        return _result(dict(refreshed or event), idempotent=True)
+        return _result(dict(refreshed or event), idempotent=True, deferred=deferred)
 
     emi = _resolve_emi(
         conn,
@@ -257,13 +264,13 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
         if open_emi:
             event = dict(open_emi)
             if event.get("first_touch_at") or event["status"] in {"cured", "suppressed"}:
-                return _result(event, idempotent=True)
-            _first_touch(conn, event, account=dict(account), now=instant, emi=emi)
+                return _result(event, idempotent=True, deferred=deferred)
+            _first_touch(conn, event, account=dict(account), now=instant, deferred=deferred, emi=emi)
             refreshed = conn.execute(
                 text("SELECT * FROM payment_events WHERE id = :id"),
                 {"id": event["id"]},
             ).mappings().first()
-            return _result(dict(refreshed or event), idempotent=True)
+            return _result(dict(refreshed or event), idempotent=True, deferred=deferred)
 
     if emi is not None and emi["status"] != "paid":
         conn.execute(
@@ -360,7 +367,12 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
                 "occurred_at": occurred,
             },
         )
-    except IntegrityError:
+    except IntegrityError as exc:
+        # Only a duplicate key is a replay. A foreign-key or CHECK failure
+        # inside this INSERT is a broken write, and treating it as "the other
+        # request won" would return 200 for a bounce that was never recorded.
+        if not pg_errors.is_unique_violation(exc):
+            raise
         raced = conn.execute(
             text(
                 """
@@ -389,13 +401,13 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
             raise
         event = dict(raced)
         if event.get("first_touch_at") or event["status"] in {"cured", "suppressed"}:
-            return _result(event, idempotent=True)
-        _first_touch(conn, event, account=dict(account), now=instant)
+            return _result(event, idempotent=True, deferred=deferred)
+        _first_touch(conn, event, account=dict(account), now=instant, deferred=deferred)
         refreshed = conn.execute(
             text("SELECT * FROM payment_events WHERE id = :id"),
             {"id": event["id"]},
         ).mappings().first()
-        return _result(dict(refreshed or event), idempotent=True)
+        return _result(dict(refreshed or event), idempotent=True, deferred=deferred)
 
     event = conn.execute(
         text("SELECT * FROM payment_events WHERE id = :id FOR UPDATE"),
@@ -412,13 +424,27 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
         parsed["reason"],
         account["customer_id"],
     )
-    _first_touch(conn, event_d, account=dict(account), now=instant, emi=emi)
+    _first_touch(conn, event_d, account=dict(account), now=instant, deferred=deferred, emi=emi)
     _plan_next(conn, event_d, now=instant)
     refreshed = conn.execute(
         text("SELECT * FROM payment_events WHERE id = :id"),
         {"id": event_id},
     ).mappings().first()
-    return _result(dict(refreshed or event_d), idempotent=False)
+    return _result(dict(refreshed or event_d), idempotent=False, deferred=deferred)
+
+
+def ingest_and_deliver(
+    engine: Engine, payload: dict[str, Any], *, now: datetime | None = None
+) -> dict[str, Any]:
+    """:func:`ingest` in its own transaction, then the sends it put off.
+
+    The route handlers use this. The two phases are what keeps a statutory SMS
+    from being sent inside a row lock and rolled back with it.
+    """
+    with engine.begin() as conn:
+        result = ingest(conn, payload, now=now)
+    deliver(engine, result.pop("deferred", []))
+    return result
 
 
 def _plan_next(conn: Any, event: dict[str, Any], *, now: datetime) -> None:
@@ -463,11 +489,14 @@ def _plan_next(conn: Any, event: dict[str, Any], *, now: datetime) -> None:
         logger.exception("treatment planning failed for bounce %s", event.get("id"))
 
 
-def _result(event: dict[str, Any], *, idempotent: bool) -> dict[str, Any]:
+def _result(
+    event: dict[str, Any], *, idempotent: bool, deferred: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     return {
         "ok": True,
         "eventId": event["id"],
         "idempotent": idempotent,
+        "deferred": list(deferred or ()),
         "status": event.get("status"),
         "firstTouch": event.get("first_touch_channel"),
         "intentId": event.get("payment_intent_id"),
@@ -536,6 +565,7 @@ def _first_touch(
     *,
     account: dict[str, Any],
     now: datetime,
+    deferred: list[dict[str, Any]],
     emi: dict[str, Any] | None = None,
 ) -> None:
     import capture
@@ -667,59 +697,34 @@ def _first_touch(
     if channel == "sms" and not sent:
         import twilio_sms
 
-        try:
-            if twilio_sms.configured():
-                twilio_sms.send(
-                    to_phone=phone or "",
-                    body=body,
-                    customer_id=event.get("customer_id"),
-                    related_id=event["id"],
-                )
-                sent = True
-            else:
-                reason = reason or "sms_not_configured"
-        except Exception:
-            logger.exception("bounce sms send failed event=%s", event["id"])
-            reason = reason or "sms_send_failed"
+        if twilio_sms.configured():
+            # Not sent here. `conn` holds `FOR UPDATE` on the account and the
+            # event, and a carrier call under that lock is a statutory SMS
+            # that goes out and then rolls back with the row — sent twice on
+            # the replay, or recorded as sent when the transaction died. The
+            # send happens in :func:`deliver`, after this commits, and the
+            # touch is stamped in a transaction of its own.
+            deferred.append(
+                {
+                    "kind": "sms",
+                    "event_id": event["id"],
+                    "customer_id": customer_id,
+                    "intent_id": intent["id"],
+                    "to_phone": phone or "",
+                    "body": body,
+                    "account": {
+                        "timezone": account.get("timezone"),
+                        "phone_primary": account.get("phone_primary"),
+                    },
+                    "now": now.isoformat(),
+                }
+            )
+            return
+        reason = reason or "sms_not_configured"
 
     if sent and channel:
-        conn.execute(
-            text(
-                """
-                UPDATE payment_events
-                SET status = 'in_progress',
-                    first_touch_at = :at,
-                    first_touch_channel = :ch,
-                    suppression_reason = NULL
-                WHERE id = :id
-                """
-            ),
-            {"id": event["id"], "at": now, "ch": channel},
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE payment_intents
-                SET status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
-                    confirm_channel = :ch,
-                    phone_last4 = :last4
-                WHERE id = :id
-                """
-            ),
-            {
-                "id": intent["id"],
-                "ch": channel,
-                "last4": pf._phone_last4(phone),
-            },
-        )
-        dbmod.record_activity(
-            conn,
-            "payment_event",
-            event["id"],
-            "bounce_first_touch",
-            f"Bounce pay-link sent via {channel}",
-            None,
-            customer_id,
+        _stamp_first_touch(
+            conn, event, channel=channel, intent_id=intent["id"], phone=phone, now=now
         )
         return
 
@@ -731,7 +736,177 @@ def _first_touch(
         now=now,
         intent_id=intent["id"],
         last4=pf._phone_last4(phone),
+        deferred=deferred,
     )
+
+
+def _stamp_first_touch(
+    conn: Any,
+    event: dict[str, Any],
+    *,
+    channel: str,
+    intent_id: str,
+    phone: str | None,
+    now: datetime,
+) -> None:
+    """The statutory notice went out on ``channel``. Say so, once."""
+    import db as dbmod
+    import promise_fulfillment as pf
+
+    conn.execute(
+        text(
+            """
+            UPDATE payment_events
+            SET status = 'in_progress',
+                first_touch_at = :at,
+                first_touch_channel = :ch,
+                next_voice_at = CASE WHEN :ch = 'voice' THEN NULL ELSE next_voice_at END,
+                suppression_reason = NULL
+            WHERE id = :id AND first_touch_at IS NULL
+            """
+        ),
+        {"id": event["id"], "at": now, "ch": channel},
+    )
+    if channel != "voice":
+        # The pay-link was *sent* on a digital channel. A voice touch is the
+        # last resort that speaks the link; `confirm_channel` is the written
+        # channel and its CHECK says so.
+        conn.execute(
+            text(
+                """
+                UPDATE payment_intents
+                SET status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
+                    confirm_channel = :ch,
+                    phone_last4 = :last4
+                WHERE id = :id
+                """
+            ),
+            {"id": intent_id, "ch": channel, "last4": pf._phone_last4(phone)},
+        )
+    dbmod.record_activity(
+        conn,
+        "payment_event",
+        event["id"],
+        "bounce_first_touch",
+        f"Bounce pay-link sent via {channel}",
+        None,
+        event["customer_id"],
+    )
+
+
+def deliver(engine: Engine, deferred: list[dict[str, Any]]) -> None:
+    """Carrier I/O :func:`ingest` put off until its transaction committed.
+
+    One send per entry, each recorded in a transaction of its own — the shape
+    ``treatment/enact.process_one`` uses for the same reason. A send that
+    fails is recorded as the refusal it would have been had the gate said no,
+    so the voice fallback and the morning sweep still see the case.
+    """
+    for item in deferred or ():
+        kind = item.get("kind")
+        try:
+            if kind == "sms":
+                _deliver_sms(engine, item)
+            elif kind == "voice":
+                _deliver_voice(engine, item)
+            else:
+                logger.error("payment_events.deliver: unknown deferred kind %r", kind)
+        except Exception:
+            logger.exception(
+                "payment_events.deliver: %s for event %s failed", kind, item.get("event_id")
+            )
+
+
+def _deliver_sms(engine: Engine, item: dict[str, Any]) -> None:
+    import twilio_sms
+
+    now = _parse_dt(item.get("now"), datetime.now(timezone.utc))
+    try:
+        twilio_sms.send(
+            to_phone=item["to_phone"],
+            body=item["body"],
+            customer_id=item.get("customer_id"),
+            related_id=item["event_id"],
+        )
+    except Exception:
+        logger.exception("bounce sms send failed event=%s", item["event_id"])
+        with engine.begin() as conn:
+            event = conn.execute(
+                text("SELECT * FROM payment_events WHERE id = :id FOR UPDATE"),
+                {"id": item["event_id"]},
+            ).mappings().first()
+            if event is None or event.get("first_touch_at"):
+                return
+            fallback: list[dict[str, Any]] = []
+            _digital_blocked(
+                conn,
+                dict(event),
+                account=item.get("account") or {},
+                reason="sms_send_failed",
+                now=now,
+                intent_id=item["intent_id"],
+                last4=item["to_phone"][-4:] if item.get("to_phone") else None,
+                deferred=fallback,
+            )
+        deliver(engine, fallback)
+        return
+    with engine.begin() as conn:
+        event = conn.execute(
+            text("SELECT * FROM payment_events WHERE id = :id FOR UPDATE"),
+            {"id": item["event_id"]},
+        ).mappings().first()
+        if event is None:
+            return
+        _stamp_first_touch(
+            conn,
+            dict(event),
+            channel="sms",
+            intent_id=item["intent_id"],
+            phone=item.get("to_phone"),
+            now=now,
+        )
+
+
+def _deliver_voice(engine: Engine, item: dict[str, Any]) -> None:
+    import outbound
+
+    now = _parse_dt(item.get("now"), datetime.now(timezone.utc))
+    placed = outbound.place(engine, item["attempt"], to_phone=item["to_phone"])
+    with engine.begin() as conn:
+        event = conn.execute(
+            text("SELECT * FROM payment_events WHERE id = :id FOR UPDATE"),
+            {"id": item["event_id"]},
+        ).mappings().first()
+        if event is None:
+            return
+        if placed.get("placed"):
+            _stamp_first_touch(
+                conn,
+                dict(event),
+                channel="voice",
+                intent_id=event.get("payment_intent_id") or item.get("intent_id") or "",
+                phone=item.get("to_phone"),
+                now=now,
+            )
+            return
+        logger.info(
+            "bounce voice dial not placed event=%s reason=%s",
+            item["event_id"],
+            placed.get("reason"),
+        )
+        # The last resort did not happen. Same answer the sweep always gave a
+        # dial that failed: off the clock, reason on the row, a person looks.
+        conn.execute(
+            text(
+                """
+                UPDATE payment_events
+                SET next_voice_at = NULL,
+                    suppression_reason = COALESCE(suppression_reason, :reason)
+                WHERE id = :id AND first_touch_at IS NULL
+                """
+            ),
+            {"id": item["event_id"], "reason": str(placed.get("reason") or "dial_failed")[:120]},
+        )
 
 
 def _digital_blocked(
@@ -743,6 +918,7 @@ def _digital_blocked(
     now: datetime,
     intent_id: str,
     last4: str | None,
+    deferred: list[dict[str, Any]],
 ) -> None:
     import db as dbmod
 
@@ -760,7 +936,7 @@ def _digital_blocked(
     if bounce_voice_enabled():
         nxt = next_voice_window(tz_name=account.get("timezone"), now=now)
         if nxt <= now:
-            if _try_voice_now(conn, event, account=account, now=now):
+            if _try_voice_now(conn, event, account=account, now=now, deferred=deferred):
                 return
             already = conn.execute(
                 text("SELECT next_voice_at FROM payment_events WHERE id = :id"),
@@ -817,43 +993,25 @@ def _try_voice_now(
     *,
     account: dict[str, Any],
     now: datetime,
+    deferred: list[dict[str, Any]],
 ) -> bool:
+    """Gate the last-resort dial now; place it after ``conn`` commits.
+
+    True means an attempt is reserved and queued on ``deferred``. The touch is
+    stamped by :func:`_deliver_voice` once the carrier has accepted the call —
+    not here, where the borrower's phone has not rung yet.
+    """
     import contact_policy
 
     phone = account.get("phone_primary")
     if not phone:
         return False
-    decision = contact_policy.admit(
-        conn,
-        customer_id=event["customer_id"],
-        channel="voice",
-        purpose="outreach",
-        session_key=event["id"],
-        source="bounce_voice",
-        related_id=event["id"],
-        actor_kind="system",
-        account_id=event["account_id"],
-        now=now,
-        endpoint=phone,
-    )
-    if not decision.allowed:
-        if decision.reason == contact_policy.REASON_HOURS:
-            nxt = next_voice_window(tz_name=account.get("timezone"), now=now)
-            conn.execute(
-                text(
-                    """
-                    UPDATE payment_events
-                    SET next_voice_at = :nxt, suppression_reason = :reason
-                    WHERE id = :id
-                    """
-                ),
-                {"id": event["id"], "nxt": nxt, "reason": decision.reason},
-            )
-        return False
-    # Through the attempt ledger, not straight at the carrier. Reserved on its
-    # own transaction because `conn` is still open here and `outbound.place`
-    # dials on connections of its own — a row written on `conn` would be
-    # invisible to the fleet gate and to the post-dial update.
+    # Through the attempt ledger, not straight at the carrier, and gated on the
+    # ledger's own transaction: `conn` is still open here and `outbound.place`
+    # dials on connections of its own, so a row written on `conn` would be
+    # invisible to the fleet gate and to the post-dial update. Reserving before
+    # admitting is what leaves a `suppressed` row when the gate says no — this
+    # was the one dial site that admitted first and left nothing behind.
     import db as dbmod
     import mission as mission_mod
     import outbound
@@ -869,8 +1027,10 @@ def _try_voice_now(
                 card=mission_mod.card_for_bot(bot_id),
                 bot_id=bot_id,
             )
-            attempt = outbound.reserve(
+            gated = outbound.gate(
                 own,
+                idempotency_key=f"bounce:{event['id']}",
+                admit={"source": "bounce_voice", "actor_kind": "system", "now": now},
                 customer_id=event["customer_id"],
                 to_phone=phone,
                 objective="bounce_cure",
@@ -883,32 +1043,43 @@ def _try_voice_now(
                     "mission": built,
                 },
             )
+        attempt = gated.attempt
         if attempt is None:
             return False
-        placed = outbound.place(dbmod.engine, attempt, to_phone=phone)
-        if not placed.get("placed"):
+        if gated.existing:
             logger.info(
-                "bounce voice dial not placed event=%s reason=%s",
+                "bounce voice dial already reserved event=%s attempt=%s",
                 event["id"],
-                placed.get("reason"),
+                attempt["id"],
             )
             return False
+        if not gated.allowed:
+            if gated.reason == contact_policy.REASON_HOURS:
+                nxt = next_voice_window(tz_name=account.get("timezone"), now=now)
+                conn.execute(
+                    text(
+                        """
+                        UPDATE payment_events
+                        SET next_voice_at = :nxt, suppression_reason = :reason
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": event["id"], "nxt": nxt, "reason": gated.reason},
+                )
+            return False
     except Exception:
-        logger.exception("bounce voice dial failed event=%s", event["id"])
+        logger.exception("bounce voice dial could not be reserved event=%s", event["id"])
         return False
-    conn.execute(
-        text(
-            """
-            UPDATE payment_events
-            SET status = 'in_progress',
-                first_touch_at = :at,
-                first_touch_channel = 'voice',
-                next_voice_at = NULL,
-                suppression_reason = NULL
-            WHERE id = :id
-            """
-        ),
-        {"id": event["id"], "at": now},
+    deferred.append(
+        {
+            "kind": "voice",
+            "event_id": event["id"],
+            "intent_id": event.get("payment_intent_id"),
+            "attempt": attempt,
+            "to_phone": phone,
+            "account": {"timezone": account.get("timezone")},
+            "now": now.isoformat(),
+        }
     )
     return True
 
@@ -956,12 +1127,14 @@ def process_one_voice(engine: Engine, *, now: datetime | None = None) -> bool:
             "timezone": row["timezone"],
         }
         when = now or datetime.now(timezone.utc)
-        if not _try_voice_now(conn, event, account=account, now=when):
+        deferred: list[dict[str, Any]] = []
+        if not _try_voice_now(conn, event, account=account, now=when, deferred=deferred):
             conn.execute(
                 text("UPDATE payment_events SET next_voice_at = NULL WHERE id = :id"),
                 {"id": event["id"]},
             )
-        return True
+    deliver(engine, deferred)
+    return True
 
 
 def cure_for_account(

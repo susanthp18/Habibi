@@ -54,6 +54,7 @@ import logging
 import os
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -342,6 +343,7 @@ def reserve(
     context: dict[str, Any] | None = None,
     tenant_id: str | None = None,
     number_pool: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any] | None:
     """Write the ``reserved`` row. Returns None only if the customer is gone.
 
@@ -350,6 +352,13 @@ def reserve(
     is what the cadence's ``max_attempts`` is compared against — a suppressed
     attempt was never made, so counting it would let a busy day silently consume
     a borrower's retry budget.
+
+    ``idempotency_key`` makes the reservation exactly-once per tenant: a second
+    call with the same key writes nothing and returns the row that already
+    exists, with ``existing=True`` so the caller knows not to gate or dial it
+    again. The key is the caller's natural one — a cadence rung, a campaign
+    target's attempt number, a treatment decision, a bounce event, or the
+    ``Idempotency-Key`` header on an operator's request.
     """
     tenant = tenant_id or _tenant_for(conn, customer_id)
     if not tenant:
@@ -393,20 +402,26 @@ def reserve(
         params,
     ).scalar()
 
-    conn.execute(
+    # ON CONFLICT rather than select-then-insert: two workers reserving the same
+    # rung at once both reach the INSERT, and only the index can make one of
+    # them lose. With no key there is nothing to conflict on and this is a plain
+    # insert.
+    inserted = conn.execute(
         text(
             """
             INSERT INTO call_attempts (
               id, tenant_id, customer_id, account_id, mission_id, campaign_run_id,
               decision_id, bot_id, deployment_id, objective, purpose, attempt_no,
               to_phone_hash, to_phone_last4, phone_slot, policy_version, state,
-              context, reserved_at, created_at, updated_at
+              context, idempotency_key, reserved_at, created_at, updated_at
             ) VALUES (
               :id, :tenant_id, :customer_id, :account_id, :mission_id, :campaign_run_id,
               :decision_id, :bot_id, :deployment_id, :objective, :purpose, :attempt_no,
               :to_hash, :last4, :phone_slot, :policy_version, 'reserved',
-              CAST(:context AS jsonb), now(), now(), now()
+              CAST(:context AS jsonb), :idempotency_key, now(), now(), now()
             )
+            ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+            DO NOTHING
             """
         ),
         {
@@ -427,8 +442,19 @@ def reserve(
             "phone_slot": phone_slot,
             "policy_version": policy_version,
             "context": _json(context or {}),
+            "idempotency_key": idempotency_key or None,
         },
     )
+    if idempotency_key and not inserted.rowcount:
+        existing = _by_idempotency_key(conn, tenant, idempotency_key)
+        if existing is not None:
+            logger.info(
+                "outbound.reserve: %s already reserved as %s (%s)",
+                idempotency_key,
+                existing["id"],
+                existing["state"],
+            )
+            return existing
     return {
         "id": attempt_id,
         "tenantId": tenant,
@@ -449,19 +475,156 @@ def reserve(
     }
 
 
+def _by_idempotency_key(conn: Any, tenant: str, key: str) -> dict[str, Any] | None:
+    """The attempt an earlier call with this key reserved, in ``reserve``'s shape."""
+    row = (
+        conn.execute(
+            text(
+                """
+                SELECT id, tenant_id, customer_id, account_id, objective, attempt_no,
+                       decision_id, mission_id, number_pool, campaign_run_id, context,
+                       state
+                FROM call_attempts
+                WHERE tenant_id = :t AND idempotency_key = :k
+                """
+            ),
+            {"t": tenant, "k": key},
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "tenantId": row["tenant_id"],
+        "customerId": row["customer_id"],
+        "accountId": row["account_id"],
+        "objective": row["objective"],
+        "attemptNo": int(row["attempt_no"] or 1),
+        "decisionId": row["decision_id"],
+        "missionId": row["mission_id"],
+        "numberPool": row["number_pool"],
+        "campaignRunId": row["campaign_run_id"],
+        "context": dict(row["context"] or {}),
+        "state": row["state"],
+        "existing": True,
+    }
+
+
 def suppress(conn: Any, attempt_id: str, reason: str) -> None:
-    """The gate said no. Record it against the attempt rather than only in a log."""
+    """The gate said no. Record it against the attempt rather than only in a log.
+
+    The idempotency key is released with it. A suppressed attempt was never
+    made — the same rule ``attempt_no`` applies — so the caller's next try with
+    the same key must reserve afresh rather than find a refusal and stop.
+    """
     conn.execute(
         text(
             """
             UPDATE call_attempts
             SET state = 'suppressed', suppressed_reason = :reason,
+                idempotency_key = NULL,
                 ended_at = now(), updated_at = now()
             WHERE id = :id AND state = 'reserved'
             """
         ),
         {"id": attempt_id, "reason": (reason or "unknown")[:200]},
     )
+
+
+@dataclass(frozen=True)
+class Gated:
+    """What :func:`gate` decided, and the row it decided it on.
+
+    ``attempt`` is None only when there was no customer to reserve against —
+    the row is gone, or the caller dialled a bare number. ``decision`` is None
+    when the gate did not run: no customer, or the key had already been
+    reserved by an earlier call (``existing``), in which case that call's
+    decision stands and this one must not dial.
+    """
+
+    attempt: dict[str, Any] | None
+    decision: Any | None
+    existing: bool = False
+    #: The refusal was one the caller is allowed to override (demo handset).
+    #: The attempt is left ``reserved`` rather than suppressed so it can dial.
+    waived: bool = False
+
+    @property
+    def allowed(self) -> bool:
+        if self.existing:
+            return False
+        if self.decision is None:
+            return False
+        return bool(self.decision.allowed) or self.waived
+
+    @property
+    def reason(self) -> str:
+        if self.existing:
+            return "already_reserved"
+        if self.attempt is None and self.decision is None:
+            return "customer_gone"
+        if self.decision is None or self.decision.allowed:
+            return ""
+        return str(self.decision.reason or "contact_policy")
+
+
+def gate(
+    conn: Any,
+    *,
+    admit: dict[str, Any],
+    waivable: frozenset[str] = frozenset(),
+    idempotency_key: str | None = None,
+    **reserve_kwargs: Any,
+) -> Gated:
+    """Reserve → admit → suppress-on-refusal, in that order, on ``conn``.
+
+    The one owner of the sequence every dial site used to write by hand — and
+    two of them wrote it in the other order, which is how a refused bounce dial
+    left no attempt row. ``reserve_kwargs`` are :func:`reserve`'s; ``admit`` is
+    the ``contact_policy.admit`` arguments that vary per caller (source, actor,
+    data purpose, account). The session key, related id and endpoint are the
+    attempt's own, so a burst of calls cannot coalesce into one counted touch.
+
+    Runs on the caller's connection so the reservation, the budget debit and the
+    caller's own bookkeeping commit together. Dialling is :func:`place`, after
+    the caller has committed — carrier I/O never happens inside a transaction.
+
+    ``waivable`` names refusal reasons the caller may override. The refusal is
+    still returned; the attempt is simply not suppressed, and ``Gated.waived``
+    says why it is about to dial anyway.
+    """
+    import contact_policy
+
+    # A bare number with no customer on file reserves nothing: there is no
+    # borrower to attribute an attempt to, and inventing a customer row to
+    # satisfy a foreign key would be worse than the gap. The gate still runs,
+    # and refuses outreach to nobody in particular (`REASON_NO_CUSTOMER`).
+    customer_id = reserve_kwargs.get("customer_id")
+    attempt = reserve(conn, idempotency_key=idempotency_key, **reserve_kwargs) if customer_id else None
+    if attempt is not None and attempt.get("existing"):
+        return Gated(attempt=attempt, decision=None, existing=True)
+    if customer_id and attempt is None:
+        return Gated(attempt=None, decision=None)
+
+    params = dict(admit)
+    params.setdefault("channel", "voice")
+    params.setdefault("purpose", "outreach")
+    params.setdefault("customer_id", reserve_kwargs.get("customer_id") or None)
+    params.setdefault("account_id", reserve_kwargs.get("account_id"))
+    params["session_key"] = attempt["id"] if attempt else None
+    params["related_id"] = attempt["id"] if attempt else reserve_kwargs.get("to_phone")
+    params["endpoint"] = reserve_kwargs.get("to_phone")
+    decision = contact_policy.admit(conn, **params)
+
+    if decision.allowed or attempt is None:
+        return Gated(attempt=attempt, decision=decision)
+    reason = str(decision.reason or "contact_policy")
+    if reason in waivable:
+        return Gated(attempt=attempt, decision=decision, waived=True)
+    suppress(conn, attempt["id"], reason)
+    return Gated(attempt=attempt, decision=decision)
 
 
 def in_flight_count(conn: Any, tenant_id: str) -> int:
@@ -534,6 +697,30 @@ def _ctx(attempt: dict[str, Any]) -> str:
     )
 
 
+#: ``place`` reasons after which the borrower's phone may or may not have rung.
+#: A retry against one of these is a second call to the same borrower about
+#: the same case, so the cadence and campaigns park rather than re-dial.
+AMBIGUOUS_REASON = "ambiguous"
+
+
+def _carrier_failure_reason(exc: BaseException) -> str:
+    """``dial_failed`` when the carrier provably did not place the call;
+    ``ambiguous`` when it may have.
+
+    Twilio answers a rejected request with a 4xx and a code, and those calls
+    were never created. A 5xx, a 429 or a read timeout is the request reaching
+    Twilio and the answer not reaching us -- the call may exist. A connection
+    that was refused or never resolved never reached Twilio at all.
+    """
+    status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        return AMBIGUOUS_REASON if status >= 500 or status in (408, 429) else "dial_failed"
+    name = type(exc).__name__.lower()
+    if "readtimeout" in name or name == "timeout" or name.endswith("timeouterror"):
+        return AMBIGUOUS_REASON
+    return "dial_failed"
+
+
 def _failed(attempt_id: str, reason: str) -> dict[str, Any]:
     """The result shape a caller gets instead of an exception."""
     return {
@@ -544,17 +731,24 @@ def _failed(attempt_id: str, reason: str) -> dict[str, Any]:
     }
 
 
-def _fail_quietly(engine: Any, attempt_id: str, reason: str) -> None:
+def _fail_quietly(
+    engine: Any, attempt_id: str, reason: str, *, release_key: bool = True
+) -> None:
     """Move the attempt out of ``reserved`` if the database will let us.
 
     Best effort by construction. This runs on paths where the database is often
     the thing that broke, and a bookkeeping write that raised would hand the
     caller back the exception :func:`place` just promised it would not — while
     leaving the row in ``reserved``, the one state the Closer skips.
+
+    ``release_key`` follows the same rule as :func:`suppress`: a dial that
+    provably never reached the carrier releases its idempotency key so the
+    caller may try again under it; one that *may* have rung keeps the key, so
+    the same caller cannot ring the borrower a second time by retrying.
     """
     try:
         with engine.begin() as conn:
-            fail(conn, attempt_id, reason=reason[:400])
+            fail(conn, attempt_id, reason=reason[:400], release_key=release_key)
     except Exception:
         logger.exception("outbound %s: could not mark the attempt failed", attempt_id)
 
@@ -773,10 +967,18 @@ def place(
         # The carrier boundary is deliberately not filtered through
         # `_BUG_EXCEPTIONS`: a third-party client raising `TypeError` is a fact
         # about their SDK, not evidence of a bug in ours, and either way this
-        # dial genuinely did not happen.
-        logger.exception("outbound %s dial failed · %s", attempt_id, _ctx(attempt))
-        _fail_quietly(engine, attempt_id, str(exc))
-        return {"placed": False, "state": STATE_FAILED, "reason": "dial_failed",
+        # dial did not *knowably* happen. Whether it might have is the
+        # classification below, and it is decided here — at the boundary that
+        # saw the exception — rather than guessed downstream from a string.
+        reason = _carrier_failure_reason(exc)
+        logger.exception("outbound %s dial %s · %s", attempt_id, reason, _ctx(attempt))
+        _fail_quietly(
+            engine,
+            attempt_id,
+            f"{reason}: {exc}",
+            release_key=reason != AMBIGUOUS_REASON,
+        )
+        return {"placed": False, "state": STATE_FAILED, "reason": reason,
                 "attemptId": attempt_id}
 
     call_sid = str(result.get("callSid") or "")
@@ -843,17 +1045,18 @@ def _mark_dialing(
         )
 
 
-def fail(conn: Any, attempt_id: str, *, reason: str) -> None:
+def fail(conn: Any, attempt_id: str, *, reason: str, release_key: bool = False) -> None:
     conn.execute(
         text(
             """
             UPDATE call_attempts
             SET state = 'failed', provider_error = :reason,
+                idempotency_key = CASE WHEN :release THEN NULL ELSE idempotency_key END,
                 ended_at = now(), updated_at = now()
             WHERE id = :id AND state IN ('reserved','dialing','ringing')
             """
         ),
-        {"id": attempt_id, "reason": reason[:400]},
+        {"id": attempt_id, "reason": reason[:400], "release": bool(release_key)},
     )
 
 

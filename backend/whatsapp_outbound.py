@@ -374,7 +374,21 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
 
     attempt = int(job.get("attempt") or 1)
     cap = max_attempts()
-    if wa.is_ambiguous_transport_error(error):
+    # Read from the row, not the claim-time copy: `post_attempted_at` is
+    # stamped after the claim, and it is the one fact that decides whether a
+    # retry is safe. Once a request has gone out, any send-phase failure that
+    # is not a provable pre-send rejection may have reached Meta — a driver
+    # error while recording the result, a JSON body we could not parse — and
+    # a retry is a second message to the borrower.
+    attempted = conn.execute(
+        text("SELECT post_attempted_at FROM whatsapp_outbound_jobs WHERE id = :id"),
+        {"id": job["id"]},
+    ).scalar()
+    sent_phase = str(error or "").startswith("whatsapp_send_failed:")
+    ambiguous = wa.is_ambiguous_transport_error(error) or (
+        attempted is not None and sent_phase and not wa.is_definite_client_error(error)
+    )
+    if ambiguous:
         conn.execute(
             text(
                 """

@@ -967,13 +967,30 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
     return {"due_today": due, "broken": broken, "expired": expired}
 
 
-def _send_reminder_copy(
+#: How long a reminder may sit with a lease before it is presumed lost.
+#: Longer than any plausible carrier round trip, so a live send is never
+#: reaped; the reaped row is marked, not retried -- see the sweep below.
+_SENDING_LEASE_MINUTES = 10
+
+
+def _prepare_reminder(
     conn: Any, reminder: dict[str, Any], *, now: datetime | None = None
-) -> tuple[bool, str | None]:
-    """Send a due/confirm reminder. Returns (ok, error)."""
+) -> dict[str, Any]:
+    """Everything a reminder needs decided inside the transaction.
+
+    Returns one of::
+
+        {"outcome": "sent"}                           # queued durably (WhatsApp), or nothing owed
+        {"outcome": "send", "to": ..., "body": ...}   # an SMS for the caller to send after commit
+        {"outcome": "refused", "reason": ...}         # the gate said not now
+        {"outcome": "failed", "reason": ...}          # nothing to send, ever
+
+    No carrier I/O here. The row is locked by the caller, and a carrier call
+    under that lock was how one reminder became two.
+    """
     promise = _load_promise(conn, reminder["promise_id"])
     if promise is None:
-        return False, "promise_not_found"
+        return {"outcome": "failed", "reason": "promise_not_found"}
     intent = conn.execute(
         text(
             """
@@ -986,9 +1003,9 @@ def _send_reminder_copy(
         {"pid": promise["id"]},
     ).mappings().first()
     if intent is None:
-        return False, "intent_not_found"
+        return {"outcome": "failed", "reason": "intent_not_found"}
     if intent["status"] == "paid":
-        return True, None
+        return {"outcome": "sent"}
     body = _confirm_copy(
         amount=intent["amount"],
         promised_at=promise["promised_at"],
@@ -1001,7 +1018,6 @@ def _send_reminder_copy(
     source = "ptp_confirm" if purpose == "statutory" else "due_reminder"
     if channel == "sms":
         import contact_policy
-        import twilio_sms
 
         decision = contact_policy.admit(
             conn,
@@ -1017,14 +1033,13 @@ def _send_reminder_copy(
             now=now,
         )
         if not decision.allowed:
-            return False, decision.reason or "contact_policy"
-        twilio_sms.send(
-            to_phone=phone or "",
-            body=body,
-            customer_id=promise["customer_id"],
-            related_id=reminder.get("id"),
-        )
-        return True, None
+            return {"outcome": "refused", "reason": decision.reason or "contact_policy"}
+        return {
+            "outcome": "send",
+            "to": phone or "",
+            "body": body,
+            "customer_id": promise["customer_id"],
+        }
     if channel == "whatsapp":
         inside = False
         try:
@@ -1044,13 +1059,80 @@ def _send_reminder_copy(
             purpose=purpose,
             source=source,
         )
-        return True, None
-    return False, "unsupported_channel"
+        return {"outcome": "sent"}
+    return {"outcome": "failed", "reason": "unsupported_channel"}
+
+
+def _record_reminder(
+    conn: Any, reminder: dict[str, Any], *, ok: bool, err: str | None
+) -> None:
+    conn.execute(
+        text(
+            """
+            UPDATE promise_reminders
+            SET status = :status,
+                sending_at = NULL,
+                sent_at = CASE WHEN :ok THEN now() ELSE sent_at END,
+                provider_delivery_id = COALESCE(:err, provider_delivery_id),
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": reminder["id"],
+            "status": "sent" if ok else "failed",
+            "ok": ok,
+            "err": (err or "")[:200] or None,
+        },
+    )
+    if ok and reminder["kind"] == "due":
+        conn.execute(
+            text(
+                """
+                UPDATE promises SET reminder_status = 'sent'
+                WHERE id = :id AND reminder_status IN ('queued','scheduled')
+                """
+            ),
+            {"id": reminder["promise_id"]},
+        )
+
+
+def _reap_lost_reminders(conn: Any) -> int:
+    """A lease older than the window is a send whose outcome never came back.
+
+    Marked ``failed`` for a person, not requeued: the SMS may have gone out,
+    and the one thing worse than a missed reminder is the same reminder twice.
+    """
+    return int(
+        conn.execute(
+            text(
+                """
+                UPDATE promise_reminders
+                SET status = 'failed',
+                    sending_at = NULL,
+                    provider_delivery_id = COALESCE(provider_delivery_id, 'stuck_after_send'),
+                    updated_at = now()
+                WHERE status IN ('queued','scheduled')
+                  AND sending_at IS NOT NULL
+                  AND sending_at < now() - make_interval(mins => :lease)
+                """
+            ),
+            {"lease": _SENDING_LEASE_MINUTES},
+        ).rowcount
+        or 0
+    )
 
 
 def process_one_reminder(engine: Engine | Any) -> bool:
-    """Drain one due/confirm reminder (SKIP LOCKED)."""
+    """Drain one due/confirm reminder: claim, commit, send, record.
+
+    Three transactions on purpose. The claim decides and commits the lease;
+    the send happens with nothing locked; the record closes the lease. A
+    policy refusal is ``scheduled`` two hours out -- it is a deferral, and
+    ``failed`` is the word for a carrier that said no.
+    """
     with engine.begin() as conn:
+        _reap_lost_reminders(conn)
         row = conn.execute(
             text(
                 """
@@ -1058,6 +1140,7 @@ def process_one_reminder(engine: Engine | Any) -> bool:
                 FROM promise_reminders
                 WHERE kind IN ('confirm','due')
                   AND status IN ('queued','scheduled')
+                  AND sending_at IS NULL
                   AND (scheduled_at IS NULL OR scheduled_at <= now())
                 ORDER BY scheduled_at ASC NULLS FIRST, created_at ASC
                 FOR UPDATE SKIP LOCKED
@@ -1067,36 +1150,57 @@ def process_one_reminder(engine: Engine | Any) -> bool:
         ).mappings().first()
         if row is None:
             return False
+        reminder = dict(row)
         try:
-            ok, err = _send_reminder_copy(conn, dict(row))
+            prepared = _prepare_reminder(conn, reminder)
         except Exception as exc:
-            logger.warning("reminder %s send failed: %s", row["id"], exc, exc_info=True)
-            ok, err = False, type(exc).__name__
+            logger.warning("reminder %s could not be prepared: %s", row["id"], exc, exc_info=True)
+            prepared = {"outcome": "failed", "reason": type(exc).__name__}
+        outcome = prepared["outcome"]
+        if outcome == "refused":
+            conn.execute(
+                text(
+                    """
+                    UPDATE promise_reminders
+                    SET status = 'scheduled',
+                        scheduled_at = now() + interval '2 hours',
+                        provider_delivery_id = :reason,
+                        updated_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": row["id"], "reason": str(prepared.get("reason") or "")[:200]},
+            )
+            return True
+        if outcome in {"sent", "failed"}:
+            _record_reminder(
+                conn, reminder, ok=outcome == "sent", err=prepared.get("reason")
+            )
+            return True
         conn.execute(
             text(
                 """
                 UPDATE promise_reminders
-                SET status = :status,
-                    sent_at = CASE WHEN :ok THEN now() ELSE sent_at END,
-                    provider_delivery_id = COALESCE(:err, provider_delivery_id)
+                SET sending_at = now(), attempts = attempts + 1, updated_at = now()
                 WHERE id = :id
                 """
             ),
-            {
-                "id": row["id"],
-                "status": "sent" if ok else "failed",
-                "ok": ok,
-                "err": (err or "")[:200] or None,
-            },
+            {"id": row["id"]},
         )
-        if ok and row["kind"] == "due":
-            conn.execute(
-                text(
-                    """
-                    UPDATE promises SET reminder_status = 'sent'
-                    WHERE id = :id AND reminder_status IN ('queued','scheduled')
-                    """
-                ),
-                {"id": row["promise_id"]},
-            )
-        return True
+
+    import twilio_sms
+
+    ok, err = True, None
+    try:
+        twilio_sms.send(
+            to_phone=prepared["to"],
+            body=prepared["body"],
+            customer_id=prepared["customer_id"],
+            related_id=reminder["id"],
+        )
+    except Exception as exc:
+        logger.warning("reminder %s send failed: %s", reminder["id"], exc, exc_info=True)
+        ok, err = False, type(exc).__name__
+    with engine.begin() as conn:
+        _record_reminder(conn, reminder, ok=ok, err=err)
+    return True

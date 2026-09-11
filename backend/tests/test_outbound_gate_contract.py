@@ -1,16 +1,13 @@
-"""The outbound gate sequence, as a contract across every ``place`` site.
+"""The outbound gate has one owner, and every ``place`` site goes through it.
 
-Every *piece* is tested — ``admit``, ``suppress``, ``place``. The composition
-was tested at zero sites, and ``campaigns.process_one`` was an
-``inspect.getsource`` substring. A change to the compliance ordering could land
-in six files out of seven and nothing would fail.
-
-The five ordering-A sites are ``reserve → admit → suppress → place``. Treatment
-enact splits the same steps across three functions (admit, then either
-reserve+suppress or reserve+place). ``payment_events._try_voice_now`` is the
-known hole: admit then reserve then place, and no ``suppress`` anywhere in the
-module. WP-028 owns closing that hole; this file pins the current sequences so
-a swap cannot hide in one caller.
+Every *piece* was tested — ``admit``, ``suppress``, ``place``. The composition
+was written by hand at seven sites, in two orderings, and one of them
+(``payment_events._try_voice_now``) admitted before it reserved and so left no
+attempt row when the gate said no. This file used to pin those seven sequences
+so a swap could not hide in one caller. It now pins something stronger: the
+sequence exists in exactly one place, ``outbound.gate``, and a function that
+calls ``outbound.place`` may not call ``contact_policy.admit`` or
+``outbound.suppress`` itself.
 """
 
 from __future__ import annotations
@@ -33,18 +30,22 @@ _SKIP_DIRS = {
     "tests",
 }
 
-_STEPS = ("reserve", "admit", "suppress", "place")
+_STEPS = ("reserve", "gate", "admit", "suppress", "place")
 
-# The seven ``outbound.place`` call sites, and the source order of gate steps
-# inside the function that contains ``place``.
+# Every ``outbound.place`` call site, and the gate steps the containing function
+# is allowed to touch. ``gate`` then ``place`` is the whole story; the two
+# exceptions are named.
 _PLACE_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("campaigns.py", "process_one", ("reserve", "admit", "suppress", "place")),
-    ("cadence.py", "process_one", ("reserve", "admit", "suppress", "place")),
-    ("main.py", "twilio_voice_outbound", ("reserve", "admit", "suppress", "place")),
-    ("main.py", "demo_outbound_call", ("reserve", "admit", "suppress", "place")),
-    ("scripts/dial_test.py", "main", ("reserve", "admit", "suppress", "place")),
-    ("agent_core/treatment/enact.py", "_dial_bot", ("reserve", "place")),
-    ("payment_events.py", "_try_voice_now", ("admit", "reserve", "place")),
+    ("campaigns.py", "process_one", ("gate", "place")),
+    ("cadence.py", "process_one", ("gate", "place")),
+    ("main.py", "twilio_voice_outbound", ("gate", "place")),
+    ("main.py", "demo_outbound_call", ("gate", "place")),
+    # The dry run reserves and *evaluates* (never admits) so a rehearsal does
+    # not spend the borrower's budget; the real path is the gate.
+    ("scripts/dial_test.py", "main", ("reserve", "gate", "place")),
+    ("agent_core/treatment/enact.py", "_dial_bot", ("gate", "place")),
+    # Gates on its own transaction and hands the dial to ``deliver``.
+    ("payment_events.py", "_deliver_voice", ("place",)),
 )
 
 
@@ -68,39 +69,19 @@ def _module_function(tree: ast.AST, name: str) -> ast.FunctionDef | ast.AsyncFun
     raise AssertionError(f"no function named {name}")
 
 
-def _nested_ranges(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    for node in ast.walk(fn):
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node is not fn
-        ):
-            ranges.append((node.lineno, node.end_lineno or node.lineno))
-    return ranges
-
-
-def _inside(node: ast.AST, ranges: list[tuple[int, int]]) -> bool:
-    line = getattr(node, "lineno", None)
-    if line is None:
-        return False
-    return any(start <= line <= end for start, end in ranges)
-
-
 def _gate_sequence(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
-    """Source order of reserve / admit / suppress / place in ``fn``.
+    """Source order of the gate steps in ``fn``, nested functions included.
 
     ``asyncio.to_thread(outbound.place, ...)`` is a use of ``place``, not a
-    call of it — Attribute nodes are collected, not only Call.func.
+    call of it — Attribute nodes are collected, not only Call.func. Nested
+    functions are *not* excluded: the route handlers wrap their transaction
+    in a closure to get it off the event loop, and a gate step hidden in one
+    is still that handler's gate step.
     """
-    nested = _nested_ranges(fn)
     hits: list[tuple[int, int, str]] = []
     for node in ast.walk(fn):
-        if _inside(node, nested):
-            continue
         if isinstance(node, ast.Attribute) and node.attr in _STEPS:
             hits.append((node.lineno, node.col_offset, node.attr))
-        elif isinstance(node, ast.Name) and node.id in _STEPS:
-            hits.append((node.lineno, node.col_offset, node.id))
     hits.sort()
     return tuple(name for _, _, name in hits)
 
@@ -109,16 +90,13 @@ def _parse(rel: str) -> ast.Module:
     return ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
 
 
-def _place_sites_in_tree(rel: str, tree: ast.Module) -> list[str]:
+def _place_sites_in_tree(tree: ast.Module) -> list[str]:
     """Functions in this module that mention ``outbound.place``."""
     found: list[str] = []
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        nested = _nested_ranges(node)
         for child in ast.walk(node):
-            if _inside(child, nested):
-                continue
             if (
                 isinstance(child, ast.Attribute)
                 and child.attr == "place"
@@ -130,34 +108,29 @@ def _place_sites_in_tree(rel: str, tree: ast.Module) -> list[str]:
     return found
 
 
-def test_the_extractor_fails_when_reserve_and_admit_are_swapped() -> None:
-    """The acceptance criterion: a deliberate swap turns this file red."""
-    ordered = ast.parse(
+def test_the_extractor_sees_a_hand_written_sequence() -> None:
+    """The acceptance criterion: a caller that re-opens the gate turns this red."""
+    by_hand = ast.parse(
         "def f():\n"
         "    outbound.reserve()\n"
         "    contact_policy.admit()\n"
         "    outbound.suppress()\n"
         "    outbound.place()\n"
     )
-    swapped = ast.parse(
-        "def f():\n"
-        "    contact_policy.admit()\n"
-        "    outbound.reserve()\n"
-        "    outbound.suppress()\n"
+    owned = ast.parse(
+        "async def f():\n"
+        "    def _g():\n"
+        "        return outbound.gate()\n"
+        "    g = await asyncio.to_thread(_g)\n"
         "    outbound.place()\n"
     )
-    assert _gate_sequence(_module_function(ordered, "f")) == (
+    assert _gate_sequence(_module_function(by_hand, "f")) == (
         "reserve",
         "admit",
         "suppress",
         "place",
     )
-    assert _gate_sequence(_module_function(swapped, "f")) == (
-        "admit",
-        "reserve",
-        "suppress",
-        "place",
-    )
+    assert _gate_sequence(_module_function(owned, "f")) == ("gate", "place")
 
 
 @pytest.mark.parametrize(
@@ -167,7 +140,7 @@ def test_the_extractor_fails_when_reserve_and_admit_are_swapped() -> None:
         for rel, func, expected in _PLACE_SITES
     ],
 )
-def test_each_place_site_keeps_its_gate_order(
+def test_each_place_site_only_touches_the_gate(
     rel: str, func: str, expected: tuple[str, ...]
 ) -> None:
     seq = _gate_sequence(_module_function(_parse(rel), func))
@@ -180,30 +153,61 @@ def test_every_outbound_place_site_is_on_this_contract() -> None:
     for path in _application_py():
         rel = path.relative_to(BACKEND).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for func in _place_sites_in_tree(rel, tree):
+        for func in _place_sites_in_tree(tree):
             found.add((rel, func))
     expected = {(rel, func) for rel, func, _expected in _PLACE_SITES}
     assert found == expected
 
 
-def test_treatment_enact_admits_before_it_dials_or_suppresses() -> None:
-    """Ordering B: the gate lives in ``enact_one``, not in the dial helper.
+def test_the_gate_itself_is_the_only_hand_written_sequence() -> None:
+    """``outbound.gate`` is reserve → admit → suppress, and nothing else in the
+    application composes those three."""
+    tree = _parse("outbound.py")
+    gate_fn = _module_function(tree, "gate")
+    # Inside its own module the steps are bare names, not `outbound.` attributes.
+    hits = sorted(
+        (n.lineno, n.col_offset, n.id if isinstance(n, ast.Name) else n.attr)
+        for n in ast.walk(gate_fn)
+        if (isinstance(n, ast.Name) and n.id in ("reserve", "suppress"))
+        or (isinstance(n, ast.Attribute) and n.attr in _STEPS)
+    )
+    seq = tuple(name for _, _, name in hits)
+    assert [s for s in seq if s != "gate"] == ["reserve", "admit", "suppress"], seq
 
-    ``_dial_bot`` must not re-open the contact question, and a refusal still
-    has to leave a suppressed attempt row via ``_record_suppressed_dial``.
-    """
-    tree = _parse("agent_core/treatment/enact.py")
-    enact_one = _gate_sequence(_module_function(tree, "enact_one"))
-    suppressed = _gate_sequence(_module_function(tree, "_record_suppressed_dial"))
-    dial = _gate_sequence(_module_function(tree, "_dial_bot"))
-    assert "admit" in enact_one
-    assert "place" not in enact_one
-    assert suppressed == ("reserve", "suppress")
-    assert dial == ("reserve", "place")
+    elsewhere: list[str] = []
+    for path in _application_py():
+        rel = path.relative_to(BACKEND).as_posix()
+        if rel == "outbound.py":
+            continue
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        for node in module.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            names = {
+                child.attr
+                for child in ast.walk(node)
+                if isinstance(child, ast.Attribute)
+                and isinstance(child.value, ast.Name)
+                and (
+                    (child.value.id == "outbound" and child.attr in ("reserve", "suppress"))
+                    or (child.value.id == "contact_policy" and child.attr == "admit")
+                )
+            }
+            if {"reserve", "admit"} <= names or {"admit", "suppress"} <= names:
+                elsewhere.append(f"{rel}:{node.name}")
+    assert elsewhere == [], elsewhere
 
 
-def test_payment_events_is_the_site_that_does_not_suppress() -> None:
-    """Pin the hole WP-028 will close. A silent add of suppress must be a diff here."""
-    seq = _gate_sequence(_module_function(_parse("payment_events.py"), "_try_voice_now"))
-    assert seq == ("admit", "reserve", "place")
-    assert "suppress" not in seq
+def test_payment_events_gates_on_its_own_transaction_and_dials_after_commit() -> None:
+    """The site that used to admit → reserve → place with no suppress. It now
+    gates (reserve → admit → suppress inside ``gate``) on a transaction it
+    opens itself, and ``ingest`` performs no carrier I/O at all."""
+    tree = _parse("payment_events.py")
+    assert _gate_sequence(_module_function(tree, "_try_voice_now")) == ("gate",)
+    assert "place" not in _gate_sequence(_module_function(tree, "ingest"))
+    assert "place" not in _gate_sequence(_module_function(tree, "_first_touch"))
+    src = (BACKEND / "payment_events.py").read_text(encoding="utf-8")
+    for fn in ("ingest", "_first_touch", "_digital_blocked", "_try_voice_now"):
+        node = _module_function(tree, fn)
+        body = ast.get_source_segment(src, node) or ""
+        assert "twilio_sms.send(" not in body, f"{fn} sends inside the transaction"

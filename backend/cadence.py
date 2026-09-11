@@ -519,8 +519,21 @@ def process_one(engine: Engine) -> bool:
             campaign_run_id=case.get("campaign_run_id"),
             attempt_no=int(case["attempts"] or 0) + 1,
         )
-        attempt = outbound.reserve(
+        gated = outbound.gate(
             conn,
+            # One reservation per rung. A worker that crashed after
+            # `record_attempt` committed and is re-run on the same case must
+            # find the row it already made, not ring the borrower twice.
+            idempotency_key=f"cadence:{case_id}:{attempts_so_far + 1}",
+            admit={
+                # A cross-sell dial is a promotional use of a number collected
+                # to service a loan, and needs its own consent basis. Every
+                # other objective here is servicing. See
+                # flow_graph.PROMOTIONAL_OBJECTIVES.
+                "data_purpose": fg.data_purpose_for(objective),
+                "source": "cadence",
+                "actor_kind": "bot",
+            },
             customer_id=case["customer_id"],
             to_phone=phone,
             objective=objective,
@@ -531,27 +544,19 @@ def process_one(engine: Engine) -> bool:
             phone_slot="primary" if case.get("phone_primary") else "alt",
             context={"source": "cadence", "caseId": case_id, "mission": built},
         )
+        attempt = gated.attempt
         if attempt is None:
             _stop(conn, case_id, STATE_STOPPED, "customer_gone", None)
             return True
-
-        decision = contact_policy.admit(
-            conn,
-            customer_id=case["customer_id"],
-            channel="voice",
-            purpose="outreach",
-            # A cross-sell dial is a promotional use of a number collected to
-            # service a loan, and needs its own consent basis. Every other
-            # objective here is servicing. See flow_graph.PROMOTIONAL_OBJECTIVES.
-            data_purpose=fg.data_purpose_for(objective),
-            session_key=attempt["id"],
-            source="cadence",
-            related_id=attempt["id"],
-            actor_kind="bot",
-            endpoint=case.get("phone_primary"),
-        )
-        if not decision.allowed:
-            outbound.suppress(conn, attempt["id"], decision.reason or "contact_policy")
+        if gated.existing:
+            logger.info(
+                "cadence retry already reserved · case=%s · attempt=%s (%s)",
+                case_id,
+                attempt["id"],
+                attempt.get("state"),
+            )
+            return True
+        if not gated.allowed:
             # A refusal is not a spent attempt. Push the ladder out and try
             # again rather than burning a retry the borrower never received —
             # otherwise a borrower who is simply asleep exhausts their own
@@ -566,7 +571,7 @@ def process_one(engine: Engine) -> bool:
                 ),
                 {"id": case_id},
             )
-            logger.info("cadence retry deferred · %s · %s", case_id, decision.reason)
+            logger.info("cadence retry deferred · %s · %s", case_id, gated.reason)
             return True
 
         record_attempt(conn, case_id=case_id, attempt_id=attempt["id"])

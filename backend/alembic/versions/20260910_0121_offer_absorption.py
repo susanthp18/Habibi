@@ -57,7 +57,11 @@ _SQL = Path(__file__).resolve().parents[2] / "sql" / "32_offer_absorption.sql"
 
 
 def upgrade() -> None:
-    op.get_bind().exec_driver_sql(_SQL.read_text(encoding="utf-8"))
+    # psycopg reads a bare `%` as a placeholder even with no parameters, and
+    # the mirror's comments talk about percentages. Escaped here, not in the
+    # mirror: `sql/*.sql` is also fed to psql on a fresh build, where `%%`
+    # would be wrong.
+    op.get_bind().exec_driver_sql(_SQL.read_text(encoding="utf-8").replace("%", "%%"))
 
 
 def downgrade() -> None:

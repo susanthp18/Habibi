@@ -360,13 +360,13 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
             text("UPDATE promise_reminders SET channel = 'sms', status = 'queued', scheduled_at = now() WHERE id = :id"),
             {"id": rid},
         )
-    ok, err = promise_fulfillment._send_reminder_copy(
+    prepared = promise_fulfillment._prepare_reminder(
         db_tx,
         {"id": rid, "promise_id": pid, "channel": "sms", "kind": "due"},
         now=_noon(),
     )
-    assert ok is False
-    assert err == "daily_cap"
+    assert prepared["outcome"] == "refused"
+    assert prepared["reason"] == "daily_cap"
 
 
 def test_a_day_range_parses_whatever_dash_it_was_typed_with():
@@ -535,7 +535,10 @@ def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
     for fn in (main.twilio_voice_outbound, main.demo_outbound_call):
         src = inspect.getsource(fn)
         assert "session_key=customer_id" not in src
-        assert 'session_key=attempt["id"]' in src
+        # The session key is the attempt's own, set inside `outbound.gate` —
+        # the endpoints no longer compose the gate by hand at all.
+        assert "outbound.gate(" in src
+        assert "contact_policy.admit(" not in src
 
 
 def _consent_columns(db_tx, cid: str) -> dict:
