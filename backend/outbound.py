@@ -60,6 +60,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+import circuit_breaker
 from env_utils import env_bool, env_int
 
 logger = logging.getLogger(__name__)
@@ -712,7 +713,9 @@ def _carrier_failure_reason(exc: BaseException) -> str:
     Twilio and the answer not reaching us -- the call may exist. A connection
     that was refused or never resolved never reached Twilio at all.
     """
-    status = getattr(exc, "status", None)
+    # A 4xx surfaces as CarrierRejected with the Twilio exception as its cause.
+    cause = exc.__cause__ if type(exc).__name__ == "CarrierRejected" else exc
+    status = getattr(cause, "status", None)
     if isinstance(status, int):
         return AMBIGUOUS_REASON if status >= 500 or status in (408, 429) else "dial_failed"
     name = type(exc).__name__.lower()
@@ -962,6 +965,22 @@ def place(
             # not make, so the result stands either way.
             logger.exception("outbound %s: could not record the switch refusal", attempt_id)
         return {"placed": False, "state": STATE_SUPPRESSED, "reason": "outbound_disabled",
+                "attemptId": attempt_id}
+    except circuit_breaker.CircuitOpenError:
+        # The breaker refused before any request was made: the carrier is
+        # known to be down and this dial knowably did not happen. Suppressed,
+        # like the switch -- a `failed` row would burn the attempt budget on
+        # an outage and deflate answer rate; `ambiguous` would park it for a
+        # person who has nothing to check.
+        logger.warning("outbound %s suppressed: carrier breaker open · %s", attempt_id, _ctx(attempt))
+        try:
+            with engine.begin() as conn:
+                suppress(conn, attempt_id, "carrier_unavailable")
+        except _BUG_EXCEPTIONS:
+            raise
+        except Exception:
+            logger.exception("outbound %s: could not record the breaker refusal", attempt_id)
+        return {"placed": False, "state": STATE_SUPPRESSED, "reason": "carrier_unavailable",
                 "attemptId": attempt_id}
     except Exception as exc:
         # The carrier boundary is deliberately not filtered through

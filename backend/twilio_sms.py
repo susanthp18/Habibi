@@ -85,7 +85,9 @@ def send(
     callback = status_callback_url()
     if callback:
         kwargs["status_callback"] = callback
-    msg = client.messages.create(**kwargs)
+    from voice.twilio_ops import carrier_call
+
+    msg = carrier_call(client.messages.create, **kwargs)
     logger.info("twilio_sms sent sid=%s to_last4=%s", msg.sid, digits[-4:])
 
     _record_sent(

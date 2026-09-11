@@ -254,6 +254,49 @@ def twiml_dial_conference(conference_name: str, *, end_on_exit: bool = False) ->
     )
 
 
+class CarrierRejected(Exception):
+    """Twilio answered 4xx: the request was wrong, the carrier is fine.
+
+    Distinguished so the breaker does not count a bad number against the
+    dependency. Carries the original exception as ``__cause__``.
+    """
+
+
+def _is_rejection(exc: BaseException) -> bool:
+    status = getattr(exc, "status", None)
+    return isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)
+
+
+def carrier_breaker():
+    """The one breaker for Twilio REST -- SMS and voice share the account,
+    the endpoint and the outage."""
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker("twilio", ignore_exceptions=(CarrierRejected,))
+
+
+def carrier_call(fn, *args, **kwargs):
+    """Run one Twilio REST call under the breaker.
+
+    Every other outbound dependency had one; Twilio -- the one that reaches a
+    borrower's phone -- did not, so a carrier outage was retried at full rate
+    by every scheduler until the attempts ran out. A 4xx is re-raised as
+    :class:`CarrierRejected` (not counted); 5xx, 429 and timeouts trip it;
+    an open circuit raises ``circuit_breaker.CircuitOpenError`` before any
+    request is made, which the callers report as ``carrier_unavailable``.
+    """
+
+    def _guarded():
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            if _is_rejection(exc):
+                raise CarrierRejected(str(exc)) from exc
+            raise
+
+    return carrier_breaker().call(_guarded)
+
+
 def _client():
     from twilio.http.http_client import TwilioHttpClient
     from twilio.rest import Client
@@ -366,7 +409,7 @@ def start_outbound_call(
         from agent_core.carrier_guard import refuse_real_carrier
 
         refuse_real_carrier("twilio.voice")
-        call = _client().calls.create(**kwargs)
+        call = carrier_call(_client().calls.create, **kwargs)
     except Exception as exc:
         event(
             "dial.failed",

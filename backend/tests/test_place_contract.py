@@ -298,3 +298,72 @@ def test_a_programming_error_inside_a_guarded_region_is_re_raised(
             _Engine(), {"id": "CA-BUG", "tenantId": "T1"}, to_phone="919000000009"
         )
     assert carrier.calls == []
+
+
+# ---------------------------------------------------------------------------
+# The carrier has a breaker
+# ---------------------------------------------------------------------------
+
+
+def test_an_open_carrier_breaker_suppresses_rather_than_fails(db_tx, monkeypatch) -> None:
+    """Twilio was the one outbound dependency without a breaker.
+
+    A carrier outage was retried at full rate by every scheduler until the
+    attempts ran out, and every one of those was a `failed` row deflating
+    answer rate. An open circuit now refuses before any request and the
+    attempt is suppressed `carrier_unavailable` -- we chose not to, like the
+    switch -- so it goes back on the list when the carrier is back.
+    """
+    import circuit_breaker
+    from voice import twilio_ops
+
+    fake = _Carrier(raises=circuit_breaker.CircuitOpenError("twilio"))
+    monkeypatch.setattr(twilio_ops, "start_outbound_call", fake.start_outbound_call)
+    attempt = _an_attempt(db_tx)
+
+    result = outbound.place(dbmod.engine, attempt, to_phone="919000000009")
+
+    assert result["placed"] is False
+    assert result["state"] == outbound.STATE_SUPPRESSED
+    assert result["reason"] == "carrier_unavailable"
+    assert _state(db_tx, attempt["id"]) == "suppressed"
+
+
+def test_a_rejected_number_does_not_count_against_the_carrier(monkeypatch) -> None:
+    """A 4xx is our request being wrong; a 5xx or a timeout is the carrier."""
+    import circuit_breaker
+    from voice import twilio_ops
+
+    monkeypatch.setattr(circuit_breaker, "_breakers", {})
+
+    class _Twilio(Exception):
+        def __init__(self, status: int) -> None:
+            super().__init__(f"twilio {status}")
+            self.status = status
+
+    def _rejects():
+        raise _Twilio(400)
+
+    def _down():
+        raise _Twilio(503)
+
+    breaker = twilio_ops.carrier_breaker()
+    for _ in range(breaker.failure_threshold + 1):
+        with pytest.raises(twilio_ops.CarrierRejected):
+            twilio_ops.carrier_call(_rejects)
+    assert breaker.snapshot()["state"] != "open"
+    assert outbound._carrier_failure_reason(_caught(twilio_ops.carrier_call, _rejects)) == "dial_failed"
+
+    for _ in range(breaker.failure_threshold):
+        with pytest.raises(_Twilio):
+            twilio_ops.carrier_call(_down)
+    with pytest.raises(circuit_breaker.CircuitOpenError):
+        twilio_ops.carrier_call(_down)
+
+
+def _caught(fn, *args):
+    try:
+        fn(*args)
+    except Exception as exc:  # noqa: BLE001 — the test wants the exception object
+        return exc
+    raise AssertionError("did not raise")
