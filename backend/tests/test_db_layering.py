@@ -1,8 +1,8 @@
 """Routers validate and return; persistence owns the transaction and the SQL.
 
 A handler that opens ``engine.begin()`` and authors ``text(...)`` is a
-persistence module with a URL on it. The peeled routers are listed here; the
-rest join as they are peeled.
+persistence module with a URL on it. Every router is walked; there is no
+baseline to ratchet.
 """
 
 from __future__ import annotations
@@ -14,18 +14,7 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-_PEELED_ROUTERS = (
-    "routers/outbound.py",
-    "routers/compliance.py",
-    "routers/crm.py",
-    "routers/evals.py",
-    "routers/agent_studio.py",
-    "routers/platform.py",
-    "routers/payments.py",
-    "routers/webhooks.py",
-    "routers/telephony.py",
-    "routers/integrations.py",
-)
+_ROUTERS = sorted(p.relative_to(BACKEND).as_posix() for p in (BACKEND / "routers").glob("*.py"))
 
 
 def _offences(tree: ast.Module) -> list[str]:
@@ -50,7 +39,7 @@ def _offences(tree: ast.Module) -> list[str]:
     return found
 
 
-@pytest.mark.parametrize("rel", _PEELED_ROUTERS)
+@pytest.mark.parametrize("rel", _ROUTERS)
 def test_routers_own_no_transactions_and_no_sql(rel: str) -> None:
     tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
     assert _offences(tree) == [], rel
