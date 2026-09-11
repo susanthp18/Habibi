@@ -107,17 +107,25 @@ def _rules_for(
     )
 
 
-def daily_cap(rules: Any | None = None) -> int:
+def daily_cap(rules: Any | None = None, card_cap: int | None = None) -> int:
     """Touches per borrower per day. A published rule may only lower it.
 
     The environment variable is an operator's dial and the rule set is a
     regulator's or a client's; taking the minimum means neither can be used to
     escape the other, and it means this function keeps working unchanged on a
     deployment that has published no rules at all.
+
+    ``card_cap`` is a mission's ``cadence.per_day``. It lowers the cap for
+    that dial and never raises it -- the field's docstring promised this and
+    nothing read it.
     """
     cap = max(1, env_int("CONTACT_DAILY_CAP", 3))
     from_rules = rules.daily_cap() if rules is not None else None
-    return max(1, min(cap, from_rules)) if from_rules is not None else cap
+    if from_rules is not None:
+        cap = min(cap, from_rules)
+    if card_cap is not None:
+        cap = min(cap, int(card_cap))
+    return max(1, cap)
 
 
 def weekly_cap_default(rules: Any | None = None) -> int:
@@ -1175,14 +1183,15 @@ def admit(
     data_purpose: str = "servicing",
     endpoint: str | None = None,
     product_id: str | None = None,
+    card_daily_cap: int | None = None,
 ) -> Decision:
     """Evaluate, reserve, log. Never raises."""
-    cap = daily_cap()
+    cap = daily_cap(card_cap=card_daily_cap)
     purpose = purpose if purpose in PURPOSES else "outreach"
     data_purpose = data_purpose if data_purpose in DATA_PURPOSES else "servicing"
     channel = normalize_channel(channel)
     cid = (customer_id or "").strip()
-    instant = _aware(now or datetime.now(timezone.utc))
+    instant = as_utc(now or datetime.now(timezone.utc))
 
     if not cid:
         if purpose == "outreach":
@@ -1199,7 +1208,7 @@ def admit(
         tz = _zone(customer.get("timezone"))
         local = instant.astimezone(tz)
         rules = _rules_for(conn, customer, instant, product_id=product_id)
-        cap = daily_cap(rules)
+        cap = daily_cap(rules, card_cap=card_daily_cap)
         status = _channel_status(conn, cid, channel)
         extras = _veto_extras(
             conn,

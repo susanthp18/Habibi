@@ -16,6 +16,7 @@ import {
   useCritiqueReport,
   useEvalSuites,
   useRunEvalSuite,
+  usePolicyEngines,
   TENANT_WIDE_REPORTS,
   type CompileReport,
   type EvalReport,
@@ -24,13 +25,7 @@ import { useConnectors } from "@/api/integrations";
 // The card shape is the backend's, not this file's. The local copy here
 // covered 7 of the schema's 14 members and every caller reached it through
 // `as never`, so nothing checked the other 7 or the spelling of these.
-import {
-  isAuthoredCard,
-  REQUIRED_POLICY_KEYS,
-  type AgentCard,
-  type EvalRequire,
-  type PolicyKey,
-} from "@/api/agent-card";
+import { isAuthoredCard, type AgentCard, type EvalRequire } from "@/api/agent-card";
 import { EvalCockpit } from "@/components/sandbox/EvalCockpit";
 import { CritiquesPanel } from "./CritiquesPanel";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -46,15 +41,6 @@ import { QueryErrorBanner, QueryState } from "@/components/ui/query-state";
  * a failure. Anything outside the known vocabulary stays neutral rather than
  * being assigned a verdict nobody computed.
  */
-
-const POLICY_ENGINES = [
-  { key: "reco", label: "Recommend next offer", tool: "recommend_next_offer" },
-  { key: "treatment", label: "Treatment", tool: "recommend_treatment" },
-  { key: "authority", label: "Authority", tool: "evaluate_authority" },
-  { key: "live_qa", label: "Live QA", tool: "evaluate_live_qa" },
-  { key: "routing", label: "Routing", tool: null },
-  { key: "dnd", label: "DND / calling hours", tool: null },
-] as const;
 
 function NotAuthoredNotice({ what }: { what: string }) {
   return (
@@ -234,44 +220,43 @@ export function ToolsTab({
   );
 }
 
-export function PolicyTab({ card }: { card: AgentCard }) {
-  const bindings = card.policy_bindings ?? {};
+export function PolicyTab() {
+  // The engines' actual modes, read live. The card used to carry six
+  // `Literal["required"]` fields that bound nothing; this tab rendered them
+  // as six green lozenges that could not change.
+  const engines = usePolicyEngines();
   return (
     <div className="space-y-150">
       <p className="text-body-small text-text-subtle">
-        These engines decide. The mouth cannot unbind them. Reco / treatment / authority / live QA /
-        DND stay code with a log. This card cannot disable DND.
+        These engines decide. The mouth cannot unbind them — G3 fails a card that drops one from its
+        locked tools. The mode each runs in is set on the stack, not on this card.
       </p>
-      <ul className="divide-y divide-border rounded-medium border border-border">
-        {POLICY_ENGINES.map((engine) => (
-          <li key={engine.key} className="flex items-center justify-between px-150 py-100">
-            <div>
-              <div className="text-body font-medium">{engine.label}</div>
-              {engine.tool ? (
-                <div className="font-mono text-body-tiny text-text-subtle">{engine.tool}</div>
-              ) : null}
-            </div>
-            {/* Green meant nothing here. The tone was hardcoded `success` and
-                the label fell back to the literal "required" whenever the key
-                was ABSENT — so a card missing a binding rendered exactly like a
-                card that has one, in the reassuring colour, while G3 fails a
-                card for that precise omission ("engines cannot be unbound").
-                The one screen that shows policy bindings was incapable of
-                showing a policy binding problem. */}
-            {bindings[engine.key] === "required" ? (
-              <Lozenge tone="success">required</Lozenge>
-            ) : bindings[engine.key] ? (
-              <Lozenge tone="danger" title="G3 accepts only 'required'.">
-                {bindings[engine.key]}
+      <QueryState query={engines} label="the policy engines">
+        <ul className="divide-y divide-border rounded-medium border border-border">
+          {(engines.data ?? []).map((engine) => (
+            <li key={engine.key} className="flex items-center justify-between px-150 py-100">
+              <div>
+                <div className="text-body font-medium">{engine.label}</div>
+                {engine.tool ? (
+                  <div className="font-mono text-body-tiny text-text-subtle">{engine.tool}</div>
+                ) : null}
+              </div>
+              <Lozenge
+                tone={
+                  engine.mode === "live" || engine.mode === "always"
+                    ? "success"
+                    : engine.mode === "shadow"
+                      ? "warning"
+                      : "danger"
+                }
+                title={engine.source ? `Set by ${engine.source}` : "No mode knob — always on"}
+              >
+                {engine.mode}
               </Lozenge>
-            ) : (
-              <Lozenge tone="danger" title="G3 fails a card that does not bind every engine.">
-                not bound — G3 blocks publish
-              </Lozenge>
-            )}
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      </QueryState>
     </div>
   );
 }
@@ -391,38 +376,6 @@ export function EvalsTab({
               </span>
             </label>
           ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-100">
-          <label className="text-body-small" htmlFor="eval-suite">
-            Pinned suite
-          </label>
-          <select
-            id="eval-suite"
-            className="h-200 rounded-small border border-border bg-surface px-100 text-body-small"
-            disabled={!editable}
-            value={card.eval?.suite_id ?? ""}
-            onChange={(e) => {
-              if (!onChange) return;
-              onChange({
-                ...card,
-                eval: { ...(card.eval ?? {}), suite_id: e.target.value || null },
-              });
-            }}
-          >
-            <option value="">— latest report of each required kind —</option>
-            {(suitesQuery.data ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.kind})
-              </option>
-            ))}
-          </select>
-          {card.eval?.suite_id && suitesQuery.isError ? (
-            <Lozenge tone="neutral">suite list unavailable — cannot check this id</Lozenge>
-          ) : card.eval?.suite_id &&
-            !suitesQuery.isPending &&
-            !(suitesQuery.data ?? []).some((s) => s.id === card.eval?.suite_id) ? (
-            <Lozenge tone="warning">{card.eval.suite_id} is not a suite that exists</Lozenge>
-          ) : null}
         </div>
         {required.length === 0 ? (
           <p className="text-body-small text-text-warning-bolder">

@@ -52,13 +52,29 @@ def test_empty_card_is_legacy_not_fake_green() -> None:
     assert report.ok
 
 
-def test_unbinding_reco_fails_g3() -> None:
+def test_unlocking_a_policy_engine_fails_g3() -> None:
+    """G3 is the locked-tools check. `policy_bindings` is retired: a field
+    that could only hold "required" bound nothing, and the test that claimed
+    to cover its half asserted G0."""
     card = card_for(COLLECTIONS_BOT_ID)
     dumped = card.model_dump()
-    dumped["policy_bindings"]["reco"] = "off"
+    dumped["tools"]["locked"] = [t for t in dumped["tools"]["locked"] if t != "recommend_next_offer"]
     report = _compile(COLLECTIONS_BOT_ID, card=dumped)
-    g0 = next(g for g in report.gates if g.gate == "G0")
-    assert g0.status == "fail"
+    g3 = next(g for g in report.gates if g.gate == "G3")
+    assert g3.status == "fail"
+    assert g3.issues[0]["missing_locked"] == ["recommend_next_offer"]
+
+
+def test_a_stored_policy_binding_is_dropped_not_refused() -> None:
+    from agent_core.cards.schema import parse_card
+
+    raw = card_for(COLLECTIONS_BOT_ID).model_dump()
+    raw["policy_bindings"] = {"reco": "off"}
+    raw["eval"]["suite_id"] = "eval-regression-collections"
+    raw["identity"]["owner_user_id"] = "priya-nair"
+    parsed = parse_card(raw)
+    assert not hasattr(parsed, "policy_bindings")
+    assert not hasattr(parsed.eval, "suite_id")
 
 
 def test_unknown_tool_fails_g4() -> None:

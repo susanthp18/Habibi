@@ -440,6 +440,7 @@ export function OutboundTab({
   const draft = resolvedOutbound(card);
   const dials = draft.direction !== "inbound";
   const editable = Boolean(onChange) && isAuthoredCard(card);
+  const draftPreview = useCompilePreview(botId, { agentCard: card, flow }, isAuthoredCard(card));
   const handoffTargets = (card.handoffs ?? [])
     .map((h) => h.to_bot_id)
     .filter((t): t is string => Boolean(t));
@@ -522,7 +523,11 @@ export function OutboundTab({
                 card={card}
                 onChange={onChange ?? (() => {})}
                 vocab={vocab}
-                graphEntries={config?.graphEntries ?? {}}
+                // The draft's graph, from the compile the tab already runs
+                // (same key as OutboundGates' -- one request). The missions
+                // endpoint describes the *published* flow, which is not what
+                // the author is editing beside it.
+                graphEntries={draftPreview.data?.mission_entries ?? config?.graphEntries ?? {}}
                 editable={editable}
               />
             </>

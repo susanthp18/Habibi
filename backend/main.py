@@ -125,6 +125,7 @@ from schemas import (
     AgentStudioTemplateResponse,
     EntryBindingResponse,
     EntryBindingUpsert,
+    PolicyEngineResponse,
     PromiseCreateRequest,
     PromiseListResponse,
     PromisePatchRequest,
@@ -2147,6 +2148,12 @@ def list_agent_studio_cards(includeArchived: bool = Query(default=False)):
     return db.list_agent_studio_cards(include_archived=includeArchived)
 
 
+@app.get("/agent-studio/policy-engines", response_model=list[PolicyEngineResponse])
+def list_agent_studio_policy_engines():
+    """The engines a card cannot unbind, and the mode each actually runs in."""
+    return db.policy_engines()
+
+
 @app.get("/agent-studio/entry-bindings", response_model=list[EntryBindingResponse])
 def list_agent_studio_entry_bindings():
     """Which card answers each channel and dialled number. Authored here, read
@@ -3597,6 +3604,7 @@ def tts_preview(payload: TtsPreviewRequest):
             warmth=payload.warmth,
             pause_ms=payload.pauseMs,
             force_fresh=payload.fresh,
+            style=payload.style,
         )
     except azure_speech.AzureSpeechConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

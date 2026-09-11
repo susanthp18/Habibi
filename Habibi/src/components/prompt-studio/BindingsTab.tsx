@@ -38,7 +38,9 @@ import { Input } from "@/components/ui/input";
 import { modelBindingLabel, modelBindingSelectable } from "@/lib/studio-trust";
 import { cn } from "@/lib/utils";
 
-const SLOTS: ProviderSlot[] = ["stt", "tts", "llm"];
+// No `llm` slot: nothing registers a language-model spec and no runtime
+// constructs one from a binding, so the slot was a control nothing could fill.
+const SLOTS: ProviderSlot[] = ["stt", "tts"];
 const SLOT_LABEL: Record<ProviderSlot, string> = {
   stt: "Speech to text",
   tts: "Text to speech",
@@ -50,6 +52,9 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
   const [modelId, setModelId] = useState<string>("");
   const [locale, setLocale] = useState<string>("");
   const [priority, setPriority] = useState<string>("100");
+  // Tenant defaults are listed and explained on this tab, and could not be
+  // made from it -- every row it wrote was card-scoped.
+  const [scope, setScope] = useState<"card" | "tenant">("card");
   const models = useProviderModels(slot);
   const upsert = useUpsertBinding(botId);
 
@@ -60,11 +65,19 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
   const canSave = Boolean(modelId) && priorityValid && !upsert.isPending;
 
   const save = () => {
+    if (
+      scope === "tenant" &&
+      !window.confirm(
+        "A tenant default applies to every card that has no binding of its own. Save it?",
+      )
+    ) {
+      return;
+    }
     upsert.mutate(
       {
         slot,
         providerModelId: modelId,
-        botId,
+        botId: scope === "tenant" ? null : botId,
         locale: locale.trim() || null,
         priority: priorityNum,
       },
@@ -127,6 +140,18 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
           />
         </label>
         <label className="text-body-small">
+          <span className="mb-050 block text-text-subtlest">Scope</span>
+          <Select value={scope} onValueChange={(v) => setScope(v as "card" | "tenant")}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="card">This card</SelectItem>
+              <SelectItem value="tenant">Tenant default</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="text-body-small">
           <span className="mb-050 block text-text-subtlest">Priority</span>
           <Input
             value={priority}
@@ -160,17 +185,29 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
   );
 }
 
-function BindingRow({
-  binding,
-  botId,
-  onEdit,
-}: {
-  binding: ProviderBinding;
-  botId: string;
-  onEdit: (b: ProviderBinding) => void;
-}) {
+function BindingRow({ binding, botId }: { binding: ProviderBinding; botId: string }) {
   const inherited = binding.botId === null;
   const remove = useDeleteBinding(botId);
+  const upsert = useUpsertBinding(botId);
+
+  // The State column showed enabled/disabled and offered no way to change it.
+  const toggle = () => {
+    upsert.mutate(
+      {
+        slot: binding.slot,
+        providerModelId: binding.modelId,
+        botId: binding.botId,
+        locale: binding.locale,
+        priority: binding.priority,
+        settings: binding.settings,
+        enabled: !binding.enabled,
+      },
+      {
+        onSuccess: () => toast.success(binding.enabled ? "Binding disabled" : "Binding enabled"),
+        onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update binding"),
+      },
+    );
+  };
 
   const del = () => {
     remove.mutate(binding.id, {
@@ -196,7 +233,6 @@ function BindingRow({
         </div>
       </td>
       <td className="px-150 py-100 font-mono text-text-subtle">{binding.locale ?? "any"}</td>
-      <td className="px-150 py-100 font-mono text-text-subtle">{binding.voiceRef ?? "—"}</td>
       <td className="px-150 py-100 text-right font-mono tabular-nums text-text-subtle">
         {binding.priority}
       </td>
@@ -208,17 +244,21 @@ function BindingRow({
         )}
       </td>
       <td className="px-150 py-100">
-        {binding.enabled ? (
-          <Lozenge tone="success">Enabled</Lozenge>
-        ) : (
-          <Lozenge tone="warning">Disabled</Lozenge>
-        )}
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={upsert.isPending}
+          title={binding.enabled ? "Disable this binding" : "Enable this binding"}
+        >
+          {binding.enabled ? (
+            <Lozenge tone="success">Enabled</Lozenge>
+          ) : (
+            <Lozenge tone="warning">Disabled</Lozenge>
+          )}
+        </button>
       </td>
       <td className="px-150 py-100 text-right">
         <div className="flex justify-end gap-050">
-          <Button size="sm" variant="outline" onClick={() => onEdit(binding)}>
-            Edit
-          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -298,7 +338,6 @@ export function BindingsTab({ botId }: { botId: string }) {
                 <th className="px-150 py-100 text-left font-semibold">Slot</th>
                 <th className="px-150 py-100 text-left font-semibold">Model</th>
                 <th className="px-150 py-100 text-left font-semibold">Locale</th>
-                <th className="px-150 py-100 text-left font-semibold">Voice</th>
                 <th className="px-150 py-100 text-right font-semibold">Priority</th>
                 <th className="px-150 py-100 text-left font-semibold">Scope</th>
                 <th className="px-150 py-100 text-left font-semibold">State</th>
@@ -307,7 +346,7 @@ export function BindingsTab({ botId }: { botId: string }) {
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((b) => (
-                <BindingRow key={b.id} binding={b} botId={botId} onEdit={() => setAdding(true)} />
+                <BindingRow key={b.id} binding={b} botId={botId} />
               ))}
             </tbody>
           </table>

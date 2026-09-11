@@ -533,6 +533,11 @@ def process_one(engine: Engine) -> bool:
                 "data_purpose": fg.data_purpose_for(objective),
                 "source": "cadence",
                 "actor_kind": "bot",
+                # The mission's own per-day ceiling. It can only lower the
+                # statutory cap; until it reached admit it bounded nothing.
+                "card_daily_cap": (
+                    card.outbound.cadence_for(objective).per_day if card is not None else None
+                ),
             },
             customer_id=case["customer_id"],
             to_phone=phone,

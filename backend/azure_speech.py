@@ -235,6 +235,7 @@ def build_ssml(
     pause_ms: int = 300,
     lang: str = "en-IN",
     use_express_as: bool = True,
+    style: str | None = None,
 ) -> str:
     """Build SSML with prosody; warmth biases pitch/rate/volume (+ optional express-as)."""
     cleaned = " ".join((text or "").split())
@@ -267,7 +268,11 @@ def build_ssml(
         f"{body}"
         f"</prosody>"
     )
-    style, degree = _warmth_express_as(warmth, voice_name) if use_express_as else (None, 1.0)
+    derived, degree = _warmth_express_as(warmth, voice_name) if use_express_as else (None, 1.0)
+    # An authored style wins over the warmth mapping; a voice that does not
+    # offer it still gets the `express-as`, which Azure ignores rather than
+    # refuses.
+    style = (style or "").strip() or derived
     if style:
         inner = (
             f'<mstts:express-as style="{xml.sax.saxutils.escape(style)}" '
@@ -295,6 +300,7 @@ def cache_key(
     pitch: int,
     warmth: int,
     pause_ms: int,
+    style: str | None = None,
 ) -> str:
     payload = "|".join(
         [
@@ -304,6 +310,7 @@ def cache_key(
             str(int(pitch)),
             str(int(warmth)),
             str(int(pause_ms)),
+            style or "",
             "mp3-16k-128",
             "warmth-v2",  # pitch/rate bias + optional express-as
         ]
@@ -466,8 +473,12 @@ def synthesize(
     warmth: int = 60,
     pause_ms: int = 300,
     force_fresh: bool = False,
+    style: str | None = None,
 ) -> dict[str, Any]:
-    """Synthesize MP3 audio. Returns {audio, contentType, cacheHit, cacheKey, voiceName, latencyMs}."""
+    """Synthesize MP3 audio. Returns {audio, contentType, cacheHit, cacheKey, voiceName, latencyMs}.
+
+    ``style`` is the authored speaking style; set, it overrides the
+    warmth-derived express-as so the preview speaks what the selector says."""
     voice = (voice_name or get_default_voice()).strip()
     key = cache_key(
         text=text,
@@ -476,6 +487,7 @@ def synthesize(
         pitch=pitch,
         warmth=warmth,
         pause_ms=pause_ms,
+        style=style,
     )
     path = _cache_path(key)
     _maybe_sweep_tts_cache()
@@ -510,6 +522,7 @@ def synthesize(
         warmth=warmth,
         pause_ms=pause_ms,
         use_express_as=True,
+        style=style,
     )
     region = get_speech_region()
     key_header = get_speech_key()

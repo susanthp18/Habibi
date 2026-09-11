@@ -347,6 +347,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # Rebinding a number is a deployment change: it decides which card a
     # borrower reaches. Publish rights, not edit rights.
     ("GET", "/agent-studio/entry-bindings"): BOT_READ,
+    ("GET", "/agent-studio/policy-engines"): BOT_READ,
     ("PUT", "/agent-studio/entry-bindings"): AGENT_PUBLISH,
     ("DELETE", "/agent-studio/entry-bindings/{binding_id}"): AGENT_PUBLISH,
     ("POST", "/kb/gaps/{gap_id}/promote-skill"): AGENT_EDIT,

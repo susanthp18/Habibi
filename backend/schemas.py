@@ -3411,14 +3411,14 @@ class ProviderEnabledPatchRequest(BaseModel):
 
 
 class VoiceSandboxStartRequest(BaseModel):
+    """What `voice_sandbox.start_voice_sandbox` reads -- and only that. The
+    customer is bound through `persona.customerId`; the bundle is resolved
+    from `promptVersionId` or the active sandbox deployment."""
+
     model_config = ConfigDict(extra="forbid")
 
-    customerId: str | None = None
-    accountId: str | None = None
-    botId: str | None = None
     tuning: dict[str, Any] | None = None
     promptVersionId: str | None = None
-    deploymentId: str | None = None
     # Habibi Live sandbox sends these; voice_sandbox.start_voice_sandbox uses them
     # to create a sandbox_run + session file for the Pipecat runner.
     kbSnapshotId: str | None = None
@@ -3638,6 +3638,20 @@ class EntryBindingResponse(BaseModel):
     updated_at: str | None = None
 
 
+class PolicyEngineResponse(BaseModel):
+    """One policy engine and the mode it runs in on this stack."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    tool: str | None = None
+    #: off | shadow | live, or "always" for an engine with no mode knob.
+    mode: str
+    #: The env var that sets it, for the operator who wants to change it.
+    source: str | None = None
+
+
 class EntryBindingUpsert(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -3727,6 +3741,8 @@ class AgentStudioChangeLogResponse(BaseModel):
 
     entries: list[AgentStudioChangeLogEntryResponse]
     chain: AgentStudioChainVerdictResponse
+    #: Entries matching the filter before `limit`, so the window says it is one.
+    total: int = 0
 
 
 class AgentStudioGraphNodeResponse(BaseModel):

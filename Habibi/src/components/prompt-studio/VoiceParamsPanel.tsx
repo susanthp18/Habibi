@@ -337,9 +337,11 @@ function PersistenceNotice({ model }: { model: ProviderModel }) {
         <p className="mt-025 text-body-tiny leading-snug text-text-subtle">
           {speaks ? (
             <>
-              They are saved on the version and folded into the deployment&rsquo;s tuning, so a
-              published call is synthesized with what you hear here. A control this provider stops
-              accepting is dropped when the call is built rather than failing it.
+              They are saved on the version and folded into the deployment&rsquo;s tuning: the
+              voice, speed, pitch, speaking style and the provider controls reach a published call.
+              The sentence pause and warmth&rsquo;s timbre cues are preview-only &mdash; the live
+              pipeline streams sentences as they arrive and applies no pause. A control this
+              provider stops accepting is dropped when the call is built rather than failing it.
             </>
           ) : (
             <>

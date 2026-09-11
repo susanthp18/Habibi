@@ -38,8 +38,6 @@ export const CARD_SCHEMA_VERSION = "1";
 export type Channel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
 export type MemoryScope = "turn" | "call" | "case" | "customer";
 export type PinMode = "exact" | "caret";
-/** Single-valued today. A binding exists to be *checked*, not to be chosen. */
-export type PolicyBinding = "required";
 export type EvalRequire = "regression" | "redteam" | "twin" | "outbound";
 /**
  * The three on the first line describe a canary that is *slow*. The three on the
@@ -110,24 +108,11 @@ export const LOCKED_POLICY_ENGINES = [
   "evaluate_live_qa",
 ] as const;
 
-/** Keys `PolicyBindings` must carry. Compile gate G3 checks all six. */
-export const REQUIRED_POLICY_KEYS = [
-  "reco",
-  "treatment",
-  "authority",
-  "live_qa",
-  "routing",
-  "dnd",
-] as const;
-
-export type PolicyKey = (typeof REQUIRED_POLICY_KEYS)[number];
-
 export type CardIdentity = {
   bot_id?: string;
   slug?: string;
   display_name?: string;
   purpose?: string;
-  owner_user_id?: string | null;
   channels?: Channel[];
 };
 
@@ -171,8 +156,6 @@ export type CardConnector = {
   allow_prefixes?: string[];
 };
 
-export type PolicyBindings = Partial<Record<PolicyKey, PolicyBinding>>;
-
 export type Compaction = {
   raw_last_n?: number;
   summarize_over_budget?: boolean;
@@ -191,7 +174,6 @@ export type HumanGate = {
 };
 
 export type CardEval = {
-  suite_id?: string | null;
   require?: EvalRequire[];
 };
 
@@ -316,7 +298,6 @@ export type AgentCard = {
   tools?: CardTools;
   handoffs?: CardHandoff[];
   connectors?: CardConnector[];
-  policy_bindings?: PolicyBindings;
   memory?: CardMemory;
   outbound?: CardOutbound;
   human_gates?: HumanGate[];
@@ -333,7 +314,6 @@ export const AGENT_CARD_MEMBERS = [
   "tools",
   "handoffs",
   "connectors",
-  "policy_bindings",
   "memory",
   "outbound",
   "human_gates",

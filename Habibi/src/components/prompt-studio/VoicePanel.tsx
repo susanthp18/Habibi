@@ -737,7 +737,17 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
               truth about those APIs. */}
               <VoiceParamsPanel
                 model={selectedModel}
-                values={modelParams}
+                // Display from the columns the wire and the runtime read when
+                // `params` lacks the key; the schema defaults were shown instead,
+                // so a stored speed of 0.9 displayed as 1.0. Display only -- the
+                // write path below still goes through the bag.
+                values={{
+                  rate: value.speed,
+                  pitch: value.pitch,
+                  warmth: value.warmth,
+                  pause_ms: value.pauseMs,
+                  ...modelParams,
+                }}
                 modelsLoading={ttsModelsQuery.isLoading}
                 disabled={false}
                 onChange={(k, v) => {

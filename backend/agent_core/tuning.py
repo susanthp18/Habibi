@@ -364,8 +364,13 @@ def apply_voice_config_overlay(
     pitch: int | None = None,
     warmth: int | None = None,
     params: dict[str, Any] | None = None,
+    style: str | None = None,
 ) -> dict[str, Any]:
     """Optionally overlay Prompt Studio voice fields onto AgentTuning.tts.
+
+    ``style`` is the Voice tab's speaking-style selector. It was authored,
+    stored and never read -- the runtime derived a style from warmth alone --
+    so the selector was dead config. Set, it overrides the warmth mapping.
 
     Tuning Studio owns ``style`` / ``rate`` / ``pitch`` via AgentTuning. Callers
     should pass ``speed`` / ``pitch`` / ``warmth`` only when those Studio knobs
@@ -398,8 +403,10 @@ def apply_voice_config_overlay(
         p = _clamp_int(pitch, -25, 25, 0)
         tts["pitch"] = "+2%" if p == 0 else f"{p * 2:+d}%"
     if warmth is not None:
-        # Mirror voice.natural.azure_tts_style_from_warmth (keep agent_core
-        # free of the voice package — sandbox / WhatsApp also import this).
+        # The only warmth → express-as mapping. ``voice.natural`` held a second,
+        # richer copy that consulted the Azure style catalog; nothing called it,
+        # and agent_core must stay free of the voice package because the sandbox
+        # and WhatsApp import this too.
         w = _clamp_int(warmth, 0, 100, 60)
         if w >= 70:
             tts["style"], tts["style_degree"] = "friendly", "1.6"
@@ -407,6 +414,9 @@ def apply_voice_config_overlay(
             tts["style"], tts["style_degree"] = "empathetic", "1.15"
         else:
             tts["style"], tts["style_degree"] = "empathetic", "1.4"
+    if style and str(style).strip():
+        tts["style"] = str(style).strip()
+        tts.setdefault("style_degree", "1.4")
     return normalize_tuning(t)
 
 

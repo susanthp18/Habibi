@@ -132,7 +132,6 @@ def _card(
     include: list[str],
     handoffs: list[CardHandoff],
     human_gates: list[HumanGate] | None = None,
-    suite_id: str | None = None,
     skills: list[CardSkillRef] | None = None,
     connectors: list[CardConnector] | None = None,
     outbound: CardOutbound | None = None,
@@ -150,7 +149,7 @@ def _card(
         handoffs=handoffs,
         human_gates=human_gates
         or [HumanGate(tool_name="create_promise_to_pay", require="identity")],
-        eval=CardEval(suite_id=suite_id, require=["regression", "redteam"]),
+        eval=CardEval(require=["regression", "redteam"]),
         connectors=connectors or [],
         outbound=outbound or CardOutbound(),
     )
@@ -169,7 +168,6 @@ def intake_card() -> AgentCard:
             CardHandoff(to_bot_id=INSURANCE_BOT_ID, when="product / insurance intent"),
         ],
         human_gates=[HumanGate(tool_name="handoff_to_agent", require="identity")],
-        suite_id="eval-regression-intake",
         skills=skill_refs(*INTAKE_SKILLS),
     )
 
@@ -288,7 +286,6 @@ def collections_card() -> AgentCard:
             CardHandoff(to_bot_id=INSURANCE_BOT_ID, when="in-policy upsell after PTP"),
             CardHandoff(to_bot_id=SUPERVISOR_BOT_ID, when="warm transfer brief"),
         ],
-        suite_id="eval-regression-collections",
         skills=skill_refs(*COLLECTIONS_SKILLS),
         connectors=[CardConnector(connector_id="paylink", allow_prefixes=["ext.paylink."])],
         outbound=_collections_outbound(),
@@ -308,7 +305,6 @@ def insurance_card() -> AgentCard:
             CardHandoff(to_bot_id=SUPERVISOR_BOT_ID, when="warm transfer brief"),
         ],
         human_gates=[HumanGate(tool_name="capture_lead", require="identity")],
-        suite_id="eval-regression-insurance",
         skills=skill_refs(*INSURANCE_SKILLS),
     )
 
@@ -323,7 +319,6 @@ def supervisor_brief_card() -> AgentCard:
         include=_SUPERVISOR_TOOLS,
         handoffs=[],
         human_gates=[],
-        suite_id="eval-regression-supervisor",
         skills=skill_refs(*SUPERVISOR_SKILLS),
     )
 

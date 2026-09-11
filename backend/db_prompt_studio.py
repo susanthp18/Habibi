@@ -726,6 +726,30 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     return summary
 
 
+def policy_engines() -> list[dict[str, Any]]:
+    """The engines the mouth cannot unbind, and the mode each runs in now.
+
+    Env-driven and legitimately `shadow` on a stack that is still earning
+    trust -- which six card lozenges reading "required" could never say."""
+    from agent_core.authority import config as authority
+    from agent_core.cards.schema import POLICY_ENGINES
+    from agent_core.live_qa import config as live_qa
+    from agent_core.reco import config as reco
+    from agent_core.treatment import config as treatment
+
+    modes = {
+        "reco": (reco.mode(), "RECO_MODE"),
+        "treatment": (treatment.mode(), "TREATMENT_MODE"),
+        "authority": (authority.mode(), "AUTHORITY_MODE"),
+        "live_qa": (live_qa.mode(), "LIVE_QA_BARGE_MODE"),
+    }
+    out = []
+    for key, label, tool in POLICY_ENGINES:
+        mode, source = modes.get(key, ("always", None))
+        out.append({"key": key, "label": label, "tool": tool, "mode": mode, "source": source})
+    return out
+
+
 def list_entry_bindings() -> list[dict[str, Any]]:
     from agent_core.cards.routing import list_entry_bindings as _list
 
@@ -2095,6 +2119,7 @@ def create_prompt_version(payload: dict[str, Any]) -> dict[str, Any]:
         pitch=int(voice.get("pitch", 0)),
         warmth=int(voice.get("warmth", 60)),
         params=voice.get("params"),
+        style=voice.get("style") or None,
     )
     with engine.begin() as conn:
         # Avoid colliding with an existing id (e.g. republish of same label slug).
@@ -2223,6 +2248,7 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
                 pitch=int(voice.get("pitch", 0)),
                 warmth=int(voice.get("warmth", 60)),
                 params=voice.get("params"),
+                style=voice.get("style") or None,
             )
             sets.append("tuning = CAST(:tuning AS jsonb)")
             params["tuning"] = _jsonb(folded)
@@ -2571,6 +2597,7 @@ def publish_prompt_version(
                 pitch=int(voice.get("pitch", 0)),
                 warmth=int(voice.get("warmth", 60)),
                 params=voice.get("params"),
+                style=voice.get("style") or None,
             )
 
         conn.execute(

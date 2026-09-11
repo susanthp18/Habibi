@@ -25,7 +25,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from agent_core.cards.schema import (
     LOCKED_MOUTH_TOOLS,
     LOCKED_POLICY_ENGINES,
-    REQUIRED_POLICY_KEYS,
     ROLLBACK_TRIGGERS,
     AgentCard,
     is_authored,
@@ -1015,25 +1014,22 @@ def compile_card(
             _gate("G2", "flow_persisted", "pass", "empty flow — built-in script")
         )
 
-    # G3 policy bindings locked
+    # G3 -- the policy engines stay on the card's locked list. That is the
+    # whole gate: the "binding" half compared six `Literal["required"]` fields
+    # against "required" and could not fail.
     if card is None:
         gates.append(_gate("G3", "policy_bindings", "skipped", "no card"))
     else:
-        missing = [
-            key
-            for key in REQUIRED_POLICY_KEYS
-            if getattr(card.policy_bindings, key, None) != "required"
-        ]
         locked_set = set(card.tools.locked)
         missing_locked = [n for n in LOCKED_POLICY_ENGINES if n not in locked_set]
-        if missing or missing_locked:
+        if missing_locked:
             gates.append(
                 _gate(
                     "G3",
                     "policy_bindings",
                     "fail",
                     "engines cannot be unbound",
-                    [{"missing_bindings": missing, "missing_locked": missing_locked}],
+                    [{"missing_locked": missing_locked}],
                 )
             )
         else:

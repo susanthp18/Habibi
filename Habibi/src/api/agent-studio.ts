@@ -95,6 +95,8 @@ export type CompileReport = {
   bundle?: Record<string, unknown>;
   /** Published doors whose bundle merges this card; publishing refreshes each. */
   doors_merging?: string[];
+  /** objective -> entry node key, as the *graph* declares it (G-OB2's other half). */
+  mission_entries?: Record<string, string>;
 };
 
 const MOCK_CARDS: AgentCardSummary[] = [
@@ -396,6 +398,38 @@ export function useAgentGraph(botId: string) {
 }
 
 export type EvalSuite = { id: string; kind: string; name: string; description: string };
+
+/** One policy engine and the mode it runs in on this stack (GET /agent-studio/policy-engines). */
+export type PolicyEngine = {
+  key: string;
+  label: string;
+  tool: string | null;
+  /** off | shadow | live, or "always" for an engine with no mode knob. */
+  mode: string;
+  source: string | null;
+};
+
+export function usePolicyEngines() {
+  return useQuery({
+    queryKey: ["agent-studio", "policy-engines"],
+    queryFn: async () => {
+      if (USE_MOCK) {
+        return [
+          {
+            key: "reco",
+            label: "Recommend next offer",
+            tool: "recommend_next_offer",
+            mode: "shadow",
+            source: "RECO_MODE",
+          },
+          { key: "dnd", label: "DND / calling hours", tool: null, mode: "always", source: null },
+        ] satisfies PolicyEngine[];
+      }
+      return apiGet<PolicyEngine[]>("/agent-studio/policy-engines");
+    },
+    staleTime: 60_000,
+  });
+}
 
 export function useEvalSuites() {
   return useQuery({

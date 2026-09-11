@@ -17,7 +17,6 @@ SCHEMA_VERSION = "1"
 Channel = Literal["voice", "whatsapp", "sms", "internal", "mcp", "a2a"]
 PinMode = Literal["exact", "caret"]
 HandoffCarry = Literal["brief", "full"]
-PolicyBinding = Literal["required"]
 #: No ``capability``. It was offered as a publish requirement and read by
 #: nothing: ``_eval_gate`` matches a requirement against a *gate name*, and no
 #: gate is called ``capability`` — so ticking it changed no publish outcome. No
@@ -72,13 +71,15 @@ LOCKED_MOUTH_TOOLS: frozenset[str] = frozenset(
     {"recommend_next_offer", "evaluate_authority"}
 )
 
-REQUIRED_POLICY_KEYS: tuple[str, ...] = (
-    "reco",
-    "treatment",
-    "authority",
-    "live_qa",
-    "routing",
-    "dnd",
+#: The engines the mouth cannot unbind. Each is code with a log; the mode it
+#: runs in is env-driven and reported live, not authored on a card.
+POLICY_ENGINES: tuple[tuple[str, str, str | None], ...] = (
+    ("reco", "Recommend next offer", "recommend_next_offer"),
+    ("treatment", "Treatment", "recommend_treatment"),
+    ("authority", "Authority", "evaluate_authority"),
+    ("live_qa", "Live QA", "evaluate_live_qa"),
+    ("routing", "Routing", None),
+    ("dnd", "DND / calling hours", None),
 )
 
 
@@ -89,7 +90,6 @@ class CardIdentity(BaseModel):
     slug: str
     display_name: str
     purpose: str = ""
-    owner_user_id: str | None = None
     channels: list[Channel] = Field(default_factory=lambda: ["voice", "whatsapp"])
 
 
@@ -168,17 +168,6 @@ class CardConnector(BaseModel):
     allow_prefixes: list[str] = Field(default_factory=list)
 
 
-class PolicyBindings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reco: PolicyBinding = "required"
-    treatment: PolicyBinding = "required"
-    authority: PolicyBinding = "required"
-    live_qa: PolicyBinding = "required"
-    routing: PolicyBinding = "required"
-    dnd: PolicyBinding = "required"
-
-
 class CardMemory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -203,7 +192,6 @@ class HumanGate(BaseModel):
 class CardEval(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    suite_id: str | None = None
     require: list[EvalRequire] = Field(default_factory=lambda: ["regression", "redteam"])
 
 
@@ -432,9 +420,19 @@ _RETIRED: tuple[tuple[str, ...], ...] = (
     ("memory", "compaction"),
     ("identity", "data_class"),
     ("identity", "regulator_tags"),
+    # Nothing read it: not authz, not the fleet index.
+    ("identity", "owner_user_id"),
     ("outbound", "concurrency_share"),
     ("outbound", "cadences", "*", "time_of_day"),
     ("experiment", "shadow"),
+    # `Literal["required"]` six times over: a binding that could hold one
+    # value bound nothing, and G3's "binding half" was unfalsifiable. The
+    # engines' actual modes are env-driven and read live
+    # (`/agent-studio/policy-engines`); the card no longer claims to set them.
+    ("policy_bindings",),
+    # Authored on every first-party card and deliberately refused by the
+    # runner (`eval/run.py`): the gate reads by kind, never by suite id.
+    ("eval", "suite_id"),
 )
 
 
@@ -475,7 +473,6 @@ class AgentCard(BaseModel):
     tools: CardTools = Field(default_factory=CardTools)
     handoffs: list[CardHandoff] = Field(default_factory=list)
     connectors: list[CardConnector] = Field(default_factory=list)
-    policy_bindings: PolicyBindings = Field(default_factory=PolicyBindings)
     memory: CardMemory = Field(default_factory=CardMemory)
     outbound: CardOutbound = Field(default_factory=CardOutbound)
     human_gates: list[HumanGate] = Field(default_factory=list)

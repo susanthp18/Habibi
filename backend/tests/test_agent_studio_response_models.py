@@ -58,10 +58,9 @@ def _studio_routes():
 
 def test_every_agent_studio_route_declares_a_response_shape() -> None:
     routes = _studio_routes()
-    # 30 since the entry-bindings writer (GET/PUT/DELETE /agent-studio/entry-bindings).
-    # The count is a guard: bump it only after checking the new route declares
-    # a shape.
-    assert len(routes) == 30
+    # 31 since /agent-studio/policy-engines. The count is a guard: bump it
+    # only after checking the new route declares a shape.
+    assert len(routes) == 31
     for route in routes:
         if route.path.endswith("/export"):
             assert issubclass(route.response_class, StarletteStreamingResponse), route.path

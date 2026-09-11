@@ -47,16 +47,16 @@ def lint_prompt(
     guardrails: dict[str, Any],
     *,
     include_llm: bool = False,
-    role: str = "system",
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     text = prompt or ""
 
-    # System-role prompts go through render_system_prompt, which only
-    # substitutes SYSTEM_SAFE_VARIABLES. Linting them against the full
-    # KNOWN_VARIABLES set told authors that e.g. {overdue_amount} was fine when
-    # it silently renders as a literal brace token in the live system prompt.
-    allowed = SYSTEM_SAFE_VARIABLES if role == "system" else KNOWN_VARIABLES
+    # System prompts go through render_system_prompt, which only substitutes
+    # SYSTEM_SAFE_VARIABLES. Linting them against the full KNOWN_VARIABLES set
+    # told authors that e.g. {overdue_amount} was fine when it silently renders
+    # as a literal brace token in the live system prompt. (A `role` parameter
+    # once allowed the wider set; nothing could reach it.)
+    allowed = SYSTEM_SAFE_VARIABLES
 
     # Flow-authoring syntax, typed into a prompt. The Flow tab substitutes
     # ``{{ customer_name }}`` and the CRM value appears; a prompt substitutes
@@ -99,7 +99,7 @@ def lint_prompt(
         name = match.group(1)
         if name in allowed:
             continue
-        if role == "system" and name in KNOWN_VARIABLES:
+        if name in KNOWN_VARIABLES:
             findings.append(
                 {
                     "severity": "warn",
