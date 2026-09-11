@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+import request_context
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 
@@ -61,9 +62,10 @@ def start_workflow(
             text(
                 """
                 INSERT INTO work_runtime_jobs (
-                  id, tenant_id, workflow_type, status, customer_id, payload, idempotency_key
+                  id, tenant_id, workflow_type, status, customer_id, payload,
+                  idempotency_key, request_id
                 ) VALUES (
-                  :id, :t, :wt, 'submitted', :cid, CAST(:payload AS jsonb), :k
+                  :id, :t, :wt, 'submitted', :cid, CAST(:payload AS jsonb), :k, :rid
                 )
                 """
             ),
@@ -74,6 +76,7 @@ def start_workflow(
                 "cid": customer_id,
                 "payload": db._jsonb(payload),
                 "k": idempotency_key,
+                "rid": request_context.get_request_id(),
             },
         )
         row = db._one(
@@ -309,9 +312,9 @@ def upsert_job(
                 """
                 INSERT INTO work_runtime_jobs (
                   id, tenant_id, workflow_type, status, customer_id,
-                  payload, idempotency_key
+                  payload, idempotency_key, request_id
                 ) VALUES (
-                  :id, :t, :wt, :st, :cid, CAST(:payload AS jsonb), :k
+                  :id, :t, :wt, :st, :cid, CAST(:payload AS jsonb), :k, :rid
                 )
                 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
                    SET payload = CAST(:payload AS jsonb),
@@ -326,6 +329,7 @@ def upsert_job(
                 "cid": customer_id,
                 "payload": db._jsonb(payload),
                 "k": idempotency_key,
+                "rid": request_context.get_request_id(),
             },
         )
         row = db._one(

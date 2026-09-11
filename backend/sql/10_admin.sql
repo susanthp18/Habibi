@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   -- that is stuck 'pending' forever with nobody holding it.
   locked_at timestamptz,
   locked_by TEXT,
+  request_id TEXT,
   -- 'simulated' is the Integrations test-fire button, which does no egress.
   -- It stays for demos, but it is labelled: a simulated 200 that reads like a
   -- real delivery is how this system spent its whole life lying.

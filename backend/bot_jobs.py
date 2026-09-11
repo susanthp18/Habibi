@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import text
 
 import pii_redact
+import request_context
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -102,10 +103,12 @@ def enqueue_bot_turn(
                     """
                     INSERT INTO bot_turn_jobs (
                       id, conversation_id, interaction_id, customer_id,
-                      trigger_message_id, trigger_provider_ref, channel, status
+                      trigger_message_id, trigger_provider_ref, channel, status,
+                      request_id
                     ) VALUES (
                       :id, :conversation_id, :interaction_id, :customer_id,
-                      :trigger_message_id, :trigger_provider_ref, :channel, 'queued'
+                      :trigger_message_id, :trigger_provider_ref, :channel, 'queued',
+                      :request_id
                     )
                     """
                 ),
@@ -117,6 +120,7 @@ def enqueue_bot_turn(
                     "trigger_message_id": trigger_message_id,
                     "trigger_provider_ref": trigger_provider_ref,
                     "channel": channel,
+                    "request_id": request_context.get_request_id(),
                 },
             )
     except IntegrityError as exc:

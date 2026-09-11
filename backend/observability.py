@@ -372,10 +372,18 @@ class RedactingTextFormatter(logging.Formatter):
     exception text is rendered here, so it is scrubbed here.
     """
 
-    DEFAULT_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(message)s"
+    DEFAULT_FORMAT = "%(asctime)s %(levelname)-8s %(name)s [%(request_id)s] %(message)s"
 
     def __init__(self) -> None:
         super().__init__(self.DEFAULT_FORMAT)
+
+    def format(self, record: logging.LogRecord) -> str:
+        # The request id rides the ContextVar the middleware set; a line from a
+        # worker or a startup hook has none and prints "-", so a grep for the
+        # X-Request-Id a client saw finds every line the request wrote.
+        if not getattr(record, "request_id", None):
+            record.request_id = _current_request_id() or "-"
+        return super().format(record)
 
     def formatException(self, ei) -> str:  # noqa: ANN001 - matches the stdlib signature
         return _redact_or_withhold(super().formatException(ei))

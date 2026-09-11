@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS work_runtime_jobs (
   idempotency_key TEXT NOT NULL,
   input_required_reason TEXT,
   approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  request_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, idempotency_key)

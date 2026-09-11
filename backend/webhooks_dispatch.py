@@ -69,6 +69,8 @@ from urllib.parse import urlparse, urlunparse
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
+import request_context
+
 logger = logging.getLogger(__name__)
 
 #: Response bodies are evidence, not storage. Enough to read the upstream's
@@ -290,10 +292,10 @@ def dispatch(
                     """
                     INSERT INTO webhook_deliveries (
                       id, endpoint_id, event_type_id, payload, attempt_number,
-                      status, delivery_mode, created_at, updated_at
+                      status, delivery_mode, created_at, updated_at, request_id
                     ) VALUES (
                       :id, :eid, :et, CAST(:payload AS jsonb), 0,
-                      'pending', 'live', now(), now()
+                      'pending', 'live', now(), now(), :rid
                     )
                     """
                 ),
@@ -302,6 +304,7 @@ def dispatch(
                     "eid": ep["id"],
                     "et": ep["event_type_id"],
                     "payload": json.dumps(body),
+                    "rid": request_context.get_request_id(),
                 },
             )
             ids.append(did)

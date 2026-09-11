@@ -15,6 +15,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
+import request_context
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -1385,15 +1387,16 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
                 INSERT INTO webhook_deliveries (
                   id, endpoint_id, event_type_id, payload, response_body,
                   http_status, attempt_number, latency_ms, status,
-                  delivery_mode, created_at, updated_at
+                  delivery_mode, created_at, updated_at, request_id
                 ) VALUES (
                   :id, :eid, :et, CAST(:payload AS jsonb), :body,
                   :http, 1, :lat, :status,
-                  'simulated', now(), now()
+                  'simulated', now(), now(), :rid
                 )
                 """
             ),
             {
+                "rid": request_context.get_request_id(),
                 "id": did,
                 "eid": endpoint_id,
                 "et": et_id,
@@ -1472,10 +1475,10 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
                 """
                 INSERT INTO webhook_deliveries (
                   id, endpoint_id, event_type_id, payload, attempt_number,
-                  status, delivery_mode, created_at, updated_at
+                  status, delivery_mode, created_at, updated_at, request_id
                 ) VALUES (
                   :id, :eid, :et, CAST(:payload AS jsonb), :attempt,
-                  'pending', 'live', now(), now()
+                  'pending', 'live', now(), now(), :rid
                 )
                 """
             ),
@@ -1485,6 +1488,7 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
                 "et": row["event_type_id"],
                 "payload": json.dumps(payload),
                 "attempt": int(row.get("attempt_number") or 1),
+                "rid": request_context.get_request_id(),
             },
         )
         fresh = db._one(

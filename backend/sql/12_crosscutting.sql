@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS bot_turn_jobs (
   locked_at timestamptz,
   locked_by TEXT,
   run_after timestamptz,
+  request_id TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_bot_turn_jobs_status CHECK (
