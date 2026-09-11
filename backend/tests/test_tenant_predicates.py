@@ -633,3 +633,15 @@ def test_the_policy_holds_without_the_where(db_tx) -> None:
 
     role = db_tx.execute(text("SELECT current_user")).scalar()
     assert role != "collections", "the tests are running as the owner, which bypasses every policy"
+
+
+def test_an_ended_run_cannot_be_restarted(db_tx) -> None:
+    """OUTBOUND-20: only the disabled button stopped a cancelled run from
+    being resumed; the endpoint took it."""
+    import campaigns
+
+    run = campaigns.create(db_tx, tenant_id=db.current_tenant(), name="Done", objective="dpd_reminder")
+    campaigns.set_status(db_tx, run["id"], campaigns.STATUS_RUNNING, tenant_id=db.current_tenant())
+    campaigns.set_status(db_tx, run["id"], campaigns.STATUS_CANCELLED, tenant_id=db.current_tenant())
+    with pytest.raises(ValueError, match="campaign_transition_refused"):
+        campaigns.set_status(db_tx, run["id"], campaigns.STATUS_RUNNING, tenant_id=db.current_tenant())

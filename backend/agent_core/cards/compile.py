@@ -753,7 +753,7 @@ def _outbound_gates(
     try:
         import contact_policy
 
-        cap = contact_policy.daily_cap()
+        cap = contact_policy.tenant_daily_cap()
     except Exception:
         cap = 3
     for cadence in ob.cadences:
@@ -798,7 +798,26 @@ def _outbound_gates(
             )
 
     # G-OB6 — a post-call rule that names an action nobody implements is a rule
-    # that silently does nothing, which is worse than no rule at all.
+    # that silently does nothing, which is worse than no rule at all. The
+    # objective's success/partial lists and each cadence's stop_on are outcome
+    # codes too, and the editor's copy said this gate checked them; it did not.
+    for objective in ob.objectives:
+        for field in ("success", "partial"):
+            for code in getattr(objective, field) or []:
+                if code not in OUTCOME_CODES:
+                    issues.append(
+                        {
+                            "gate": "G-OB6",
+                            "objective": objective.key,
+                            "problem": f"{field} names unknown outcome code {code!r}",
+                        }
+                    )
+    for cadence in ob.cadences:
+        for code in cadence.stop_on or []:
+            if code not in OUTCOME_CODES:
+                issues.append(
+                    {"gate": "G-OB6", "problem": f"cadence {cadence.name!r} stops on unknown outcome code {code!r}"}
+                )
     known_actions = POST_CALL_ACTIONS | set(effective)
     for rule in ob.post_call.on_outcome:
         if rule.when not in OUTCOME_CODES:
@@ -840,7 +859,10 @@ def _outbound_gates(
     # which is a different retry policy than the author wrote down.
     defined = {c.name for c in ob.cadences}
     for objective in ob.objectives:
-        if objective.cadence not in defined and objective.cadence != "default":
+        # No exemption for "default": a card that defines no ladder by that
+        # name falls back to the built-in one, which is a different retry
+        # policy from anything the author wrote down.
+        if objective.cadence not in defined:
             issues.append(
                 {
                     "gate": "G-OB8",

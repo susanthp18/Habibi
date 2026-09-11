@@ -5624,8 +5624,11 @@ def set_campaign_status(run_id: str, payload: dict[str, Any]):
 
         if not platform_switches.outbound_enabled():
             raise HTTPException(status_code=409, detail="outbound_disabled")
-    with db.engine.begin() as conn:
-        run = campaigns.set_status(conn, run_id, status, tenant_id=db.current_tenant())
+    try:
+        with db.engine.begin() as conn:
+            run = campaigns.set_status(conn, run_id, status, tenant_id=db.current_tenant())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if run is None:
         raise HTTPException(status_code=404, detail="run_not_found")
     return dict(run)
@@ -5798,7 +5801,7 @@ def outbound_card_vocabulary():
             for name in authority_config.profile_names()
         ],
         "numberPools": pools,
-        "dailyCap": contact_policy.daily_cap(),
+        "dailyCap": contact_policy.tenant_daily_cap(),
     }
 
 

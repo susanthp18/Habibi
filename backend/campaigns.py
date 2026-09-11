@@ -382,6 +382,16 @@ def add_targets_from_selector(
     return add_targets(conn, run_id, [r["customer_id"] for r in rows], tenant_id=tenant_id)
 
 
+#: current -> the statuses a run may move to. Ended runs go nowhere.
+_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    STATUS_DRAFT: {STATUS_RUNNING, STATUS_CANCELLED},
+    STATUS_RUNNING: {STATUS_PAUSED, STATUS_FINISHED, STATUS_CANCELLED},
+    STATUS_PAUSED: {STATUS_RUNNING, STATUS_FINISHED, STATUS_CANCELLED},
+    STATUS_FINISHED: set(),
+    STATUS_CANCELLED: set(),
+}
+
+
 def set_status(
     conn: Any, run_id: str, status: str, *, tenant_id: str
 ) -> dict[str, Any] | None:
@@ -393,6 +403,18 @@ def set_status(
     sibling read here already scopes (see ``add_targets_from_selector``). An
     optional parameter would have let the two internal callers keep the hole.
     """
+    # Only the UI's disabled button stopped a cancelled run from being
+    # restarted; the endpoint took it. A run that ended is not a run that can
+    # be resumed -- cancel is the irreversible one, and finished means every
+    # target was dialled.
+    current = conn.execute(
+        text("SELECT status FROM campaign_runs WHERE id = :id AND tenant_id = :t"),
+        {"id": run_id, "t": tenant_id},
+    ).scalar()
+    if current is None:
+        return None
+    if status not in _ALLOWED_TRANSITIONS.get(str(current), set()):
+        raise ValueError(f"campaign_transition_refused:{current}->{status}")
     stamps = {
         STATUS_RUNNING: "started_at = COALESCE(started_at, now()), paused_at = NULL",
         STATUS_PAUSED: "paused_at = now()",

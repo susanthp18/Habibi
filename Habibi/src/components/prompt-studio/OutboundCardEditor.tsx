@@ -495,14 +495,18 @@ function MissionEditor({
             value={objective.cadence ?? "default"}
             onChange={(e) => setObjective({ cadence: e.target.value })}
           >
-            <option value="default">default</option>
-            {cadenceNames
-              .filter((n) => n !== "default")
-              .map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
+            {/* Only ladders the card defines. Offering "default" unconditionally
+                swapped the authored ladder for the built-in one with no warning. */}
+            {cadenceNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+            {!cadenceNames.includes(objective.cadence ?? "default") ? (
+              <option value={objective.cadence ?? "default"}>
+                {objective.cadence ?? "default"} — not defined, falls back to the built-in ladder
+              </option>
+            ) : null}
           </select>
         </div>
 
@@ -760,8 +764,14 @@ function CadenceEditor({
           defaultValue={cadence.name ?? "default"}
           key={`cad-name-${index}-${cadence.name}`}
           onBlur={(e) => {
-            const name = e.target.value.trim() || "default";
+            let name = e.target.value.trim() || "default";
             if (name === cadence.name) return;
+            // A duplicate name collapsed two ladders into one silently; the
+            // add handler already suffixes, so the rename does the same.
+            const used = new Set(ob.cadences.filter((_, i) => i !== index).map((c) => c.name));
+            const base = name;
+            let n = 2;
+            while (used.has(name)) name = `${base}-${n++}`;
             // Rename the references too. G-OB8 fails a mission naming a cadence
             // the card does not define, and a rename that leaves the missions
             // pointing at the old name is exactly that failure.

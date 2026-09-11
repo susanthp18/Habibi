@@ -128,6 +128,23 @@ def daily_cap(rules: Any | None = None, card_cap: int | None = None) -> int:
     return max(1, cap)
 
 
+def tenant_daily_cap(product_id: str | None = None) -> int:
+    """The cap in force for the current tenant's published rules.
+
+    The editor's vocabulary and G-OB3 quoted `daily_cap()` -- the env dial
+    alone -- so both could be wrong in the permissive direction for a tenant
+    whose rule set lowers it."""
+    import db
+    import policy_rules
+
+    try:
+        with db.engine.connect() as conn:
+            rules = policy_rules.resolve(conn, tenant_id=db.current_tenant(), product_id=product_id)
+    except Exception:
+        rules = None
+    return daily_cap(rules)
+
+
 def weekly_cap_default(rules: Any | None = None) -> int:
     cap = max(1, env_int("CONTACT_WEEKLY_CAP", 8))
     from_rules = rules.weekly_cap() if rules is not None else None
