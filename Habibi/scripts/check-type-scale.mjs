@@ -151,10 +151,26 @@ function* sources(dir) {
   }
 }
 
+/**
+ * Every custom property `var(--x)` reads. `var()` of an undefined property is
+ * valid CSS that computes to nothing -- 38 sites did this and the consent
+ * chips rendered transparent. Radix and magicui set their own at runtime.
+ */
+function definedProperties() {
+  const css = stripComments(readFileSync(CSS, "utf8"));
+  const names = new Set();
+  for (const m of css.matchAll(/(^|[\s{;])(--[a-z0-9-]+)\s*:/gi)) names.add(m[2]);
+  return names;
+}
+const RUNTIME_PROPERTY = /^--(radix|magicui)-/;
+const VAR_RE = /var\(\s*(--[a-z0-9-]+)/gi;
+
 const tokens = definedTokens();
 const renderable = renderableTextClasses();
+const properties = definedProperties();
 const bad = [];
 const undefinedClasses = [];
+const undefinedVars = [];
 
 /** String literals on a line, so the scan sees class lists and not prose. */
 const STRING_RE = /"([^"\n]*)"|'([^'\n]*)'|`([^`\n]*)`/g;
@@ -164,6 +180,10 @@ for (const file of sources(SRC)) {
   text.split("\n").forEach((line, i) => {
     for (const m of line.matchAll(ARBITRARY_RE)) {
       bad.push({ file: relative(ROOT, file), line: i + 1, utility: m[0] });
+    }
+    for (const m of line.matchAll(VAR_RE)) {
+      if (properties.has(m[1]) || RUNTIME_PROPERTY.test(m[1])) continue;
+      undefinedVars.push({ file: relative(ROOT, file), line: i + 1, utility: m[0] + ")" });
     }
     for (const s of line.matchAll(STRING_RE)) {
       const literal = s[1] ?? s[2] ?? s[3] ?? "";
@@ -176,6 +196,17 @@ for (const file of sources(SRC)) {
       }
     }
   });
+}
+
+if (undefinedVars.length) {
+  console.error(`\n${undefinedVars.length} var(--x) read(s) with no definition in styles.css:\n`);
+  for (const b of undefinedVars) console.error(`  ${b.file}:${b.line}  ${b.utility}`);
+  console.error(
+    `\nvar() of an undefined property is valid CSS that computes to nothing, ` +
+      `so the element renders transparent or inherits. Define an alias in ` +
+      `src/styles.css (pointing at a token, so it follows the theme).\n`,
+  );
+  process.exit(1);
 }
 
 if (undefinedClasses.length) {

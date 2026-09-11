@@ -462,6 +462,28 @@
  * Surfaces / text / borders invert; brand (#1868db) and bold action fills stay
  * saturated so existing text-inverse (white) pairings keep contrast.
  */
+/*
+ * Short aliases 34 sites reach for in inline styles and chart configs. None
+ * was defined, so `var(--danger)` resolved to nothing: consent chips and
+ * compliance filters rendered transparent. Aliases to the real tokens, so
+ * they follow the theme; scripts/check-type-scale.mjs fails on any
+ * `var(--x)` with no definition.
+ */
+:root {
+  --danger: var(--text-danger);
+  --danger-bg: var(--background-danger-subtler);
+  --warning: var(--text-warning);
+  --warning-bg: var(--background-warning-subtler);
+  --success: var(--text-success);
+  --success-bg: var(--background-success-subtler);
+  --text-primary: var(--text);
+  --text-muted: var(--text-subtle);
+  --text-text-success: var(--text-success);
+  --text-text-warning: var(--text-warning);
+  --brand-primary: var(--background-brand-bold);
+  --brand-navy: var(--text-subtle);
+}
+
 html.dark {
   color-scheme: dark;
 

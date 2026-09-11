@@ -169,6 +169,9 @@ export function FilterTable<T, K extends string>({
                     transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
                   }}
                   aria-hidden={!shown}
+                  // aria-hidden hides it from readers, not from Tab: the
+                  // collapsed row's controls still took focus invisibly.
+                  inert={!shown}
                 >
                   <div className="overflow-hidden">
                     <div

@@ -59,10 +59,17 @@ export function AudioPlayer({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        e.preventDefault();
-        onPlayPause();
-      }
+      if (e.code !== "Space") return;
+      // A window-level Space toggled playback while the operator typed a
+      // space into any field on the page. Only when focus is on the body or
+      // inside the player.
+      const target = e.target as HTMLElement | null;
+      const inField = Boolean(
+        target?.closest("input, textarea, select, [contenteditable=true], button, [role=button]"),
+      );
+      if (inField) return;
+      e.preventDefault();
+      onPlayPause();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

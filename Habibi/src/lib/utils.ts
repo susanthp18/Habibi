@@ -20,6 +20,8 @@ import { extendTailwindMerge } from "tailwind-merge";
 const TYPE_PRESETS = [
   "text-body",
   "text-body-small",
+  "text-body-tiny",
+  "text-body-micro",
   "text-body-large",
   "text-code",
   "heading-xxsmall",
