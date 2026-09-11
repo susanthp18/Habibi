@@ -791,6 +791,24 @@ def test_the_sweep_decides_the_book_and_then_stops(db_tx, monkeypatch) -> None:
         text("DELETE FROM work_runtime_jobs WHERE workflow_type = :w"),
         {"w": sweep.CURSOR_WORKFLOW},
     )
+    # The sharded sweep keeps its own per-day ledger: once every shard is
+    # `complete` for today, there is nothing to claim and process_one honestly
+    # returns False. On a dev stack wk_batch has usually swept already, so
+    # without this reset the test failed every afternoon and passed every
+    # morning (the WP-069 shape).
+    db_tx.execute(
+        text(
+            "DELETE FROM treatment_sweep_claims WHERE run_id IN ("
+            " SELECT id FROM treatment_sweep_runs"
+            "  WHERE local_date = (now() AT TIME ZONE 'Asia/Kolkata')::date)"
+        )
+    )
+    db_tx.execute(
+        text(
+            "DELETE FROM treatment_sweep_runs"
+            " WHERE local_date = (now() AT TIME ZONE 'Asia/Kolkata')::date"
+        )
+    )
 
     before = db_tx.execute(
         text("SELECT count(*) FROM treatment_decisions WHERE trigger_kind = 'dpd_tick'")
