@@ -128,7 +128,6 @@ class ToolContext:
         self.offered_product_ids: set[str] = set()
         self.offer_declined = False
         self.offers_presented = 0
-        self.authority_decision_id: str | None = None
         # The grant for this turn. None = no grant derived = deny (ADR-0002).
         # Frozen on purpose: the grant arrives from one owner and a caller that
         # could union onto it is how six competing tool formulas happened.
@@ -320,15 +319,19 @@ def _tool_evaluate_authority(ctx: ToolContext, args: dict[str, Any]) -> dict[str
             customer_id=ctx.customer_id,
         ),
     )
-    ctx.authority_decision_id = (result.data or {}).get("decisionId")
     return {"ok": True, **(result.data or {})}
 
 
 def _tool_apply_goodwill(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    result = domain.apply_goodwill(
-        decision_id=str(args.get("decision_id") or ctx.authority_decision_id or ""),
-        amount=args.get("amount"),
-    )
+    # From the call, never from a slot on the context -- see the voice handler.
+    decision_id = str(args.get("decision_id") or "")
+    if not decision_id:
+        return {
+            "ok": False,
+            "error": "missing_decision",
+            "say": "call evaluate_authority before applying goodwill",
+        }
+    result = domain.apply_goodwill(decision_id=decision_id, amount=args.get("amount"))
     soft = _domain_soft_fail(result)
     if soft is not None:
         return soft

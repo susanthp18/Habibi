@@ -392,3 +392,27 @@ def test_apply_endpoint_refuses_shadow(db_tx, customer, client, monkeypatch) -> 
     assert res.status_code == 409
     assert "shadow_mode" in res.text
     assert not _ledger_waivers(db_tx, customer["account_id"])
+
+
+def test_apply_goodwill_takes_its_decision_from_the_call_not_a_session_slot() -> None:
+    """Two evaluate_authority calls under run_in_parallel shared one slot.
+
+    The second waiver posted against whichever verdict wrote the slot last.
+    The decision id is a required argument the model already holds; the
+    handlers no longer fall back to anything, so a call without one is
+    refused rather than resolved against another borrower's verdict.
+    """
+    import bot_tools
+
+    ctx = bot_tools.ToolContext(
+        job_id="J-1",
+        conversation_id="C-1",
+        customer_id="anita-desai",
+        interaction_id=None,
+        bot_id=None,
+        customer_text="",
+        intent="other",
+    )
+    assert not hasattr(ctx, "authority_decision_id")
+    out = bot_tools._tool_apply_goodwill(ctx, {"amount": 100})
+    assert out["error"] == "missing_decision"

@@ -273,7 +273,6 @@ class ToolState:
         self.offer_declined = False
         self.escalated = False
         self.dispute_opened = False
-        self.authority_decision_id: str | None = None
         self.authority_cap: float | None = None
         # Frozen on purpose: the grant arrives from one owner and a caller that
         # could union onto it is how six competing tool formulas happened.
@@ -1504,7 +1503,6 @@ def build_tools(
                 "say": "do not quote a waiver or settlement figure; escalate",
             }, None
         payload = dict(result.data or {})
-        state.authority_decision_id = payload.get("decisionId")
         cap = payload.get("approvedAmount") or payload.get("capAmount")
         try:
             state.authority_cap = float(cap) if cap is not None else None
@@ -1586,7 +1584,12 @@ def build_tools(
         if err:
             return err, None
         args = CATALOG.normalize("apply_goodwill", args)
-        decision_id = str(args.get("decision_id") or state.authority_decision_id or "")
+        # The decision id comes from the model's own call, never from a slot
+        # on the session: under run_in_parallel two evaluate_authority calls
+        # overwrote one slot, and the second waiver posted against the first
+        # verdict. The spec marks it required; the model has it because it
+        # was the one that received it.
+        decision_id = str(args.get("decision_id") or "")
         if not decision_id:
             return {
                 "error": "missing_decision",
