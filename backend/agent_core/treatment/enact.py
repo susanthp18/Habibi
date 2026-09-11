@@ -446,17 +446,20 @@ def _send_sms(
         return f"queued:reference:{outbound['id']}"
     if not twilio_sms.configured():
         raise NoExecutor("sms_not_configured")
-    # The decision id is the ``related_id`` on the contact event too, so the
-    # receipt, the attempt and the decision that caused it all key together
-    # without a join table.
-    result = twilio_sms.send(
-        to_phone=phone,
-        body=body,
-        customer_id=customer["id"],
-        tenant_id=customer.get("tenant_id"),
-        related_id=decision["id"],
-    )
-    return f"sms:{result.get('sid') or 'sent'}"
+    # Prepared here, sent by `process_one` after this transaction commits.
+    # The send used to happen on this connection with the transaction open:
+    # a crash between the carrier's 200 and the commit lost the contact event
+    # and left the attempt un-sent, so the next tick sent the borrower the
+    # same message again. The decision id is the ``related_id`` on the
+    # contact event too, so receipt, attempt and decision key together.
+    decision["_deferred_send"] = {
+        "to_phone": phone,
+        "body": body,
+        "customer_id": customer["id"],
+        "tenant_id": customer.get("tenant_id"),
+        "related_id": decision["id"],
+    }
+    return "queued:sms:deferred"
 
 
 def _dial_bot(
@@ -1256,4 +1259,41 @@ def process_one(engine: Engine) -> bool:
             acted,
             note,
         )
-        return True
+    if acted and queued and decision.get("_deferred_send"):
+        _send_deferred(engine, decision)
+    return True
+
+
+def _send_deferred(engine: Any, decision: dict[str, Any]) -> None:
+    """Carrier I/O with no transaction open, then a third transaction records it.
+
+    The claim and the outbox row are committed; whatever the carrier answers,
+    the evidence of the attempt exists. Ambiguous answers park the attempt
+    rather than retrying -- a retry is a second message to the same borrower.
+    """
+    import twilio_sms
+
+    payload = decision["_deferred_send"]
+    attempt_id = decision.get("_attempt_id")
+    reservation_id = decision.get("_reservation_id")
+    try:
+        result = twilio_sms.send(**payload)
+        ref = f"sms:{result.get('sid') or 'sent'}"
+    except Exception as exc:
+        note = f"{type(exc).__name__}: {exc}"
+        ambiguous = "ambiguous" in note.lower() or "timeout" in note.lower()
+        logger.warning("treatment plan %s sms failed note=%s", decision["id"], note[:200])
+        with engine.begin() as conn:
+            if ambiguous:
+                attempts.set_state(conn, attempt_id, attempts.STATE_PARKED, error=note[:500])
+            else:
+                attempts.set_state(conn, attempt_id, attempts.STATE_FAILED, error=note[:500])
+                reservations.release(conn, reservation_id)
+                decisions.record_outcome(
+                    decision["id"], "cancelled", conn=conn, cancel_reason=cancel.HANDLER_EXCEPTION
+                )
+        return
+    with engine.begin() as conn:
+        attempts.set_state(conn, attempt_id, attempts.STATE_SENT, provider_ref=ref)
+        reservations.commit(conn, reservation_id, provider_ref=ref)
+        decisions.mark_enacted(decision["id"], ref=ref, conn=conn)
