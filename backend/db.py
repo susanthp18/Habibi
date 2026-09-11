@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import text
 
 import contact_window
+from agent_core import clock
 import visibility
 from env_utils import env_int as _env_int
 from schemas import (
@@ -4226,7 +4227,7 @@ def _create_promise(
             "owner_user_id": owner_user_id if owner_kind == "human" else None,
             "owner_bot_id": owner_bot_id if owner_kind == "bot" else None,
             "amount": payload["amount"],
-            "promised_at": payload["promisedDate"],
+            "promised_at": clock.local_midnight(payload["promisedDate"]),
             "reminder_status": payload.get("reminderStatus") or "queued",
             "channel": payload.get("channel") or "voice",
         },
@@ -4285,7 +4286,7 @@ def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             params["status"] = next_status
         if payload.get("promisedDate"):
             updates.append("promised_at = :promised_at")
-            params["promised_at"] = payload["promisedDate"]
+            params["promised_at"] = clock.local_midnight(payload["promisedDate"])
         if payload.get("paidAmount") is not None:
             updates.append("paid_amount = :paid_amount")
             params["paid_amount"] = payload["paidAmount"]

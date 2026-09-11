@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,19 @@ def tenant_tz() -> ZoneInfo:
 
 def now_local() -> datetime:
     return datetime.now(tenant_tz())
+
+
+def local_midnight(day: date | str) -> datetime:
+    """The instant a calendar day begins where the customer is.
+
+    A bare ``YYYY-MM-DD`` handed to a ``timestamptz`` column is read in the
+    *session's* zone, so the stored instant depended on the connection, not
+    the promise. A promise is a day the borrower named; this is that day's
+    first second in the tenant's zone, explicit on the wire.
+    """
+    if isinstance(day, str):
+        day = date.fromisoformat(day.split("T", 1)[0])
+    return datetime.combine(day, time.min, tzinfo=tenant_tz())
 
 
 def today_local() -> date:
@@ -133,3 +147,25 @@ def utc_isoformat(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=tenant_tz())
     return value.astimezone(timezone.utc).isoformat()
+
+
+def as_utc(value: Any) -> datetime | None:
+    """A timestamp read back from the database, as an aware UTC instant.
+
+    Note the contrast with :func:`to_instant`, which reads a *naive* value as
+    tenant-local because that is what the model means when it says "2:30 PM".
+    Here a naive value is UTC, because it came out of a column the containers
+    wrote in UTC. Same normalisation, opposite assumption, and the difference is
+    five and a half hours — which is why they are two named functions and not
+    one with a flag.
+
+    Ten modules each carried a private ``_aware`` for this, in five different
+    behaviours: three disagreed on whether ``None`` meant ``None`` or meant
+    "now", and half kept the original zone where the other half converted.
+    Anything comparing across two of them was comparing across two definitions.
+    This is the general one — non-datetime in, ``None`` out — so a caller that
+    needs a value substitutes its own with ``as_utc(x) or now``.
+    """
+    if not isinstance(value, datetime):
+        return None
+    return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)

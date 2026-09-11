@@ -325,3 +325,27 @@ def test_a_raising_fulfiller_leaves_the_promise_committed(db_tx, monkeypatch) ->
         text("SELECT status FROM promises WHERE id = :id"), {"id": response["id"]}
     ).mappings().first()
     assert row is not None and row["status"] == "upcoming"
+
+
+def test_a_promise_is_stored_at_local_midnight_of_the_named_day(db_tx) -> None:
+    """The borrower names a day; the row must not depend on the session zone.
+
+    A bare `YYYY-MM-DD` on a timestamptz column is read in whatever zone the
+    connection happens to run -- UTC in every container -- so the stored
+    instant was 05:30 IST and moved with infrastructure. Now it is the day's
+    first second where the customer is, explicit on the wire.
+    """
+    import db
+    from agent_core import clock
+
+    customer_id, account_id = _customer(db_tx)
+    day = clock.today_local() + timedelta(days=4)
+    response = db.create_promise(
+        {"customerId": customer_id, "accountId": account_id, "amount": 300, "promisedDate": day.isoformat()}
+    )
+    stored = db_tx.execute(
+        text("SELECT promised_at AT TIME ZONE :tz AS local FROM promises WHERE id = :id"),
+        {"id": response["id"], "tz": clock.timezone_name()},
+    ).scalar_one()
+    assert stored.date() == day and (stored.hour, stored.minute) == (0, 0)
+    assert clock.local_midnight("2026-09-15").isoformat() == "2026-09-15T00:00:00+05:30"
