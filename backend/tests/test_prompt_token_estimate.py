@@ -117,3 +117,13 @@ def test_a_crm_line_that_gets_deleted_is_not_billed(client: TestClient) -> None:
 def test_persona_is_optional(client: TestClient) -> None:
     body = _estimate(client, guardrails=GUARDRAILS)
     assert body["assembledTokens"] > body["tokens"]
+
+
+def test_the_estimate_reads_the_billing_price_book(client: TestClient, monkeypatch) -> None:
+    """One price book: the editor's $ figure and the invoice's rate are the
+    same variable. Two used to exist (2.50 vs 0.25) and disagreed by 10x."""
+    monkeypatch.setenv("PRICE_CHAT_INPUT_USD_PER_1M", "4.0")
+    r = client.post("/prompt-versions/estimate-tokens", json={"prompt": "hello " * 200})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["costUsd"] == round(body["tokens"] * 4.0 / 1_000_000, 6)

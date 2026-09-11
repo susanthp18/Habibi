@@ -91,6 +91,16 @@ def fx_rate_decimal() -> Decimal:
     return max(Decimal(1), _env_decimal("USD_INR_FX"))
 
 
+def chat_input_usd_per_1m() -> float:
+    """The chat-input list price, for displays that estimate rather than bill.
+
+    Same book as ``chat_cost_inr``; the Studio's token counter used to read a
+    second variable with a different default, so the editor and the invoice
+    disagreed by 10x. Float is fine here: nothing is stored or summed.
+    """
+    return max(0.0, float(_env_decimal("PRICE_CHAT_INPUT_USD_PER_1M")))
+
+
 def chat_cost_inr(*, prompt_tokens: int, completion_tokens: int) -> Decimal:
     fx = fx_rate_decimal()
     pin = _env_decimal("PRICE_CHAT_INPUT_USD_PER_1M")

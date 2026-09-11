@@ -11,7 +11,6 @@ import logging
 import authz
 import db
 import flow_graph
-import os
 
 from fastapi import APIRouter
 from agent_core.cards.compile import CompileError, CompileReport
@@ -774,21 +773,18 @@ def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
     2-3x per turn through Flows, so a card whose authored prompt is 100 tokens
     can be paying for 800.
 
-    Cost uses AZURE_OPENAI_INPUT_USD_PER_1M (default 2.50) — prompt-input only,
-    not a full turn (completion / RAG context excluded).
+    Cost is the meter's chat-input price (``PRICE_CHAT_INPUT_USD_PER_1M``, the
+    one book billing reads) — prompt-input only, not a full turn (completion /
+    RAG context excluded).
     """
     from kb_chunking import count_tokens
+    from usage_meter import chat_input_usd_per_1m
 
     text = payload.prompt or ""
     if len(text) > 200_000:
         raise HTTPException(status_code=400, detail="prompt_too_large")
     tokens = count_tokens(text)
-    try:
-        usd_per_1m = float(os.getenv("AZURE_OPENAI_INPUT_USD_PER_1M") or "2.5")
-    except ValueError:
-        usd_per_1m = 2.5
-    if usd_per_1m < 0:
-        usd_per_1m = 0.0
+    usd_per_1m = chat_input_usd_per_1m()
 
     def _cost(count: int) -> float:
         return round(count * usd_per_1m / 1_000_000.0, 6)
