@@ -364,6 +364,10 @@ _DOOR_TOOLS: frozenset[str] = frozenset(
         "add_customer_note",
         "handoff_to_agent",
         "escalate_to_human",
+        # The one write a door may make. A borrower's calling window is said
+        # to whoever picks up, and the dialler reads it from the consent
+        # record -- a handoff brief is not that record. Conduct, not business.
+        "set_contact_preference",
     }
 )
 
@@ -390,17 +394,17 @@ def fleet_gates(
 ) -> list[GateResult]:
     """G-F2, G-F6, G-F12 and G-F15 over the merged fleet graph.
 
-    G-F15 and G-F2 block. Both describe a call that breaks -- a hop replaying
-    the greeting and recording disclosure at an already-verified caller, and a
-    member that cannot reach a terminal -- and both pass on every card that
-    emits them today, which is the condition for promoting a gate here.
+    G-F15, G-F2 and G-F6 block. The first two describe a call that breaks --
+    a hop replaying the greeting and recording disclosure at an already-verified
+    caller, and a member that cannot reach a terminal. G-F6 describes a door
+    that can do business: it stayed warn while the shipped intake card carried
+    `load_skill`, and went red once the door's include was authored down to
+    the read set. All three pass on every card that emits them, which is the
+    condition for a gate to block here.
 
-    G-F6 and G-F12 stay warn, and not out of caution. G-F6 fires on the shipped
-    intake card (`load_skill`, `set_contact_preference`), so blocking on it
-    would make the door unpublishable on the commit that promoted it; settling
-    the door's tool surface is card authoring, and the gate goes red the day
-    that is done. G-F12 is informational by construction -- it reports that
-    publishing a door deploys its members, which is the design, not a defect.
+    G-F12 stays warn, and not out of caution: it is informational by
+    construction -- it reports that publishing a door deploys its members,
+    which is the design, not a defect.
 
     Returns ``[]`` when there is no fleet: a single-member card has no hop to
     check, no sibling to share a terminal with, and no door.
@@ -506,7 +510,7 @@ def fleet_gates(
         _gate(
             "G-F6",
             "door_readonly",
-            "warn" if extra else "pass",
+            "fail" if extra else "pass",
             (
                 f"the door holds {len(extra)} tool(s) beyond routing: {', '.join(extra)}"
                 if extra

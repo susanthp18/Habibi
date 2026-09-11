@@ -165,6 +165,13 @@ export function ShipTab({
             ))}
           </ul>
         )}
+        {compileReport?.doors_merging?.length ? (
+          <p className="mt-100 text-body-small text-text-subtle" data-testid="doors-merging">
+            Publishing {botId} refreshes the bundle of {compileReport.doors_merging.join(", ")} —
+            the door serves this card's flow from its own compiled bundle, so it is rebuilt on
+            publish.
+          </p>
+        ) : null}
       </section>
       <label className="block space-y-050">
         <span className="text-body-small font-semibold">Canary traffic {value.trafficPct}%</span>

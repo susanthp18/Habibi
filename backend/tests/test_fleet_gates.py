@@ -1,11 +1,11 @@
 """The four gates that need the merged graph.
 
-G-F15 and G-F2 block; G-F6 and G-F12 warn. The split is not caution: both
-blocking gates describe a call that breaks, and both pass on every card that
-emits them. G-F6 fires on the shipped intake card, so promoting it would make
-the door unpublishable on the same commit -- and a gate introduced red is a gate
-people learn to route around, which is what `npm audit --audit-level=high` and
-the eslint warning budget are already pinned on here.
+G-F15, G-F2 and G-F6 block; G-F12 warns. The split is not caution: the
+blocking gates describe a call that breaks or a door that can do business, and
+all three pass on every card that emits them. G-F6 was promoted only once the
+shipped intake card was authored down to the read set -- a gate introduced red
+is a gate people learn to route around, which is what `npm audit
+--audit-level=high` and the eslint warning budget are already pinned on here.
 
 `door_keys` is passed explicitly throughout rather than imported from
 `voice.flow_export`, so these run in a container without pipecat.
@@ -194,8 +194,6 @@ def test_the_door_may_identify_read_route_and_leave() -> None:
         "apply_goodwill",
         # Creates an obligation on the borrower.
         "create_promise_to_pay",
-        # Changes how the borrower may be contacted -- a regulated record.
-        "set_contact_preference",
         # Widens the door's own tool surface at runtime.
         "load_skill",
         "run_skill_script",
@@ -211,7 +209,7 @@ def test_a_door_holding_a_business_tool_is_caught(tool: str) -> None:
         flow=_DOOR_FLOW,
         members=[_member()],
     )
-    assert gates["G-F6"].status == "warn"
+    assert gates["G-F6"].status == "fail"
     assert gates["G-F6"].issues[0]["beyond_routing"] == [tool]
 
 
@@ -247,11 +245,11 @@ def test_every_emitted_id_is_registered() -> None:
         assert _GATE_NAMES[gate_id] == result.name
 
 
-def test_only_the_two_that_describe_a_broken_call_can_block() -> None:
+def test_only_the_three_that_describe_a_defect_can_block() -> None:
     """A card that trips all four. G-F15 and G-F2 block because the call is
     broken either way -- the caller is re-greeted, or a member cannot reach a
-    terminal. G-F6 and G-F12 report on cards that ship today, so blocking on
-    them would make the door unpublishable on the commit that promoted them."""
+    terminal; G-F6 because a door holding a business tool is not a door.
+    G-F12 reports the design, so it cannot block."""
     gates = _run(
         card=_card("intake-v1", tools=["load_skill"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
         flow=_DOOR_FLOW,
@@ -259,6 +257,30 @@ def test_only_the_two_that_describe_a_broken_call_can_block() -> None:
         # then cannot hang up on them.
         members=[_member(flow=_graph(["greet_disclose", "state_position"], start="greet_disclose"))],
     )
-    assert {g for g, r in gates.items() if r.status == "fail"} == {"G-F15", "G-F2"}
-    assert gates["G-F6"].status == "warn"
+    assert {g for g, r in gates.items() if r.status == "fail"} == {"G-F15", "G-F2", "G-F6"}
     assert gates["G-F12"].status == "warn"
+
+
+def test_the_door_may_record_when_it_may_ring() -> None:
+    """`set_contact_preference` is the one write on the door: the calling
+    window is said to whoever answers, and the dialler reads the consent
+    record, not the handoff brief."""
+    gates = _run(
+        card=_card(
+            "intake-v1",
+            tools=["verify_identity", "handoff_to_agent", "set_contact_preference"],
+            handoffs=[{"to_bot_id": "kaia-v2-4", "entry_node": "state_position"}],
+        ),
+        flow=_DOOR_FLOW,
+        members=[_member()],
+    )
+    assert gates["G-F6"].status == "pass"
+
+
+def test_the_shipped_door_passes_the_gate_it_is_now_held_to() -> None:
+    """The condition for promoting G-F6: the seeded intake card holds only the
+    read set. A regression here means someone put business back on the door."""
+    from agent_core.cards.defaults import card_dump
+
+    gates = _run(card=card_dump("intake-v1"), flow=_DOOR_FLOW, members=[_member()])
+    assert gates["G-F6"].status == "pass", gates["G-F6"].detail

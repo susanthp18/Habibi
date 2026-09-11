@@ -83,6 +83,9 @@ class CompileReport(BaseModel):
     #: Phase-1 compiled artefact. Empty on a dry compile that did not wrap
     #: through ``fleet.compile_bundle``; persistable JSON when it did.
     bundle: dict[str, Any] = {}
+    #: Published doors whose bundle merges this card: publishing it refreshes
+    #: each of theirs. Empty for a card nothing merges.
+    doors_merging: list[str] = []
 
     @property
     def blocking(self) -> list[GateResult]:

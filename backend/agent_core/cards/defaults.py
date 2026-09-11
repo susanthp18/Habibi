@@ -85,6 +85,11 @@ _COLLECTIONS_TOOLS = [
     "run_skill_script",
 ]
 
+# The door identifies, reads, routes and leaves. `load_skill` widens the
+# door's own surface at runtime and is not routing; G-F6 blocks on it.
+# `set_contact_preference` is the one write a door may make: "don't ring me
+# before ten" is said to whoever answers, and the dialler reads the consent
+# record, not the handoff brief.
 _INTAKE_TOOLS = [
     "verify_identity",
     "get_customer_context",
@@ -93,7 +98,6 @@ _INTAKE_TOOLS = [
     "search_knowledge_base",
     "add_customer_note",
     "set_contact_preference",
-    "load_skill",
 ]
 
 _INSURANCE_TOOLS = [

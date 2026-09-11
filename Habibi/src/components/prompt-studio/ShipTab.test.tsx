@@ -54,6 +54,35 @@ function show(state: Record<string, unknown>, experiments: Record<string, unknow
   );
 }
 
+describe("ShipTab · Ship readiness", () => {
+  it("says which door's bundle a publish refreshes", () => {
+    contract.state = { data: undefined, isPending: false, isError: false, error: undefined };
+    contract.experiments = { data: [], isPending: false, isError: false };
+    render(
+      <ShipTab
+        botId="kaia-v2-4"
+        value={{ trafficPct: 100, autoRollback: [] }}
+        onChange={() => {}}
+        compileReport={{
+          bot_id: "kaia-v2-4",
+          gates: [{ gate: "G-F6", name: "door_readonly", status: "pass", detail: "", issues: [] }],
+          effective_tools: [],
+          idle_tools: [],
+          idle_voice_tools: 0,
+          voice_tool_cap: 12,
+          skill_description_tokens: 0,
+          card: {},
+          doors_merging: ["intake-v1"],
+        }}
+      />,
+    );
+    expect(screen.getByTestId("doors-merging")).toHaveTextContent(
+      "Publishing kaia-v2-4 refreshes the bundle of intake-v1",
+    );
+    expect(screen.getByText("G-F6")).toBeInTheDocument();
+  });
+});
+
 describe("ShipTab · Effective contract", () => {
   it("says a failed read failed, and does not call it an absent artefact", () => {
     show({ isError: true, error: new Error("network error") });

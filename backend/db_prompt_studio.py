@@ -1062,7 +1062,9 @@ def compile_agent_studio_card(
         source_ids={"bot_id": bot_id, "prompt_version_id": str(version_id or "")},
         members=_fleet_members(card),
     )
-    return report.model_copy(update={"bundle": bundle.model_dump(mode="json")}).model_dump()
+    return report.model_copy(
+        update={"bundle": bundle.model_dump(mode="json"), "doors_merging": doors_merging(bot_id)}
+    ).model_dump()
 
 
 def doors_merging(bot_id: str) -> list[str]:

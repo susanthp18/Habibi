@@ -93,6 +93,8 @@ export type CompileReport = {
   skill_description_tokens: number;
   card: Record<string, unknown>;
   bundle?: Record<string, unknown>;
+  /** Published doors whose bundle merges this card; publishing refreshes each. */
+  doors_merging?: string[];
 };
 
 const MOCK_CARDS: AgentCardSummary[] = [
