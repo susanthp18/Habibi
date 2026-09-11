@@ -30,9 +30,13 @@ def platform_key() -> bytes:
     is now an error at verify/sign time rather than a silently weaker check.
     """
     raw = (os.getenv("SKILL_PLATFORM_KEY") or "").strip()
-    if raw:
-        return raw.encode("utf-8")
     env = env_name()
+    if raw and (raw != DEV_PLATFORM_KEY or env in NON_PROD_ENVS):
+        return raw.encode("utf-8")
+    # Unset, or set to the public development constant outside development
+    # -- the template used to ship that constant as the value, so an operator
+    # who copied .env.example into production had a forgeable gate that read
+    # as configured.
     if env not in NON_PROD_ENVS:
         raise RuntimeError(
             "SKILL_PLATFORM_KEY is not set and APP_ENV=" + env + " is not a "

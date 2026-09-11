@@ -132,3 +132,29 @@ def test_a_signature_forged_with_the_dev_key_fails_against_a_real_one(
     monkeypatch.setenv("SKILL_PLATFORM_KEY", "s3cret-platform-key")
     forged = _expected(sign.DEV_PLATFORM_KEY, "abc")
     assert not sign.verify_signature("abc", forged)
+
+
+@pytest.mark.parametrize("env", ["production", "prod", "staging"])
+def test_the_development_key_is_refused_outside_development(
+    monkeypatch: pytest.MonkeyPatch, env: str
+) -> None:
+    """`.env.example` shipped the public constant as the value.
+
+    An operator who copied the template into production had a key that read
+    as configured and was forgeable by anyone with the source. A configured
+    value equal to the development key is now the same as no key at all
+    outside a declared non-production environment.
+    """
+    monkeypatch.setenv("APP_ENV", env)
+    monkeypatch.setenv("SKILL_PLATFORM_KEY", sign.DEV_PLATFORM_KEY)
+    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
+        sign.platform_key()
+
+
+def test_the_template_does_not_ship_the_development_key() -> None:
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    for line in example.read_text(encoding="utf-8").splitlines():
+        if line.startswith("SKILL_PLATFORM_KEY="):
+            assert line == "SKILL_PLATFORM_KEY="
