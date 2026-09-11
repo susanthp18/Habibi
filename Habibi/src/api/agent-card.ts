@@ -37,7 +37,8 @@ export const CARD_SCHEMA_VERSION = "1";
 
 export type Channel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
 export type PinMode = "exact" | "caret";
-export type EvalRequire = "regression" | "redteam" | "twin" | "outbound";
+export const EVAL_REQUIRES = ["regression", "redteam", "twin", "outbound"] as const;
+export type EvalRequire = (typeof EVAL_REQUIRES)[number];
 /**
  * The three on the first line describe a canary that is *slow*. The three on the
  * second describe one that is *harmful*, and outbound needed its own: an inbound
@@ -80,20 +81,23 @@ export type PostCallQa = "always" | "sampled" | "never";
  * graph is what must contain a matching entry node; the card restates it so a
  * typo fails at parse rather than at dial time.
  */
-export type Objective =
-  | "inbound"
-  | "pre_due_reminder"
-  | "bounce_cure"
-  | "dpd_reminder"
-  | "broken_ptp_chase"
-  | "hardship_intake"
-  | "mandate_reregistration"
-  | "document_chase"
-  | "callback_honour"
-  | "welcome_onboarding"
-  | "retention_save"
-  | "cross_sell"
-  | "manual_outbound";
+export const OBJECTIVES = [
+  "inbound",
+  "pre_due_reminder",
+  "bounce_cure",
+  "dpd_reminder",
+  "broken_ptp_chase",
+  "hardship_intake",
+  "mandate_reregistration",
+  "document_chase",
+  "callback_honour",
+  "welcome_onboarding",
+  "retention_save",
+  "cross_sell",
+  "manual_outbound",
+] as const;
+
+export type Objective = (typeof OBJECTIVES)[number];
 
 /**
  * Engines the author cannot unbind. All four must appear on `tools.locked`;

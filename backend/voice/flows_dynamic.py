@@ -56,7 +56,7 @@ import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable
 
-from flow_graph import FlowGraph, FlowNode, parse_graph
+from flow_graph import GLOBAL_TOOLS_STRIPPED_AT_RUNTIME, FlowGraph, FlowNode, parse_graph
 import flow_walk
 from flow_vars import FlowVariables
 from flow_graph import split_key
@@ -504,16 +504,13 @@ def build_authored_flow(
     for node in graph.nodes:
         nodes[node.key] = _make_factory(node)
 
-    # Same CRM-read strip as voice/flows.py: those tools belong on the node
-    # that is allowed to use them, not on confirm_identity's first turn.
-    _crm_reads = {
-        "get_customer_context",
-        "get_payment_history",
-        "get_emi_schedule",
-        "request_documents",
-    }
+    # CRM reads belong on the node that is allowed to use them, not on
+    # confirm_identity's first turn. The list lives on flow_graph so G16 can
+    # warn the author that these globals will not be offered.
     global_functions = [
-        tools[key] for key in graph.globalTools if key in tools and key not in _crm_reads
+        tools[key]
+        for key in graph.globalTools
+        if key in tools and key not in GLOBAL_TOOLS_STRIPPED_AT_RUNTIME
     ]
 
     logger.info(

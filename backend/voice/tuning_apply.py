@@ -400,6 +400,7 @@ def resolve_session_tuning(
     pitch: int | None = None,
     warmth: int | None = None,
     persona_language: str | None = None,
+    persona_fallback_languages: list[str] | None = None,
 ) -> dict[str, Any]:
     """Normalize deployment/session tuning; optionally overlay Prompt Studio voice.
 
@@ -465,11 +466,20 @@ def resolve_session_tuning(
     if persona_tag and not explicit_lang:
         stt = tuning.setdefault("stt", {})
         stt["language"] = persona_tag
-        # normalize_tuning has already built fallback_languages around the
-        # default tag. Re-front the chosen one rather than appending: the list
-        # is a priority order and a Hindi card whose first fallback is en-IN
-        # switches itself back to English on the first ambiguous utterance.
-        fallbacks = [f for f in (stt.get("fallback_languages") or []) if f != persona_tag]
+        # The Persona tab's fallbackLanguages were read by the prompt
+        # (``persona_language_line``) and by nothing on the recogniser, which
+        # kept normalize_tuning's ["hi-IN", "en-IN"] whatever the card said.
+        # An authored list replaces that default; names the registry does not
+        # know are dropped (the primary already warned above for its own case).
+        authored = [
+            tag
+            for tag in (languages.tag_for(name) for name in (persona_fallback_languages or []))
+            if tag and tag != persona_tag
+        ]
+        # Re-front the chosen one rather than appending: the list is a priority
+        # order and a Hindi card whose first fallback is en-IN switches itself
+        # back to English on the first ambiguous utterance.
+        fallbacks = authored or [f for f in (stt.get("fallback_languages") or []) if f != persona_tag]
         stt["fallback_languages"] = [persona_tag, *fallbacks]
     try:
         import db

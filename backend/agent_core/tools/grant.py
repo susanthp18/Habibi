@@ -23,9 +23,7 @@ permits, and nothing here lets it: the offer is filtered through the grant.
 Loading a skill is therefore not a permission change — the permission boundary
 is pack *attachment*, decided when the card is published.
 
-A cardless mouth is granted nothing (ADR-0002). Callers that still need the
-legacy ungated fallback ask :attr:`is_cardless` and supply it themselves, until
-the deny-all ticket deletes those branches.
+A cardless mouth is granted nothing (ADR-0002).
 
 ``voice.tools`` imports :data:`VOICE_ALWAYS` as ``ALWAYS_ON``. The remaining
 formulas still compute the grant themselves; they migrate one at a time.
@@ -171,12 +169,7 @@ class ToolGrant:
 
     @property
     def is_cardless(self) -> bool:
-        """No usable agent card, so no grant exists and nothing is permitted.
-
-        Callers that still fall back to a hardcoded tool list branch on this.
-        Those branches are what the deny-all ticket deletes; this module is
-        already deny-all and needs no change then.
-        """
+        """No usable agent card, so no grant exists and nothing is permitted."""
         return self.card is None
 
     def _inputs(self) -> dict[str, Any]:

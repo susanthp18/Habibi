@@ -21,7 +21,10 @@ from typing import Any, Callable, Mapping
 logger = logging.getLogger(__name__)
 
 #: ``{{ customer_name }}`` — whitespace tolerated, key shape matches flow_graph.
-_TEMPLATE_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
+#: The one owner of the flow-token shape: ``prompt_lint`` reports these tokens
+#: with it, and the studio's ``FLOW_TOKEN_RE`` is held to it by a drift test.
+TEMPLATE_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
+_TEMPLATE_RE = TEMPLATE_RE
 
 _NUMERIC_OPERATORS = frozenset(
     {"greater_than", "greater_or_equal", "less_than", "less_or_equal"}

@@ -127,7 +127,8 @@ export type Connector = {
   timeoutMs?: number;
   allowedEnv?: string;
   status: "draft" | "approved" | "disabled";
-  health: "unknown" | "healthy" | "degraded" | "down";
+  /** `blocked`: the egress guard refused the URL; heals only when the URL changes. */
+  health: "unknown" | "healthy" | "degraded" | "down" | "blocked";
   lastToolsListAt?: string | null;
   toolsCache?: { name?: string }[];
   cimdIssuer?: string | null;

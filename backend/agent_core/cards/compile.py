@@ -437,17 +437,28 @@ def _flow_grant_gate(flow: Any, grant: set[str] | frozenset[str]) -> GateResult:
     issues = [
         {"node": r["key"], "dropped": r["dropped"]} for r in rows if r["dropped"]
     ]
+    # A granted CRM read on ``globalTools`` is still never offered: the runtime
+    # strips it before the first turn. Within the grant, and silently gone.
+    graph = fg.parse_graph(flow)  # already parsed once by node_offers, so it parses
+    stripped = sorted(set(graph.globalTools) & fg.GLOBAL_TOOLS_STRIPPED_AT_RUNTIME)
+    if stripped:
+        issues.append({"node": "globalTools", "stripped_at_runtime": stripped})
     if not issues:
         return _gate("G16", "flow_grant", "pass", f"{len(rows)} steps within the grant")
-    names = sorted({n for i in issues for n in i["dropped"]})
-    return _gate(
-        "G16",
-        "flow_grant",
-        "warn",
-        f"{len(issues)} step(s) call {len(names)} tool(s) this card cannot grant: "
-        + ", ".join(names),
-        issues,
-    )
+    dropped = [i for i in issues if i.get("dropped")]
+    names = sorted({n for i in dropped for n in i["dropped"]})
+    detail = ""
+    if names:
+        detail = (
+            f"{len(dropped)} step(s) call {len(names)} tool(s) this card cannot grant: "
+            + ", ".join(names)
+        )
+    if stripped:
+        detail += ("; " if detail else "") + (
+            "globalTools carries CRM reads the runtime strips before the first turn — "
+            "put them on the step that may use them: " + ", ".join(stripped)
+        )
+    return _gate("G16", "flow_grant", "warn", detail, issues)
 
 
 def _text_walkability_gate(flow: Any, grant: Any, card: Any) -> GateResult:
@@ -1442,8 +1453,8 @@ def _ship_gates(
                     g10_issues.append({"url_not_https": ref.connector_id})
             if not conn.get("dataClass"):
                 g10_issues.append({"data_class_missing": ref.connector_id})
-            if conn.get("health") == "down":
-                g10_issues.append({"unhealthy": ref.connector_id})
+            if conn.get("health") in {"down", "blocked"}:
+                g10_issues.append({"unhealthy": ref.connector_id, "health": conn.get("health")})
         if g10_issues:
             gates.append(
                 _gate(

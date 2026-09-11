@@ -398,6 +398,16 @@ class FlowEdge(BaseModel):
     data: FlowEdgeData = Field(default_factory=FlowEdgeData)
 
 
+#: CRM reads the runtime strips from ``globalTools`` before a call starts: they
+#: belong on the node that is allowed to use them, not on confirm_identity's
+#: first turn. Declared here so the compiler's G16 can warn the author with the
+#: same list ``voice.flows_dynamic`` strips by — authoring one and having it
+#: vanish at dial time was silent.
+GLOBAL_TOOLS_STRIPPED_AT_RUNTIME: frozenset[str] = frozenset(
+    {"get_customer_context", "get_payment_history", "get_emi_schedule", "request_documents"}
+)
+
+
 class FlowGraph(BaseModel):
     """A complete authored conversation flow."""
 

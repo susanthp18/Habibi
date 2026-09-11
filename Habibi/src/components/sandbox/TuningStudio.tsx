@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import {
-  AGENT_TUNING_PRESETS,
   clampAgentTuning,
   tuningFingerprint,
   type AgentTuning,
@@ -103,7 +102,7 @@ export function TuningStudio({
     listening: false,
     turn: false,
   });
-  const [presets, setPresets] = useState<AgentTuningPreset[]>(AGENT_TUNING_PRESETS);
+  const [presets, setPresets] = useState<AgentTuningPreset[]>([]);
   const [presetsError, setPresetsError] = useState(false);
   const [presetId, setPresetId] = useState("empathetic-collections");
   // There is no Apply button here — every control writes straight through. That
@@ -245,8 +244,8 @@ export function TuningStudio({
         </label>
         {presetsError ? (
           <p className="mt-050 text-body-tiny text-text-danger">
-            Server presets could not be loaded. The displayed fallback is not publishable from
-            Sandbox.
+            Server presets could not be loaded — the list is empty rather than a browser copy the
+            call would not run under.
           </p>
         ) : null}
         {/*

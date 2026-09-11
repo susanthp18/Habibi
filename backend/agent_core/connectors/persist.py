@@ -364,6 +364,14 @@ def health_test(connector_id: str) -> dict[str, Any]:
         code = _blocked_url_code(exc)
         if code:
             logger.error("connector health probe blocked · %s · %s", conn["id"], exc)
+            # Written to the row, not only returned: the registry and G10 read
+            # `health`, and a blocked URL that still read 'healthy' from an
+            # earlier probe was a connector the compiler would pass.
+            with db.engine.begin() as dbc:
+                dbc.execute(
+                    text("UPDATE mcp_connectors SET health = 'blocked' WHERE id = :id"),
+                    {"id": conn["id"]},
+                )
             return {"ok": False, "error": code}
         circuit.record_failure(conn["id"])
         return {"ok": False, "error": type(exc).__name__}

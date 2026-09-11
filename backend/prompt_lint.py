@@ -13,14 +13,14 @@ from typing import Any
 # authoring gate (this module, over prompt TEXT) and the runtime detector
 # (evaluate_guardrails, over bot TURNS) cannot drift apart.
 from agent_core.guardrails import mentions_recording_disclosure
+from flow_vars import TEMPLATE_RE
 from prompt_render import KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES, TOKEN_RE
 
 logger = logging.getLogger(__name__)
 
-#: ``{{ customer_name }}`` — the Flow tab's variable syntax. Mirrors
-#: ``flow_vars._TEMPLATE_RE`` so the two surfaces agree on what a flow
-#: token looks like; this module only ever reports them, never renders them.
-_FLOW_TOKEN_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
+#: ``{{ customer_name }}`` — the Flow tab's variable syntax, read from its
+#: owner; this module only ever reports these tokens, never renders them.
+_FLOW_TOKEN_RE = TEMPLATE_RE
 
 _NEGATION_RE = re.compile(
     r"\b(never|no|not|n't|dont|avoid|refuse|refuses|refusing|must\s+not|cannot|"

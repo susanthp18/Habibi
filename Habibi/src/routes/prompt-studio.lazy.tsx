@@ -1199,7 +1199,11 @@ export function PromptStudioPage({
               <SkillsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
             )}
             {tab === "connectors" && (
-              <ConnectorsTab card={effectiveCard} onChange={(next) => setCard(next)} />
+              <ConnectorsTab
+                botId={botId}
+                card={effectiveCard}
+                onChange={(next) => setCard(next)}
+              />
             )}
             {tab === "policy" && <PolicyTab />}
             {tab === "outbound" && (

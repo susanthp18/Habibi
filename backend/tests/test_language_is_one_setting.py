@@ -69,6 +69,15 @@ def test_the_chosen_language_leads_its_own_fallback_list() -> None:
     assert tuning["stt"]["fallback_languages"].count("ta-IN") == 1
 
 
+def test_the_persona_fallbacks_bind_the_recogniser() -> None:
+    """`fallbackLanguages` reached the prompt and never the recogniser, which
+    kept the ["hi-IN", "en-IN"] default for a card that said Tamil, Kannada."""
+    tuning = resolve_session_tuning(
+        {}, persona_language="Hindi", persona_fallback_languages=["Tamil", "Klingon", "Kannada"]
+    )
+    assert tuning["stt"]["fallback_languages"] == ["hi-IN", "ta-IN", "kn-IN"]
+
+
 def test_an_explicit_tuning_language_still_wins() -> None:
     """Same precedence as the TTS voice: the Tuning Studio is more specific."""
     tuning = resolve_session_tuning({"stt": {"language": "en-US"}}, persona_language="Hindi")

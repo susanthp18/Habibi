@@ -6015,12 +6015,6 @@ class SkillCloneRequest(BaseModel):
     slug: str | None = None
 
 
-class SkillAttachRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    promptVersionId: str = Field(validation_alias=AliasChoices("promptVersionId", "prompt_version_id"))
-
-
 class SkillScriptRunRequest(BaseModel):
     """`payload` must be an object: the console says so, and `[1, 2]` used to
     run the script against nothing and return a verdict that read as computed."""
@@ -6306,3 +6300,37 @@ class TtsLocaleCountResponse(BaseModel):
     locale: str
     localeName: str
     count: int
+
+
+# ── Policy export bundle (regulator artefact) ────────────────────────────────
+# Extends the PolicyExport* models above with the tenant's real DND rule, the
+# window per channel and the published card's gates.
+
+
+class PolicyExportDndRulesResponse(PolicyExportDndResponse):
+    scrubLists: list[str]
+    suppressionKinds: list[str]
+    ruleSetVersion: int | None
+
+
+class PolicyExportWindowResponse(BaseModel):
+    startHour: int
+    endHour: int
+
+
+class PolicyExportCardResponse(BaseModel):
+    botId: str
+    versionId: str
+    humanGates: list[dict[str, Any]]
+    guardrails: dict[str, Any]
+
+
+class PolicyExportBundleFactsResponse(PolicyExportFactsResponse):
+    dnd: PolicyExportDndRulesResponse
+    callingWindows: dict[str, PolicyExportWindowResponse]
+    #: None when the bot has no published version — absent, not an empty card.
+    card: PolicyExportCardResponse | None
+
+
+class PolicyExportBundleResponse(PolicyExportResponse):
+    facts: PolicyExportBundleFactsResponse

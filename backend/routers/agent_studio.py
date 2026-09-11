@@ -60,7 +60,6 @@ from schemas import (
     RolePermissionsPatchRequest,
     RoleResponse,
     RolesCatalogResponse,
-    SkillAttachRequest,
     SkillCloneRequest,
     SkillCreateRequest,
     SkillPatchRequest,
@@ -470,26 +469,6 @@ def clone_agent_studio_skill(skill_id: str, payload: SkillCloneRequest | None = 
     from agent_core.skills.persist import clone_skill
 
     return _handle_write(clone_skill, skill_id, payload.slug if payload else None)
-
-@router.post("/agent-studio/skills/{skill_id}/attach", response_model=AgentStudioOkResponse)
-def attach_agent_studio_skill(skill_id: str, payload: SkillAttachRequest):
-    from agent_core.skills.persist import attach_skill_to_prompt
-
-    version_id = payload.promptVersionId.strip()
-    if not version_id:
-        raise HTTPException(status_code=422, detail="prompt_version_id_required")
-    _handle_write(attach_skill_to_prompt, version_id, skill_id)
-    return {"ok": True}
-
-@router.post("/agent-studio/skills/{skill_id}/detach", response_model=AgentStudioOkResponse)
-def detach_agent_studio_skill(skill_id: str, payload: SkillAttachRequest):
-    from agent_core.skills.persist import detach_skill_from_prompt
-
-    version_id = payload.promptVersionId.strip()
-    if not version_id:
-        raise HTTPException(status_code=422, detail="prompt_version_id_required")
-    _handle_write(detach_skill_from_prompt, version_id, skill_id)
-    return {"ok": True}
 
 @router.get("/agent-studio/skills/{skill_id}/export", response_class=StreamingResponse)
 def export_agent_studio_skill(skill_id: str):

@@ -6,6 +6,7 @@
  * `import type` only: nothing here pulls `@/api/agent-studio` in at runtime.
  */
 import type { AgentCardSummary } from "@/api/agent-studio";
+import type { LozengeTone } from "@/components/ui/lozenge";
 
 /**
  * Whether an action can be taken, and one sentence about it either way.
@@ -147,5 +148,49 @@ export function groupRoster<T extends GroupableCard>(cards: readonly T[]): Roste
   }
   return groups;
 }
+
+/**
+ * Routing, not deployment. Every published card used to read "live · 100%",
+ * which described its deployment row and said nothing about whether traffic
+ * can reach it.
+ *
+ * The first fix over-corrected: it walked the graph from BOT_ID alone, so
+ * Intake — a live front door at 100% traffic that routes *to* Collections —
+ * read "unreachable" beside two empty scaffolds that genuinely are. A card
+ * holding its own active deployment is addressable by bot_id, so it gets
+ * `direct` and `unreachable` goes back to meaning dead config.
+ */
+export const ROUTING: Record<
+  AgentCardSummary["reachability"],
+  { label: string; tone: LozengeTone; help: (entry: string) => string }
+> = {
+  entry: {
+    label: "takes inbound",
+    tone: "success",
+    help: () => "Inbound traffic resolves to this card.",
+  },
+  handoff: {
+    label: "via handoff",
+    tone: "information",
+    help: (entry) => `Reached mid-conversation from ${entry}'s handoff allowlist.`,
+  },
+  direct: {
+    label: "direct only",
+    tone: "information",
+    help: (entry) =>
+      `Addressed directly by bot id — it has its own live deployment — but nothing hands off to it, including ${entry}.`,
+  },
+  unreachable: {
+    label: "unreachable",
+    tone: "warning",
+    help: (entry) =>
+      `Nothing routes here — no deployment of its own, and not on any allowlist from ${entry}.`,
+  },
+  archived: {
+    label: "archived",
+    tone: "neutral",
+    help: () => "Retired. Kept for audit; takes no traffic.",
+  },
+};
 
 export { changeVerb } from "@/lib/change-log-actions";

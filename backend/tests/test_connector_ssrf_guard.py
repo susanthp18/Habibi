@@ -25,6 +25,7 @@ import socket as sock
 from typing import Any
 
 import pytest
+from types import SimpleNamespace
 
 import webhooks_dispatch as wd
 from agent_core.connectors import persist as cp
@@ -206,12 +207,29 @@ def test_health_test_returns_a_clean_error_and_spares_the_circuit(
     monkeypatch.setattr(cp.circuit, "record_failure", lambda cid: failures.append(cid))
     monkeypatch.setattr(cp.circuit, "record_success", lambda cid: failures.append("success"))
     _resolves_to(monkeypatch, "127.0.0.1")
+    writes: list[tuple[str, dict]] = []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, stmt, params=None):
+            writes.append((str(stmt), dict(params or {})))
+
+    monkeypatch.setattr(cp.db, "engine", SimpleNamespace(begin=lambda: _Conn()))
 
     result = cp.health_test("conn-ssrf-test")
 
     assert result == {"ok": False, "error": "connector_url_private_forbidden"}
     assert failures == []
     assert no_network == []
+    # The row says so too — G10 reads `health`, and a blocked URL that kept an
+    # earlier 'healthy' was a connector the compiler would pass.
+    assert writes and "health = 'blocked'" in writes[0][0]
+    assert writes[0][1] == {"id": "conn-ssrf-test"}
 
 
 def test_a_transport_fault_still_counts_against_the_circuit(

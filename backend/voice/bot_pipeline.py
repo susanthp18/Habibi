@@ -106,6 +106,11 @@ def build_services(call) -> None:
             if isinstance(bundle.get("persona"), dict)
             else None
         ),
+        persona_fallback_languages=(
+            (bundle.get("persona") or {}).get("fallbackLanguages")
+            if isinstance(bundle.get("persona"), dict)
+            else None
+        ),
     )
     session.extra["tuning"] = tuning
 

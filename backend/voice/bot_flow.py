@@ -381,6 +381,14 @@ def resolve_call(call) -> None:
         _guardrail_secs = 0
     if _guardrail_secs > 0:
         session.extra["guardrail_max_seconds"] = _guardrail_secs
+    # Same tab, same fate: "Max turns" was authored and read by nobody on
+    # voice. The count the sink keeps feeds the watchdog in bot_handlers.
+    try:
+        _guardrail_turns = int((bundle.get("guardrails") or {}).get("maxTurns") or 0)
+    except (TypeError, ValueError):
+        _guardrail_turns = 0
+    if _guardrail_turns > 0:
+        session.extra["guardrail_max_turns"] = _guardrail_turns
 
     system_instruction = _system_instruction_from_bundle(bundle)
 

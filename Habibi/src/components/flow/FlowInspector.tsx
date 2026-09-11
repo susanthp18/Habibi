@@ -25,6 +25,7 @@ import {
   useFlowVariables,
 } from "@/api/flow";
 import { useOutboundVocabulary } from "@/api/outbound";
+import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -515,6 +516,11 @@ export function GraphInspector({
     if (readOnly) return;
     onChange(selected.has(key) ? globalTools.filter((t) => t !== key) : [...globalTools, key]);
   };
+  // What G16 warns about: the runtime strips these from the globals before
+  // the first turn, so a CRM read ticked here is offered on no step at all.
+  const stripped = globalTools.filter((t) =>
+    STUDIO_VOCABULARY.globalToolsStrippedAtRuntime.includes(t),
+  );
 
   return (
     <InspectorShell
@@ -557,6 +563,17 @@ export function GraphInspector({
           disabled={readOnly}
           onToggle={toggle}
         />
+        {stripped.length > 0 && (
+          <p className="mt-075 text-body-small text-text-warning-bolder">
+            {stripped.map((t) => (
+              <code key={t} className="mr-050 font-mono">
+                {t}
+              </code>
+            ))}
+            {stripped.length === 1 ? "is" : "are"} stripped from the globals before the first turn —
+            a CRM read belongs on the step that may use it. The compiler reports this as G16.
+          </p>
+        )}
       </Section>
 
       <Section label="On this canvas">
@@ -749,9 +766,20 @@ export function NodeInspector({
                 label="Listen before speaking"
                 onChange={(next) => setData({ respondImmediately: !next })}
               />
-              {!node.data.respondImmediately && (
+              {/* Hidden only while it is empty AND the step speaks first. An
+                  authored line stays visible whatever the checkbox says: on a
+                  prompt step the runtime speaks it either way, and on a Say step
+                  it is never read — both are things the author has to be able
+                  to see to fix. */}
+              {(!node.data.respondImmediately || (node.data.entryLine ?? "").trim()) && (
                 <label className="block space-y-050 rounded-medium bg-surface-sunken px-100 py-075">
-                  <FieldLabel hint="A step that listens without speaking is silent until someone talks. If the caller is moved here right after answering, give them this line — otherwise they hear nothing.">
+                  <FieldLabel
+                    hint={
+                      node.data.instructionType === "say"
+                        ? "Not spoken on a Say verbatim step — the scripted text above is the line. Clear this, or switch the step to Instruct the model."
+                        : "A step that listens without speaking is silent until someone talks. If the caller is moved here right after answering, give them this line — otherwise they hear nothing."
+                    }
+                  >
                     Line spoken on entry
                   </FieldLabel>
                   <Input

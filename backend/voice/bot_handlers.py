@@ -554,6 +554,40 @@ def register_handlers(call) -> None:
         except Exception:
             logger.debug("rearm idle after unstrategied user turn failed", exc_info=True)
 
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped_max_turns(aggregator, strategy, message=None):
+        """The card's ``guardrails.maxTurns``, on the sink's customer-turn count.
+
+        The sink subscribed first (``build_pipeline``), so by the time this runs
+        the count includes the turn that just ended. Spoken sign-off and the
+        same single-flight end as the duration watchdog; the model's reply to
+        this turn is not awaited, because a cap that lets one more answer
+        through is a cap of N+1.
+        """
+        cap = int(session.extra.get("guardrail_max_turns") or 0)
+        if cap <= 0 or sink.customer_turns() < cap:
+            return
+        if not _claim_end("max_turns"):
+            return
+        logger.info(
+            "Max turns reached · session={} · turns={} · cap={}",
+            session.session_id,
+            sink.customer_turns(),
+            cap,
+        )
+        try:
+            await worker.queue_frame(
+                TTSSpeakFrame(
+                    "We've covered what we can on this call. Thank you, goodbye.",
+                    append_to_context=False,
+                )
+            )
+        except TypeError:
+            await worker.queue_frame(
+                TTSSpeakFrame("We've covered what we can on this call. Thank you, goodbye.")
+            )
+        await worker.queue_frame(EndFrame())
+
     async def _handle_tune_message(message) -> None:
         delta = _extract_tune_delta(message)
         if not delta:

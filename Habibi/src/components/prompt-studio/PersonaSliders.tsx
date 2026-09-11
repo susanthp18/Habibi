@@ -130,6 +130,9 @@ export function PersonaSliders({
         warmth: voice.warmth,
         pauseMs: voice.pauseMs,
         style: voice.style,
+        // The Voice tab's provider controls. Without them "Hear tone" played
+        // the vendor defaults, not the voice the card ships with.
+        params: voice.params,
       });
       if (gen !== requestGen.current) return;
       const url = URL.createObjectURL(result.blob);

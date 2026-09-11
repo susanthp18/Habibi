@@ -15,7 +15,14 @@ import type {
   TtsVoice,
   VoiceConfig,
 } from "@/api/types/prompt-studio";
-import { KNOWN_VARIABLES, PRESETS, TTS_VOICES, VERSION_HISTORY } from "@/data/prompt-studio-seed";
+import {
+  KNOWN_VARIABLES,
+  PRESETS,
+  PROMPT_TOKEN_RE,
+  TTS_VOICES,
+  VERSION_HISTORY,
+} from "@/data/prompt-studio-seed";
+import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
 import {
   ApiError,
   apiGet,
@@ -45,7 +52,6 @@ export type BotDeployment = {
   tuning?: Record<string, unknown>;
   /** The split this deployment is actually taking. */
   trafficPct?: number;
-  shadow?: boolean;
   evalReportId?: string | null;
   frozenTools?: string[] | null;
   bundleHash?: string | null;
@@ -675,7 +681,6 @@ export async function publishPromptVersion(
   opts?: {
     kbSnapshotId?: string | null;
     trafficPct?: number | null;
-    shadow?: boolean;
     autoRollback?: string[] | null;
   },
 ): Promise<PromptVersion> {
@@ -700,7 +705,6 @@ export async function publishPromptVersion(
     summary,
     kbSnapshotId: opts?.kbSnapshotId ?? null,
     trafficPct: opts?.trafficPct ?? null,
-    shadow: opts?.shadow ?? false,
     autoRollback: opts?.autoRollback ?? null,
   });
 }
@@ -779,7 +783,7 @@ export async function lintPromptVersion(input: {
 }): Promise<PromptLintFinding[]> {
   if (USE_MOCK) {
     const findings: PromptLintFinding[] = [];
-    const unknown = Array.from(input.prompt.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g))
+    const unknown = Array.from(input.prompt.matchAll(PROMPT_TOKEN_RE))
       .map((m) => m[1])
       .filter((v) => !KNOWN_VARIABLES.includes(v as (typeof KNOWN_VARIABLES)[number]));
     for (const v of Array.from(new Set(unknown))) {
@@ -795,7 +799,12 @@ export async function lintPromptVersion(input: {
     // call is recorded", which is what made a live call say it three times. The
     // gap worth reporting is the opposite: the guardrail off AND no disclosure,
     // where nothing on the card discloses anything.
-    const discloses = /record/i.test(input.prompt);
+    // The same pattern `agent_core.guardrails.mentions_recording_disclosure`
+    // runs on live turns, so the mock and the real lint agree on what counts
+    // as disclosing. A bare /record/ accepted "I'll record that in the CRM".
+    const discloses = new RegExp(STUDIO_VOCABULARY.recordingDisclosurePattern, "i").test(
+      input.prompt,
+    );
     if (input.guardrails.alwaysDiscloseRecording) {
       if (discloses) {
         findings.push({
@@ -973,7 +982,6 @@ export async function publishStudioDraft(opts: {
   agentCard?: Record<string, unknown>;
   botId?: string;
   trafficPct?: number;
-  shadow?: boolean;
   autoRollback?: string[];
 }): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
@@ -1005,7 +1013,6 @@ export async function publishStudioDraft(opts: {
   }
   return publishPromptVersion(draftId, opts.summary, {
     trafficPct: opts.trafficPct,
-    shadow: opts.shadow,
     autoRollback: opts.autoRollback,
   });
 }

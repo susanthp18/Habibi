@@ -308,6 +308,23 @@ def test_g16_warns_and_names_the_node_when_a_pack_is_detached() -> None:
     assert any(i["node"] == "handle_dispute" for i in g16.issues)
 
 
+def test_g16_warns_when_a_global_crm_read_will_be_stripped() -> None:
+    """``voice.flows_dynamic`` drops CRM reads from ``globalTools`` before the
+    first turn. Within the grant, so the old gate passed it — and the author
+    found out on a call. The runtime strips by the list the gate warns by."""
+    from agent_core.cards.compile import _flow_grant_gate
+    from voice import flows_dynamic
+
+    assert "GLOBAL_TOOLS_STRIPPED_AT_RUNTIME" in inspect.getsource(flows_dynamic)
+    flow = _built_in()
+    flow["globalTools"] = [*flow.get("globalTools", []), "get_payment_history"]
+    grant = set(CATALOG_NAMES)
+    g16 = _flow_grant_gate(flow, grant)
+    assert g16.status == "warn"
+    assert "get_payment_history" in g16.detail and "strips" in g16.detail
+    assert any(i.get("stripped_at_runtime") == ["get_payment_history"] for i in g16.issues)
+
+
 def test_g16_warns_rather_than_blocks() -> None:
     """Deliberate, and recorded: a blocking gate that fires on the shipping
     card is a gate nobody can adopt. Promotion is a later chunk's move."""

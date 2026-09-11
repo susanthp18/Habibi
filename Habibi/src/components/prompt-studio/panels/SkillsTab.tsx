@@ -1,4 +1,5 @@
 import { Lozenge } from "@/components/ui/lozenge";
+import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { controlKindLabel } from "@/lib/studio-contract";
 import { useAgentStudioSkills, useCompilePreview } from "@/api/agent-studio";
@@ -21,6 +22,9 @@ export function SkillsTab({
   // Same compile preview the Tools tab runs, for the same reason: the compiler
   // is the only thing whose token count is the one the gates use.
   const preview = useCompilePreview(botId, { agentCard: card }, isAuthoredCard(card));
+  // G9 is the gate this tab's choices are judged by, so it is shown here
+  // rather than only in the publish dialog after the fact.
+  const g9 = preview.data?.gates.find((g) => g.gate === "G9");
   const prefixFromCompiler = typeof preview.data?.skill_description_tokens === "number";
   const prefixTokens = prefixFromCompiler
     ? preview.data!.skill_description_tokens
@@ -64,6 +68,12 @@ export function SkillsTab({
         <span className="font-mono">create_promise_to_pay</span> even if it stays on the card
         include list. Unsigned skills cannot attach to production (G9).
       </p>
+      {isAuthoredCard(card) && g9 ? (
+        <Lozenge tone={gateTone(g9.status)} title={g9.detail || undefined}>
+          {g9.gate} {g9.status}
+          {g9.detail ? ` — ${g9.detail}` : ""}
+        </Lozenge>
+      ) : null}
       {!editable && onChange ? <NotAuthoredNotice what="skill attachments" /> : null}
       <QueryState
         query={skillsQuery}

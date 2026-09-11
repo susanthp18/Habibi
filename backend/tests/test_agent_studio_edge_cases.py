@@ -77,7 +77,7 @@ def test_delete_sees_attachments_on_unpublished_drafts(cloned_bot: str) -> None:
             text("SELECT id FROM skill_versions WHERE skill_id = :i LIMIT 1"),
             {"i": skill["id"]},
         ).scalar_one()
-        # Bypass attach_skill_to_prompt, which would demand a signed version —
+        # Insert directly — the publish path would demand a signed version —
         # the point here is what delete_skill sees, not how the row got there.
         conn.execute(
             text(

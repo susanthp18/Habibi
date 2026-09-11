@@ -668,42 +668,6 @@ def _latest_signed_version(
     return None
 
 
-def attach_skill_to_prompt(prompt_version_id: str, skill_id: str) -> None:
-    skill = get_skill(skill_id)
-    if skill is None:
-        raise KeyError("skill_not_found")
-    with db.engine.begin() as conn:
-        signed = _latest_signed_version(conn, skill_id=skill["id"])
-        if signed is None:
-            raise ValueError("skill_unsigned")
-        conn.execute(
-            text(
-                """
-                INSERT INTO skill_attachments (prompt_version_id, skill_version_id)
-                VALUES (:pv, :sv)
-                ON CONFLICT DO NOTHING
-                """
-            ),
-            {"pv": prompt_version_id, "sv": signed["id"]},
-        )
-
-
-def detach_skill_from_prompt(prompt_version_id: str, skill_id: str) -> None:
-    with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                DELETE FROM skill_attachments sa
-                 USING skill_versions sv
-                 WHERE sa.skill_version_id = sv.id
-                   AND sa.prompt_version_id = :pv
-                   AND sv.skill_id = :sid
-                """
-            ),
-            {"pv": prompt_version_id, "sid": skill_id},
-        )
-
-
 def packs_for_slugs(slugs: list[str]) -> list[SkillPack]:
     """Latest signed DB pack per slug. Disk first-party packs fill gaps so G9 cannot disable a mouth.
 

@@ -227,8 +227,9 @@ const MOCK_CARDS: AgentCardSummary[] = [
  *   button stayed enabled.
  *
  * `["agent-studio"]` covers cards, card, graph, skills, skill and templates
- * because they all descend from it. The two roots that do NOT are listed here
- * explicitly, so adding a mutation means calling this rather than guessing.
+ * because they all descend from it. Every other root a studio mutation can
+ * stale is listed here explicitly, so adding a mutation means calling this
+ * rather than guessing.
  */
 export function invalidateAgentStudio(qc: ReturnType<typeof useQueryClient>): void {
   void qc.invalidateQueries({ queryKey: ["agent-studio"] });
@@ -887,7 +888,11 @@ export async function exportSkillZip(skillId: string): Promise<void> {
 export async function importSkillZip(file: File): Promise<SkillSummary> {
   const form = new FormData();
   form.append("file", file);
-  return apiUpload<SkillSummary>("/agent-studio/skills/import", form);
+  // The route reads at most 2 MB and only a .zip or a bare SKILL.md.
+  return apiUpload<SkillSummary>("/agent-studio/skills/import", form, {
+    maxBytes: 2_000_000,
+    accept: [".zip", ".md"],
+  });
 }
 
 export function useRolesCatalog() {

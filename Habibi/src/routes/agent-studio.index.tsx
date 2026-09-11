@@ -14,7 +14,7 @@ import {
 } from "@/api/agent-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
-import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { Lozenge } from "@/components/ui/lozenge";
 import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ import {
   type ActionAvailability,
 } from "@/lib/agent-roster";
 import { cn } from "@/lib/utils";
+import { ROUTING } from "@/lib/agent-roster";
 import { Bot, ChevronDown, ChevronRight } from "lucide-react";
 import {
   AlertDialog,
@@ -43,50 +44,6 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/agent-studio/")({
   component: FleetIndex,
 });
-
-/**
- * Routing, not deployment. Every published card used to read "live · 100%",
- * which described its deployment row and said nothing about whether traffic
- * can reach it.
- *
- * The first fix over-corrected: it walked the graph from BOT_ID alone, so
- * Intake — a live front door at 100% traffic that routes *to* Collections —
- * read "unreachable" beside two empty scaffolds that genuinely are. A card
- * holding its own active deployment is addressable by bot_id, so it gets
- * `direct` and `unreachable` goes back to meaning dead config.
- */
-const ROUTING: Record<
-  AgentCardSummary["reachability"],
-  { label: string; tone: LozengeTone; help: (entry: string) => string }
-> = {
-  entry: {
-    label: "takes inbound",
-    tone: "success",
-    help: () => "Inbound traffic resolves to this card.",
-  },
-  handoff: {
-    label: "via handoff",
-    tone: "information",
-    help: (entry) => `Reached mid-conversation from ${entry}'s handoff allowlist.`,
-  },
-  direct: {
-    label: "direct only",
-    tone: "information",
-    help: (entry) =>
-      `Addressed directly by bot id — it has its own live deployment — but nothing hands off to it, including ${entry}.`,
-  },
-  unreachable: {
-    label: "unreachable",
-    tone: "warning",
-    help: (entry) =>
-      `Nothing routes here — no deployment of its own, and not on any allowlist from ${entry}.`,
-  },
-  archived: {
-    label: "archived",
-    tone: "neutral",
-    help: () => "Retired. Kept for audit; takes no traffic.",
-  },
-};
 
 /** Tolerates a reachability value this build does not know about. */
 function routing(card: AgentCardSummary) {
@@ -499,7 +456,21 @@ function FleetIndex() {
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-wrap items-end gap-100">
+              <form
+                className="flex flex-wrap items-end gap-100"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (clone.isPending || !templateId) return;
+                  void clone
+                    .mutateAsync({ templateId, name })
+                    .then((row) => {
+                      toast.success(`Draft ${row.name} created — compile before publish`);
+                      setOpen(false);
+                      void navigate({ to: "/agent-studio/$botId", params: { botId: row.botId } });
+                    })
+                    .catch((err: Error) => toast.error(err.message));
+                }}
+              >
                 <label className="text-body-small">
                   Template
                   <select
@@ -526,25 +497,14 @@ function FleetIndex() {
                     onChange={(e) => setName(e.target.value)}
                   />
                 </label>
-                <Button
-                  disabled={clone.isPending || !templateId}
-                  onClick={() => {
-                    void clone
-                      .mutateAsync({ templateId, name })
-                      .then((row) => {
-                        toast.success(`Draft ${row.name} created — compile before publish`);
-                        setOpen(false);
-                        void navigate({ to: "/agent-studio/$botId", params: { botId: row.botId } });
-                      })
-                      .catch((err: Error) => toast.error(err.message));
-                  }}
-                >
+                {/* A form, so Enter in the name field submits instead of doing nothing. */}
+                <Button type="submit" disabled={clone.isPending || !templateId}>
                   Create draft
                 </Button>
-                <Button variant="outline" onClick={() => setOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-              </div>
+              </form>
             )}
           </div>
         ) : null}

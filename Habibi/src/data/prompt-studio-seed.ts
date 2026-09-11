@@ -12,6 +12,7 @@ import type {
   LanguageName,
   DiffLine,
 } from "@/api/types/prompt-studio";
+import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
 
 /**
  * Variables a *system* prompt may interpolate. Mirrors
@@ -57,7 +58,7 @@ export const KNOWN_VARIABLES: string[] = [...CRM_VARIABLES, ...SYSTEM_SAFE_VARIA
  * not rendered, not dropped and (until now) not reported: it reaches the model
  * verbatim and the braces are spoken aloud.
  */
-const FLOW_TOKEN_RE = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g;
+export const FLOW_TOKEN_RE = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g;
 
 /** Flow-syntax tokens typed into a prompt — each is read out, braces and all. */
 export function detectFlowVars(prompt: string): string[] {
@@ -65,7 +66,7 @@ export function detectFlowVars(prompt: string): string[] {
 }
 
 /** Single-brace prompt tokens. Mirrors `prompt_render.TOKEN_RE`. */
-const PROMPT_TOKEN_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+export const PROMPT_TOKEN_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 /**
  * Single-brace token names, with flow tokens blanked out first.
@@ -158,7 +159,7 @@ export const PRESETS: PersonaPreset[] = [
     id: "empathetic",
     label: "Empathetic Collector",
     description: "Warm, patient, hardship-aware",
-    traits: { empathy: 82, firmness: 40, formality: 55, verbosity: 60, upsell: 20 },
+    traits: STUDIO_VOCABULARY.mouthDefaults.persona.traits,
     promptTemplate: EMPATHETIC_PROMPT,
   },
   {
@@ -184,34 +185,17 @@ export const PRESETS: PersonaPreset[] = [
   },
 ];
 
-export const DEFAULT_GUARDRAILS: Guardrails = {
-  prohibited: ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
-  escalateAbuse: true,
-  escalateLegal: true,
-  neverQuoteRate: true,
-  neverPromiseWaiver: true,
-  alwaysDiscloseRecording: true,
-  refusePoliticsReligion: true,
-  maxTurns: 20,
-  maxSeconds: 480,
-};
+/**
+ * The mouth defaults are the backend's (`db_prompt_studio._DEFAULT_*`); this
+ * JSON is their export and `test_studio_vocabulary_drift` holds the two
+ * together. A default that differs by side is a card whose "unchanged" fields
+ * change on first save.
+ */
+export const DEFAULT_GUARDRAILS: Guardrails = STUDIO_VOCABULARY.mouthDefaults.guardrails;
 
-export const DEFAULT_VOICE: VoiceConfig = {
-  voiceId: "priya",
-  azureVoiceName: "en-IN-AartiNeural",
-  speed: 1.0,
-  pitch: 0,
-  warmth: 62,
-  pauseMs: 320,
-  sampleText:
-    "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
-};
+export const DEFAULT_VOICE: VoiceConfig = STUDIO_VOCABULARY.mouthDefaults.voice;
 
-export const DEFAULT_PERSONA: PersonaState = {
-  traits: PRESETS[0].traits,
-  language: "English",
-  fallbackLanguages: ["Hindi"],
-};
+export const DEFAULT_PERSONA: PersonaState = STUDIO_VOCABULARY.mouthDefaults.persona;
 
 export const VERSION_HISTORY: PromptVersion[] = [
   {

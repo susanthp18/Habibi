@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS mcp_connectors (
   status TEXT NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft','approved','disabled')),
   health TEXT NOT NULL DEFAULT 'unknown'
-    CHECK (health IN ('unknown','healthy','degraded','down')),
+    CHECK (health IN ('unknown','healthy','degraded','down','blocked')),
   last_tools_list_at timestamptz,
   tools_cache JSONB NOT NULL DEFAULT '[]'::jsonb,
   cimd_issuer TEXT,

@@ -1,5 +1,5 @@
 import { apiGet, apiPost, USE_MOCK, mockDelay } from "./config";
-import type { AgentTuning } from "@/data/agent-tuning";
+import type { AgentTuning, AgentTuningPreset } from "@/data/agent-tuning";
 
 export type VoiceStatus = {
   ok: boolean;
@@ -64,14 +64,12 @@ export async function pushVoiceTune(sessionId: string, delta: Partial<AgentTunin
   await apiPost(`/voice/sandbox/${sessionId}/tune`, { tuning: delta });
 }
 
-export async function fetchTuningPresets(): Promise<
-  Array<{ id: string; label: string; summary: string; tuning: AgentTuning }>
-> {
+export async function fetchTuningPresets(): Promise<AgentTuningPreset[]> {
   if (USE_MOCK) {
-    const { AGENT_TUNING_PRESETS } = await import("@/data/agent-tuning");
-    return mockDelay(AGENT_TUNING_PRESETS);
+    const { DEFAULT_AGENT_TUNING } = await import("@/data/agent-tuning");
+    return mockDelay([
+      { id: "empathetic-collections", label: "Empathetic Collections", tuning: DEFAULT_AGENT_TUNING },
+    ]);
   }
-  return apiGet<Array<{ id: string; label: string; summary: string; tuning: AgentTuning }>>(
-    "/sandbox/tuning/presets",
-  );
+  return apiGet<AgentTuningPreset[]>("/sandbox/tuning/presets");
 }

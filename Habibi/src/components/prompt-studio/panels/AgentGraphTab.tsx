@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAgentGraph } from "@/api/agent-studio";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { cn } from "@/lib/utils";
+import { ROUTING } from "@/lib/agent-roster";
 
 export function AgentGraphTab({
   botId,
@@ -134,8 +135,8 @@ export function AgentGraphTab({
                         <span className="text-body-small font-medium">{n.label}</span>
                         {n.reachability ? (
                           <Lozenge
-                            tone={ROUTE_TONE[n.reachability] ?? "neutral"}
-                            title={ROUTE_HELP[n.reachability] ?? n.reachability}
+                            tone={ROUTING[n.reachability]?.tone ?? "neutral"}
+                            title={ROUTING[n.reachability]?.help("the entry card") ?? n.reachability}
                           >
                             {n.reachability}
                           </Lozenge>
@@ -180,20 +181,3 @@ export function AgentGraphTab({
     </div>
   );
 }
-
-/** Same vocabulary the fleet index uses, so one word does not mean two things. */
-const ROUTE_TONE: Record<string, "success" | "information" | "warning" | "neutral"> = {
-  entry: "success",
-  handoff: "information",
-  direct: "information",
-  unreachable: "warning",
-  archived: "neutral",
-};
-
-const ROUTE_HELP: Record<string, string> = {
-  entry: "Takes inbound traffic directly.",
-  handoff: "Reached mid-conversation from a live card's allowlist.",
-  direct: "Has its own live deployment, but nothing hands off to it.",
-  unreachable: "No deployment of its own and no inbound handoff — routes nothing today.",
-  archived: "Retired. Takes no traffic.",
-};

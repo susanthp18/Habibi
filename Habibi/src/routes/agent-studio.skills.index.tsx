@@ -100,6 +100,7 @@ function SkillsIndex() {
 
   const [clonePending, setClonePending] = useState<{ id: string; slug: string } | null>(null);
   const [cloneSlug, setCloneSlug] = useState("");
+  const cloneSlugTaken = (data ?? []).some((skill) => skill.slug === toSlug(cloneSlug));
 
   const runClone = async (skillId: string, slug: string) => {
     if (!slug) {
@@ -411,6 +412,10 @@ function SkillsIndex() {
               event.preventDefault();
               const target = clonePending;
               const slug = toSlug(cloneSlug);
+              // The server answers `skill_slug_taken` (409). The list on screen
+              // already knows, so say so before the dialog closes on a request
+              // that cannot succeed.
+              if (cloneSlugTaken) return;
               setClonePending(null);
               if (target && slug) void runClone(target.id, slug);
             }}
@@ -427,15 +432,21 @@ function SkillsIndex() {
               <Input
                 className="mt-075"
                 value={cloneSlug}
+                aria-invalid={cloneSlugTaken || undefined}
                 onChange={(e) => setCloneSlug(toSlug(e.target.value))}
                 placeholder="skill-clone"
               />
+              {cloneSlugTaken ? (
+                <span className="mt-050 block text-body-tiny text-text-danger">
+                  A skill already has this slug — pick another.
+                </span>
+              ) : null}
             </label>
             <AlertDialogFooter className="mt-150">
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 type="submit"
-                disabled={!toSlug(cloneSlug) || cloneSkill.isPending}
+                disabled={!toSlug(cloneSlug) || cloneSlugTaken || cloneSkill.isPending}
               >
                 Clone
               </AlertDialogAction>

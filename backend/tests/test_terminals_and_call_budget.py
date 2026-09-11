@@ -84,6 +84,17 @@ def test_the_watchdog_reads_the_published_guardrail() -> None:
     assert 'session.extra["guardrail_max_seconds"]' in src
 
 
+def test_the_turn_cap_reads_the_published_guardrail() -> None:
+    """`maxTurns` sat beside `maxSeconds` on the tab and, unlike it, reached
+    nothing on voice. The sink's customer-turn count is the one the cap reads."""
+    from voice import bot_flow, bot_handlers
+
+    assert 'session.extra["guardrail_max_turns"]' in inspect.getsource(bot_flow.resolve_call)
+    src = inspect.getsource(bot_handlers.register_handlers)
+    assert "sink.customer_turns() < cap" in src
+    assert '_claim_end("max_turns")' in src
+
+
 def test_a_non_numeric_duration_does_not_break_the_call() -> None:
     from voice import bot_flow
 

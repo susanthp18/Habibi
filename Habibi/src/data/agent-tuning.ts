@@ -59,10 +59,15 @@ export type AgentTuning = {
   interaction: AgentTuningInteraction;
 };
 
+/**
+ * Served by `GET /sandbox/tuning/presets` (`agent_core.tuning.PRESETS`). The
+ * browser held its own four and they had drifted — `idle_timeout_secs` 5 vs
+ * the server's 10, `style` "empathetic" vs "serious" — so the sandbox showed
+ * a preset the call never ran under.
+ */
 export type AgentTuningPreset = {
   id: string;
   label: string;
-  summary: string;
   tuning: AgentTuning;
 };
 
@@ -108,78 +113,6 @@ export const DEFAULT_AGENT_TUNING: AgentTuning = {
     idle_ladder: ["nudge", "direct", "close"],
   },
 };
-
-export const AGENT_TUNING_PRESETS: AgentTuningPreset[] = [
-  {
-    id: "empathetic-collections",
-    label: "Empathetic-collections",
-    summary: "Default warm collections tone",
-    tuning: DEFAULT_AGENT_TUNING,
-  },
-  {
-    id: "brisk-verification",
-    label: "Brisk-verification",
-    summary: "Faster, firmer ID check",
-    tuning: {
-      ...DEFAULT_AGENT_TUNING,
-      llm: { ...DEFAULT_AGENT_TUNING.llm, temperature: 0.25, max_completion_tokens: 160 },
-      tts: {
-        ...DEFAULT_AGENT_TUNING.tts,
-        style: "friendly",
-        style_degree: "1.1",
-        rate: "1.12",
-      },
-      interaction: {
-        ...DEFAULT_AGENT_TUNING.interaction,
-        barge_in: "min_words",
-        min_words: 2,
-        idle_timeout_secs: 5,
-      },
-    },
-  },
-  {
-    id: "firm-legal",
-    label: "Firm-legal",
-    summary: "Lower warmth, precise wording",
-    tuning: {
-      ...DEFAULT_AGENT_TUNING,
-      llm: {
-        ...DEFAULT_AGENT_TUNING.llm,
-        temperature: 0.2,
-        frequency_penalty: 0.5,
-        max_completion_tokens: 200,
-      },
-      tts: {
-        ...DEFAULT_AGENT_TUNING.tts,
-        style: "empathetic",
-        style_degree: "1.0",
-        rate: "0.98",
-        pitch: "0%",
-      },
-      interaction: {
-        ...DEFAULT_AGENT_TUNING.interaction,
-        barge_in: "locked",
-        idle_timeout_secs: 8,
-      },
-    },
-  },
-  {
-    id: "low-latency-demo",
-    label: "Low-latency-demo",
-    summary: "TOKEN aggregation, short answers",
-    tuning: {
-      ...DEFAULT_AGENT_TUNING,
-      llm: { ...DEFAULT_AGENT_TUNING.llm, temperature: 0.3, max_completion_tokens: 140 },
-      tts: {
-        ...DEFAULT_AGENT_TUNING.tts,
-        text_aggregation_mode: "TOKEN",
-        rate: "1.1",
-        style_degree: "1.2",
-      },
-      vad: { ...DEFAULT_AGENT_TUNING.vad, start_secs: 0.1 },
-    },
-  },
-];
 
 export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): AgentTuning {
   const base = DEFAULT_AGENT_TUNING;

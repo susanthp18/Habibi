@@ -3,18 +3,26 @@ import { ExternalLink } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { useConnectors } from "@/api/integrations";
+import { useCompilePreview } from "@/api/agent-studio";
+import { gateTone } from "@/lib/gate-status";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { QueryState } from "@/components/ui/query-state";
 import { NotAuthoredNotice } from "./NotAuthoredNotice";
 
 export function ConnectorsTab({
+  botId,
   card,
   onChange,
 }: {
+  botId: string;
   card: AgentCard;
   onChange?: (next: AgentCard) => void;
 }) {
   const connectorsQuery = useConnectors();
+  // G10 is skipped, not faked green, while MCP_CLIENT_ENABLED is off. The tab
+  // says so, because "bound" otherwise reads as "checked".
+  const preview = useCompilePreview(botId, { agentCard: card }, isAuthoredCard(card));
+  const g10 = preview.data?.gates.find((g) => g.gate === "G10");
   const bound = new Set(
     (card.connectors ?? []).map((c) => c.connector_id).filter(Boolean) as string[],
   );
@@ -56,6 +64,12 @@ export function ConnectorsTab({
         bound connectors are <span className="font-semibold">unsupported</span> on a call, not
         silently uncallable.
       </p>
+      {isAuthoredCard(card) && g10 ? (
+        <Lozenge tone={gateTone(g10.status)} title={g10.detail || undefined}>
+          {g10.gate} {g10.status}
+          {g10.detail ? ` — ${g10.detail}` : ""}
+        </Lozenge>
+      ) : null}
       {!editable && onChange ? <NotAuthoredNotice what="connector bindings" /> : null}
       {prefixes.length > 0 ? (
         <div className="rounded-medium border border-border-warning bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
