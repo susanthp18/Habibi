@@ -202,6 +202,33 @@ def test_the_whatsapp_bridge_no_longer_hard_codes_at_sec() -> None:
     assert "elapsed_seconds" in src
 
 
+def test_the_whatsapp_loop_reads_the_card_sampling() -> None:
+    import bot_runtime
+
+    assert bot_runtime._sampling({}) == (0.2, 500)
+    assert bot_runtime._sampling(
+        {"tuning": {"llm": {"temperature": 0.7, "max_completion_tokens": 320}}}
+    ) == (0.7, 320)
+    assert bot_runtime._sampling({"tuning": {"llm": {"temperature": 0}}}) == (0.0, 500)
+
+
+def test_whatsapp_live_qa_does_not_read_a_resolved_sender_as_verified() -> None:
+    """`bool(customer_id)` said "verified" for every thread the sender resolved.
+
+    The tool gate and the authority engine already ask the registry
+    (`interaction_identity_verified`); live QA on WhatsApp was the one caller
+    still equating a CRM match with the ceremony, so an identity-before-dues
+    rule could never fire on the channel.
+    """
+    import inspect
+
+    import bot_runtime
+
+    src = inspect.getsource(bot_runtime._handle_turn)
+    assert 'identity_verified=bool(fresh.get("customer_id"))' not in src
+    assert "identity_verified=interaction_identity_verified(" in src
+
+
 # --- F27: an unknown delivery state is unknown, not delivered ---------------
 
 

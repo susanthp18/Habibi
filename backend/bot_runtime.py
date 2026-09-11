@@ -718,6 +718,21 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         _handle_turn(engine, job)
 
 
+def _sampling(bundle: dict[str, Any]) -> tuple[float, int]:
+    """The card's sampling, the way the sandbox already reads it.
+
+    This loop hardcoded 0.2/500 while the published tuning carried the
+    operator's numbers -- the one channel where the Bindings tab's promise was
+    not kept.
+    """
+    llm_tuning = (bundle.get("tuning") or {}).get("llm") or {}
+    temperature = llm_tuning.get("temperature")
+    return (
+        float(temperature if temperature is not None else 0.2),
+        int(llm_tuning.get("max_completion_tokens") or 500),
+    )
+
+
 def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     job_id = job["id"]
     conversation_id = job["conversation_id"]
@@ -843,6 +858,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         with engine.begin() as conn:
             bot_jobs.mark_failed_or_retry(conn, job, f"deployment:{exc}")
         return
+    temperature, max_completion_tokens = _sampling(bundle)
 
     # Stamped before any tool or retrieval runs. The trace backfill at the end
     # of the turn uses it to claim only the retrieval_logs rows this turn
@@ -1169,8 +1185,8 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 result = azure_openai.chat_with_tools(
                     messages,
                     tools=turn_tools,
-                    temperature=0.2,
-                    max_completion_tokens=500,
+                    temperature=temperature,
+                    max_completion_tokens=max_completion_tokens,
                 )
             tool_calls = result.get("toolCalls") or []
             if not tool_calls:
@@ -1523,6 +1539,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         except Exception:
             logger.exception("whatsapp transcript/rollup capture failed job=%s", job_id)
         try:
+            from agent_core.tools.gates import interaction_identity_verified
             from voice import persist as voice_persist
 
             voice_persist.evaluate_and_flag_bot_turn(
@@ -1534,7 +1551,12 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 turn_index=int(turn_count or 0),
                 elapsed_seconds=0,
                 customer_bot_exchanges=int(turn_count or 0),
-                identity_verified=bool(fresh.get("customer_id")),
+                # A resolved sender is not a verified one -- the same rule the
+                # tool gate and the authority engine already apply on this
+                # channel (bot_tools._identity_verified).
+                identity_verified=interaction_identity_verified(
+                    interaction_id=ix, customer_id=fresh.get("customer_id")
+                ),
                 third_party=False,
                 channel="whatsapp",
                 customer_id=fresh.get("customer_id"),
