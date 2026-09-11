@@ -54,6 +54,11 @@ REASON_WINDOW = "outside_allowed_window"
 REASON_COOLING = "cooling_off"
 REASON_DAILY = "daily_cap"
 REASON_WEEKLY = "weekly_cap"
+#: Nothing is owed. Cadence kept dialling a cured borrower: no refusal
+#: existed for "paid", so a ladder ran to exhaustion on someone with a zero
+#: balance. Outreach only -- a statutory notice to a settled account is
+#: still owed (a closure letter is one).
+REASON_SETTLED = "settled"
 #: DPDP purpose limitation. The number was collected to service a loan; using it
 #: to sell something is a different purpose and needs its own consent basis.
 #: Absence of that basis is a refusal, not a fallback to the servicing one.
@@ -349,7 +354,8 @@ def _load_customer(conn: Any, customer_id: str) -> dict[str, Any] | None:
         text(
             """
             SELECT c.id, c.tenant_id, c.dnd, c.timezone, c.preferred_window,
-                   cr.allowed_days, cr.allowed_hours, cr.dnd_registry, cr.expires_at
+                   cr.allowed_days, cr.allowed_hours, cr.dnd_registry, cr.expires_at,
+                   (SELECT sum(a.outstanding) FROM accounts a WHERE a.customer_id = c.id) AS outstanding
             FROM customers c
             LEFT JOIN consent_records cr ON cr.customer_id = c.id
             WHERE c.id = :id
@@ -722,6 +728,11 @@ def _veto(
 
     if purpose == "in_session":
         return None
+
+    # NULL means no accounts at all (a lead, a prospect) -- not settled.
+    outstanding = customer.get("outstanding")
+    if purpose == "outreach" and outstanding is not None and float(outstanding) <= 0:
+        return REASON_SETTLED
 
     if enforce_endpoint and endpoint_state in {None, "unverified", "revoked"}:
         return REASON_ENDPOINT
@@ -1113,6 +1124,47 @@ def _insert_event(
     )
 
 
+def _lock_day(conn: Any, customer_id: str, local_date: Any) -> int:
+    """Take the borrower's day row lock; returns today's count so far."""
+    conn.execute(
+        text(
+            """
+            INSERT INTO contact_day_counters (customer_id, local_date, outreach_sessions)
+            VALUES (:cid, :d, 0)
+            ON CONFLICT (customer_id, local_date) DO NOTHING
+            """
+        ),
+        {"cid": customer_id, "d": local_date},
+    )
+    row = conn.execute(
+        text(
+            """
+            SELECT outreach_sessions FROM contact_day_counters
+            WHERE customer_id = :cid AND local_date = :d
+            FOR UPDATE
+            """
+        ),
+        {"cid": customer_id, "d": local_date},
+    ).mappings().first()
+    return int(row["outreach_sessions"] or 0) if row else 0
+
+
+def _increment_day(conn: Any, customer_id: str, local_date: Any) -> int:
+    """Count one outreach session on a row `_lock_day` already holds."""
+    row = conn.execute(
+        text(
+            """
+            UPDATE contact_day_counters
+               SET outreach_sessions = outreach_sessions + 1
+             WHERE customer_id = :cid AND local_date = :d
+            RETURNING outreach_sessions
+            """
+        ),
+        {"cid": customer_id, "d": local_date},
+    ).mappings().first()
+    return int(row["outreach_sessions"] or 0) if row else 0
+
+
 def _reserve_day(conn: Any, customer_id: str, local_date: Any, cap: int) -> tuple[bool, int]:
     """Lock the day row and increment if under cap. Returns (ok, count_after)."""
     conn.execute(
@@ -1293,6 +1345,13 @@ def admit(
         counts = purpose in {"outreach", "statutory"} and not coalesced and not related_done
 
         if purpose == "outreach" and counts:
+            # The day row's lock serialises every admit for this borrower, so
+            # the cooling-off and weekly reads below cannot race a sibling
+            # admit -- two concurrent dials at the weekly cap both read
+            # `cap - 1` when these ran before the lock, and both were admitted.
+            current = _lock_day(conn, cid, local.date())
+            if current >= cap:
+                return _deny(REASON_DAILY, current)
             last = _last_counted_at(conn, cid)
             cool = cooling_off(rules)
             if cool.total_seconds() > 0 and last is not None and instant - last < cool:
@@ -1300,10 +1359,7 @@ def admit(
             week_n = _week_counted(conn, cid, channel, now=instant, tz=tz)
             if week_n >= _weekly_cap_for(conn, cid, channel, rules):
                 return _deny(REASON_WEEKLY)
-            ok, after = _reserve_day(conn, cid, local.date(), cap)
-            if not ok:
-                return _deny(REASON_DAILY, after)
-            today = after
+            today = _increment_day(conn, cid, local.date())
         elif purpose == "statutory" and counts:
             # Statutory is never blocked by the cap, but it consumes a slot so
             # later outreach the same day is.
@@ -1366,16 +1422,30 @@ def ledger_usage(conn: Any, customer_ids: list[str]) -> dict[str, dict[str, Any]
     week_rows = conn.execute(
         text(
             """
-            SELECT customer_id, channel, count(*) AS n
-            FROM contact_events
-            WHERE customer_id = ANY(:ids)
-              AND outcome = 'allowed'
-              AND touch_counted
-              AND occurred_at >= (now() - interval '7 days')
-            GROUP BY customer_id, channel
+            SELECT e.customer_id, e.channel, count(*) AS n
+            FROM contact_events e
+            JOIN customers cu ON cu.id = e.customer_id
+            WHERE e.customer_id = ANY(:ids)
+              AND e.outcome = 'allowed'
+              AND e.touch_counted
+              -- The week the gate counts (`_week_counted`): from local midnight
+              -- six days ago in the borrower's zone, not a rolling UTC 7d.
+              AND e.occurred_at >= (
+                    (date_trunc('day', now() AT TIME ZONE COALESCE(
+                        (SELECT n.name FROM pg_timezone_names n
+                          WHERE n.name = btrim(split_part(COALESCE(cu.timezone, ''), '(', 1))
+                          LIMIT 1),
+                        :default_tz)) - interval '6 days')
+                    AT TIME ZONE COALESCE(
+                        (SELECT n.name FROM pg_timezone_names n
+                          WHERE n.name = btrim(split_part(COALESCE(cu.timezone, ''), '(', 1))
+                          LIMIT 1),
+                        :default_tz)
+              )
+            GROUP BY e.customer_id, e.channel
             """
         ),
-        {"ids": customer_ids},
+        {"ids": customer_ids, "default_tz": DEFAULT_TZ},
     ).mappings().all()
     today_rows = conn.execute(
         text(

@@ -76,6 +76,8 @@ function describeReason(
       };
     case "weekly_cap":
       return { tone: "warning", label: "Weekly cap reached", sub: "Weekly contact limit hit" };
+    case "settled":
+      return { tone: "neutral", label: "Nothing owed", sub: "Balance is zero — no outreach" };
     case "no_customer":
       return { tone: "warning", label: "Customer not found", sub: "Policy could not be resolved" };
     case "consent_unreadable":

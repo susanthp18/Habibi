@@ -667,3 +667,55 @@ def test_the_weekly_cap_fires_before_the_daily_cap(
     second = _admit(db_tx, cid, session_key="wk-2", related_id="wk-2")
     assert second.allowed is False
     assert second.reason == "weekly_cap"
+
+
+def test_a_settled_borrower_is_refused_outreach(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    import contact_policy
+
+    """WS8: no paid/settled refusal existed, so cadence kept dialling a
+    cured borrower to exhaustion. Outreach is refused `settled`; a statutory
+    notice still goes."""
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(text("UPDATE accounts SET outstanding = 0 WHERE customer_id = :id"), {"id": cid})
+    refused = _admit(db_tx, cid, session_key="settled-1", related_id="settled-1")
+    assert refused.allowed is False
+    assert refused.reason == contact_policy.REASON_SETTLED
+    notice = _admit(db_tx, cid, channel="sms", purpose="statutory", session_key="s-1", related_id="s-1")
+    assert notice.reason != contact_policy.REASON_SETTLED
+
+
+def test_a_lead_with_no_accounts_is_not_settled(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    import contact_policy
+
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(text("DELETE FROM accounts WHERE customer_id = :id"), {"id": cid})
+    assert _admit(db_tx, cid, session_key="lead-1", related_id="lead-1").reason != contact_policy.REASON_SETTLED
+
+
+def test_the_weekly_cap_is_read_under_the_day_lock(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    """WS8: cooling-off and the weekly count ran before `_reserve_day` took
+    the borrower's lock, so two concurrent admits at the cap both read
+    `cap - 1` and were both admitted. The reads now sit inside the lock; the
+    day row is locked before the weekly count is taken."""
+    import inspect
+
+    import contact_policy
+
+    src = inspect.getsource(contact_policy.admit)
+    assert src.index("_lock_day(") < src.index("_week_counted(") < src.index("_increment_day(")
+
+
+def test_the_ledger_counts_the_week_the_gate_counts(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    import contact_policy
+
+    """WS8: ledger_usage counted a rolling UTC 7 days while the gate counted
+    from local midnight six days ago -- the Consent list and the refusal
+    disagreed at the edge of the week."""
+    cid = _prep(db_tx, monkeypatch)
+    first = _admit(db_tx, cid, session_key="ledger-1", related_id="ledger-1")
+    assert first.allowed
+    usage = contact_policy.ledger_usage(db_tx, [cid])[cid]
+    gate_n = contact_policy._week_counted(
+        db_tx, cid, "whatsapp", now=_noon(), tz=contact_policy._zone("Asia/Kolkata")
+    )
+    assert usage["byChannel"].get("whatsapp", 0) == gate_n
