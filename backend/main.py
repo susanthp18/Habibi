@@ -258,6 +258,19 @@ def _assert_hardening_gate() -> None:
 
 
 @asynccontextmanager
+def _warn_if_no_policy_rules() -> None:
+    import policy_rules
+
+    with db.engine.connect() as conn:
+        resolved = policy_rules.resolve(conn, tenant_id=db.current_tenant())
+    if resolved is policy_rules.EMPTY or not resolved.rules:
+        logger.warning(
+            "no published statutory rule set for tenant %s — the contact gate runs on "
+            "module constants and stamps no policy_version; run scripts/seed_policy_rules.py",
+            db.current_tenant(),
+        )
+
+
 async def lifespan(_app: FastAPI):
     # Before anything else logs: converting handlers after startup has already
     # emitted its lines leaves the boot sequence in the old format, which is
@@ -295,6 +308,13 @@ async def lifespan(_app: FastAPI):
             await asyncio.to_thread(authz.ensure_permission_catalog)
         except Exception:
             logger.warning("authz.ensure_permission_catalog failed", exc_info=True)
+        try:
+            # Say so at boot, not per decision: with no published statutory
+            # set the contact gate runs on module constants and stamps no
+            # policy_version. The seeder is scripts/seed_policy_rules.py.
+            await asyncio.to_thread(_warn_if_no_policy_rules)
+        except Exception:
+            logger.warning("policy rule set check failed", exc_info=True)
         try:
             import usage_meter
 

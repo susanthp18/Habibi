@@ -79,6 +79,25 @@ def main() -> None:
 
             seed_susanth(conn)
 
+    # The statutory rule sets the contact gate resolves against. Nothing
+    # called the seeder, so every tenant ran on the module constants and
+    # `treatment_decisions.policy_version` was NULL on a fresh build.
+    try:
+        import importlib.util
+        import db as _db
+
+        _spec = importlib.util.spec_from_file_location(
+            "seed_policy_rules", Path(__file__).resolve().parent / "scripts" / "seed_policy_rules.py"
+        )
+        _mod = importlib.util.module_from_spec(_spec)
+        assert _spec.loader is not None
+        _spec.loader.exec_module(_mod)
+        _publish_policy_rules = _mod.publish
+
+        with _db.engine.begin() as sa_conn:
+            _publish_policy_rules(sa_conn)
+    except SystemExit as exc:
+        print(f"[seed] policy rule sets skipped: {exc}")
     print(
         "[seed] loaded "
         f"{len(ctx['customers'])} customers, "
