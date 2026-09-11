@@ -1221,7 +1221,7 @@ async def run_bot(transport, runner_args) -> None:
     # Not `_tool_state`: build_collections_flow returns its own turn state under
     # that name a few lines below, and they are unrelated types.
     _grant = _mouth.tools(
-        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)}
+        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)}, channel="voice"
     )
     _allowed_tools = _grant.allowed
     _attached_skills = list(_mouth.packs)

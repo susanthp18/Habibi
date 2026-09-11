@@ -145,19 +145,30 @@ def test_frozen_connectors_are_text_only() -> None:
     ]
     card = parse_card(raw)
     frozen = ["ext.crm.lookup"]
+    # A connector tool enters the grant only through a pack that offers it
+    # (CONNECTORS-17); the channel rule is tested with such a pack attached.
+    from dataclasses import replace
+
+    from agent_core.skills.pack import pack_for_slug
+
+    pack = pack_for_slug("ptp-negotiate")
+    packs = [replace(pack, allowed_tools=[*pack.allowed_tools, "ext.crm.lookup"])]
 
     assert "ext.crm.lookup" in ToolGrant.for_card(
         card,
-        [],
+        packs,
         channel=TEXT,
         frozen_connector_tools=frozen,
     ).allowed
     assert "ext.crm.lookup" not in ToolGrant.for_card(
         card,
-        [],
+        packs,
         channel=VOICE,
         frozen_connector_tools=frozen,
     ).allowed
+    assert "ext.crm.lookup" not in ToolGrant.for_card(
+        card, [], channel=TEXT, frozen_connector_tools=frozen
+    ).allowed, "no pack offers it, so the grant does not hold it"
 
 
 def test_exact_skill_version_is_part_of_the_signed_row_lookup(

@@ -189,8 +189,13 @@ class MouthTurn:
         catalog_names: set[str] | None = None,
         channel_tools: set[str] | None = None,
         floor: frozenset[str] | None = None,
+        channel: str | None = None,
     ) -> ToolState:
         """What this turn may execute, and what to put in front of the model.
+
+        ``channel`` is ``"voice"`` or ``"text"``; it decides whether connector
+        tools may be granted at all (they have a text renderer only). Omitted,
+        the text floor implies text and everything else is voice.
 
         ``channel_tools`` is the catalog names renderable on this channel.
         The publish Gate already forwards it; omitting it here is how a
@@ -208,48 +213,34 @@ class MouthTurn:
             # None was read as "do not filter" by every runtime.
             return ToolState(allowed=frozenset(), offered=())
 
-        from agent_core.skills.intersect import effective_tools, offered_tools
-        from agent_core.tools.catalog import CATALOG
+        # One formula: `ToolGrant.for_card` is the grant and the offer. This
+        # method used to be a second copy of it that drifted (the ext.* rule
+        # landed here and not there).
+        from agent_core.tools.grant import TEXT, ToolGrant
 
-        names = catalog_names or set(CATALOG.specs)
-        attached = list(self.packs) if self.packs else None
-        frozen = (
-            set(self.frozen_connector_tools) if self.frozen_connector_tools is not None else None
+        # Text unless told otherwise: connectors have a text renderer only, and
+        # the voice mouth is the one caller that says "voice".
+        channel = channel or TEXT
+        grant = ToolGrant.for_card(
+            self.card,
+            self.packs,
+            channel=channel,
+            catalog=catalog_names,
+            # No floor asked for is no floor: the publish gate and the tests
+            # that compare grants across channels read the card alone.
+            floor=floor if floor is not None else frozenset(),
+            # No channel slice given is an unchannelled mouth -- every catalog
+            # name renders -- which the publish gate and the tests rely on.
+            channel_tools=channel_tools if channel_tools is not None else set(catalog_names or _catalog_names()),
+            frozen_connector_tools=self.frozen_connector_tools,
         )
-        # A floor is only a floor for names the channel can actually render.
-        # Intersecting first means a mis-stated floor cannot smuggle a
-        # voice-only tool onto text, which is the failure `channel_tools` exists
-        # to prevent.
-        renderable = set(channel_tools) if channel_tools is not None else names
-        base = (set(floor) & renderable) if floor else set()
-        allowed = set(
-            effective_tools(
-                self.card,
-                catalog_names=names,
-                attached_skills=attached,
-                channel_tools=channel_tools,
-                frozen_connector_tools=frozen,
-            )
-        )
-        offered = list(
-            offered_tools(
-                self.card,
-                catalog_names=names,
-                attached_skills=attached,
-                active_slug=self.active_slug,
-                channel_tools=channel_tools,
-                frozen_connector_tools=frozen,
-            )
-        )
-        # Appended, so the card's own tools keep the positions they had —
-        # ordering is part of what the model sees.
-        offered += sorted(base - set(offered))
-        # A connector tool is offered only through a pack that names it, so
-        # the grant holds only those: an `ext.*` name in the grant and in no
-        # offer could still execute on a name the model was never shown.
-        pack_ext = {n for p in (attached or []) for n in p.allowed_tools if n.startswith("ext.")}
-        allowed = {n for n in allowed if not n.startswith("ext.") or n in pack_ext}
-        return ToolState(allowed=frozenset(allowed | base), offered=tuple(offered))
+        return ToolState(allowed=grant.allowed, offered=grant.offer(active_skill=self.active_slug))
+
+
+def _catalog_names() -> set[str]:
+    from agent_core.tools.catalog import CATALOG
+
+    return set(CATALOG.specs)
 
 
 def resolve_mouth(

@@ -334,7 +334,7 @@ def _run_sandbox_tool_loop(
     # the offered tools were two different skills.
     text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
     mouth = resolve_mouth(agent_card or {}, intent=intent, active_slug=skill_slug)
-    tool_state = mouth.tools(channel_tools=text_channel_tools)
+    tool_state = mouth.tools(channel_tools=text_channel_tools, channel="text")
     granted = set(tool_state.offered or ())
     if walker is not None:
         # A step the text mouth cannot stand on -- the greeting, whose only
@@ -491,7 +491,7 @@ def _run_sandbox_tool_loop(
                         if pack is not None:
                             working.append(body_developer_message(pack))
                         mouth = _replace(mouth, active_slug=slug)
-                        tool_state = mouth.tools(channel_tools=text_channel_tools)
+                        tool_state = mouth.tools(channel_tools=text_channel_tools, channel="text")
                         granted = set(tool_state.offered or ())
                 else:
                     ok, result = simulate_sandbox_tool(name, args)

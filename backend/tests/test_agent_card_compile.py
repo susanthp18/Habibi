@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent_core.cards.compile import compile_card
 from agent_core.cards.defaults import (
     COLLECTIONS_BOT_ID,
@@ -11,6 +13,15 @@ from agent_core.cards.defaults import (
     card_for,
 )
 from agent_core.tools.catalog import CATALOG
+
+
+@pytest.fixture(autouse=True)
+def _eval_gates_off(monkeypatch):
+    """These tests compile cards with no eval report in hand; they are about
+    the compiler's structure, not eval provenance (tests/test_eval_provenance.py
+    covers that). The dev stack now ships with the gates on."""
+    monkeypatch.setenv("EVAL_GATE_ENABLED", "false")
+    monkeypatch.setenv("REDTEAM_GATE_ENABLED", "false")
 
 
 def _compile(bot_id: str, card=None, flow=None, bots=None, **kwargs):

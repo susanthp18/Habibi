@@ -135,6 +135,13 @@ class ToolGrant:
     packs: tuple["SkillPack", ...]
     catalog: frozenset[str]
     frozen_connector_tools: tuple[str, ...] | None = None
+    #: The names this channel can render and the always-on set that joined the
+    #: grant. Defaulted from ``channel``; a caller with a narrower renderable
+    #: set (the text mouth's catalog slice) states it, and the floor is
+    #: intersected with it so a mis-stated floor cannot smuggle a voice-only
+    #: tool onto text.
+    channel_tools: frozenset[str] | None = None
+    floor: frozenset[str] = frozenset()
 
     # -- the interface ------------------------------------------------------
 
@@ -159,8 +166,7 @@ class ToolGrant:
         # Order is part of what the model sees; the floor goes last so an
         # authored card's own tools keep the positions they had. The floor is in
         # `allowed` by construction, so this only ever appends.
-        floor = VOICE_ALWAYS if self.channel == VOICE else TEXT_ALWAYS
-        ordered += sorted(floor - set(ordered))
+        ordered += sorted(self.floor - set(ordered))
         return tuple(ordered)
 
     @property
@@ -179,7 +185,9 @@ class ToolGrant:
         return {
             "catalog_names": set(self.catalog),
             "attached_skills": list(self.packs) or None,
-            "channel_tools": _channel_tools(self.channel),
+            "channel_tools": (
+                set(self.channel_tools) if self.channel_tools is not None else _channel_tools(self.channel)
+            ),
             # Connectors have a text renderer only. An explicit empty tuple on
             # voice prevents effective_tools from consulting the live registry
             # and silently granting an ext.* name no voice handler can run.
@@ -230,17 +238,27 @@ class ToolGrant:
         channel: Channel,
         catalog: set[str] | None = None,
         frozen_connector_tools: list[str] | tuple[str, ...] | None = None,
+        channel_tools: set[str] | frozenset[str] | None = None,
+        floor: frozenset[str] | None = None,
     ) -> "ToolGrant":
         """The grant for an already-resolved card and its packs.
 
         Public because it is the real constructor: :meth:`for_bundle` is an
-        adapter over it, :meth:`static_grant` unions two of them, and the
-        publish gate has a card in hand without a deployment bundle to resolve.
+        adapter over it, :meth:`static_grant` unions two of them, the publish
+        gate has a card in hand without a deployment bundle to resolve, and
+        :meth:`MouthTurn.tools` -- every runtime's turn -- is a thin reading
+        of it. There is one formula.
+
+        ``floor`` defaults to the channel's always-on set; ``channel_tools``
+        to what the catalog renders on the channel. Both are intersected: a
+        floor name the channel cannot render is not granted.
         """
         from agent_core.tools.catalog import CATALOG
 
         names = frozenset(catalog or set(CATALOG.specs))
         packs = tuple(packs)
+        frozen = tuple(frozen_connector_tools) if frozen_connector_tools is not None else None
+        renderable = frozenset(channel_tools) if channel_tools is not None else None
         if card is None:
             return cls(
                 channel=channel,
@@ -248,36 +266,45 @@ class ToolGrant:
                 card=None,
                 packs=(),
                 catalog=names,
-                frozen_connector_tools=(
-                    tuple(frozen_connector_tools)
-                    if frozen_connector_tools is not None
-                    else None
-                ),
+                frozen_connector_tools=frozen,
+                channel_tools=renderable,
             )
 
         from agent_core.skills.intersect import effective_tools
 
+        default_floor = VOICE_ALWAYS if channel == VOICE else TEXT_ALWAYS
+        base = frozenset(floor if floor is not None else default_floor)
+        # Intersected with the caller's renderable set when one is given (the
+        # text mouth's catalog slice). The channel default is not intersected:
+        # the voice floor names the flow tools, which are no catalog entry and
+        # are rendered by the FlowManager, not the catalog.
+        if renderable is not None:
+            base &= renderable
         grant = cls(
             channel=channel,
             allowed=frozenset(),
             card=card,
             packs=packs,
             catalog=names,
-            frozen_connector_tools=(
-                tuple(frozen_connector_tools)
-                if frozen_connector_tools is not None
-                else None
-            ),
+            frozen_connector_tools=frozen,
+            channel_tools=renderable,
+            floor=base,
         )
         allowed = set(effective_tools(card, **grant._inputs()))
-        allowed |= VOICE_ALWAYS if channel == VOICE else TEXT_ALWAYS
+        # A connector tool is offered only through a pack that names it, so
+        # the grant holds only those: an `ext.*` name in the grant and in no
+        # offer could still execute on a name the model was never shown.
+        pack_ext = {n for p in packs for n in p.allowed_tools if n.startswith("ext.")}
+        allowed = {n for n in allowed if not n.startswith("ext.") or n in pack_ext}
         return cls(
             channel=channel,
-            allowed=frozenset(allowed),
+            allowed=frozenset(allowed | base),
             card=card,
             packs=packs,
             catalog=names,
-            frozen_connector_tools=grant.frozen_connector_tools,
+            frozen_connector_tools=frozen,
+            channel_tools=renderable,
+            floor=base,
         )
 
     @classmethod

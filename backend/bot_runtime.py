@@ -1046,7 +1046,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # its own registry. Without it the system prompt below told the model to
         # call `identify_customer` on a turn where the name was neither offered
         # nor executable.
-        tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS)
+        tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS, channel="text")
         # The authored graph, on the text channel. `flow` appeared zero times in
         # this module before: WhatsApp answered from the prompt alone while the
         # Studio gated a graph at publish and the canvas drew it. The cursor
