@@ -238,3 +238,95 @@ def test_two_concurrent_posts_with_the_same_key_create_one_promise(
             {"c": customer_id, "a": amount},
         ).scalar()
     assert n == 1, f"expected one promise row, found {n}"
+
+
+def test_two_concurrent_first_messages_open_one_whatsapp_thread(
+    db_real, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two first messages, one thread — `_open_whatsapp_conversation` is serialised.
+
+    The get-or-create was SELECT-latest-then-INSERT with nothing between
+    them, so two webhooks arriving together both read "no thread" and both
+    inserted one; the customer's history then lived on two rows the Inbox
+    showed as two people. The per-customer advisory lock makes the second
+    wait for the first COMMIT. A no-op under `db_tx`; red without the lock
+    here.
+    """
+    import db
+    import db_inbox
+
+    with db_real.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT c.id FROM customers c
+                 WHERE c.id <> 'UNKNOWN-CALLER'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM conversations v
+                      WHERE v.customer_id = c.id AND v.channel = 'whatsapp'
+                   )
+                 ORDER BY c.id LIMIT 1
+                """
+            )
+        ).mappings().first()
+    if not row:
+        pytest.skip("every seeded customer already has a WhatsApp thread")
+    customer_id = row["id"]
+
+    def _sweep(conn) -> None:
+        conn.execute(
+            text("DELETE FROM conversations WHERE customer_id = :c AND channel = 'whatsapp'"),
+            {"c": customer_id},
+        )
+        conn.execute(
+            text(
+                "DELETE FROM interactions WHERE customer_id = :c AND channel = 'whatsapp' "
+                "AND started_at >= now() - interval '5 minutes'"
+            ),
+            {"c": customer_id},
+        )
+
+    db_real.on_teardown(_sweep)
+
+    orig = db_inbox._one
+    both_in = threading.Barrier(2)
+    gate_armed = {"n": 0}
+
+    def _gated(result):
+        # Hold both callers at the thread SELECT so the unlocked race is two
+        # empty reads. With the lock, the partner is blocked in Postgres and
+        # never reaches this barrier, hence the timeout-tolerant wait.
+        found = orig(result)
+        if gate_armed["n"] < 2:
+            gate_armed["n"] += 1
+            try:
+                both_in.wait(timeout=1)
+            except threading.BrokenBarrierError:
+                pass
+        return found
+
+    monkeypatch.setattr(db_inbox, "_one", _gated)
+
+    results: list[str | BaseException | None] = [None, None]
+
+    def caller(idx: int) -> None:
+        try:
+            with db.engine.begin() as conn:
+                results[idx] = db_inbox._open_whatsapp_conversation(conn, customer_id)
+        except BaseException as exc:  # noqa: BLE001 — surface in the main thread
+            results[idx] = exc
+
+    threads = [threading.Thread(target=caller, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    assert all(isinstance(r, str) for r in results), results
+    assert results[0] == results[1]
+    with db_real.begin() as conn:
+        n = conn.execute(
+            text("SELECT count(*) FROM conversations WHERE customer_id = :c AND channel = 'whatsapp'"),
+            {"c": customer_id},
+        ).scalar_one()
+    assert n == 1

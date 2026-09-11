@@ -2274,7 +2274,20 @@ def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -
 
 
 def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
-    """Return an existing WhatsApp conversation for the customer, or create one (status=bot)."""
+    """Return an existing WhatsApp conversation for the customer, or create one (status=bot).
+
+    Serialised per customer: two first messages arriving together both read
+    "no thread" and both inserted one, and the customer's history split
+    across two rows the Inbox showed as two people. The lock is
+    transaction-scoped, so the second webhook waits for the first commit and
+    then finds the thread. (A unique index would say the same thing, but the
+    live data already carries the split threads that race produced, so the
+    writer is fixed first and the index waits for a dedupe.)
+    """
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"whatsapp-thread:{_tenant()}:{customer_id}"},
+    )
     row = _one(
         conn.execute(
             text(
