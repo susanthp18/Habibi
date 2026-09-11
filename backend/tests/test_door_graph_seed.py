@@ -75,7 +75,7 @@ def test_node_keys_are_unique(graph: dict) -> None:
 
 
 def test_the_route_node_sits_where_the_hub_sits_in_the_full_graph() -> None:
-    from voice.flow_export import _LAYOUT
+    from voice.flow_export import built_in_collections_graph
 
-    x, y = _LAYOUT["state_position"]
-    assert _ROUTE_NODE["position"] == {"x": x, "y": y}
+    hub = next(n for n in built_in_collections_graph()["nodes"] if n["key"] == "state_position")
+    assert _ROUTE_NODE["position"] == hub["position"]

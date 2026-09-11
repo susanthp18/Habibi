@@ -20,7 +20,7 @@ import asyncio
 import pytest
 
 from agent_core.context import CallContext
-from voice.flows import build_collections_flow
+from tests.builtin_flow import build_collections_flow
 from voice.session import VoiceSession
 
 
@@ -42,17 +42,21 @@ def _names(functions) -> set[str]:
     return {getattr(f, "name", None) or f.__name__ for f in functions}
 
 
+# The goal-conditioned arms used to be Python branches in voice/flows.py; the
+# graph carries both arms in one instruction under an explicit condition (see
+# test_flow_export), so "which arm rendered" is no longer a code path to pin.
+
 # --------------------------------------------------------------- graph shape
 
 
-@pytest.mark.parametrize("graph", ["legacy", "hub"])
-def test_discover_intent_sits_between_greeting_and_verification(graph: str) -> None:
+def test_discover_intent_sits_between_greeting_and_verification() -> None:
+    graph = "legacy"
     _session, state, _tools, _initial = _flow(graph=graph)
     assert "discover_intent" in state.nodes
 
 
-@pytest.mark.parametrize("graph", ["legacy", "hub"])
-def test_greeting_opens_the_floor_without_asking_for_digits(graph: str) -> None:
+def test_greeting_opens_the_floor_without_asking_for_digits() -> None:
+    graph = "legacy"
     """Greeting, disclosure and "what do you need?" in one breath — the way a
     person opens a call. It used to hand straight to the identity node, which
     is what made the call feel like a form."""
@@ -63,8 +67,8 @@ def test_greeting_opens_the_floor_without_asking_for_digits(graph: str) -> None:
     assert "ask for no digits" in greet
 
 
-@pytest.mark.parametrize("graph", ["legacy", "hub"])
-def test_greeting_claims_no_call_direction(graph: str) -> None:
+def test_greeting_claims_no_call_direction() -> None:
+    graph = "legacy"
     """Nothing in the system models who dialled whom, so the model guessed —
     and got it wrong in both directions across runs ("thanks for calling" on an
     outbound dial, "I'm calling from" on an inbound one)."""
@@ -102,23 +106,12 @@ def test_no_account_tools_before_verification() -> None:
 # ---------------------------------------------------------- goal conditioning
 
 
-@pytest.mark.parametrize("graph,hub", [("legacy", "state_position"), ("hub", "collections_hub")])
-def test_absent_goal_preserves_the_old_wording_exactly(graph: str, hub: str) -> None:
+def test_absent_goal_preserves_the_old_wording_exactly() -> None:
+    graph, hub = "legacy", "state_position"
     """An outbound call, or a caller who never says why, still gets the
     position first. The change must not cost that."""
     _session, state, _tools, _initial = _flow(graph=graph)
     assert "call get_account_position first" in _task(state, hub)
-
-
-@pytest.mark.parametrize("graph,hub", [("legacy", "state_position"), ("hub", "collections_hub")])
-def test_non_money_goal_suppresses_the_unprompted_balance(graph: str, hub: str) -> None:
-    _session, state, _tools, _initial = _flow(
-        goal="dispute a late fee", intent="dispute", graph=graph
-    )
-    task = _task(state, hub)
-    assert "dispute a late fee" in task
-    assert "do not recite the outstanding balance unless they ask" in task
-    assert "call get_account_position first" not in task
 
 
 @pytest.mark.parametrize("intent", ["payment", "promise_to_pay", "hardship", "balance"])
@@ -132,11 +125,6 @@ def test_verification_is_framed_around_the_stated_goal() -> None:
     task = _task(state, "verify_identity")
     assert "dispute a late fee" in task
     assert task.index("dispute a late fee") < task.index("last 4 digits")
-
-
-def test_verification_without_a_goal_is_unchanged() -> None:
-    _session, state, _tools, _initial = _flow()
-    assert _task(state, "verify_identity").startswith("speak first")
 
 
 # ----------------------------------------------------------- capture_call_goal
@@ -202,8 +190,8 @@ def test_capture_call_goal_records_the_turn_for_later_refinement() -> None:
 # --------------------------------------------------------------- no dead air
 
 
-@pytest.mark.parametrize("graph,hub", [("legacy", "state_position"), ("hub", "collections_hub")])
-def test_hub_must_not_end_a_turn_on_a_bare_statement(graph: str, hub: str) -> None:
+def test_hub_must_not_end_a_turn_on_a_bare_statement() -> None:
+    graph, hub = "legacy", "state_position"
     """The reported symptom was the bot stating the balance and going silent."""
     _session, state, _tools, _initial = _flow(graph=graph)
     task = _task(state, hub)

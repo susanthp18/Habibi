@@ -87,14 +87,12 @@ def test_the_transitioning_flag_is_derived_from_the_map() -> None:
     assert rows["get_account_position"]["transitions"] is False
 
 
-def test_every_reserved_key_except_the_hub_variant_has_an_inbound_tool() -> None:
+def test_every_reserved_key_has_an_inbound_tool() -> None:
     """RESERVED_NODE_KEYS documents what the built-in tools transition to, so a
-    key nothing reaches means either the docs or the reader is wrong.
-    collections_hub is the exception by design — it replaces state_position only
-    under VOICE_FLOW_GRAPH=hub."""
+    key nothing reaches means either the docs or the reader is wrong."""
     reached = {t for targets in flow_graph.implicit_transitions().values() for t in targets}
 
-    assert set(flow_graph.RESERVED_NODE_KEYS) - reached == {"collections_hub"}
+    assert set(flow_graph.RESERVED_NODE_KEYS) - reached == set()
 
 
 # ---------------------------------------------------------------------------

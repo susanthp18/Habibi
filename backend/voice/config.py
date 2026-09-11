@@ -5,6 +5,7 @@ Do NOT rename AZURE_OPENAI_* / AZURE_SPEECH_* globals; pass values explicitly.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -17,6 +18,8 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 from env_loader import load_env  # noqa: E402
 from env_utils import env_bool  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 def _require(name: str) -> str:
@@ -245,20 +248,17 @@ def kb_enrich_fallback() -> str:
 
 
 def voice_flow_graph() -> str:
-    """``legacy`` | ``hub`` | ``db`` | ``auto`` (default) | ``required``.
+    """``auto`` (default) | ``db`` | ``required``.
 
-    ``auto`` (unset) runs the Prompt Studio graph when the published version
-    actually has nodes, otherwise the hardcoded collections script. ``legacy``
-    is the kill-switch that ignores an authored graph. ``db`` always prefers
-    the authored graph (and still falls back if it is empty or fails to
-    compile). ``hub`` is the merged collections_hub experiment.
-
-    ``required`` is the one that makes Agent Studio load-bearing. Under it a
-    bot with no published graph, or one whose graph will not compile, does not
-    quietly run the Python script instead — it refuses, and says which bot and
-    why. The fallback is the reason a card can look authored, be edited,
-    published, and change nothing about the call: the studio is decorative until
-    something breaks when it is empty.
+    There is one source of a conversation: the published Agent Studio graph.
+    The hardcoded Python script (``voice/flows.py``) that ``auto`` and ``db``
+    used to fall back to, and the ``legacy``/``hub`` modes that selected it,
+    are gone -- it was materialised as ``agent_core/cards/graphs/
+    collections.json`` and is published like any other graph. So every mode
+    now behaves as ``required``: a bot with no published, compilable graph
+    refuses the call and says which bot and why. The three names are kept so
+    a deployment that set one keeps booting; ``legacy`` and ``hub`` are
+    logged and treated as ``auto``.
 
     Refusing is the point, and it is also the cost. Under ``required`` a broken
     graph is a failed call rather than a degraded one, which is the correct
@@ -269,12 +269,23 @@ def voice_flow_graph() -> str:
     """
     load_env()
     raw = (os.getenv("VOICE_FLOW_GRAPH") or "").strip().lower()
-    return raw if raw in {"hub", "db", "legacy", "auto", "required"} else "auto"
+    if raw in {"legacy", "hub"}:
+        logger.warning(
+            "VOICE_FLOW_GRAPH=%s is retired: the built-in script is a published graph now; "
+            "running as auto",
+            raw,
+        )
+        return "auto"
+    return raw if raw in {"db", "auto", "required"} else "auto"
 
 
 def voice_flow_required() -> bool:
-    """Is a published, compilable Agent Studio graph mandatory for every call?"""
-    return voice_flow_graph() == "required"
+    """Is a published, compilable Agent Studio graph mandatory for every call?
+
+    Always, now that there is nothing else to run -- the name survives for the
+    call sites and the logs that read it.
+    """
+    return True
 
 
 def voice_uses_authored_flow(graph_data: Any, *, override: str | None = None) -> bool:
@@ -289,9 +300,7 @@ def voice_uses_authored_flow(graph_data: Any, *, override: str | None = None) ->
     into a refusal is :func:`voice_flow_required`'s job at the call site, where
     there is a session to name in the error.
     """
-    mode = (override or voice_flow_graph()).strip().lower()
-    if mode in {"legacy", "hub"}:
-        return False
+    _ = (override or voice_flow_graph()).strip().lower()
     from flow_graph import is_authored
 
     return is_authored(graph_data)

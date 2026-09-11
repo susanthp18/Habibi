@@ -52,73 +52,64 @@ def test_required_is_a_recognised_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     assert voice_config.voice_flow_required() is True
 
 
-def test_the_default_is_still_the_forgiving_one() -> None:
-    """Unset must not start refusing calls on somebody else's deployment."""
+def test_every_mode_requires_a_published_graph() -> None:
+    """There is nothing else to run. `voice/flows.py` was materialised into
+    agent_core/cards/graphs/collections.json and deleted, so `auto` and `db`
+    mean what `required` meant: a bot with no published, compilable graph
+    refuses the call and names itself."""
     assert voice_config.voice_flow_graph() == "auto"
-    assert voice_config.voice_flow_required() is False
+    assert voice_config.voice_flow_required() is True
 
 
 def test_a_typo_does_not_take_voice_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`requried` must degrade to `auto`, not to "refuse everything"."""
+    """`requried` must degrade to `auto`, not to an unknown mode."""
     monkeypatch.setenv("VOICE_FLOW_GRAPH", "requried")
     assert voice_config.voice_flow_graph() == "auto"
-    assert voice_config.voice_flow_required() is False
 
 
 @pytest.mark.parametrize("mode", ["legacy", "hub"])
-def test_the_kill_switches_still_win(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
-    """`legacy` remains the escape hatch and must not be overridden by strictness."""
+def test_the_retired_modes_are_tolerated_and_logged(
+    monkeypatch: pytest.MonkeyPatch, mode: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A deployment that set the kill-switch keeps booting; the script it
+    selected no longer exists, so the authored graph runs and the log says so."""
     monkeypatch.setenv("VOICE_FLOW_GRAPH", mode)
-    assert voice_config.voice_uses_authored_flow(AUTHORED) is False
-    assert voice_config.voice_flow_required() is False
-
-
-# --- what `required` decides, and what it does not --------------------------
-
-
-def test_required_still_runs_a_real_graph(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VOICE_FLOW_GRAPH", "required")
+    with caplog.at_level("WARNING"):
+        assert voice_config.voice_flow_graph() == "auto"
+    assert any("retired" in r.getMessage() for r in caplog.records)
     assert voice_config.voice_uses_authored_flow(AUTHORED) is True
 
 
-def test_required_does_not_pretend_the_sentinel_is_authored(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+# --- what the graph check decides, and what it does not ---------------------
+
+
+def test_an_authored_graph_is_recognised(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert voice_config.voice_uses_authored_flow(AUTHORED) is True
+
+
+def test_the_sentinel_is_not_authored() -> None:
     """`{nodes: [], edges: []}` is genuinely not a graph.
 
     The refusal belongs at the call site, where there is a bot id to name --
     making this return True would compile an empty graph and fail later with a
     worse message.
     """
-    monkeypatch.setenv("VOICE_FLOW_GRAPH", "required")
     assert voice_config.voice_uses_authored_flow(SENTINEL) is False
-
-
-def test_the_sandbox_override_still_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Per-call override is how the studio previews a graph; strictness must
-    not silently ignore it."""
-    monkeypatch.setenv("VOICE_FLOW_GRAPH", "required")
-    assert voice_config.voice_uses_authored_flow(AUTHORED, override="legacy") is False
 
 
 # --- the call site ----------------------------------------------------------
 
 
 def test_run_bot_refuses_rather_than_falling_back() -> None:
-    """Read the source: the fallback must be unreachable under `required`."""
+    """Read the source: there is no fallback left to reach."""
     import inspect
 
     import voice.bot as bot
 
     src = inspect.getsource(bot.run_bot)
-    assert "voice_flow_required()" in src, "the mode has to be consulted at the call site"
     assert "has no published Agent Studio" in src, "the refusal must name the problem"
-    # The compile-failure path must re-raise instead of degrading.
-    fallback = src.index("falling back to the built-in flow")
-    guard = src.rindex("voice_flow_required()", 0, fallback)
-    assert "raise" in src[guard:fallback], (
-        "a graph that will not compile must refuse under `required`, not degrade"
-    )
+    assert "falling back to the built-in flow" not in src
+    assert "build_collections_flow" not in src
 
 
 def test_the_error_names_the_bot() -> None:
@@ -129,3 +120,9 @@ def test_the_error_names_the_bot() -> None:
 
     src = inspect.getsource(bot.run_bot)
     assert "bot {bot_id!r}" in src or "bot={}" in src
+
+
+def test_the_python_script_is_gone() -> None:
+    import importlib.util
+
+    assert importlib.util.find_spec("voice.flows") is None

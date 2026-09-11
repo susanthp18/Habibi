@@ -31,7 +31,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 
 from voice import config as voice_config
-from voice.flows import build_collections_flow
+from tests.builtin_flow import build_collections_flow
 from voice.session import VoiceSession
 from voice.turn_probe import SpokeThisResponseProbe
 

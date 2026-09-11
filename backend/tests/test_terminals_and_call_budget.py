@@ -52,18 +52,13 @@ def test_a_node_that_keeps_talking_does_not() -> None:
         assert exported["pre_close"]["endConversation"] is False
 
 
-def test_the_export_reads_the_script_not_a_name_list() -> None:
-    src = inspect.getsource(flow_export._node_json)
-    assert '"endConversation": _ends_conversation(node)' in src
-    assert '"endConversation": key == "call_ended"' not in src
-
-
-def test_the_flag_and_the_interpreter_agree_on_one_action() -> None:
-    """``flows_dynamic`` re-emits ``end_conversation`` from ``endConversation``.
-    Deriving the flag from the same action makes the round trip lossless."""
-    assert flow_export._ends_conversation({"post_actions": [{"type": "end_conversation"}]})
-    assert not flow_export._ends_conversation({"post_actions": [{"type": "tts_say"}]})
-    assert not flow_export._ends_conversation({})
+def test_the_terminals_are_data_the_interpreter_reads() -> None:
+    """The flag used to be derived from the script's ``post_actions``; the
+    script is gone and the flag is authored in the graph. ``flows_dynamic``
+    re-emits ``end_conversation`` from it, so the round trip is lossless."""
+    exported = _exported()
+    hangs_up = {k for k, n in exported.items() if n["endConversation"]}
+    assert hangs_up == {"call_ended", "wrap_up", "terminate_politely", "escalate_close"}
 
 
 # ---------------------------------------------------------------------------

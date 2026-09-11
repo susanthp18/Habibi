@@ -185,7 +185,6 @@ RESERVED_NODE_KEYS: dict[str, str] = {
     "escalate_close": "escalate_to_human moves here",
     "state_position": "the hub that return_to_position comes back to",
     "pre_close": "the close probe moves here before the farewell",
-    "collections_hub": "hub variant used when VOICE_FLOW_GRAPH=hub",
     "gated_upsell": "recommend_next_offer moves here when upselling is enabled",
     "call_ended": "terminal node after the farewell",
 }

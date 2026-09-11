@@ -18,7 +18,7 @@ import asyncio
 
 import flow_graph as fg
 import pytest
-from voice.flow_export import _stub_session
+from tests.test_flow_export import _stub_session
 from voice.flows_dynamic import build_authored_flow
 
 COLLECTIONS = "kaia-v2-4"

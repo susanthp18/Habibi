@@ -146,14 +146,15 @@ def test_no_entry_line_means_no_pre_action() -> None:
     assert "pre_actions" not in _compile(_listen_first_graph(), session)
 
 
-def test_exporting_the_builtin_script_keeps_its_bridge_lines() -> None:
-    """The export dropped pre_actions, so a reload produced a silent step."""
-    from voice.flow_export import _entry_line
+def test_the_builtin_graph_keeps_its_bridge_lines() -> None:
+    """The export used to drop pre_actions, so a reload produced a silent step
+    -- a live call sat mute for 24 seconds on negotiate_ptp. The graph is data
+    now; the bridge lines it carries are the ones the runtime speaks."""
+    from voice.flow_export import built_in_collections_graph
 
-    said = {"pre_actions": [{"type": "tts_say", "text": "Happy to set that up."}]}
-    assert _entry_line(said) == "Happy to set that up."
-    assert _entry_line({"pre_actions": [{"type": "function", "handler": "x"}]}) == ""
-    assert _entry_line({}) == ""
+    by_key = {n["key"]: n["data"] for n in built_in_collections_graph()["nodes"]}
+    assert by_key["negotiate_ptp"]["entryLine"]
+    assert not by_key["negotiate_ptp"]["respondImmediately"]
 
 
 # --- the silence nothing was watching --------------------------------------

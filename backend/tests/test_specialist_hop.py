@@ -264,7 +264,8 @@ def test_only_the_entry_node_carries_the_system_message() -> None:
     prompt-cache hit, and this test does not pretend otherwise; it pins the one
     thing that is checkable in CI.
     """
-    from voice.flow_export import _stub_session, built_in_collections_graph
+    from tests.test_flow_export import _stub_session
+    from voice.flow_export import built_in_collections_graph
     from voice.flows_dynamic import build_authored_flow
 
     graph = built_in_collections_graph()
@@ -283,7 +284,8 @@ def test_a_hop_does_not_rebuild_the_tool_registry() -> None:
     narrowing to the speaking one is a per-node predicate. If a hop had to
     rebuild the schemas, the cost would land mid-call on the audio path.
     """
-    from voice.flow_export import _stub_session, built_in_collections_graph
+    from tests.test_flow_export import _stub_session
+    from voice.flow_export import built_in_collections_graph
     from voice.flows_dynamic import build_authored_flow
 
     state, tools, _initial, _globals = build_authored_flow(

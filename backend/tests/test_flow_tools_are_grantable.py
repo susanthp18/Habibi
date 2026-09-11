@@ -93,7 +93,6 @@ def _gate(report, name: str):
 def test_the_export_reaches_the_api_image() -> None:
     """The whole chain, not just the leaf. ``voice.tools`` is the trunk."""
     import voice.flow_export  # noqa: F401
-    import voice.flows  # noqa: F401
     import voice.tools
 
     # Module level only, and statements rather than prose: the comment above

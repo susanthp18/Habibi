@@ -32,7 +32,7 @@ from voice.session import VoiceSession
 
 pytest.importorskip("pipecat.flows")
 
-from voice.flows import build_collections_flow  # noqa: E402
+from tests.builtin_flow import build_collections_flow  # noqa: E402
 from voice.node_contracts import NODE_REQUIRED  # noqa: E402
 from voice.tools import ALWAYS_ON  # noqa: E402
 

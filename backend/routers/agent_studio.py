@@ -95,18 +95,18 @@ def list_flow_tools():
     return flow_graph.tool_catalog()
 
 @router.get("/flow/built-in", response_model=FlowGraph)
-def get_built_in_flow(graph: str | None = Query(default=None)):
-    """The running built-in collections script, as an authored graph.
+def get_built_in_flow():
+    """The built-in collections conversation, as an authored graph.
 
-    Lets the Flow tab start from what the agent actually does today instead of
-    a blank canvas. Derived from ``voice.flows.build_collections_flow`` on every
-    request, so it cannot drift from the Python it mirrors. Loading it only
-    fills the editor — the live agent keeps running the built-in script until
-    the draft is published.
+    Lets the Flow tab start from the shipped conversation instead of a blank
+    canvas. Read from ``agent_core/cards/graphs/collections.json`` -- the one
+    definition, which the first-party card publishes like any other graph.
+    Loading it only fills the editor; nothing changes until the draft is
+    published.
     """
     from voice.flow_export import built_in_collections_graph
 
-    return built_in_collections_graph(graph=graph)
+    return built_in_collections_graph()
 
 @router.get("/flow/transitions", response_model=dict[str, list[str]])
 def get_flow_transitions():

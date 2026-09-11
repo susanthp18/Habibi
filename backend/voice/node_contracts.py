@@ -42,7 +42,6 @@ NODE_REQUIRED: dict[str, frozenset[str]] = {
     # The hub. Everything money-shaped is skill-gated and may legitimately be
     # absent; what may not be absent is the ability to leave.
     "state_position": frozenset({"begin_negotiate", "begin_dispute", "begin_wrap_up"}),
-    "collections_hub": frozenset({"begin_dispute", "begin_wrap_up"}),
     "negotiate_ptp": frozenset({"begin_wrap_up", "return_to_position"}),
     "handle_dispute": frozenset({"return_to_position"}),
     "gated_upsell": frozenset({"return_to_position", "begin_wrap_up"}),

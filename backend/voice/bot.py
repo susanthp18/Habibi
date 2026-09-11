@@ -38,7 +38,6 @@ from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
 from voice import config as voice_config
 from voice.context_edit import replace_developer_block
 from voice.crm_sink import CrmSink, bind_session_start, mark_crm_degraded
-from voice.flows import build_collections_flow
 from voice.llm_pool import KeepAliveAzureLLMService, prewarm_shared_client
 from voice.natural import build_voice_system_prompt, filler_for_function_names
 from voice.recording import attach_recording_handlers
@@ -972,7 +971,7 @@ async def run_bot(transport, runner_args) -> None:
             message=message,
         )
 
-    # ToolState is created inside build_collections_flow below; the getter reads
+    # ToolState is created inside build_authored_flow below; the getter reads
     # it lazily so KB corpus scope can follow the live Flows node.
     _flow_holder: dict[str, object] = {}
 
@@ -981,8 +980,8 @@ async def run_bot(transport, runner_args) -> None:
 
         state = _flow_holder.get("state")
         # Explicit scope wins. product_keys_for_node keys off _PRODUCT_NODES =
-        # {"gated_upsell"}; under VOICE_FLOW_GRAPH=hub that node does not exist,
-        # so without this an insurance question would be answered out of the
+        # {"gated_upsell"}; an authored graph need not have that node, so
+        # without this an insurance question would be answered out of the
         # collections corpus. `None` means "no hard product filter" — let
         # kb_retrieve steer by query tokens.
         if getattr(state, "product_scope", None) == "product":
@@ -1229,7 +1228,7 @@ async def run_bot(transport, runner_args) -> None:
         bundle.get("agentCard") or {},
         frozen_connector_tools=bundle.get("frozenTools"),
     )
-    # Not `_tool_state`: build_collections_flow returns its own turn state under
+    # Not `_tool_state`: build_authored_flow returns its own turn state under
     # that name a few lines below, and they are unrelated types.
     _grant = _mouth.tools(
         channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)}, channel="voice"
@@ -1250,32 +1249,11 @@ async def run_bot(transport, runner_args) -> None:
             if isinstance(key, str) and key:
                 _specialist_entries[str(slug)] = key
 
-    def _built_in_flow():
-        """The Python script. The fallback, and the only flow for a version
-        that authored none (allowed under `auto`, refused under `required`)."""
-        return build_collections_flow(
-            session,
-            role_message=system_instruction,
-            bot_id=bot_id,
-            start_recording=_start_recording,
-            emitter=emitter,
-            kb_snapshot_id=kb_snapshot_id,
-            inject_developer=_inject_developer,
-            replace_developer=_replace_developer,
-            persona=sandbox_persona,
-            channel="sandbox_live" if sandbox_session else "voice",
-            on_kb_tool_used=kb_enrich.suppress,
-            spoke_this_response=lambda: spoke_probe.spoke_this_response,
-            sink=sink,
-            allowed_tool_names=_allowed_tools,
-            attached_skills=_attached_skills,
-            agent_card=bundle.get("agentCard") if isinstance(bundle.get("agentCard"), dict) else None,
-        )
-
-    # Authored Prompt Studio graph when the published version has nodes. The
-    # built-in script is built only when the authored graph is not used --
-    # it used to be built on every call and thrown away, and under `required`
-    # (this deployment) it is never the flow that serves.
+    # The published Agent Studio graph is the only conversation there is. The
+    # Python script this used to fall back to was materialised as
+    # agent_core/cards/graphs/collections.json and published like any other
+    # graph, so a bot with none refuses the call rather than running
+    # something no publish could touch.
     _authored = bundle.get("flow")
     _flow_override = session.extra.get("flowGraph")
     if voice_config.voice_uses_authored_flow(_authored, override=_flow_override):
@@ -1310,32 +1288,22 @@ async def run_bot(transport, runner_args) -> None:
                 session.extra.get("objective") or "inbound",
             )
         except Exception:
-            if voice_config.voice_flow_required():
-                # Under `required` the studio is the only source of truth, so a
-                # graph that will not compile is a broken deployment, not a call
-                # to serve some other way. Falling back here is what let a card
-                # be edited and published without changing anything the caller
-                # heard.
-                logger.exception(
-                    "authored flow failed to compile and VOICE_FLOW_GRAPH=required "
-                    "· bot={} · refusing the call",
-                    bot_id,
-                )
-                raise
+            # The studio is the only source of truth, so a graph that will not
+            # compile is a broken deployment, not a call to serve some other
+            # way. Falling back is what let a card be edited and published
+            # without changing anything the caller heard.
             logger.exception(
-                "authored flow failed to compile — falling back to the built-in flow"
+                "authored flow failed to compile · bot={} · refusing the call", bot_id
             )
-            _tool_state, _tools, initial_node, global_fns = _built_in_flow()
-    elif voice_config.voice_flow_required():
-        # No published graph at all. Same reasoning: under `required` this is a
-        # configuration error with a name attached, not something to paper over.
+            raise
+    else:
+        # No published graph at all: a configuration error with a name
+        # attached, not something to paper over.
         raise RuntimeError(
             f"voice_flow_required: bot {bot_id!r} has no published Agent Studio "
-            "flow (publish one, or set VOICE_FLOW_GRAPH=auto to allow the "
-            "built-in script)"
+            "flow -- publish one (the built-in conversation is "
+            "agent_core/cards/graphs/collections.json)"
         )
-    else:
-        _tool_state, _tools, initial_node, global_fns = _built_in_flow()
 
     _flow_holder["state"] = _tool_state
     # The tool map too: the budget watchdog's hard stop needs `end_call`, and

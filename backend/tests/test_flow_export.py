@@ -1,10 +1,10 @@
-"""The built-in script, materialised as an authored graph.
+"""The built-in conversation, as an authored graph.
 
 The Studio's Flow tab governed nothing: every card stored an empty graph, so
-every call ran ``voice/flows.py`` — Python no prompt version could touch. These
-assert the export stays a faithful projection of that Python, because the moment
-it drifts, "load the built-in script" hands the author something the agent does
-not actually do.
+every call ran ``voice/flows.py`` -- Python no prompt version could touch. That
+script was materialised into ``agent_core/cards/graphs/collections.json`` and
+deleted; the graph is the one definition and these pin what it must keep
+saying, and that it compiles through the path every published graph takes.
 """
 
 from __future__ import annotations
@@ -12,8 +12,22 @@ from __future__ import annotations
 import pytest
 
 import flow_graph
-from voice.flow_export import _stub_session, built_in_collections_graph
-from voice.flows import MONEY_GOAL_INTENTS, build_collections_flow
+from voice.flow_export import GRAPH_PATH, built_in_collections_graph
+from voice.session import VoiceSession
+
+#: Intents for which the hub states the balance first (a money question the
+#: outstanding balance answers). Pinned here because the graph's hub text
+#: names them; they used to be ``voice.flows.MONEY_GOAL_INTENTS``.
+MONEY_GOAL_INTENTS = frozenset(
+    {"balance", "dues", "emi", "hardship", "negotiation", "payment", "promise_to_pay", "ptp", "settlement"}
+)
+
+
+def _stub_session(*, goal=None, intent=None) -> VoiceSession:
+    session = VoiceSession(session_id="FLOW-EXPORT", customer_id=None, interaction_id=None)
+    session.call_goal = goal
+    session.call_goal_intent = intent
+    return session
 
 
 @pytest.fixture(scope="module")
@@ -21,12 +35,13 @@ def graph() -> dict:
     return built_in_collections_graph()
 
 
-@pytest.fixture(scope="module")
-def built_in() -> dict:
-    state, _tools, _initial, _globals = build_collections_flow(
-        _stub_session(), role_message="", graph="legacy"
-    )
-    return state.nodes
+def test_the_graph_is_seed_data_the_studio_can_load() -> None:
+    assert GRAPH_PATH.exists()
+    loaded = built_in_collections_graph()
+    assert loaded["version"] == 1
+    # A deep copy per call: a caller that mutates its graph mutates nothing shared.
+    loaded["nodes"].clear()
+    assert built_in_collections_graph()["nodes"]
 
 
 def test_the_graph_validates_with_no_errors(graph: dict) -> None:
@@ -47,8 +62,13 @@ def test_reserved_key_nodes_are_not_flagged_unreachable(graph: dict) -> None:
     assert [i for i in result.issues if i.code == "unreachable"] == []
 
 
-def test_every_built_in_node_is_exported(graph: dict, built_in: dict) -> None:
-    assert {n["key"] for n in graph["nodes"]} == set(built_in)
+def test_every_built_in_node_is_present(graph: dict) -> None:
+    assert {n["key"] for n in graph["nodes"]} == {
+        "greet_disclose", "confirm_identity", "third_party", "discover_intent",
+        "verify_identity", "state_position", "negotiate_ptp", "handle_dispute",
+        "gated_upsell", "wrap_up", "pre_close", "terminate_politely",
+        "escalate_close", "call_ended",
+    }
 
 
 def test_node_keys_are_reserved_so_built_in_transitions_still_land(graph: dict) -> None:
@@ -94,14 +114,12 @@ def test_exactly_one_start_and_it_is_the_greeting(graph: dict) -> None:
     assert starts == ["greet_disclose"]
 
 
-def test_respond_immediately_matches_the_built_in(graph: dict, built_in: dict) -> None:
-    """discover_intent listening rather than speaking is load bearing — it is
+def test_discover_intent_listens_first(graph: dict) -> None:
+    """discover_intent listening rather than speaking is load bearing -- it is
     what stopped the bot asking "what can I help with?" twice in a row."""
-    for node in graph["nodes"]:
-        expected = bool(built_in[node["key"]]().get("respond_immediately", True))
-        assert node["data"]["respondImmediately"] is expected, node["key"]
     listening = {n["key"] for n in graph["nodes"] if not n["data"]["respondImmediately"]}
     assert "discover_intent" in listening
+    assert "greet_disclose" not in listening
 
 
 def test_per_node_tools_match_the_built_in(graph: dict) -> None:
@@ -123,16 +141,9 @@ def test_per_node_tools_match_the_built_in(graph: dict) -> None:
     assert len(by_key["state_position"]) == 7
 
 
-def test_instructions_are_carried_verbatim(graph: dict, built_in: dict) -> None:
-    """Nodes whose text does not depend on the caller's goal must survive the
-    export unchanged — this is the check that catches drift."""
-    for key in ("greet_disclose", "discover_intent", "handle_dispute", "call_ended"):
-        node = next(n for n in graph["nodes"] if n["key"] == key)
-        source = "\n".join(
-            m["content"] for m in built_in[key]()["task_messages"]
-        ).strip()
-        assert node["data"]["instructions"] == source, key
-
+def test_every_node_carries_instructions(graph: dict) -> None:
+    for node in graph["nodes"]:
+        assert node["data"]["instructions"].strip(), node["key"]
 
 def test_the_goal_branch_survives_as_one_node(graph: dict) -> None:
     """_goal_directive branches the prompt, not the graph: both arms reach the

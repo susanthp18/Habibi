@@ -13,16 +13,15 @@ def test_flow_graph_defaults_to_auto(monkeypatch: pytest.MonkeyPatch) -> None:
     assert voice_config.voice_flow_graph() == "auto"
 
 
-def test_legacy_is_the_authored_flow_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VOICE_FLOW_GRAPH", "legacy")
-    graph = fg.empty_graph().model_dump()
-    assert voice_config.voice_uses_authored_flow(graph) is False
-
-
-def test_hub_is_the_hardcoded_hub_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VOICE_FLOW_GRAPH", "hub")
-    graph = fg.empty_graph().model_dump()
-    assert voice_config.voice_uses_authored_flow(graph) is False
+def test_the_retired_kill_switches_no_longer_select_a_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`legacy` and `hub` selected voice/flows.py, which is gone: an authored
+    graph runs under either name, and a missing one is refused at the call
+    site rather than replaced."""
+    for mode in ("legacy", "hub"):
+        monkeypatch.setenv("VOICE_FLOW_GRAPH", mode)
+        assert voice_config.voice_flow_graph() == "auto"
+        assert voice_config.voice_uses_authored_flow(fg.empty_graph().model_dump()) is True
+        assert voice_config.voice_uses_authored_flow({}) is False
 
 
 def test_auto_uses_authored_flow_when_the_graph_has_nodes(
