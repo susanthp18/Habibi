@@ -349,3 +349,35 @@ def test_a_promise_is_stored_at_local_midnight_of_the_named_day(db_tx) -> None:
     ).scalar_one()
     assert stored.date() == day and (stored.hour, stored.minute) == (0, 0)
     assert clock.local_midnight("2026-09-15").isoformat() == "2026-09-15T00:00:00+05:30"
+
+
+def test_settle_breaks_in_bounded_batches(db_tx, monkeypatch) -> None:
+    """Every overdue promise used to be locked at once for the whole engine run.
+
+    With the batch bound at 1, three overdue promises are still all broken --
+    across three transactions, each holding one row, so a second settler (or
+    an agent editing a promise) is never blocked on the whole overdue book.
+    """
+    import db
+    import promise_fulfillment
+
+    monkeypatch.setattr(promise_fulfillment, "_SETTLE_BATCH", 1)
+    customer_id, account_id = _customer(db_tx)
+    pids = [_create(customer_id, account_id, amount=40.0 + i, days=1).data["promiseId"] for i in range(3)]
+    db_tx.execute(
+        text(
+            """
+            UPDATE promises
+            SET promised_at = (((now() AT TIME ZONE 'Asia/Kolkata')::date - 1)::timestamp)
+                              AT TIME ZONE 'Asia/Kolkata'
+            WHERE id = ANY(:ids)
+            """
+        ),
+        {"ids": pids},
+    )
+    stats = promise_fulfillment.settle_promises(db.engine)
+    assert stats["broken"] >= 3
+    statuses = db_tx.execute(
+        text("SELECT status FROM promises WHERE id = ANY(:ids)"), {"ids": pids}
+    ).scalars().all()
+    assert statuses == ["broken"] * 3

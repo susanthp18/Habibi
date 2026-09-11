@@ -872,6 +872,14 @@ def _next_action(conn: Any, promise: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Overdue promises are broken in batches this size, each its own transaction.
+#: One `FOR UPDATE` over every overdue row, held while the treatment engine
+#: planned a follow-up for each, was a lock on the whole overdue book for the
+#: length of the engine run -- and a second settler blocked on the first
+#: instead of sharing the work. `SKIP LOCKED` + a bound does both.
+_SETTLE_BATCH = 50
+
+
 def settle_promises(engine: Engine | Any) -> dict[str, int]:
     """Advance due_today and auto-break after the promised IST day ends."""
     import db as dbmod
@@ -902,7 +910,23 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
                 """
             )
         ).rowcount or 0
-        rows = conn.execute(
+    while True:
+        with engine.begin() as conn:
+            rows = _overdue_batch(conn)
+            for row in rows:
+                _break_promise(conn, row, dbmod)
+                broken += 1
+        if len(rows) < _SETTLE_BATCH:
+            break
+    if due or broken or expired:
+        logger.info("settle_promises due_today=%s broken=%s intents_expired=%s", due, broken, expired)
+    return {"due_today": due, "broken": broken, "expired": expired}
+
+
+def _overdue_batch(conn: Any) -> list[dict[str, Any]]:
+    return [
+        dict(r)
+        for r in conn.execute(
             text(
                 """
                 SELECT id, customer_id, account_id
@@ -911,69 +935,72 @@ def settle_promises(engine: Engine | Any) -> dict[str, int]:
                   AND paid_amount < amount
                   AND (promised_at AT TIME ZONE 'Asia/Kolkata')::date
                     < (now() AT TIME ZONE 'Asia/Kolkata')::date
-                FOR UPDATE
+                ORDER BY promised_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT :n
                 """
-            )
-        ).mappings().all()
-        for row in rows:
-            conn.execute(
-                text("UPDATE promises SET status = 'broken' WHERE id = :id AND status <> 'kept'"),
-                {"id": row["id"]},
-            )
-            # Ask the treatment engine what should happen now, rather than
-            # leaving the answer to tomorrow's huddle. In shadow — the default
-            # — nothing is dispatched; the plan is logged and its reasoning
-            # becomes the follow-up note, so the clerk who picks this up reads
-            # "WhatsApp at 09:10, 55% chance of reaching them" instead of
-            # "Broken promise follow-up".
-            plan = _next_action(conn, row)
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO followups
-                      (id, promise_id, customer_id, assignee_user_id, status,
-                       priority, due_at, note, channel)
-                    VALUES
-                      (:id, :promise_id, :customer_id, :assignee, 'open', 'high',
-                       COALESCE(:due_at, now() + interval '1 day'), :note, :channel)
-                    ON CONFLICT (id) DO NOTHING
-                    """
-                ),
-                {
-                    "id": f"FU-{row['id']}",
-                    "promise_id": row["id"],
-                    "customer_id": row["customer_id"],
-                    "assignee": dbmod._actor_user_id(),
-                    "due_at": plan["due_at"],
-                    "note": plan["note"],
-                    "channel": plan["channel"],
-                },
-            )
-            dbmod.record_activity(
-                conn,
-                "promise",
-                row["id"],
-                "promise_updated",
-                "Promise auto-broken",
-                "broken",
-                row["customer_id"],
-            )
-            # Same transaction as the status change, so a subscriber is never
-            # told about a break that got rolled back.
-            webhooks_dispatch.dispatch(
-                conn,
-                "promise.broken",
-                {
-                    "promiseId": row["id"],
-                    "customerId": row["customer_id"],
-                    "accountId": row["account_id"],
-                    "reason": "not_paid_by_promised_date",
-                },
-            )
-            broken += 1
-    if due or broken or expired:
-        logger.info("settle_promises due_today=%s broken=%s intents_expired=%s", due, broken, expired)
-    return {"due_today": due, "broken": broken, "expired": expired}
+            ),
+            {"n": _SETTLE_BATCH},
+        ).mappings()
+    ]
+
+
+def _break_promise(conn: Any, row: dict[str, Any], dbmod: Any) -> None:
+    """One overdue promise: status, the planned follow-up, the record, the event."""
+    conn.execute(
+        text("UPDATE promises SET status = 'broken' WHERE id = :id AND status <> 'kept'"),
+        {"id": row["id"]},
+    )
+    # Ask the treatment engine what should happen now, rather than
+    # leaving the answer to tomorrow's huddle. In shadow — the default
+    # — nothing is dispatched; the plan is logged and its reasoning
+    # becomes the follow-up note, so the clerk who picks this up reads
+    # "WhatsApp at 09:10, 55% chance of reaching them" instead of
+    # "Broken promise follow-up".
+    plan = _next_action(conn, row)
+    conn.execute(
+        text(
+            """
+            INSERT INTO followups
+              (id, promise_id, customer_id, assignee_user_id, status,
+               priority, due_at, note, channel)
+            VALUES
+              (:id, :promise_id, :customer_id, :assignee, 'open', 'high',
+               COALESCE(:due_at, now() + interval '1 day'), :note, :channel)
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {
+            "id": f"FU-{row['id']}",
+            "promise_id": row["id"],
+            "customer_id": row["customer_id"],
+            "assignee": dbmod._actor_user_id(),
+            "due_at": plan["due_at"],
+            "note": plan["note"],
+            "channel": plan["channel"],
+        },
+    )
+    dbmod.record_activity(
+        conn,
+        "promise",
+        row["id"],
+        "promise_updated",
+        "Promise auto-broken",
+        "broken",
+        row["customer_id"],
+    )
+    # Same transaction as the status change, so a subscriber is never
+    # told about a break that got rolled back.
+    webhooks_dispatch.dispatch(
+        conn,
+        "promise.broken",
+        {
+            "promiseId": row["id"],
+            "customerId": row["customer_id"],
+            "accountId": row["account_id"],
+            "reason": "not_paid_by_promised_date",
+        },
+    )
 
 
 #: How long a reminder may sit with a lease before it is presumed lost.
