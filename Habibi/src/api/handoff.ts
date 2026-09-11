@@ -283,8 +283,11 @@ export async function wrapUpHandoff(
       channel: "voice",
     };
   }
+  // One key per interaction: a retry of the same wrap-up must carry the same
+  // key, or the server sees two requests and files two wrap-ups. `Date.now()`
+  // in the key made every retry a first attempt.
   return apiPost(`/interactions/${encodeURIComponent(interactionId)}/wrap-up`, body, {
-    headers: { "Idempotency-Key": `wrap-${interactionId}-${Date.now()}` },
+    headers: { "Idempotency-Key": `wrap-${interactionId}` },
   });
 }
 
