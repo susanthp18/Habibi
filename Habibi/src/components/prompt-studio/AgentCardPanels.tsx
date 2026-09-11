@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Lozenge } from "@/components/ui/lozenge";
+import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { useFlowTools } from "@/api/flow";
 import { catalogToolsForCard, controlKindLabel } from "@/lib/studio-contract";
@@ -35,7 +36,6 @@ import { CritiquesPanel } from "./CritiquesPanel";
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
 import { QueryErrorBanner, QueryState } from "@/components/ui/query-state";
-import type { LozengeTone } from "@/components/ui/lozenge";
 
 /**
  * An eval report's status, coloured for what it means.
@@ -46,13 +46,6 @@ import type { LozengeTone } from "@/components/ui/lozenge";
  * a failure. Anything outside the known vocabulary stays neutral rather than
  * being assigned a verdict nobody computed.
  */
-function reportTone(status: string): LozengeTone {
-  if (status === "pass") return "success";
-  if (status === "fail" || status === "error") return "danger";
-  if (status === "skipped") return "neutral";
-  if (status === "warn" || status === "partial") return "warning";
-  return "neutral";
-}
 
 const POLICY_ENGINES = [
   { key: "reco", label: "Recommend next offer", tool: "recommend_next_offer" },
@@ -148,12 +141,7 @@ export function ToolsTab({
           <>
             {[g4, g6].map((g) =>
               g ? (
-                <Lozenge
-                  key={g.gate}
-                  tone={
-                    g.status === "fail" ? "danger" : g.status === "warn" ? "warning" : "success"
-                  }
-                >
+                <Lozenge key={g.gate} tone={gateTone(g.status)}>
                   {g.gate} {g.status}
                   {g.detail ? ` — ${g.detail}` : ""}
                 </Lozenge>
@@ -457,13 +445,13 @@ export function EvalsTab({
                       ? `${(latest.summary.total ?? 0) - (latest.summary.failed ?? 0)}/${latest.summary.total}`
                       : ""}
                   </span>
-                  <Lozenge tone={reportTone(latest.status)}>{latest.status}</Lozenge>
+                  <Lozenge tone={gateTone(latest.status)}>{latest.status}</Lozenge>
                 </span>
               ) : tenantWideByKind.get(kind) ? (
                 <span className="flex items-center gap-100">
                   <span className="text-body-tiny text-text-subtle">tenant-wide</span>
                   <Lozenge
-                    tone={reportTone(tenantWideByKind.get(kind)!.status)}
+                    tone={gateTone(tenantWideByKind.get(kind)!.status)}
                     title="A scheduled run filed against no particular card. It exercised this suite, but it is not a result for this card specifically."
                   >
                     {tenantWideByKind.get(kind)!.status}
@@ -628,7 +616,7 @@ function EvalReportsList({
                   {total ? `${total - failed}/${total}` : "—"}
                 </td>
                 <td className="px-150 py-100">
-                  <Lozenge tone={reportTone(r.status)}>{r.status}</Lozenge>
+                  <Lozenge tone={gateTone(r.status)}>{r.status}</Lozenge>
                 </td>
                 <td className="px-150 py-100 text-right">
                   <div className="flex items-center justify-end gap-075">
@@ -1186,19 +1174,7 @@ export function CompileReportList({ report }: { report: CompileReport | null }) 
             <span className="font-mono">{g.gate}</span> {g.name}
             {g.detail ? <span className="ml-075 text-text-subtle">{g.detail}</span> : null}
           </span>
-          <Lozenge
-            tone={
-              g.status === "pass"
-                ? "success"
-                : g.status === "fail"
-                  ? "danger"
-                  : g.status === "warn"
-                    ? "warning"
-                    : "neutral"
-            }
-          >
-            {g.status}
-          </Lozenge>
+          <Lozenge tone={gateTone(g.status)}>{g.status}</Lozenge>
         </li>
       ))}
     </ul>

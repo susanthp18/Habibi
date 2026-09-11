@@ -668,10 +668,15 @@ def _outbound_gates(
     out: list[GateResult] = []
     if card is None:
         out.append(_gate("G-OB1", "missions_declared", "skipped", "no card"))
+        out.append(_gate("G-OB9", "outbound", "skipped", "no card"))
         return out
     ob = card.outbound
     if not ob.dials:
+        # G-OB9 too: a card requiring the outbound suite while dialling nothing
+        # produced no gate at all, not even a skipped one, so the requirement
+        # looked satisfied.
         out.append(_gate("G-OB1", "missions_declared", "skipped", "inbound-only card"))
+        out.append(_gate("G-OB9", "outbound", "skipped", "inbound-only card"))
         return out
 
     issues: list[dict[str, Any]] = []

@@ -15,6 +15,7 @@ import {
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -675,13 +676,7 @@ function FleetIndex() {
                         </Lozenge>
                       ) : (
                         <Lozenge
-                          tone={
-                            card.evalStatus === "pass"
-                              ? "success"
-                              : card.evalStatus === "fail"
-                                ? "danger"
-                                : "neutral"
-                          }
+                          tone={gateTone(card.evalStatus)}
                           title="Eval suite result. 'skipped' means the suite has not run — not a failure."
                         >
                           evals: {card.evalStatus}

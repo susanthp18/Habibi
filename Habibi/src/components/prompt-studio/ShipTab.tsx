@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Lozenge } from "@/components/ui/lozenge";
+import { gateTone } from "@/lib/gate-status";
 import {
   useDeploymentExperiments,
   useEffectiveContract,
@@ -148,19 +149,7 @@ export function ShipTab({
                   <span className="font-mono">{g.gate}</span> {g.name}
                   {g.detail ? <span className="ml-075 text-text-subtle">{g.detail}</span> : null}
                 </span>
-                <Lozenge
-                  tone={
-                    g.status === "pass"
-                      ? "success"
-                      : g.status === "fail"
-                        ? "danger"
-                        : g.status === "warn"
-                          ? "warning"
-                          : "neutral"
-                  }
-                >
-                  {g.status}
-                </Lozenge>
+                <Lozenge tone={gateTone(g.status)}>{g.status}</Lozenge>
               </li>
             ))}
           </ul>

@@ -1,4 +1,5 @@
 import { Lozenge } from "@/components/ui/lozenge";
+import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import {
   EVAL_SCHEDULE_AVAILABLE,
@@ -43,8 +44,8 @@ export function EvalCockpit({ compact = false }: { compact?: boolean }) {
           // has said so for a while — this one still asserted the first when it
           // meant the second, on the panel an operator checks before shipping.
           <li className="px-150 py-100 text-body-small text-text-danger">
-            The eval history could not be read. This is not "no runs" — retry before
-            reading anything into an empty list.
+            The eval history could not be read. This is not "no runs" — retry before reading
+            anything into an empty list.
           </li>
         ) : reports.isPending ? (
           <li className="px-150 py-100 text-body-small text-text-subtlest">Loading…</li>
@@ -76,7 +77,7 @@ function ReportRow({ report }: { report: EvalReport }) {
         <span className="tabular text-body-tiny text-text-subtle">
           {total - failed}/{total}
         </span>
-        <Lozenge tone={report.status === "pass" ? "success" : "danger"}>{report.status}</Lozenge>
+        <Lozenge tone={gateTone(report.status)}>{report.status}</Lozenge>
       </div>
     </li>
   );

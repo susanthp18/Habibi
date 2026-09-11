@@ -284,3 +284,20 @@ def test_the_shipped_door_passes_the_gate_it_is_now_held_to() -> None:
 
     gates = _run(card=card_dump("intake-v1"), flow=_DOOR_FLOW, members=[_member()])
     assert gates["G-F6"].status == "pass", gates["G-F6"].detail
+
+
+def test_an_inbound_card_still_reports_the_outbound_eval_gate() -> None:
+    """EVALS-16: ticking Outbound on an inbound-only card produced no G-OB9 at
+    all -- not even skipped -- so the requirement looked satisfied."""
+    from agent_core.cards.compile import _outbound_gates
+    from agent_core.cards.schema import parse_card
+
+    card = parse_card(_card("intake-v1", tools=["handoff_to_agent"]))
+    gates = {
+        g.gate: g
+        for g in _outbound_gates(
+            card, {}, catalog_names=set(), effective=[], known_bot_ids=set(), eval_report=None
+        )
+    }
+    assert gates["G-OB9"].status == "skipped"
+    assert "inbound-only" in gates["G-OB9"].detail

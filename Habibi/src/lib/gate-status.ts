@@ -36,7 +36,15 @@ export const GATE_LABEL: Record<GateStatus, string> = {
   skipped: "skipped",
 };
 
+/**
+ * One mapping for every status word the compiler, the eval harness and the
+ * canary emit. `error` and `partial` are the harness's (a grader that threw;
+ * a report with some failed trials) and land where the compiler's `fail` and
+ * `warn` do. Anything else is neutral and shown verbatim.
+ */
 export function gateTone(status: string): LozengeTone {
+  if (status === "error") return "danger";
+  if (status === "partial") return "warning";
   return GATE_TONE[status as GateStatus] ?? "neutral";
 }
 

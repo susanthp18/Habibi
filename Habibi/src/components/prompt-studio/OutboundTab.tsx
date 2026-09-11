@@ -107,10 +107,26 @@ function OutboundGates({ botId, card, flow }: { botId: string; card: AgentCard; 
   const gates = (preview.data?.gates ?? []).filter((g) => g.gate.startsWith("G-OB"));
   if (gates.length === 0) return <Lozenge tone="neutral">checking…</Lozenge>;
   const failing = gates.filter((g) => g.status === "fail");
-  const skipped = gates.every((g) => g.status === "skipped");
-  if (skipped) return <Lozenge tone="neutral">outbound gates skipped — inbound only</Lozenge>;
+  const passed = gates.filter((g) => g.status === "pass").length;
+  const skipped = gates.filter((g) => g.status === "skipped").length;
+  if (skipped === gates.length) {
+    // One skipped G-OB1 carries the reason. "no card" is a card the compiler
+    // could not parse, which is not the same thing as an inbound-only card.
+    const detail = gates[0]?.detail ?? "";
+    return detail.includes("no card") ? (
+      <Lozenge tone="warning">card is not valid — see G0</Lozenge>
+    ) : (
+      <Lozenge tone="neutral">outbound gates skipped — inbound only</Lozenge>
+    );
+  }
   if (failing.length === 0) {
-    return <Lozenge tone="success">{gates.length} outbound gates pass</Lozenge>;
+    // Skipped is not passed: a skipped G-OB9 is a suite that did not run.
+    return (
+      <Lozenge tone={skipped ? "neutral" : "success"}>
+        {passed} outbound gate{passed === 1 ? "" : "s"} pass
+        {skipped ? ` · ${skipped} skipped` : ""}
+      </Lozenge>
+    );
   }
   return (
     <div className="w-full space-y-050 rounded-medium border border-border-danger bg-background-danger-subtler px-150 py-100">
