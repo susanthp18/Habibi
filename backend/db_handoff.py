@@ -9,7 +9,6 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 from __future__ import annotations
 
 import visibility
-
 from datetime import date, datetime, timezone
 from schemas import HandoffQueueItem, HandoffQueueResponse, HandoffSessionResponse
 from sqlalchemy import text
