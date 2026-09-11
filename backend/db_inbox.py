@@ -1689,12 +1689,16 @@ def get_latest_eval_report(
     bot_id: str,
     kind: str,
     prompt_version_id: str | None = None,
+    content_key: str | None = None,
 ) -> dict[str, Any] | None:
     """Newest report for this bot whose suite matches ``kind`` (regression/redteam).
 
     When ``prompt_version_id`` is set, only a report filed against that exact
     draft counts — a green suite on last week's published card must not open
-    the gate for this week's unpublished one.
+    the gate for this week's unpublished one. ``content_key`` asks the better
+    question -- a report run against *this content*, whichever row carried it
+    -- and wins when given: a version restored from a passed one is passed;
+    a version edited after its run is not.
     """
     # Tenant-scoped like its sibling `list_eval_reports`. Bot ids are unique
     # across tenants in practice, so this is latent rather than live — but it is
@@ -1702,7 +1706,10 @@ def get_latest_eval_report(
     # leave on the gate that decides whether a card may ship.
     clauses = ["r.tenant_id = :tenant", "r.bot_id = :bot", "s.kind = :kind"]
     params: dict[str, Any] = {"tenant": _tenant(), "bot": bot_id, "kind": kind}
-    if prompt_version_id:
+    if content_key:
+        clauses.append("r.content_key = :ck")
+        params["ck"] = content_key
+    elif prompt_version_id:
         clauses.append("r.prompt_version_id = :pv")
         params["pv"] = prompt_version_id
     with _engine().connect() as conn:
@@ -1711,7 +1718,7 @@ def get_latest_eval_report(
                 text(
                     f"""
                     SELECT r.id, r.status, r.summary, r.suite_id, r.bot_id,
-                           r.prompt_version_id, r.created_at
+                           r.prompt_version_id, r.content_key, r.created_at
                     FROM eval_reports r
                     JOIN eval_suites s ON s.id = r.suite_id
                     WHERE {" AND ".join(clauses)}
@@ -1734,6 +1741,7 @@ def save_eval_report(
     trials: list[dict[str, Any]] | None = None,
     prompt_version_id: str | None = None,
     origin: str = "manual",
+    content_key: str | None = None,
 ) -> dict[str, Any]:
     rid = _id("EVR")
     origin = origin if origin in {"manual", "scheduled", "canary", "upgrade"} else "manual"
@@ -1742,9 +1750,11 @@ def save_eval_report(
             text(
                 """
                 INSERT INTO eval_reports (
-                  id, tenant_id, suite_id, bot_id, prompt_version_id, status, summary, origin
+                  id, tenant_id, suite_id, bot_id, prompt_version_id, status, summary, origin,
+                  content_key
                 ) VALUES (
-                  :id, :tenant, :suite, :bot, :pv, :status, CAST(:summary AS jsonb), :origin
+                  :id, :tenant, :suite, :bot, :pv, :status, CAST(:summary AS jsonb), :origin,
+                  :ck
                 )
                 """
             ),
@@ -1757,6 +1767,7 @@ def save_eval_report(
                 "status": status,
                 "summary": _jsonb(summary),
                 "origin": origin,
+                "ck": content_key,
             },
         )
         for trial in trials or []:

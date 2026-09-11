@@ -223,6 +223,7 @@ _GATE_NAMES: dict[str, str] = {
     "G-F11": "text_walkability",
     "G-F12": "publish_scope",
     "G-F15": "fleet_hop",
+    "G-F14": "eval_provenance",
     **_OUTBOUND_GATE_NAMES,
 }
 
@@ -967,6 +968,7 @@ def compile_card(
     redteam_report: dict[str, Any] | None = None,
     twin_report: dict[str, Any] | None = None,
     outbound_report: dict[str, Any] | None = None,
+    content_key: str | None = None,
     attached_skills: list[SkillPack] | None = None,
     traffic_pct: int | None = None,
     auto_rollback: list[str] | None = None,
@@ -1196,6 +1198,14 @@ def compile_card(
             redteam_report,
             card,
             skip=skip_eval_gates,
+        )
+    )
+    # G-F14 -- which content those verdicts are about.
+    gates.append(
+        _provenance_gate(
+            card,
+            {"regression": eval_report, "redteam": redteam_report, "outbound": outbound_report},
+            content_key,
         )
     )
     # G11 twin — blocking in Phase 4 when twin is in card.eval.require.
@@ -1542,8 +1552,50 @@ def _eval_gate(
         return _gate(gate, name, "fail", f"{name} suite has not been run{where}")
     status = str(report.get("status") or "")
     if status == "pass":
+        # A pass carried over by content: the same words, judged on another
+        # row. Said so, never "skipped".
+        if report.get("cached"):
+            since = str(report.get("created_at") or "")[:19]
+            return _gate(gate, name, "pass", f"cached {report.get('id')} (unchanged since {since})")
         return _gate(gate, name, "pass", report.get("id") or "")
     return _gate(gate, name, "fail", status or "eval_fail", [report])
+
+
+def _provenance_gate(
+    card: AgentCard | None,
+    reports: dict[str, dict[str, Any] | None],
+    candidate_key: str | None,
+) -> GateResult:
+    """G-F14 -- every required report says what it was run against, and it is
+    this. Informational beside G7/G8: those block on the verdict, this one
+    names whether the verdict is about this content at all."""
+    if card is None or not candidate_key:
+        return _gate("G-F14", "eval_provenance", "skipped", "no card or no content key")
+    required = [k for k in (card.eval.require or []) if k in reports]
+    if not required:
+        return _gate("G-F14", "eval_provenance", "skipped", "no suite required")
+    unkeyed = [k for k in required if reports[k] is not None and not reports[k].get("content_key")]
+    other = [
+        k for k in required
+        if reports[k] is not None and reports[k].get("content_key") and reports[k]["content_key"] != candidate_key
+    ]
+    if other:
+        return _gate(
+            "G-F14",
+            "eval_provenance",
+            "fail",
+            f"{', '.join(other)} report(s) were run against different content",
+            [{"kind": k, "report": reports[k].get("id")} for k in other],
+        )
+    if unkeyed:
+        return _gate(
+            "G-F14",
+            "eval_provenance",
+            "warn",
+            f"{', '.join(unkeyed)} report(s) predate content keys -- re-run to record what they judged",
+            [{"kind": k, "report": reports[k].get("id")} for k in unkeyed],
+        )
+    return _gate("G-F14", "eval_provenance", "pass", f"content {candidate_key[:12]}")
 
 
 def assert_publishable(report: CompileReport) -> CompileReport:

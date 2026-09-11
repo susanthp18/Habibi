@@ -10,9 +10,9 @@ together they mean a flag flip can make every card in the tenant unpublishable
 at once, with the failure arriving as a 422 on somebody's publish rather than as
 a decision anybody took.
 
-Today that is not hypothetical: every ``eval_reports`` row in this database has
-``prompt_version_id`` NULL, because nothing supplied one until the plumbing
-landed. So flipping a flag right now blocks all five published cards.
+Reports are matched by ``content_key`` first (what the suite was run against,
+as one hash -- agent_core/eval/provenance.py) and by ``prompt_version_id``
+second. A row filed before either existed matches neither.
 
 **This does not backfill, and no backfill is coming.** Stamping an old row with
 a prompt version it was never run against would be a fabricated provenance
@@ -49,6 +49,7 @@ def missing_reports() -> list[dict[str, Any]]:
     """One row per (bot, requirement) that would fail if the flags were on."""
     import db
     from agent_core.cards.schema import is_authored, parse_card
+    from agent_core.eval.provenance import content_key_for_version
 
     out: list[dict[str, Any]] = []
     for summary in db.list_agent_studio_cards():
@@ -59,6 +60,8 @@ def missing_reports() -> list[dict[str, Any]]:
         raw = summary.get("publishedCard") or {}
         if not is_authored(raw):
             continue
+        version = db.get_prompt_version(version_id) or {}
+        content_key = content_key_for_version(version) if version else None
         try:
             card = parse_card(raw)
         except Exception as exc:  # a card that will not parse fails G0 first
@@ -68,9 +71,10 @@ def missing_reports() -> list[dict[str, Any]]:
             gate = _GATE_FOR.get(want)
             if gate is None:
                 continue
+            # By content first -- the gate's own question -- then by row.
             report = db.get_latest_eval_report(
-                bot_id=bot_id, kind=want, prompt_version_id=version_id
-            )
+                bot_id=bot_id, kind=want, content_key=content_key
+            ) or db.get_latest_eval_report(bot_id=bot_id, kind=want, prompt_version_id=version_id)
             if report is None:
                 out.append(
                     {

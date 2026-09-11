@@ -90,6 +90,13 @@ def run_named_suite(
     origin = origin if origin in _ORIGINS else "manual"
     suite, fixtures = load_suite_fixtures(suite_id)
     result = run_suite_fixtures(fixtures)
+    # What was judged, as one key -- the gate reads by this, not by row id.
+    key = None
+    if prompt_version_id:
+        from agent_core.eval.provenance import content_key_for_version
+
+        version = db.get_prompt_version(prompt_version_id)
+        key = content_key_for_version(version) if version else None
     saved = db.save_eval_report(
         suite_id=suite_id,
         bot_id=bot_id if bot_id is not None else bot_id_for_suite(suite_id),
@@ -98,6 +105,7 @@ def run_named_suite(
         trials=result["trials"],
         origin=origin,
         prompt_version_id=prompt_version_id,
+        content_key=key,
     )
     return {
         "suiteId": suite_id,

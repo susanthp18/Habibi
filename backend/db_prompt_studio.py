@@ -1033,22 +1033,41 @@ def compile_agent_studio_card(
     except Exception:
         pass
     version_id = mouth.get("id")
+    # The identity of what is about to ship: a report filed against the same
+    # content on any row counts, one filed against different content on this
+    # row does not.
+    from agent_core.eval.provenance import content_key as _content_key
+
+    candidate_key = _content_key(
+        card=card,
+        flow=graph,
+        prompt=mouth.get("prompt"),
+        persona=persona if persona is not None else mouth.get("persona"),
+        guardrails=mouth.get("guardrails"),
+        voice=voice if voice is not None else mouth.get("voice"),
+        tuning=mouth.get("tuning"),
+        skill_packs=attached or [],
+    )
+
+    def _report(kind: str) -> dict[str, Any] | None:
+        by_content = get_latest_eval_report(bot_id=bot_id, kind=kind, content_key=candidate_key)
+        if by_content is not None:
+            if by_content.get("prompt_version_id") != version_id:
+                by_content = {**by_content, "cached": True}
+            return by_content
+        return get_latest_eval_report(bot_id=bot_id, kind=kind, prompt_version_id=version_id)
+
     report = compile_card(
         bot_id=bot_id,
         card_raw=card,
         flow=graph,
         catalog_names=set(CATALOG.specs),
         known_bot_ids=list_bot_ids(),
-        eval_report=get_latest_eval_report(
-            bot_id=bot_id, kind="regression", prompt_version_id=version_id
-        ),
-        redteam_report=get_latest_eval_report(
-            bot_id=bot_id, kind="redteam", prompt_version_id=version_id
-        ),
+        eval_report=_report("regression"),
+        redteam_report=_report("redteam"),
         twin_report=_latest_twin_gate_report(),
-        outbound_report=get_latest_eval_report(
-            bot_id=bot_id, kind="outbound", prompt_version_id=version_id
-        ),
+        outbound_report=_report("outbound"),
+        content_key=candidate_key,
         attached_skills=attached,
         # Without these the preview read the card's stored experiment while
         # publish used the Ship tab's, so G12 reported "full ship" green and the
@@ -2434,22 +2453,32 @@ def publish_prompt_version(
             target.get("voice"), target.get("persona")
         )
         voice_provider, bound_tts = voice_provider_facts(voice_short, voice_locale, bot_id)
+        # Same identity the preview and the suite run used -- computed from the
+        # mapped row (normalised voice/tuning/flow), not the raw columns, or
+        # the three keys would not agree on the same content.
+        from agent_core.eval.provenance import content_key_for_version
+
+        candidate_key = content_key_for_version(get_prompt_version(version_id) or {})
+
+        def _report(kind: str) -> dict[str, Any] | None:
+            by_content = get_latest_eval_report(bot_id=bot_id, kind=kind, content_key=candidate_key)
+            if by_content is not None:
+                if by_content.get("prompt_version_id") != version_id:
+                    by_content = {**by_content, "cached": True}
+                return by_content
+            return get_latest_eval_report(bot_id=bot_id, kind=kind, prompt_version_id=version_id)
+
         report = compile_card(
             bot_id=bot_id,
             card_raw=card_raw,
             flow=target.get("flow"),
             catalog_names=set(_CATALOG.specs),
             known_bot_ids=known_bots,
-            eval_report=get_latest_eval_report(
-                bot_id=bot_id, kind="regression", prompt_version_id=version_id
-            ),
-            redteam_report=get_latest_eval_report(
-                bot_id=bot_id, kind="redteam", prompt_version_id=version_id
-            ),
+            eval_report=_report("regression"),
+            redteam_report=_report("redteam"),
             twin_report=_latest_twin_gate_report(),
-            outbound_report=get_latest_eval_report(
-                bot_id=bot_id, kind="outbound", prompt_version_id=version_id
-            ),
+            outbound_report=_report("outbound"),
+            content_key=candidate_key,
             attached_skills=attached,
             traffic_pct=pct,
             auto_rollback=triggers,
