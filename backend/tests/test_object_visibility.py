@@ -86,7 +86,23 @@ def test_oversight_roles_are_deliberately_unscoped(db_tx) -> None:
     """A QA reviewer restricted to one agent's calls cannot sample across
     agents, which is the whole job. Narrowing them would look like tighter
     security while breaking the control it exists to serve."""
-    assert visibility._UNSCOPED_ROLES >= {"qa_reviewer", "compliance_officer", "dpo"}
+    for role in ("qa_reviewer", "compliance_officer", "dpo"):
+        assert authz.CUSTOMERS_READ_ALL in authz.ROLE_DEFAULTS[role]
+    assert authz.CUSTOMERS_READ_TEAM in authz.ROLE_DEFAULTS["supervisor"]
+
+
+def test_reach_follows_the_grant_not_the_role_name(db_tx, monkeypatch) -> None:
+    """A renamed role used to change its reach; a moved grant now does."""
+    monkeypatch.setattr(authz, "actor_permissions", lambda uid: frozenset({authz.CUSTOMERS_READ}))
+    assert visibility.resolve("someone").scope == visibility.OWN
+    monkeypatch.setattr(
+        authz, "actor_permissions", lambda uid: frozenset({authz.CUSTOMERS_READ_TEAM})
+    )
+    assert visibility.resolve("someone").scope == visibility.TEAM
+    monkeypatch.setattr(
+        authz, "actor_permissions", lambda uid: frozenset({authz.CUSTOMERS_READ_ALL})
+    )
+    assert visibility.resolve("someone").scope == visibility.ALL
 
 
 def test_disabled_enforcement_is_the_same_path_as_admin(monkeypatch) -> None:

@@ -12,6 +12,10 @@ and ``teams.supervisor_user_id`` names who oversees that team.
 
 Scopes
 ------
+Each scope is a grant (``authz.CUSTOMERS_READ_ALL`` / ``CUSTOMERS_READ_TEAM``),
+handed out by ``authz.ROLE_DEFAULTS`` and movable from the Roles screen. It
+used to be the role's *name*, which meant a renamed role changed its reach.
+
 ``ALL``
     Admins, and the oversight roles — QA reviewers, compliance officers, the
     DPO. Deliberate: a QA reviewer who can only see one agent's calls cannot
@@ -25,8 +29,8 @@ Scopes
     way would have shown a supervisor their fellow supervisors' customers and
     hidden their actual reports'.
 ``OWN``
-    Agents, and any role this module does not recognise. Unknown means most
-    restricted, not most permissive.
+    Agents, and anyone holding neither grant. Unknown means most restricted,
+    not most permissive.
 
 The unassigned pool
 -------------------
@@ -63,10 +67,6 @@ ALL = "all"
 TEAM = "team"
 OWN = "own"
 
-#: Roles whose job is oversight across the whole book rather than work on part
-#: of it. See the module docstring for why these are not scoped.
-_UNSCOPED_ROLES = frozenset({"admin", "qa_reviewer", "compliance_officer", "dpo"})
-_TEAM_ROLES = frozenset({"supervisor", "manager"})
 
 
 @dataclass(frozen=True)
@@ -111,14 +111,18 @@ def resolve(user_id: str | None) -> Visibility:
 
     import authz
 
-    roles = authz.actor_roles(uid)
-    if roles & _UNSCOPED_ROLES:
-        return Visibility(uid, ALL, f"role {sorted(roles & _UNSCOPED_ROLES)[0]}")
-    if roles & _TEAM_ROLES:
-        return Visibility(uid, TEAM, f"role {sorted(roles & _TEAM_ROLES)[0]}")
-    if not roles:
-        return Visibility(uid, OWN, "no roles resolved")
-    return Visibility(uid, OWN, f"role {sorted(roles)[0]}")
+    # The reach is a grant, not a role name: ``authz.ROLE_DEFAULTS`` hands the
+    # oversight roles ``CUSTOMERS_READ_ALL`` and supervisors
+    # ``CUSTOMERS_READ_TEAM``, and the Roles screen can move either. A role
+    # that was renamed, or a new one, no longer changes its reach by accident.
+    perms = authz.actor_permissions(uid)
+    if authz.CUSTOMERS_READ_ALL in perms:
+        return Visibility(uid, ALL, authz.CUSTOMERS_READ_ALL)
+    if authz.CUSTOMERS_READ_TEAM in perms:
+        return Visibility(uid, TEAM, authz.CUSTOMERS_READ_TEAM)
+    if not perms:
+        return Visibility(uid, OWN, "no permissions resolved")
+    return Visibility(uid, OWN, "own book")
 
 
 # ---------------------------------------------------------------------------

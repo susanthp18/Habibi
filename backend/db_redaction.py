@@ -84,16 +84,15 @@ def _actor_role_names(conn: Any, user_id: str | None = None) -> list[str]:
 
 
 def _actor_can_view_raw_pii(conn: Any) -> bool:
-    """Raw PII in finding.text is Compliance Officer / Admin only.
+    """Raw PII in finding.text needs ``PII_RAW_READ`` -- a grant, not a role name.
 
-    Until Phase 5 auth carries a real role claim, resolve from user_roles.
-    There is no seeded 'Compliance Officer' role yet — Admin is the stand-in;
-    names containing Compliance / DPO are also allowed for forward-compat.
+    ``authz.ROLE_DEFAULTS`` hands it to compliance_officer/dpo (admin holds
+    everything); the Roles screen can move it.
     """
-    for name in _actor_role_names(conn):
-        if name in {"admin", "compliance_officer", "dpo"}:
-            return True
-    return False
+    import authz
+
+    uid = (_db()._actor_user_id() or "").strip()
+    return bool(uid) and authz.has_permission(uid, authz.PII_RAW_READ)
 
 
 def actor_is_admin(user_id: str | None = None) -> bool:

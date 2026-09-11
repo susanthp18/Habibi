@@ -106,6 +106,15 @@ INTEGRATIONS_WRITE = "perm-integrations-write"
 OBSERVABILITY_READ = "perm-observability-read"
 BANK_BOUNDARY_READ = "perm-bank-boundary-read"
 BANK_BOUNDARY_WRITE = "perm-bank-boundary-write"
+#: Object-level scope. Which customers an actor may see was decided by the
+#: *name* of their role ("supervisor" → their teams, "qa_reviewer" → everyone)
+#: in a second table nobody could edit from the Roles screen; a renamed role
+#: silently changed its reach. Now the reach is a grant like any other.
+CUSTOMERS_READ_TEAM = "perm-customers-read-team"
+CUSTOMERS_READ_ALL = "perm-customers-read-all"
+#: Raw PII inside compliance findings, likewise: was Admin/Compliance/DPO by
+#: name (db_redaction._actor_can_view_raw_pii).
+PII_RAW_READ = "perm-pii-raw-read"
 
 
 #: ``(id, module, action, description)`` — upserted at boot by
@@ -152,6 +161,9 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (OBSERVABILITY_READ, "observability", "read", "Scrape /metrics (service accounts and operators)"),
     (BANK_BOUNDARY_READ, "bank_boundary", "read", "Read bank-boundary contracts, manifests, readiness and outbox"),
     (BANK_BOUNDARY_WRITE, "bank_boundary", "write", "Ingest bank-boundary manifests and file complaints"),
+    (CUSTOMERS_READ_TEAM, "customers", "read_team", "See the customers of every agent on the teams you supervise"),
+    (CUSTOMERS_READ_ALL, "customers", "read_all", "See every customer in the tenant (oversight roles)"),
+    (PII_RAW_READ, "compliance", "raw_pii", "Read unredacted PII inside compliance findings"),
 )
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(p[0] for p in PERMISSION_CATALOG)
@@ -180,6 +192,7 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             KB_READ, BOT_READ,
             VOICE_OPERATE, SUPERVISOR_READ, SUPERVISOR_WRITE, WORKQUEUE_WRITE,
             INTEGRATIONS_READ, OBSERVABILITY_READ,
+            CUSTOMERS_READ_TEAM,
         }
     ),
     "agent": frozenset(
@@ -204,10 +217,11 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             QA_REVIEW, QA_WRITE,
             COMPLIANCE_READ, COMPLIANCE_WRITE,
             KB_READ,
+            # A reviewer restricted to one agent's calls cannot sample across
+            # agents, which is the whole job.
+            CUSTOMERS_READ_ALL,
         }
     ),
-    # Forward-compat aliases for the role names db._actor_can_view_raw_pii
-    # already recognises.
     "compliance_officer": frozenset(
         {
             CUSTOMERS_READ, INTERACTIONS_READ, COLLECTIONS_READ, CONSENT_READ,
@@ -217,6 +231,7 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             SUBJECT_RIGHTS_READ, SUBJECT_RIGHTS_WRITE,
             BANK_BOUNDARY_READ, BANK_BOUNDARY_WRITE,
             KB_READ,
+            CUSTOMERS_READ_ALL, PII_RAW_READ,
         }
     ),
 }
