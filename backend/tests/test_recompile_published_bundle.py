@@ -144,7 +144,16 @@ def test_doors_merging_reads_what_was_compiled_not_the_handoff_graph(db_tx) -> N
     """The handoff graph cannot answer this. `insurance-v1` and
     `collections-clone-9ff4b6` each hand off to cards the other also reaches, so
     "the owning door" is not a single value and a topology walk would be picking
-    by sort order. `entry_by_specialist` is what the compiler actually merged."""
+    by sort order. `entry_by_specialist` is what the compiler actually merged.
+
+    The fleet is live on the dev stack, so two published bundles really do
+    merge kaia; the test clears what was compiled first and authors its own."""
+    db_tx.execute(
+        text(
+            "UPDATE prompt_versions SET compiled = compiled - 'entry_by_specialist' "
+            " WHERE status = 'published' AND compiled IS NOT NULL"
+        )
+    )
     assert dps.doors_merging(BOT) == []
 
     db_tx.execute(

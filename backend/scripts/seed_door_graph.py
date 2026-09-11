@@ -102,21 +102,19 @@ def entry_nodes_for(card_raw: dict) -> dict[str, str]:
     hop would greet an already-verified caller and read the recording
     disclosure a second time.
 
-    Derived rather than a hand-written {bot_id: node} map: the first node in the
-    target's own order that is not a door node is the point where its business
-    starts, and a map would drift the first time a member's graph changed.
+    Same rule as the compiler's default (`flow_graph.business_entry`); this
+    writes it onto the card so the canvas shows where the hop lands.
     """
+    import flow_graph as fg
     from db_prompt_studio import _fleet_members
-    from voice.flow_export import _DOOR_KEYS
 
     out: dict[str, str] = {}
     # `_fleet_members` is the same reader the compiler uses to build the merged
     # graph, so the node this picks is a node that will actually be there.
     for member in _fleet_members(card_raw):
-        keys = [str(n.get("key") or "") for n in (member.get("flow") or {}).get("nodes") or []]
-        business = [k for k in keys if k and k not in _DOOR_KEYS]
-        if business:
-            out[str(member.get("bot_id") or "")] = business[0]
+        entry = fg.business_entry(member.get("flow") or {})
+        if entry and fg.local_key(entry) not in fg.DOOR_KEYS:
+            out[str(member.get("bot_id") or "")] = entry
     return out
 
 

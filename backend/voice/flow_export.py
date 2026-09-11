@@ -30,32 +30,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
+import flow_graph as fg
+
 #: Which half of the graph to emit. See ``built_in_collections_graph``.
 Part = Literal["all", "door", "servicing"]
 
 GRAPH_PATH = Path(__file__).resolve().parents[1] / "agent_core" / "cards" / "graphs" / "collections.json"
 
-#: The part of the conversation that answers the phone, as opposed to the part
-#: that does collections business on it.
-#:
-#: ``state_position`` is deliberately absent. In the collections graph that key
-#: is the servicing hub, so a door that owned it would inherit collections'
-#: business tools. The door needs a node under that name (a verification
-#: success lands there by key) -- but it needs a *route* node, which
-#: ``scripts/seed_door_graph.py`` authors rather than this filter deriving.
-_DOOR_KEYS: frozenset[str] = frozenset(
-    {
-        "greet_disclose",
-        "confirm_identity",
-        "third_party",
-        "discover_intent",
-        "verify_identity",
-        "terminate_politely",
-        "escalate_close",
-        "pre_close",
-        "call_ended",
-    }
-)
+#: The door/servicing split is ``flow_graph.DOOR_KEYS`` -- owned there so the
+#: compiler (which runs where pipecat is not installed) reads the same list.
+_DOOR_KEYS = fg.DOOR_KEYS
 
 
 @lru_cache(maxsize=1)

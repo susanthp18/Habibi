@@ -85,13 +85,18 @@ def _merge_members(
         return {}, {}, {}
 
     def entry_of(graph: dict[str, Any], bot_id: str) -> str:
+        # The primary keeps its start node. A member's start is its greeting,
+        # which is exactly where a hop must not land, so a member's default
+        # entry is where its business begins (an authored ``entry_node`` on
+        # the handoff overrides this in ``compile_bundle``).
         nodes = graph.get("nodes") or []
         start = next(
             (n for n in nodes if isinstance(n, dict) and (n.get("data") or {}).get("isStart")),
             None,
         )
-        node = start or next((n for n in nodes if isinstance(n, dict)), None)
-        return str((node or {}).get("key") or "")
+        if start is not None:
+            return str(start.get("key") or "")
+        return fg.business_entry(graph)
 
     merged_nodes: list[dict[str, Any]] = []
     merged_edges: list[dict[str, Any]] = []
@@ -589,14 +594,7 @@ def fleet_gates(
             card = None
 
     if door_keys is None:
-        try:
-            from voice.flow_export import _DOOR_KEYS as door_keys  # type: ignore[no-redef]
-        except Exception:
-            # The API container has no pipecat, so `voice` will not import
-            # there. Skipping is honest; claiming a pass would not be.
-            return [
-                _gate("G-F15", "fleet_hop", "skipped", "door key list unavailable here")
-            ]
+        door_keys = fg.DOOR_KEYS
 
     fleet_flow, entries, _grants = _merge_members(
         primary_bot_id=primary_bot_id,
@@ -634,12 +632,11 @@ def fleet_gates(
 
     # G-F15 -- where a hop lands.
     #
-    # `CardHandoff.entry_node` defaults to "", documented as "that member's
-    # start node". There is no start node: `namespaced(keep_start=False)` clears
-    # `isStart` on every non-primary member, so `_merge_members.entry_of` falls
-    # through to "the first node in the list" -- `greet_disclose`. A hop into
-    # collections would greet the caller and read the recording disclosure a
-    # second time, mid-call, after they had already been verified.
+    # `CardHandoff.entry_node` defaults to "", which `_merge_members` resolves
+    # to the member's first business node (`flow_graph.business_entry`). What
+    # this still catches: an authored entry_node that names a door node, and a
+    # member whose graph is all door nodes. A hop landing there would greet the
+    # caller and read the recording disclosure a second time, mid-call.
     landings: list[dict[str, Any]] = []
     declared = {h.to_bot_id: (h.entry_node or "") for h in (card.handoffs if card else [])}
     for namespace, entry in sorted(entries.items()):

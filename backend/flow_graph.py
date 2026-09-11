@@ -66,6 +66,45 @@ def local_key(key: str) -> str:
     return split_key(key)[1]
 
 
+#: The part of a conversation that answers the phone -- greeting, disclosure,
+#: identity, intent, the polite exits -- as opposed to the part that does
+#: business on it. A hop between fleet members must never land here: the
+#: caller has already been greeted and verified by the member handing off.
+#:
+#: ``state_position`` is deliberately absent. In the collections graph that key
+#: is the servicing hub, so a door that owned it would inherit collections'
+#: business tools; the door authors a *route* node under that name instead
+#: (``scripts/seed_door_graph.py``).
+DOOR_KEYS: frozenset[str] = frozenset(
+    {
+        "greet_disclose",
+        "confirm_identity",
+        "third_party",
+        "discover_intent",
+        "verify_identity",
+        "terminate_politely",
+        "escalate_close",
+        "pre_close",
+        "call_ended",
+    }
+)
+
+
+def business_entry(flow: dict[str, Any]) -> str:
+    """Where a hop into this graph lands when the handoff authors no entry_node.
+
+    The first node in the graph's own order that is not a door node -- the
+    point where its business starts. Derived, not a per-bot map: a map would
+    drift the first time a member's graph changed. A graph that is all door
+    nodes yields its first node (G-F15 then reports it). Keys may be
+    namespaced; the door test is on the local half.
+    """
+    keys = [str(n.get("key") or "") for n in (flow.get("nodes") or []) if isinstance(n, dict)]
+    keys = [k for k in keys if k]
+    business = [k for k in keys if local_key(k) not in DOOR_KEYS]
+    return (business or keys or [""])[0]
+
+
 def valid_node_key(key: str) -> bool:
     namespace, local = split_key(key)
     if not _KEY_RE.match(local):

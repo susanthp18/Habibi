@@ -82,21 +82,38 @@ def _member(bot_id: str = "kaia-v2-4", flow: dict | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_a_hop_with_no_entry_node_lands_on_the_greeting() -> None:
-    """The live defect. `CardHandoff.entry_node` defaults to "", documented as
-    "that member's start node" -- and `namespaced(keep_start=False)` clears
-    `isStart` on every non-primary member, so there is no start node and
-    `_merge_members` falls through to "the first node in the list". For a
-    collections graph that is `greet_disclose`: the hop would greet a caller who
-    has already been greeted and read the recording disclosure a second time."""
+def test_a_hop_with_no_entry_node_lands_where_the_business_starts() -> None:
+    """`CardHandoff.entry_node` defaults to "". That used to resolve to "the
+    first node in the list" -- `greet_disclose` for a collections graph, so the
+    hop greeted a caller who had already been greeted and read the recording
+    disclosure a second time, and every clone of a template that hands off
+    failed G-F15 until someone authored the node by hand. The compiler's
+    default is now the member's first business node, the same rule the
+    seeding script derives."""
     gates = _run(
         card=_card("intake-v1", tools=["handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
         flow=_DOOR_FLOW,
         members=[_member()],
     )
+    assert gates["G-F15"].status == "pass", gates["G-F15"]
+
+
+def test_a_member_that_is_all_door_nodes_is_still_caught() -> None:
+    """No business node to land on: the default falls to the first node and
+    G-F15 says so, unauthored."""
+    import copy
+
+    member = _member(flow=copy.deepcopy(_MEMBER_FLOW))
+    member["flow"]["nodes"] = [
+        n for n in member["flow"]["nodes"] if n["key"] in {"greet_disclose", "call_ended"}
+    ]
+    gates = _run(
+        card=_card("intake-v1", tools=["handoff_to_agent"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        flow=_DOOR_FLOW,
+        members=[member],
+    )
     g = gates["G-F15"]
     assert g.status == "fail"
-    assert g.issues[0]["member"] == "kaia-v2-4"
     assert g.issues[0]["entry_node"] == "greet_disclose"
     assert g.issues[0]["authored"] is False
 
@@ -254,10 +271,14 @@ def test_only_the_three_that_describe_a_defect_can_block() -> None:
     terminal; G-F6 because a door holding a business tool is not a door.
     G-F12 reports the design, so it cannot block."""
     gates = _run(
-        card=_card("intake-v1", tools=["load_skill"], handoffs=[{"to_bot_id": "kaia-v2-4"}]),
+        card=_card(
+            "intake-v1",
+            tools=["load_skill"],
+            # Authored to land on the greeting *and* the member owns no
+            # terminal: re-greets the caller and then cannot hang up on them.
+            handoffs=[{"to_bot_id": "kaia-v2-4", "entry_node": "greet_disclose"}],
+        ),
         flow=_DOOR_FLOW,
-        # Starts on a door node *and* owns no terminal: re-greets the caller and
-        # then cannot hang up on them.
         members=[_member(flow=_graph(["greet_disclose", "state_position"], start="greet_disclose"))],
     )
     assert {g for g, r in gates.items() if r.status == "fail"} == {"G-F15", "G-F2", "G-F6"}

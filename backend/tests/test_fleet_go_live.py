@@ -56,6 +56,17 @@ def test_the_bound_number_resolves_to_the_door(monkeypatch: pytest.MonkeyPatch) 
     assert resolve_entry("voice", str(row)) == DOOR
 
 
+def test_the_voice_channel_default_is_the_door(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Not only the one bound number: a call to any voice address lands on the
+    Door, so the fleet index has exactly one voice entry and kaia is reached
+    through it."""
+    from agent_core.cards.routing import resolve_entry
+
+    monkeypatch.setenv("DOOR_ENABLED", "1")
+    assert resolve_entry("voice") == DOOR
+    assert resolve_entry("voice", "+10000000000") == DOOR
+
+
 def test_the_door_serves_the_merged_fleet_graph(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FLEET_ENABLED", "1")
     bundle = _door_bundle()

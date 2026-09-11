@@ -21,9 +21,17 @@ _SQL = Path(__file__).resolve().parents[1] / "sql" / "29_entry_bindings.sql"
 
 
 @pytest.fixture
-def door_on(monkeypatch):
+def door_on(monkeypatch, db_tx):
+    """The flag on, over an empty binding table.
+
+    The dev stack carries live bindings (the Door answers every voice number
+    since go-live); each test here authors its own rows, so the live ones are
+    cleared inside the transaction the fixture rolls back.
+    """
     monkeypatch.setenv("DOOR_ENABLED", "1")
     assert door_enabled()
+    if db_tx.execute(text("SELECT to_regclass('public.entry_bindings')")).scalar():
+        db_tx.execute(text("DELETE FROM entry_bindings WHERE tenant_id = :t"), {"t": db.current_tenant()})
 
 
 def _create_table(conn) -> None:

@@ -1120,10 +1120,9 @@ def doors_merging(bot_id: str) -> list[str]:
     "the owning door" is not a single value, and a function returning the first
     match would be picking by sort order.
 
-    Empty for every card today, because `_merge_members` bails under two members
-    and no published row carries a door graph yet. It stops being empty the
-    moment one does, which is the point: publishing a member has to refresh the
-    bundle that merged it, or the door keeps serving that member's old flow.
+    Publishing a member has to refresh every bundle that merged it, or the
+    door keeps serving that member's old flow; this is how the publish path
+    finds them.
     """
     bid = (bot_id or "").strip()
     if not bid:
