@@ -4232,17 +4232,27 @@ def _create_promise(
         },
     )
     _activity(conn, "promise", promise_id, "promise_created", "Promise-to-pay captured", f"Amount {payload['amount']}", customer_id)
+    fulfillment = None
+    fulfillment_error: str | None = None
     try:
         import promise_fulfillment
 
-        fulfillment = promise_fulfillment.fulfill(conn, promise_id)
-    except Exception:
+        # A savepoint: a fulfiller that raised mid-statement used to abort the
+        # caller's transaction, so the promise row -- inserted above, on the
+        # same connection -- was lost with it while this function reported the
+        # promise as created. The promise is the regulated record; the
+        # reminder schedule is derived from it and may be retried.
+        with conn.begin_nested():
+            fulfillment = promise_fulfillment.fulfill(conn, promise_id)
+    except Exception as exc:
         logger.exception("ptp fulfill failed promise=%s", promise_id)
-        fulfillment = None
+        fulfillment_error = f"{type(exc).__name__}: {exc}"
     response = _promise_by_id(conn, promise_id)
     if fulfillment is not None:
         response["_fulfillment"] = fulfillment.as_dict()
         response["_spoken"] = fulfillment.spoken_summary
+    elif fulfillment_error:
+        response["_fulfillment"] = {"error": fulfillment_error}
     _store_idempotent_response(conn, idempotency_key, endpoint, response)
     return response
 

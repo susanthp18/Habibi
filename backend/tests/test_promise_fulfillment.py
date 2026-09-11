@@ -294,3 +294,34 @@ def test_webhook_hmac_rejects_bad_signature(monkeypatch: pytest.MonkeyPatch) -> 
         )
         is True
     )
+
+
+def test_a_raising_fulfiller_leaves_the_promise_committed(db_tx, monkeypatch) -> None:
+    """The promise is the regulated record; the reminder schedule is derived.
+
+    `fulfill` ran on the caller's connection with no savepoint, so a fulfiller
+    that raised mid-statement aborted the transaction the promise row sat in:
+    the borrower heard "noted", the API said created, and no row existed. Now
+    the savepoint rolls back the fulfiller alone and the response says so.
+    """
+    import db
+    import promise_fulfillment
+
+    customer_id, account_id = _customer(db_tx)
+
+    def _boom(conn, promise_id):
+        # Aborts the transaction the way a real defect does: a bad statement,
+        # not a Python-level raise before any SQL ran.
+        conn.execute(text("SELECT no_such_column FROM promises"))
+
+    monkeypatch.setattr(promise_fulfillment, "fulfill", _boom)
+    promised = (clock.today_local() + timedelta(days=3)).isoformat()
+    response = db.create_promise(
+        {"customerId": customer_id, "accountId": account_id, "amount": 500, "promisedDate": promised}
+    )
+
+    assert response["_fulfillment"]["error"].startswith("ProgrammingError")
+    row = db_tx.execute(
+        text("SELECT status FROM promises WHERE id = :id"), {"id": response["id"]}
+    ).mappings().first()
+    assert row is not None and row["status"] == "upcoming"
