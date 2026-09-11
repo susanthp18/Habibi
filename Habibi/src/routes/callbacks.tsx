@@ -166,7 +166,7 @@ function CallbacksPage() {
     onSuccess: (_r, id) => {
       invalidate();
       setOpenId(id);
-      toast("Call started");
+      toast("Callback in progress — dial from your phone");
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Start failed"),
   });

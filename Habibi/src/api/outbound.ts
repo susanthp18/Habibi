@@ -490,6 +490,41 @@ export function useCreateCampaign() {
   });
 }
 
+/** What the dial owner reports back for one operator-placed call. */
+export type PlacedCall = {
+  placed: boolean;
+  attemptId?: string;
+  state?: string;
+  reason?: string;
+  callSid?: string;
+};
+
+/**
+ * Place one call to a customer through the dial owner -- reserve, admit,
+ * suppress-or-place, every gate. A refusal (statutory window, DND, caps)
+ * comes back as a 409 with its reason; the caller shows it, because the
+ * refusal is the product working. The key makes a retried click one attempt.
+ */
+export function usePlaceCall() {
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: ({
+      customerId,
+      phone,
+      idempotencyKey,
+    }: {
+      customerId: string;
+      phone: string;
+      idempotencyKey: string;
+    }) =>
+      apiPost<PlacedCall>(
+        "/twilio/voice/outbound",
+        { customerId, to: phone, objective: "manual_outbound" },
+        { headers: { "Idempotency-Key": idempotencyKey } },
+      ),
+  });
+}
+
 export function useSetCampaignStatus() {
   const qc = useQueryClient();
   return useMutation({

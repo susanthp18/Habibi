@@ -192,7 +192,7 @@ export function NeedsAttention() {
                 className="inline-flex items-center gap-075 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Phone className="h-3.5 w-3.5" />
-                {startingCall ? "Starting…" : "Start call"}
+                {startingCall ? "Starting…" : "Begin callback"}
               </button>
               <button
                 type="button"

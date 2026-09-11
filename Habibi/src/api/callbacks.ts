@@ -191,6 +191,12 @@ export async function markMissed(cb: Callback): Promise<void> {
   await apiPatch(`/callbacks/${cb.id}`, { status: "missed" });
 }
 
+/**
+ * Mark the callback in progress. This does **not** place a call: the agent
+ * dials from their own phone and captures the outcome here. The buttons that
+ * call it say "Begin callback" for that reason -- "Start call" promised a dial
+ * the product never made.
+ */
 export async function startCall(cb: Callback): Promise<void> {
   if (USE_MOCK) {
     startSeedCall(cb.id);

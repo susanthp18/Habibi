@@ -113,7 +113,7 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
     void run(async () => {
       await startCall(cb);
       setTab("outcome");
-    }, "Call started · opening cockpit");
+    }, "Callback in progress · dial from your phone and capture the outcome here");
   };
   const doComplete = () => {
     void run(async () => {
@@ -188,7 +188,7 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
           <div className="mt-100 flex flex-wrap gap-075">
             {(cb.status === "scheduled" || cb.status === "reminded") && (
               <Button size="sm" className="h-400 text-body-small" onClick={doStart} disabled={busy}>
-                <Phone className="mr-050 h-3.5 w-3.5" /> Start call
+                <Phone className="mr-050 h-3.5 w-3.5" /> Begin callback
               </Button>
             )}
             {cb.originConversationId && (
@@ -436,8 +436,8 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
             <div className="space-y-150 text-body-small">
               {cb.status !== "in_progress" && cb.status !== "completed" && (
                 <div className="rounded-medium border border-border bg-surface-sunken/40 px-150 py-100 text-text-subtle">
-                  Outcome is captured once the call is in progress or completed. Use{" "}
-                  <em>Start call</em> above.
+                  Outcome is captured once the callback is in progress or completed. Use{" "}
+                  <em>Begin callback</em> above, then dial from your phone.
                 </div>
               )}
               <div>
