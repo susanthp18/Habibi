@@ -75,3 +75,11 @@ def test_the_schema_does_not_invent_channels_the_database_forbids() -> None:
     """Drift in the other direction: a value the DB would reject on write."""
     extra = _literal_values("channel") - _check_values("conversations", "channel")
     assert not extra, f"schema accepts {sorted(extra)} that the constraint rejects"
+
+
+def test_a_critical_borrower_is_not_medium_risk_in_the_inbox() -> None:
+    """WS8: the book's highest band fell through the inbox map to Medium."""
+    import db_inbox
+
+    assert db_inbox._inbox_risk("critical") == "High"
+    assert db_inbox._inbox_risk("low") == "Low"

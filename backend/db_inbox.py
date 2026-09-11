@@ -144,6 +144,11 @@ def _inbox_risk(risk: str | None) -> str:
     if not risk:
         return "Medium"
     title = risk[:1].upper() + risk[1:].lower()
+    # `critical` is the book's highest band; the inbox vocabulary tops out at
+    # High. It used to fall through to Medium -- the riskiest borrowers
+    # rendered as the middle of the road.
+    if title == "Critical":
+        return "High"
     return title if title in {"High", "Medium", "Low"} else "Medium"
 
 

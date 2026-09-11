@@ -1688,7 +1688,7 @@ class InboxInteractionSummaryResponse(BaseModel):
 class InboxThreadContextResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    riskLevel: Literal["High", "Medium", "Low"]
+    riskLevel: Literal["High", "Medium", "Low"]  # `critical` on the book reads High here
     contactableNow: bool
     contactWindow: str
     outstanding: float

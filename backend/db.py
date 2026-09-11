@@ -1201,7 +1201,10 @@ def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
         {
             "id": r["id"],
             "type": r["doc_type"],
-            "requestedVia": "voice",
+            # The channel the request came through, from the stored origin.
+            # A literal "voice" made every WhatsApp, desk and MCP request read
+            # as a call on the customer's Documents tab.
+            "requestedVia": _requested_via_channel(r.get("requested_via")),
             "requestedAt": r["created_at"],
             "deliveryChannel": _doc_channel(r["delivery_channel"]),
             "status": r["status"],
@@ -1209,6 +1212,20 @@ def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+#: `document_requests.requested_via` is an origin (bot_voice, bot_chat, agent,
+#: mcp, clerk, vision, inbox); the customer contract shows a channel.
+_REQUESTED_VIA_CHANNEL = {
+    "bot_voice": "voice",
+    "bot_chat": "whatsapp",
+    "clerk": "sms",
+    "inbox": "whatsapp",
+}
+
+
+def _requested_via_channel(origin: str | None) -> str:
+    return _REQUESTED_VIA_CHANNEL.get(str(origin or ""), "chat")
 
 
 def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
@@ -4252,7 +4269,10 @@ def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         params = {"id": promise_id}
         if next_status:
             updates.append("status = :status")
-            params["status"] = "due_today" if next_status == "upcoming" else next_status
+            # `upcoming` is stored as `upcoming`. "Due today" is a fact about
+            # `promised_at` and the calendar, not a status the client can
+            # express; writing it here produced rows no schema could read back.
+            params["status"] = next_status
         if payload.get("promisedDate"):
             updates.append("promised_at = :promised_at")
             params["promised_at"] = payload["promisedDate"]
