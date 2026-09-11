@@ -26,3 +26,17 @@ def load_env(force: bool = False) -> None:
             if key and key not in os.environ:
                 os.environ[key] = value
     _LOADED = True
+
+
+def env_str(name: str, default: str = "") -> str:
+    """A settings string, with ``.env`` loaded first. Blank counts as unset.
+
+    Five modules — ``payments``, ``payment_events``, ``promise_fulfillment``,
+    ``twilio_sms`` and ``voice.twilio_ops`` — each defined this as a private
+    ``_env``, byte for byte the same three lines. It lives here rather than in
+    ``env_utils`` because the ``load_env()`` call is the whole point of it, and
+    ``env_utils`` is deliberately a leaf that imports nothing but ``math`` and
+    ``os`` so the signing key and the vault key can both take it.
+    """
+    load_env()
+    return (os.getenv(name) or default).strip()
