@@ -414,3 +414,17 @@ def test_purge_keeps_recent_gaps(db_tx):
 
     assert db.purge_stale_kb_gaps(ttl_days=90) == 0
     assert _gap_row(db_tx, gap_id) != {}
+
+
+def test_indexing_a_document_drops_the_answer_cache(monkeypatch) -> None:
+    """Answers built on the old chunks were served for the whole TTL after a
+    reindex. The indexer clears its process's cache; the API's copy is bounded
+    by KB_RESULT_CACHE_TTL_S, which is the honest limit until a cross-process
+    signal exists."""
+    import kb_retrieve
+
+    monkeypatch.setenv("KB_RESULT_CACHE_TTL_S", "120")
+    kb_retrieve._result_cache_put(("q", "kb-1"), {"answer": "old"})
+    assert kb_retrieve._result_cache_get(("q", "kb-1")) == {"answer": "old"}
+    assert kb_retrieve.result_cache_clear() == 1
+    assert kb_retrieve._result_cache_get(("q", "kb-1")) is None

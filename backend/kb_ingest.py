@@ -387,6 +387,12 @@ def _atomic_replace_chunks(
             )
     # `enabled` is deliberately NOT forced true here — indexing must not
     # re-enable a document an operator disabled mid-flight.
+    # The answer cache holds results built on the old chunks; drop them so
+    # the next question sees this index (same process; the API's copy ages
+    # out on its TTL -- see kb_retrieve.result_cache_clear).
+    import kb_retrieve
+
+    kb_retrieve.result_cache_clear()
     conn.execute(
         text(
             """

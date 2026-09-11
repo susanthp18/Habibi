@@ -112,3 +112,28 @@ def test_contact_policy_survives_the_rows_this_database_actually_has(db_tx) -> N
 
     # The transaction must still be usable -- that is what "poisoned" cost us.
     assert db_tx.execute(text("SELECT 1")).scalar() == 1
+
+
+def test_last_contact_is_read_from_the_contact_ledger(db_tx) -> None:
+    """`customers.last_contact_at` is a seed fossil nothing updates; the record
+    now reports the newest admitted touch on contact_events, falling back to
+    the seed only for a customer with none."""
+    import uuid
+
+    import db
+
+    cid = db_tx.execute(
+        text("SELECT id FROM customers WHERE id <> 'UNKNOWN-CALLER' ORDER BY id LIMIT 1")
+    ).scalar_one()
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO contact_events (id, tenant_id, customer_id, channel, direction, purpose,
+                                        actor_kind, outcome, touch_counted, occurred_at)
+            VALUES (:id, :t, :c, 'sms', 'outbound', 'outreach', 'system', 'allowed', true, :at)
+            """
+        ),
+        {"id": f"CE-{uuid.uuid4().hex[:10]}", "t": db.current_tenant(), "c": cid, "at": "2031-01-02T03:04:05+00:00"},
+    )
+    shown = db.get_customer(cid)["lastContact"]
+    assert str(shown).startswith("2031-01-02")

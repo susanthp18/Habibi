@@ -428,6 +428,19 @@ def _result_cache_put(key: tuple, payload: dict[str, Any]) -> None:
             _result_cache.popitem(last=False)
 
 
+def result_cache_clear() -> int:
+    """Drop every cached answer. Called after a document is (re)indexed.
+
+    In-process: the worker that indexed clears its own cache, and the API's
+    copy ages out on KB_RESULT_CACHE_TTL_S (120 s). Until a cross-process
+    signal exists that TTL is the bound on how long a retired answer is served.
+    """
+    with _result_cache_lock:
+        n = len(_result_cache)
+        _result_cache.clear()
+    return n
+
+
 def result_cache_stats() -> dict[str, int]:
     """Hit/miss counters for /metrics. Uncounted caches get switched off blind."""
     with _result_cache_lock:

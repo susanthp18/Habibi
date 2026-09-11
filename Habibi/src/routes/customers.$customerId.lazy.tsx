@@ -96,13 +96,19 @@ function CustomerDetail() {
   const queryClient = useQueryClient();
   const isLg = useIsLg();
 
-  const [customer, setCustomer] = useState<Customer>(initial);
+  // The record lives in the query cache under ["customer", id], so the
+  // invalidations other panels already issue (goodwill posted, note added)
+  // reach this screen. A detached useState copy made those no-ops: the
+  // Overview re-asked the server and the header kept the loader's snapshot.
+  const customerQuery = useQuery({
+    queryKey: ["customer", initial.id],
+    queryFn: async () => (await fetchCustomer(initial.id)) ?? initial,
+    initialData: initial,
+    staleTime: 30_000,
+  });
+  const customer: Customer = customerQuery.data ?? initial;
   const [sheet, setSheet] = useState<"ptp" | "dispute" | "statement" | "call" | null>(null);
   const [railOpen, setRailOpen] = useState(false);
-
-  useEffect(() => {
-    setCustomer(initial);
-  }, [initial]);
 
   const setTab = (t: Tab) => navigate({ search: { tab: t }, replace: true });
 
@@ -120,8 +126,7 @@ function CustomerDetail() {
   const refreshCustomer = async () => {
     await queryClient.invalidateQueries({ queryKey: ["customers"] });
     await queryClient.invalidateQueries({ queryKey: ["customer-insights", customer.id] });
-    const fresh = await fetchCustomer(customer.id);
-    if (fresh) setCustomer(fresh);
+    await queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
   };
 
   const ptpMutation = useMutation({
@@ -175,7 +180,9 @@ function CustomerDetail() {
     mutationFn: (text: string) => addCustomerNote(customer.id, text),
     onSuccess: async (note) => {
       if (note) {
-        setCustomer((c) => ({ ...c, notes: [note, ...c.notes] }));
+        queryClient.setQueryData<Customer>(["customer", customer.id], (c) =>
+          c ? { ...c, notes: [note, ...c.notes] } : c,
+        );
       } else {
         await refreshCustomer();
       }

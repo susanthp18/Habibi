@@ -744,7 +744,15 @@ def _base_customer_row(
                   c.id,
                   c.name,
                   c.risk,
-                  c.last_contact_at,
+                  -- The seed column is a fossil nothing at runtime updates; the
+                  -- last contact is the newest admitted touch on the gate's
+                  -- own ledger, falling back to the seed for a customer with
+                  -- no events yet.
+                  COALESCE(
+                    (SELECT max(ce.occurred_at) FROM contact_events ce
+                      WHERE ce.customer_id = c.id AND ce.outcome = 'allowed'),
+                    c.last_contact_at
+                  ) AS last_contact_at,
                   c.phone_primary,
                   c.phone_alt,
                   c.email,
