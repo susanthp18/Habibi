@@ -66,12 +66,27 @@ def tenant_contacts(tenant_id: str | None = None) -> dict[str, Any]:
     return compliance_copy.tenant_contacts(tenant_id)
 
 
+#: Spoken words per second for a neural voice at conversational pace. An
+#: estimate for a budget, not a measurement of the rendered audio: the point
+#: is that the card's ``voicemail.maxSec`` decides something, not that it is
+#: honoured to the millisecond.
+_SPOKEN_WORDS_PER_SECOND = 2.5
+
+
+def spoken_seconds(text: str) -> int:
+    """How long ``text`` takes to say, rounded up."""
+    import math
+
+    return math.ceil(len((text or "").split()) / _SPOKEN_WORDS_PER_SECOND)
+
+
 def voicemail_script(
     persona: dict[str, Any] | None = None,
     tuning: dict[str, Any] | None = None,
     *,
     contacts: dict[str, Any] | None = None,
     include_grievance: bool = True,
+    max_sec: int | None = None,
 ) -> str | None:
     """Render the message, or None when it cannot be left compliantly.
 
@@ -79,6 +94,13 @@ def voicemail_script(
     duty is not "mention the grievance officer if you happen to know them", and
     a message that identifies the bank and asks for a call back while omitting
     the disclosure is still a recovery communication that owed one.
+
+    ``max_sec`` is the card's ``voicemail.maxSec``. It was authored, gated and
+    transported to this call and read by nothing. The message has one
+    optional sentence -- the call-back line; the grievance footer already
+    carries a number -- so a budget the full message exceeds drops that
+    sentence, and a budget the mandatory parts still exceed cannot be met
+    compliantly: None, like a missing grievance contact.
     """
     import compliance_copy
 
@@ -115,7 +137,13 @@ def voicemail_script(
     # Nothing here says why we called, and that is the point — see the module
     # docstring. Any change to this wording should be checked against the
     # `voicemail_discloses_nothing` grader.
-    return " ".join(parts)
+    script = " ".join(parts)
+    if max_sec and spoken_seconds(script) > max_sec:
+        # The call-back sentence is the only optional one (index 1).
+        script = " ".join(parts[:1] + parts[2:])
+        if spoken_seconds(script) > max_sec:
+            return None
+    return script
 
 
 def _twilio_params(session_extra: dict[str, Any] | None) -> dict[str, Any]:
@@ -294,9 +322,10 @@ async def attach_voicemail_handlers(
                 persona,
                 tuning,
                 include_grievance=policy["includeGrievance"],
+                max_sec=policy["maxSec"],
             )
             if script is None:
-                skip_reason = "no_grievance_contact"
+                skip_reason = "no_grievance_contact_or_over_budget"
 
         logger.info(
             "AMD: voicemail · session=%s · %s",

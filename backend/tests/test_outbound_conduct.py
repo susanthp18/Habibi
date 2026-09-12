@@ -56,6 +56,23 @@ def test_a_voicemail_carries_the_grievance_officer() -> None:
     assert "grievance" in script.lower()
 
 
+def test_the_cards_voicemail_budget_decides_something() -> None:
+    """``voicemail.maxSec`` was authored, gated, transported and read by
+    nothing. The call-back sentence is the one optional part; a budget the
+    full message exceeds drops it, and a budget the mandatory parts still
+    exceed cannot be met compliantly -- None, like a missing officer."""
+    full = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS)
+    assert full is not None
+    tight = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=18)
+    assert tight is not None
+    assert len(tight) < len(full)
+    assert "call us back" not in tight.lower()
+    assert "R Menon" in tight, "the grievance footer is never the part that goes"
+    assert amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=2) is None
+    generous = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=60)
+    assert generous == full
+
+
 def test_no_grievance_contact_means_no_message(caplog) -> None:
     """Not leaving one is a lesser failure than leaving a non-compliant one."""
     assert amd.voicemail_script({}, contacts={"issuer": "X", "officer": {}}) is None
