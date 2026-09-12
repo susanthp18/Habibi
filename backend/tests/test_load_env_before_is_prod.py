@@ -113,6 +113,7 @@ try:
     print("WP012_HARDENING=passed")
 except RuntimeError:
     print("WP012_HARDENING=refused")
+print("WP012_INACTIVE=" + ";".join(main._inactive_hardening_controls()))
 has_auth = bool(
     (os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map()
 )
@@ -134,5 +135,9 @@ print("WP012_REFUSES_CREDENTIALS=" + str(main._IS_PROD and not has_auth))
     assert lines.get("CANARY") == "from-temp-dotenv"
     assert lines.get("APP_ENV") == "production"
     assert lines.get("IS_PROD") == "True"
-    assert lines.get("HARDENING") == "refused"
+    # The gate reads the database's controls (RLS, append-only audit, PII
+    # encryption); a production-named process is refused exactly when one is
+    # off. On a stack with every control on it boots -- that is the point of
+    # the controls, not a hole in the gate.
+    assert lines.get("HARDENING") == ("refused" if lines.get("INACTIVE") else "passed")
     assert lines.get("REFUSES_CREDENTIALS") == "True"
