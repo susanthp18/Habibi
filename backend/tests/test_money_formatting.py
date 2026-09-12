@@ -125,8 +125,8 @@ def test_the_shared_module_is_a_leaf():
             imported += [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.append(node.module)
-    # __future__ is the only import it is allowed to have.
-    assert [m for m in imported if m != "__future__"] == []
+    # Standard library only: __future__ and decimal (the paisa quantizer).
+    assert [m for m in imported if m not in {"__future__", "decimal"}] == []
 
 
 def test_the_null_reading_is_per_call_site():
