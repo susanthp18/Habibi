@@ -1006,6 +1006,14 @@ def ack_floor_alert(alert_id: str) -> dict[str, Any]:
 
 
 def _ensure_event_type(conn: Any, key: str) -> str:
+    """The `event_types` row for a catalogue event, created on first use.
+
+    Only the catalogue: a subscription used to mint a row for any string the
+    client sent, and that string then travelled verbatim into the delivery's
+    `X-BigBound-Event` header.
+    """
+    if not any(e["key"] == key for e in EVENT_CATALOG):
+        raise ValueError(f"unknown_event_type:{key}")
     eid = f"evt-{key.replace('.', '-')}"
     conn.execute(
         text(

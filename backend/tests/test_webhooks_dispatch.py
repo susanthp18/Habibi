@@ -605,3 +605,15 @@ def test_promise_broken_emits_when_the_settler_auto_breaks_a_promise(
     assert len(broken) == 1, f"expected one promise.broken for {pid}, saw {seen}"
     assert broken[0]["customerId"] == seeded_account["customer_id"]
     assert broken[0]["accountId"] == seeded_account["account_id"]
+
+
+def test_a_subscription_names_only_catalogue_events(db_tx) -> None:
+    """`_ensure_event_type` minted an `event_types` row for whatever string a
+    client sent, and that string travelled verbatim into the delivery's
+    `X-BigBound-Event` header. Only the catalogue is a subscribable event; a
+    header value is never a client's choice."""
+    import ops_screens
+
+    with pytest.raises(ValueError, match="unknown_event_type"):
+        ops_screens._ensure_event_type(db_tx, "call.completed\r\nX-Injected: 1")
+    assert ops_screens._ensure_event_type(db_tx, "call.completed").startswith("evt-")
