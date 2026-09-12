@@ -9,6 +9,7 @@ and a name bound from ``db_core`` bypasses that proxy.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import text
@@ -114,57 +115,60 @@ def _inr_compact(amount: float | None) -> str:
     return money_inr.inr_compact(amount)
 
 
-def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _rows = _mod._rows
-    _tenant = _mod._tenant
-    _dump = _mod._dump
-    _duration = _mod._duration
-    _short_product = _mod._short_product
-    window = _dashboard_window(range, segment, team)
-    days = window["days"]
-    families = window["families"]
-    handler_kind = window["handler_kind"]
+@dataclass
+class DashboardBuild:
+    """One dashboard build: the window and the SQL fragments the head derives,
+    the rows ``_dashboard_reads`` fetches in one connection, and what
+    ``_dashboard_shape`` makes of them. The bodies are what ``get_dashboard``
+    was; ``tests/snapshots/reader_shapes.json`` pins the key tree.
+    """
 
-    # Interactions filtered by segment reach products through their account.
-    # EXISTS rather than a join so an interaction with no account_id is excluded
-    # from a specific segment but still counted under "all".
-    ix_segment = (
-        """
-        AND EXISTS (
-          SELECT 1 FROM accounts a
-          JOIN products p ON p.id = a.product_id
-          WHERE a.id = i.account_id AND p.family = ANY(:families)
-        )
-        """
-        if families
-        else ""
-    )
-    ix_team = " AND i.handler_kind = :handler_kind " if handler_kind else ""
-    ix_where = (
-        "WHERE i.tenant_id = :tenant_id "
-        "AND i.started_at >= :since AND i.started_at < :until "
-        + ix_segment
-        + ix_team
-    )
-    params: dict[str, Any] = {"tenant_id": _tenant(), "days": days}
-    if families:
-        params["families"] = families
-    if handler_kind:
-        params["handler_kind"] = handler_kind
+    _dump: Any
+    _duration: Any
+    _one: Any
+    _rows: Any
+    _short_product: Any
+    days: int
+    engine: Any
+    families: list[str] | None
+    ix_where: str
+    params: dict[str, Any]
+    since_cur: str
+    since_prior: str
+    ttft_hours: float | None
+    ttft_n: int
+    until_cur: str
+    until_prior: str
+    at_risk: list[dict[str, Any]] = field(default_factory=list)
+    leaderboard_rows: list[dict[str, Any]] = field(default_factory=list)
+    leads_cur: dict[str, Any] = field(default_factory=dict)
+    leads_prior: dict[str, Any] = field(default_factory=dict)
+    outstanding_row: dict[str, Any] = field(default_factory=dict)
+    prior_recovery: dict[str, Any] = field(default_factory=dict)
+    prior_summary: dict[str, Any] = field(default_factory=dict)
+    promises_cur: dict[str, Any] = field(default_factory=dict)
+    promises_prior: dict[str, Any] = field(default_factory=dict)
+    recovery_rows: list[dict[str, Any]] = field(default_factory=list)
+    summary: dict[str, Any] = field(default_factory=dict)
+    volume_rows: list[dict[str, Any]] = field(default_factory=list)
 
-    ttft_hours: float | None = None
-    ttft_n = 0
 
-    # Bound intervals are interpolated as literal day counts from a fixed dict,
-    # never from the caller's string — _dashboard_window maps any unknown range
-    # to the default rather than passing it through.
-    since_cur = f"now() - CAST('{days} days' AS interval)"
-    until_cur = "now()"
-    since_prior = f"now() - CAST('{days * 2} days' AS interval)"
-    until_prior = since_cur
+def _dashboard_reads(st: DashboardBuild) -> None:
+    """Every query the dashboard needs, in one connection: the summary and its prior
+    window, volume, recovery, outstanding, promises, leads, at-risk, the
+    leaderboard and time-to-first-touch."""
+    _one = st._one
+    _rows = st._rows
+    engine = st.engine
+    families = st.families
+    ix_where = st.ix_where
+    params = st.params
+    since_cur = st.since_cur
+    since_prior = st.since_prior
+    ttft_hours = st.ttft_hours
+    ttft_n = st.ttft_n
+    until_cur = st.until_cur
+    until_prior = st.until_prior
 
     def _ix_window(since: str, until: str) -> str:
         return ix_where.replace(":since", since).replace(":until", until)
@@ -413,6 +417,43 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
         except Exception:
             logger.debug("time-to-first-touch kpi skipped", exc_info=True)
 
+    st.ttft_hours = ttft_hours
+    st.ttft_n = ttft_n
+    st.at_risk = at_risk
+    st.leaderboard_rows = leaderboard_rows
+    st.leads_cur = leads_cur
+    st.leads_prior = leads_prior
+    st.outstanding_row = outstanding_row
+    st.prior_recovery = prior_recovery
+    st.prior_summary = prior_summary
+    st.promises_cur = promises_cur
+    st.promises_prior = promises_prior
+    st.recovery_rows = recovery_rows
+    st.summary = summary
+    st.volume_rows = volume_rows
+
+
+def _dashboard_shape(st: DashboardBuild) -> dict[str, Any]:
+    """The rates, trends and distributions, and the response the screen renders."""
+    _dump = st._dump
+    _duration = st._duration
+    _short_product = st._short_product
+    days = st.days
+    ttft_hours = st.ttft_hours
+    ttft_n = st.ttft_n
+    at_risk = st.at_risk
+    leaderboard_rows = st.leaderboard_rows
+    leads_cur = st.leads_cur
+    leads_prior = st.leads_prior
+    outstanding_row = st.outstanding_row
+    prior_recovery = st.prior_recovery
+    prior_summary = st.prior_summary
+    promises_cur = st.promises_cur
+    promises_prior = st.promises_prior
+    recovery_rows = st.recovery_rows
+    summary = st.summary
+    volume_rows = st.volume_rows
+
     interactions = summary.get("interactions") or 0
     human = summary.get("human_handled") or 0
     bot = max(interactions - human, 0)
@@ -625,4 +666,78 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
         ],
     }
     return _dump(DashboardResponse(**dashboard))
+
+
+def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
+    _mod = _db()
+    engine = _mod.engine
+    _one = _mod._one
+    _rows = _mod._rows
+    _tenant = _mod._tenant
+    _dump = _mod._dump
+    _duration = _mod._duration
+    _short_product = _mod._short_product
+    window = _dashboard_window(range, segment, team)
+    days = window["days"]
+    families = window["families"]
+    handler_kind = window["handler_kind"]
+
+    # Interactions filtered by segment reach products through their account.
+    # EXISTS rather than a join so an interaction with no account_id is excluded
+    # from a specific segment but still counted under "all".
+    ix_segment = (
+        """
+        AND EXISTS (
+          SELECT 1 FROM accounts a
+          JOIN products p ON p.id = a.product_id
+          WHERE a.id = i.account_id AND p.family = ANY(:families)
+        )
+        """
+        if families
+        else ""
+    )
+    ix_team = " AND i.handler_kind = :handler_kind " if handler_kind else ""
+    ix_where = (
+        "WHERE i.tenant_id = :tenant_id "
+        "AND i.started_at >= :since AND i.started_at < :until "
+        + ix_segment
+        + ix_team
+    )
+    params: dict[str, Any] = {"tenant_id": _tenant(), "days": days}
+    if families:
+        params["families"] = families
+    if handler_kind:
+        params["handler_kind"] = handler_kind
+
+    ttft_hours: float | None = None
+    ttft_n = 0
+
+    # Bound intervals are interpolated as literal day counts from a fixed dict,
+    # never from the caller's string — _dashboard_window maps any unknown range
+    # to the default rather than passing it through.
+    since_cur = f"now() - CAST('{days} days' AS interval)"
+    until_cur = "now()"
+    since_prior = f"now() - CAST('{days * 2} days' AS interval)"
+    until_prior = since_cur
+
+    st = DashboardBuild(
+        _dump=_dump,
+        _duration=_duration,
+        _one=_one,
+        _rows=_rows,
+        _short_product=_short_product,
+        days=days,
+        engine=engine,
+        families=families,
+        ix_where=ix_where,
+        params=params,
+        since_cur=since_cur,
+        since_prior=since_prior,
+        ttft_hours=ttft_hours,
+        ttft_n=ttft_n,
+        until_cur=until_cur,
+        until_prior=until_prior,
+    )
+    _dashboard_reads(st)
+    return _dashboard_shape(st)
 

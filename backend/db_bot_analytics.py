@@ -9,6 +9,7 @@ and a name bound from ``db_core`` bypasses that proxy.
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import dataclass, field
 
 from sqlalchemy import text
 
@@ -131,17 +132,43 @@ def _trend_delta(current: int, prior: int) -> float:
     return round(((current - prior) / prior) * 100.0, 1)
 
 
-def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any]:
-    """Conversation & Bot Analytics — screen shape, aggregated live from interactions."""
-    if range_key not in _BOT_ANALYTICS_RANGE_DAYS:
-        raise ValueError(f"invalid_range: {range_key}")
-    days, where_sql, params = _bot_analytics_window(range_key, channel)
+@dataclass
+class BotAnalyticsBuild:
+    """One analytics build: the window, the rows ``_bot_analytics_reads`` fetches in
+    one connection, and what ``_bot_analytics_shape`` makes of them. The bodies
+    are what ``bot_analytics`` was; ``tests/snapshots/reader_shapes.json`` pins
+    the key tree.
+    """
 
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _one = _mod._one
-    _tenant = _mod._tenant
+    _one: Any
+    _rows: Any
+    _tenant: Any
+    days: int
+    engine: Any
+    params: dict[str, Any]
+    where_sql: str
+    by_card_rows: list[dict[str, Any]] = field(default_factory=list)
+    daily_rows: list[dict[str, Any]] = field(default_factory=list)
+    esc_current: dict[str, int] = field(default_factory=dict)
+    esc_prior: dict[str, int] = field(default_factory=dict)
+    funnel: dict[str, Any] = field(default_factory=dict)
+    intent_rows: list[dict[str, Any]] = field(default_factory=list)
+    skill_rows: list[dict[str, Any]] = field(default_factory=list)
+    turn_rows: list[dict[str, Any]] = field(default_factory=list)
+    unanswered_rows: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _bot_analytics_reads(st: BotAnalyticsBuild) -> None:
+    """Every query the screen needs, in one connection: daily volume, intents,
+    escalation reasons for both windows, unanswered questions, turn counts,
+    per-card and per-skill rows, and the funnel."""
+    _one = st._one
+    _rows = st._rows
+    _tenant = st._tenant
+    days = st.days
+    engine = st.engine
+    params = st.params
+    where_sql = st.where_sql
 
     with engine.connect() as conn:
         daily_rows = _rows(
@@ -412,6 +439,29 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
             )
         ) or {}
 
+    st.by_card_rows = by_card_rows
+    st.daily_rows = daily_rows
+    st.esc_current = esc_current
+    st.esc_prior = esc_prior
+    st.funnel = funnel
+    st.intent_rows = intent_rows
+    st.skill_rows = skill_rows
+    st.turn_rows = turn_rows
+    st.unanswered_rows = unanswered_rows
+
+
+def _bot_analytics_shape(st: BotAnalyticsBuild) -> dict[str, Any]:
+    """The series, the histograms, the funnel stages and the response the screen renders."""
+    by_card_rows = st.by_card_rows
+    daily_rows = st.daily_rows
+    esc_current = st.esc_current
+    esc_prior = st.esc_prior
+    funnel = st.funnel
+    intent_rows = st.intent_rows
+    skill_rows = st.skill_rows
+    turn_rows = st.turn_rows
+    unanswered_rows = st.unanswered_rows
+
     daily_series = [
         {
             "date": r["date"],
@@ -542,5 +592,30 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
         "byCard": by_card,
         "skillHistogram": skill_histogram,
     }
+
+
+def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any]:
+    """Conversation & Bot Analytics — screen shape, aggregated live from interactions."""
+    if range_key not in _BOT_ANALYTICS_RANGE_DAYS:
+        raise ValueError(f"invalid_range: {range_key}")
+    days, where_sql, params = _bot_analytics_window(range_key, channel)
+
+    _mod = _db()
+    engine = _mod.engine
+    _rows = _mod._rows
+    _one = _mod._one
+    _tenant = _mod._tenant
+
+    st = BotAnalyticsBuild(
+        _one=_one,
+        _rows=_rows,
+        _tenant=_tenant,
+        days=days,
+        engine=engine,
+        params=params,
+        where_sql=where_sql,
+    )
+    _bot_analytics_reads(st)
+    return _bot_analytics_shape(st)
 
 

@@ -9,6 +9,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+from dataclasses import dataclass, field
 import os
 import secrets
 import time
@@ -380,8 +381,38 @@ def _channel(raw: str | None) -> str:
 # ── Floor ────────────────────────────────────────────────────────────────────
 
 
-def get_floor_snapshot() -> dict[str, Any]:
-    tenant = _tenant()
+@dataclass
+class FloorBuild:
+    """One floor snapshot: the rows ``_floor_reads`` fetches in one connection and
+    what ``_floor_shape`` makes of them. The bodies are what
+    ``get_floor_snapshot`` was; ``tests/snapshots/reader_shapes.json`` pins the
+    key tree.
+    """
+
+    tenant: str
+    alert_sev_by: dict[str, int] = field(default_factory=dict)
+    alerts: list[dict[str, Any]] = field(default_factory=list)
+    alerts_by_call: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    audio_by: dict[str, bool] = field(default_factory=dict)
+    authority_by: dict[str, dict[str, Any]] = field(default_factory=dict)
+    flags_by: dict[str, list[str]] = field(default_factory=dict)
+    inbox_waiting: Any = None
+    last_line_by: dict[str, str] = field(default_factory=dict)
+    live_qa_by: dict[str, dict[str, Any]] = field(default_factory=dict)
+    offer_by: dict[str, dict[str, Any]] = field(default_factory=dict)
+    presence_rows: list[dict[str, Any]] = field(default_factory=list)
+    queue_row: Any = None
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    trend_by: dict[str, float] = field(default_factory=dict)
+    turns_by: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+
+
+def _floor_reads(st: FloorBuild) -> None:
+    """Every query the floor needs, in one connection: live calls, their flags,
+    trends, turns, offers, authority and live-QA state, alerts, the queue,
+    the inbox backlog and agent presence."""
+    tenant = st.tenant
+
     with db.engine.connect() as conn:
         rows = db._rows(
             conn.execute(
@@ -618,6 +649,41 @@ def get_floor_snapshot() -> dict[str, Any]:
             )
         )
 
+    st.alert_sev_by = alert_sev_by
+    st.alerts = alerts
+    st.alerts_by_call = alerts_by_call
+    st.audio_by = audio_by
+    st.authority_by = authority_by
+    st.flags_by = flags_by
+    st.inbox_waiting = inbox_waiting
+    st.last_line_by = last_line_by
+    st.live_qa_by = live_qa_by
+    st.offer_by = offer_by
+    st.presence_rows = presence_rows
+    st.queue_row = queue_row
+    st.rows = rows
+    st.trend_by = trend_by
+    st.turns_by = turns_by
+
+
+def _floor_shape(st: FloorBuild) -> dict[str, Any]:
+    """The call cards, the alerts, the agents, the stats, and the response the floor renders."""
+    alert_sev_by = st.alert_sev_by
+    alerts = st.alerts
+    alerts_by_call = st.alerts_by_call
+    audio_by = st.audio_by
+    authority_by = st.authority_by
+    flags_by = st.flags_by
+    inbox_waiting = st.inbox_waiting
+    last_line_by = st.last_line_by
+    live_qa_by = st.live_qa_by
+    offer_by = st.offer_by
+    presence_rows = st.presence_rows
+    queue_row = st.queue_row
+    rows = st.rows
+    trend_by = st.trend_by
+    turns_by = st.turns_by
+
     on_call_users = {
         r["handler_user_id"]: r for r in rows if r.get("handler_user_id") and r.get("handler_kind") == "human"
     }
@@ -753,6 +819,16 @@ def get_floor_snapshot() -> dict[str, Any]:
         "longestWaitSec": int(queue_row["longest_wait"] or 0),
     }
     return {"calls": calls, "alerts": floor_alerts, "stats": stats, "agents": agents}
+
+
+def get_floor_snapshot() -> dict[str, Any]:
+    tenant = _tenant()
+
+    st = FloorBuild(
+        tenant=tenant,
+    )
+    _floor_reads(st)
+    return _floor_shape(st)
 
 
 def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
