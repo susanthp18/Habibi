@@ -61,7 +61,7 @@ import { cn } from "@/lib/utils";
 import { flowToolChoices } from "@/lib/studio-contract";
 import { FlowEdgeMarkers, flowEdgeTypes } from "./FlowConditionEdge";
 import { flowNodeTypes, type CanvasNodeData, type NodeTool } from "./FlowNodes";
-import { EdgeInspector, GraphInspector, NodeInspector } from "./FlowInspector";
+import { EdgeInspector, GraphInspector, NodeInspector } from "./inspector";
 import {
   AlertDialog,
   AlertDialogAction,

@@ -153,7 +153,7 @@ def test_the_inspector_names_the_globals_the_runtime_strips() -> None:
     import flow_graph
 
     assert set(_vocabulary()["globalToolsStrippedAtRuntime"]) == set(flow_graph.GLOBAL_TOOLS_STRIPPED_AT_RUNTIME)
-    inspector = _src("src", "components", "flow", "FlowInspector.tsx")
+    inspector = _src("src", "components", "flow", "inspector", "GraphInspector.tsx")
     assert "STUDIO_VOCABULARY.globalToolsStrippedAtRuntime" in inspector
 
 

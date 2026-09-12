@@ -24,7 +24,6 @@ const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
 const BASELINE = {
   "src/components/flow/FlowCanvas.tsx": 1419,
   "src/routes/_app.agent-studio.$botId.lazy.tsx": 1134,
-  "src/components/flow/FlowInspector.tsx": 1123,
   "src/components/prompt-studio/OutboundCardEditor.tsx": 1104,
   "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1039,
   "src/components/prompt-studio/VoicePanel.tsx": 1019,

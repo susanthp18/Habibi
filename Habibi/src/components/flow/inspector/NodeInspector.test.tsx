@@ -24,7 +24,7 @@ vi.mock("@/api/outbound", () => ({
   useOutboundVocabulary: () => vocab.state,
 }));
 
-const { NodeInspector } = await import("./FlowInspector");
+const { NodeInspector } = await import("./NodeInspector");
 
 const NODE = {
   id: "n-1",
