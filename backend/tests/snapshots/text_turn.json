@@ -1,0 +1,149 @@
+{
+  "human": {
+    "bot_state": {
+      "escalate_reason": "Customer requested a human agent",
+      "escalated": true,
+      "last_intent": "escalation",
+      "last_sentiment": "neutral",
+      "turn_count": 1
+    },
+    "conversation": {
+      "assigned_user_id": null,
+      "status": "needs_human"
+    },
+    "gateway": [],
+    "interaction": {
+      "disposition": null,
+      "primary_intent": "escalation",
+      "status": "active"
+    },
+    "job": {
+      "error": "escalated:Customer requested a human agent",
+      "outbound_message_id": null,
+      "status": "succeeded"
+    },
+    "messages": [
+      {
+        "body": "stop. i want to speak to a human agent right now",
+        "delivery_status": "delivered",
+        "id": "<inbound>",
+        "provider_ref": "<wamid>",
+        "sender": "customer"
+      }
+    ],
+    "tool_calls": [],
+    "transcript": []
+  },
+  "question": {
+    "bot_state": {
+      "flow_node": "kaia-v2-4/greet_disclose",
+      "last_intent": "balance_query",
+      "last_intent_scores": {
+        "balance_query": 1.0,
+        "dispute": 0.0,
+        "escalation": 0.0,
+        "hardship": 0.0,
+        "help_capabilities": 0.0,
+        "out_of_scope": 0.0,
+        "payment_intent": 0.0,
+        "product_faq": 0.0,
+        "upsell_opportunity": 0.0,
+        "waiver_request": 0.0
+      },
+      "last_outbound_message_id": "<outbound>",
+      "last_sentiment": "neutral",
+      "last_trigger_message_id": "<inbound>",
+      "turn_count": 1
+    },
+    "conversation": {
+      "assigned_user_id": null,
+      "status": "bot"
+    },
+    "gateway": [
+      {
+        "last_user": "hi, how much do i owe this month and when is it due?",
+        "max_completion_tokens": 220,
+        "offered": [
+          "add_customer_note",
+          "escalate_to_human",
+          "search_knowledge_base"
+        ],
+        "roles": [
+          "system",
+          "developer",
+          "developer",
+          "user"
+        ],
+        "temperature": 0.4
+      },
+      {
+        "last_user": "hi, how much do i owe this month and when is it due?",
+        "max_completion_tokens": 220,
+        "offered": [
+          "add_customer_note",
+          "escalate_to_human",
+          "search_knowledge_base"
+        ],
+        "roles": [
+          "system",
+          "developer",
+          "developer",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "temperature": 0.4
+      }
+    ],
+    "interaction": {
+      "disposition": "query_handled",
+      "primary_intent": "balance_query",
+      "status": "active"
+    },
+    "job": {
+      "error": null,
+      "outbound_message_id": "<outbound>",
+      "status": "succeeded"
+    },
+    "messages": [
+      {
+        "body": "hi, how much do i owe this month and when is it due?",
+        "delivery_status": "delivered",
+        "id": "<inbound>",
+        "provider_ref": "<wamid>",
+        "sender": "customer"
+      },
+      {
+        "body": "Thanks -- I can see your account. Shall we set up a payment today?",
+        "delivery_status": "sent",
+        "id": "<outbound>",
+        "provider_ref": "wamid.SENT",
+        "sender": "bot"
+      }
+    ],
+    "tool_calls": [
+      {
+        "channel": "whatsapp",
+        "error": "human_gate_identity",
+        "on_interaction": true,
+        "on_turn": true,
+        "result_ok": false,
+        "tool_name": "add_customer_note"
+      }
+    ],
+    "transcript": [
+      {
+        "intent": "balance_query",
+        "speaker": "customer",
+        "text": "hi, how much do i owe this month and when is it due?",
+        "turn_index": 0
+      },
+      {
+        "intent": null,
+        "speaker": "bot",
+        "text": "Thanks -- I can see your account. Shall we set up a payment today?",
+        "turn_index": 1
+      }
+    ]
+  }
+}
