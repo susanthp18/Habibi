@@ -44,6 +44,10 @@ from pipecat.utils.text.base_text_filter import BaseTextFilter
 # words inside are usually meaningful ("(roughly)" → "roughly"), so dropping the
 # delimiter and keeping the content is the faithful reading.
 _BRACKETS = re.compile(r"[()\[\]{}<>]")
+#: The same rule minus square brackets, for a provider that reads
+#: ``[whispering]`` as a stage direction (Fish S2). Stripping them there turned
+#: a direction into a spoken word: the caller heard "whispering".
+_BRACKETS_KEEP_SQUARE = re.compile(r"[(){}<>]")
 
 # Markdown emphasis and structure. The role message already forbids these; this
 # is the backstop for when the model does it anyway.
@@ -75,11 +79,13 @@ _REPEATED_PUNCT = re.compile(r"([,;:])(\s*[,.;:!?])+")
 _WHITESPACE = re.compile(r"[ \t ]{2,}")
 
 
-def to_spoken(text: str) -> str:
+def to_spoken(text: str, *, keep_directions: bool = False) -> str:
     """Rewrite one chunk of model output as speakable text.
 
     Pure and stateless — safe to call on partial text, and used directly by the
     tests and the eval harness as well as by :class:`SpokenTextFilter`.
+    ``keep_directions`` leaves ``[square brackets]`` alone for a provider that
+    reads them as emotion/tone directions rather than text.
     """
     if not text:
         return text
@@ -91,7 +97,7 @@ def to_spoken(text: str) -> str:
     if not body:
         return text
 
-    body = _BRACKETS.sub(" ", body)
+    body = (_BRACKETS_KEEP_SQUARE if keep_directions else _BRACKETS).sub(" ", body)
     body = _MARKDOWN.sub("", body)
     body = _FORMAT_TOKEN.sub("", body)
     body = _SLASH_ALTERNATIVES.sub(" or ", body)
@@ -101,18 +107,31 @@ def to_spoken(text: str) -> str:
     return f"{lead}{body}{trail}"
 
 
+#: Providers whose TTS reads ``[bracketed]`` text as a direction, not speech.
+DIRECTION_PROVIDERS: frozenset[str] = frozenset({"fish"})
+
+
 class SpokenTextFilter(BaseTextFilter):
     """``BaseTextFilter`` adapter over :func:`to_spoken`.
 
     Installed via ``TTSService(text_filters=[...])``, which applies filters
-    after aggregation and before synthesis.
+    after aggregation and before synthesis. ``for_provider`` picks the rule:
+    a direction-reading provider keeps its square brackets.
     """
+
+    def __init__(self, *, keep_directions: bool = False) -> None:
+        super().__init__()
+        self._keep_directions = keep_directions
+
+    @classmethod
+    def for_provider(cls, provider_id: str | None) -> "SpokenTextFilter":
+        return cls(keep_directions=(provider_id or "") in DIRECTION_PROVIDERS)
 
     async def update_settings(self, settings: Mapping[str, Any]) -> None:
         """No configurable settings — the transformation is not optional."""
 
     async def filter(self, text: str) -> str:
-        return to_spoken(text)
+        return to_spoken(text, keep_directions=self._keep_directions)
 
     async def handle_interruption(self) -> None:
         """Nothing to reset: the filter holds no cross-chunk state."""

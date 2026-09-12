@@ -193,7 +193,8 @@ def build_services(call) -> None:
             # Parentheses and markdown are unspeakable, and Azure's word-boundary
             # events skip them — which made the sequencer emit the same span twice
             # and duplicated it into the transcript. See voice/spoken_text.py.
-            "text_filters": [SpokenTextFilter()],
+            # Per provider: Fish reads [square brackets] as directions.
+            "text_filters": lambda binding: [SpokenTextFilter.for_provider(binding.provider_id)],
         },
         fallback=lambda: KeepAliveAzureTTSService(
             api_key=speech_key,

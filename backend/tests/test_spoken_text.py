@@ -47,6 +47,11 @@ def test_brackets_are_removed_and_their_contents_kept(raw: str, expected: str) -
 
 def test_no_bracket_characters_survive() -> None:
     out = to_spoken("a (b) [c] {d} <e>")
+    # A direction-reading provider (Fish) keeps its square brackets: stripping
+    # them turned "[whispering]" into the spoken word "whispering".
+    assert to_spoken("[whispering] a (b) [c]", keep_directions=True) == "[whispering] a b [c]"
+    assert SpokenTextFilter.for_provider("fish")._keep_directions is True
+    assert SpokenTextFilter.for_provider("azure")._keep_directions is False
     assert not any(ch in out for ch in "()[]{}<>")
 
 

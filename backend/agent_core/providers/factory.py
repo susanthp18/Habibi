@@ -226,6 +226,9 @@ def build(
     parameters rather than model settings, so folding them into ``overrides``
     would drop them at the Settings filter below — silently, and only on the
     live audio path, which is the worst place to discover a missing text filter.
+    A ``ctor`` value that is callable is called with the binding, for an
+    argument that depends on which provider won (the text filter keeps
+    square-bracket directions for Fish and strips them for Azure).
     """
     cls = _import_class(binding.service_class)
     settings = {**binding.settings, **overrides}
@@ -248,7 +251,7 @@ def build(
         )
 
     kwargs = _credentials(binding.provider_id, session_id, tenant_id)
-    kwargs.update(ctor or {})
+    kwargs.update({k: (v(binding) if callable(v) else v) for k, v in (ctor or {}).items()})
     settings_cls = getattr(cls, "Settings", None)
     if settings_cls is not None and settings:
         # Only pass keys this service actually declares; providers disagree on
