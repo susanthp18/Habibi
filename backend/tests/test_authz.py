@@ -680,3 +680,26 @@ def test_actor_is_admin_is_the_route_guards_reading(db_tx, monkeypatch) -> None:
     assert db.actor_is_admin("u-1") is True
     assert db.actor_is_admin("u-2") is False
     assert db.actor_is_admin("") is False
+
+
+# ---------------------------------------------------------------------------
+# Every gated route refuses an actor without its permission (P5-34)
+# ---------------------------------------------------------------------------
+#
+# The five spot checks above prove the gate on five routes. This walks the
+# registry: every (method, path) it names, called as the seeded actor who holds
+# no role at all, is 403 and the body names the permission that was missing.
+# The gate runs on the route template before the handler, so the path
+# parameters are placeholders and no row is read.
+
+
+@pytest.mark.parametrize(
+    "method,path", sorted(authz.ROUTE_PERMISSIONS), ids=lambda v: v if isinstance(v, str) else str(v)
+)
+def test_every_gated_route_refuses_a_roleless_actor(
+    gated_client: TestClient, method: str, path: str
+) -> None:
+    concrete = re.sub(r"\{[^}]+\}", "placeholder", path)
+    res = gated_client.request(method, concrete, headers=_hdr("anita-rao"))
+    assert res.status_code == 403, f"{method} {path}: {res.status_code} {res.text[:200]}"
+    assert authz.ROUTE_PERMISSIONS[(method, path)] in res.text
