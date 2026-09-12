@@ -36,7 +36,11 @@ The subset of the grant placed in front of the model on a given turn. Narrowing 
 _Avoid_: exposed tools, available tools
 
 **Gate**:
-One publish-time check with three honest outcomes: pass, block, or skip. A gate never reports green for a check it did not run.
+One publish-time check with three honest outcomes: pass, block, or skip. A gate never reports green for a check it did not run. A gate that blocks says what would let it pass.
+
+**Assurance**:
+How much a channel has proved about who it is talking to, as one of three levels. `endpoint` — the channel proved control of the endpoint (a WhatsApp sender matched to a CRM row; caller ID does not qualify). `challenge` — the customer supplied something only they know. Tools name the level they need; reads and reversible writes take `endpoint`, money and regulated acts take `challenge`.
+_Avoid_: verified (a boolean, and the thing this replaced)
 
 ### Conversation
 
@@ -51,6 +55,10 @@ _Avoid_: transfer (reserved for reaching a human), routing
 **Reachability**:
 Whether traffic can arrive at a card at all — as the entry agent, through a handoff, by direct address, or not at all.
 
+**Run-up**:
+The turns before the one being judged, oldest first, excluding that turn itself. Built once per turn and passed to every per-turn judgment — intent, sentiment, retrieval planning — so none of them decides on a single sentence.
+_Avoid_: history (the whole thread, and what the prompt carries), context (overloaded)
+
 ### Outbound
 
 **Mission**:
@@ -60,6 +68,10 @@ _Avoid_: campaign, objective, intent
 **Cadence**:
 When to attempt a mission again. Mechanical only: a cadence may repeat an action, never change it.
 _Avoid_: retry policy, schedule
+
+**Deferral**:
+A refusal that expires. Contact policy says *not yet* — cooling-off, a cap, a closed window — and names the instant it stops saying so, and the queued message waits for it rather than failing. Distinct from a refusal about the customer (DND, withdrawn consent, a settled account), which never expires and cancels.
+_Avoid_: retry, backoff (both mean a transport failure here)
 
 **Outcome**:
 What a conversation settled, as one code from a closed vocabulary. The outcome is what post-call obligations and cadence both read.

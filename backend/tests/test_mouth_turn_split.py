@@ -42,15 +42,19 @@ BACKEND = Path(__file__).resolve().parents[1]
 #: sha256("")[:16] — the empty prefix a cardless mouth produces.
 _EMPTY_SHA = "e3b0c44298fc1c14"
 
-_PREFIX_SHA = "6087907ee05c0972"
-_PREFIX_LEN = 1506
+# Both moved when the mouth started honouring a pack's declared ``mouth:``
+# channels: floor-coach is internal-only and no longer rides the collections
+# card, so its description left the prefix. Re-measured, not guessed.
+_PREFIX_SHA = "dfff68314cf3fe86"
+_PREFIX_LEN = 1356
 _PTP_BODY_SHA = "609184e1d6d1522f"
 
 _PACK_SLUGS = [
     "broken-ptp-chase",
     "dispute-capture",
     "doc-fulfil",
-    "floor-coach",
+    # floor-coach is attached to the card and dropped at resolution:
+    # ``mouth: [internal]`` shares no channel with ``[voice, whatsapp]``.
     "hardship-intake",
     "ptp-negotiate",
     "upsell-pitch",

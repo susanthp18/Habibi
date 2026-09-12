@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { groundedLabel, groundedSources } from "@/api/sandbox";
 
-
 // Rehearsal 2026-08-25, card kaia-v2-4: turn 2's footer read
 // "3034ms · 1241t · 0 chunks" directly under three "grounded in FAQ" chips. The
 // counter read botTurn.chunkIds while the chips read botTurn.chunks, and an

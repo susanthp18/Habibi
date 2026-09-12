@@ -117,12 +117,49 @@ def _enrichment_async_enabled() -> bool:
     return env_int(_ENRICHMENT_ASYNC_ENV, 1) != 0
 
 
-def _start_enrichment(customer_text: str) -> Future | None:
+def _run_up_for_run(run_id: str, customer_text: str) -> list[tuple[str, str]]:
+    """The rehearsal's own transcript, as a run-up. Never raises.
+
+    Reads ``sandbox_run_turns`` rather than the client's ``payload["history"]``,
+    matching the server-authoritative rule the prompt assembly already follows:
+    an operator's browser is not the record of what was rehearsed.
+    """
+    from agent_core.compaction import RAW_LAST_N, run_up
+
+    try:
+        with db.engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT speaker AS role, text
+                    FROM sandbox_run_turns
+                    WHERE run_id = :id AND text IS NOT NULL
+                    ORDER BY turn_index DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"id": run_id, "limit": RAW_LAST_N},
+            ).mappings().all()
+        return run_up([dict(r) for r in reversed(rows)], customer_text)
+    except Exception:
+        logger.exception("sandbox run-up fetch failed; classifying without context")
+        return []
+
+
+def _start_enrichment(customer_text: str, run_id: str) -> Future | None:
     """Kick the analysis off now; the turn collects it just before assembly.
 
     The context is copied into the worker so tenant / request context vars the
     LLM gateway reads are the ones this turn is running under, not whatever the
     pooled thread last saw.
+
+    The run-up is fetched *inside* the worker rather than passed in. That keeps
+    the point of the prefetch intact — this fires before the turn's own preflight
+    queries, so doing the lookup on the calling thread would hand back the
+    latency the overlap exists to hide — while still giving the classifier the
+    thread. Judged on one sentence, "nope i want to see the benefits." is a
+    request for a capabilities list; judged against the four turns before it, it
+    is a travel-insurance question.
     """
     ctx = contextvars.copy_context()
 
@@ -131,7 +168,11 @@ def _start_enrichment(customer_text: str) -> Future | None:
         from agent_core.understanding import analyze_turn
 
         try:
-            result: Any = analyze_turn(customer_text, channel="sandbox_text")
+            result: Any = analyze_turn(
+                customer_text,
+                channel="sandbox_text",
+                recent=_run_up_for_run(run_id, customer_text) or None,
+            )
         except Exception:
             # analyze_turn documents that it never raises; if that ever stops
             # being true the turn still gets its reply, via the inline call.
@@ -227,21 +268,84 @@ _SANDBOX_MUTATING_TOOLS = frozenset(
         "run_skill_script",
     }
 )
+#: Reads that are still stubbed, because faking them is cheaper than seeding a
+#: whole borrower. ``search_knowledge_base`` is deliberately absent — it runs
+#: live, see :func:`_rehearse_knowledge_base`. ``load_skill`` is absent for the
+#: same reason and is handled earlier in the loop.
+#:
+#: The stub answers ``{"ok": True, "simulated": True, "data": {}}``, which is a
+#: confident empty result. That is a real limitation, not a neutral placeholder:
+#: an operator rehearsing against these learns nothing about whether the live
+#: read would have found anything. Moving one out of this set is how that gets
+#: fixed, one tool at a time, starting with the one that answers questions.
 _SANDBOX_READ_TOOLS = frozenset(
     {
         "get_customer_context",
         "get_payment_history",
         "get_emi_schedule",
-        "search_knowledge_base",
         "recommend_next_offer",
         "check_product_eligibility",
-        "load_skill",
     }
 )
 
 
-def simulate_sandbox_tool(name: str, args: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+def _rehearse_knowledge_base(
+    args: dict[str, Any], customer_text: str, recent: list[tuple[str, str]] | None = None
+) -> tuple[bool, dict[str, Any]]:
+    """Run the *real* retrieval for a rehearsal. Read-only, so nothing to fake.
+
+    This used to be stubbed with the rest of the reads, and the stub returned
+    ``{"ok": True, "simulated": True, "data": {}}`` — a confident-looking empty
+    result, which is the exact shape of the bug the Sandbox exists to catch. An
+    operator could rehearse an entire product conversation and never learn that
+    live retrieval would hand the model a product name and nothing else.
+
+    ``load_skill`` above is the precedent: it runs the real loader because a
+    rehearsal of progressive disclosure that does not disclose anything is not a
+    rehearsal. The same argument applies here with less risk, because retrieval
+    writes nothing a customer can see.
+
+    What keeps it side-effect-free is the two arguments below, not the stub:
+
+    * ``interaction_id=None`` — gap capture and the product-interest analytics
+      are both gated on it (``agent_core/tools/kb.py``), so a rehearsal cannot
+      file a KB gap or record interest against a real borrower. This is the same
+      mechanism, and the same reasoning, as ``mcp_tools._search_knowledge_base``.
+    * ``record_offer=False`` — belt and braces for the analytics half.
+
+    One buffered ``retrieval_logs`` row is still written, with a null
+    interaction. That is honest: the retrieval really did happen, and the Test
+    Retrieval screen already logs its own the same way.
+    """
+    from agent_core.tools import kb as kb_tool
+
+    # channel="text" rather than a sandbox-specific value on purpose: the point
+    # is to rehearse what WhatsApp will do, so it takes the text top_k, the text
+    # snippet caps, the text plan budget and the text intent gate. `source` only
+    # sizes the overfetch inside kb_retrieve, and the handler derives it.
+    result = kb_tool.search_knowledge_base(
+        query=str(args.get("query") or "").strip(),
+        channel="text",
+        customer_text=customer_text or "",
+        recent=recent or None,
+        interaction_id=None,
+        record_offer=False,
+    )
+    if not result.ok:
+        return False, {"ok": False, "error": result.error, "simulated": True, **(result.data or {})}
+    return True, {**result.data, "ok": True, "simulated": True}
+
+
+def simulate_sandbox_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    customer_text: str = "",
+    recent: list[tuple[str, str]] | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Side-effect-free rehearsal. Never calls a carrier, CRM write, or connector."""
+    if name == "search_knowledge_base":
+        return _rehearse_knowledge_base(args, customer_text, recent)
     if name.startswith("ext."):
         return False, {
             "ok": False,
@@ -384,11 +488,41 @@ def _run_sandbox_tool_loop(
         return schemas, names
 
     working = list(messages)
+    # What the rehearsed customer actually said, for the tools that steer on it
+    # rather than on the model's own tool-arg phrasing. Taken from `messages`
+    # rather than threaded in as a parameter: the caller has already assembled
+    # the turn here, and a second source for the same string is a second thing
+    # that can disagree with it.
+    rehearsed_customer_text = next(
+        (
+            str(m.get("content") or "")
+            for m in reversed(messages)
+            if m.get("role") == "user" and str(m.get("content") or "").strip()
+        ),
+        "",
+    )
+    # The rehearsed thread, for tools that resolve a follow-up against it.
+    # `messages` also carries the system prompt and the untrusted CRM card, and
+    # neither is something anybody said — filtered here rather than in
+    # compaction, because a prompt scaffold masquerading as a turn is a quirk of
+    # this one assembled list.
+    from agent_core.compaction import run_up as _run_up
+
+    rehearsed_recent = _run_up(
+        [m for m in messages if m.get("role") in {"user", "assistant", "customer", "bot"}],
+        rehearsed_customer_text,
+    )
     tool_trace: list[dict[str, Any]] = []
     total_tokens = 0
     total_latency = 0
     bot_text = ""
-    simulated_identity_verified = False
+    # Rehearsed assurance, not a flag. Production tiers tools by how much
+    # identity they need (see agent_core.tools.gates), so a rehearsal that only
+    # knows "verified / not" cannot show an operator that a promise-to-pay needs
+    # a challenge while a callback does not.
+    from agent_core.tools import gates as _gates
+
+    simulated_assurance = _gates.LEVEL_NONE
     offered_names: list[str] = []
 
     tools_pending = False
@@ -465,21 +599,16 @@ def _run_sandbox_tool_loop(
                 ok = False
                 result = {"ok": False, "error": "tool_not_on_card_or_skill", "tool": name, "simulated": True}
             else:
-                from agent_core.tools.gates import enforce_human_gate
+                from agent_core.tools.gates import gate_failure
 
-                gate_error = enforce_human_gate(
+                gate_error = gate_failure(
                     name,
                     card=agent_card,
-                    identity_verified=simulated_identity_verified,
+                    assurance=simulated_assurance,
                 )
                 if gate_error:
                     ok = False
-                    result = {
-                        "ok": False,
-                        "error": gate_error,
-                        "simulated": True,
-                        "tool": name,
-                    }
+                    result = {**gate_error, "ok": False, "simulated": True}
                 elif name == "load_skill":
                     # Progressive disclosure, rehearsable: the real loader, the
                     # pack's body as the next developer message, and the offer
@@ -500,9 +629,21 @@ def _run_sandbox_tool_loop(
                         tool_state = mouth.tools(channel_tools=text_channel_tools, channel="text")
                         granted = set(tool_state.offered or ())
                 else:
-                    ok, result = simulate_sandbox_tool(name, args)
+                    ok, result = simulate_sandbox_tool(
+                        name,
+                        args,
+                        customer_text=rehearsed_customer_text,
+                        recent=rehearsed_recent,
+                    )
                     if ok and name == "identify_customer":
-                        simulated_identity_verified = True
+                        # Which level the rehearsed ceremony earned, by the same
+                        # rule production uses: the number proves the endpoint,
+                        # the account tail is a secret only the customer knows.
+                        simulated_assurance = (
+                            _gates.LEVEL_CHALLENGE
+                            if str(args.get("account_tail") or args.get("accountTail") or "").strip()
+                            else _gates.LEVEL_ENDPOINT
+                        )
                     if ok and walker is not None:
                         if name == "handoff_to_agent":
                             # A handoff has no edge to follow — the card's
@@ -866,7 +1007,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     understanding_llm = bool(_understanding_llm_enabled())
     enrichment_async = understanding_llm and _enrichment_async_enabled()
-    enrichment_future = _start_enrichment(customer_text) if enrichment_async else None
+    enrichment_future = _start_enrichment(customer_text, run_id) if enrichment_async else None
     enrichment_async = enrichment_future is not None
     enrichment_wall_ms = 0.0
     enrichment_wait_ms = 0.0

@@ -88,7 +88,9 @@ describe("invalidateAgentStudio", () => {
     const invalidateQueries = vi.fn();
     invalidateAgentStudio({ invalidateQueries } as never);
 
-    const keys = invalidateQueries.mock.calls.map((c) => (c[0] as { queryKey: string[] }).queryKey[0]);
+    const keys = invalidateQueries.mock.calls.map(
+      (c) => (c[0] as { queryKey: string[] }).queryKey[0],
+    );
     expect(keys).toContain("agent-studio");
     // Both deployment roots: experiments live under ["deployments"] and the
     // rows themselves under ["bot-deployments"], so a rollback that refreshed

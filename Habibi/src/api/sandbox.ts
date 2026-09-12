@@ -19,6 +19,10 @@ import { sandboxTurnResultSchema } from "@/lib/studio-contract";
 import { apiGet, apiGetBlob, apiPost, mockDelay, USE_MOCK } from "./config";
 
 export type SandboxContext = {
+  /** A real `customers` id makes the simulated tools read that borrower's real
+   *  rows — the honest rehearsal, and an explicit per-scenario opt-in rather
+   *  than a default. Unset leaves the run prompt-only, as before. */
+  customer_id?: string;
   customer_name?: string;
   account_no?: string;
   overdue_amount?: string;
@@ -59,7 +63,12 @@ export type SandboxTurnResult = {
   runId: string;
   promptVersionId: string;
   compiledBundleHash?: string | null;
-  flowStatus?: "validated_not_executed_in_text_rehearsal" | "not_authored" | null;
+  flowStatus?: "walked" | "validated_not_executed_in_text_rehearsal" | "not_authored" | null;
+  /** The step the run is on after this turn; post it back to continue there. */
+  nodeKey?: string | null;
+  /** What the graph offered the model on this turn: the node's granted tools
+   *  plus its generated transitions. */
+  offeredTools?: string[] | null;
   customerTurn: {
     id: string;
     role: "customer";
@@ -267,6 +276,8 @@ export async function appendSandboxTurn(input: {
   context?: SandboxContext;
   topK?: number;
   skillSlug?: string;
+  /** The step the previous turn ended on. Omit to start the graph. */
+  nodeKey?: string | null;
   /** Mock-only fallbacks */
   scenario?: Scenario;
   turnIndex?: number;
@@ -322,6 +333,7 @@ export async function appendSandboxTurn(input: {
       context: input.context ?? null,
       topK: input.topK ?? 3,
       skillSlug: input.skillSlug ?? null,
+      nodeKey: input.nodeKey ?? null,
     },
     { schema: sandboxTurnResultSchema },
   );

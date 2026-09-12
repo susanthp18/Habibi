@@ -61,14 +61,15 @@ def test_main_loads_env_before_is_prod_and_before_db() -> None:
 
 
 def test_voice_entrypoints_load_env_before_application_imports() -> None:
+    """``voice/workers/insurance.py`` was the second entrypoint here.
+
+    The mesh sidecar it belonged to is deleted — an in-process specialist hop
+    does its job — so ``voice/bot.py`` is the whole voice surface again.
+    """
     bot = BACKEND / "voice" / "bot.py"
-    insurance = BACKEND / "voice" / "workers" / "insurance.py"
     # agent_core is reached through voice.bot_flow now, so the voice import is
     # the first application import there is.
     assert _module_level_load_env_lineno(bot) < _first_import_lineno(bot, "voice")
-    assert _module_level_load_env_lineno(insurance) < _first_import_lineno(
-        insurance, "voice"
-    )
 
 
 def test_is_prod_reflects_dotenv_on_the_bare_metal_path(tmp_path: Path) -> None:

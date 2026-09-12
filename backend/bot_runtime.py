@@ -23,6 +23,7 @@ import db
 import whatsapp as wa
 from agent_core import lexicon
 from agent_core import perception
+from agent_core.compaction import run_up
 from agent_core.deployment import load_active_bundle
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.sentiment import sentiment_label
@@ -288,13 +289,29 @@ def _history_already_disclosed_recording(history: list[dict[str, str]]) -> bool:
 def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recording: bool) -> str:
     """Per-turn dialog rules so stale EMI/PTP history cannot override the latest ask."""
     lines = [
-        "## Dialog control (this turn — highest priority)",
-        f"- Classified intent: {intent}.",
+        "## Dialog control (this turn)",
         f"- Latest customer message: {customer_text!r}",
-        "- Answer ONLY that latest message. Older EMI / Promise-to-Pay / outstanding talk in "
-        "history is background — do not treat it as what the customer asked now.",
+        "- Answer that message. Older EMI / Promise-to-Pay / outstanding talk in history is "
+        "background — do not treat it as what the customer asked now.",
         "- Never invent that the customer asked about EMI, PTP, dues, or WhatsApp confirmation "
         "windows when the latest message did not.",
+        # Background is not the same as noise. The rule above exists to stop a
+        # stale EMI thread hijacking a new question; read as "ignore the
+        # conversation" it does the opposite damage, because a follow-up like
+        # "tell me the benefits" names nothing and is only answerable against
+        # what came before it.
+        "- Use the conversation above to work out what the latest message REFERS to — which "
+        "product, which date, which offer. Resolving a follow-up against the thread is not the "
+        "same as answering an older question.",
+        # Demoted from "highest priority" and from an imperative. The classifier
+        # is one model call on one turn and it is sometimes wrong: it read
+        # "international trip ... september 23 to 28" as hardship, and "nono...
+        # better yourself tell me the benefits" as a request for a capabilities
+        # list, and on both turns this block's per-intent instruction was
+        # followed in preference to what the customer had plainly written.
+        # A hint that loses to the customer's own words costs nothing when it is
+        # right and stops being a derailment when it is wrong.
+        f"- Classified intent (a hint, not an instruction — the message itself wins): {intent}.",
     ]
     if disclosed_recording:
         lines.append(
@@ -307,11 +324,20 @@ def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recordin
             "Do NOT recite outstanding balance or push a PTP date."
         )
     elif intent in {"help_capabilities", "correction"}:
+        # Guarded, because this is the branch that did the damage. Told to list
+        # its capabilities, the bot listed them at a customer who had just
+        # written "nope i want to see the benefits." for the second time — a
+        # question, misread as a request for a menu. Listing is now what happens
+        # when the customer has NOT asked something answerable, rather than
+        # instead of answering it.
         lines.append(
-            "- Help / correction: if correcting, apologize in one short clause, then list what you "
-            "can help with (check dues & set a Promise-to-Pay, payment guidance, insurance product "
-            "questions like coverage/exclusions, escalate to a human). Ask what they need next. "
-            "Do NOT reopen PTP dates or WhatsApp confirmation slots unless they ask about payment."
+            "- Help / correction: if correcting, apologize in one short clause. If the latest "
+            "message is a question you can answer or look up, answer it — do not reply with a "
+            "list of capabilities instead. Only if they have not asked anything specific, say "
+            "briefly what you can help with (check dues & set a Promise-to-Pay, payment guidance, "
+            "insurance product questions like coverage/exclusions, escalate to a human) and ask "
+            "what they need. Do NOT reopen PTP dates or WhatsApp confirmation slots unless they "
+            "ask about payment."
         )
     elif intent == "product_faq":
         lines.append(
@@ -866,6 +892,33 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     # time bound the backfill would also claim the previous turn's retrievals.
     turn_started_at = datetime.now(timezone.utc)
 
+    # The thread, fetched once, before anything judges this turn.
+    #
+    # This used to be three separate queries at three different points in the
+    # turn: the latest customer row up at the top, the last four customer bodies
+    # for the product hint, and the prompt history 140 lines below — which is
+    # *after* classification, so the classifier ran on one sentence with no
+    # thread behind it. That is how "nope i want to see the benefits." was
+    # classified `help_capabilities` in a conversation that had been about
+    # travel insurance for four turns, and how the retrieval planner sent a
+    # benefits question to the product catalog.
+    #
+    # Fetching here costs nothing extra and removes one of the three queries.
+    # The per-intent narrowing that used to size this fetch now trims the list
+    # afterwards instead — trimming needs no second round trip, and the rows are
+    # identical either way because both paths take the newest `hist_limit * 4`.
+    reset_at = _parse_dialog_reset_at(state)
+    full_history = _message_history(
+        engine,
+        conversation_id,
+        _history_limit() * 4,
+        since=reset_at,
+    )
+
+    # The thread without the turn under test. `full_history` ends with the
+    # message being classified, because it is a row in the same table.
+    turn_run_up = run_up(full_history, customer_text)
+
     # One classification per turn, read by everything below. Safe to make an
     # Azure call here: handle_turn runs in bot_worker off the webhook request
     # path, and analyze_turn degrades to the keyword classifiers on any failure.
@@ -873,6 +926,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         customer_text,
         prior_intent=str(state.get("last_intent") or "") or None,
         channel="text",
+        recent=turn_run_up,
     )
     intent = understanding.intent
     intent_scores = understanding.intent_scores
@@ -910,23 +964,20 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             logger.exception("capture touch_primary_intent failed")
 
     # Infer product hint from recent customer turns for vague follow-ups.
+    #
+    # Taken from the thread already in hand rather than re-queried. Two small
+    # behaviour changes come with that, both deliberate: the window is now
+    # bounded by the same reset the prompt respects, so a dialog reset clears
+    # the product hint too (a reset means forget, and a hint surviving one is
+    # how a stale product leaks into a fresh conversation); and the rows are the
+    # same ones the classifier and the prompt see, so the three cannot disagree
+    # about what was said.
     product_hint = None
-    recent_cust = []
-    with engine.connect() as conn:
-        recent_cust = [
-            (r.get("body") or "").strip()
-            for r in conn.execute(
-                text(
-                    """
-                    SELECT body FROM messages
-                    WHERE conversation_id = :cid AND sender = 'customer'
-                    ORDER BY COALESCE(sent_at, created_at) DESC
-                    LIMIT 4
-                    """
-                ),
-                {"cid": conversation_id},
-            ).mappings().all()
-        ]
+    recent_cust = [
+        str(h.get("content") or "").strip()
+        for h in full_history
+        if h.get("role") == "user" and str(h.get("content") or "").strip()
+    ][-4:]
     blob = " ".join(recent_cust).lower()
     for token in (
         "travel protect360",
@@ -1008,16 +1059,13 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         final_text = reuse_body
     else:
         # Meta / greeting / correction turns must not drown in old EMI seed history.
+        # The narrowing now slices the thread fetched before classification
+        # rather than issuing its own query; the newest `hist_limit * 4` rows
+        # are the same rows either way.
         hist_limit = _history_limit()
         if intent in {"help_capabilities", "greeting", "correction"}:
             hist_limit = min(hist_limit, 6)
-        reset_at = _parse_dialog_reset_at(state)
-        history = _message_history(
-            engine,
-            conversation_id,
-            hist_limit * 4,
-            since=reset_at,
-        )
+        history = full_history[-(hist_limit * 4) :]
         from agent_core.compaction import bound_history
 
         prior_summary = None
@@ -1111,6 +1159,10 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             sentiment=sentiment,
         )
         tool_ctx.allowed_tools = tool_state.allowed
+        # The same run-up the classifier saw. One thread, one snapshot, so a
+        # tool cannot resolve a follow-up against a different conversation than
+        # the one the intent was derived from.
+        tool_ctx.recent = turn_run_up
         tool_ctx.environment = str(
             (bundle.get("deployment") or {}).get("environment") or bot_jobs.bot_environment()
         )

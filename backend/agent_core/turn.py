@@ -10,7 +10,7 @@ from prompt_render import (
     strip_unrendered_crm_tokens,
 )
 
-from agent_core.compaction import RAW_LAST_N, bound_history
+from agent_core.compaction import RAW_LAST_N, bound_history, run_up
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.understanding import TurnUnderstanding, analyze_turn
 
@@ -68,7 +68,17 @@ def assemble_turn_messages(
     # a Hinglish turn shown as out_of_scope / 0.00 here is the most visible
     # form of the bug this replaces. Degrades to the keyword classifiers.
     if understanding is None:
-        understanding = analyze_turn(customer_text, channel="sandbox_text")
+        # `history` is already in scope here, and withholding it was never a
+        # decision — it was the same omission the live text channel shipped: a
+        # classifier judging one sentence with the thread sitting in the next
+        # parameter. `to_recent` drops the turn under test if the caller's
+        # history already ends with it, so the analyser does not read the same
+        # sentence twice.
+        understanding = analyze_turn(
+            customer_text,
+            channel="sandbox_text",
+            recent=run_up(history, customer_text, last_n=history_limit),
+        )
     intent = understanding.intent
     intent_scores = understanding.intent_scores
     sentiment = understanding.sentiment
