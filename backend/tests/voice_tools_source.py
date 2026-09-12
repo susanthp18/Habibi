@@ -1,4 +1,4 @@
-"""The voice tool set as one text, for the tests that still read it as source.
+"""The split runtimes as one text, for the tests that still read them as source.
 
 ``voice/tools.py`` became ``voice/tools.py`` + ``voice/tools_scope.py`` + one
 module per handler section (``voice/tools_identity.py`` ...). A pin that read
@@ -36,6 +36,25 @@ def source() -> str:
             tools_knowledge,
             tools_closing,
             tools_handoff,
+        )
+    )
+
+
+def text_turn_source() -> str:
+    """``bot_runtime._handle_turn`` and the phases it became, in phase order."""
+    import bot_runtime
+
+    return "\n".join(
+        inspect.getsource(f)
+        for f in (
+            bot_runtime._handle_turn,
+            bot_runtime._reuse_prior_outbound,
+            bot_runtime._prepare_turn,
+            bot_runtime._understand_turn,
+            bot_runtime._run_model,
+            bot_runtime._tool_loop,
+            bot_runtime._send_reply,
+            bot_runtime._persist_turn,
         )
     )
 

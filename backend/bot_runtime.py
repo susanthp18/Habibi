@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -764,18 +765,64 @@ def _sampling(bundle: dict[str, Any]) -> tuple[float, int]:
     )
 
 
-def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
-    job_id = job["id"]
-    conversation_id = job["conversation_id"]
-    logger.info("bot_turn start job=%s conversation=%s attempt=%s", job_id, conversation_id, job.get("attempt"))
+@dataclass
+class Turn:
+    """One WhatsApp turn as it moves through the phases below.
 
-    # Outbound idempotency: never Graph-send twice for the same job.
+    What the job named, what the thread says, what the classifier found, what
+    the model answered and what was sent. Filled in phase order by
+    ``_prepare_turn`` / ``_understand_turn`` / ``_run_model`` / ``_tool_loop`` /
+    ``_send_reply`` / ``_persist_turn``; a phase that ends the turn returns
+    ``None`` or ``False`` and nothing after it runs. The bodies are what
+    ``_handle_turn`` was, pinned by ``tests/test_text_turn_snapshot.py``.
+    """
+
+    job: dict[str, Any]
+    job_id: str
+    conversation_id: str
+    reuse_outbound_id: str | None
+    reuse_body: str | None
+    conv: dict[str, Any]
+    customer_text: str
+    latest_msg_id: str | None
+    state: dict[str, Any]
+    turn_count: int
+    bundle: dict[str, Any]
+    guardrails: Any
+    temperature: float
+    max_completion_tokens: int
+    # _understand_turn
+    turn_started_at: datetime | None = None
+    full_history: list[dict[str, Any]] = field(default_factory=list)
+    turn_run_up: list[tuple[str, str]] = field(default_factory=list)
+    understanding: Any = None
+    intent: str | None = None
+    intent_scores: dict[str, float] | None = None
+    sentiment: float | None = None
+    product_hint: str | None = None
+    # _run_model / _tool_loop
+    final_text: str = ""
+    flow_walker: Any = None
+    # _send_reply
+    fresh: dict[str, Any] | None = None
+    msg_id: str | None = None
+
+
+def _reuse_prior_outbound(engine: Engine, job: dict[str, Any]) -> tuple[str | None, str | None] | None:
+    """Outbound idempotency: never Graph-send twice for the same job.
+
+    Returns ``(reuse_outbound_id, reuse_body)`` -- both ``None`` for a fresh
+    turn, the reserved row and its body when a prior attempt failed before
+    reaching Meta -- or ``None`` when the job was closed here (already sent,
+    stuck in ``sending``, or a prior definite/ambiguous send error)."""
+    job_id = job["id"]
+
     existing = _existing_outbound(engine, job_id)
     if existing and (existing.get("delivery_status") or "") == "sent":
         with engine.begin() as conn:
             bot_jobs.mark_succeeded(conn, job_id, outbound_message_id=existing["id"])
         logger.info("bot_turn skip already-sent job=%s message=%s", job_id, existing["id"])
-        return
+        return None
 
     reuse_outbound_id: str | None = None
     reuse_body: str | None = None
@@ -793,7 +840,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             job_id,
             existing["id"],
         )
-        return
+        return None
     if existing and prior_status == "failed":
         prior_err = str(job.get("error") or "")
         if wa.is_definite_client_error(prior_err):
@@ -805,7 +852,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 existing["id"],
                 prior_err[:200],
             )
-            return
+            return None
         if wa.is_ambiguous_transport_error(prior_err):
             # Read timeout / 429 / 5xx: Meta may already have accepted and
             # delivered the message. Cloud API has no client idempotency key, so
@@ -821,7 +868,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 existing["id"],
                 prior_err[:200],
             )
-            return
+            return None
         # A failed send definitely never reached Meta (connection refused / DNS
         # / config) — safe to reuse the
         # reserved row (do not INSERT another; UNIQUE(bot_turn_job_id) would fail).
@@ -833,12 +880,27 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             reuse_outbound_id,
             prior_status,
         )
+    return reuse_outbound_id, reuse_body
+
+
+def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
+    """Everything before the model: the job, the thread, the gate, the bundle,
+    the classification and the guardrail pre-checks. ``None`` when the turn
+    ended here (the job row already says why)."""
+    job_id = job["id"]
+    conversation_id = job["conversation_id"]
+    logger.info("bot_turn start job=%s conversation=%s attempt=%s", job_id, conversation_id, job.get("attempt"))
+
+    reuse = _reuse_prior_outbound(engine, job)
+    if reuse is None:
+        return None
+    reuse_outbound_id, reuse_body = reuse
 
     conv = _load_conversation(engine, conversation_id)
     if not conv:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, "conversation_not_found")
-        return
+        return None
 
     # Everything metered from here on belongs to this interaction.
     import usage_meter
@@ -850,13 +912,13 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, gate)
         logger.info("bot_turn cancelled job=%s reason=%s", job_id, gate)
-        return
+        return None
 
     customer_text, latest_msg_id = _latest_customer_text(engine, conversation_id)
     if not customer_text:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, "no_customer_text")
-        return
+        return None
 
     state = _bot_state(conv)
 
@@ -891,12 +953,99 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         # dead now, with the reason on the row, rather than five retries.
         with engine.begin() as conn:
             bot_jobs.mark_dead(conn, job, str(exc))
-        return
+        return None
     except KeyError as exc:
         with engine.begin() as conn:
             bot_jobs.mark_failed_or_retry(conn, job, f"deployment:{exc}")
-        return
+        return None
     temperature, max_completion_tokens = _sampling(bundle)
+
+    t = Turn(
+        job=job,
+        job_id=job_id,
+        conversation_id=conversation_id,
+        reuse_outbound_id=reuse_outbound_id,
+        reuse_body=reuse_body,
+        conv=conv,
+        customer_text=customer_text,
+        latest_msg_id=latest_msg_id,
+        state=state,
+        turn_count=turn_count,
+        bundle=bundle,
+        guardrails=guardrails,
+        temperature=temperature,
+        max_completion_tokens=max_completion_tokens,
+    )
+    _understand_turn(engine, t)
+    intent, sentiment = t.intent, t.sentiment
+
+    # Hard escalate on abuse / human-request before spending Azure.
+    from agent_core.guardrails import evaluate_guardrails
+
+    # Was a hardcoded eight-word substring check — the narrowest of the three
+    # copies, and the one that matched "kill yourself" by substring so "skill"
+    # was safe but "shut up" inside a URL was not. agent_core.lexicon is now the
+    # single source; voice/safety.py and guardrails.py read the same patterns.
+    hard_abuse = lexicon.is_abusive(customer_text)
+    early_flags = evaluate_guardrails(
+        customer_text=customer_text,
+        bot_text="",
+        intent=intent,
+        guardrails=guardrails if isinstance(guardrails, dict) else {},
+        turn_index=turn_count,
+        elapsed_seconds=0,
+        customer_bot_exchanges=turn_count,
+        channel="whatsapp",
+    )
+    if hard_abuse or "auto-escalate" in early_flags or intent == "escalation":
+        if hard_abuse:
+            reason = "Customer used abusive language — escalated to human"
+        elif intent == "escalation":
+            reason = "Customer requested a human agent"
+        else:
+            reason = "Guardrail auto-escalate"
+        db.escalate_conversation_to_human(conversation_id, reason=reason)
+        state.update(
+            {
+                "turn_count": turn_count,
+                "last_intent": intent,
+                "last_sentiment": sentiment_label(sentiment),
+                "escalated": True,
+                "escalate_reason": reason,
+            }
+        )
+        _save_bot_state(engine, conversation_id, state)
+        with engine.begin() as conn:
+            bot_jobs.mark_succeeded(conn, job_id)
+        logger.info("bot_turn early-escalate job=%s reason=%s", job_id, reason)
+        return None
+
+    # A non-numeric maxTurns in a deployment bundle must not crash the turn —
+    # fall back to the hard ceiling, which is the safe direction.
+    try:
+        max_turns = int(guardrails.get("maxTurns") or _hard_max_turns())
+    except (TypeError, ValueError):
+        logger.warning(
+            "bot_turn ignoring non-numeric maxTurns=%r job=%s",
+            guardrails.get("maxTurns"),
+            job_id,
+        )
+        max_turns = _hard_max_turns()
+    max_turns = min(max_turns, _hard_max_turns())
+    if turn_count > max_turns:
+        db.escalate_conversation_to_human(conversation_id, reason="max_turns_exceeded")
+        with engine.begin() as conn:
+            bot_jobs.mark_cancelled(conn, job_id, "max_turns_exceeded")
+        return None
+    return t
+
+
+def _understand_turn(engine: Engine, t: Turn) -> None:
+    """The thread, fetched once, and one classification per turn read by everything after."""
+    conversation_id = t.conversation_id
+    conv = t.conv
+    customer_text = t.customer_text
+    state = t.state
 
     # Stamped before any tool or retrieval runs. The trace backfill at the end
     # of the turn uses it to claim only the retrieval_logs rows this turn
@@ -1007,385 +1156,412 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     if not product_hint and "travel" in blob:
         product_hint = "Travel Protect360"
 
-    # Hard escalate on abuse / human-request before spending Azure.
-    from agent_core.guardrails import evaluate_guardrails
+    t.turn_started_at = turn_started_at
+    t.full_history = full_history
+    t.turn_run_up = turn_run_up
+    t.understanding = understanding
+    t.intent = intent
+    t.intent_scores = intent_scores
+    t.sentiment = sentiment
+    t.product_hint = product_hint
 
-    # Was a hardcoded eight-word substring check — the narrowest of the three
-    # copies, and the one that matched "kill yourself" by substring so "skill"
-    # was safe but "shut up" inside a URL was not. agent_core.lexicon is now the
-    # single source; voice/safety.py and guardrails.py read the same patterns.
-    hard_abuse = lexicon.is_abusive(customer_text)
-    early_flags = evaluate_guardrails(
-        customer_text=customer_text,
-        bot_text="",
-        intent=intent,
-        guardrails=guardrails if isinstance(guardrails, dict) else {},
-        turn_index=turn_count,
-        elapsed_seconds=0,
-        customer_bot_exchanges=turn_count,
-        channel="whatsapp",
+
+def _run_model(engine: Engine, t: Turn) -> bool:
+    """The prompt, the offer and the tool loop; ``t.final_text`` on ``True``.
+
+    A retried send reuses the reserved body and skips the model. ``False``
+    when the loop ended the turn (take-over, escalation, tool failures)."""
+    if t.reuse_body:
+        t.final_text = t.reuse_body
+        return True
+    job = t.job
+    job_id = t.job_id
+    conversation_id = t.conversation_id
+    conv = t.conv
+    customer_text = t.customer_text
+    state = t.state
+    bundle = t.bundle
+    full_history = t.full_history
+    turn_run_up = t.turn_run_up
+    intent = t.intent
+    sentiment = t.sentiment
+    product_hint = t.product_hint
+
+    # Meta / greeting / correction turns must not drown in old EMI seed history.
+    # The narrowing now slices the thread fetched before classification
+    # rather than issuing its own query; the newest `hist_limit * 4` rows
+    # are the same rows either way.
+    hist_limit = _history_limit()
+    if intent in {"help_capabilities", "greeting", "correction"}:
+        hist_limit = min(hist_limit, 6)
+    history = full_history[-(hist_limit * 4) :]
+    from agent_core.compaction import bound_history
+
+    prior_summary = None
+    ix = conv.get("interaction_id") or job.get("interaction_id")
+    if ix:
+        try:
+            row = db.get_latest_context_summary(str(ix))
+            prior_summary = (row or {}).get("summary")
+        except Exception:
+            prior_summary = None
+    compacted, summary = bound_history(
+        history,
+        last_n=hist_limit,
+        prior_summary=prior_summary,
     )
-    if hard_abuse or "auto-escalate" in early_flags or intent == "escalation":
-        if hard_abuse:
-            reason = "Customer used abusive language — escalated to human"
-        elif intent == "escalation":
-            reason = "Customer requested a human agent"
-        else:
-            reason = "Guardrail auto-escalate"
-        db.escalate_conversation_to_human(conversation_id, reason=reason)
-        state.update(
-            {
-                "turn_count": turn_count,
-                "last_intent": intent,
-                "last_sentiment": sentiment_label(sentiment),
-                "escalated": True,
-                "escalate_reason": reason,
-            }
-        )
-        _save_bot_state(engine, conversation_id, state)
-        with engine.begin() as conn:
-            bot_jobs.mark_succeeded(conn, job_id)
-        logger.info("bot_turn early-escalate job=%s reason=%s", job_id, reason)
-        return
-
-    # A non-numeric maxTurns in a deployment bundle must not crash the turn —
-    # fall back to the hard ceiling, which is the safe direction.
-    try:
-        max_turns = int(guardrails.get("maxTurns") or _hard_max_turns())
-    except (TypeError, ValueError):
-        logger.warning(
-            "bot_turn ignoring non-numeric maxTurns=%r job=%s",
-            guardrails.get("maxTurns"),
-            job_id,
-        )
-        max_turns = _hard_max_turns()
-    max_turns = min(max_turns, _hard_max_turns())
-    if turn_count > max_turns:
-        db.escalate_conversation_to_human(conversation_id, reason="max_turns_exceeded")
-        with engine.begin() as conn:
-            bot_jobs.mark_cancelled(conn, job_id, "max_turns_exceeded")
-        return
-
-    final_text = ""
-    if reuse_body:
-        final_text = reuse_body
-    else:
-        # Meta / greeting / correction turns must not drown in old EMI seed history.
-        # The narrowing now slices the thread fetched before classification
-        # rather than issuing its own query; the newest `hist_limit * 4` rows
-        # are the same rows either way.
-        hist_limit = _history_limit()
-        if intent in {"help_capabilities", "greeting", "correction"}:
-            hist_limit = min(hist_limit, 6)
-        history = full_history[-(hist_limit * 4) :]
-        from agent_core.compaction import bound_history
-
-        prior_summary = None
-        ix = conv.get("interaction_id") or job.get("interaction_id")
-        if ix:
-            try:
-                row = db.get_latest_context_summary(str(ix))
-                prior_summary = (row or {}).get("summary")
-            except Exception:
-                prior_summary = None
-        compacted, summary = bound_history(
-            history,
-            last_n=hist_limit,
-            prior_summary=prior_summary,
-        )
-        if ix and summary and len(history) > hist_limit:
-            try:
-                db.save_context_summary(
-                    interaction_id=str(ix),
-                    upto_turn=max(0, len(history) - len(compacted)),
-                    summary=summary,
-                )
-            except Exception:
-                logger.exception("context summary persist failed")
-        history = compacted
-        # If the reset window is empty (race), still answer the latest ask alone.
-        if not history:
-            history = [{"role": "user", "content": customer_text}]
-        from agent_core.skills.runtime import resolve_mouth
-        from agent_core.tools.catalog import CATALOG
-        from agent_core.tools.grant import TEXT_ALWAYS
-        from agent_core.tools.schema import CHANNEL_TEXT
-
-        mouth = resolve_mouth(
-            bundle.get("agentCard") or {},
-            intent=intent,
-            frozen_connector_tools=bundle.get("frozenTools"),
-        )
-        skill_prompt = mouth.prompt()
-        text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
-        # TEXT_ALWAYS is the text analogue of the floor voice/tools.py applies to
-        # its own registry. Without it the system prompt below told the model to
-        # call `identify_customer` on a turn where the name was neither offered
-        # nor executable.
-        tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS, channel="text")
-        # The authored graph, on the text channel. `flow` appeared zero times in
-        # this module before: WhatsApp answered from the prompt alone while the
-        # Studio gated a graph at publish and the canvas drew it. The cursor
-        # lives in `bot_state`, which already carries per-conversation state, so
-        # a multi-day thread resumes on the step it left. A card with no authored
-        # flow leaves the walker None and behaves exactly as it did.
-        flow_walker = _flow_walker(bundle, state)
-        import flow_walk as _flow_walk_mod
-
-        _specialist_grants = _flow_walk_mod.specialist_grants(bundle.get("compiled"))
-        _specialist_entries = _flow_walk_mod.specialist_entries(bundle.get("compiled"))
-        if flow_walker is not None:
-            # A step this channel cannot stand on is stepped through to where
-            # its own contract says it leads -- the greeting's only exit is the
-            # recording disclosure, and a WhatsApp thread has none to make.
-            # The same rule G-F11 gates on at publish, applied where it runs.
-            passed = flow_walker.pass_through(
-                granted=flow_walker.union(tool_state.offered or (), _specialist_grants)
+    if ix and summary and len(history) > hist_limit:
+        try:
+            db.save_context_summary(
+                interaction_id=str(ix),
+                upto_turn=max(0, len(history) - len(compacted)),
+                summary=summary,
             )
-            if passed:
-                logger.info("bot_turn: passed through %s on text", ", ".join(passed))
-        messages = _build_messages(
-            bundle=bundle,
-            conv=conv,
-            history=history,
-            customer_text=customer_text,
-            intent=intent,
-            prior_summary=summary,
-            skill_prefix=skill_prompt.prefix,
-            active_skill_message=skill_prompt.body_message,
+        except Exception:
+            logger.exception("context summary persist failed")
+    history = compacted
+    # If the reset window is empty (race), still answer the latest ask alone.
+    if not history:
+        history = [{"role": "user", "content": customer_text}]
+    from agent_core.skills.runtime import resolve_mouth
+    from agent_core.tools.catalog import CATALOG
+    from agent_core.tools.grant import TEXT_ALWAYS
+    from agent_core.tools.schema import CHANNEL_TEXT
+
+    mouth = resolve_mouth(
+        bundle.get("agentCard") or {},
+        intent=intent,
+        frozen_connector_tools=bundle.get("frozenTools"),
+    )
+    skill_prompt = mouth.prompt()
+    text_channel_tools = {spec.name for spec in CATALOG.for_channel(CHANNEL_TEXT)}
+    # TEXT_ALWAYS is the text analogue of the floor voice/tools.py applies to
+    # its own registry. Without it the system prompt below told the model to
+    # call `identify_customer` on a turn where the name was neither offered
+    # nor executable.
+    tool_state = mouth.tools(channel_tools=text_channel_tools, floor=TEXT_ALWAYS, channel="text")
+    # The authored graph, on the text channel. `flow` appeared zero times in
+    # this module before: WhatsApp answered from the prompt alone while the
+    # Studio gated a graph at publish and the canvas drew it. The cursor
+    # lives in `bot_state`, which already carries per-conversation state, so
+    # a multi-day thread resumes on the step it left. A card with no authored
+    # flow leaves the walker None and behaves exactly as it did.
+    flow_walker = _flow_walker(bundle, state)
+    import flow_walk as _flow_walk_mod
+
+    _specialist_grants = _flow_walk_mod.specialist_grants(bundle.get("compiled"))
+    _specialist_entries = _flow_walk_mod.specialist_entries(bundle.get("compiled"))
+    if flow_walker is not None:
+        # A step this channel cannot stand on is stepped through to where
+        # its own contract says it leads -- the greeting's only exit is the
+        # recording disclosure, and a WhatsApp thread has none to make.
+        # The same rule G-F11 gates on at publish, applied where it runs.
+        passed = flow_walker.pass_through(
+            granted=flow_walker.union(tool_state.offered or (), _specialist_grants)
         )
+        if passed:
+            logger.info("bot_turn: passed through %s on text", ", ".join(passed))
+    messages = _build_messages(
+        bundle=bundle,
+        conv=conv,
+        history=history,
+        customer_text=customer_text,
+        intent=intent,
+        prior_summary=summary,
+        skill_prefix=skill_prompt.prefix,
+        active_skill_message=skill_prompt.body_message,
+    )
 
-        tool_ctx = bot_tools.ToolContext(
-            job_id=job_id,
-            conversation_id=conversation_id,
-            customer_id=conv["customer_id"],
-            interaction_id=conv.get("interaction_id") or job.get("interaction_id"),
-            bot_id=_bot_id(),
-            customer_text=customer_text,
-            intent=intent,
-            session_intent=str(state.get("last_intent") or "") or None,
-            product_hint=product_hint,
-            # The offer engine's sentiment floor reads this. Passing the turn's
-            # already-classified score keeps a frustrated Hindi caller from
-            # being pitched a product because an English lexicon scored 0.00.
-            sentiment=sentiment,
+    tool_ctx = bot_tools.ToolContext(
+        job_id=job_id,
+        conversation_id=conversation_id,
+        customer_id=conv["customer_id"],
+        interaction_id=conv.get("interaction_id") or job.get("interaction_id"),
+        bot_id=_bot_id(),
+        customer_text=customer_text,
+        intent=intent,
+        session_intent=str(state.get("last_intent") or "") or None,
+        product_hint=product_hint,
+        # The offer engine's sentiment floor reads this. Passing the turn's
+        # already-classified score keeps a frustrated Hindi caller from
+        # being pitched a product because an English lexicon scored 0.00.
+        sentiment=sentiment,
+    )
+    tool_ctx.allowed_tools = tool_state.allowed
+    # The same run-up the classifier saw. One thread, one snapshot, so a
+    # tool cannot resolve a follow-up against a different conversation than
+    # the one the intent was derived from.
+    tool_ctx.recent = turn_run_up
+    tool_ctx.environment = str(
+        (bundle.get("deployment") or {}).get("environment") or bot_jobs.bot_environment()
+    )
+    tool_ctx.attached_skills = list(mouth.packs)
+    tool_ctx.active_skill = mouth.active_slug
+    # The handoff allowlist belongs to the card this turn is running, not
+    # to whatever BOT_ID the process was started with.
+    tool_ctx.agent_card = bundle.get("agentCard") or None
+
+    t.flow_walker = flow_walker
+    if not _tool_loop(
+        engine,
+        t,
+        messages=messages,
+        tool_ctx=tool_ctx,
+        mouth=mouth,
+        tool_state=tool_state,
+        text_channel_tools=text_channel_tools,
+        specialist_grants=_specialist_grants,
+        specialist_entries=_specialist_entries,
+    ):
+        return False
+    if not t.final_text:
+        t.final_text = (
+            "Thanks for your message. I've noted it and a specialist will follow up shortly."
         )
-        tool_ctx.allowed_tools = tool_state.allowed
-        # The same run-up the classifier saw. One thread, one snapshot, so a
-        # tool cannot resolve a follow-up against a different conversation than
-        # the one the intent was derived from.
-        tool_ctx.recent = turn_run_up
-        tool_ctx.environment = str(
-            (bundle.get("deployment") or {}).get("environment") or bot_jobs.bot_environment()
-        )
-        tool_ctx.attached_skills = list(mouth.packs)
-        tool_ctx.active_skill = mouth.active_slug
-        # The handoff allowlist belongs to the card this turn is running, not
-        # to whatever BOT_ID the process was started with.
-        tool_ctx.agent_card = bundle.get("agentCard") or None
+    return True
 
-        def _turn_tools(offered: list[str]) -> list[dict]:
-            """OpenAI tool dicts for this turn, with the card's own handoffs in
-            ``handoff_to_agent``'s schema rather than the catalog's two example
-            bot ids. Built from the same card the allowlist enforces."""
-            from agent_core.tools.handoff_allowlist import handoff_tool_spec
 
-            specs = [CATALOG.get(n) for n in offered]
-            tools = [
-                (
-                    handoff_tool_spec(s, agent_card=tool_ctx.agent_card, bot_id=_bot_id())
-                    if s.name == "handoff_to_agent"
-                    else s
-                ).to_openai_tool()
-                for s in specs
-                if s is not None
-            ]
-            if flow_walker is not None:
-                import flow_walk
+def _tool_loop(
+    engine: Engine,
+    t: Turn,
+    *,
+    messages: list[dict[str, Any]],
+    tool_ctx: bot_tools.ToolContext,
+    mouth: Any,
+    tool_state: Any,
+    text_channel_tools: set[str],
+    specialist_grants: Any,
+    specialist_entries: Any,
+) -> bool:
+    """Model calls and tool executions until the model answers in text.
 
-                tools.extend(flow_walk.openai_graph_tools(flow_walker))
-            return tools
+    Sets ``t.final_text`` and returns ``True``; ``False`` when the turn ended
+    inside the loop and the job row already says why."""
+    from agent_core.tools.catalog import CATALOG
+    from agent_core.tools.grant import TEXT_ALWAYS
 
-        def _offered_names() -> list[str]:
-            """The card's grant, narrowed by the step the script is on.
+    job_id = t.job_id
+    conversation_id = t.conversation_id
+    state = t.state
+    turn_count = t.turn_count
+    temperature = t.temperature
+    max_completion_tokens = t.max_completion_tokens
+    intent = t.intent
+    sentiment = t.sentiment
+    flow_walker = t.flow_walker
+    final_text = ""
+    _specialist_grants = specialist_grants
+    _specialist_entries = specialist_entries
 
-            With a floor: a step whose offer is empty on this channel falls back
-            to the whole grant rather than handing the model no tools at all.
-            That case is real today and not hypothetical — G-F11 warns on all
-            four first-party cards, because the built-in script is a *voice*
-            script whose steps hop on voice-only tools (``greet_disclose`` exits
-            via ``disclose_recording``, and a WhatsApp thread has no recording to
-            disclose). Narrowing to nothing there would strand every live thread
-            on the first message.
+    def _turn_tools(offered: list[str]) -> list[dict]:
+        """OpenAI tool dicts for this turn, with the card's own handoffs in
+        ``handoff_to_agent``'s schema rather than the catalog's two example
+        bot ids. Built from the same card the allowlist enforces."""
+        from agent_core.tools.handoff_allowlist import handoff_tool_spec
 
-            So the graph tightens the offer where it has something to say and
-            stays out of the way where it does not. When the fleet compiles G-F11
-            clean this floor stops firing on its own; it does not need removing.
-            """
-            granted = flow_walker.union(tool_state.offered or (), _specialist_grants) if flow_walker else set(tool_state.offered or ())
-            if flow_walker is None:
-                return list(tool_state.offered or ())
-            # Narrowed to the speaking member first, then to the step. Same two
-            # narrowings, same order, as the audio path and the sandbox.
-            step_grant = flow_walker.narrow(granted, _specialist_grants)
-            narrowed = [n for n in flow_walker.offers(granted=step_grant) if n in step_grant]
-            return narrowed or list(tool_state.offered or ())
+        specs = [CATALOG.get(n) for n in offered]
+        tools = [
+            (
+                handoff_tool_spec(s, agent_card=tool_ctx.agent_card, bot_id=_bot_id())
+                if s.name == "handoff_to_agent"
+                else s
+            ).to_openai_tool()
+            for s in specs
+            if s is not None
+        ]
+        if flow_walker is not None:
+            import flow_walk
 
-        tool_failures = 0
-        for _ in range(_max_tool_iterations()):
-            # Rebuilt per iteration: a transition changes the offer, and the step
-            # after `go_to_negotiate` must not still be offering the step before.
-            turn_tools = _turn_tools(_offered_names())
-            # Re-check take-over race before each Azure call.
-            fresh = _load_conversation(engine, conversation_id)
-            if not fresh or fresh.get("status") != "bot" or fresh.get("assigned_user_id"):
-                with engine.begin() as conn:
-                    bot_jobs.mark_cancelled(conn, job_id, "takeover_mid_flight")
-                return
+            tools.extend(flow_walk.openai_graph_tools(flow_walker))
+        return tools
 
-            from agent_core.telemetry import span as _span
+    def _offered_names() -> list[str]:
+        """The card's grant, narrowed by the step the script is on.
 
-            with _span("gen_ai.chat", gen_ai_operation_name="chat"):
-                result = azure_openai.chat_with_tools(
-                    messages,
-                    tools=turn_tools,
-                    temperature=temperature,
-                    max_completion_tokens=max_completion_tokens,
-                )
-            tool_calls = result.get("toolCalls") or []
-            if not tool_calls:
-                final_text = (result.get("content") or "").strip()
-                break
+        With a floor: a step whose offer is empty on this channel falls back
+        to the whole grant rather than handing the model no tools at all.
+        That case is real today and not hypothetical — G-F11 warns on all
+        four first-party cards, because the built-in script is a *voice*
+        script whose steps hop on voice-only tools (``greet_disclose`` exits
+        via ``disclose_recording``, and a WhatsApp thread has no recording to
+        disclose). Narrowing to nothing there would strand every live thread
+        on the first message.
 
-            raw_msg = result.get("rawMessage") or {
-                "role": "assistant",
-                "content": result.get("content"),
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                    }
-                    for tc in tool_calls
-                ],
-            }
-            messages.append(raw_msg)
+        So the graph tightens the offer where it has something to say and
+        stays out of the way where it does not. When the fleet compiles G-F11
+        clean this floor stops firing on its own; it does not need removing.
+        """
+        granted = flow_walker.union(tool_state.offered or (), _specialist_grants) if flow_walker else set(tool_state.offered or ())
+        if flow_walker is None:
+            return list(tool_state.offered or ())
+        # Narrowed to the speaking member first, then to the step. Same two
+        # narrowings, same order, as the audio path and the sandbox.
+        step_grant = flow_walker.narrow(granted, _specialist_grants)
+        narrowed = [n for n in flow_walker.offers(granted=step_grant) if n in step_grant]
+        return narrowed or list(tool_state.offered or ())
 
-            for tc in tool_calls:
-                if flow_walker is not None and _is_graph_tool(tc["name"]):
-                    # A graph move, not a catalog tool: it has no handler in the
-                    # registry and must not be routed through execute_tool, which
-                    # would refuse it as ungranted. The grant says what the agent
-                    # may do; the graph says where it may go.
-                    ok, payload = _walk_graph_tool(flow_walker, tc["name"], tc["arguments"])
-                    latency_ms = 0
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps(payload)[:1500],
-                        }
-                    )
-                    continue
-                with _span(
-                    "gen_ai.execute_tool",
-                    gen_ai_operation_name="execute_tool",
-                    gen_ai_tool_name=tc["name"],
-                ):
-                    ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
-                if ok and flow_walker is not None:
-                    if tc["name"] == "handoff_to_agent":
-                        # `advance` never moves for a handoff: there is no edge
-                        # from this node to another member's subgraph, the card's
-                        # allowlist is the edge. Resolve the landing node the way
-                        # voice does and move the cursor onto it, which swaps the
-                        # namespace and therefore the grant on the next iteration.
-                        _hop_to(flow_walker, tool_ctx, tc, payload, _specialist_entries)
-                    else:
-                        # A built-in tool is also a transition — the built-in
-                        # script moves entirely this way, with no authored edges.
-                        flow_walker.advance(tc["name"])
-                preview = json.dumps(payload)[:1500]
-                try:
-                    parsed_args = json.loads(tc["arguments"] or "{}")
-                    if not isinstance(parsed_args, dict):
-                        parsed_args = {"_raw": tc["arguments"]}
-                except json.JSONDecodeError:
-                    parsed_args = {"_raw": tc["arguments"]}
-                with engine.begin() as conn:
-                    bot_jobs.record_tool_call(
-                        conn,
-                        job_id=job_id,
-                        conversation_id=conversation_id,
-                        tool_name=tc["name"],
-                        args=parsed_args,
-                        result_ok=ok,
-                        error=None if ok else str(payload.get("error") or payload),
-                        result_preview=preview,
-                        latency_ms=latency_ms,
-                    )
-                if not ok:
-                    tool_failures += 1
+    tool_failures = 0
+    for _ in range(_max_tool_iterations()):
+        # Rebuilt per iteration: a transition changes the offer, and the step
+        # after `go_to_negotiate` must not still be offering the step before.
+        turn_tools = _turn_tools(_offered_names())
+        # Re-check take-over race before each Azure call.
+        fresh = _load_conversation(engine, conversation_id)
+        if not fresh or fresh.get("status") != "bot" or fresh.get("assigned_user_id"):
+            with engine.begin() as conn:
+                bot_jobs.mark_cancelled(conn, job_id, "takeover_mid_flight")
+            return False
+
+        from agent_core.telemetry import span as _span
+
+        with _span("gen_ai.chat", gen_ai_operation_name="chat"):
+            result = azure_openai.chat_with_tools(
+                messages,
+                tools=turn_tools,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+            )
+        tool_calls = result.get("toolCalls") or []
+        if not tool_calls:
+            final_text = (result.get("content") or "").strip()
+            break
+
+        raw_msg = result.get("rawMessage") or {
+            "role": "assistant",
+            "content": result.get("content"),
+            "tool_calls": [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
+                }
+                for tc in tool_calls
+            ],
+        }
+        messages.append(raw_msg)
+
+        for tc in tool_calls:
+            if flow_walker is not None and _is_graph_tool(tc["name"]):
+                # A graph move, not a catalog tool: it has no handler in the
+                # registry and must not be routed through execute_tool, which
+                # would refuse it as ungranted. The grant says what the agent
+                # may do; the graph says where it may go.
+                ok, payload = _walk_graph_tool(flow_walker, tc["name"], tc["arguments"])
+                latency_ms = 0
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": json.dumps(payload),
+                        "content": json.dumps(payload)[:1500],
                     }
                 )
-                if ok and tc["name"] == "load_skill" and tool_ctx.active_skill:
-                    from dataclasses import replace as _replace
-
-                    from agent_core.skills.runtime import body_developer_message as _skill_body
-
-                    pack = next((p for p in tool_ctx.attached_skills if getattr(p, "slug", None) == tool_ctx.active_skill), None)
-                    if pack:
-                        messages.append(_skill_body(pack))
-                    if mouth.card is not None:
-                        # Only the offer widens. The grant on tool_ctx is
-                        # deliberately untouched: activating a skill changes
-                        # what the model is shown, never what it may run.
-                        activated = _replace(mouth, active_slug=tool_ctx.active_skill)
-                        turn_tools = _turn_tools(
-                            list(
-                                activated.tools(
-                                    channel_tools=text_channel_tools, floor=TEXT_ALWAYS
-                                ).offered
-                            )
-                        )
-                if tool_ctx.escalated:
-                    with engine.begin() as conn:
-                        bot_jobs.mark_succeeded(conn, job_id)
-                    state.update(
-                        {
-                            "turn_count": turn_count,
-                            "last_intent": intent,
-                            "last_sentiment": sentiment_label(sentiment),
-                            "escalated": True,
-                            "escalate_reason": tool_ctx.escalate_reason,
-                        }
-                    )
-                    _save_bot_state(engine, conversation_id, state)
-                    logger.info("bot_turn escalated job=%s reason=%s", job_id, tool_ctx.escalate_reason)
-                    return
-
-            if tool_failures >= 3:
-                db.escalate_conversation_to_human(conversation_id, reason="repeated_tool_failure")
-                with engine.begin() as conn:
-                    bot_jobs.mark_cancelled(conn, job_id, "repeated_tool_failure")
-                return
-        else:
-            # Hit iteration ceiling without a final text — escalate rather than silence.
-            if not final_text:
-                db.escalate_conversation_to_human(conversation_id, reason="tool_loop_exhausted")
-                with engine.begin() as conn:
-                    bot_jobs.mark_cancelled(conn, job_id, "tool_loop_exhausted")
-                return
-
-        if not final_text:
-            final_text = (
-                "Thanks for your message. I've noted it and a specialist will follow up shortly."
+                continue
+            with _span(
+                "gen_ai.execute_tool",
+                gen_ai_operation_name="execute_tool",
+                gen_ai_tool_name=tc["name"],
+            ):
+                ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
+            if ok and flow_walker is not None:
+                if tc["name"] == "handoff_to_agent":
+                    # `advance` never moves for a handoff: there is no edge
+                    # from this node to another member's subgraph, the card's
+                    # allowlist is the edge. Resolve the landing node the way
+                    # voice does and move the cursor onto it, which swaps the
+                    # namespace and therefore the grant on the next iteration.
+                    _hop_to(flow_walker, tool_ctx, tc, payload, _specialist_entries)
+                else:
+                    # A built-in tool is also a transition — the built-in
+                    # script moves entirely this way, with no authored edges.
+                    flow_walker.advance(tc["name"])
+            preview = json.dumps(payload)[:1500]
+            try:
+                parsed_args = json.loads(tc["arguments"] or "{}")
+                if not isinstance(parsed_args, dict):
+                    parsed_args = {"_raw": tc["arguments"]}
+            except json.JSONDecodeError:
+                parsed_args = {"_raw": tc["arguments"]}
+            with engine.begin() as conn:
+                bot_jobs.record_tool_call(
+                    conn,
+                    job_id=job_id,
+                    conversation_id=conversation_id,
+                    tool_name=tc["name"],
+                    args=parsed_args,
+                    result_ok=ok,
+                    error=None if ok else str(payload.get("error") or payload),
+                    result_preview=preview,
+                    latency_ms=latency_ms,
+                )
+            if not ok:
+                tool_failures += 1
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": json.dumps(payload),
+                }
             )
+            if ok and tc["name"] == "load_skill" and tool_ctx.active_skill:
+                from dataclasses import replace as _replace
+
+                from agent_core.skills.runtime import body_developer_message as _skill_body
+
+                pack = next((p for p in tool_ctx.attached_skills if getattr(p, "slug", None) == tool_ctx.active_skill), None)
+                if pack:
+                    messages.append(_skill_body(pack))
+                if mouth.card is not None:
+                    # Only the offer widens. The grant on tool_ctx is
+                    # deliberately untouched: activating a skill changes
+                    # what the model is shown, never what it may run.
+                    activated = _replace(mouth, active_slug=tool_ctx.active_skill)
+                    turn_tools = _turn_tools(
+                        list(
+                            activated.tools(
+                                channel_tools=text_channel_tools, floor=TEXT_ALWAYS
+                            ).offered
+                        )
+                    )
+            if tool_ctx.escalated:
+                with engine.begin() as conn:
+                    bot_jobs.mark_succeeded(conn, job_id)
+                state.update(
+                    {
+                        "turn_count": turn_count,
+                        "last_intent": intent,
+                        "last_sentiment": sentiment_label(sentiment),
+                        "escalated": True,
+                        "escalate_reason": tool_ctx.escalate_reason,
+                    }
+                )
+                _save_bot_state(engine, conversation_id, state)
+                logger.info("bot_turn escalated job=%s reason=%s", job_id, tool_ctx.escalate_reason)
+                return False
+
+        if tool_failures >= 3:
+            db.escalate_conversation_to_human(conversation_id, reason="repeated_tool_failure")
+            with engine.begin() as conn:
+                bot_jobs.mark_cancelled(conn, job_id, "repeated_tool_failure")
+            return False
+    else:
+        # Hit iteration ceiling without a final text — escalate rather than silence.
+        if not final_text:
+            db.escalate_conversation_to_human(conversation_id, reason="tool_loop_exhausted")
+            with engine.begin() as conn:
+                bot_jobs.mark_cancelled(conn, job_id, "tool_loop_exhausted")
+            return False
+
+    t.final_text = final_text
+    return True
+
+
+def _send_reply(engine: Engine, t: Turn) -> bool:
+    """Persist-then-send. ``t.msg_id`` and ``t.fresh`` on ``True``; ``False`` when the
+    turn was cancelled at the final take-over check or the number is undeliverable."""
+    job_id = t.job_id
+    conversation_id = t.conversation_id
+    reuse_outbound_id = t.reuse_outbound_id
+    final_text = t.final_text
 
     # Final take-over race check immediately before persist/send.
     fresh = _load_conversation(engine, conversation_id)
@@ -1393,7 +1569,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     if gate:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, gate)
-        return
+        return False
 
     if reuse_outbound_id:
         msg_id = reuse_outbound_id
@@ -1439,7 +1615,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             job_id,
             conversation_id,
         )
-        return
+        return False
     try:
         send_resp = wa.send_text_message(to_phone=to_phone, body=final_text)
         provider_ref = wa.extract_wamid(send_resp)
@@ -1469,7 +1645,7 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 bot_jobs.mark_cancelled(
                     conn, job_id, f"outbound_ambiguous_transport:{err_str[:500]}"
                 )
-            return
+            return False
         _finalize_outbound(
             engine,
             message_id=msg_id,
@@ -1487,8 +1663,33 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
                 job_id,
                 err_str[:200],
             )
-            return
+            return False
         raise RuntimeError(f"whatsapp_send_failed:{exc}") from exc
+
+    t.fresh = fresh
+    t.msg_id = msg_id
+    return True
+
+
+def _persist_turn(engine: Engine, t: Turn) -> None:
+    """The state save, both transcript turns, the trace backfill, live QA, and the job's close."""
+    job_id = t.job_id
+    conversation_id = t.conversation_id
+    conv = t.conv
+    customer_text = t.customer_text
+    latest_msg_id = t.latest_msg_id
+    state = t.state
+    turn_count = t.turn_count
+    guardrails = t.guardrails
+    turn_started_at = t.turn_started_at
+    understanding = t.understanding
+    intent = t.intent
+    intent_scores = t.intent_scores
+    sentiment = t.sentiment
+    final_text = t.final_text
+    flow_walker = t.flow_walker
+    fresh = t.fresh
+    msg_id = t.msg_id
 
     state.update(
         {
@@ -1631,3 +1832,14 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     with engine.begin() as conn:
         bot_jobs.mark_succeeded(conn, job_id, outbound_message_id=msg_id)
     logger.info("bot_turn succeeded job=%s message=%s", job_id, msg_id)
+
+
+def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
+    turn = _prepare_turn(engine, job)
+    if turn is None:
+        return
+    if not _run_model(engine, turn):
+        return
+    if not _send_reply(engine, turn):
+        return
+    _persist_turn(engine, turn)

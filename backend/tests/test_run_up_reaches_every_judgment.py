@@ -128,9 +128,9 @@ def test_a_bot_turn_at_the_end_is_never_stripped() -> None:
 
 
 def test_the_text_channel_classifies_with_the_thread() -> None:
-    import bot_runtime
+    from tests.voice_tools_source import text_turn_source
 
-    src = inspect.getsource(bot_runtime._handle_turn)
+    src = text_turn_source()
     assert "recent=turn_run_up," in src, (
         "analyze_turn on the text channel must be given the run-up — without it "
         "a follow-up is classified on one sentence"
@@ -142,9 +142,9 @@ def test_the_text_channel_classifies_with_the_thread() -> None:
 
 def test_the_text_channel_fetches_the_thread_before_it_judges_the_turn() -> None:
     """Ordering is the whole bug: history used to load *after* classification."""
-    import bot_runtime
+    from tests.voice_tools_source import text_turn_source
 
-    src = inspect.getsource(bot_runtime._handle_turn)
+    src = text_turn_source()
     assert src.index("full_history = _message_history(") < src.index("understanding = analyze_turn("), (
         "the thread must be in hand before anything classifies the turn"
     )
@@ -157,9 +157,9 @@ def test_the_thread_is_fetched_once() -> None:
     prompt history another, so three reads of one table could disagree about
     what had been said.
     """
-    import bot_runtime
+    from tests.voice_tools_source import text_turn_source
 
-    src = inspect.getsource(bot_runtime._handle_turn)
+    src = text_turn_source()
     assert src.count("_message_history(") == 1
     assert "FROM messages" not in src, (
         "message reads belong in the named helpers, not inline in the turn"

@@ -193,11 +193,9 @@ def test_the_whatsapp_bridge_no_longer_hard_codes_at_sec() -> None:
     keyed on `at_sec` — pacing, dead air, time-to-first-answer — was degenerate
     for the entire channel while looking perfectly well-formed.
     """
-    import inspect
+    from tests.voice_tools_source import text_turn_source
 
-    import bot_runtime
-
-    src = inspect.getsource(bot_runtime._handle_turn)
+    src = text_turn_source()
     assert "at_sec=0," not in src, "a literal 0 offset is the bug"
     assert "elapsed_seconds" in src
 
@@ -220,11 +218,9 @@ def test_whatsapp_live_qa_does_not_read_a_resolved_sender_as_verified() -> None:
     still equating a CRM match with the ceremony, so an identity-before-dues
     rule could never fire on the channel.
     """
-    import inspect
+    from tests.voice_tools_source import text_turn_source
 
-    import bot_runtime
-
-    src = inspect.getsource(bot_runtime._handle_turn)
+    src = text_turn_source()
     assert 'identity_verified=bool(fresh.get("customer_id"))' not in src
     assert "identity_verified=interaction_identity_verified(" in src
 
