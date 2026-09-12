@@ -479,9 +479,14 @@ def export_agent_studio_skill(skill_id: str):
     row = get_skill(skill_id)
     if row is None:
         raise HTTPException(status_code=404, detail="skill_not_found")
+    markdown = row.get("markdown") or ""
+    if not markdown.strip():
+        # A 200 zip with an empty SKILL.md is an export that imports as
+        # nothing. A skill with no body is not exportable yet.
+        raise HTTPException(status_code=409, detail="skill_body_empty")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("SKILL.md", row.get("markdown") or "")
+        zf.writestr("SKILL.md", markdown)
         refs = (row.get("pack") or {}).get("references") or {}
         for name, body in refs.items():
             zf.writestr(f"references/{name}", body)
@@ -508,22 +513,29 @@ async def import_agent_studio_skill(file: UploadFile = File(...)):
     raw = await _read_upload_capped(file, max_bytes=2_000_000)
     md = ""
     refs: dict[str, str] = {}
-    if (file.filename or "").endswith(".md"):
-        md = raw.decode("utf-8")
-    else:
-        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-            for name in zf.namelist():
-                if name.endswith("SKILL.md"):
-                    md = zf.read(name).decode("utf-8")
-                elif "/references/" in name or name.startswith("references/"):
-                    refs[name.split("references/", 1)[-1]] = zf.read(name).decode("utf-8")
+    # A malformed upload is the client's error: a bad zip or a non-UTF-8 body
+    # used to escape as a 500 with a traceback in the response.
+    try:
+        if (file.filename or "").endswith(".md"):
+            md = raw.decode("utf-8")
+        else:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                for name in zf.namelist():
+                    if name.endswith("SKILL.md"):
+                        md = zf.read(name).decode("utf-8")
+                    elif "/references/" in name or name.startswith("references/"):
+                        refs[name.split("references/", 1)[-1]] = zf.read(name).decode("utf-8")
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="skill_archive_unreadable") from exc
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="skill_body_not_utf8") from exc
     if not md:
         raise HTTPException(status_code=422, detail="skill_md_missing")
-    pack = parse_skill_md(md)
+    pack = _handle_write(parse_skill_md, md)
     pack.references = refs
     pack.origin = "tenant"
     pack.signed = False
-    return upsert_skill_from_pack(pack, origin="tenant", signed=False)
+    return _handle_write(upsert_skill_from_pack, pack, origin="tenant", signed=False)
 
 @router.post(
     "/agent-studio/skills/run-script",
