@@ -47,18 +47,22 @@ def master_key() -> bytes:
     development key is still right for a laptop, but only where the environment
     says it is not production.
     """
+    return hashlib.scrypt(_master_string().encode("utf-8"), salt=_KDF_SALT, n=2**14, r=8, p=1, dklen=32)
+
+
+def _master_string() -> str:
     raw = (os.getenv("VAULT_MASTER_KEY") or "").strip()
-    if not raw:
-        env = env_name()
-        if env not in NON_PROD_ENVS:
-            raise RuntimeError(
-                "VAULT_MASTER_KEY is not set and APP_ENV=" + env + " is not a "
-                "non-production environment " + str(sorted(NON_PROD_ENVS)) + ". "
-                "Vault ciphertext must not be sealed with the built-in "
-                "development key outside development. Set VAULT_MASTER_KEY."
-            )
-        raw = DEV_MASTER_KEY
-    return hashlib.scrypt(raw.encode("utf-8"), salt=_KDF_SALT, n=2**14, r=8, p=1, dklen=32)
+    if raw:
+        return raw
+    env = env_name()
+    if env not in NON_PROD_ENVS:
+        raise RuntimeError(
+            "VAULT_MASTER_KEY is not set and APP_ENV=" + env + " is not a "
+            "non-production environment " + str(sorted(NON_PROD_ENVS)) + ". "
+            "Vault ciphertext must not be sealed with the built-in "
+            "development key outside development. Set VAULT_MASTER_KEY."
+        )
+    return DEV_MASTER_KEY
 
 
 def _legacy_master_key() -> bytes:
@@ -66,8 +70,7 @@ def _legacy_master_key() -> bytes:
 
     Read-only, for tokens sealed before the KDF; nothing seals with it.
     """
-    raw = (os.getenv("VAULT_MASTER_KEY") or "").strip() or DEV_MASTER_KEY
-    return hashlib.sha256(raw.encode("utf-8")).digest()
+    return hashlib.sha256(_master_string().encode("utf-8")).digest()
 
 
 def _stream(key: bytes, nonce: bytes, n: int) -> bytes:

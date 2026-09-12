@@ -22,6 +22,7 @@ import threading
 import httpx
 
 from env_loader import load_env
+from env_utils import env_int
 from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "tts"
 _MAX_TEXT_CHARS = 500
 _DEFAULT_VOICE = "en-IN-AartiNeural"
-_MAX_TTS_CACHE_BYTES = int(os.getenv("AZURE_TTS_CACHE_MAX_BYTES") or str(200 * 1024 * 1024))
+_MAX_TTS_CACHE_BYTES = env_int("AZURE_TTS_CACHE_MAX_BYTES", 200 * 1024 * 1024)
 # Age cap as well as size cap: an instance whose traffic drops below the size
 # threshold would otherwise keep synthesized customer-facing audio on disk
 # indefinitely.

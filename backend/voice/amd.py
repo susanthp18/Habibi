@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Awaitable, Callable
+from env_utils import as_bool
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ def is_demo_call(session_extra: dict[str, Any] | None) -> bool:
     extra = session_extra or {}
     params = _twilio_params(extra)
     raw = params.get("demo") if params.get("demo") is not None else extra.get("demo")
-    return str(raw or "").strip().lower() in {"1", "true", "yes"}
+    return as_bool(raw)
 
 
 def should_enable_amd(session_extra: dict[str, Any] | None, *, is_twilio: bool) -> bool:

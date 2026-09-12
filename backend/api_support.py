@@ -7,7 +7,7 @@ app -- main.py includes the routers, so the other direction would be a cycle.
 from __future__ import annotations
 
 import logging
-import os
+from env_utils import env_int
 
 import authz
 import observability
@@ -108,7 +108,7 @@ class Utf8JSONResponse(JSONResponse):
 
 
 # Cap multipart uploads (STT / KB) — reject before buffering unbounded bytes.
-_MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES") or str(25 * 1024 * 1024))
+_MAX_UPLOAD_BYTES = env_int("MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
 
 async def _read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
     limit = max_bytes if max_bytes is not None else _MAX_UPLOAD_BYTES

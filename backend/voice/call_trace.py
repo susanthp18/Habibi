@@ -45,6 +45,7 @@ import logging
 import re
 import time
 from typing import Any
+from env_utils import as_bool
 
 logger = logging.getLogger("voice.trace")
 
@@ -98,14 +99,14 @@ def session_fields(session: Any | None = None, extra: dict[str, Any] | None = No
         extra = {}
     params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
     demo_raw = params.get("demo") if params.get("demo") is not None else extra.get("demo")
-    demo = str(demo_raw or "").strip().lower()
+    demo = as_bool(demo_raw)
     return {
         "session": getattr(session, "session_id", None),
         "attempt": extra.get("attempt_id") or params.get("attempt_id"),
         "sid": extra.get("call_sid") or params.get("call_id") or params.get("CallSid"),
         "interaction": getattr(session, "interaction_id", None) or extra.get("interaction_id"),
         "objective": extra.get("objective") or params.get("objective"),
-        "demo": 1 if demo in {"1", "true", "yes"} else None,
+        "demo": 1 if demo else None,
     }
 
 

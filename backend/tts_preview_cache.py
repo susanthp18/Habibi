@@ -45,6 +45,7 @@ import hashlib
 import json
 import logging
 import os
+from env_utils import env_int
 import threading
 import time
 from pathlib import Path
@@ -57,7 +58,7 @@ logger = logging.getLogger(__name__)
 #: sweep walk the other's entries.
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "tts-preview"
 
-_MAX_BYTES = int(os.getenv("TTS_PREVIEW_CACHE_MAX_BYTES") or str(200 * 1024 * 1024))
+_MAX_BYTES = env_int("TTS_PREVIEW_CACHE_MAX_BYTES", 200 * 1024 * 1024)
 #: Age cap as well as size cap, so a quiet instance does not keep synthesized
 #: audio on disk forever just because it never reached the size threshold.
 _MAX_AGE_S = max(3600, int(os.getenv("TTS_PREVIEW_CACHE_MAX_AGE_S") or str(14 * 24 * 3600)))
