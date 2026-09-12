@@ -1,4 +1,3 @@
-export { useDarkMode } from "./use-dark-mode";
 export { buildSmoothPath, chartIndexFromPointer, valueToY, DEFAULT_PADS } from "./points";
 export { ChartCard, ChartStage, ChartTooltip, ChartEmpty, SnapshotPill } from "./chart-shell";
 export { LivelineTrend } from "./liveline-trend";

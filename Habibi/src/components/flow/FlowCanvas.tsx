@@ -32,7 +32,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { SplitPanes } from "@/components/inbox/SplitPanes";
-import { useDarkMode } from "@/components/charts/use-dark-mode";
+import { useTheme } from "@/lib/theme";
 
 import {
   defaultCondition,
@@ -482,7 +482,7 @@ function FlowCanvasInner({
   const pickerTools = flowToolChoices(toolsQuery.data ?? [], grantTools);
   const reservedQuery = useReservedKeys();
   const transitionsQuery = useFlowTransitions();
-  const dark = useDarkMode();
+  const dark = useTheme() === "dark";
 
   // The callback lives in a ref so it is not an effect dependency.
   //

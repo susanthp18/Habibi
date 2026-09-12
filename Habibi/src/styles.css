@@ -6,10 +6,11 @@
 
 /*
  * BigBound AI — Design System
- * Token-for-token port of Design.md (Atlassian Design System manifest, revision 0.0.7, theme: light).
- * Every hex value below is copied verbatim from Design.md's `colors:` / `typography:` / `rounded:` /
+ * Token-for-token port of the design manifest (Atlassian Design System export, revision 0.0.7,
+ * theme: light; the manifest itself is not in this repository).
+ * Every hex value below is copied verbatim from the manifest's `colors:` / `typography:` / `rounded:` /
  * `spacing:` / `borders:` / `surfaces:` / `motion:` YAML — do not hand-tune a value here without
- * updating Design.md first. `rovo-*` tokens are intentionally omitted (unused AI sub-brand).
+ * updating the manifest first. `rovo-*` tokens are intentionally omitted (unused AI sub-brand).
  * `.dark` remaps the same token names to Atlassian dark counterparts so night mode is a class toggle.
  */
 
@@ -358,7 +359,7 @@
   --shadow-overlay: 0px 8px 12px #1e1f2126, 0px 0px 1px #1e1f214f;
   --shadow-overflow: 0px 0px 8px #1e1f2129, 0px 0px 1px #1e1f211f;
 
-  /* ---- Radius (t-shirt scale, Design.md `rounded:`) ---- */
+  /* ---- Radius (t-shirt scale, the manifest `rounded:`) ---- */
   --radius-token-xsmall: 0.125rem; /* 2px  — badges, checkboxes, avatar labels, kbd */
   --radius-token-small: 0.25rem; /* 4px  — lozenges, tags, timestamps, tooltips, compact buttons */
   --radius-token-medium: 0.375rem; /* 6px  — buttons, inputs, selects, nav items, smart links */
@@ -373,7 +374,7 @@
   --border-width-selected: 0.125rem; /* 2px — selected state */
   --border-width-focused: 0.125rem; /* 2px — focus ring */
 
-  /* ---- Spacing (8px-base scale, Design.md `spacing:`) ---- */
+  /* ---- Spacing (8px-base scale, the manifest `spacing:`) ---- */
   --space-0: 0rem;
   --space-025: 0.125rem;
   --space-050: 0.25rem;
@@ -398,7 +399,7 @@
   --space-negative-300: -1.5rem;
   --space-negative-400: -2rem;
 
-  /* ---- Motion (Design.md `motion:`) ---- */
+  /* ---- Motion (the manifest `motion:`) ---- */
   --motion-duration-instant: 0ms;
   --motion-duration-xxshort: 50ms;
   --motion-duration-xshort: 100ms;
@@ -458,7 +459,7 @@
 }
 
 /*
- * Dark theme — Atlassian-aligned counterparts of the light Design.md tokens.
+ * Dark theme — Atlassian-aligned counterparts of the light the manifest tokens.
  * Surfaces / text / borders invert; brand (#1868db) and bold action fills stay
  * saturated so existing text-inverse (white) pairings keep contrast.
  */
@@ -827,7 +828,7 @@ html.dark {
    * Atlassian Sans / Atlassian Mono are Atlassian's proprietary in-house typefaces with no
    * legitimate free distribution. Inter is kept (Atlassian Sans is itself Inter-derived) and
    * JetBrains Mono replaces Roboto Mono (same lineage as Atlassian Mono, free/SIL-OFL). Type
-   * scale sizes/weights/line-heights below are ported from Design.md unchanged. */
+   * scale sizes/weights/line-heights below are ported from the manifest unchanged. */
   --font-sans: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", "Roboto Mono", ui-monospace, SFMono-Regular, monospace;
 
@@ -863,7 +864,7 @@ html.dark {
   --spacing-800: var(--space-800);
   --spacing-1000: var(--space-1000);
 
-  /* ---- Color utility hooks — one 1:1 mapping per Design.md token, so classes like
+  /* ---- Color utility hooks — one 1:1 mapping per the manifest token, so classes like
    * text-text-subtle / bg-background-brand-bold / border-border-danger work natively. ---- */
   --color-text: var(--text);
   --color-text-accent-lime: var(--text-accent-lime);
@@ -1202,7 +1203,7 @@ html.dark {
   font-feature-settings: "tnum";
 }
 
-/* Elevation — exactly the 3 planes Design.md defines. Default plane gets a border, no shadow. */
+/* Elevation — exactly the 3 planes the manifest defines. Default plane gets a border, no shadow. */
 @utility shadow-raised {
   box-shadow: var(--shadow-raised);
 }
@@ -1213,7 +1214,7 @@ html.dark {
   box-shadow: var(--shadow-overflow);
 }
 
-/* Border-width utilities (Design.md borders scale) */
+/* Border-width utilities (the manifest borders scale) */
 @utility border-width-default {
   border-width: var(--border-width-default);
 }
@@ -1224,7 +1225,7 @@ html.dark {
   border-width: var(--border-width-focused);
 }
 
-/* Shared focus-ring recipe (Design.md Shapes → Focus ring): 2px border-focused ring, 2px
+/* Shared focus-ring recipe (the manifest Shapes → Focus ring): 2px border-focused ring, 2px
  * offset. Radius is set per-component by pairing this with the matching rounded-* utility
  * one step up (e.g. a radius-medium control pairs with focus:rounded-large). */
 @utility focus-ring {
@@ -1273,8 +1274,8 @@ html.dark {
   transition-timing-function: var(--motion-easing-out-bold);
 }
 
-/* ---- Type scale (Design.md `typography:`) — each token bundles size + weight + line-height
- * together, never split, per Design.md's "never make a heading lighter/heavier than the
+/* ---- Type scale (the manifest `typography:`) — each token bundles size + weight + line-height
+ * together, never split, per the manifest's "never make a heading lighter/heavier than the
  * token" rule. weight-bold is literally 653 (Atlassian variable-font bold), not Tailwind's
  * font-bold (700). ---- */
 @utility heading-xxlarge {
@@ -1376,13 +1377,13 @@ html.dark {
   }
   html,
   body {
-    /* Design.md: surface (#FFFFFF) is the page canvas everywhere — never surface-sunken. */
+    /* the manifest: surface (#FFFFFF) is the page canvas everywhere — never surface-sunken. */
     background-color: var(--surface);
     color: var(--text);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
-  /* Headings use the neutral text token by default (Design.md: color comes from context,
+  /* Headings use the neutral text token by default (the manifest: color comes from context,
    * not a global brand tint) — size/weight from the heading-* utilities carries hierarchy. */
 }
 
@@ -1702,7 +1703,7 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
   }
 }
 
-/* Typing indicator — was a translateY "bounce" (Design.md bans bounce/elastic easing in
+/* Typing indicator — was a translateY "bounce" (the manifest bans bounce/elastic easing in
  * product UI). Re-expressed as an opacity pulse using the inout-bold token; still a
  * legitimate transient-state animation, just no longer springy. */
 @keyframes typing-pulse {

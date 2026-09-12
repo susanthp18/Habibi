@@ -1,10 +1,10 @@
 import { Toaster as Sonner } from "sonner";
-import { useDarkMode } from "@/components/charts/use-dark-mode";
+import { useTheme } from "@/lib/theme";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const dark = useDarkMode();
+  const dark = useTheme() === "dark";
   return (
     <Sonner
       theme={dark ? "dark" : "light"}

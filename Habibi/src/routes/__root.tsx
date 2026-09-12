@@ -10,7 +10,6 @@ import {
 import { useEffect, type ReactNode, useSyncExternalStore } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { clearSidebarCollapsedPreference } from "@/components/shell/sidebar-ui";
 import { getServerTheme, getTheme, subscribeTheme } from "@/lib/theme";
 
@@ -51,13 +50,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
       ? crypto.randomUUID()
       : `err-${Date.now()}`;
   useEffect(() => {
-    reportLovableError(error, {
-      boundary: "tanstack_root_error_component",
-      correlationId,
-    });
     // Stuck collapse preference was bricking every refresh after one bad render.
     clearSidebarCollapsedPreference();
-  }, [error, correlationId]);
+  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-200">
