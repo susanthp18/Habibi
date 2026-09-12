@@ -46,7 +46,6 @@ function wireNullCustomer(): Customer {
         description: "",
         type: "charge",
         amount: 100,
-        balance: null,
       },
     ],
     emi: [

@@ -14,7 +14,7 @@ import type { DisputeSla } from "./dispute-sla";
 export type RiskLevel = "critical" | "high" | "medium" | "low";
 export type Channel = "voice" | "whatsapp" | "chat" | "email" | "sms";
 export type Sentiment = "positive" | "neutral" | "negative";
-export type LedgerType = "charge" | "payment" | "fee" | "adjustment" | "waiver";
+export type LedgerType = "charge" | "payment" | "fee" | "adjustment" | "waiver" | "reversal";
 export type EmiStatus = "paid" | "upcoming" | "overdue" | "partial";
 export type PtpStatus = "upcoming" | "kept" | "broken" | "partial";
 export type DisputeStatus = "new" | "under_review" | "awaiting_customer" | "resolved" | "rejected";
@@ -25,7 +25,6 @@ export interface LedgerEntry {
   description: string;
   type: LedgerType;
   amount: number; // signed; charges +, payments -
-  balance: number | null;
   invoiceId?: string | null;
 }
 export interface EmiRow {

@@ -88,7 +88,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   minimum_due numeric(14,2),
   dpd INTEGER NOT NULL DEFAULT 0,
   bucket TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
+  -- The LMS vocabulary (lms_account_status.normalised, sql/24): what the
+  -- bank feed maps into, fail-closed. sql/47 is the migration form.
+  status TEXT NOT NULL DEFAULT 'active'
+    CONSTRAINT accounts_status_check
+    CHECK (status IN ('active','closed','charged_off','sold','frozen','unknown')),
   opened_on timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -117,7 +121,6 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   type TEXT NOT NULL CHECK (type IN ('charge','payment','fee','adjustment','waiver','reversal')),
   description TEXT,
   amount numeric(14,2) NOT NULL,
-  balance numeric(14,2),
   invoice_id TEXT,
   posted_at timestamptz NOT NULL,
   -- Real keys for goodwill uniqueness. A regex on description cannot cover

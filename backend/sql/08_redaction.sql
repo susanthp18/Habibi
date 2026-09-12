@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS export_jobs (
   format TEXT NOT NULL,
   scope jsonb NOT NULL DEFAULT '{}'::jsonb,
   watermark TEXT,
-  status TEXT NOT NULL DEFAULT 'queued',
+  -- schemas.ExportStatus
+  status TEXT NOT NULL DEFAULT 'queued'
+    CONSTRAINT export_jobs_status_check CHECK (status IN ('queued','ready','failed')),
   storage_ref TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()

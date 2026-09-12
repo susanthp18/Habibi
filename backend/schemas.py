@@ -88,9 +88,10 @@ class LedgerEntryResponse(BaseModel):
     id: str
     date: str
     description: str = ""
-    type: Literal["charge", "payment", "fee", "adjustment", "waiver"]
+    #: ck_ledger_entries_type. `reversal` was missing here, so a reversed
+    #: payment made the whole Customer 360 a 500.
+    type: Literal["charge", "payment", "fee", "adjustment", "waiver", "reversal"]
     amount: float
-    balance: float | None = None
     invoiceId: str | None = None
 
 

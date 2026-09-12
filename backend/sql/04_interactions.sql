@@ -268,7 +268,9 @@ CREATE INDEX IF NOT EXISTS idx_live_alerts_interaction_id ON live_alerts(interac
 CREATE TABLE IF NOT EXISTS supervisor_actions (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
-  supervisor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- RESTRICT: deleting a supervisor must not delete the audit of every
+  -- barge and whisper they made. Deactivate the user instead.
+  supervisor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   action TEXT NOT NULL CHECK (action IN ('listen_in','whisper','barge','force_handoff')),
   target_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   target_bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL,

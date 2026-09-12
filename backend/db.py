@@ -891,7 +891,7 @@ def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> 
                 conn.execute(
                     text(
                         """
-                        SELECT id, posted_at AS date, description, type, amount, balance, invoice_id AS "invoiceId"
+                        SELECT id, posted_at AS date, description, type, amount, invoice_id AS "invoiceId"
                         FROM ledger_entries
                         WHERE account_id = :account_id
                         ORDER BY posted_at DESC

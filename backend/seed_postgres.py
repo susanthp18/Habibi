@@ -2281,7 +2281,7 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
                 },
             )
 
-    upsert(conn, "export_jobs", {"id": "EX-0001", "actor_user_id": "priya-nair", "format": "zip", "scope": {"from": "2026-07-01", "to": "2026-07-21"}, "watermark": "HDFC Retail", "status": "completed", "storage_ref": f"minio://export-bundles/{TENANT_ID}/EX-0001.zip"})
+    upsert(conn, "export_jobs", {"id": "EX-0001", "actor_user_id": "priya-nair", "format": "zip", "scope": {"from": "2026-07-01", "to": "2026-07-21"}, "watermark": "HDFC Retail", "status": "ready", "storage_ref": f"minio://export-bundles/{TENANT_ID}/EX-0001.zip"})
     first_redaction = conn.execute("SELECT id FROM redaction_records ORDER BY id LIMIT 1").fetchone()
     if first_redaction:
         insert_ignore(conn, "INSERT INTO export_job_records (export_job_id, redaction_id) VALUES (%(export_job_id)s, %(redaction_id)s) ON CONFLICT DO NOTHING", {"export_job_id": "EX-0001", "redaction_id": first_redaction[0]})

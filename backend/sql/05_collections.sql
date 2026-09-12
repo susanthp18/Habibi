@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS payment_plans (
   id TEXT PRIMARY KEY,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'active',
+  status TEXT NOT NULL DEFAULT 'active'
+    CONSTRAINT payment_plans_status_check CHECK (status IN ('active','completed','cancelled')),
   total_amount numeric(14,2) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()

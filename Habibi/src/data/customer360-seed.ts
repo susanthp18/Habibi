@@ -52,7 +52,7 @@ function disputeSla(filedAt: string, slaDueAt: string, status: DisputeStatus): D
 
 // ---- ledger builder ----
 function buildLedger(seed: number, monthly: number): LedgerEntry[] {
-  const rows: Omit<LedgerEntry, "balance">[] = [];
+  const rows: LedgerEntry[] = [];
   let daysBack = 180;
   for (let i = 0; i < 6; i++) {
     rows.push({
@@ -99,13 +99,7 @@ function buildLedger(seed: number, monthly: number): LedgerEntry[] {
   });
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
-  let running = 0;
-  return rows
-    .map((r) => {
-      running += r.amount;
-      return { ...r, balance: running };
-    })
-    .reverse(); // newest first for display
+  return rows.reverse(); // newest first for display
 }
 
 function buildEmi(seed: number, monthly: number): EmiRow[] {
@@ -768,7 +762,6 @@ const _customers: Customer[] = [
         description: "EMI due #1",
         type: "charge",
         amount: 4800,
-        balance: 72000,
       },
       {
         id: "LED-SUSANTH-2",
@@ -776,7 +769,6 @@ const _customers: Customer[] = [
         description: "UPI payment",
         type: "payment",
         amount: -4800,
-        balance: 67200,
       },
       {
         id: "LED-SUSANTH-3",
@@ -784,7 +776,6 @@ const _customers: Customer[] = [
         description: "EMI due #2",
         type: "charge",
         amount: 4800,
-        balance: 72000,
       },
       {
         id: "LED-SUSANTH-4",
@@ -792,7 +783,6 @@ const _customers: Customer[] = [
         description: "UPI payment",
         type: "payment",
         amount: -4800,
-        balance: 67200,
       },
       {
         id: "LED-SUSANTH-5",
@@ -800,7 +790,6 @@ const _customers: Customer[] = [
         description: "EMI due",
         type: "charge",
         amount: 4800,
-        balance: 72000,
       },
       {
         id: "LED-SUSANTH-6",
@@ -808,7 +797,6 @@ const _customers: Customer[] = [
         description: "UPI payment",
         type: "payment",
         amount: -4800,
-        balance: 67200,
       },
       {
         id: "LED-SUSANTH-7",
@@ -816,7 +804,6 @@ const _customers: Customer[] = [
         description: "Late fee",
         type: "fee",
         amount: 350,
-        balance: 67550,
       },
       {
         id: "LED-SUSANTH-8",
@@ -824,7 +811,6 @@ const _customers: Customer[] = [
         description: "Goodwill late-fee waiver",
         type: "waiver",
         amount: -350,
-        balance: 67200,
       },
       {
         id: "LED-SUSANTH-9",
@@ -832,7 +818,6 @@ const _customers: Customer[] = [
         description: "EMI due (current)",
         type: "charge",
         amount: 4800,
-        balance: 72000,
       },
       {
         id: "LED-SUSANTH-10",
@@ -840,7 +825,6 @@ const _customers: Customer[] = [
         description: "Partial UPI",
         type: "payment",
         amount: -4800,
-        balance: 67200,
       },
       {
         id: "LED-SUSANTH-11",
@@ -848,7 +832,6 @@ const _customers: Customer[] = [
         description: "Interest capitalization",
         type: "adjustment",
         amount: 200,
-        balance: 67400,
       },
       {
         id: "LED-SUSANTH-12",
@@ -856,7 +839,6 @@ const _customers: Customer[] = [
         description: "Goodwill adjustment settle",
         type: "payment",
         amount: -1000,
-        balance: 62400,
       },
     ],
     emi: [

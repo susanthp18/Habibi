@@ -247,7 +247,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   invoice_month TEXT NOT NULL,
   environment TEXT NOT NULL CHECK (environment IN ('sandbox','production')),
   total_inr numeric(14,2) NOT NULL,
-  status TEXT NOT NULL DEFAULT 'draft',
+  -- schemas.BillingInvoiceStatus
+  status TEXT NOT NULL DEFAULT 'draft'
+    CONSTRAINT invoices_status_check CHECK (status IN ('draft','pending','paid')),
   issued_at date,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()

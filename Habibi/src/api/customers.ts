@@ -69,9 +69,8 @@ const ledgerEntrySchema = z.object({
   id: z.string(),
   date: z.string(),
   description: z.string(),
-  type: z.enum(["charge", "payment", "fee", "adjustment", "waiver"]),
+  type: z.enum(["charge", "payment", "fee", "adjustment", "waiver", "reversal"]),
   amount: z.number(),
-  balance: z.number().nullable(),
   invoiceId: z.string().nullable(),
 });
 

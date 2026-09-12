@@ -15,6 +15,7 @@ const TYPE_LABEL: Record<LedgerType, string> = {
   fee: "Fee",
   adjustment: "Adjustment",
   waiver: "Waiver",
+  reversal: "Reversal",
 };
 
 const TYPE_DOT: Record<LedgerType, string> = {
@@ -23,9 +24,10 @@ const TYPE_DOT: Record<LedgerType, string> = {
   fee: "var(--icon-accent-orange)",
   adjustment: "var(--icon-accent-gray)",
   waiver: "var(--icon-accent-teal)",
+  reversal: "var(--icon-accent-gray)",
 };
 
-const TYPES: LedgerType[] = ["charge", "payment", "fee", "adjustment", "waiver"];
+const TYPES: LedgerType[] = ["charge", "payment", "fee", "adjustment", "waiver", "reversal"];
 
 export function LedgerTab({
   customer,
@@ -112,15 +114,6 @@ export function LedgerTab({
           >
             {fmtMoney(r.amount)}
           </span>
-        ),
-      },
-      {
-        id: "balance",
-        header: "Balance",
-        width: "0.8fr",
-        className: "text-right",
-        cell: (r) => (
-          <span className="text-body tabular-nums text-text-subtle">{fmtMoney(r.balance)}</span>
         ),
       },
     ],
