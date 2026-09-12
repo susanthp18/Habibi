@@ -243,7 +243,7 @@ Unified where the seeds diverged:
 - **channel**: `voice | whatsapp | sms | email | chat` (superset of the 4 conflicting defs; `voice` not `call`).
 - **sentiment_label**: `positive | neutral | negative`; sentiment also stored as numeric `score` (−1..+1) where the UI needs a meter.
 - **risk**: `critical | high | medium | low`.
-- **handler_kind**: `bot | human` (+ `handoff` on interactions).
+- **handler_kind**: `bot | human`.
 - **actor_kind**: domain-specific, not one shared catalog — match the table's CHECK:
   - `qa_scorecards` / disclosure evidence: `bot | human`.
   - `activity_events`: `human | bot | system | customer`.
@@ -295,17 +295,15 @@ Human-readable prefixed keys (kept from the seeds, standardized): customer slug 
 
 **Target stack (locked):** FastAPI · **PostgreSQL 16 + pgvector** (Docker Compose, on-prem, no cloud) · **SQLAlchemy 2.0 + Pydantic v2** (not SQLModel — keep DB models and API schemas separate) · **Alembic** with *authored* migrations (autogenerate drafts tables; constraints, the `work_items` view, and triggers are hand-written) · **MinIO** (S3-compatible, self-hosted) for media referenced by `storage_ref` (local FS acceptable interim).
 
-**Scope of this build pass = data layer only.** Schema + coherent seed + read/query API. The following are deliberately deferred to a later hardening pass, but the schema is built to accept them with minimal change.
+**The hardening controls are on.** `main._assert_hardening_gate` reads each one at boot and a deployed process (`HABIBI_DEPLOYED=1`) refuses to start with any of them inactive; there is no `ALLOW_UNHARDENED_PRODUCTION` hatch, and laptop `APP_ENV=dev|test|local` is allowed only when the process is not deployed.
 
-> **Release gate.** Because these controls are inactive, the API refuses to start with `APP_ENV=production` (`main._assert_hardening_gate`). Deployed containers (`HABIBI_DEPLOYED=1`) are always hardened. There is no `ALLOW_UNHARDENED_PRODUCTION` hatch. Laptop `APP_ENV=dev|test|local` is allowed only when the process is not deployed.
-
-- **RLS multi-tenancy** — `tenant_id` is present on every top-level table now; Row-Level Security policies + a per-request tenant GUC get added later.
-- **AuthN/Z (OIDC/Keycloak)** — RBAC tables (`roles`/`permissions`/`user_roles`) exist now; enforcement is added later.
-- **PII encryption + Vault** — PII columns and `vault://` secret refs are modeled now; column encryption / secrets integration added later.
+- **RLS multi-tenancy** — `tenant_id` is on every top-level table; the policies are derived from the foreign keys (`rls.py`), enforced for the `NOBYPASSRLS` application role, and the tenant travels as a libpq startup parameter (`db_core`).
+- **AuthN/Z** — `authz.ROUTE_PERMISSIONS` classifies every route; unregistered routes are denied; a roleless actor is 403 on all of them (`tests/test_authz.py`).
+- **PII encryption + Vault** — `customers` is a view over `customers_pii`; phone and email are `pgp_sym_encrypt`ed with HMAC lookup columns, and the key travels as the `app.pii_key` startup parameter (`pii_key.py`, `sql/01_pii.sql`). Secrets are `vault://` refs resolved by `agent_core/vault`.
 
 **Postgres conventions:**
 - Enums as `TEXT` + `CHECK` (not native `ENUM` — easier to extend). Timestamps `timestamptz` (ISO-8601). JSON columns → `jsonb`. Money → `numeric(14,2)`. Embeddings → `vector` (pgvector, HNSW index) when RAG lands.
-- Every mutable table has `created_at` / `updated_at`; audit/evidence tables (`audit_log`, `optout_events`, `interaction_disclosures`, `activity_events`) are append-only by design (enforce via revoked grants/triggers in the hardening pass).
+- Every mutable table has `created_at` / `updated_at`; audit/evidence tables (`audit_log`, `optout_events`, `interaction_disclosures`, `activity_events`) are append-only, enforced by trigger (`sql/43_audit_append_only.sql`).
 - High-volume tables (`webhook_deliveries`, `billing_usage_daily`, `retrieval_logs`, `routing_rule_executions`, `interaction_sentiment`) are candidates for monthly range partitioning.
 - `work_items` is a **VIEW**, not a table.
 

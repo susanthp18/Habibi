@@ -36,7 +36,7 @@ The subset of the grant placed in front of the model on a given turn. Narrowing 
 _Avoid_: exposed tools, available tools
 
 **Gate**:
-One publish-time check with three honest outcomes: pass, block, or skip. A gate never reports green for a check it did not run. A gate that blocks says what would let it pass.
+One publish-time check with four honest outcomes: pass, fail, warn, or skipped. A gate never reports green for a check it did not run. A gate that fails says what would let it pass.
 
 **Assurance**:
 How much a channel has proved about who it is talking to, as one of three levels. `endpoint` — the channel proved control of the endpoint (a WhatsApp sender matched to a CRM row; caller ID does not qualify). `challenge` — the customer supplied something only they know. Tools name the level they need; reads and reversible writes take `endpoint`, money and regulated acts take `challenge`.
@@ -62,8 +62,8 @@ _Avoid_: history (the whole thread, and what the prompt carries), context (overl
 ### Outbound
 
 **Mission**:
-One reason to place a call, with its own entry step, its own definition of success, and its own time budget.
-_Avoid_: campaign, objective, intent
+One reason to place a call, with its own entry step, its own definition of success, and its own time budget. On the card it is the `objectives[]` entry; `objective` is the field name, not a synonym.
+_Avoid_: campaign, intent
 
 **Cadence**:
 When to attempt a mission again. Mechanical only: a cadence may repeat an action, never change it.

@@ -157,29 +157,12 @@ docker exec collections_voice python -m pytest tests/ -q
 
 The backend suite takes **~10 minutes**. Run it in the background; do not poll it in a sleep loop.
 
-## Baseline as of 2026-09-03 — what "green" means here
+## Baseline — what "green" means here
 
-| Check | Expected |
-|---|---|
-| `tsc --noEmit` | 0 errors, exit 0 |
-| `npm run lint` | exit 0, **62 warnings** (39 `react-refresh`, 23 `exhaustive-deps`). Do not "fix" these; they are a ratchet, not this package |
-| `npx vitest run` | 107 passed / 107 |
-| `npm run build` | PASS |
-| `ruff check .` | All checks passed, exit 0 |
-| `pytest tests/` | **0 genuine failures.** Four artefacts always fail in the container; two more fail there between 18:30 and 24:00 UTC. See below |
+The measured numbers live in the newest `audit-reports/PASS<n>-REPORT-*.md` ("Verification" section): the full-suite pass/fail count with the causes of every known failure, the coverage gate, the vitest count, and the lint warning ratchet. Read that before believing a red run is yours. Two standing facts:
 
-**There is no longer any genuinely-red test.** `WP-011` (`b30fa8f`) closed the two stale date fixtures, and the calendar bomb that would have fired on 2026-09-15 is defused — both constants are now relative.
-
-**Two tests fail in the container between 18:30 and 24:00 UTC and are NOT defects of yours** — `test_conversation_trace_regressions.py::test_a_promise_for_today_is_still_allowed` and `test_promise_fulfillment.py::test_settle_due_today`. They read "today" from the process timezone while the guard they test reads it from the tenant's (IST), so for 5½ hours a day the two disagree by one day. Owned by `WP-068`. Outside that window they pass. On the host they always pass.
-
-**Four tests always fail inside the container and are NOT defects.** Only `backend/` is bind-mounted at `/app`, so tests that read the frontend tree resolve `/Habibi/...` and raise `FileNotFoundError`:
-
-- `test_outbound_studio_bindings.py::test_frontend_create_campaign_sends_bot_id`
-- `test_sandbox_turn_schema.py::test_every_key_the_studio_posts_is_a_field_on_the_request_model`
-- `test_system_prompt_rendering.py::test_the_editor_variable_palette_matches_the_renderer`
-- `test_voicemail_classifier_isolation.py::test_skill_clone_source_does_not_use_window_prompt`
-
-Re-run any container failure on the host — `cd backend && .venv/Scripts/python.exe -m pytest <nodeid>` — **before believing it**. These four exist to pin the TypeScript↔Python contract. Deleting or loosening one to get a green run is a contract regression disguised as a fix.
+- **Cross-tree tests fail inside the container.** Only `backend/` is bind-mounted at `/app`, so a test that reads the frontend tree raises `FileNotFoundError` there. Re-run any container failure on the host — `cd backend && .venv/Scripts/python.exe -m pytest <nodeid>` — before believing it. Those tests pin the TypeScript↔Python contract; loosening one to get a green run is a contract regression disguised as a fix.
+- **The suite runs in the `voice` service** (`docker compose -f docker-compose.yml -f docker-compose.dev.yml exec voice pytest`), whose dev image carries the test tooling (`requirements-dev.txt`, Dockerfile target `voice-dev`). The shipped images carry none.
 
 ## Hard prohibitions — these override any work package
 
@@ -204,7 +187,7 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 - **Do not edit `audit-reports/01-*.md` … `41-*.md`.** They are evidence.
 - **Do not touch `PRAXIST-main/`.**
 - Recursive `find` / `grep` from the repo root times out on `node_modules` and `backend/.venv`. Use ripgrep or `git ls-files`; never `git ls-files | xargs grep`.
-- **Any tree-walking tool you configure must exclude `.venv`** — a full-tree scan hangs on site-packages. This was recorded in `backend/pyproject.toml`'s `[tool.vulture]` block, which `WP-063` deleted because the tool was never installed; the warning outlived the config and is kept here.
+- **Any tree-walking tool you configure must exclude `.venv`** — a full-tree scan hangs on site-packages.
 
 ## Environment facts that mislead
 
@@ -219,7 +202,7 @@ Re-run any container failure on the host — `cd backend && .venv/Scripts/python
 
 The single most damaging thing you can do on this repository is a correct fix plus 46 unrequested ones. Two specific traps the audit already found:
 
-- A `knip` / `vulture` / `F401` sweep will report working diagnostics as dead — `rls.py weak_policies`, `orphan_rows`, `role_bypasses_rls`, `assert_registry_covers`, `invalidate_permission_cache`, `voice/node_contracts.py`, `DialRefused`, `record_offer_suppressed`. **These are on an allowlist. Do not delete them.**
+- A `knip` / `vulture` / `F401` sweep will report working diagnostics as dead — `rls.py weak_policies`, `orphan_rows`, `role_bypasses_rls`, `assert_registry_covers`, `invalidate_permission_cache`, `voice/node_contracts.py`. **Check for a reader (tests, scripts, operators) before deleting anything a sweep names.**
 - Peeling a section out of `db.py` breaks any test that does
   `monkeypatch.setattr(db, "_some_moved_name", ...)`. The name is a **string**, so no
   attribute-usage scan finds it, and re-exporting the name is not enough: rebinding it on

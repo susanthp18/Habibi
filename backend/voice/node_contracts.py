@@ -1,18 +1,19 @@
 """What each node needs in order to still be leaveable.
 
-``_fns`` in ``voice/flows.py`` drops any tool the card did not grant, which stops
-a narrowed card raising KeyError mid-call. It introduces a quieter failure in its
-place: a node whose every exit was dropped. The model is then holding a turn with
-nothing to call, on a node whose whole job is to move somewhere else, and the
-call goes round until the idle ladder hangs up on a borrower who did nothing
-wrong.
+``voice/flows_dynamic`` offers a node only the tools the grant allows, which
+stops a narrowed card raising KeyError mid-call. It introduces a quieter failure
+in its place: a node whose every exit was dropped. The model is then holding a
+turn with nothing to call, on a node whose whole job is to move somewhere else,
+and the call goes round until the idle ladder hangs up on a borrower who did
+nothing wrong.
 
-So each node names the verbs that are its exits. Every one of them is in
-``voice.tools.ALWAYS_ON``, which is what makes the contract satisfiable rather
-than aspirational -- the grant filter unions that set back in, so these cannot be
-dropped by any card. ``tests/test_flows_survive_a_narrow_grant.py`` asserts that
-containment, so adding a requirement here that a card *can* exclude fails the
-suite rather than the call.
+So each node names the verbs that are its exits. Every one of them is in the
+voice floor (``agent_core.tools.grant.VOICE_ALWAYS``), which is what makes the
+contract satisfiable rather than aspirational -- the floor is part of every
+grant, so these cannot be dropped by any card.
+``tests/test_flows_survive_a_narrow_grant.py`` asserts that containment, so
+adding a requirement here that a card *can* exclude fails the suite rather
+than the call.
 
 This is deliberately a plain dict with no imports. ``flow_graph`` runs in the API
 process and must not pull in Pipecat; anything that wants to reason about node
