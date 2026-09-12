@@ -207,7 +207,6 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_claim
   ON webhook_deliveries(status, next_retry_at);
 
@@ -327,6 +326,8 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS idx_usage_events_service_env
   ON usage_events (service_id, tenant_id, environment, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_usage_events_occurred ON usage_events (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_source_occurred
+  ON usage_events(source_ref, occurred_at) WHERE source_ref IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_usage_events_interaction
   ON usage_events (interaction_id) WHERE interaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_usage_events_model

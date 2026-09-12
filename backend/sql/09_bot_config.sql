@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id);
 -- UNIQUE: (document_id, chunk_index) identifies a chunk. Duplicates were
 -- reachable if an interrupted _atomic_replace_chunks left old rows behind, and
 -- retrieval then returned the same passage twice with divergent embeddings.
@@ -74,6 +73,7 @@ CREATE TABLE IF NOT EXISTS kb_index_jobs (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_kb_index_jobs_status ON kb_index_jobs(status);
 
 CREATE TABLE IF NOT EXISTS kb_snapshots (
   id TEXT PRIMARY KEY,

@@ -128,7 +128,6 @@ CREATE TABLE IF NOT EXISTS interaction_transcript (
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (interaction_id, turn_index)
 );
-CREATE INDEX IF NOT EXISTS idx_interaction_transcript_interaction_id ON interaction_transcript(interaction_id);
 CREATE INDEX IF NOT EXISTS idx_interaction_transcript_intent
   ON interaction_transcript (interaction_id, intent)
   WHERE intent IS NOT NULL;
@@ -205,7 +204,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_conversations_interaction_id ON conversations(interaction_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_interaction_id ON conversations(interaction_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_customer_id ON conversations(customer_id);
 
 CREATE TABLE IF NOT EXISTS messages (

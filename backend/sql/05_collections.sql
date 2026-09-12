@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS promise_installments (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_promise_installments_plan_id ON promise_installments(plan_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_promise_installments_plan_index ON promise_installments(plan_id, installment_index);
 
 CREATE TABLE IF NOT EXISTS disputes (
   id TEXT PRIMARY KEY,
@@ -262,6 +262,8 @@ CREATE TABLE IF NOT EXISTS followups (
 );
 CREATE INDEX IF NOT EXISTS idx_followups_customer_id ON followups(customer_id);
 CREATE INDEX IF NOT EXISTS idx_followups_promise_id ON followups(promise_id);
+CREATE INDEX IF NOT EXISTS idx_followups_status_due_at ON followups(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_followups_lead_id ON followups(lead_id);
 
 
 -- P3 next-best-treatment ------------------------------------------------------

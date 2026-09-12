@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_account_id ON ledger_entries(account_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_entries_posted_at ON ledger_entries(posted_at);
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_account_type_posted ON ledger_entries(account_id, type, posted_at);
 -- One goodwill posting per authority decision, and one per resolved dispute.
 -- apply_goodwill / post_waiver_for_dispute serialise with FOR UPDATE; these
 -- uniques are the constraint the database can enforce when that lock is missing.
@@ -170,7 +171,7 @@ CREATE TABLE IF NOT EXISTS emi_installments (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_emi_installments_account_id ON emi_installments(account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_emi_installments_account_index ON emi_installments(account_id, installment_index);
 CREATE INDEX IF NOT EXISTS idx_emi_installments_status ON emi_installments(status);
 
 -- NACH/UPI/ECS bounce (or later paid/reversal) is a first-class event. The

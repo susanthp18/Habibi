@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_leads_customer_id ON leads(customer_id);
 CREATE INDEX IF NOT EXISTS idx_leads_interaction_id ON leads(interaction_id);
 CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
 CREATE INDEX IF NOT EXISTS idx_leads_closed_at ON leads(closed_at);
