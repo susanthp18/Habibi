@@ -353,3 +353,25 @@ def test_every_customer_facing_accessor_is_listed(db_tx) -> None:
         "these accessors read customer data and are not covered by the object "
         f"visibility tests: {sorted(missing)}"
     )
+
+
+def test_an_export_bundle_is_scoped_like_every_other_customer_read(db_tx, as_actor) -> None:
+    """`GET /interactions/{id}/export` read the interaction by id alone -- an
+    agent scoped to their own book could download another agent's call, the
+    borrower's words included. The bundle carries the visibility predicate
+    now, and the refusal is the same 404 an unknown id gets."""
+    from voice import call_export
+
+    customer = _assigned_to(db_tx, AGENT)
+    db_tx.execute(
+        text(
+            "INSERT INTO interactions (id, tenant_id, customer_id, handler_kind, handler_user_id, "
+            "channel, direction, status, started_at, source_payload) "
+            "VALUES ('CL-SCOPE-PROBE', :t, :c, 'human', :u, 'voice', 'outbound', 'completed', now(), '{}'::jsonb)"
+        ),
+        {"t": db.current_tenant(), "c": customer, "u": AGENT},
+    )
+    as_actor(AGENT)
+    assert call_export.build_bundle("CL-SCOPE-PROBE") is not None
+    as_actor(OTHER_AGENT)
+    assert call_export.build_bundle("CL-SCOPE-PROBE") is None

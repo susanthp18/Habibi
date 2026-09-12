@@ -128,14 +128,18 @@ def export_interaction(
             headers={
                 "Content-Disposition": (
                     f'attachment; filename="call-{interaction_id}.md"'
-                )
+                ),
+                # A transcript with the borrower's words in it is never cached
+                # by a proxy or served to the next session from disk.
+                "Cache-Control": "private, no-store",
             },
         )
     return Response(
         content=json.dumps(bundle, indent=2, default=str),
         media_type="application/json",
         headers={
-            "Content-Disposition": f'attachment; filename="call-{interaction_id}.json"'
+            "Content-Disposition": f'attachment; filename="call-{interaction_id}.json"',
+            "Cache-Control": "private, no-store",
         },
     )
 

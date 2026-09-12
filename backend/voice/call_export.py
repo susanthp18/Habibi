@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+import db_core
 
 _MAX_ARG_CHARS = 2000
 
@@ -50,16 +51,25 @@ def _clean(row: dict[str, Any]) -> dict[str, Any]:
 def build_bundle(interaction_id: str) -> dict[str, Any] | None:
     """Assemble the full record for one interaction. ``None`` if unknown."""
     with db.engine.connect() as conn:
-        header = _rows(
-            conn,
-            """
-            SELECT i.*, c.name AS customer_name
-            FROM interactions i
-            LEFT JOIN customers c ON c.id = i.customer_id
-            WHERE i.id = :id
-            """,
-            id=interaction_id,
-        )
+        # The same visibility predicate every customer-facing read carries: an
+        # agent scoped to their own book cannot export another agent's call,
+        # and the answer is the same 404 as an unknown id.
+        header = [
+            dict(r)
+            for r in conn.execute(
+                db_core._sql(
+                    """
+                    SELECT i.*, c.name AS customer_name
+                    FROM interactions i
+                    JOIN customers c ON c.id = i.customer_id
+                    WHERE i.id = :id /*VISIBILITY*/
+                    """
+                ),
+                {"id": interaction_id, **db_core._vis_params()},
+            )
+            .mappings()
+            .all()
+        ]
         if not header:
             return None
 
