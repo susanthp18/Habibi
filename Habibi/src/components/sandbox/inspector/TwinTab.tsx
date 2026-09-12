@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  fetchTwinCorpus,
-  growTwinCorpus,
-  runBounceTwin,
-  TWIN_CORPUS_GROWS,
-  type TwinRunResult,
-} from "@/api/sandbox";
+import { fetchTwinCorpus, growTwinCorpus, runBounceTwin, type TwinRunResult } from "@/api/sandbox";
 import { Button } from "@/components/ui/button";
 
 export function TwinTab() {
@@ -58,7 +52,7 @@ export function TwinTab() {
           type="button"
           size="sm"
           variant="outline"
-          disabled={grow.isPending || !TWIN_CORPUS_GROWS}
+          disabled={grow.isPending}
           onClick={() => void grow.mutateAsync()}
         >
           {grow.isPending ? "Growing…" : "Grow from kept PTPs"}

@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { BookOpen, Bot, CheckCircle2, AlertTriangle, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UnansweredQuestion } from "@/api/types/bot-analytics";
-import { INTENTS } from "@/data/bot-analytics-seed";
-import { GAP_WRITES_PERSIST, linkKbGap, promoteGapToSkill } from "@/api/kb";
+import { INTENTS } from "@/lib/bot-analytics";
+import { linkKbGap, promoteGapToSkill } from "@/api/kb";
 import { usePublishedPromptVersion } from "@/api/prompt-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
@@ -33,13 +33,9 @@ export function UnansweredTable({
   const onPromoteSkill = async (r: UnansweredQuestion) => {
     setBusyId(r.id);
     try {
-      if (GAP_WRITES_PERSIST) {
-        const created = await promoteGapToSkill(r.id);
-        toast.success("Draft skill created — unsigned until you sign it");
-        void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
-        return;
-      }
-      void navigate({ to: "/agent-studio/skills" });
+      const created = await promoteGapToSkill(r.id);
+      toast.success("Draft skill created — unsigned until you sign it");
+      void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not promote gap");
     } finally {
@@ -69,7 +65,7 @@ export function UnansweredTable({
           // Fall through — the toast below says the link was not made.
         }
       }
-      if (GAP_WRITES_PERSIST && published?.id) {
+      if (published?.id) {
         try {
           await linkKbGap(r.id, { promptVersionId: published.id });
         } catch (err) {

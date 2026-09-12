@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ActiveCall, FloorAction } from "@/api/types/floor";
-import { actionLabel, channelLabel } from "@/data/floor-seed";
+import { actionLabel, channelLabel } from "@/lib/floor";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";

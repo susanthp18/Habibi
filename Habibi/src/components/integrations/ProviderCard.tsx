@@ -2,10 +2,9 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { Env, Provider } from "@/api/types/integrations";
-import { healthTone, usageSeries } from "@/data/integrations-seed";
+import { healthTone } from "@/lib/integrations";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
-import { LivelineSpark } from "@/components/charts";
 
 type Props = {
   provider: Provider;
@@ -16,11 +15,6 @@ type Props = {
   onTest: () => void;
   onToggle: (v: boolean) => void;
 };
-
-function Sparkline({ id, env }: { id: Provider["id"]; env: Env }) {
-  const values = usageSeries(id, env);
-  return <LivelineSpark data={values} color="#1868db" height={28} className="w-[7.5rem]" />;
-}
 
 export function ProviderCard({
   provider,
@@ -94,7 +88,6 @@ export function ProviderCard({
             {cfg.usageStats[0]?.value} {cfg.unitLabel}
           </div>
         </div>
-        <Sparkline id={provider.id} env={env} />
       </div>
 
       <div className="mt-150 flex items-center gap-100">

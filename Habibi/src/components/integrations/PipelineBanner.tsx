@@ -1,5 +1,5 @@
 import type { Env, Provider } from "@/api/types/integrations";
-import { PROVIDERS, healthTone } from "@/data/integrations-seed";
+import { healthTone } from "@/lib/integrations";
 import { cn } from "@/lib/utils";
 import {
   ArrowRight,
@@ -52,7 +52,7 @@ function Node({ p, env, onOpen }: { p: Provider; env: Env; onOpen: (id: string) 
 }
 
 export function PipelineBanner({ env, onOpen, providers }: Props & { providers?: Provider[] }) {
-  const catalog = providers?.length ? providers : PROVIDERS;
+  const catalog = providers ?? [];
   const byId = (id: string) => catalog.find((p) => p.id === id);
   const main = MAIN.map(byId).filter(Boolean) as Provider[];
   const side = SIDE.map(byId).filter(Boolean) as Provider[];

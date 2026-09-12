@@ -1,5 +1,5 @@
 import type { DailyPoint } from "@/api/types/bot-analytics";
-import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
+import { VOICE_TTFA_SLO_MS } from "@/lib/bot-analytics";
 import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 
 export function LatencyChart({ points }: { points: DailyPoint[] }) {

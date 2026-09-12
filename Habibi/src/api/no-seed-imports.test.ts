@@ -33,16 +33,11 @@ const FIXTURE_IMPORTERS = [
   "audit.ts",
   "authority.ts",
   "billing.ts",
-  "bot-analytics.ts",
   "compliance.ts",
   "consent.ts",
   "contact-policy.ts",
   "customers.ts",
-  "disputes.ts",
   "documents.ts",
-  "floor.ts",
-  "integrations.ts",
-  "kb.ts",
   "products.ts",
   "promises.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.
@@ -50,8 +45,6 @@ const FIXTURE_IMPORTERS = [
   "qa.ts",
   "redaction.ts",
   "routing.ts",
-  // Held by the sandbox stream while this ratchet landed; fixtures only.
-  "sandbox.ts",
   "upsell.ts",
   "webhooks.ts",
 ];

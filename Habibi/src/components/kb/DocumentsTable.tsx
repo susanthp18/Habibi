@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { cn, formatKbDate } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import type { KbDocument } from "@/api/types/kb";
-import { DOC_TYPE_LABEL, STATUS_LABEL } from "@/data/kb-seed";
+import { DOC_TYPE_LABEL, STATUS_LABEL } from "@/lib/kb";
 import { FileText, RefreshCw, Trash2 } from "lucide-react";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";

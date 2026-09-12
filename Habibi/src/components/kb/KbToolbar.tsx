@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Switch } from "@/components/ui/switch";
 import type { KbDocType } from "@/api/types/kb";
-import { DOC_TYPE_LABEL } from "@/data/kb-seed";
+import { DOC_TYPE_LABEL } from "@/lib/kb";
 import type { KbTab } from "@/components/kb/KbStatsStrip";
 
 export type KbDocFilters = {

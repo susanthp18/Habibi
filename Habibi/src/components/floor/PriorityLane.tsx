@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ActiveCall, FloorAction, FloorAlert } from "@/api/types/floor";
-import { actionLabel } from "@/data/floor-seed";
+import { actionLabel } from "@/lib/floor";
 import { Badge } from "@/components/ui/badge";
 import { Lozenge } from "@/components/ui/lozenge";
 

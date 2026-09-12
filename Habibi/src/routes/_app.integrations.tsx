@@ -17,7 +17,6 @@ import {
 import { LoadingState } from "@/components/ui/loading-state";
 import type { Category, Env, Provider, TestLogEntry } from "@/api/types/integrations";
 import {
-  INTEGRATIONS_LIVE_HINT,
   providerCategories,
   providerCredentialsEditable,
   useProviderMutations,
@@ -201,12 +200,6 @@ function IntegrationsPage() {
             ))}
           </div>
         </div>
-
-        {INTEGRATIONS_LIVE_HINT && consoleTab === "providers" && (
-          <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
-            {INTEGRATIONS_LIVE_HINT}
-          </div>
-        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-200 p-200">

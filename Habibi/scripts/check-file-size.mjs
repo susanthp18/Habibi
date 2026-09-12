@@ -32,7 +32,7 @@ const BASELINE = {
   "src/components/prompt-studio/OutboundTab.tsx": 807,
   "src/routes/_app.agent-studio.index.tsx": 744,
   "src/routes/_app.sandbox.lazy.tsx": 720,
-  "src/routes/_app.handoff.lazy.tsx": 569,
+  "src/routes/_app.handoff.lazy.tsx": 563,
 };
 
 function* walk(dir) {

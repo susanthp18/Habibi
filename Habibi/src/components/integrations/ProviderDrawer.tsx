@@ -6,12 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import type { Env, Provider, TestLogEntry } from "@/api/types/integrations";
-import {
-  healthTone,
-  pipecatSnippet,
-  runMockHealthCheck,
-  usageSeries,
-} from "@/data/integrations-seed";
+import { healthTone, pipecatSnippet } from "@/lib/integrations";
 import { Lozenge } from "@/components/ui/lozenge";
 import { MaskedInput } from "./MaskedInput";
 import { toast } from "sonner";
@@ -26,7 +21,7 @@ type Props = {
   onUpdate: (p: Provider) => void;
   onAppendLog: (e: TestLogEntry) => void;
   /** Live mode: run API health check instead of mock. */
-  onTestLive?: (p: Provider) => void | Promise<void>;
+  onTestLive: (p: Provider) => void | Promise<void>;
 };
 
 export function ProviderDrawer({
@@ -48,8 +43,6 @@ export function ProviderDrawer({
   const locked = Boolean(cfg.credentialsLocked);
   const t = healthTone(cfg.health);
 
-  const usageValues = usageSeries(provider.id, env);
-  const usageLabels = usageValues.map((_, i) => `D${i + 1}`);
   const providerLogs = logs
     .filter((l) => l.providerId === provider.id)
     .slice()
@@ -79,14 +72,7 @@ export function ProviderDrawer({
   const runTest = async () => {
     setTesting(true);
     try {
-      if (onTestLive) {
-        await onTestLive(provider);
-      } else {
-        const entry = await runMockHealthCheck(provider, env);
-        onAppendLog(entry);
-        if (entry.ok) toast.success(`${provider.name} · ${entry.latencyMs} ms`);
-        else toast.error(`${provider.name} · ${entry.message}`);
-      }
+      await onTestLive(provider);
     } finally {
       setTesting(false);
     }
@@ -227,32 +213,6 @@ export function ProviderDrawer({
                     <div className="text-body font-semibold text-text">{s.value}</div>
                   </div>
                 ))}
-              </div>
-              <div className="mt-150">
-                <div className="mb-050 flex items-center justify-between">
-                  <div className="text-body-small font-semibold text-text">
-                    14-day {cfg.unitLabel} volume
-                  </div>
-                  <div className="text-body-small text-text-subtlest">Cost: {cfg.costMonth}</div>
-                </div>
-                <ChartStage
-                  toolbar={
-                    <>
-                      <span className="text-body-tiny text-text-subtlest">Usage snapshot</span>
-                      <SnapshotPill />
-                    </>
-                  }
-                >
-                  <LivelineTrend
-                    values={usageValues}
-                    labels={usageLabels}
-                    color="#1868db"
-                    height={128}
-                    formatValue={(v) => Math.round(v).toLocaleString()}
-                    formatTime={(i) => usageLabels[i] ?? ""}
-                    fill
-                  />
-                </ChartStage>
               </div>
             </TabsContent>
 

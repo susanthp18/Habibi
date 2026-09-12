@@ -20,24 +20,13 @@ import type {
   Evidence,
   ResolutionCode,
 } from "@/api/types/disputes";
-import {
-  addNote as addSeedNote,
-  assignDispute as assignSeedDispute,
-  attachEvidence as attachSeedEvidence,
-  createDispute as createSeedDispute,
-  disputes as seedDisputes,
-  moveDispute as moveSeedDispute,
-  rejectDispute as rejectSeedDispute,
-  resolveDispute as resolveSeedDispute,
-  withMockSla,
-} from "@/data/disputes-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { humanNames, resolveActor, type Staff } from "./staff";
 
 export const UNASSIGNED = "Unassigned";
 
 export function disputeAssigneeOptions(staff: Staff[], existing: string[]): string[] {
-  if (!USE_MOCK) return humanNames(staff);
+  return humanNames(staff);
   return Array.from(new Set(existing)).sort();
 }
 
@@ -54,20 +43,11 @@ export type CreateDisputeInput = {
 export async function fetchDisputes(): Promise<Dispute[]> {
   // The SLA fields are the server's to compute; mock recomputes them on every
   // fetch (as the server would) rather than freezing them into the seed row.
-  if (USE_MOCK) return mockDelay(seedDisputes.map(withMockSla));
   return apiGet<Dispute[]>("/disputes");
 }
 
 /** Raise a dispute from the Disputes desk (or workspace quick action). */
 export async function createDispute(input: CreateDisputeInput): Promise<{ id: string }> {
-  if (USE_MOCK) {
-    const d = createSeedDispute({
-      ...input,
-      customerName: input.customerName?.trim() || input.customerId,
-    });
-    await mockDelay(undefined);
-    return { id: d.id };
-  }
   const created = await apiPost<{ id: string }>("/disputes", {
     customerId: input.customerId,
     accountId: input.accountId,
@@ -83,18 +63,10 @@ export function useDisputes() {
 }
 
 export async function moveDispute(d: Dispute, status: DisputeStatus): Promise<void> {
-  if (USE_MOCK) {
-    moveSeedDispute(d.id, status);
-    return;
-  }
   await apiPatch(`/disputes/${d.id}`, { status });
 }
 
 export async function assignDispute(d: Dispute, assignee: string): Promise<void> {
-  if (USE_MOCK) {
-    assignSeedDispute(d.id, assignee);
-    return;
-  }
   if (assignee === UNASSIGNED) {
     // Explicit null clears the column (PATCH uses exclude_unset server-side).
     await apiPatch(`/disputes/${d.id}`, { assigneeUserId: null });
@@ -108,10 +80,6 @@ export async function assignDispute(d: Dispute, assignee: string): Promise<void>
 }
 
 export async function addNote(d: Dispute, note: string): Promise<void> {
-  if (USE_MOCK) {
-    addSeedNote(d.id, note);
-    return;
-  }
   await apiPost(`/disputes/${d.id}/notes`, { text: note.trim() });
 }
 
@@ -130,10 +98,6 @@ export async function attachEvidence(
   name: string,
   kind: Evidence["kind"] = "other",
 ): Promise<void> {
-  if (USE_MOCK) {
-    attachSeedEvidence(d.id, name, kind);
-    return;
-  }
   const filename = name.trim() || `evidence-${Date.now()}.pdf`;
   // storageRef is omitted on purpose — the server owns the storage layout
   // (and knows the tenant); clients shouldn't invent paths.
@@ -148,10 +112,6 @@ export async function resolveDispute(
   code: ResolutionCode,
   notes: string,
 ): Promise<void> {
-  if (USE_MOCK) {
-    resolveSeedDispute(d.id, code, notes);
-    return;
-  }
   await apiPatch(`/disputes/${d.id}`, {
     status: "resolved",
     resolutionCode: code,
@@ -160,10 +120,6 @@ export async function resolveDispute(
 }
 
 export async function rejectDispute(d: Dispute, notes: string): Promise<void> {
-  if (USE_MOCK) {
-    rejectSeedDispute(d.id, notes);
-    return;
-  }
   await apiPatch(`/disputes/${d.id}`, {
     status: "rejected",
     resolutionCode: "invalid_no_action",

@@ -12,11 +12,10 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { Guardrails, PersonaState, PromptVersion } from "@/api/types/prompt-studio";
-import { DEFAULT_GUARDRAILS } from "@/data/prompt-studio-seed";
-import type { BotReply, IntentKey, Persona, Scenario } from "@/api/types/sandbox";
-import { SCENARIOS, generateBotReply, INTENT_KEYS } from "@/data/sandbox-seed";
+import type { IntentKey, Persona, Scenario } from "@/api/types/sandbox";
 import { sandboxTurnResultSchema } from "@/lib/studio-contract";
-import { apiGet, apiGetBlob, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiGetBlob, apiPost } from "./config";
+import { INTENT_KEYS } from "@/lib/sandbox";
 
 export type SandboxContext = {
   /** A real `customers` id makes the simulated tools read that borrower's real
@@ -145,7 +144,6 @@ function contextFromPersona(persona: Persona): SandboxContext {
 }
 
 export async function fetchSandboxScenarios(): Promise<Scenario[]> {
-  if (USE_MOCK) return mockDelay(SCENARIOS);
   const rows = await apiGet<Scenario[]>("/sandbox/scenarios");
   return rows.map((s) => ({
     ...s,
@@ -168,22 +166,6 @@ export function useSandboxScenarios() {
 }
 
 export async function fetchSandboxRun(runId: string): Promise<SandboxRunDetail> {
-  if (USE_MOCK) {
-    return mockDelay({
-      id: runId,
-      scenarioId: null,
-      deploymentId: null,
-      promptVersionId: null,
-      kbSnapshotId: null,
-      startedByUserId: null,
-      status: "completed",
-      aggregateLatencyMs: 0,
-      aggregateTokens: 0,
-      createdAt: null,
-      updatedAt: null,
-      turns: [],
-    });
-  }
   return apiGet<SandboxRunDetail>(`/sandbox/runs/${runId}`);
 }
 
@@ -220,44 +202,6 @@ export async function createSandboxRun(input: {
     ...input.context,
   };
 
-  if (USE_MOCK) {
-    const opening = (input.openingTemplate ?? "")
-      .replaceAll("{customer_name}", context.customer_name ?? "Customer")
-      .replaceAll("{agent_name}", context.agent_name ?? "Priya")
-      .replaceAll("{bank_name}", context.bank_name ?? "HDFC Bank")
-      .replaceAll("{language}", context.language ?? "English");
-    return mockDelay({
-      id: `SBX-MOCK-${Date.now().toString(36)}`,
-      scenarioId: input.scenarioId ?? null,
-      deploymentId: null,
-      promptVersionId: input.promptVersionId ?? "v1_4",
-      kbSnapshotId: input.kbSnapshotId ?? null,
-      status: "running",
-      openingMessage: opening || null,
-      promptVersion: {
-        id: input.promptVersionId ?? "v1_4",
-        label: "mock",
-        author: "You",
-        status: "published",
-        createdAt: new Date().toISOString(),
-        summary: "",
-        prompt: "",
-        persona: {
-          traits: { empathy: 70, firmness: 50, formality: 60, verbosity: 40, upsell: 20 },
-          language: "English",
-          fallbackLanguages: ["Hindi"],
-        },
-        voice: { voiceId: "priya", speed: 1, pitch: 0, warmth: 60, pauseMs: 300, sampleText: "" },
-        guardrails: DEFAULT_GUARDRAILS,
-      },
-      context: Object.fromEntries(
-        Object.entries(context)
-          .filter(([, v]) => v != null)
-          .map(([k, v]) => [k, String(v)]),
-      ),
-    });
-  }
-
   return apiPost<SandboxRun>("/sandbox/runs", {
     promptVersionId: input.promptVersionId ?? null,
     scenarioId: input.scenarioId ?? null,
@@ -284,47 +228,6 @@ export async function appendSandboxTurn(input: {
   personaState?: PersonaState;
   guardrails?: Guardrails;
 }): Promise<SandboxTurnResult> {
-  if (USE_MOCK) {
-    if (!input.scenario) throw new Error("sandbox_scenario_required");
-    if (!input.personaState) throw new Error("sandbox_persona_state_required");
-    const scenario = input.scenario;
-    const reply: BotReply = generateBotReply(
-      scenario,
-      input.turnIndex ?? 0,
-      input.text,
-      input.personaState,
-      input.guardrails ?? DEFAULT_GUARDRAILS,
-    );
-    await mockDelay(null, reply.latencyMs);
-    return {
-      runId: input.runId,
-      promptVersionId: "mock",
-      customerTurn: {
-        id: `c-${Date.now()}`,
-        role: "customer",
-        text: input.text,
-        intent: reply.intent,
-        intentScores: reply.intentScores,
-        sentiment: 0,
-        sentimentLabel: "neutral",
-      },
-      botTurn: {
-        id: `b-${Date.now()}`,
-        role: "bot",
-        text: reply.text,
-        chunkIds: reply.chunkIds,
-        chunks: reply.chunkIds.map((id) => ({ chunkId: id })),
-        latencyMs: reply.latencyMs,
-        tokens: reply.tokens,
-        guardrailFlags: reply.guardrailFlags,
-        intent: reply.intent,
-        sentiment: 0,
-        sentimentLabel: "neutral",
-        halted: false,
-      },
-    };
-  }
-
   return apiPost<SandboxTurnResult>(
     `/sandbox/runs/${input.runId}/turns`,
     {
@@ -363,7 +266,7 @@ export async function exportInteraction(
   URL.revokeObjectURL(url);
 }
 
-export { INTENT_KEYS };
+export { INTENT_KEYS } from "@/lib/sandbox";
 
 export function isIntentKey(value: string): value is IntentKey {
   return (INTENT_KEYS as readonly string[]).includes(value);
@@ -416,10 +319,7 @@ export type TwinCorpusRow = {
   taskId?: string | null;
 };
 
-export const TWIN_CORPUS_GROWS = !USE_MOCK;
-
 export async function fetchTwinCorpus(): Promise<TwinCorpusRow[]> {
-  if (USE_MOCK) return mockDelay([] as TwinCorpusRow[]);
   return apiGet<TwinCorpusRow[]>("/eval/twin-corpus");
 }
 
@@ -428,19 +328,5 @@ export async function growTwinCorpus(): Promise<{ created: number; skipped: numb
 }
 
 export async function runBounceTwin(twinId = "twin-bounce-ladder-v0"): Promise<TwinRunResult> {
-  if (USE_MOCK) {
-    return mockDelay({
-      id: "mock-twin",
-      twinId,
-      scenario: "bounce_ladder",
-      status: "completed",
-      outcome: {
-        queues: { whatsapp: [{ kind: "bounce_chase" }], sms: [], voice: [] },
-        ledger: { lastEvent: "bounce_chase_whatsapp" },
-        dialled: false,
-      },
-      grader: { passed: true },
-    });
-  }
   return apiPost<TwinRunResult>(`/twins/${twinId}/run`, {});
 }

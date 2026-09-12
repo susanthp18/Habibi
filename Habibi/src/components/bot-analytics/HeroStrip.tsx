@@ -9,7 +9,7 @@ import {
   HandCoins,
 } from "lucide-react";
 import type { Kpis } from "@/api/types/bot-analytics";
-import { VOICE_TTFA_SLO_MS } from "@/data/bot-analytics-seed";
+import { VOICE_TTFA_SLO_MS } from "@/lib/bot-analytics";
 import { LivelineSpark } from "@/components/charts";
 
 function Tile({

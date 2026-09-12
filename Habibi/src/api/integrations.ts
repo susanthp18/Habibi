@@ -4,44 +4,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Category, Env, Provider, ProviderId, TestLogEntry } from "@/api/types/integrations";
-import {
-  CATEGORY_LIST,
-  LIVE_PROVIDER_IDS,
-  PROVIDERS,
-  runMockHealthCheck,
-} from "@/data/integrations-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
-
-export const INTEGRATIONS_LIVE_HINT = USE_MOCK
-  ? null
-  : "Live stack providers only · secrets resolve from process env / vault (not editable here)";
-
-export const GATEWAY_CANARY_WRITES = !USE_MOCK;
+import { CATEGORY_LIST, LIVE_PROVIDER_IDS } from "@/lib/integrations";
+import { apiGet, apiPatch, apiPost } from "./config";
 
 export function providerCategories(providers: Provider[]): (Category | "All")[] {
-  if (USE_MOCK) return CATEGORY_LIST;
   const present = new Set(providers.map((p) => p.category));
   return ["All", ...CATEGORY_LIST.filter((c) => c !== "All" && present.has(c))];
 }
 
 export function providerCredentialsEditable(provider: Provider, env: Env): boolean {
-  if (USE_MOCK) return true;
   return !provider.perEnv?.[env]?.credentialsLocked;
 }
 
-function mockProviders(): Provider[] {
-  // Keep full catalog in mock; secrets already placeholders.
-  return PROVIDERS.map((p) => ({
-    ...p,
-    perEnv: {
-      sandbox: { ...p.perEnv.sandbox, credentialsLocked: false },
-      production: { ...p.perEnv.production, credentialsLocked: false },
-    },
-  }));
-}
-
 export async function fetchProviders(env: Env = "sandbox"): Promise<Provider[]> {
-  if (USE_MOCK) return mockDelay(mockProviders());
   const list = await apiGet<Provider[]>(`/providers?env=${encodeURIComponent(env)}`);
   // Live API returns stack providers only.
   return list.filter((p) => (LIVE_PROVIDER_IDS as readonly string[]).includes(p.id));
@@ -60,39 +35,14 @@ export async function setProviderEnabled(
   env: Env,
   enabled: boolean,
 ): Promise<Provider> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    const p = PROVIDERS.find((x) => x.id === providerId);
-    if (!p) throw new Error("provider_not_found");
-    const next: Provider = {
-      ...p,
-      perEnv: {
-        ...p.perEnv,
-        [env]: {
-          ...p.perEnv[env],
-          enabled,
-          health: enabled
-            ? p.perEnv[env].health === "unconfigured"
-              ? "healthy"
-              : p.perEnv[env].health
-            : "unconfigured",
-        },
-      },
-    };
-    const idx = PROVIDERS.findIndex((x) => x.id === providerId);
-    if (idx >= 0) PROVIDERS[idx] = next;
-    return next;
-  }
   return apiPatch<Provider>(`/providers/${providerId}/configs/${env}`, { enabled });
 }
 
 export async function testProviderConnection(provider: Provider, env: Env): Promise<TestLogEntry> {
-  if (USE_MOCK) return runMockHealthCheck(provider, env);
   return apiPost<TestLogEntry>(`/providers/${provider.id}/test?env=${encodeURIComponent(env)}`, {});
 }
 
 export async function fetchProviderTestLogs(providerId: ProviderId): Promise<TestLogEntry[]> {
-  if (USE_MOCK) return mockDelay([]);
   return apiGet<TestLogEntry[]>(`/providers/${providerId}/test-logs`);
 }
 
@@ -293,8 +243,7 @@ const MOCK_GATEWAY: GatewayStatus = {
 export function useConnectors() {
   return useQuery({
     queryKey: ["connectors"],
-    queryFn: async () =>
-      USE_MOCK ? mockDelay(MOCK_CONNECTORS) : apiGet<Connector[]>("/connectors"),
+    queryFn: async () => apiGet<Connector[]>("/connectors"),
     staleTime: 15_000,
   });
 }
@@ -305,30 +254,23 @@ export function useConnectorMutations() {
   return {
     upsert: useMutation({
       meta: { errors: "toast" },
-      mutationFn: (payload: Record<string, unknown>) =>
-        USE_MOCK ? mockDelay(payload as Connector) : apiPost<Connector>("/connectors", payload),
+      mutationFn: (payload: Record<string, unknown>) => apiPost<Connector>("/connectors", payload),
       onSuccess: invalidate,
     }),
     approve: useMutation({
       meta: { errors: "toast" },
-      mutationFn: (id: string) =>
-        USE_MOCK ? mockDelay({ ok: true }) : apiPost(`/connectors/${id}/approve`, {}),
+      mutationFn: (id: string) => apiPost(`/connectors/${id}/approve`, {}),
       onSuccess: invalidate,
     }),
     test: useMutation({
       meta: { errors: "caller" },
-      mutationFn: (id: string) =>
-        USE_MOCK
-          ? mockDelay({ ok: true, kind: "first_party" })
-          : apiPost(`/connectors/${id}/test`, {}),
+      mutationFn: (id: string) => apiPost(`/connectors/${id}/test`, {}),
       onSuccess: invalidate,
     }),
     cimd: useMutation({
       meta: { errors: "caller" },
       mutationFn: (input: { id: string; issuer: string }) =>
-        USE_MOCK
-          ? mockDelay({ ok: true, clientId: "cimd-mock", issuer: input.issuer })
-          : apiPost(`/connectors/${input.id}/cimd`, { issuer: input.issuer }),
+        apiPost(`/connectors/${input.id}/cimd`, { issuer: input.issuer }),
       onSuccess: invalidate,
     }),
   };
@@ -337,8 +279,7 @@ export function useConnectorMutations() {
 export function useVaultRefs() {
   return useQuery({
     queryKey: ["vault-refs"],
-    queryFn: async () =>
-      USE_MOCK ? mockDelay([] as VaultRef[]) : apiGet<VaultRef[]>("/vault/refs"),
+    queryFn: async () => apiGet<VaultRef[]>("/vault/refs"),
     staleTime: 15_000,
   });
 }
@@ -350,27 +291,13 @@ export function useVaultMutations() {
     put: useMutation({
       meta: { errors: "toast" },
       mutationFn: (payload: { name: string; purpose: string; secret: string }) =>
-        USE_MOCK
-          ? // `satisfies` checks the literal against VaultRef but does not widen
-            // it, so mockDelay inferred `{hasSecret: true}` and the ternary
-            // produced `Promise<thatLiteral> | Promise<VaultRef>` — a union no
-            // MutationFunction accepts. The type argument makes both arms agree.
-            mockDelay<VaultRef>({
-              id: `vault-mock`,
-              name: payload.name,
-              purpose: payload.purpose,
-              backend: "local",
-              hasSecret: true,
-            })
-          : apiPost<VaultRef>("/vault/refs", payload),
+        apiPost<VaultRef>("/vault/refs", payload),
       onSuccess: invalidate,
     }),
     rotate: useMutation({
       meta: { errors: "toast" },
       mutationFn: (input: { id: string; secret: string }) =>
-        USE_MOCK
-          ? mockDelay({ ok: true })
-          : apiPost(`/vault/refs/${input.id}/rotate`, { secret: input.secret }),
+        apiPost(`/vault/refs/${input.id}/rotate`, { secret: input.secret }),
       onSuccess: invalidate,
     }),
   };
@@ -379,7 +306,7 @@ export function useVaultMutations() {
 export function useMcpKeys() {
   return useQuery({
     queryKey: ["mcp-keys"],
-    queryFn: async () => (USE_MOCK ? mockDelay([] as McpKey[]) : apiGet<McpKey[]>("/mcp/keys")),
+    queryFn: async () => apiGet<McpKey[]>("/mcp/keys"),
     staleTime: 15_000,
   });
 }
@@ -391,16 +318,7 @@ export function useMcpKeyMutations() {
     mint: useMutation({
       meta: { errors: "toast" },
       mutationFn: (payload: { name: string; scopes: string[] }) =>
-        USE_MOCK
-          ? mockDelay<McpKey>({
-              id: "mcpk-mock",
-              name: payload.name,
-              prefix: "mcp_moc",
-              scopes: payload.scopes,
-              revoked: false,
-              key: "mcp_mock-shown-once",
-            })
-          : apiPost<McpKey>("/mcp/keys", payload),
+        apiPost<McpKey>("/mcp/keys", payload),
       onSuccess: invalidate,
     }),
     rotate: useMutation({
@@ -409,23 +327,12 @@ export function useMcpKeyMutations() {
       // row, so the caller had to `as McpKey` its way past the union to read
       // the one field it wanted. Returning the same shape from both arms is
       // what lets that cast go.
-      mutationFn: (id: string) =>
-        USE_MOCK
-          ? mockDelay<McpKey>({
-              id,
-              name: "Mock key",
-              prefix: "mcp_rot",
-              scopes: [],
-              revoked: false,
-              key: "mcp_rotated-shown-once",
-            })
-          : apiPost<McpKey>(`/mcp/keys/${id}/rotate`, {}),
+      mutationFn: (id: string) => apiPost<McpKey>(`/mcp/keys/${id}/rotate`, {}),
       onSuccess: invalidate,
     }),
     revoke: useMutation({
       meta: { errors: "toast" },
-      mutationFn: (id: string) =>
-        USE_MOCK ? mockDelay({ ok: true }) : apiPost(`/mcp/keys/${id}/revoke`, {}),
+      mutationFn: (id: string) => apiPost(`/mcp/keys/${id}/revoke`, {}),
       onSuccess: invalidate,
     }),
   };
@@ -434,7 +341,7 @@ export function useMcpKeyMutations() {
 export function useMcpStatus() {
   return useQuery({
     queryKey: ["mcp-status"],
-    queryFn: async () => (USE_MOCK ? mockDelay(MOCK_MCP_STATUS) : apiGet<McpStatus>("/mcp/status")),
+    queryFn: async () => apiGet<McpStatus>("/mcp/status"),
     staleTime: 30_000,
   });
 }
@@ -442,7 +349,7 @@ export function useMcpStatus() {
 export function useMcpTasks() {
   return useQuery({
     queryKey: ["mcp-tasks"],
-    queryFn: async () => (USE_MOCK ? mockDelay([] as McpTask[]) : apiGet<McpTask[]>("/mcp/tasks")),
+    queryFn: async () => apiGet<McpTask[]>("/mcp/tasks"),
     staleTime: 10_000,
   });
 }
@@ -450,8 +357,7 @@ export function useMcpTasks() {
 export function useGatewayStatus() {
   return useQuery({
     queryKey: ["gateway-status"],
-    queryFn: async () =>
-      USE_MOCK ? mockDelay(MOCK_GATEWAY) : apiGet<GatewayStatus>("/gateway/status"),
+    queryFn: async () => apiGet<GatewayStatus>("/gateway/status"),
     staleTime: 30_000,
   });
 }
@@ -460,9 +366,7 @@ export function useGatewayCanary() {
   return useQuery({
     queryKey: ["gateway-canary"],
     queryFn: async () =>
-      USE_MOCK
-        ? mockDelay({ current: null, history: [] as GatewayCanary[] })
-        : apiGet<{ current: GatewayCanary | null; history: GatewayCanary[] }>("/gateway/canary"),
+      apiGet<{ current: GatewayCanary | null; history: GatewayCanary[] }>("/gateway/canary"),
     staleTime: 15_000,
   });
 }
@@ -495,8 +399,7 @@ export function usePromoteGatewayCanary() {
 export function useA2aPartners() {
   return useQuery({
     queryKey: ["a2a-partners"],
-    queryFn: async () =>
-      USE_MOCK ? mockDelay([] as A2aPartner[]) : apiGet<A2aPartner[]>("/a2a/partners"),
+    queryFn: async () => apiGet<A2aPartner[]>("/a2a/partners"),
     staleTime: 15_000,
   });
 }
@@ -504,7 +407,7 @@ export function useA2aPartners() {
 export function useA2aTasks() {
   return useQuery({
     queryKey: ["a2a-tasks"],
-    queryFn: async () => (USE_MOCK ? mockDelay([] as A2aTask[]) : apiGet<A2aTask[]>("/a2a/tasks")),
+    queryFn: async () => apiGet<A2aTask[]>("/a2a/tasks"),
     staleTime: 10_000,
   });
 }

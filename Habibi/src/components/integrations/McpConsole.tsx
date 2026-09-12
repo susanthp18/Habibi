@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import {
-  GATEWAY_CANARY_WRITES,
   useConnectorMutations,
   useConnectors,
   useGatewayStatus,
@@ -630,7 +629,7 @@ export function GatewayPanel() {
           />
           <Button
             size="sm"
-            disabled={!candidate || propose.isPending || !GATEWAY_CANARY_WRITES}
+            disabled={!candidate || propose.isPending}
             onClick={() => void propose.mutateAsync(candidate)}
           >
             {propose.isPending ? "Starting…" : "Start at analysis"}

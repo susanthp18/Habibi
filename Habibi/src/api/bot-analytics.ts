@@ -18,17 +18,8 @@ import type {
   TurnsBucket,
   UnansweredQuestion,
 } from "@/api/types/bot-analytics";
-import {
-  computeKpis,
-  dailySeries as seedDailySeries,
-  escalationReasons as seedEscalationReasons,
-  filterByRange,
-  funnelStages as seedFunnelStages,
-  intentAggs as seedIntentAggs,
-  turnsHistogram as seedTurnsHistogram,
-  unansweredQuestions as seedUnansweredQuestions,
-} from "@/data/bot-analytics-seed";
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { computeKpis } from "@/lib/bot-analytics";
+import { apiGet } from "./config";
 
 export interface BotAnalytics {
   dailySeries: DailyPoint[];
@@ -54,16 +45,6 @@ export async function fetchBotAnalytics(
   range: RangeKey,
   channel: ChannelKey,
 ): Promise<BotAnalytics> {
-  if (USE_MOCK) {
-    return mockDelay({
-      dailySeries: filterByRange(range, seedDailySeries),
-      intentAggs: seedIntentAggs,
-      escalationReasons: seedEscalationReasons,
-      unansweredQuestions: seedUnansweredQuestions,
-      turnsHistogram: seedTurnsHistogram,
-      funnelStages: seedFunnelStages,
-    });
-  }
   const qs = new URLSearchParams({ range, channel });
   return apiGet<BotAnalytics>(`/bot-analytics?${qs.toString()}`);
 }
@@ -76,20 +57,8 @@ export function useBotAnalytics(range: RangeKey, channel: ChannelKey) {
   });
 }
 
-/** Live pushes channel into SQL. Mock scales historic PoC session counts here. */
 export function analyticsKpis(points: DailyPoint[], channel: ChannelKey) {
-  const base = computeKpis(points);
-  if (!USE_MOCK || channel === "all") return base;
-  const factor = channel === "voice" ? 0.72 : channel === "whatsapp" ? 0.2 : 0.08;
-  return { ...base, sessions: Math.round(base.sessions * factor) };
+  // The channel narrows the query on the server; nothing is scaled here.
+  void channel;
+  return computeKpis(points);
 }
-
-export type {
-  ChannelKey,
-  DailyPoint,
-  EscalationReason,
-  IntentAgg,
-  RangeKey,
-  TurnsBucket,
-  UnansweredQuestion,
-};

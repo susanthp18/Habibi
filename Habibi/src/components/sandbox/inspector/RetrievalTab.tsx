@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { groundedLabel } from "@/api/sandbox";
 import type { SandboxTurn } from "@/api/types/sandbox";
-import { chunkTitle } from "@/data/sandbox-seed";
+import { chunkTitle } from "@/lib/sandbox";
 import type { LiveRagHit } from "@/components/sandbox/voice/liveEvents";
 
 function scoreBarWidth(score: number): string {

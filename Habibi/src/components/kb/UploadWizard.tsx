@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { KbDocType } from "@/api/types/kb";
-import { DOC_TYPE_LABEL } from "@/data/kb-seed";
+import { DOC_TYPE_LABEL } from "@/lib/kb";
 import { previewChunksFromText, type KbUploadInput } from "@/api/kb";
 import { KbTagEditor } from "@/components/kb/KbTagEditor";
 import { UploadCloud, FileText, ChevronRight } from "lucide-react";

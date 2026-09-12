@@ -19,7 +19,7 @@ import { previewTts } from "@/api/prompt-studio";
 import { transcribeAudio } from "@/api/speech";
 import type { VoiceConfig } from "@/api/types/prompt-studio";
 import type { IntentKey, SandboxTurn } from "@/api/types/sandbox";
-import { INTENT_LABEL } from "@/data/sandbox-seed";
+import { INTENT_LABEL } from "@/lib/sandbox";
 import { cn } from "@/lib/utils";
 import { Waveform } from "@/components/floor/Waveform";
 import type { HandoffStatusEvent, LifecycleEvent } from "./voice/liveEvents";

@@ -5,13 +5,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { ActiveCall, FloorAgent, FloorAlert } from "@/api/types/floor";
-import {
-  activeCalls as seedCalls,
-  baselineStats,
-  initialAlerts,
-  seedAgents,
-} from "@/data/floor-seed";
-import { apiEventStream, apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiEventStream, apiGet, apiPost } from "./config";
 
 export type FloorStats = {
   callsInProgress: number;
@@ -53,14 +47,6 @@ function hydrateCall(c: ActiveCall): ActiveCall {
 }
 
 export async function fetchFloor(): Promise<FloorSnapshot> {
-  if (USE_MOCK) {
-    return mockDelay({
-      calls: seedCalls,
-      alerts: initialAlerts,
-      stats: baselineStats,
-      agents: seedAgents,
-    });
-  }
   const raw = await apiGet<FloorSnapshot>("/floor");
   return {
     calls: (raw.calls ?? []).map(hydrateCall),
@@ -77,8 +63,8 @@ export function useFloor(refetchIntervalMs = 3_000) {
   return useQuery({
     queryKey: ["floor"],
     queryFn: fetchFloor,
-    refetchInterval: USE_MOCK ? false : refetchIntervalMs,
-    staleTime: USE_MOCK ? Infinity : 2_000,
+    refetchInterval: refetchIntervalMs,
+    staleTime: 2_000,
   });
 }
 
@@ -107,19 +93,18 @@ export function useFloorBoard(initial: FloorSnapshot) {
   const [alerts, setAlerts] = useState<FloorAlert[]>(snapshot.alerts);
 
   useEffect(() => {
-    if (USE_MOCK) return;
     setCalls(snapshot.calls);
     setAlerts(snapshot.alerts);
   }, [snapshot.calls, snapshot.alerts]);
 
   useEffect(() => {
-    if (!USE_MOCK) return;
+    return;
     const iv = window.setInterval(() => setCalls(tickMockCalls), 1000);
     return () => window.clearInterval(iv);
   }, []);
 
   const applyMockBarge = (id: string) => {
-    if (!USE_MOCK) return;
+    return;
     setCalls((prev) =>
       prev.map((c) =>
         c.id === id
@@ -135,7 +120,7 @@ export function useFloorBoard(initial: FloorSnapshot) {
   };
 
   const applyMockAck = (alertId: string) => {
-    if (!USE_MOCK) return;
+    return;
     setAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };
 
@@ -145,7 +130,7 @@ export function useFloorBoard(initial: FloorSnapshot) {
     alerts,
     isError,
     error,
-    liveHint: USE_MOCK ? null : FLOOR_LIVE_HINT,
+    liveHint: FLOOR_LIVE_HINT,
     applyMockBarge,
     applyMockAck,
   };
@@ -156,18 +141,10 @@ export async function postSupervisorAction(
   action: SupervisorAction,
   note?: string,
 ): Promise<{ audioJoined?: boolean } | void> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    return { audioJoined: false };
-  }
   return apiPost("/supervisor-actions", { interactionId, action, note });
 }
 
 export async function ackFloorAlert(alertId: string): Promise<void> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    return;
-  }
   await apiPost(`/floor/alerts/${alertId}/ack`, {});
 }
 
@@ -220,16 +197,6 @@ export type FloorCopilot = {
 };
 
 export async function fetchFloorCopilot(interactionId: string): Promise<FloorCopilot | null> {
-  if (USE_MOCK) {
-    return mockDelay({
-      interactionId,
-      customerId: null,
-      whisperDraft: "Stay with the current script. No engine veto is in force.",
-      engineDraft: "Stay with the current script. No engine veto is in force.",
-      vetoes: [],
-      engines: {},
-    });
-  }
   return apiGet<FloorCopilot>(`/floor/copilot/${interactionId}`);
 }
 
@@ -274,30 +241,6 @@ export function useCopilotStream(interactionId: string | null) {
     }
     const ac = new AbortController();
     setState({ ...EMPTY_STREAM, streaming: true });
-
-    if (USE_MOCK) {
-      const seed = "Stay with the current script. No engine veto is in force.";
-      const words = seed.match(/\S+\s*/g) ?? [seed];
-      let i = 0;
-      const tick = window.setInterval(() => {
-        i += 1;
-        setState({
-          whisper: words.slice(0, i).join(""),
-          engineDraft: seed,
-          vetoes: [],
-          card: undefined,
-          approvals: [],
-          streaming: i < words.length,
-          done: i >= words.length,
-          error: null,
-        });
-        if (i >= words.length) window.clearInterval(tick);
-      }, 40);
-      return () => {
-        ac.abort();
-        window.clearInterval(tick);
-      };
-    }
 
     void apiEventStream(
       `/floor/copilot/${interactionId}/stream`,
@@ -354,7 +297,6 @@ export function useCopilotStream(interactionId: string | null) {
 }
 
 export async function fetchFloorApprovals(): Promise<FloorApproval[]> {
-  if (USE_MOCK) return mockDelay([]);
   return apiGet<FloorApproval[]>("/floor/approvals");
 }
 
@@ -362,7 +304,7 @@ export function useFloorApprovals() {
   return useQuery({
     queryKey: ["floor-approvals"],
     queryFn: fetchFloorApprovals,
-    refetchInterval: USE_MOCK ? false : 5_000,
+    refetchInterval: 5_000,
   });
 }
 
