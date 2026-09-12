@@ -51,6 +51,7 @@ Pipecat reads as "stay here". See ``flow_graph.RESERVED_NODE_KEYS``.
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
 import dataclasses
 import logging
 from functools import wraps
@@ -129,96 +130,38 @@ def session_variables(session: Any) -> dict[str, str]:
     }
 
 
-def build_authored_flow(
-    session: VoiceSession,
-    graph_data: Any,
-    *,
-    role_message: str,
-    bot_id: str | None = None,
-    start_recording: AsyncStartRecording | None = None,
-    emitter: RtviEmitter | None = None,
-    kb_snapshot_id: str | None = None,
-    inject_developer: DeveloperInjector | None = None,
-    replace_developer: DeveloperReplacer | None = None,
-    persona: dict[str, Any] | None = None,
-    channel: str = "voice",
-    on_kb_tool_used: Callable[[], None] | None = None,
-    spoke_this_response: Callable[[], bool] | None = None,
-    sink: Any | None = None,
-    initial_variables: dict[str, Any] | None = None,
-    allowed_tool_names: set[str] | None = None,
-    attached_skills: list[Any] | None = None,
-    agent_card: dict[str, Any] | None = None,
-    objective: str | None = None,
-    entry_node: str | None = None,
-    specialist_grants: dict[str, set[str]] | None = None,
-    specialist_entries: dict[str, str] | None = None,
-) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
-    """Compile an authored graph. Mirrors ``build_collections_flow``'s contract.
-
-    ``objective`` selects which door the call comes in through. A graph declares
-    its entries with ``FlowNodeData.entryFor``, so one graph serves the inbound
-    caller and every outbound mission without the spine — negotiation, dispute,
-    escalation, wrap-up — being duplicated per direction and then drifting.
-
-    An unknown or unclaimed objective falls back to the inbound start node
-    rather than raising: an authored graph that predates missions must keep
-    behaving exactly as it did, and a mission with no door is a configuration
-    error the *compiler* reports (G-OB2) rather than something to discover
-    halfway through a dial.
+@dataclass
+class FlowBuild:
+    """One authored graph being compiled into pipecat-flows nodes: the graph, the
+    entry, the walker and the variable bag, the built-in tools, and the
+    transition helpers ``_flow_transition_helpers`` defines for
+    ``_flow_node_factory`` to close over. The bodies are what
+    ``build_authored_flow`` was; ``tests/test_flow_export.py`` and the flow
+    suites pin what it compiles.
     """
-    graph: FlowGraph = parse_graph(graph_data)
-    start = graph.start_node
-    if start is None:
-        raise ValueError("authored flow has no start node")
-    # The card's chosen node wins when it names one: it is what the compiler
-    # validated (G-OB2) and what the author saw on the canvas. The objective
-    # lookup is the fallback for a mission placed without a card. Shared with
-    # the text mouths so an outbound mission that starts three steps in does not
-    # restart at "the phone rang" just because the sandbox chose for itself.
-    entry = flow_walk.entry_node(graph, objective=objective, entry_key=entry_node) or start
 
-    variables = FlowVariables(initial_variables, context=lambda: session_variables(session))
-    # Populated below; handed to build_tools by reference so the built-in tools'
-    # _node(name) lookups see the authored nodes.
-    nodes: dict[str, Callable[[], dict[str, Any]]] = {}
+    entry: FlowNode
+    graph: FlowGraph
+    nodes: dict[str, Callable[[], dict[str, Any]]]
+    role_message: Any
+    session: Any
+    state: Any
+    tools: dict[str, Any]
+    variables: FlowVariables
+    walker: FlowWalker
+    _advance_action: Any = None
+    _extract_tool: Any = None
+    _make_factory: Any = None
+    _transition_tool: Any = None
+    _with_deterministic_followup: Any = None
 
-    state, tools = build_tools(
-        session,
-        bot_id=bot_id,
-        start_recording=start_recording,
-        nodes=nodes,
-        emitter=emitter,
-        kb_snapshot_id=kb_snapshot_id,
-        inject_developer=inject_developer,
-        replace_developer=replace_developer,
-        persona=persona,
-        channel=channel,
-        on_kb_tool_used=on_kb_tool_used,
-        spoke_this_response=spoke_this_response,
-        sink=sink,
-        allowed_tool_names=allowed_tool_names,
-        attached_skills=attached_skills,
-        agent_card=agent_card,
-        specialist_grants=specialist_grants,
-        specialist_entries=specialist_entries,
-    )
 
-    # Who is speaking at the start. Mandatory on a merged graph, not cosmetic:
-    # with this left None, `_node("wrap_up")` finds one `wrap_up` per member,
-    # `resolve_key` calls that ambiguous and returns None, and every built-in
-    # transition in the call stops working — the first fleet call would greet
-    # and then sit there. On a flat graph `split_key` yields None and nothing
-    # changes.
-    from flow_graph import split_key as _split_key
-
-    state.active_specialist = _split_key(entry.key)[0]
-
-    # One walker, shared with the text mouths. It owns the edge rules, the node
-    # index and the variable bag; this module owns everything about speaking.
-    walker = FlowWalker(graph, variables, start=entry)
-
-    session.extra.setdefault("flow_variables", variables)
+def _flow_transition_helpers(st: FlowBuild) -> None:
+    """The deterministic advance, the transition and extract tools, and the follow-up wrappers."""
+    entry = st.entry
+    nodes = st.nodes
+    variables = st.variables
+    walker = st.walker
 
     def _deterministic_target(node: FlowNode) -> FlowNode | None:
         return walker.deterministic_target(node)
@@ -361,6 +304,27 @@ def build_authored_flow(
             return _wrap_followup(node, tool)
         return tool
 
+    st.entry = entry
+    st._advance_action = _advance_action
+    st._extract_tool = _extract_tool
+    st._transition_tool = _transition_tool
+    st._with_deterministic_followup = _with_deterministic_followup
+
+
+def _flow_node_factory(st: FlowBuild) -> None:
+    """One pipecat-flows node config per authored node, built lazily."""
+    entry = st.entry
+    role_message = st.role_message
+    session = st.session
+    state = st.state
+    tools = st.tools
+    variables = st.variables
+    walker = st.walker
+    _advance_action = st._advance_action
+    _extract_tool = st._extract_tool
+    _transition_tool = st._transition_tool
+    _with_deterministic_followup = st._with_deterministic_followup
+
     # --- node compilation --------------------------------------------------
 
     def _make_factory(node: FlowNode) -> Callable[[], dict[str, Any]]:
@@ -501,6 +465,18 @@ def build_authored_flow(
 
         return _factory
 
+    st._make_factory = _make_factory
+
+
+def _flow_assemble(st: FlowBuild) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
+    """Every node compiled, the surviving globals, and the entry."""
+    entry = st.entry
+    graph = st.graph
+    nodes = st.nodes
+    state = st.state
+    tools = st.tools
+    _make_factory = st._make_factory
+
     for node in graph.nodes:
         nodes[node.key] = _make_factory(node)
 
@@ -528,3 +504,110 @@ def build_authored_flow(
             entry.key,
         )
     return state, tools, nodes[entry.key], global_functions
+
+
+def build_authored_flow(
+    session: VoiceSession,
+    graph_data: Any,
+    *,
+    role_message: str,
+    bot_id: str | None = None,
+    start_recording: AsyncStartRecording | None = None,
+    emitter: RtviEmitter | None = None,
+    kb_snapshot_id: str | None = None,
+    inject_developer: DeveloperInjector | None = None,
+    replace_developer: DeveloperReplacer | None = None,
+    persona: dict[str, Any] | None = None,
+    channel: str = "voice",
+    on_kb_tool_used: Callable[[], None] | None = None,
+    spoke_this_response: Callable[[], bool] | None = None,
+    sink: Any | None = None,
+    initial_variables: dict[str, Any] | None = None,
+    allowed_tool_names: set[str] | None = None,
+    attached_skills: list[Any] | None = None,
+    agent_card: dict[str, Any] | None = None,
+    objective: str | None = None,
+    entry_node: str | None = None,
+    specialist_grants: dict[str, set[str]] | None = None,
+    specialist_entries: dict[str, str] | None = None,
+) -> tuple[Any, dict[str, Any], Callable[[], dict[str, Any]], list[Any]]:
+    """Compile an authored graph. Mirrors ``build_collections_flow``'s contract.
+
+    ``objective`` selects which door the call comes in through. A graph declares
+    its entries with ``FlowNodeData.entryFor``, so one graph serves the inbound
+    caller and every outbound mission without the spine — negotiation, dispute,
+    escalation, wrap-up — being duplicated per direction and then drifting.
+
+    An unknown or unclaimed objective falls back to the inbound start node
+    rather than raising: an authored graph that predates missions must keep
+    behaving exactly as it did, and a mission with no door is a configuration
+    error the *compiler* reports (G-OB2) rather than something to discover
+    halfway through a dial.
+    """
+    graph: FlowGraph = parse_graph(graph_data)
+    start = graph.start_node
+    if start is None:
+        raise ValueError("authored flow has no start node")
+    # The card's chosen node wins when it names one: it is what the compiler
+    # validated (G-OB2) and what the author saw on the canvas. The objective
+    # lookup is the fallback for a mission placed without a card. Shared with
+    # the text mouths so an outbound mission that starts three steps in does not
+    # restart at "the phone rang" just because the sandbox chose for itself.
+    entry = flow_walk.entry_node(graph, objective=objective, entry_key=entry_node) or start
+
+    variables = FlowVariables(initial_variables, context=lambda: session_variables(session))
+    # Populated below; handed to build_tools by reference so the built-in tools'
+    # _node(name) lookups see the authored nodes.
+    nodes: dict[str, Callable[[], dict[str, Any]]] = {}
+
+    state, tools = build_tools(
+        session,
+        bot_id=bot_id,
+        start_recording=start_recording,
+        nodes=nodes,
+        emitter=emitter,
+        kb_snapshot_id=kb_snapshot_id,
+        inject_developer=inject_developer,
+        replace_developer=replace_developer,
+        persona=persona,
+        channel=channel,
+        on_kb_tool_used=on_kb_tool_used,
+        spoke_this_response=spoke_this_response,
+        sink=sink,
+        allowed_tool_names=allowed_tool_names,
+        attached_skills=attached_skills,
+        agent_card=agent_card,
+        specialist_grants=specialist_grants,
+        specialist_entries=specialist_entries,
+    )
+
+    # Who is speaking at the start. Mandatory on a merged graph, not cosmetic:
+    # with this left None, `_node("wrap_up")` finds one `wrap_up` per member,
+    # `resolve_key` calls that ambiguous and returns None, and every built-in
+    # transition in the call stops working — the first fleet call would greet
+    # and then sit there. On a flat graph `split_key` yields None and nothing
+    # changes.
+    from flow_graph import split_key as _split_key
+
+    state.active_specialist = _split_key(entry.key)[0]
+
+    # One walker, shared with the text mouths. It owns the edge rules, the node
+    # index and the variable bag; this module owns everything about speaking.
+    walker = FlowWalker(graph, variables, start=entry)
+
+    session.extra.setdefault("flow_variables", variables)
+
+    st = FlowBuild(
+        entry=entry,
+        graph=graph,
+        nodes=nodes,
+        role_message=role_message,
+        session=session,
+        state=state,
+        tools=tools,
+        variables=variables,
+        walker=walker,
+    )
+    _flow_transition_helpers(st)
+    _flow_node_factory(st)
+    return _flow_assemble(st)
