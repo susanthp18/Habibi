@@ -3,7 +3,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -13,15 +12,9 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Trash2, Plus } from "lucide-react";
-import type {
-  Endpoint,
-  EventCategory,
-  EventKey,
-  SigningAlgo,
-  TargetSystem,
-} from "@/api/types/webhooks";
+import type { Endpoint, SigningAlgo, TargetSystem } from "@/api/types/webhooks";
 import { useEventCatalog } from "@/api/webhooks";
-import { eventCategories } from "@/lib/webhooks";
+import { EventPicker } from "./EventPicker";
 
 type Draft = Omit<Endpoint, "id" | "createdAt" | "status" | "secret" | "secretRef"> & {
   id?: string;
@@ -58,23 +51,6 @@ export function EndpointSheet({
       setDraft(initial ? { ...initial } : empty());
     }
   }, [open, initial]);
-
-  const toggleEvent = (k: EventKey) =>
-    setDraft((d) => ({
-      ...d,
-      events: d.events.includes(k) ? d.events.filter((x) => x !== k) : [...d.events, k],
-    }));
-
-  const toggleCategory = (cat: EventCategory) => {
-    const inCat = catalog.filter((e) => e.category === cat).map((e) => e.key);
-    const allIn = inCat.every((k) => draft.events.includes(k));
-    setDraft((d) => ({
-      ...d,
-      events: allIn
-        ? d.events.filter((k) => !inCat.includes(k))
-        : Array.from(new Set([...d.events, ...inCat])),
-    }));
-  };
 
   const isValid = draft.name.trim() && draft.url.startsWith("https://") && draft.events.length > 0;
 
@@ -166,48 +142,12 @@ export function EndpointSheet({
                 {draft.events.length} selected
               </span>
             </div>
-            <div className="space-y-150">
-              {eventCategories(catalog).map((cat) => {
-                const items = catalog.filter((e) => e.category === cat);
-                const allIn = items.every((e) => draft.events.includes(e.key));
-                return (
-                  <div key={cat} className="rounded-medium border border-border p-150">
-                    <div className="mb-100 flex items-center justify-between">
-                      <div className="text-body-small font-semibold text-text">{cat}</div>
-                      <button
-                        type="button"
-                        className="text-body-small text-text-brand hover:underline"
-                        onClick={() => toggleCategory(cat)}
-                      >
-                        {allIn ? "Clear group" : "Select all"}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-075">
-                      {items.map((e) => (
-                        <label
-                          key={e.key}
-                          className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
-                        >
-                          <Checkbox
-                            checked={draft.events.includes(e.key)}
-                            onCheckedChange={() => toggleEvent(e.key)}
-                            className="mt-025"
-                          />
-                          <span>
-                            <span className="block font-mono text-body-small text-text-brand">
-                              {e.key}
-                            </span>
-                            <span className="block text-body-small text-text-subtle">
-                              {e.description}
-                            </span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <EventPicker
+              catalog={catalog}
+              selected={draft.events}
+              columns={2}
+              onChange={(events) => setDraft((d) => ({ ...d, events }))}
+            />
           </div>
 
           <Separator />

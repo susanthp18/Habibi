@@ -18,7 +18,7 @@ import { TraceTab } from "./inspector/TraceTab";
 import { ToolsTab } from "./inspector/ToolsTab";
 import { MetricsTab, type TurnMetric } from "./inspector/MetricsTab";
 import { TwinTab } from "./inspector/TwinTab";
-import { EvalCockpit } from "./EvalCockpit";
+import { EvalCockpit } from "@/components/shared/EvalCockpit";
 import { EMPTY_INSIGHTS, type LiveCallInsights } from "./voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";

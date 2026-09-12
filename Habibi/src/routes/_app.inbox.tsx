@@ -6,7 +6,7 @@ import { ChatThread } from "@/components/inbox/ChatThread";
 import { Composer } from "@/components/inbox/Composer";
 import { ContextRail } from "@/components/inbox/ContextRail";
 import { QueryState } from "@/components/ui/query-state";
-import { SplitPanes } from "@/components/inbox/SplitPanes";
+import { SplitPanes } from "@/components/shared/SplitPanes";
 import {
   refreshConversationSuggestions,
   returnConversationToBot,

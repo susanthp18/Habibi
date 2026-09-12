@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { SplitPanes } from "@/components/inbox/SplitPanes";
+import { SplitPanes } from "@/components/shared/SplitPanes";
+import { useMinWidth } from "@/hooks/use-min-width";
 import { CustomerHeader } from "@/components/customer360/CustomerHeader";
 import { QuickActionsRail } from "@/components/customer360/QuickActionsRail";
 import { OverviewTab } from "@/components/customer360/OverviewTab";
@@ -74,26 +75,12 @@ function tabCount(customer: Customer, tab: Tab): number | undefined {
   }
 }
 
-function useIsLg() {
-  const [lg, setLg] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const onChange = () => setLg(mq.matches);
-    onChange();
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return lg;
-}
-
 function CustomerDetail() {
   const { customer: initial } = Route.useLoaderData();
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: "/customers/$customerId" });
   const queryClient = useQueryClient();
-  const isLg = useIsLg();
+  const isLg = useMinWidth(1024);
 
   // The record lives in the query cache under ["customer", id], so the
   // invalidations other panels already issue (goodwill posted, note added)

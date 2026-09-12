@@ -7,7 +7,7 @@ import { ConversationPanel } from "@/components/sandbox/ConversationPanel";
 import { InspectorPanel } from "@/components/sandbox/InspectorPanel";
 import { PromoteDialog } from "@/components/sandbox/PromoteDialog";
 import { TuningStudio } from "@/components/sandbox/TuningStudio";
-import { SplitPanes } from "@/components/inbox/SplitPanes";
+import { SplitPanes } from "@/components/shared/SplitPanes";
 import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
 import { EMPTY_INSIGHTS } from "@/components/sandbox/voice/liveEvents";

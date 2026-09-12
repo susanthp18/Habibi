@@ -31,7 +31,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { SplitPanes } from "@/components/inbox/SplitPanes";
+import { SplitPanes } from "@/components/shared/SplitPanes";
 import { useTheme } from "@/lib/theme";
 
 import {

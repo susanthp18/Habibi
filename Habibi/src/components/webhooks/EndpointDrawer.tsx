@@ -4,7 +4,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -15,8 +14,9 @@ import {
 import { Copy, KeyRound, Pause, Play, Trash2, Zap } from "lucide-react";
 import type { Delivery, Endpoint, EventKey } from "@/api/types/webhooks";
 import { useEventCatalog } from "@/api/webhooks";
-import { SIGNATURE_HEADER_EXAMPLE, eventCategories, successRate, within } from "@/lib/webhooks";
+import { SIGNATURE_HEADER_EXAMPLE, successRate, within } from "@/lib/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
+import { EventPicker } from "./EventPicker";
 import { cn } from "@/lib/utils";
 
 export function EndpointDrawer({
@@ -58,13 +58,6 @@ export function EndpointDrawer({
   }, [epDeliveries]);
 
   if (!endpoint) return null;
-
-  const toggleEvent = (k: EventKey) => {
-    const next = endpoint.events.includes(k)
-      ? endpoint.events.filter((x) => x !== k)
-      : [...endpoint.events, k];
-    onUpdate({ ...endpoint, events: next });
-  };
 
   const copy = (text: string, label: string) => {
     navigator.clipboard?.writeText(text).catch(() => {});
@@ -210,35 +203,11 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             value="events"
             className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
           >
-            {eventCategories(catalog).map((cat) => (
-              <div key={cat} className="rounded-medium border border-border p-150">
-                <div className="mb-100 text-body-small font-semibold text-text">{cat}</div>
-                <div className="grid grid-cols-1 gap-075">
-                  {catalog
-                    .filter((e) => e.category === cat)
-                    .map((e) => (
-                      <label
-                        key={e.key}
-                        className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
-                      >
-                        <Checkbox
-                          checked={endpoint.events.includes(e.key)}
-                          onCheckedChange={() => toggleEvent(e.key)}
-                          className="mt-025"
-                        />
-                        <span>
-                          <span className="block font-mono text-body-small text-text-brand">
-                            {e.key}
-                          </span>
-                          <span className="block text-body-small text-text-subtle">
-                            {e.description}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                </div>
-              </div>
-            ))}
+            <EventPicker
+              catalog={catalog}
+              selected={endpoint.events}
+              onChange={(events) => onUpdate({ ...endpoint, events })}
+            />
           </TabsContent>
 
           {/* Delivery log */}

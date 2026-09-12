@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { isNotFound } from "@/api/config";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Waveform } from "@/components/shared/Waveform";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import {
   Select,
@@ -838,7 +839,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
                 ) : null}
 
                 <div className="min-w-0 flex-1">
-                  <Waveform active={playing || loading} />
+                  <Waveform active={playing || loading} bars={40} className="h-400" />
                 </div>
                 <Volume2 className="h-4 w-4 shrink-0 text-text-subtlest" />
               </div>
@@ -993,26 +994,6 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
     <div className="grid grid-cols-[88px_1fr] gap-100">
       <div className="text-text-subtlest">{label}</div>
       <div className="min-w-0 break-words">{value}</div>
-    </div>
-  );
-}
-
-function Waveform({ active }: { active: boolean }) {
-  return (
-    <div className="flex h-400 items-end gap-025">
-      {Array.from({ length: 40 }).map((_, i) => {
-        const h = 20 + ((i * 37) % 60);
-        return (
-          <div
-            key={i}
-            style={{
-              height: `${h}%`,
-              animationDelay: `${i * 40}ms`,
-            }}
-            className={`w-[0.1875rem] rounded-small bg-background-brand-bold/60 ${active ? "animate-pulse" : "opacity-40"}`}
-          />
-        );
-      })}
     </div>
   );
 }
