@@ -148,7 +148,8 @@ def dispose_engine() -> None:
         logger.exception("engine.dispose failed")
 
 
-def init_and_seed() -> None:
+def probe() -> None:
+    """One round trip at boot: the schema is reachable, or the process does not start."""
     with engine.connect() as conn:
         conn.execute(text("SELECT 1 FROM tenants LIMIT 1"))
 

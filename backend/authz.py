@@ -71,7 +71,6 @@ INTERACTIONS_READ = "perm-interactions-read"
 INTERACTIONS_WRITE = "perm-interactions-write"
 QA_REVIEW = "perm-qa-review"
 QA_WRITE = "perm-qa-write"
-WORKQUEUE_WRITE = "perm-workqueue-write"
 
 COLLECTIONS_READ = "perm-collections-read"
 COLLECTIONS_WRITE = "perm-collections-write"
@@ -127,7 +126,6 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (INTERACTIONS_WRITE, "interactions", "write", "Create interactions and wrap them up"),
     (QA_REVIEW, "qa", "review", "View QA rubrics, scorecards and calibration"),
     (QA_WRITE, "qa", "write", "Score calls, raise coaching actions, run calibration"),
-    (WORKQUEUE_WRITE, "workqueue", "write", "Act on assigned work items"),
     (COLLECTIONS_READ, "collections", "read", "View promises, plans, disputes, callbacks, documents"),
     (COLLECTIONS_WRITE, "collections", "write", "Capture promises, plans, disputes, callbacks, documents"),
     (LEADS_READ, "leads", "read", "View sales leads"),
@@ -190,7 +188,7 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             COMPLIANCE_READ,
             POLICY_READ, SUBJECT_RIGHTS_READ, BANK_BOUNDARY_READ,
             KB_READ, BOT_READ,
-            VOICE_OPERATE, SUPERVISOR_READ, SUPERVISOR_WRITE, WORKQUEUE_WRITE,
+            VOICE_OPERATE, SUPERVISOR_READ, SUPERVISOR_WRITE,
             INTEGRATIONS_READ, OBSERVABILITY_READ,
             CUSTOMERS_READ_TEAM,
         }
@@ -204,7 +202,6 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             CONSENT_READ,
             ANALYTICS_READ,
             KB_READ,
-            WORKQUEUE_WRITE,
             VOICE_OPERATE,
         }
     ),
@@ -422,7 +419,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/twins"): BOT_READ,
     ("POST", "/twins/{twin_id}/run"): BOT_WRITE,
     ("GET", "/work-runtime/jobs/{job_id}"): COLLECTIONS_READ,
-    ("GET", "/tts-voices"): BOT_READ,
     ("GET", "/tts-voices/catalog"): BOT_READ,
     ("GET", "/tts-voices/catalog-warning"): BOT_READ,
     ("GET", "/tts-voices/catalog/sync-runs"): BOT_READ,

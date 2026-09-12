@@ -23,7 +23,6 @@ class ConsentChannelPatch(BaseModel):
     status: Literal["opted_in", "opted_out", "dnd", "expired"] | None = None
     optedIn: bool | None = None
     frequencyCapPerWeek: int | None = None
-    usedThisWeek: int | None = None
     source: str | None = None
 
 

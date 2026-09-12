@@ -363,7 +363,7 @@ async def lifespan(_app: FastAPI):
         )
 
     try:
-        await asyncio.to_thread(db.init_and_seed)
+        await asyncio.to_thread(db.probe)
         await asyncio.to_thread(storage.ensure_bucket)
         try:
             await asyncio.to_thread(actor_context.validate_configured_actors)

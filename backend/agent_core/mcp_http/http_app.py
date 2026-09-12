@@ -80,6 +80,7 @@ def build_app() -> Starlette:
     app = Starlette(
         routes=[
             Route("/healthz", health),
+            Route("/readyz", health),
             Route("/mcp", mcp_endpoint, methods=["GET", "POST"]),
         ]
     )

@@ -547,6 +547,8 @@ def test_role_can_open_its_own_screens(gated_client: TestClient, actor: str) -> 
         ("role-supervisor", "supervisor"),
         ("role-admin", "admin"),
         ("role-qa", "qa_reviewer"),
+        ("role-compliance-officer", "compliance_officer"),
+        ("role-dpo", "dpo"),
     ],
 )
 def test_stock_role_grants_cover_the_built_in_defaults(db_tx, role_id, role_key) -> None:
