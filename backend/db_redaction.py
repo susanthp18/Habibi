@@ -55,34 +55,6 @@ def _redaction_channel(channel: str | None) -> str:
     return "voice"
 
 
-def _actor_role_names(conn: Any, user_id: str | None = None) -> list[str]:
-    _mod = _db()
-    _rows = _mod._rows
-    _actor_user_id = _mod._actor_user_id
-    uid = (user_id or _actor_user_id() or "").strip()
-    if not uid:
-        return []
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT r.name
-                FROM user_roles ur
-                JOIN roles r ON r.id = ur.role_id
-                WHERE ur.user_id = :uid
-                """
-            ),
-            {"uid": uid},
-        )
-    )
-    out: list[str] = []
-    for r in rows:
-        name = (r.get("name") or "").strip().lower().replace("-", "_").replace(" ", "_")
-        if name:
-            out.append(name)
-    return out
-
-
 def _actor_can_view_raw_pii(conn: Any) -> bool:
     """Raw PII in finding.text needs ``PII_RAW_READ`` -- a grant, not a role name.
 
@@ -96,34 +68,18 @@ def _actor_can_view_raw_pii(conn: Any) -> bool:
 
 
 def actor_is_admin(user_id: str | None = None) -> bool:
-    """True when the actor has Admin role or perm-admin-write."""
+    """True when the actor is a superuser.
+
+    One reading: ``authz.has_permission(uid, ADMIN_WRITE)``. authz resolves
+    the grants (and the documented admin-by-name rule for an unconfigured
+    role) in one place; this used to restate both halves with its own SQL, so
+    the Redaction Hub and the route guard could disagree about who is admin.
+    """
+    import authz
+
     _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _actor_user_id = _mod._actor_user_id
-    uid = (user_id or _actor_user_id() or "").strip()
-    if not uid:
-        return False
-    with engine.connect() as conn:
-        for name in _actor_role_names(conn, uid):
-            if name == "admin":
-                return True
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT 1
-                    FROM user_roles ur
-                    JOIN role_permissions rp ON rp.role_id = ur.role_id
-                    WHERE ur.user_id = :uid
-                      AND rp.permission_id = 'perm-admin-write'
-                    LIMIT 1
-                    """
-                ),
-                {"uid": uid},
-            )
-        )
-        return row is not None
+    uid = (user_id or _mod._actor_user_id() or "").strip()
+    return bool(uid) and authz.has_permission(uid, authz.ADMIN_WRITE)
 
 
 def _pii_findings_grouped(

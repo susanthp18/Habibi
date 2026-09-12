@@ -668,3 +668,15 @@ def test_get_roles_reports_resolved_grants_not_raw_rows(
     )
     assert denied.status_code == 403, denied.text
     assert authz.VOICE_OPERATE in denied.text
+
+
+def test_actor_is_admin_is_the_route_guards_reading(db_tx, monkeypatch) -> None:
+    """db.actor_is_admin used to restate superuser-ness with its own SQL (an
+    admin-named role OR perm-admin-write), so the Redaction Hub and the route
+    guard could disagree about who is admin. One reading now: authz."""
+    import db
+
+    monkeypatch.setattr(authz, "has_permission", lambda uid, perm: perm == authz.ADMIN_WRITE and uid == "u-1")
+    assert db.actor_is_admin("u-1") is True
+    assert db.actor_is_admin("u-2") is False
+    assert db.actor_is_admin("") is False
