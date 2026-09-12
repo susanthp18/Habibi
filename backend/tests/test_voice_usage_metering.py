@@ -252,6 +252,16 @@ def test_ambient_attribution_applies_to_nested_meter_calls(events) -> None:
     assert events.of("llm_chat")["interaction_id"] == "CL-AMBIENT"
 
 
+def test_decision_attribution_applies_to_nested_meter_calls(events) -> None:
+    import usage_meter
+
+    with usage_meter.attribute_to("CL-AMBIENT", decision_id="TD-AMBIENT"):
+        usage_meter.record_chat_usage(prompt_tokens=10, completion_tokens=2, model="m")
+    assert events.of("llm_chat")["interaction_id"] == "CL-AMBIENT"
+    assert events.of("llm_chat")["decision_id"] == "TD-AMBIENT"
+    assert usage_meter.current_decision_id() is None
+
+
 def test_explicit_interaction_id_beats_ambient(events) -> None:
     import usage_meter
 

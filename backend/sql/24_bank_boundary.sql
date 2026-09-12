@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS bank_inbound_manifests (
     REFERENCES bank_contract_versions(contract_code, schema_version)
     ON DELETE RESTRICT,
   CONSTRAINT uq_bank_inbound_manifests UNIQUE (
-    tenant_id, source, business_date, schema_version, source_ref
+    tenant_id, source, business_date, schema_version, source_ref, payload_hash
   )
 );
 CREATE INDEX IF NOT EXISTS idx_bank_inbound_manifests_tenant
@@ -473,16 +473,28 @@ CREATE TABLE IF NOT EXISTS evaluation.fairness_readiness (
 
 REVOKE ALL ON SCHEMA evaluation FROM PUBLIC;
 GRANT USAGE ON SCHEMA evaluation TO CURRENT_USER;
-GRANT SELECT, INSERT, UPDATE ON evaluation.fairness_readiness TO CURRENT_USER;
+GRANT SELECT ON evaluation.fairness_readiness TO CURRENT_USER;
 REVOKE ALL ON evaluation.protected_attributes FROM PUBLIC;
 -- W5_ROLE_DDL_BEGIN
+DO $$
+BEGIN
+  CREATE ROLE evaluation_owner NOLOGIN NOSUPERUSER NOBYPASSRLS;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 DO $$
 BEGIN
   CREATE ROLE evaluation_role NOLOGIN;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+ALTER SCHEMA evaluation OWNER TO evaluation_owner;
+ALTER TABLE evaluation.protected_attributes OWNER TO evaluation_owner;
+ALTER TABLE evaluation.fairness_readiness OWNER TO evaluation_owner;
+REVOKE ALL ON evaluation.protected_attributes FROM CURRENT_USER;
+REVOKE ALL ON evaluation.protected_attributes FROM PUBLIC;
 GRANT USAGE ON SCHEMA evaluation TO evaluation_role;
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON evaluation.protected_attributes TO evaluation_role;
+GRANT SELECT, INSERT, UPDATE
+  ON evaluation.fairness_readiness TO evaluation_role;
 -- W5_ROLE_DDL_END
 

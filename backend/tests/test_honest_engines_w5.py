@@ -204,6 +204,50 @@ def test_idempotent_replay_and_tenant_isolation(db_tx) -> None:
     assert mapped_1 != mapped_2
 
 
+def test_hash_mismatch_persists_rejected_manifest(db_tx) -> None:
+    bootstrap.ensure(db_tx)
+    tenant, _ = _tenant_pair(db_tx)
+    account = _account(db_tx, tenant)
+    day = date(2026, 9, 2)
+    first = {
+        "external_id": account["id"],
+        "outstanding_paise": 1000,
+        "status": "active",
+        "source_row_id": "hash-source",
+    }
+    _load(
+        db_tx,
+        tenant_id=tenant,
+        code="C1",
+        rows=[first],
+        day=day,
+        ref="hash-mismatch",
+    )
+    with pytest.raises(IngestRejected, match="hash_mismatch"):
+        _load(
+            db_tx,
+            tenant_id=tenant,
+            code="C1",
+            rows=[{**first, "outstanding_paise": 2000}],
+            day=day,
+            ref="hash-mismatch",
+        )
+    manifests = db_tx.execute(
+        text(
+            """
+            SELECT state, reject_reason, payload_hash
+              FROM bank_inbound_manifests
+             WHERE tenant_id = :tid AND source_ref LIKE 'hash-mismatch%'
+             ORDER BY created_at
+            """
+        ),
+        {"tid": tenant},
+    ).mappings().all()
+    assert [row["state"] for row in manifests] == ["accepted", "rejected"]
+    assert manifests[1]["reject_reason"] == "hash_mismatch"
+    assert manifests[0]["payload_hash"] != manifests[1]["payload_hash"]
+
+
 def test_w5_schema_constraints_indexes_and_evaluation_isolation(db_tx) -> None:
     bootstrap.ensure(db_tx)
     columns = {
@@ -574,6 +618,123 @@ def test_reference_adapter_does_not_submit_debit() -> None:
     assert ack["status"] == "awaiting_settlement"
 
 
+def test_o2_persists_intent_before_adapter_invocation(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_core.treatment import config
+    from agent_core.treatment.enact import _represent_mandate
+
+    bootstrap.ensure(db_tx)
+    tenant, _ = _tenant_pair(db_tx)
+    account = _account(db_tx, tenant)
+    day = date(2026, 9, 4)
+    _load(
+        db_tx,
+        tenant_id=tenant,
+        code="C2",
+        rows=[
+            {
+                "external_id": f"O2-EMI-{account['id']}",
+                "account_external_id": account["id"],
+                "installment_index": 1,
+                "due_date": day,
+                "amount_paise": 1000,
+                "status": "overdue",
+                "source_row_id": "o2-emi",
+            }
+        ],
+        day=day,
+        ref="o2-c2",
+    )
+    _load(
+        db_tx,
+        tenant_id=tenant,
+        code="C3",
+        rows=[
+            {
+                "external_id": f"O2-M-{account['id']}",
+                "account_external_id": account["id"],
+                "customer_external_id": account["customer_id"],
+                "rail": "nach",
+                "status": "active",
+                "max_amount_paise": 500000,
+                "amount_paise": 0,
+                "source_row_id": "o2-mandate",
+            }
+        ],
+        day=day,
+        ref="o2-c3",
+    )
+    decision_id = "TD-W5-O2-PREPARE"
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO treatment_decisions (
+              id, tenant_id, customer_id, account_id, trigger_kind, mode,
+              recommender, recommender_version, feature_schema_version,
+              chosen_action
+            ) VALUES (
+              :id, :tid, :cid, :aid, 'manual', 'live',
+              'w5-test', 'v1', 'v4', 'represent_mandate'
+            )
+            """
+        ),
+        {
+            "id": decision_id,
+            "tid": tenant,
+            "cid": account["customer_id"],
+            "aid": account["id"],
+        },
+    )
+    monkeypatch.setenv("TREATMENT_MANDATE_EXECUTOR", config.MANDATE_EXECUTOR_RAIL)
+    original_send = adapters.ReferenceAdapter.send
+    calls: list[str] = []
+
+    def _assert_durable_rows(self, contract):
+        presentation_id = str(contract["presentation_id"])
+        assert db_tx.execute(
+            text("SELECT status FROM mandate_presentations WHERE id = :id"),
+            {"id": presentation_id},
+        ).scalar() == "scheduled"
+        assert db_tx.execute(
+            text(
+                """
+                SELECT state FROM bank_outbound_outbox
+                 WHERE tenant_id = :tid AND idempotency_key = :key
+                """
+            ),
+            {"tid": tenant, "key": presentation_id},
+        ).scalar() == outbox.PENDING
+        calls.append(presentation_id)
+        return original_send(self, contract)
+
+    monkeypatch.setattr(adapters.ReferenceAdapter, "send", _assert_durable_rows)
+    decision = {
+        "id": decision_id,
+        "tenant_id": tenant,
+        "customer_id": account["customer_id"],
+        "account_id": account["id"],
+        "scheduled_at": datetime.now(timezone.utc),
+    }
+    customer = {"id": account["customer_id"], "tenant_id": tenant}
+    first = _represent_mandate(
+        db_tx,
+        decision=decision,
+        customer=customer,
+        contract={"decision_id": decision_id},
+    )
+    assert first.startswith("queued:prepared:")
+    assert calls == []
+    second = _represent_mandate(
+        db_tx,
+        decision=decision,
+        customer=customer,
+        contract={"decision_id": decision_id},
+    )
+    assert second.startswith("queued:reference:")
+    assert calls == [decision["_prepared_presentation_id"]]
+
+
 def test_clerk_unknown_workflow_parks() -> None:
     assert clerk_allowlist.allow("not_a_workflow") == "unknown_workflow"
     assert clerk_allowlist.allow("bounce_chase") is None
@@ -593,6 +754,7 @@ def test_f9_requires_evaluation_role(db_tx, monkeypatch: pytest.MonkeyPatch) -> 
     bootstrap.ensure(db_tx)
     tenant, _ = _tenant_pair(db_tx)
     account = _account(db_tx, tenant)
+    monkeypatch.setattr(evaluation, "evaluation_role_active", lambda conn: False)
     with pytest.raises(evaluation.EvaluationRoleRequired):
         evaluation.ingest(
             db_tx,
@@ -612,6 +774,22 @@ def test_f9_requires_evaluation_role(db_tx, monkeypatch: pytest.MonkeyPatch) -> 
     ready = evaluation.fairness_readiness(db_tx, tenant_id=tenant)
     assert ready["ready"] is True
     assert "secret" not in str(ready)
+
+
+def test_f9_isolation_is_enforced_by_database_grants() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    ddl = (root / "sql" / "24_bank_boundary.sql").read_text(encoding="utf-8")
+    implementation = (root / "bank_boundary" / "evaluation.py").read_text(
+        encoding="utf-8"
+    )
+    assert "CREATE ROLE evaluation_owner NOLOGIN NOSUPERUSER NOBYPASSRLS" in ddl
+    assert "ALTER TABLE evaluation.protected_attributes OWNER TO evaluation_owner" in ddl
+    assert "REVOKE ALL ON evaluation.protected_attributes FROM CURRENT_USER" in ddl
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE\n  ON evaluation.protected_attributes TO evaluation_role" in ddl
+    assert "has_table_privilege(" in implementation
+    assert "current_user = 'evaluation_role'" not in implementation
 
 
 def test_f9_not_queried_from_api_modules() -> None:

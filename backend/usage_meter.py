@@ -236,16 +236,23 @@ def _tenant_id() -> str:
 _current_interaction: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "usage_meter_interaction", default=None
 )
+_current_decision: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "usage_meter_decision", default=None
+)
 
 
 @contextmanager
-def attribute_to(interaction_id: str | None) -> Iterator[None]:
-    """Attribute usage metered inside this block to ``interaction_id``."""
-    token = _current_interaction.set(interaction_id or None)
+def attribute_to(
+    interaction_id: str | None, *, decision_id: str | None = None
+) -> Iterator[None]:
+    """Attribute nested usage to one interaction and, when known, one decision."""
+    interaction_token = _current_interaction.set(interaction_id or None)
+    decision_token = _current_decision.set(decision_id or None)
     try:
         yield
     finally:
-        _current_interaction.reset(token)
+        _current_decision.reset(decision_token)
+        _current_interaction.reset(interaction_token)
 
 
 def retarget_attribution(interaction_id: str | None) -> None:
@@ -262,6 +269,10 @@ def retarget_attribution(interaction_id: str | None) -> None:
 
 def current_interaction_id() -> str | None:
     return _current_interaction.get()
+
+
+def current_decision_id() -> str | None:
+    return _current_decision.get()
 
 
 # Not ``env_utils.NON_PROD_ENVS``, and the difference is the point.
@@ -390,6 +401,7 @@ def record_usage(
     occurred_at: datetime | None = None,
     source_ref: str | None = None,
     interaction_id: str | None = None,
+    decision_id: str | None = None,
     model: str | None = None,
 ) -> None:
     """Buffer a usage event; the flusher persists it in batches.
@@ -426,6 +438,7 @@ def record_usage(
         "source_ref": source_ref,
         # Explicit wins; otherwise inherit whatever boundary we are running under.
         "interaction_id": (interaction_id or _current_interaction.get() or None),
+        "decision_id": (decision_id or _current_decision.get() or None),
         "model": (model or None),
     }
 
@@ -466,25 +479,30 @@ def flush() -> int:
 
     try:
         with _engine().begin() as conn:
+            from agent_core.treatment import schema_ready
+
+            decision_column = ""
+            decision_value = ""
+            if schema_ready.has_column(conn, "usage_events", "decision_id"):
+                decision_column = ", decision_id"
+                decision_value = (
+                    ", (SELECT d.id FROM treatment_decisions d "
+                    "WHERE d.id = :decision_id)"
+                )
             conn.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO usage_events (
                       id, tenant_id, environment, service_id, units, cost_inr,
                       meta, occurred_at, source_ref, interaction_id, model
+                      {decision_column}
                     ) VALUES (
                       :id, :tenant_id, :environment, :service_id, :units, :cost_inr,
                       CAST(:meta AS jsonb), :occurred_at, :source_ref,
-                      -- Resolve through the PK rather than binding the id
-                      -- directly: an interaction that never materialised (a
-                      -- sandbox session whose row failed) or that a retention
-                      -- sweep removed mid-flush would raise a foreign-key
-                      -- violation, which _is_transient_db_error correctly calls
-                      -- permanent — and the whole batch of billable usage would
-                      -- be dropped over one unattributable row. Degrading that
-                      -- row to unattributed keeps the spend.
+                      -- Missing retained entities degrade to unattributed spend.
                       (SELECT i.id FROM interactions i WHERE i.id = :interaction_id),
                       :model
+                      {decision_value}
                     )
                     """
                 ),
