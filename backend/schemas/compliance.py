@@ -154,6 +154,8 @@ class ViolationListResponse(BaseModel):
     callId: str
     customerName: str
     ruleId: str
+    ruleCode: str
+    ruleLabel: str
     severity: Literal["critical", "high", "medium", "low"]
     occurredAt: str
     atSec: int

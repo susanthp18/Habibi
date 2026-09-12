@@ -33,9 +33,8 @@ _RULE_ID_SCREEN = {
     "rule-payment": "r-disp",
 }
 
-def _violation_rule_screen(rule_id: str | None) -> str:
-    if not rule_id:
-        return "r-rec"
+def _violation_rule_screen(rule_id: str) -> str:
+    """The legacy disclosure rows alias onto the catalogue rule they duplicate."""
     return _RULE_ID_SCREEN.get(rule_id, rule_id)
 
 def _violation_severity_screen(severity: str | None) -> str:
@@ -164,8 +163,15 @@ def _violation_rows_to_screen(
     interaction_ids = [r["interaction_id"] for r in rows if r.get("interaction_id")]
     notes = _violation_notes_grouped(conn, ids)
     transcripts = _transcripts_by_interaction(conn, interaction_ids)
+    # code/label follow the aliased rule, so a legacy row reads as its catalogue twin
+    rule_meta = {
+        row["id"]: (row["code"], row["label"])
+        for row in _db()._rows(conn.execute(text("SELECT id, code, label FROM compliance_rules")))
+    }
     result: list[dict[str, Any]] = []
     for r in rows:
+        rule_id = _violation_rule_screen(r["rule_id"])
+        rule_code, rule_label = rule_meta.get(rule_id) or (r["rule_code"], r["rule_label"])
         at_sec = int(r["at_sec"] or 0)
         call_id = r["interaction_id"] or ""
         actor_kind = "bot" if r["actor_kind"] == "bot" else "human"
@@ -182,7 +188,9 @@ def _violation_rows_to_screen(
                 "id": r["id"],
                 "callId": call_id,
                 "customerName": r["customer_name"],
-                "ruleId": _violation_rule_screen(r["rule_id"]),
+                "ruleId": rule_id,
+                "ruleCode": rule_code,
+                "ruleLabel": rule_label,
                 "severity": _violation_severity_screen(r["rule_severity"]),
                 "occurredAt": r["occurred_at"] or r["created_at"],
                 "atSec": at_sec,
@@ -197,7 +205,8 @@ def _violation_rows_to_screen(
 
 _VIOLATION_LIST_SQL = """
     SELECT v.id, v.interaction_id, v.customer_id, c.name AS customer_name,
-           v.rule_id, cr.severity AS rule_severity, v.actor_kind,
+           v.rule_id, cr.code AS rule_code, cr.label AS rule_label,
+           cr.severity AS rule_severity, v.actor_kind,
            v.status, v.description, v.at_sec, v.created_at,
            COALESCE(i.started_at, v.created_at) AS occurred_at,
            u.name AS assignee,

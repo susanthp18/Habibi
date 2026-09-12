@@ -874,6 +874,8 @@ export const ViolationListResponse = z.object({
   "callId": z.string(),
   "customerName": z.string(),
   "ruleId": z.string(),
+  "ruleCode": z.string(),
+  "ruleLabel": z.string(),
   "severity": z.enum(["critical", "high", "medium", "low"]),
   "occurredAt": z.string(),
   "atSec": z.number(),
