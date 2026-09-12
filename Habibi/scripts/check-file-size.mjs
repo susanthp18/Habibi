@@ -21,18 +21,18 @@ const LIMITS = { "src/routes": 500, "src/components": 800 };
 
 /** Measured on 2026-09-12. Shrink or delete; never add. */
 const BASELINE = {
-  "src/routes/treatment.lazy.tsx": 1505,
+  "src/routes/_app.treatment.lazy.tsx": 1504,
   "src/components/flow/FlowCanvas.tsx": 1419,
-  "src/routes/prompt-studio.lazy.tsx": 1417,
+  "src/routes/_app.prompt-studio.lazy.tsx": 1417,
   "src/components/flow/FlowInspector.tsx": 1125,
   "src/components/prompt-studio/OutboundCardEditor.tsx": 1114,
   "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1049,
   "src/components/prompt-studio/VoicePanel.tsx": 1019,
-  "src/routes/knowledge-base.lazy.tsx": 942,
+  "src/routes/_app.knowledge-base.lazy.tsx": 941,
   "src/components/prompt-studio/OutboundTab.tsx": 811,
-  "src/routes/agent-studio.index.tsx": 748,
-  "src/routes/sandbox.lazy.tsx": 721,
-  "src/routes/handoff.lazy.tsx": 574,
+  "src/routes/_app.agent-studio.index.tsx": 747,
+  "src/routes/_app.sandbox.lazy.tsx": 720,
+  "src/routes/_app.handoff.lazy.tsx": 569,
 };
 
 function* walk(dir) {

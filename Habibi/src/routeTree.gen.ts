@@ -9,330 +9,344 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AgentStudioRouteImport } from './routes/agent-studio'
-import { Route as AuditRouteImport } from './routes/audit'
-import { Route as BillingRouteImport } from './routes/billing'
-import { Route as BotAnalyticsRouteImport } from './routes/bot-analytics'
-import { Route as CallbacksRouteImport } from './routes/callbacks'
-import { Route as ComplianceRouteImport } from './routes/compliance'
-import { Route as ConsentRouteImport } from './routes/consent'
-import { Route as CustomersRouteImport } from './routes/customers'
-import { Route as DashboardRouteImport } from './routes/dashboard'
-import { Route as DisputesRouteImport } from './routes/disputes'
-import { Route as DocumentsRouteImport } from './routes/documents'
-import { Route as FloorRouteImport } from './routes/floor'
-import { Route as HandoffRouteImport } from './routes/handoff'
-import { Route as InboxRouteImport } from './routes/inbox'
-import { Route as IntegrationsRouteImport } from './routes/integrations'
-import { Route as KnowledgeBaseRouteImport } from './routes/knowledge-base'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as PromisesRouteImport } from './routes/promises'
-import { Route as PromptStudioRouteImport } from './routes/prompt-studio'
-import { Route as QaRouteImport } from './routes/qa'
-import { Route as RedactionRouteImport } from './routes/redaction'
-import { Route as RolesRouteImport } from './routes/roles'
-import { Route as RoutingRouteImport } from './routes/routing'
-import { Route as SandboxRouteImport } from './routes/sandbox'
-import { Route as TreatmentRouteImport } from './routes/treatment'
-import { Route as UpsellRouteImport } from './routes/upsell'
-import { Route as WebhooksRouteImport } from './routes/webhooks'
-import { Route as AgentStudioIndexRouteImport } from './routes/agent-studio.index'
-import { Route as AgentStudioBotIdRouteImport } from './routes/agent-studio.$botId'
-import { Route as CustomersIndexRouteImport } from './routes/customers.index'
-import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
-import { Route as AgentStudioSkillsIndexRouteImport } from './routes/agent-studio.skills.index'
-import { Route as AgentStudioSkillsSkillIdRouteImport } from './routes/agent-studio.skills.$skillId'
+import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppAgentStudioRouteImport } from './routes/_app.agent-studio'
+import { Route as AppAuditRouteImport } from './routes/_app.audit'
+import { Route as AppBillingRouteImport } from './routes/_app.billing'
+import { Route as AppBotAnalyticsRouteImport } from './routes/_app.bot-analytics'
+import { Route as AppCallbacksRouteImport } from './routes/_app.callbacks'
+import { Route as AppComplianceRouteImport } from './routes/_app.compliance'
+import { Route as AppConsentRouteImport } from './routes/_app.consent'
+import { Route as AppCustomersRouteImport } from './routes/_app.customers'
+import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppDisputesRouteImport } from './routes/_app.disputes'
+import { Route as AppDocumentsRouteImport } from './routes/_app.documents'
+import { Route as AppFloorRouteImport } from './routes/_app.floor'
+import { Route as AppHandoffRouteImport } from './routes/_app.handoff'
+import { Route as AppInboxRouteImport } from './routes/_app.inbox'
+import { Route as AppIntegrationsRouteImport } from './routes/_app.integrations'
+import { Route as AppKnowledgeBaseRouteImport } from './routes/_app.knowledge-base'
+import { Route as AppPromisesRouteImport } from './routes/_app.promises'
+import { Route as AppPromptStudioRouteImport } from './routes/_app.prompt-studio'
+import { Route as AppQaRouteImport } from './routes/_app.qa'
+import { Route as AppRedactionRouteImport } from './routes/_app.redaction'
+import { Route as AppRolesRouteImport } from './routes/_app.roles'
+import { Route as AppRoutingRouteImport } from './routes/_app.routing'
+import { Route as AppSandboxRouteImport } from './routes/_app.sandbox'
+import { Route as AppTreatmentRouteImport } from './routes/_app.treatment'
+import { Route as AppUpsellRouteImport } from './routes/_app.upsell'
+import { Route as AppWebhooksRouteImport } from './routes/_app.webhooks'
+import { Route as AppAgentStudioIndexRouteImport } from './routes/_app.agent-studio.index'
+import { Route as AppAgentStudioBotIdRouteImport } from './routes/_app.agent-studio.$botId'
+import { Route as AppCustomersIndexRouteImport } from './routes/_app.customers.index'
+import { Route as AppCustomersCustomerIdRouteImport } from './routes/_app.customers.$customerId'
+import { Route as AppAgentStudioSkillsIndexRouteImport } from './routes/_app.agent-studio.skills.index'
+import { Route as AppAgentStudioSkillsSkillIdRouteImport } from './routes/_app.agent-studio.skills.$skillId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentStudioRoute = AgentStudioRouteImport.update({
-  id: '/agent-studio',
-  path: '/agent-studio',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuditRoute = AuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/audit.lazy').then((d) => d.Route))
-const BillingRoute = BillingRouteImport.update({
-  id: '/billing',
-  path: '/billing',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BotAnalyticsRoute = BotAnalyticsRouteImport.update({
-  id: '/bot-analytics',
-  path: '/bot-analytics',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/bot-analytics.lazy').then((d) => d.Route))
-const CallbacksRoute = CallbacksRouteImport.update({
-  id: '/callbacks',
-  path: '/callbacks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ComplianceRoute = ComplianceRouteImport.update({
-  id: '/compliance',
-  path: '/compliance',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConsentRoute = ConsentRouteImport.update({
-  id: '/consent',
-  path: '/consent',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CustomersRoute = CustomersRouteImport.update({
-  id: '/customers',
-  path: '/customers',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DisputesRoute = DisputesRouteImport.update({
-  id: '/disputes',
-  path: '/disputes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocumentsRoute = DocumentsRouteImport.update({
-  id: '/documents',
-  path: '/documents',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FloorRoute = FloorRouteImport.update({
-  id: '/floor',
-  path: '/floor',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HandoffRoute = HandoffRouteImport.update({
-  id: '/handoff',
-  path: '/handoff',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/handoff.lazy').then((d) => d.Route))
-const InboxRoute = InboxRouteImport.update({
-  id: '/inbox',
-  path: '/inbox',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IntegrationsRoute = IntegrationsRouteImport.update({
-  id: '/integrations',
-  path: '/integrations',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KnowledgeBaseRoute = KnowledgeBaseRouteImport.update({
-  id: '/knowledge-base',
-  path: '/knowledge-base',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() =>
-  import('./routes/knowledge-base.lazy').then((d) => d.Route),
-)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PromisesRoute = PromisesRouteImport.update({
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAgentStudioRoute = AppAgentStudioRouteImport.update({
+  id: '/agent-studio',
+  path: '/agent-studio',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAuditRoute = AppAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() => import('./routes/_app.audit.lazy').then((d) => d.Route))
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBotAnalyticsRoute = AppBotAnalyticsRouteImport.update({
+  id: '/bot-analytics',
+  path: '/bot-analytics',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app.bot-analytics.lazy').then((d) => d.Route),
+)
+const AppCallbacksRoute = AppCallbacksRouteImport.update({
+  id: '/callbacks',
+  path: '/callbacks',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppComplianceRoute = AppComplianceRouteImport.update({
+  id: '/compliance',
+  path: '/compliance',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppConsentRoute = AppConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCustomersRoute = AppCustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDisputesRoute = AppDisputesRouteImport.update({
+  id: '/disputes',
+  path: '/disputes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDocumentsRoute = AppDocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFloorRoute = AppFloorRouteImport.update({
+  id: '/floor',
+  path: '/floor',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppHandoffRoute = AppHandoffRouteImport.update({
+  id: '/handoff',
+  path: '/handoff',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() => import('./routes/_app.handoff.lazy').then((d) => d.Route))
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIntegrationsRoute = AppIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppKnowledgeBaseRoute = AppKnowledgeBaseRouteImport.update({
+  id: '/knowledge-base',
+  path: '/knowledge-base',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app.knowledge-base.lazy').then((d) => d.Route),
+)
+const AppPromisesRoute = AppPromisesRouteImport.update({
   id: '/promises',
   path: '/promises',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const PromptStudioRoute = PromptStudioRouteImport.update({
+const AppPromptStudioRoute = AppPromptStudioRouteImport.update({
   id: '/prompt-studio',
   path: '/prompt-studio',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/prompt-studio.lazy').then((d) => d.Route))
-const QaRoute = QaRouteImport.update({
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app.prompt-studio.lazy').then((d) => d.Route),
+)
+const AppQaRoute = AppQaRouteImport.update({
   id: '/qa',
   path: '/qa',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const RedactionRoute = RedactionRouteImport.update({
+const AppRedactionRoute = AppRedactionRouteImport.update({
   id: '/redaction',
   path: '/redaction',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const RolesRoute = RolesRouteImport.update({
+const AppRolesRoute = AppRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const RoutingRoute = RoutingRouteImport.update({
+const AppRoutingRoute = AppRoutingRouteImport.update({
   id: '/routing',
   path: '/routing',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const SandboxRoute = SandboxRouteImport.update({
+const AppSandboxRoute = AppSandboxRouteImport.update({
   id: '/sandbox',
   path: '/sandbox',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/sandbox.lazy').then((d) => d.Route))
-const TreatmentRoute = TreatmentRouteImport.update({
+  getParentRoute: () => AppRoute,
+} as any).lazy(() => import('./routes/_app.sandbox.lazy').then((d) => d.Route))
+const AppTreatmentRoute = AppTreatmentRouteImport.update({
   id: '/treatment',
   path: '/treatment',
-  getParentRoute: () => rootRouteImport,
-} as any).lazy(() => import('./routes/treatment.lazy').then((d) => d.Route))
-const UpsellRoute = UpsellRouteImport.update({
+  getParentRoute: () => AppRoute,
+} as any).lazy(() =>
+  import('./routes/_app.treatment.lazy').then((d) => d.Route),
+)
+const AppUpsellRoute = AppUpsellRouteImport.update({
   id: '/upsell',
   path: '/upsell',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const WebhooksRoute = WebhooksRouteImport.update({
+const AppWebhooksRoute = AppWebhooksRouteImport.update({
   id: '/webhooks',
   path: '/webhooks',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
-const AgentStudioIndexRoute = AgentStudioIndexRouteImport.update({
+const AppAgentStudioIndexRoute = AppAgentStudioIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AgentStudioRoute,
+  getParentRoute: () => AppAgentStudioRoute,
 } as any)
-const AgentStudioBotIdRoute = AgentStudioBotIdRouteImport.update({
+const AppAgentStudioBotIdRoute = AppAgentStudioBotIdRouteImport.update({
   id: '/$botId',
   path: '/$botId',
-  getParentRoute: () => AgentStudioRoute,
+  getParentRoute: () => AppAgentStudioRoute,
 } as any).lazy(() =>
-  import('./routes/agent-studio.$botId.lazy').then((d) => d.Route),
+  import('./routes/_app.agent-studio.$botId.lazy').then((d) => d.Route),
 )
-const CustomersIndexRoute = CustomersIndexRouteImport.update({
+const AppCustomersIndexRoute = AppCustomersIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => CustomersRoute,
+  getParentRoute: () => AppCustomersRoute,
 } as any)
-const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
+const AppCustomersCustomerIdRoute = AppCustomersCustomerIdRouteImport.update({
   id: '/$customerId',
   path: '/$customerId',
-  getParentRoute: () => CustomersRoute,
+  getParentRoute: () => AppCustomersRoute,
 } as any).lazy(() =>
-  import('./routes/customers.$customerId.lazy').then((d) => d.Route),
+  import('./routes/_app.customers.$customerId.lazy').then((d) => d.Route),
 )
-const AgentStudioSkillsIndexRoute = AgentStudioSkillsIndexRouteImport.update({
-  id: '/skills/',
-  path: '/skills/',
-  getParentRoute: () => AgentStudioRoute,
-} as any)
-const AgentStudioSkillsSkillIdRoute =
-  AgentStudioSkillsSkillIdRouteImport.update({
+const AppAgentStudioSkillsIndexRoute =
+  AppAgentStudioSkillsIndexRouteImport.update({
+    id: '/skills/',
+    path: '/skills/',
+    getParentRoute: () => AppAgentStudioRoute,
+  } as any)
+const AppAgentStudioSkillsSkillIdRoute =
+  AppAgentStudioSkillsSkillIdRouteImport.update({
     id: '/skills/$skillId',
     path: '/skills/$skillId',
-    getParentRoute: () => AgentStudioRoute,
+    getParentRoute: () => AppAgentStudioRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/agent-studio': typeof AgentStudioRouteWithChildren
-  '/audit': typeof AuditRoute
-  '/billing': typeof BillingRoute
-  '/bot-analytics': typeof BotAnalyticsRoute
-  '/callbacks': typeof CallbacksRoute
-  '/compliance': typeof ComplianceRoute
-  '/consent': typeof ConsentRoute
-  '/customers': typeof CustomersRouteWithChildren
-  '/dashboard': typeof DashboardRoute
-  '/disputes': typeof DisputesRoute
-  '/documents': typeof DocumentsRoute
-  '/floor': typeof FloorRoute
-  '/handoff': typeof HandoffRoute
-  '/inbox': typeof InboxRoute
-  '/integrations': typeof IntegrationsRoute
-  '/knowledge-base': typeof KnowledgeBaseRoute
+  '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
-  '/promises': typeof PromisesRoute
-  '/prompt-studio': typeof PromptStudioRoute
-  '/qa': typeof QaRoute
-  '/redaction': typeof RedactionRoute
-  '/roles': typeof RolesRoute
-  '/routing': typeof RoutingRoute
-  '/sandbox': typeof SandboxRoute
-  '/treatment': typeof TreatmentRoute
-  '/upsell': typeof UpsellRoute
-  '/webhooks': typeof WebhooksRoute
-  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
-  '/customers/$customerId': typeof CustomersCustomerIdRoute
-  '/agent-studio/': typeof AgentStudioIndexRoute
-  '/customers/': typeof CustomersIndexRoute
-  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
-  '/agent-studio/skills/': typeof AgentStudioSkillsIndexRoute
+  '/agent-studio': typeof AppAgentStudioRouteWithChildren
+  '/audit': typeof AppAuditRoute
+  '/billing': typeof AppBillingRoute
+  '/bot-analytics': typeof AppBotAnalyticsRoute
+  '/callbacks': typeof AppCallbacksRoute
+  '/compliance': typeof AppComplianceRoute
+  '/consent': typeof AppConsentRoute
+  '/customers': typeof AppCustomersRouteWithChildren
+  '/dashboard': typeof AppDashboardRoute
+  '/disputes': typeof AppDisputesRoute
+  '/documents': typeof AppDocumentsRoute
+  '/floor': typeof AppFloorRoute
+  '/handoff': typeof AppHandoffRoute
+  '/inbox': typeof AppInboxRoute
+  '/integrations': typeof AppIntegrationsRoute
+  '/knowledge-base': typeof AppKnowledgeBaseRoute
+  '/promises': typeof AppPromisesRoute
+  '/prompt-studio': typeof AppPromptStudioRoute
+  '/qa': typeof AppQaRoute
+  '/redaction': typeof AppRedactionRoute
+  '/roles': typeof AppRolesRoute
+  '/routing': typeof AppRoutingRoute
+  '/sandbox': typeof AppSandboxRoute
+  '/treatment': typeof AppTreatmentRoute
+  '/upsell': typeof AppUpsellRoute
+  '/webhooks': typeof AppWebhooksRoute
+  '/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
+  '/customers/$customerId': typeof AppCustomersCustomerIdRoute
+  '/agent-studio/': typeof AppAgentStudioIndexRoute
+  '/customers/': typeof AppCustomersIndexRoute
+  '/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
+  '/agent-studio/skills/': typeof AppAgentStudioSkillsIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/audit': typeof AuditRoute
-  '/billing': typeof BillingRoute
-  '/bot-analytics': typeof BotAnalyticsRoute
-  '/callbacks': typeof CallbacksRoute
-  '/compliance': typeof ComplianceRoute
-  '/consent': typeof ConsentRoute
-  '/dashboard': typeof DashboardRoute
-  '/disputes': typeof DisputesRoute
-  '/documents': typeof DocumentsRoute
-  '/floor': typeof FloorRoute
-  '/handoff': typeof HandoffRoute
-  '/inbox': typeof InboxRoute
-  '/integrations': typeof IntegrationsRoute
-  '/knowledge-base': typeof KnowledgeBaseRoute
   '/login': typeof LoginRoute
-  '/promises': typeof PromisesRoute
-  '/prompt-studio': typeof PromptStudioRoute
-  '/qa': typeof QaRoute
-  '/redaction': typeof RedactionRoute
-  '/roles': typeof RolesRoute
-  '/routing': typeof RoutingRoute
-  '/sandbox': typeof SandboxRoute
-  '/treatment': typeof TreatmentRoute
-  '/upsell': typeof UpsellRoute
-  '/webhooks': typeof WebhooksRoute
-  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
-  '/customers/$customerId': typeof CustomersCustomerIdRoute
-  '/agent-studio': typeof AgentStudioIndexRoute
-  '/customers': typeof CustomersIndexRoute
-  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
-  '/agent-studio/skills': typeof AgentStudioSkillsIndexRoute
+  '/audit': typeof AppAuditRoute
+  '/billing': typeof AppBillingRoute
+  '/bot-analytics': typeof AppBotAnalyticsRoute
+  '/callbacks': typeof AppCallbacksRoute
+  '/compliance': typeof AppComplianceRoute
+  '/consent': typeof AppConsentRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/disputes': typeof AppDisputesRoute
+  '/documents': typeof AppDocumentsRoute
+  '/floor': typeof AppFloorRoute
+  '/handoff': typeof AppHandoffRoute
+  '/inbox': typeof AppInboxRoute
+  '/integrations': typeof AppIntegrationsRoute
+  '/knowledge-base': typeof AppKnowledgeBaseRoute
+  '/promises': typeof AppPromisesRoute
+  '/prompt-studio': typeof AppPromptStudioRoute
+  '/qa': typeof AppQaRoute
+  '/redaction': typeof AppRedactionRoute
+  '/roles': typeof AppRolesRoute
+  '/routing': typeof AppRoutingRoute
+  '/sandbox': typeof AppSandboxRoute
+  '/treatment': typeof AppTreatmentRoute
+  '/upsell': typeof AppUpsellRoute
+  '/webhooks': typeof AppWebhooksRoute
+  '/': typeof AppIndexRoute
+  '/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
+  '/customers/$customerId': typeof AppCustomersCustomerIdRoute
+  '/agent-studio': typeof AppAgentStudioIndexRoute
+  '/customers': typeof AppCustomersIndexRoute
+  '/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
+  '/agent-studio/skills': typeof AppAgentStudioSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/agent-studio': typeof AgentStudioRouteWithChildren
-  '/audit': typeof AuditRoute
-  '/billing': typeof BillingRoute
-  '/bot-analytics': typeof BotAnalyticsRoute
-  '/callbacks': typeof CallbacksRoute
-  '/compliance': typeof ComplianceRoute
-  '/consent': typeof ConsentRoute
-  '/customers': typeof CustomersRouteWithChildren
-  '/dashboard': typeof DashboardRoute
-  '/disputes': typeof DisputesRoute
-  '/documents': typeof DocumentsRoute
-  '/floor': typeof FloorRoute
-  '/handoff': typeof HandoffRoute
-  '/inbox': typeof InboxRoute
-  '/integrations': typeof IntegrationsRoute
-  '/knowledge-base': typeof KnowledgeBaseRoute
+  '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/promises': typeof PromisesRoute
-  '/prompt-studio': typeof PromptStudioRoute
-  '/qa': typeof QaRoute
-  '/redaction': typeof RedactionRoute
-  '/roles': typeof RolesRoute
-  '/routing': typeof RoutingRoute
-  '/sandbox': typeof SandboxRoute
-  '/treatment': typeof TreatmentRoute
-  '/upsell': typeof UpsellRoute
-  '/webhooks': typeof WebhooksRoute
-  '/agent-studio/$botId': typeof AgentStudioBotIdRoute
-  '/customers/$customerId': typeof CustomersCustomerIdRoute
-  '/agent-studio/': typeof AgentStudioIndexRoute
-  '/customers/': typeof CustomersIndexRoute
-  '/agent-studio/skills/$skillId': typeof AgentStudioSkillsSkillIdRoute
-  '/agent-studio/skills/': typeof AgentStudioSkillsIndexRoute
+  '/_app/agent-studio': typeof AppAgentStudioRouteWithChildren
+  '/_app/audit': typeof AppAuditRoute
+  '/_app/billing': typeof AppBillingRoute
+  '/_app/bot-analytics': typeof AppBotAnalyticsRoute
+  '/_app/callbacks': typeof AppCallbacksRoute
+  '/_app/compliance': typeof AppComplianceRoute
+  '/_app/consent': typeof AppConsentRoute
+  '/_app/customers': typeof AppCustomersRouteWithChildren
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/disputes': typeof AppDisputesRoute
+  '/_app/documents': typeof AppDocumentsRoute
+  '/_app/floor': typeof AppFloorRoute
+  '/_app/handoff': typeof AppHandoffRoute
+  '/_app/inbox': typeof AppInboxRoute
+  '/_app/integrations': typeof AppIntegrationsRoute
+  '/_app/knowledge-base': typeof AppKnowledgeBaseRoute
+  '/_app/promises': typeof AppPromisesRoute
+  '/_app/prompt-studio': typeof AppPromptStudioRoute
+  '/_app/qa': typeof AppQaRoute
+  '/_app/redaction': typeof AppRedactionRoute
+  '/_app/roles': typeof AppRolesRoute
+  '/_app/routing': typeof AppRoutingRoute
+  '/_app/sandbox': typeof AppSandboxRoute
+  '/_app/treatment': typeof AppTreatmentRoute
+  '/_app/upsell': typeof AppUpsellRoute
+  '/_app/webhooks': typeof AppWebhooksRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
+  '/_app/customers/$customerId': typeof AppCustomersCustomerIdRoute
+  '/_app/agent-studio/': typeof AppAgentStudioIndexRoute
+  '/_app/customers/': typeof AppCustomersIndexRoute
+  '/_app/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
+  '/_app/agent-studio/skills/': typeof AppAgentStudioSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/agent-studio'
     | '/audit'
     | '/billing'
@@ -349,7 +363,6 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/integrations'
     | '/knowledge-base'
-    | '/login'
     | '/promises'
     | '/prompt-studio'
     | '/qa'
@@ -368,7 +381,7 @@ export interface FileRouteTypes {
     | '/agent-studio/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
+    | '/login'
     | '/audit'
     | '/billing'
     | '/bot-analytics'
@@ -383,7 +396,6 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/integrations'
     | '/knowledge-base'
-    | '/login'
     | '/promises'
     | '/prompt-studio'
     | '/qa'
@@ -394,6 +406,7 @@ export interface FileRouteTypes {
     | '/treatment'
     | '/upsell'
     | '/webhooks'
+    | '/'
     | '/agent-studio/$botId'
     | '/customers/$customerId'
     | '/agent-studio'
@@ -402,192 +415,55 @@ export interface FileRouteTypes {
     | '/agent-studio/skills'
   id:
     | '__root__'
-    | '/'
-    | '/agent-studio'
-    | '/audit'
-    | '/billing'
-    | '/bot-analytics'
-    | '/callbacks'
-    | '/compliance'
-    | '/consent'
-    | '/customers'
-    | '/dashboard'
-    | '/disputes'
-    | '/documents'
-    | '/floor'
-    | '/handoff'
-    | '/inbox'
-    | '/integrations'
-    | '/knowledge-base'
+    | '/_app'
     | '/login'
-    | '/promises'
-    | '/prompt-studio'
-    | '/qa'
-    | '/redaction'
-    | '/roles'
-    | '/routing'
-    | '/sandbox'
-    | '/treatment'
-    | '/upsell'
-    | '/webhooks'
-    | '/agent-studio/$botId'
-    | '/customers/$customerId'
-    | '/agent-studio/'
-    | '/customers/'
-    | '/agent-studio/skills/$skillId'
-    | '/agent-studio/skills/'
+    | '/_app/agent-studio'
+    | '/_app/audit'
+    | '/_app/billing'
+    | '/_app/bot-analytics'
+    | '/_app/callbacks'
+    | '/_app/compliance'
+    | '/_app/consent'
+    | '/_app/customers'
+    | '/_app/dashboard'
+    | '/_app/disputes'
+    | '/_app/documents'
+    | '/_app/floor'
+    | '/_app/handoff'
+    | '/_app/inbox'
+    | '/_app/integrations'
+    | '/_app/knowledge-base'
+    | '/_app/promises'
+    | '/_app/prompt-studio'
+    | '/_app/qa'
+    | '/_app/redaction'
+    | '/_app/roles'
+    | '/_app/routing'
+    | '/_app/sandbox'
+    | '/_app/treatment'
+    | '/_app/upsell'
+    | '/_app/webhooks'
+    | '/_app/'
+    | '/_app/agent-studio/$botId'
+    | '/_app/customers/$customerId'
+    | '/_app/agent-studio/'
+    | '/_app/customers/'
+    | '/_app/agent-studio/skills/$skillId'
+    | '/_app/agent-studio/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AgentStudioRoute: typeof AgentStudioRouteWithChildren
-  AuditRoute: typeof AuditRoute
-  BillingRoute: typeof BillingRoute
-  BotAnalyticsRoute: typeof BotAnalyticsRoute
-  CallbacksRoute: typeof CallbacksRoute
-  ComplianceRoute: typeof ComplianceRoute
-  ConsentRoute: typeof ConsentRoute
-  CustomersRoute: typeof CustomersRouteWithChildren
-  DashboardRoute: typeof DashboardRoute
-  DisputesRoute: typeof DisputesRoute
-  DocumentsRoute: typeof DocumentsRoute
-  FloorRoute: typeof FloorRoute
-  HandoffRoute: typeof HandoffRoute
-  InboxRoute: typeof InboxRoute
-  IntegrationsRoute: typeof IntegrationsRoute
-  KnowledgeBaseRoute: typeof KnowledgeBaseRoute
+  AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
-  PromisesRoute: typeof PromisesRoute
-  PromptStudioRoute: typeof PromptStudioRoute
-  QaRoute: typeof QaRoute
-  RedactionRoute: typeof RedactionRoute
-  RolesRoute: typeof RolesRoute
-  RoutingRoute: typeof RoutingRoute
-  SandboxRoute: typeof SandboxRoute
-  TreatmentRoute: typeof TreatmentRoute
-  UpsellRoute: typeof UpsellRoute
-  WebhooksRoute: typeof WebhooksRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agent-studio': {
-      id: '/agent-studio'
-      path: '/agent-studio'
-      fullPath: '/agent-studio'
-      preLoaderRoute: typeof AgentStudioRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/audit': {
-      id: '/audit'
-      path: '/audit'
-      fullPath: '/audit'
-      preLoaderRoute: typeof AuditRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/billing': {
-      id: '/billing'
-      path: '/billing'
-      fullPath: '/billing'
-      preLoaderRoute: typeof BillingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/bot-analytics': {
-      id: '/bot-analytics'
-      path: '/bot-analytics'
-      fullPath: '/bot-analytics'
-      preLoaderRoute: typeof BotAnalyticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/callbacks': {
-      id: '/callbacks'
-      path: '/callbacks'
-      fullPath: '/callbacks'
-      preLoaderRoute: typeof CallbacksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/compliance': {
-      id: '/compliance'
-      path: '/compliance'
-      fullPath: '/compliance'
-      preLoaderRoute: typeof ComplianceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/consent': {
-      id: '/consent'
-      path: '/consent'
-      fullPath: '/consent'
-      preLoaderRoute: typeof ConsentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/customers': {
-      id: '/customers'
-      path: '/customers'
-      fullPath: '/customers'
-      preLoaderRoute: typeof CustomersRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/disputes': {
-      id: '/disputes'
-      path: '/disputes'
-      fullPath: '/disputes'
-      preLoaderRoute: typeof DisputesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/documents': {
-      id: '/documents'
-      path: '/documents'
-      fullPath: '/documents'
-      preLoaderRoute: typeof DocumentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/floor': {
-      id: '/floor'
-      path: '/floor'
-      fullPath: '/floor'
-      preLoaderRoute: typeof FloorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/handoff': {
-      id: '/handoff'
-      path: '/handoff'
-      fullPath: '/handoff'
-      preLoaderRoute: typeof HandoffRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/inbox': {
-      id: '/inbox'
-      path: '/inbox'
-      fullPath: '/inbox'
-      preLoaderRoute: typeof InboxRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/integrations': {
-      id: '/integrations'
-      path: '/integrations'
-      fullPath: '/integrations'
-      preLoaderRoute: typeof IntegrationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/knowledge-base': {
-      id: '/knowledge-base'
-      path: '/knowledge-base'
-      fullPath: '/knowledge-base'
-      preLoaderRoute: typeof KnowledgeBaseRouteImport
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -597,182 +473,337 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/promises': {
-      id: '/promises'
+    '/_app/': {
+      id: '/_app/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/agent-studio': {
+      id: '/_app/agent-studio'
+      path: '/agent-studio'
+      fullPath: '/agent-studio'
+      preLoaderRoute: typeof AppAgentStudioRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/audit': {
+      id: '/_app/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AppAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/billing': {
+      id: '/_app/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/bot-analytics': {
+      id: '/_app/bot-analytics'
+      path: '/bot-analytics'
+      fullPath: '/bot-analytics'
+      preLoaderRoute: typeof AppBotAnalyticsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/callbacks': {
+      id: '/_app/callbacks'
+      path: '/callbacks'
+      fullPath: '/callbacks'
+      preLoaderRoute: typeof AppCallbacksRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/compliance': {
+      id: '/_app/compliance'
+      path: '/compliance'
+      fullPath: '/compliance'
+      preLoaderRoute: typeof AppComplianceRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/consent': {
+      id: '/_app/consent'
+      path: '/consent'
+      fullPath: '/consent'
+      preLoaderRoute: typeof AppConsentRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/customers': {
+      id: '/_app/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof AppCustomersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/disputes': {
+      id: '/_app/disputes'
+      path: '/disputes'
+      fullPath: '/disputes'
+      preLoaderRoute: typeof AppDisputesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/documents': {
+      id: '/_app/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/floor': {
+      id: '/_app/floor'
+      path: '/floor'
+      fullPath: '/floor'
+      preLoaderRoute: typeof AppFloorRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/handoff': {
+      id: '/_app/handoff'
+      path: '/handoff'
+      fullPath: '/handoff'
+      preLoaderRoute: typeof AppHandoffRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/integrations': {
+      id: '/_app/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof AppIntegrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/knowledge-base': {
+      id: '/_app/knowledge-base'
+      path: '/knowledge-base'
+      fullPath: '/knowledge-base'
+      preLoaderRoute: typeof AppKnowledgeBaseRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/promises': {
+      id: '/_app/promises'
       path: '/promises'
       fullPath: '/promises'
-      preLoaderRoute: typeof PromisesRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppPromisesRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/prompt-studio': {
-      id: '/prompt-studio'
+    '/_app/prompt-studio': {
+      id: '/_app/prompt-studio'
       path: '/prompt-studio'
       fullPath: '/prompt-studio'
-      preLoaderRoute: typeof PromptStudioRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppPromptStudioRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/qa': {
-      id: '/qa'
+    '/_app/qa': {
+      id: '/_app/qa'
       path: '/qa'
       fullPath: '/qa'
-      preLoaderRoute: typeof QaRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppQaRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/redaction': {
-      id: '/redaction'
+    '/_app/redaction': {
+      id: '/_app/redaction'
       path: '/redaction'
       fullPath: '/redaction'
-      preLoaderRoute: typeof RedactionRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppRedactionRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/roles': {
-      id: '/roles'
+    '/_app/roles': {
+      id: '/_app/roles'
       path: '/roles'
       fullPath: '/roles'
-      preLoaderRoute: typeof RolesRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppRolesRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/routing': {
-      id: '/routing'
+    '/_app/routing': {
+      id: '/_app/routing'
       path: '/routing'
       fullPath: '/routing'
-      preLoaderRoute: typeof RoutingRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppRoutingRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/sandbox': {
-      id: '/sandbox'
+    '/_app/sandbox': {
+      id: '/_app/sandbox'
       path: '/sandbox'
       fullPath: '/sandbox'
-      preLoaderRoute: typeof SandboxRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppSandboxRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/treatment': {
-      id: '/treatment'
+    '/_app/treatment': {
+      id: '/_app/treatment'
       path: '/treatment'
       fullPath: '/treatment'
-      preLoaderRoute: typeof TreatmentRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppTreatmentRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/upsell': {
-      id: '/upsell'
+    '/_app/upsell': {
+      id: '/_app/upsell'
       path: '/upsell'
       fullPath: '/upsell'
-      preLoaderRoute: typeof UpsellRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppUpsellRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/webhooks': {
-      id: '/webhooks'
+    '/_app/webhooks': {
+      id: '/_app/webhooks'
       path: '/webhooks'
       fullPath: '/webhooks'
-      preLoaderRoute: typeof WebhooksRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppWebhooksRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/agent-studio/': {
-      id: '/agent-studio/'
+    '/_app/agent-studio/': {
+      id: '/_app/agent-studio/'
       path: '/'
       fullPath: '/agent-studio/'
-      preLoaderRoute: typeof AgentStudioIndexRouteImport
-      parentRoute: typeof AgentStudioRoute
+      preLoaderRoute: typeof AppAgentStudioIndexRouteImport
+      parentRoute: typeof AppAgentStudioRoute
     }
-    '/agent-studio/$botId': {
-      id: '/agent-studio/$botId'
+    '/_app/agent-studio/$botId': {
+      id: '/_app/agent-studio/$botId'
       path: '/$botId'
       fullPath: '/agent-studio/$botId'
-      preLoaderRoute: typeof AgentStudioBotIdRouteImport
-      parentRoute: typeof AgentStudioRoute
+      preLoaderRoute: typeof AppAgentStudioBotIdRouteImport
+      parentRoute: typeof AppAgentStudioRoute
     }
-    '/customers/': {
-      id: '/customers/'
+    '/_app/customers/': {
+      id: '/_app/customers/'
       path: '/'
       fullPath: '/customers/'
-      preLoaderRoute: typeof CustomersIndexRouteImport
-      parentRoute: typeof CustomersRoute
+      preLoaderRoute: typeof AppCustomersIndexRouteImport
+      parentRoute: typeof AppCustomersRoute
     }
-    '/customers/$customerId': {
-      id: '/customers/$customerId'
+    '/_app/customers/$customerId': {
+      id: '/_app/customers/$customerId'
       path: '/$customerId'
       fullPath: '/customers/$customerId'
-      preLoaderRoute: typeof CustomersCustomerIdRouteImport
-      parentRoute: typeof CustomersRoute
+      preLoaderRoute: typeof AppCustomersCustomerIdRouteImport
+      parentRoute: typeof AppCustomersRoute
     }
-    '/agent-studio/skills/': {
-      id: '/agent-studio/skills/'
+    '/_app/agent-studio/skills/': {
+      id: '/_app/agent-studio/skills/'
       path: '/skills'
       fullPath: '/agent-studio/skills/'
-      preLoaderRoute: typeof AgentStudioSkillsIndexRouteImport
-      parentRoute: typeof AgentStudioRoute
+      preLoaderRoute: typeof AppAgentStudioSkillsIndexRouteImport
+      parentRoute: typeof AppAgentStudioRoute
     }
-    '/agent-studio/skills/$skillId': {
-      id: '/agent-studio/skills/$skillId'
+    '/_app/agent-studio/skills/$skillId': {
+      id: '/_app/agent-studio/skills/$skillId'
       path: '/skills/$skillId'
       fullPath: '/agent-studio/skills/$skillId'
-      preLoaderRoute: typeof AgentStudioSkillsSkillIdRouteImport
-      parentRoute: typeof AgentStudioRoute
+      preLoaderRoute: typeof AppAgentStudioSkillsSkillIdRouteImport
+      parentRoute: typeof AppAgentStudioRoute
     }
   }
 }
 
-interface AgentStudioRouteChildren {
-  AgentStudioBotIdRoute: typeof AgentStudioBotIdRoute
-  AgentStudioIndexRoute: typeof AgentStudioIndexRoute
-  AgentStudioSkillsSkillIdRoute: typeof AgentStudioSkillsSkillIdRoute
-  AgentStudioSkillsIndexRoute: typeof AgentStudioSkillsIndexRoute
+interface AppAgentStudioRouteChildren {
+  AppAgentStudioBotIdRoute: typeof AppAgentStudioBotIdRoute
+  AppAgentStudioIndexRoute: typeof AppAgentStudioIndexRoute
+  AppAgentStudioSkillsSkillIdRoute: typeof AppAgentStudioSkillsSkillIdRoute
+  AppAgentStudioSkillsIndexRoute: typeof AppAgentStudioSkillsIndexRoute
 }
 
-const AgentStudioRouteChildren: AgentStudioRouteChildren = {
-  AgentStudioBotIdRoute: AgentStudioBotIdRoute,
-  AgentStudioIndexRoute: AgentStudioIndexRoute,
-  AgentStudioSkillsSkillIdRoute: AgentStudioSkillsSkillIdRoute,
-  AgentStudioSkillsIndexRoute: AgentStudioSkillsIndexRoute,
+const AppAgentStudioRouteChildren: AppAgentStudioRouteChildren = {
+  AppAgentStudioBotIdRoute: AppAgentStudioBotIdRoute,
+  AppAgentStudioIndexRoute: AppAgentStudioIndexRoute,
+  AppAgentStudioSkillsSkillIdRoute: AppAgentStudioSkillsSkillIdRoute,
+  AppAgentStudioSkillsIndexRoute: AppAgentStudioSkillsIndexRoute,
 }
 
-const AgentStudioRouteWithChildren = AgentStudioRoute._addFileChildren(
-  AgentStudioRouteChildren,
+const AppAgentStudioRouteWithChildren = AppAgentStudioRoute._addFileChildren(
+  AppAgentStudioRouteChildren,
 )
 
-interface CustomersRouteChildren {
-  CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
-  CustomersIndexRoute: typeof CustomersIndexRoute
+interface AppCustomersRouteChildren {
+  AppCustomersCustomerIdRoute: typeof AppCustomersCustomerIdRoute
+  AppCustomersIndexRoute: typeof AppCustomersIndexRoute
 }
 
-const CustomersRouteChildren: CustomersRouteChildren = {
-  CustomersCustomerIdRoute: CustomersCustomerIdRoute,
-  CustomersIndexRoute: CustomersIndexRoute,
+const AppCustomersRouteChildren: AppCustomersRouteChildren = {
+  AppCustomersCustomerIdRoute: AppCustomersCustomerIdRoute,
+  AppCustomersIndexRoute: AppCustomersIndexRoute,
 }
 
-const CustomersRouteWithChildren = CustomersRoute._addFileChildren(
-  CustomersRouteChildren,
+const AppCustomersRouteWithChildren = AppCustomersRoute._addFileChildren(
+  AppCustomersRouteChildren,
 )
+
+interface AppRouteChildren {
+  AppAgentStudioRoute: typeof AppAgentStudioRouteWithChildren
+  AppAuditRoute: typeof AppAuditRoute
+  AppBillingRoute: typeof AppBillingRoute
+  AppBotAnalyticsRoute: typeof AppBotAnalyticsRoute
+  AppCallbacksRoute: typeof AppCallbacksRoute
+  AppComplianceRoute: typeof AppComplianceRoute
+  AppConsentRoute: typeof AppConsentRoute
+  AppCustomersRoute: typeof AppCustomersRouteWithChildren
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppDisputesRoute: typeof AppDisputesRoute
+  AppDocumentsRoute: typeof AppDocumentsRoute
+  AppFloorRoute: typeof AppFloorRoute
+  AppHandoffRoute: typeof AppHandoffRoute
+  AppInboxRoute: typeof AppInboxRoute
+  AppIntegrationsRoute: typeof AppIntegrationsRoute
+  AppKnowledgeBaseRoute: typeof AppKnowledgeBaseRoute
+  AppPromisesRoute: typeof AppPromisesRoute
+  AppPromptStudioRoute: typeof AppPromptStudioRoute
+  AppQaRoute: typeof AppQaRoute
+  AppRedactionRoute: typeof AppRedactionRoute
+  AppRolesRoute: typeof AppRolesRoute
+  AppRoutingRoute: typeof AppRoutingRoute
+  AppSandboxRoute: typeof AppSandboxRoute
+  AppTreatmentRoute: typeof AppTreatmentRoute
+  AppUpsellRoute: typeof AppUpsellRoute
+  AppWebhooksRoute: typeof AppWebhooksRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppAgentStudioRoute: AppAgentStudioRouteWithChildren,
+  AppAuditRoute: AppAuditRoute,
+  AppBillingRoute: AppBillingRoute,
+  AppBotAnalyticsRoute: AppBotAnalyticsRoute,
+  AppCallbacksRoute: AppCallbacksRoute,
+  AppComplianceRoute: AppComplianceRoute,
+  AppConsentRoute: AppConsentRoute,
+  AppCustomersRoute: AppCustomersRouteWithChildren,
+  AppDashboardRoute: AppDashboardRoute,
+  AppDisputesRoute: AppDisputesRoute,
+  AppDocumentsRoute: AppDocumentsRoute,
+  AppFloorRoute: AppFloorRoute,
+  AppHandoffRoute: AppHandoffRoute,
+  AppInboxRoute: AppInboxRoute,
+  AppIntegrationsRoute: AppIntegrationsRoute,
+  AppKnowledgeBaseRoute: AppKnowledgeBaseRoute,
+  AppPromisesRoute: AppPromisesRoute,
+  AppPromptStudioRoute: AppPromptStudioRoute,
+  AppQaRoute: AppQaRoute,
+  AppRedactionRoute: AppRedactionRoute,
+  AppRolesRoute: AppRolesRoute,
+  AppRoutingRoute: AppRoutingRoute,
+  AppSandboxRoute: AppSandboxRoute,
+  AppTreatmentRoute: AppTreatmentRoute,
+  AppUpsellRoute: AppUpsellRoute,
+  AppWebhooksRoute: AppWebhooksRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AgentStudioRoute: AgentStudioRouteWithChildren,
-  AuditRoute: AuditRoute,
-  BillingRoute: BillingRoute,
-  BotAnalyticsRoute: BotAnalyticsRoute,
-  CallbacksRoute: CallbacksRoute,
-  ComplianceRoute: ComplianceRoute,
-  ConsentRoute: ConsentRoute,
-  CustomersRoute: CustomersRouteWithChildren,
-  DashboardRoute: DashboardRoute,
-  DisputesRoute: DisputesRoute,
-  DocumentsRoute: DocumentsRoute,
-  FloorRoute: FloorRoute,
-  HandoffRoute: HandoffRoute,
-  InboxRoute: InboxRoute,
-  IntegrationsRoute: IntegrationsRoute,
-  KnowledgeBaseRoute: KnowledgeBaseRoute,
+  AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
-  PromisesRoute: PromisesRoute,
-  PromptStudioRoute: PromptStudioRoute,
-  QaRoute: QaRoute,
-  RedactionRoute: RedactionRoute,
-  RolesRoute: RolesRoute,
-  RoutingRoute: RoutingRoute,
-  SandboxRoute: SandboxRoute,
-  TreatmentRoute: TreatmentRoute,
-  UpsellRoute: UpsellRoute,
-  WebhooksRoute: WebhooksRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

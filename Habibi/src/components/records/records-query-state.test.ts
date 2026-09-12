@@ -47,14 +47,14 @@ describe("FilterTable loading and error slots", () => {
 
 describe("compliance surfaces thread the error", () => {
   it("consent registry does not default a failed read to []", () => {
-    const page = read("routes/consent.tsx");
+    const page = read("routes/_app.consent.tsx");
     expect(page).not.toContain("data: items = []");
     expect(page).toContain("isError={isError}");
     expect(read("components/consent/ConsentTable.tsx")).toContain('errorLabel="consent records"');
   });
 
   it("compliance dashboard does not render measured zeroes on a 500", () => {
-    const page = read("routes/compliance.tsx");
+    const page = read("routes/_app.compliance.tsx");
     expect(page).not.toContain("data: items = []");
     expect(page).toContain('label="compliance violations"');
   });

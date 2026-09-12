@@ -49,8 +49,8 @@ const VIEW_DIRS = ["routes", "components"];
 const ALLOWED_MODALS = new Set([
   "src/components/billing/BudgetPanel.tsx",
   "src/components/platform/OutboundControlPanel.tsx",
-  "src/routes/inbox.tsx",
-  "src/routes/webhooks.tsx",
+  "src/routes/_app.inbox.tsx",
+  "src/routes/_app.webhooks.tsx",
 ]);
 
 function walk(dir) {
