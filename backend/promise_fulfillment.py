@@ -123,23 +123,6 @@ def _phone_last4(phone: str | None) -> str | None:
     return digits[-4:] if len(digits) >= 4 else (digits or None)
 
 
-def _fmt_inr(amount: Any) -> str:
-    """Rupees for an SMS or a pay-link template, without the symbol (the copy
-    carries it). Indian grouping -- "12,34,567", not Python's "1,234,567" --
-    because this is the number the borrower reads. Paise kept only when there
-    are any; a template slot reads better as "1,500" than "1,500.00"."""
-    try:
-        n = Decimal(str(amount)).quantize(Decimal("0.01"))
-    except Exception:
-        return str(amount)
-    whole = money_inr.group_indian(str(abs(int(n))))
-    sign = "-" if n < 0 else ""
-    if n == n.to_integral():
-        return f"{sign}{whole}"
-    paise = f"{abs(n) % 1:.2f}"[1:]
-    return f"{sign}{whole}{paise}"
-
-
 def _promised_date_ist(promised_at: datetime) -> datetime.date:
     if promised_at.tzinfo is None:
         promised_at = promised_at.replace(tzinfo=timezone.utc)
@@ -279,7 +262,7 @@ def _inside_service_window(conn: Any, conversation_id: str, *, now: datetime | N
 
 def _confirm_copy(*, amount: Any, promised_at: datetime, pay_url: str, expires_at: datetime | None) -> str:
     date_s = _promised_date_ist(promised_at).strftime("%d %b %Y")
-    rupees = _fmt_inr(amount)
+    rupees = money_inr.template_amount(amount)
     expiry = ""
     if expires_at is not None:
         exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
@@ -292,7 +275,7 @@ def _confirm_copy(*, amount: Any, promised_at: datetime, pay_url: str, expires_a
 
 def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: str | None, suppressed: bool) -> str:
     date_s = _promised_date_ist(promised_at).strftime("%d %B")
-    rupees = _fmt_inr(amount)
+    rupees = money_inr.template_amount(amount)
     if suppressed or not channel:
         return (
             f"I've recorded a promise of {rupees} rupees by {date_s}. "
@@ -525,7 +508,7 @@ def enqueue_whatsapp_paylink(
     )
     params = template_params
     if use_template and template_name and params is None:
-        params = [_fmt_inr(intent["amount"]), intent["pay_url"]]
+        params = [money_inr.template_amount(intent["amount"]), intent["pay_url"]]
     wa_out.enqueue_agent_send(
         conn,
         message_id=message_id,
@@ -555,7 +538,7 @@ def _enqueue_whatsapp(
     source: str = "ptp_confirm",
 ) -> None:
     date_s = _promised_date_ist(promise["promised_at"]).isoformat()
-    params = [_fmt_inr(intent["amount"]), date_s, intent["pay_url"]] if use_template else None
+    params = [money_inr.template_amount(intent["amount"]), date_s, intent["pay_url"]] if use_template else None
     enqueue_whatsapp_paylink(
         conn,
         customer_id=promise["customer_id"],

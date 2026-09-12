@@ -9,6 +9,7 @@ or hours). Voice is last-resort outreach and defaults off.
 from __future__ import annotations
 
 import logging
+import money_inr
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -146,9 +147,8 @@ def _bounce_copy(
     reason: str,
     tz: ZoneInfo,
 ) -> str:
-    import promise_fulfillment as pf
 
-    rupees = pf._fmt_inr(amount)
+    rupees = money_inr.template_amount(amount)
     why = REASON_LABELS.get(reason, reason.replace("_", " "))
     date_s = "the due date"
     if due_at is not None:
@@ -658,7 +658,7 @@ def _first_touch(
             due = emi["due_date"]
             due = due if getattr(due, "tzinfo", None) else due.replace(tzinfo=timezone.utc)
             due_s = due.astimezone(tz).strftime("%d %b %Y")
-        params = [pf._fmt_inr(intent["amount"]), due_s or "due", intent["pay_url"]]
+        params = [money_inr.template_amount(intent["amount"]), due_s or "due", intent["pay_url"]]
         if inside:
             pf.enqueue_whatsapp_paylink(
                 conn,

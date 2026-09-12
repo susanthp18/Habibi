@@ -33,6 +33,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+import money_inr
 from agent_core.clock import as_utc
 from agent_core.treatment import actions as A, attempts, cancel, config, decisions, reservations
 from agent_core.clock import utc_now
@@ -360,13 +361,15 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
         raise NoExecutor(compliance_copy.NO_GRIEVANCE_CONTACT)
 
     pay_url, amount = _open_pay_url(conn, decision)
-    account_ref = decision.get("account_id") or "your account"
-    tail = str(account_ref)[-4:]
+    from agent_core.context import account_tail
+
+    # Last four *digits*: a vanity id like AC-SUSANTH has none, and "ending
+    # ANTH" is what [-4:] used to text the borrower.
+    tail = account_tail(decision.get("account_id"))
+    account = f"the account ending {tail}" if tail else "your account"
     money = ""
     if amount is not None:
-        import promise_fulfillment as pf
-
-        money = f" of ₹{pf._fmt_inr(amount)}"
+        money = f" of ₹{money_inr.template_amount(amount)}"
     brand = (tenant_id or dbmod.current_tenant()).split(".")[0].upper()
     ask = (
         f"Pay securely here: {pay_url}. Do not share this link."
@@ -374,7 +377,7 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
         else "Please call us on the number on your statement to arrange payment."
     )
     return (
-        f"{brand}: your instalment{money} on the account ending {tail} is overdue. "
+        f"{brand}: your instalment{money} on {account} is overdue. "
         f"{ask} {footer}"
     )
 

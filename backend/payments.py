@@ -564,8 +564,9 @@ def render_pay_page(intent: dict[str, Any]) -> str:
 
     tenant = escape(str(intent.get("tenant_name") or "Collections"))
     amount = escape(f"{float(intent.get('amount') or 0):,.2f}")
-    account = str(intent.get("account_id") or "")
-    tail = escape(account[-4:] if len(account) >= 4 else account)
+    from db_core import _account_tail
+
+    tail = escape(_account_tail(intent.get("account_id")) or "")
     status = escape(str(intent.get("status") or ""))
     expires = intent.get("expires_at")
     expiry = ""
@@ -605,7 +606,7 @@ def render_pay_page(intent: dict[str, Any]) -> str:
 <body>
   <div class="card">
     <h1>{heading}</h1>
-    <div class="meta">{tenant} · account ending {tail}</div>
+    <div class="meta">{tenant}{" · account ending " + tail if tail else ""}</div>
     <div class="amt">₹{amount}</div>
     <div class="meta">UPI / net-banking amount as shown. Status: {status}{" · expires " + expiry if expiry else ""}</div>
     {action}

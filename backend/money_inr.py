@@ -99,6 +99,24 @@ def inr(amount: float | None, *, none: str = NULL_DISPLAY) -> str:
 COMPACT_EPSILON = 0.0001
 
 
+def template_amount(amount: object) -> str:
+    """Rupees for an SMS or a pay-link template, without the symbol (the copy
+    carries it). Indian grouping -- "12,34,567", not Python's "1,234,567" --
+    because this is the number the borrower reads. Paise kept only when there
+    are any; a template slot reads better as "1,500" than "1,500.00".
+    """
+    try:
+        n = Decimal(str(amount)).quantize(PAISA)
+    except Exception:
+        return str(amount)
+    whole = group_indian(str(abs(int(n))))
+    sign = "-" if n < 0 else ""
+    if n == n.to_integral():
+        return f"{sign}{whole}"
+    paise = f"{abs(n) % 1:.2f}"[1:]
+    return f"{sign}{whole}{paise}"
+
+
 def inr_compact(amount: float | None) -> str:
     """Compact Indian money. The canonical ladder, matching the client exactly.
 
