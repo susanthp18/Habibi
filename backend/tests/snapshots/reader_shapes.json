@@ -1,0 +1,693 @@
+{
+  "billing": {
+    "30d": {
+      "alerts": [
+        {
+          "env": "str",
+          "id": "str",
+          "message": "str",
+          "ruleId": "str",
+          "when": "str"
+        }
+      ],
+      "asOf": "str",
+      "attributedCalls": "int",
+      "attributedCostPerCall": "float",
+      "budgetCap": "float",
+      "budgets": [
+        {
+          "env": "str",
+          "id": "str",
+          "month": "str",
+          "monthlyCapInr": "float",
+          "rules": [
+            {
+              "action": "str",
+              "channels": [
+                "str"
+              ],
+              "id": "str",
+              "severity": "str",
+              "threshold": "float"
+            }
+          ]
+        }
+      ],
+      "costPerCall": "float",
+      "costPerCallPrev": "float",
+      "daily": [
+        {
+          "date": "str",
+          "values": {}
+        }
+      ],
+      "env": "str",
+      "forecast": "int",
+      "invoices": [
+        {
+          "amountInr": "float",
+          "id": "str",
+          "issuedAt": "str",
+          "month": "str",
+          "status": "str"
+        }
+      ],
+      "modelSpend": [
+        {
+          "calls": "int",
+          "color": "str",
+          "costInr": "float",
+          "model": "str",
+          "serviceId": "str",
+          "serviceName": "str",
+          "sourceRef": "str",
+          "unit": "str",
+          "units": "float"
+        }
+      ],
+      "period": "str",
+      "previousDaily": [
+        {
+          "date": "str",
+          "values": {}
+        }
+      ],
+      "resolvedCalls": "int",
+      "serviceTenantSpend": {
+        "llm_chat": {
+          "hdfc.retail": "float"
+        },
+        "llm_embed": {
+          "hdfc.retail": "float"
+        },
+        "stt_az": {
+          "hdfc.retail": "float"
+        },
+        "tts_az": {
+          "hdfc.retail": "float"
+        }
+      },
+      "services": [
+        {
+          "category": "str",
+          "color": "str",
+          "id": "str",
+          "name": "str",
+          "provider": "str",
+          "unit": "str",
+          "unitCostInr": "float"
+        }
+      ],
+      "spend": "float",
+      "spendByEnv": {
+        "production": "float",
+        "sandbox": "float"
+      },
+      "spendPrev": "float",
+      "tenantBreakdown": [
+        {
+          "ahtSec": "int",
+          "budgetInr": "float",
+          "budgetPct": "float",
+          "costPerCall": "float",
+          "id": "str",
+          "name": "str",
+          "resolvedCalls": "int",
+          "spend": "float",
+          "spendPrev": "float"
+        }
+      ],
+      "tenantId": "str",
+      "tenants": [
+        {
+          "ahtSec": "int",
+          "budgetInr": "float",
+          "id": "str",
+          "name": "str",
+          "resolvedCalls": "int",
+          "spendShare": "float"
+        }
+      ]
+    },
+    "mtd": {
+      "alerts": [
+        {
+          "env": "str",
+          "id": "str",
+          "message": "str",
+          "ruleId": "str",
+          "when": "str"
+        }
+      ],
+      "asOf": "str",
+      "attributedCalls": "int",
+      "attributedCostPerCall": "float",
+      "budgetCap": "float",
+      "budgets": [
+        {
+          "env": "str",
+          "id": "str",
+          "month": "str",
+          "monthlyCapInr": "float",
+          "rules": [
+            {
+              "action": "str",
+              "channels": [
+                "str"
+              ],
+              "id": "str",
+              "severity": "str",
+              "threshold": "float"
+            }
+          ]
+        }
+      ],
+      "costPerCall": "float",
+      "costPerCallPrev": "float",
+      "daily": [
+        {
+          "date": "str",
+          "values": {
+            "llm_chat": "float",
+            "llm_embed": "float"
+          }
+        }
+      ],
+      "env": "str",
+      "forecast": "int",
+      "invoices": [
+        {
+          "amountInr": "float",
+          "id": "str",
+          "issuedAt": "str",
+          "month": "str",
+          "status": "str"
+        }
+      ],
+      "modelSpend": [
+        {
+          "calls": "int",
+          "color": "str",
+          "costInr": "float",
+          "model": "str",
+          "serviceId": "str",
+          "serviceName": "str",
+          "sourceRef": "str",
+          "unit": "str",
+          "units": "float"
+        }
+      ],
+      "period": "str",
+      "previousDaily": [
+        {
+          "date": "str",
+          "values": {
+            "llm_chat": "float",
+            "llm_embed": "float",
+            "stt_az": "float",
+            "tts_az": "float"
+          }
+        }
+      ],
+      "resolvedCalls": "int",
+      "serviceTenantSpend": {
+        "llm_chat": {
+          "hdfc.retail": "float"
+        },
+        "llm_embed": {
+          "hdfc.retail": "float"
+        },
+        "stt_az": {
+          "hdfc.retail": "float"
+        }
+      },
+      "services": [
+        {
+          "category": "str",
+          "color": "str",
+          "id": "str",
+          "name": "str",
+          "provider": "str",
+          "unit": "str",
+          "unitCostInr": "float"
+        }
+      ],
+      "spend": "float",
+      "spendByEnv": {
+        "production": "float",
+        "sandbox": "float"
+      },
+      "spendPrev": "float",
+      "tenantBreakdown": [
+        {
+          "ahtSec": "int",
+          "budgetInr": "float",
+          "budgetPct": "float",
+          "costPerCall": "float",
+          "id": "str",
+          "name": "str",
+          "resolvedCalls": "int",
+          "spend": "float",
+          "spendPrev": "float"
+        }
+      ],
+      "tenantId": "str",
+      "tenants": [
+        {
+          "ahtSec": "int",
+          "budgetInr": "float",
+          "id": "str",
+          "name": "str",
+          "resolvedCalls": "int",
+          "spendShare": "float"
+        }
+      ]
+    }
+  },
+  "bot_analytics": {
+    "byCard": [
+      {
+        "botId": "str",
+        "contained": "int",
+        "containment": "float",
+        "escalated": "int",
+        "handoffRate": "float",
+        "latencyP99": "float",
+        "sessions": "int",
+        "sloMs": "int"
+      }
+    ],
+    "dailySeries": [
+      {
+        "abandoned": "int",
+        "avgTurns": "float",
+        "contained": "int",
+        "date": "str",
+        "escalated": "int",
+        "latencyP50": "float",
+        "latencyP90": "float",
+        "latencyP99": "float",
+        "ptpCaptured": "int",
+        "sentiment": "float",
+        "sessions": "int",
+        "upsellPresented": "int"
+      }
+    ],
+    "escalationReasons": [
+      {
+        "count": "int",
+        "id": "str",
+        "label": "str",
+        "trendDelta": "float"
+      }
+    ],
+    "funnelStages": [
+      {
+        "count": "int",
+        "id": "str",
+        "label": "str"
+      }
+    ],
+    "intentAggs": [
+      {
+        "abandoned": "int",
+        "avgLatencyMs": "float",
+        "avgTurns": "float",
+        "contained": "int",
+        "escalated": "int",
+        "id": "str",
+        "label": "str",
+        "sentiment": {
+          "negative": "int",
+          "neutral": "int",
+          "positive": "int"
+        },
+        "sessions": "int"
+      }
+    ],
+    "skillHistogram": [],
+    "turnsHistogram": [
+      {
+        "count": "int",
+        "label": "str",
+        "max": "int",
+        "min": "int"
+      }
+    ],
+    "unansweredQuestions": [
+      {
+        "hasKbDoc": "bool",
+        "hits": "int",
+        "id": "str",
+        "lastSeen": "str",
+        "suggestedFix": "str",
+        "text": "str",
+        "topIntent": "str"
+      }
+    ]
+  },
+  "dashboard": {
+    "7d": {
+      "atRiskAccounts": [
+        {
+          "account": "str",
+          "daysPastDue": "int",
+          "id": "str",
+          "lastContact": "str",
+          "name": "str",
+          "outstanding": "float",
+          "product": "str",
+          "risk": "str"
+        }
+      ],
+      "botVsHuman": [
+        {
+          "color": "str",
+          "name": "str",
+          "value": "int"
+        }
+      ],
+      "callVolumeStacked": [
+        {
+          "chat": "int",
+          "date": "str",
+          "voice": "int",
+          "whatsapp": "int"
+        }
+      ],
+      "heroKpis": [
+        {
+          "delta": "float",
+          "deltaGood": "str",
+          "label": "str",
+          "raw": "int",
+          "spark": [
+            "float"
+          ],
+          "sub": "str",
+          "value": "str"
+        }
+      ],
+      "kpis": [
+        {
+          "delta": "null",
+          "deltaGood": "str",
+          "key": "str",
+          "label": "str",
+          "spark": [],
+          "tone": "str",
+          "value": "str"
+        }
+      ],
+      "leaderboard": [
+        {
+          "aht": "str",
+          "calls": "int",
+          "csat": "null",
+          "name": "str",
+          "rank": "int",
+          "team": "str",
+          "upsell": "null"
+        }
+      ],
+      "recoveryTrend": [],
+      "sentimentDistribution": {
+        "negative": "int",
+        "neutral": "int",
+        "positive": "int"
+      }
+    },
+    "qtd": {
+      "atRiskAccounts": [
+        {
+          "account": "str",
+          "daysPastDue": "int",
+          "id": "str",
+          "lastContact": "str",
+          "name": "str",
+          "outstanding": "float",
+          "product": "str",
+          "risk": "str"
+        }
+      ],
+      "botVsHuman": [
+        {
+          "color": "str",
+          "name": "str",
+          "value": "int"
+        }
+      ],
+      "callVolumeStacked": [
+        {
+          "chat": "int",
+          "date": "str",
+          "voice": "int",
+          "whatsapp": "int"
+        }
+      ],
+      "heroKpis": [
+        {
+          "delta": "null",
+          "deltaGood": "str",
+          "label": "str",
+          "raw": "int",
+          "spark": [
+            "float"
+          ],
+          "sub": "str",
+          "value": "str"
+        }
+      ],
+      "kpis": [
+        {
+          "delta": "float",
+          "deltaGood": "str",
+          "key": "str",
+          "label": "str",
+          "spark": [
+            "float"
+          ],
+          "tone": "str",
+          "value": "str"
+        }
+      ],
+      "leaderboard": [
+        {
+          "aht": "str",
+          "calls": "int",
+          "csat": "float",
+          "name": "str",
+          "rank": "int",
+          "team": "str",
+          "upsell": "float"
+        }
+      ],
+      "recoveryTrend": [
+        {
+          "date": "str",
+          "value": "float"
+        }
+      ],
+      "sentimentDistribution": {
+        "negative": "int",
+        "neutral": "int",
+        "positive": "int"
+      }
+    },
+    "today": {
+      "atRiskAccounts": [
+        {
+          "account": "str",
+          "daysPastDue": "int",
+          "id": "str",
+          "lastContact": "str",
+          "name": "str",
+          "outstanding": "float",
+          "product": "str",
+          "risk": "str"
+        }
+      ],
+      "botVsHuman": [
+        {
+          "color": "str",
+          "name": "str",
+          "value": "int"
+        }
+      ],
+      "callVolumeStacked": [],
+      "heroKpis": [
+        {
+          "delta": "null",
+          "deltaGood": "str",
+          "label": "str",
+          "raw": "int",
+          "spark": [],
+          "sub": "str",
+          "value": "str"
+        }
+      ],
+      "kpis": [
+        {
+          "delta": "null",
+          "deltaGood": "str",
+          "key": "str",
+          "label": "str",
+          "spark": [],
+          "tone": "str",
+          "value": "str"
+        }
+      ],
+      "leaderboard": [
+        {
+          "aht": "str",
+          "calls": "int",
+          "csat": "null",
+          "name": "str",
+          "rank": "int",
+          "team": "str",
+          "upsell": "null"
+        }
+      ],
+      "recoveryTrend": [],
+      "sentimentDistribution": {
+        "negative": "int",
+        "neutral": "int",
+        "positive": "int"
+      }
+    }
+  },
+  "floor": {
+    "agents": [
+      {
+        "customer": "null",
+        "initials": "str",
+        "interactionId": "null",
+        "name": "str",
+        "sinceAt": "str",
+        "status": "str",
+        "userId": "str"
+      }
+    ],
+    "alerts": [
+      {
+        "at": "str",
+        "callId": "str",
+        "id": "str",
+        "kind": "str",
+        "reason": "str",
+        "recommendedAction": "str",
+        "severity": "int"
+      }
+    ],
+    "calls": [
+      {
+        "accountId": "str",
+        "accountTail": "str",
+        "agentCard": {
+          "botId": "str",
+          "displayName": "str"
+        },
+        "authorityPolicy": {
+          "accountId": "null",
+          "approvedAmount": "null",
+          "askedAmount": "null",
+          "capAmount": "null",
+          "createdAt": "null",
+          "customerId": "null",
+          "decisionId": "null",
+          "disputeId": "null",
+          "enacted": "bool",
+          "feeType": "null",
+          "interactionId": "null",
+          "mode": "null",
+          "reason": "null",
+          "reasonCodes": [],
+          "reasonLabel": "null",
+          "status": "str",
+          "talkTrack": "null",
+          "verdict": "null"
+        },
+        "channel": "str",
+        "conversationId": "str",
+        "customer": "str",
+        "customerId": "str",
+        "customerRisk": "str",
+        "dnd": "bool",
+        "durationSec": "int",
+        "flags": [
+          "str"
+        ],
+        "handler": {
+          "initials": "str",
+          "kind": "str",
+          "name": "str"
+        },
+        "handlerBotId": "str",
+        "handlerUserId": "null",
+        "id": "str",
+        "language": "str",
+        "lastLine": "str",
+        "liveQa": {
+          "audioCapable": "bool",
+          "createdAt": "str",
+          "decisionId": "str",
+          "enacted": "bool",
+          "interactionId": "str",
+          "mode": "str",
+          "reason": "str",
+          "reasonCodes": [
+            "str"
+          ],
+          "recommendedAction": "str",
+          "status": "str",
+          "verdict": "str"
+        },
+        "offerPolicy": {
+          "channel": "null",
+          "createdAt": "null",
+          "customerId": "null",
+          "decisionId": "null",
+          "interactionId": "null",
+          "leadId": "null",
+          "leadStage": "null",
+          "mode": "null",
+          "preferredWindow": "null",
+          "presented": "bool",
+          "productId": "null",
+          "productName": "null",
+          "reasonCodes": [],
+          "response": "null",
+          "score": "null",
+          "status": "str",
+          "suggestedAmount": "null",
+          "suppressionLabel": "null",
+          "suppressionReason": "null",
+          "talkTrack": "null"
+        },
+        "outstanding": "float",
+        "pendingHandoff": "bool",
+        "recentTurns": [
+          {
+            "speaker": "str",
+            "text": "str"
+          }
+        ],
+        "recommendedAction": "str",
+        "risk": "str",
+        "sentiment": "float",
+        "sentimentTrend": "float",
+        "topic": "str"
+      }
+    ],
+    "stats": {
+      "agentsAvailable": "int",
+      "agentsOnCall": "int",
+      "avgSentiment": "float",
+      "botAtRisk": "int",
+      "callsInProgress": "int",
+      "criticalAlerts": "int",
+      "longestWaitSec": "int",
+      "queueDepth": "int"
+    }
+  }
+}
