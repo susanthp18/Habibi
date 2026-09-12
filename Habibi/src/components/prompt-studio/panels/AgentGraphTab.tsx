@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { useAgentGraph } from "@/api/agent-studio";
-import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
+import { isAuthoredCard, type AgentCard, type CardHandoff } from "@/api/agent-card";
+import { Input } from "@/components/ui/input";
+import { HandoffEdgeEditor } from "./HandoffEdgeEditor";
 import { cn } from "@/lib/utils";
 import { ROUTING } from "@/lib/agent-roster";
 
@@ -17,7 +19,6 @@ export function AgentGraphTab({
 }) {
   const graphQuery = useAgentGraph(botId);
   const [selected, setSelected] = useState<string | null>(null);
-  const [whenDraft, setWhenDraft] = useState<Record<string, string>>({});
   const graph = graphQuery.data;
   const nodes = graph?.nodes ?? [];
   const label = (id: string) => nodes.find((n) => n.id === id)?.label ?? id;
@@ -31,16 +32,14 @@ export function AgentGraphTab({
   // Handoffs decide reachability: a card nothing hands off to takes no traffic
   // unless it is the inbound entry point. This was the one card field with no
   // editor anywhere, so a cloned card could never be made reachable from the UI.
-  const setHandoff = (toBotId: string, when: string | null) => {
+  const setHandoff = (toBotId: string, next: CardHandoff | null) => {
     if (!onChange || !card) return;
-    const existing = (card.handoffs ?? []).find((h) => h.to_bot_id === toBotId);
     const rest = (card.handoffs ?? []).filter((h) => h.to_bot_id !== toBotId);
-    onChange({
-      ...card,
-      // Spread the existing row so editing `when` does not drop a payload_schema
-      // the card was authored with.
-      handoffs: when === null ? rest : [...rest, { ...(existing ?? {}), to_bot_id: toBotId, when }],
-    });
+    onChange({ ...card, handoffs: next === null ? rest : [...rest, next] });
+  };
+  const setHopCap = (value: number) => {
+    if (!onChange || !card) return;
+    onChange({ ...card, memory: { ...(card.memory ?? {}), max_hops_per_call: value } });
   };
   const edges = handoffs.length
     ? handoffs.map((h) => ({ from: botId, to: String(h.to_bot_id), when: h.when ?? "" }))
@@ -129,44 +128,55 @@ export function AgentGraphTab({
               .map((n) => {
                 const on = (card?.handoffs ?? []).find((h) => h.to_bot_id === n.id);
                 return (
-                  <li key={n.id} className="flex items-center gap-100 py-100">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-100">
-                        <span className="text-body-small font-medium">{n.label}</span>
-                        {n.reachability ? (
-                          <Lozenge
-                            tone={ROUTING[n.reachability]?.tone ?? "neutral"}
-                            title={
-                              ROUTING[n.reachability]?.help("the entry card") ?? n.reachability
-                            }
-                          >
-                            {n.reachability}
-                          </Lozenge>
-                        ) : null}
+                  <li key={n.id} className="space-y-100 py-100">
+                    <div className="flex items-center gap-100">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-100">
+                          <span className="text-body-small font-medium">{n.label}</span>
+                          {n.reachability ? (
+                            <Lozenge
+                              tone={ROUTING[n.reachability]?.tone ?? "neutral"}
+                              title={
+                                ROUTING[n.reachability]?.help("the entry card") ?? n.reachability
+                              }
+                            >
+                              {n.reachability}
+                            </Lozenge>
+                          ) : null}
+                        </div>
+                        <div className="font-mono text-body-tiny text-text-subtle">{n.id}</div>
                       </div>
-                      <div className="font-mono text-body-tiny text-text-subtle">{n.id}</div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHandoff(n.id, on ? null : { to_bot_id: n.id, when: "" })}
+                      >
+                        {on ? "Remove" : "Allow"}
+                      </Button>
                     </div>
                     {on ? (
-                      <input
-                        className="w-64 rounded-medium border border-border bg-surface px-100 py-050 text-body-small"
-                        placeholder="when — e.g. caller asks about a policy"
-                        value={whenDraft[n.id] ?? on.when ?? ""}
-                        onChange={(e) => setWhenDraft((d) => ({ ...d, [n.id]: e.target.value }))}
-                        onBlur={(e) => setHandoff(n.id, e.target.value)}
-                      />
+                      <HandoffEdgeEditor edge={on} onChange={(next) => setHandoff(n.id, next)} />
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setHandoff(n.id, on ? null : (whenDraft[n.id] ?? ""))}
-                    >
-                      {on ? "Remove" : "Allow"}
-                    </Button>
                   </li>
                 );
               })}
           </ul>
+          <label className="flex items-center gap-100 text-body-small">
+            <span>Hops one call may make</span>
+            <Input
+              type="number"
+              size="compact"
+              className="w-20"
+              min={0}
+              max={8}
+              value={card?.memory?.max_hops_per_call ?? 2}
+              onChange={(e) => setHopCap(Math.max(0, Math.min(8, Number(e.target.value) || 0)))}
+            />
+            <span className="text-body-tiny text-text-subtle">
+              Over the cap the hop is refused in the edge&apos;s refusal line.
+            </span>
+          </label>
         </div>
       ) : (
         <ul className="space-y-050 text-body-tiny text-text-subtle">
