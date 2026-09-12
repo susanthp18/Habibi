@@ -2494,7 +2494,6 @@ from db_inbox import (  # noqa: E402
     _ingest_inbound_whatsapp_message as _ingest_inbound_whatsapp_message,
     _is_inbox_rag_noise as _is_inbox_rag_noise,
     _is_questionish as _is_questionish,
-    _latest_twin_gate_report as _latest_twin_gate_report,
     _looks_collections_topic as _looks_collections_topic,
     _looks_like_pasted_draft as _looks_like_pasted_draft,
     _open_whatsapp_conversation as _open_whatsapp_conversation,
@@ -2502,28 +2501,36 @@ from db_inbox import (  # noqa: E402
     _tail10_predicate as _tail10_predicate,
     _thread_context as _thread_context,
     _touch_interaction_sentiment as _touch_interaction_sentiment,
-    create_kb_snapshot as create_kb_snapshot,
     escalate_conversation_to_human as escalate_conversation_to_human,
     find_customer_by_phone as find_customer_by_phone,
     get_conversation as get_conversation,
     get_latest_context_summary as get_latest_context_summary,
-    get_latest_eval_report as get_latest_eval_report,
     handoff_to_agent as handoff_to_agent,
     list_bot_ids as list_bot_ids,
     list_canned_responses as list_canned_responses,
     list_conversations as list_conversations,
-    get_eval_report as get_eval_report,
-    list_eval_reports as list_eval_reports,
-    list_eval_suites as list_eval_suites,
-    list_kb_snapshots as list_kb_snapshots,
     process_whatsapp_webhook as process_whatsapp_webhook,
     refresh_conversation_suggestions as refresh_conversation_suggestions,
     return_conversation_to_bot as return_conversation_to_bot,
     save_context_summary as save_context_summary,
-    save_eval_report as save_eval_report,
     send_conversation_message as send_conversation_message,
     takeover_conversation as takeover_conversation,
     touch_interaction_sentiment as touch_interaction_sentiment,
+)
+
+from db_evals import (  # noqa: E402
+    TENANT_WIDE_REPORTS as TENANT_WIDE_REPORTS,
+    _latest_twin_gate_report as _latest_twin_gate_report,
+    get_eval_report as get_eval_report,
+    get_latest_eval_report as get_latest_eval_report,
+    list_eval_reports as list_eval_reports,
+    list_eval_suites as list_eval_suites,
+    save_eval_report as save_eval_report,
+)
+
+from db_kb_snapshots import (  # noqa: E402
+    create_kb_snapshot as create_kb_snapshot,
+    list_kb_snapshots as list_kb_snapshots,
 )
 
 from db_billing import (  # noqa: E402

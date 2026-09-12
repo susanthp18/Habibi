@@ -8,7 +8,7 @@ fixture wraps ``db.engine``, and a name bound from ``db_core`` bypasses
 that proxy.
 
 ``list_bot_ids``, ``_iso_ts``, ``get_latest_eval_report`` and
-``_latest_twin_gate_report`` stay on ``db.py`` (inbox / eval). This
+``_latest_twin_gate_report`` stay on ``db.py`` (inbox / db_evals). This
 module reaches them through ``_db()``.
 """
 

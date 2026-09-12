@@ -27,7 +27,9 @@ _CARVED = (
     "db_billing.py",
     "db_bot_analytics.py",
     "db_dashboard.py",
+    "db_evals.py",
     "db_kb.py",
+    "db_kb_snapshots.py",
     "db_prompt_studio.py",
     "db_redaction.py",
     "db_routing.py",
@@ -209,6 +211,9 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.compile_agent_studio_card.__module__ == "db_prompt_studio"
     assert db._map_prompt_version.__module__ == "db_prompt_studio"
     assert db._prompt_voice.__module__ == "db_prompt_studio"
+    assert db.list_eval_reports.__module__ == "db_evals"
+    assert db.save_eval_report.__module__ == "db_evals"
+    assert db.create_kb_snapshot.__module__ == "db_kb_snapshots"
 
 
 def test_as_utc_lives_in_db_core() -> None:
