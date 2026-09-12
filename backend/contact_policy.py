@@ -529,9 +529,9 @@ def _veto_extras(
             endpoint=endpoint,
             data_purpose=data_purpose,
         )
-        expires = customer.get("expires_at")
+        expires = as_utc(customer.get("expires_at"))
         if expires is not None:
-            expired = as_utc(expires) <= instant
+            expired = expires <= instant
     ep_state = (
         _endpoint_state(
             conn,
@@ -744,7 +744,7 @@ def _statutory_window(rules: Any | None, channel: str) -> tuple[int, int]:
     return window if window is not None else (RBI_VOICE_START, RBI_VOICE_END)
 
 
-def _consent_window(customer: dict[str, Any]) -> tuple[tuple[int, int], set[int] | None]:
+def _consent_window(customer: dict[str, Any]) -> tuple[tuple[int, int], list[int] | None]:
     """The borrower's own preferred hours and days."""
     return (
         _preferred_hours(customer) or contact_window.window_hours(None),

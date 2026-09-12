@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import date, datetime, time, timezone
-from typing import Any
+from typing import Any, overload
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,14 @@ def utc_isoformat(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=tenant_tz())
     return value.astimezone(timezone.utc).isoformat()
+
+
+@overload
+def as_utc(value: datetime) -> datetime: ...
+
+
+@overload
+def as_utc(value: Any) -> datetime | None: ...
 
 
 def as_utc(value: Any) -> datetime | None:

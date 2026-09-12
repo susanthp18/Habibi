@@ -569,7 +569,7 @@ def _serialize_conversation(
     pending = bool(bot_typing)
     typing = pending and (row.get("status") == "bot") and (row.get("assigned_user_id") is None)
     updated = row.get("updated_at") or row.get("created_at")
-    if hasattr(updated, "isoformat"):
+    if isinstance(updated, datetime):
         updated_at = updated.isoformat()
     else:
         updated_at = str(updated) if updated else None

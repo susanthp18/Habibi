@@ -8,6 +8,7 @@ db_workspace). Imported at the bottom of db.py so call sites stay ``db.*``.
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -166,11 +167,11 @@ def _map_coaching(row: dict[str, Any], notes: list[dict[str, Any]]) -> dict[str,
         "category": row.get("category") or "General",
         "scorecardId": row.get("scorecard_id"),
         "callId": row.get("interaction_id"),
-        "dueAt": due.isoformat() if hasattr(due, "isoformat") else (due or ""),
+        "dueAt": due.isoformat() if isinstance(due, (datetime, date)) else (due or ""),
         "status": _coach_status(row.get("status")),
         "notes": notes,
         "createdAt": created.isoformat()
-        if hasattr(created, "isoformat")
+        if isinstance(created, (datetime, date))
         else (created or ""),
     }
 

@@ -217,9 +217,8 @@ def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
         for r in rows
     ]
     return _dump(
-        HandoffQueueResponse(
-            items=items,
-            activeInteractionId=mine["id"] if mine else None,
+        HandoffQueueResponse.model_validate(
+            {"items": items, "activeInteractionId": mine["id"] if mine else None}
         )
     )
 
@@ -420,12 +419,13 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         context["risk"] = str(row["risk"] or "medium").title()
         context["product"] = row["product"] or context.get("product") or ""
 
-    session = HandoffSessionResponse(
+    # The builders assemble dicts; the response model validates them into shape.
+    session = HandoffSessionResponse.model_validate(dict(
         interactionId=interaction_id,
         handoffId=row["handoff_id"],
         customerId=row["customer_id"],
         conversationId=row.get("conversation_id"),
-        status=status,  # type: ignore[arg-type]
+        status=status,
         claimed=claimed_flag,
         monitor=monitor,
         activeCall={
@@ -472,7 +472,7 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         ],
         dispositions=list(HANDOFF_DISPOSITIONS),
         speakers=speakers,
-    )
+    ))
     return _dump(session)
 
 def _handoff_sentiment_series(
@@ -653,7 +653,7 @@ def _handoff_live_qa(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
             interaction_id=row.get("id"),
         )
         capable = policy.audio_capable_map(conn, [row.get("id") or ""])
-        snap["audioCapable"] = bool(capable.get(row.get("id")))
+        snap["audioCapable"] = bool(capable.get(row.get("id") or ""))
         return snap
     except Exception:
         logger.exception("live_qa snapshot failed for handoff %s", row.get("id"))
@@ -886,7 +886,7 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
                     {
                         "id": _id("IV"),
                         "iid": interaction_id,
-                        "cid": cust["customer_id"],
+                        "cid": cust["customer_id"] if cust else None,
                     },
                 )
             rule_id = rule_id or "rule-identity"

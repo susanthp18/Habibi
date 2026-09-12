@@ -188,7 +188,7 @@ class BillingBuild:
     tenant_id: str
     conn: Any
     alerts: list[dict[str, Any]] = field(default_factory=list)
-    as_of: datetime = None
+    as_of: date = field(init=False)  # set by _billing_window_and_usage
     attributed_calls: int = 0
     attributed_cpc: float = 0.0
     budget_cap: float = 0.0
@@ -197,15 +197,15 @@ class BillingBuild:
     cost_per_call: float = 0.0
     cost_per_call_prev: float = 0.0
     daily: list[dict[str, Any]] = field(default_factory=list)
-    end: datetime = None
+    end: date = field(init=False)  # set by _billing_window_and_usage
     forecast: Any = None
     invoices: list[dict[str, Any]] = field(default_factory=list)
     ix_cur: Any = None
     ix_prev: Any = None
     model_spend: Any = None
     month_key: str = ""
-    prev_end: datetime = None
-    prev_start: datetime = None
+    prev_end: date = field(init=False)  # set by _billing_window_and_usage
+    prev_start: date = field(init=False)  # set by _billing_window_and_usage
     previous: list[dict[str, Any]] = field(default_factory=list)
     resolved: int = 0
     service_tenant: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -213,7 +213,7 @@ class BillingBuild:
     spend: float = 0.0
     spend_by_env: dict[str, float] = field(default_factory=dict)
     spend_prev: float = 0.0
-    start: datetime = None
+    start: date = field(init=False)  # set by _billing_window_and_usage
     tenant_breakdown: list[dict[str, Any]] = field(default_factory=list)
     tenants: list[dict[str, Any]] = field(default_factory=list)
 

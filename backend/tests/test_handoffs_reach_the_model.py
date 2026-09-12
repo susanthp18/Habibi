@@ -122,9 +122,9 @@ def test_the_flows_schema_carries_it_too() -> None:
 
 
 def test_voice_specialises_at_the_offer_site() -> None:
-    import voice.tools as vt
+    from tests.voice_tools_source import source
 
-    src = inspect.getsource(vt.build_tools)
+    src = source()
     assert 'if name == "handoff_to_agent"' in src
     assert "handoff_tool_spec(spec, agent_card=agent_card, bot_id=bot_id)" in src
 

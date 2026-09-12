@@ -11,6 +11,7 @@ prerequisite): the violations/transcript kernel also calls it.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -643,7 +644,7 @@ def _map_export_job(row: dict[str, Any], record_ids: list[str]) -> dict[str, Any
     at = row.get("created_at")
     return {
         "id": row["id"],
-        "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
+        "at": at.isoformat() if isinstance(at, (datetime, date)) else str(at),
         "actor": row.get("actor_name") or "Unknown",
         "actorRole": meta["actorRole"] or "Compliance Officer",
         "recordIds": record_ids,

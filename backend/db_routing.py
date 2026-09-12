@@ -231,7 +231,10 @@ def _routing_eval_condition(cond: dict[str, Any], context: dict[str, Any]) -> bo
     if op in {">", "<", ">=", "<="}:
         try:
             av = float(raw) if raw is not None else None
-            bv = float(cond.get("value"))
+            wanted = cond.get("value")
+            if wanted is None:
+                return False
+            bv = float(wanted)
         except (TypeError, ValueError):
             return False
         if av is None:

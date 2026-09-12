@@ -857,7 +857,7 @@ def _kb_fetch(st: KbSearch) -> ToolResult | None:
             include_draft_answer=False,
             source="voice" if channel == "voice" else "bot",
             interaction_id=interaction_id,
-            prefer_policy=prefer_policy,
+            prefer_policy=bool(prefer_policy),  # the plan decided; None was the caller's silence
             # Say what the caller wants rather than letting `prefer_policy` imply
             # it. The planner's own definition of prefer_policy is "they want the
             # fine print: exclusions, conditions, what voids cover, terms", so
