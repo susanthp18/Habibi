@@ -105,6 +105,7 @@ try:
     print("WP013_HARDENING=passed")
 except RuntimeError:
     print("WP013_HARDENING=refused")
+print("WP013_INACTIVE=" + ";".join(main._inactive_hardening_controls()))
 
 has_auth = bool(
     (os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map()
@@ -163,7 +164,9 @@ print("WP013_HEALTH_STATUS=" + str(health.status_code))
     assert lines.get("DOCS") == "None"
     assert lines.get("REDOC") == "None"
     assert lines.get("OPENAPI") == "None"
-    assert lines.get("HARDENING") == "refused"
+    # The gate reads the database's controls; a production-named process is
+    # refused exactly when one is off, and boots when every control is on.
+    assert lines.get("HARDENING") == ("refused" if lines.get("INACTIVE") else "passed")
     assert lines.get("REFUSES_CREDENTIALS") == "True"
     assert lines.get("ALLOW_ACTOR_HEADER") == "False"
     assert lines.get("APP_IS_PROD") == "True"

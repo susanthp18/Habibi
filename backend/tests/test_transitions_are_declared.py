@@ -18,12 +18,16 @@ from pathlib import Path
 
 import flow_graph
 
-_TOOLS = Path(__file__).resolve().parents[1] / "voice" / "tools.py"
+_VOICE = Path(__file__).resolve().parents[1] / "voice"
+#: The tool set is one module per section now (voice/tools.py plus
+#: voice/tools_*.py); the reader parses them as one text, still without
+#: importing any of them.
+_TOOLS = sorted(_VOICE.glob("tools*.py"))
 
 
 def _handler_hops() -> dict[str, set[str]]:
     """tool key -> node keys its handler (or any helper it calls) passes to `_node`."""
-    tree = ast.parse(_TOOLS.read_text(encoding="utf-8"))
+    tree = ast.parse("\n".join(p.read_text(encoding="utf-8") for p in _TOOLS))
 
     literals: dict[str, set[str]] = {}
 
@@ -103,10 +107,13 @@ def _handler_hops() -> dict[str, set[str]]:
         return found
 
     out: dict[str, set[str]] = {}
+    # `tools = {...}` in the trunk, and each section's `return {...}` -- the
+    # dict a section hands back keyed by the same tool names.
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "tools" for t in node.targets):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+            if not any(isinstance(t, ast.Name) and t.id == "tools" for t in node.targets):
+                continue
+        elif not (isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)):
             continue
         for key, value in zip(node.value.keys, node.value.values):
             if isinstance(key, ast.Constant) and isinstance(key.value, str) and isinstance(value, ast.Name):

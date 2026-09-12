@@ -287,7 +287,8 @@ def test_bot_does_not_force_prewarm_on_connect() -> None:
 def test_bot_binds_inbound_ani() -> None:
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[1] / "voice" / "bot_handlers.py").read_text(encoding="utf-8")
+    voice = Path(__file__).resolve().parents[1] / "voice"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(voice.glob("bot_handlers*.py")))
     assert "customer_id_for_bind" in src
     assert "pstn_customer" in src
 

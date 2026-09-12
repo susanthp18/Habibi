@@ -68,9 +68,9 @@ def test_the_terminals_are_data_the_interpreter_reads() -> None:
 
 def test_an_authored_duration_can_only_shorten_the_call() -> None:
     """The slider is not a way to buy a longer call than the platform allows."""
-    from voice import bot_handlers
+    from tests.voice_tools_source import handlers_source
 
-    src = inspect.getsource(bot_handlers.register_handlers)
+    src = handlers_source()
     assert "cap = min(cap, authored)" in src
     assert "await asyncio.sleep(cap)" in src
     assert "await asyncio.sleep(_MAX_CALL_DURATION_SECS)" not in src
@@ -87,10 +87,11 @@ def test_the_watchdog_reads_the_published_guardrail() -> None:
 def test_the_turn_cap_reads_the_published_guardrail() -> None:
     """`maxTurns` sat beside `maxSeconds` on the tab and, unlike it, reached
     nothing on voice. The sink's customer-turn count is the one the cap reads."""
-    from voice import bot_flow, bot_handlers
+    from voice import bot_flow
+    from tests.voice_tools_source import handlers_source
 
     assert 'session.extra["guardrail_max_turns"]' in inspect.getsource(bot_flow.resolve_call)
-    src = inspect.getsource(bot_handlers.register_handlers)
+    src = handlers_source()
     assert "sink.customer_turns() < cap" in src
     assert '_claim_end("max_turns")' in src
 

@@ -850,10 +850,10 @@ def estimator_policy(
             # rather than silently applied at 1.0.
             rupees = float(components.get("exposure") or 0.0) * recovery_fraction
         return scoring.expected_value(
-            p_reach=scoring._clamp(p_reach),
-            p_resolve=scoring._clamp(tau),
+            p_reach=scoring.clamp(p_reach),
+            p_resolve=scoring.clamp(tau),
             rupees=float(rupees),
-            decay=scoring._clamp(decay),
+            decay=scoring.clamp(decay),
             cost=float(entry.get("cost") or 0.0),
             fatigue=-float(components.get("fatigue") or 0.0),
         )

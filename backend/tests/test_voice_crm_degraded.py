@@ -96,7 +96,9 @@ def test_the_connect_path_actually_calls_it() -> None:
     the handler around ``bind_session_start`` going back to a lone
     ``logger.exception`` that leaves the session looking healthy.
     """
-    tree = ast.parse(Path(cs.__file__).with_name("bot_handlers.py").read_text(encoding="utf-8"))
+    # The connect handler lives in its own section module now; parse the set.
+    voice = Path(cs.__file__).parent
+    tree = ast.parse("\n".join(p.read_text(encoding="utf-8") for p in sorted(voice.glob("bot_handlers*.py"))))
 
     def _names(node: ast.AST) -> set[str]:
         # Plain identifiers, not just call targets: bind_session_start reaches

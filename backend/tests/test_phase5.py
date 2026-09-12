@@ -193,7 +193,6 @@ def test_canary_hash_split_and_rollback(db_tx) -> None:
         canary_deployment_id=canary_id,
         baseline_deployment_id=baseline_id,
         traffic_pct=10,
-        shadow=False,
         auto_rollback=["eval_fail"],
     )
     customer = "cust-stable-split"

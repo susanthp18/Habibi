@@ -120,43 +120,9 @@ def test_shadow_experiment_follows_baseline(monkeypatch) -> None:
     assert pick_deployment_id(COLLECTIONS_BOT_ID, customer_id="cust-1") == "DEP-BASE"
 
 
-def test_record_experiment_refuses_shadow(db_tx) -> None:
-    row = db_tx.execute(text("SELECT to_regclass('public.deployment_experiments') AS t")).mappings().first()
-    if not row or not row["t"]:
-        pytest.skip("deployment_experiments missing")
-    result = record_experiment(
-        db_tx,
-        bot_id=COLLECTIONS_BOT_ID,
-        canary_deployment_id="DEP-X",
-        baseline_deployment_id="DEP-Y",
-        traffic_pct=10,
-        shadow=True,
-        auto_rollback=["slo_miss"],
-    )
-    assert result is None
-    n = db_tx.execute(
-        text(
-            """
-            SELECT count(*) FROM deployment_experiments
-             WHERE bot_id = :b AND shadow = true AND status = 'running'
-            """
-        ),
-        {"b": COLLECTIONS_BOT_ID},
-    ).scalar()
-    assert int(n or 0) == 0
-
-
-def test_g12_fails_closed_on_shadow() -> None:
-    report = _compile(traffic_pct=100, shadow=True)
-    g12 = next(g for g in report.gates if g.gate == "G12")
-    assert g12.status == "fail"
-    assert not report.ok
-
-
 def test_g12_and_lint_skip_on_rollback() -> None:
     report = _compile(
         skip_eval_gates=True,
-        shadow=True,
         prompt="threaten the borrower immediately",
         prompt_guardrails={"prohibited": ["threaten"]},
     )
@@ -475,7 +441,6 @@ def test_experiment_rollback_writes_an_actor_bearing_entry(db_tx) -> None:
         canary_deployment_id=canary_id,
         baseline_deployment_id=baseline_id,
         traffic_pct=10,
-        shadow=False,
         auto_rollback=["slo_miss"],
     )
     assert recorded is not None

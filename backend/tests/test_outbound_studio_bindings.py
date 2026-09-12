@@ -396,12 +396,18 @@ def test_call_trace_preview_strips_digit_runs() -> None:
     assert len(preview(long, limit=20)) == 20
 
 
-def _voice_bot_src() -> str:
-    """run_bot and the three modules it was split into, as one text."""
-    return "\n".join(
-        (_BACKEND / "voice" / name).read_text(encoding="utf-8")
-        for name in ("bot.py", "bot_flow.py", "bot_pipeline.py", "bot_handlers.py")
+def _voice_tools_src() -> str:
+    """voice/tools.py and its section modules, as one text."""
+    return chr(10).join(
+        p.read_text(encoding="utf-8") for p in sorted((_BACKEND / "voice").glob("tools*.py"))
     )
+
+
+def _voice_bot_src() -> str:
+    """run_bot and the modules it was split into (the handler sections included), as one text."""
+    names = ["bot.py", "bot_flow.py", "bot_pipeline.py"]
+    names += sorted(p.name for p in (_BACKEND / "voice").glob("bot_handlers*.py"))
+    return "\n".join((_BACKEND / "voice" / name).read_text(encoding="utf-8") for name in names)
 
 
 def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
@@ -416,7 +422,7 @@ def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
     assert '"user.turn"' in sink
     assert '"bot.tts"' in sink
     assert '"critique"' in sink
-    tools = (_BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
+    tools = _voice_tools_src()
     assert '"tool.called"' in tools
     assert '"tool.result"' in tools
     assert '"flow.node"' in tools
@@ -436,7 +442,7 @@ def test_first_names_match_accepts_outbound_variants() -> None:
 
 def test_demo_call_product_fixes_are_wired() -> None:
     """Source locks so the next demo cannot silently lose the VS-2E3096 fixes."""
-    tools = (_BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
+    tools = _voice_tools_src()
     kb = (_BACKEND / "agent_core" / "tools" / "kb.py").read_text(encoding="utf-8")
     natural = (_BACKEND / "voice" / "natural.py").read_text(encoding="utf-8")
     bot = _voice_bot_src()
@@ -447,10 +453,11 @@ def test_demo_call_product_fixes_are_wired() -> None:
     # confident, which is how a travel-insurance question got a fabricated
     # follow-up instead of a refusal. Was two statements guarding a numeric
     # gate; the gate is gone (measured at AUC 0.548 — a coin flip) and
-    # emptiness is now the whole rule, so it reads as one expression.
+    # emptiness is now the whole rule, so it reads as one expression. ADR-0005
+    # then made `confident` mean answerable -- the same rule, named.
     # Behaviour is covered directly by
     # test_kb_plan.py::test_empty_results_are_never_confident.
-    assert "confident = bool(results)" in kb
+    assert "confident = answerable(results)" in kb
     assert "query_looks_product(query)" in tools
     assert 'session.extra["upsell_blocked"] = reason' in tools
     assert 'blocked = session.extra.get("upsell_blocked")' in tools
