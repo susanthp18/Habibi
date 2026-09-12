@@ -203,6 +203,7 @@ export function StudioTabBody({
             setReplaceUnreadable={setReplaceUnreadable}
             onFlowValidation={onFlowValidation}
             grantTools={grantTools}
+            channels={effectiveCard?.identity?.channels}
           />
         )}
       </div>

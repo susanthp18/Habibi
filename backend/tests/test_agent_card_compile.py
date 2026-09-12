@@ -187,6 +187,18 @@ def test_a_matching_voice_passes() -> None:
     assert gate.status == "pass"
 
 
+def test_a_voice_of_unknown_language_is_not_a_mismatch() -> None:
+    """VOICE-6: the sync writes ``und`` when the catalogue does not say what a
+    voice speaks. Unknown is skipped, not warned -- a warning here was noise."""
+    gate = _g15(
+        voice_short_name="fish:multilingual",
+        voice_locale="und",
+        card_locales=["en-IN"],
+    )
+    assert gate.status == "skipped"
+    assert "no language on record" in gate.detail
+
+
 def test_a_warning_does_not_block_the_publish() -> None:
     """The whole severity decision, asserted rather than described."""
     report = _compile(

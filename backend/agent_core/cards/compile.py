@@ -273,6 +273,11 @@ def _voice_locale_gate(
         # already reported by get_tts_voice_warning, and what the runtime then
         # speaks is the fallback voice, whose locale is not the stored id's.
         return _gate("G15", "voice_locale", "skipped", f"{sn} is not in the voice catalog")
+    if spoken == "und":
+        # The sync could not tell what this voice speaks (a multilingual or
+        # unlabelled catalogue row). Unknown is not a mismatch; warning on it
+        # taught operators the gate cries wolf.
+        return _gate("G15", "voice_locale", "skipped", f"{sn} has no language on record")
     if _primary_subtag(spoken) in {_primary_subtag(t) for t in wanted}:
         return _gate("G15", "voice_locale", "pass", f"{spoken} within {', '.join(wanted)}")
     return _gate(

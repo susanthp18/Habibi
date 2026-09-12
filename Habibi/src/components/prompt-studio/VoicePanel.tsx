@@ -225,7 +225,8 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
    */
   const localeMismatch = useMemo(() => {
     const spoken = (selectedVoice?.locale || "").trim();
-    if (!spoken || cardLocales.length === 0) return null;
+    // `und` is the sync saying it does not know; unknown is not a mismatch.
+    if (!spoken || spoken === "und" || cardLocales.length === 0) return null;
     if (cardLocales.some((tag) => primarySubtag(tag) === primarySubtag(spoken))) return null;
     return { spoken, card: cardLocales.join(", ") };
   }, [selectedVoice?.locale, cardLocales]);
@@ -928,9 +929,12 @@ export function VoiceDetailCard({
         <Row
           label="Cost"
           value={
-            voice.approxUsdPer1MChars != null
+            // The USD band comes from tts_price_tiers, Azure's published list;
+            // any other provider's row wears it by default, so the number is
+            // shown only for the vendor it describes.
+            voice.providerId === "azure" && voice.approxUsdPer1MChars != null
               ? `~$${voice.approxUsdPer1MChars} / 1M chars · approximate`
-              : "See Azure pricing"
+              : `See ${voice.providerId || "the provider"} pricing`
           }
         />
         {voice.styles.length ? <Row label="Styles" value={voice.styles.join(", ")} /> : null}

@@ -21,6 +21,7 @@ export function FlowTabBody({
   setReplaceUnreadable,
   onFlowValidation,
   grantTools,
+  channels,
 }: {
   flow: FlowGraph | null;
   setFlow: Dispatch<SetStateAction<FlowGraph | null>>;
@@ -30,9 +31,18 @@ export function FlowTabBody({
   setReplaceUnreadable: (value: boolean) => void;
   onFlowValidation: (r: { ok: boolean; issues: FlowIssue[] }) => void;
   grantTools?: string[];
+  /** The card's channels; a graph on a card no walker serves is kept but never walked. */
+  channels?: string[];
 }) {
+  const walked = !channels || channels.some((c) => c === "voice" || c === "whatsapp");
   return (
     <div className="h-full min-h-0">
+      {!walked ? (
+        <div className="mb-100 rounded-medium border border-border-warning bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
+          This card serves neither voice nor WhatsApp, so nothing walks this graph. It is kept with
+          the version; edits here change what a voice or WhatsApp binding would run.
+        </div>
+      ) : null}
       {flowUnreadable ? (
         // Not "no authored flow". The backend could not parse this
         // version's stored graph and served the empty sentinel in
@@ -106,12 +116,10 @@ export function FlowTabBody({
           <div className="max-w-lg space-y-100 px-200">
             <h3 className="heading-small text-text">No authored flow</h3>
             <p className="text-body-small leading-relaxed text-text-subtle">
-              Voice calls only: WhatsApp answers from the prompt and walks the graph on text. This
-              version runs the built-in collections script — Python that publish and rollback cannot
-              touch. Load it here to turn it into a graph you own: it then publishes and rolls back
-              with this prompt version. Nothing changes for live callers until you publish. Set{" "}
-              <code className="font-mono text-text-subtlest">VOICE_FLOW_GRAPH=legacy</code> to force
-              the built-in script even when a graph exists.
+              Voice calls walk this graph; WhatsApp walks it with the text walker. Without one, this
+              version runs the built-in collections script, which publish and rollback cannot touch.
+              Load it here to turn it into a graph you own: it then publishes and rolls back with
+              this prompt version. Nothing changes for live callers until you publish.
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-100">

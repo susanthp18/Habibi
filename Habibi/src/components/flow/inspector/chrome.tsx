@@ -8,6 +8,7 @@ import {
   type FlowNode,
   type FlowOperator,
   type FlowTool,
+  useFlowTools,
 } from "@/api/flow";
 import { useOutboundVocabulary } from "@/api/outbound";
 import STUDIO_VOCABULARY from "@/lib/studio-vocabulary.json";
@@ -457,11 +458,24 @@ export function ToolList({
   disabled?: boolean;
   onToggle: (key: string) => void;
 }) {
+  // The same query the canvas holds (react-query dedupes it); read here for
+  // its state, so an empty list can say whether it is still loading, failed,
+  // or genuinely empty -- three different things the list used to call one.
+  const catalog = useFlowTools();
   return (
     <div className="max-h-72 space-y-025 overflow-y-auto rounded-medium border border-border p-050">
       {tools.length === 0 ? (
-        <p className="px-050 py-050 text-body-small text-text-subtlest">
-          Tool catalog unavailable.
+        <p
+          className={cn(
+            "px-050 py-050 text-body-small",
+            catalog.isError ? "text-text-danger" : "text-text-subtlest",
+          )}
+        >
+          {catalog.isPending
+            ? "Loading the tool catalog…"
+            : catalog.isError
+              ? "The tool catalog could not be read; nothing here is offered until it can."
+              : "No tools in the catalog."}
         </p>
       ) : (
         tools.map((tool) => (

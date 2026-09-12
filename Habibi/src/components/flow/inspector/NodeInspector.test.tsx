@@ -24,6 +24,12 @@ vi.mock("@/api/outbound", () => ({
   useOutboundVocabulary: () => vocab.state,
 }));
 
+vi.mock("@/api/flow", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/flow")>()),
+  // ToolList reads the catalog query's state to say loading / failed / empty.
+  useFlowTools: () => ({ data: [], isPending: false, isError: false }),
+}));
+
 const { NodeInspector } = await import("./NodeInspector");
 
 const NODE = {
