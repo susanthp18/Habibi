@@ -1085,7 +1085,21 @@ def _identity_gates(st: _Compile, *, card_raw: Any) -> None:
         try:
             card = st.card = AgentCard.model_validate(card_raw)
             st.dump = card.model_dump(mode="json")
-            gates.append(_gate("G0", "schema", "pass"))
+            from agent_core.cards.schema import retired_gate_requires
+
+            retired = retired_gate_requires(card_raw)
+            if retired:
+                gates.append(
+                    _gate(
+                        "G0",
+                        "schema",
+                        "warn",
+                        "human_gates.require 'floor'/'both' is retired (no floor ledger exists); "
+                        "read as 'identity' for: " + ", ".join(retired),
+                    )
+                )
+            else:
+                gates.append(_gate("G0", "schema", "pass"))
         except ValidationError as exc:
             issues = [
                 {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}

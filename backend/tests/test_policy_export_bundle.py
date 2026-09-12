@@ -43,7 +43,7 @@ _RULES = policy_rules.RuleSet(
 _CARD_VERSION = {
     "id": "pv-1",
     "botId": "kaia-v2-4",
-    "agentCard": {"human_gates": [{"tool_name": "apply_goodwill", "require": "both"}]},
+    "agentCard": {"human_gates": [{"tool_name": "apply_goodwill", "require": "identity"}]},
     "guardrails": {"maxTurns": 12, "maxSeconds": 300, "prohibited": ["arrest"]},
 }
 
@@ -90,10 +90,10 @@ def test_the_card_gates_ride_the_bundle(monkeypatch) -> None:
     assert out["facts"]["card"] == {
         "botId": "kaia-v2-4",
         "versionId": "pv-1",
-        "humanGates": [{"tool_name": "apply_goodwill", "require": "both"}],
+        "humanGates": [{"tool_name": "apply_goodwill", "require": "identity"}],
         "guardrails": {"maxTurns": 12, "maxSeconds": 300, "prohibited": ["arrest"]},
     }
-    assert 'human_gate_require := {"apply_goodwill": "both"}' in out["text"]
+    assert 'human_gate_require := {"apply_goodwill": "identity"}' in out["text"]
     assert '"maxTurns": 12' in out["text"]
     cedar = policy_export.bundle(fmt="cedar", bot_id="kaia-v2-4")["text"]
     assert "human gates" in cedar and "apply_goodwill" in cedar

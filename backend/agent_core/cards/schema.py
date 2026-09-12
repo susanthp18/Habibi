@@ -54,7 +54,13 @@ RollbackTrigger = Literal[
 #: The same vocabulary as a set, for membership tests. Derived rather than
 #: restated — a second literal list is a second thing to forget.
 ROLLBACK_TRIGGERS: frozenset[str] = frozenset(get_args(RollbackTrigger))
-HumanGateRequire = Literal["identity", "floor", "both"]
+#: ``floor`` and ``both`` used to be admitted too. No floor-approval ledger
+#: exists, so ``gates.floor_approved`` returned False for every call and a
+#: tool gated ``floor`` could never run -- while the regulator export said a
+#: supervisor approved it. A stored ``floor``/``both`` is read as ``identity``
+#: (the half that is enforced) and the compiler warns on it (G0).
+HumanGateRequire = Literal["identity"]
+RETIRED_GATE_REQUIRES: frozenset[str] = frozenset({"floor", "both"})
 
 # Engines the author cannot unbind. Two of these are catalog tools the mouth
 # may call; two are Python engines with no mouth tool (yet). All four must
@@ -190,6 +196,24 @@ class HumanGate(BaseModel):
 
     tool_name: str
     require: HumanGateRequire = "identity"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retired_require_reads_as_identity(cls, raw: Any) -> Any:
+        if isinstance(raw, dict) and raw.get("require") in RETIRED_GATE_REQUIRES:
+            return {**raw, "require": "identity"}
+        return raw
+
+
+def retired_gate_requires(raw: Any) -> list[str]:
+    """Tool names whose stored human gate names a retired ``require``."""
+    if not isinstance(raw, dict):
+        return []
+    return [
+        str(g.get("tool_name") or g.get("toolName") or "")
+        for g in (raw.get("human_gates") or [])
+        if isinstance(g, dict) and g.get("require") in RETIRED_GATE_REQUIRES
+    ]
 
 
 class CardEval(BaseModel):

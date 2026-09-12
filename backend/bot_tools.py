@@ -837,22 +837,13 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
         latency = int((time.perf_counter() - t0) * 1000)
         return False, {"error": "tool_not_on_card_or_skill", "tool": name}, latency
 
-    from agent_core.tools.gates import (
-        floor_approved,
-        gate_failure,
-        interaction_assurance,
-    )
+    from agent_core.tools.gates import gate_failure, interaction_assurance
 
     assurance = interaction_assurance(
         interaction_id=ctx.interaction_id,
         customer_id=ctx.customer_id,
     )
-    blocked = gate_failure(
-        name,
-        card=ctx.agent_card,
-        assurance=assurance,
-        floor_ok=floor_approved(interaction_id=ctx.interaction_id, tool_name=name),
-    )
+    blocked = gate_failure(name, card=ctx.agent_card, assurance=assurance)
     if blocked:
         # The refusal now carries `hint`, and the model needs it: given only a
         # code it tried two more gated tools and then offered a callback, which

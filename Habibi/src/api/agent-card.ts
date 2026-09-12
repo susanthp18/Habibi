@@ -70,7 +70,9 @@ export function asRollbackTriggers(raw: unknown): RollbackTrigger[] {
   const known = new Set<string>(ROLLBACK_TRIGGERS);
   return raw.filter((t): t is RollbackTrigger => typeof t === "string" && known.has(t));
 }
-export type HumanGateRequire = "identity" | "floor" | "both";
+// "floor" and "both" are retired: no floor-approval ledger exists, so a tool
+// gated on one could never run. A stored value is read as "identity".
+export type HumanGateRequire = "identity";
 export type Direction = "inbound" | "outbound" | "both";
 export type VoicemailMode = "always" | "never" | "first_attempt_only" | "engine";
 export type PoolKind = "service_1600" | "promotional" | "general";

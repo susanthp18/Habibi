@@ -389,19 +389,12 @@ def build_tools(
                 )
             except Exception:
                 logger.debug("tool.called trace failed", exc_info=True)
-            from agent_core.tools.gates import enforce_human_gate, floor_approved
+            from agent_core.tools.gates import enforce_human_gate
 
             identity_ok = bool(session.identity_verified) and bool(session.customer_id) and (
                 not persist.is_unknown_caller(session.customer_id)
             )
-            blocked = enforce_human_gate(
-                name,
-                card=agent_card,
-                identity_verified=identity_ok,
-                floor_ok=floor_approved(
-                    interaction_id=session.interaction_id, tool_name=name
-                ),
-            )
+            blocked = enforce_human_gate(name, card=agent_card, identity_verified=identity_ok)
             try:
                 if blocked:
                     result = ({"ok": False, "error": blocked}, None)

@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 #: Stable codes the model and the Inspector can branch on.
 GATE_IDENTITY = "human_gate_identity"
-GATE_FLOOR = "human_gate_floor"
 
 # --- Assurance levels ------------------------------------------------------
 #
@@ -201,12 +200,6 @@ def interaction_identity_verified(
     ) == LEVEL_CHALLENGE
 
 
-def floor_approved(*, interaction_id: str | None, tool_name: str) -> bool:
-    """No floor-approval ledger exists yet. Fail closed."""
-    del interaction_id, tool_name
-    return False
-
-
 def _requirement_for(tool_name: str, card: Any) -> str | None:
     gates = []
     if card is None:
@@ -232,7 +225,6 @@ def gate_failure(
     *,
     card: Any,
     assurance: str,
-    floor_ok: bool = False,
 ) -> dict[str, str] | None:
     """``None`` when the ceremony passes, else the refusal AND how to pass it.
 
@@ -247,24 +239,18 @@ def gate_failure(
         require = "identity"
     if require is None:
         return None
-    if require in {"identity", "both"}:
-        # The card can only say "identity"; how much identity is this module's
-        # call, so a card written before the levels existed still gets the
-        # right strength for the tool it is gating.
-        needed = TOOL_ASSURANCE.get(tool_name, LEVEL_CHALLENGE)
-        if not meets(assurance, needed):
-            return {
-                "error": GATE_IDENTITY,
-                "tool": tool_name,
-                "required": needed,
-                "have": assurance,
-                "hint": _REMEDY[needed],
-            }
-    if require in {"floor", "both"} and not floor_ok:
+    # The card can only say "identity" (``floor``/``both`` are retired: no
+    # floor ledger ever existed, so they blocked forever). How much identity
+    # is this module's call, so a card written before the levels existed still
+    # gets the right strength for the tool it is gating.
+    needed = TOOL_ASSURANCE.get(tool_name, LEVEL_CHALLENGE)
+    if not meets(assurance, needed):
         return {
-            "error": GATE_FLOOR,
+            "error": GATE_IDENTITY,
             "tool": tool_name,
-            "hint": "a human must approve this before it can run",
+            "required": needed,
+            "have": assurance,
+            "hint": _REMEDY[needed],
         }
     return None
 
@@ -274,7 +260,6 @@ def enforce_human_gate(
     *,
     card: Any,
     identity_verified: bool,
-    floor_ok: bool = False,
 ) -> str | None:
     """Back-compat shim returning only the code. Prefer :func:`gate_failure`.
 
@@ -287,6 +272,5 @@ def enforce_human_gate(
         tool_name,
         card=card,
         assurance=LEVEL_CHALLENGE if identity_verified else LEVEL_NONE,
-        floor_ok=floor_ok,
     )
     return failure["error"] if failure else None
