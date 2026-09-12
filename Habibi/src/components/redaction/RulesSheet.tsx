@@ -6,7 +6,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import type { RedactionRules } from "@/api/types/redaction";
-import { ENTITY_TYPES, ENTITY_COLORS } from "@/data/redaction-seed";
+import { ENTITY_TYPES, ENTITY_COLORS } from "@/lib/redaction";
 
 interface Props {
   open: boolean;

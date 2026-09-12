@@ -1,14 +1,15 @@
-import type { PiiEntityType } from "@/api/types/redaction";
-import { ENTITY_TYPES, ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
+import type { PiiEntityType, RedactionRules } from "@/api/types/redaction";
+import { ENTITY_TYPES, ENTITY_COLORS } from "@/lib/redaction";
 import { cn } from "@/lib/utils";
 
 interface Props {
+  rules: RedactionRules;
   active?: Set<PiiEntityType>;
   onToggle?: (t: PiiEntityType) => void;
   compact?: boolean;
 }
 
-export function PiiLegend({ active, onToggle, compact }: Props) {
+export function PiiLegend({ rules, active, onToggle, compact }: Props) {
   return (
     <div className={cn("flex flex-wrap gap-075", compact && "gap-050")}>
       {ENTITY_TYPES.map((t) => {
@@ -27,7 +28,7 @@ export function PiiLegend({ active, onToggle, compact }: Props) {
             )}
           >
             <span className="h-100 w-100 rounded-full" style={{ background: ENTITY_COLORS[t] }} />
-            {DEFAULT_RULES[t].label}
+            {rules[t].label}
           </button>
         );
       })}

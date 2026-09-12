@@ -32,14 +32,9 @@ import type {
   RedactionRecord,
   RedactionRules,
 } from "@/api/types/redaction";
-import {
-  DEFAULT_RULES,
-  ENTITY_TYPES,
-  defaultFilter,
-  filterRecords,
-  formatDateTime,
-  statsFor,
-} from "@/data/redaction-seed";
+import { ENTITY_TYPES, defaultFilter, filterRecords, statsFor } from "@/lib/redaction";
+import { fmtDateTime } from "@/lib/format";
+import { QueryState } from "@/components/ui/query-state";
 
 export const Route = createFileRoute("/_app/redaction")({
   head: () => ({
@@ -62,9 +57,17 @@ export const Route = createFileRoute("/_app/redaction")({
 });
 
 function RedactionPage() {
+  const rulesQuery = useRedactionRules();
+  return (
+    <QueryState query={rulesQuery} label="redaction rules">
+      {rulesQuery.data && <RedactionWorkspace rules={rulesQuery.data} />}
+    </QueryState>
+  );
+}
+
+function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   const queryClient = useQueryClient();
   const { data: remoteRecords } = useRedactionRecords();
-  const { data: remoteRules } = useRedactionRules();
   const { data: remoteExports } = useExportJobs();
 
   const [filter, setFilter] = useState<RecordFilter>(defaultFilter);
@@ -77,7 +80,6 @@ function RedactionPage() {
   const [watermark, setWatermark] = useState("HDFC-CONFIDENTIAL · Compliance review");
   const [accessRole, setAccessRole] = useState("Compliance Officer");
 
-  const rules = remoteRules ?? DEFAULT_RULES;
   const recordState = remoteRecords ?? [];
   const exports = remoteExports ?? [];
 
@@ -263,7 +265,7 @@ function RedactionPage() {
                     </div>
                     <span className="text-body-small text-text-subtlest">
                       {activeForRender.id} · {activeForRender.callId} ·{" "}
-                      {formatDateTime(activeForRender.occurredAt)} · {activeForRender.handler}
+                      {fmtDateTime(activeForRender.occurredAt)} · {activeForRender.handler}
                     </span>
                     <button
                       onClick={markReviewed}
@@ -275,12 +277,16 @@ function RedactionPage() {
                   </div>
                   <div className="mt-100 flex items-center gap-150">
                     <span className="text-body-small text-text-subtlest">Detectors:</span>
-                    <PiiLegend active={activeTypes} onToggle={toggleRule} />
+                    <PiiLegend rules={rules} active={activeTypes} onToggle={toggleRule} />
                   </div>
                 </div>
 
                 <div className="min-h-0 flex-1 space-y-200 overflow-y-auto px-250 py-200">
-                  <AudioBeepTimeline record={activeForRender} onToggleSegment={toggleSegment} />
+                  <AudioBeepTimeline
+                    record={activeForRender}
+                    rules={rules}
+                    onToggleSegment={toggleSegment}
+                  />
                   <div className="rounded-large border border-border bg-surface p-200">
                     <div className="mb-150 flex items-center justify-between">
                       <div className="text-body font-semibold text-text">Transcript preview</div>
@@ -290,7 +296,11 @@ function RedactionPage() {
                         {activeForRender.findings.length} applied
                       </div>
                     </div>
-                    <TranscriptRedactor record={activeForRender} onToggleFinding={toggleFinding} />
+                    <TranscriptRedactor
+                      record={activeForRender}
+                      rules={rules}
+                      onToggleFinding={toggleFinding}
+                    />
                   </div>
                 </div>
               </>

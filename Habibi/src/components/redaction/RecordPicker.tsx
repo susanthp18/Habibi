@@ -1,6 +1,6 @@
 import { Search, Phone, MessageCircle, MessageSquare } from "lucide-react";
 import type { RedactionRecord, RecordFilter } from "@/api/types/redaction";
-import { formatDateTime } from "@/data/redaction-seed";
+import { fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 
@@ -103,7 +103,7 @@ export function RecordPicker(p: Props) {
                     <span className="ml-auto text-body-small text-text-subtlest">{r.id}</span>
                   </div>
                   <div className="mt-025 flex items-center gap-100 text-body-small text-text-subtlest">
-                    <span>{formatDateTime(r.occurredAt)}</span>
+                    <span>{fmtDateTime(r.occurredAt)}</span>
                     <span>·</span>
                     <span className="truncate">{r.handler}</span>
                   </div>

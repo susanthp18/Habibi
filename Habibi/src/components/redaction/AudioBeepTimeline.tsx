@@ -1,14 +1,15 @@
-import type { AudioSegment, RedactionRecord } from "@/api/types/redaction";
-import { ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
+import type { AudioSegment, RedactionRecord, RedactionRules } from "@/api/types/redaction";
+import { ENTITY_COLORS } from "@/lib/redaction";
 import { Volume2, VolumeX, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
   record: RedactionRecord;
+  rules: RedactionRules;
   onToggleSegment: (findingId: string) => void;
 }
 
-export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
+export function AudioBeepTimeline({ record, rules, onToggleSegment }: Props) {
   const total = record.durationSec || 1;
 
   // Deterministic mock waveform bars
@@ -48,7 +49,7 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
               key={seg.findingId}
               type="button"
               onClick={() => onToggleSegment(seg.findingId)}
-              title={`${DEFAULT_RULES[seg.type].label} at ${formatSec(seg.atSec)}`}
+              title={`${rules[seg.type].label} at ${formatSec(seg.atSec)}`}
               className={cn(
                 "absolute top-0 bottom-0 rounded-small border-2 transition-opacity",
                 seg.muted ? "opacity-90" : "opacity-30",
@@ -72,7 +73,7 @@ export function AudioBeepTimeline({ record, onToggleSegment }: Props) {
               style={{ background: ENTITY_COLORS[seg.type] }}
             />
             <span className="font-mono text-text-subtlest">{formatSec(seg.atSec)}</span>
-            <span className="text-text-subtle">{DEFAULT_RULES[seg.type].label}</span>
+            <span className="text-text-subtle">{rules[seg.type].label}</span>
             <button
               type="button"
               onClick={() => onToggleSegment(seg.findingId)}

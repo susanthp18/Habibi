@@ -13,15 +13,8 @@ import type {
   PiiEntityType,
   RedactionRecord,
   RedactionRules,
-  RuleConfig,
 } from "@/api/types/redaction";
-import {
-  DEFAULT_RULES,
-  ENTITY_TYPES,
-  initialExports,
-  records as seedRecords,
-} from "@/data/redaction-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 
 interface RedactionRuleApi {
   piiType: PiiEntityType;
@@ -30,18 +23,7 @@ interface RedactionRuleApi {
   label: string;
 }
 
-function cloneRules(source: RedactionRules): RedactionRules {
-  const next = {} as RedactionRules;
-  for (const t of ENTITY_TYPES) {
-    next[t] = { ...source[t] };
-  }
-  return next;
-}
-
-const _mockRules: RedactionRules = cloneRules(DEFAULT_RULES);
-
 export async function fetchRedactionRecords(): Promise<RedactionRecord[]> {
-  if (USE_MOCK) return mockDelay(seedRecords);
   return apiGet<RedactionRecord[]>("/redaction-records");
 }
 
@@ -54,18 +36,14 @@ export function useRedactionRecords() {
 }
 
 export async function fetchRedactionRules(): Promise<RedactionRules> {
-  if (USE_MOCK) return mockDelay(cloneRules(_mockRules));
+  // GET /redaction-rules returns every PII type the vocabulary knows, labelled.
   const rows = await apiGet<RedactionRuleApi[]>("/redaction-rules");
-  const next = cloneRules(DEFAULT_RULES);
-  for (const row of rows) {
-    if (!ENTITY_TYPES.includes(row.piiType)) continue;
-    next[row.piiType] = {
-      enabled: row.enabled,
-      replacement: row.replacement,
-      label: row.label || DEFAULT_RULES[row.piiType].label,
-    } satisfies RuleConfig;
-  }
-  return next;
+  return Object.fromEntries(
+    rows.map((row) => [
+      row.piiType,
+      { enabled: row.enabled, replacement: row.replacement, label: row.label },
+    ]),
+  ) as RedactionRules;
 }
 
 export function useRedactionRules() {
@@ -76,10 +54,7 @@ export function useRedactionRules() {
   });
 }
 
-let _mockExports: ExportJob[] = [...initialExports];
-
 export async function fetchExportJobs(): Promise<ExportJob[]> {
-  if (USE_MOCK) return mockDelay(_mockExports);
   return apiGet<ExportJob[]>("/export-jobs");
 }
 
@@ -92,14 +67,6 @@ export function useExportJobs() {
 }
 
 export async function toggleFindingAccepted(findingId: string, accepted: boolean): Promise<void> {
-  if (USE_MOCK) {
-    for (const r of seedRecords) {
-      const f = r.findings.find((x) => x.id === findingId);
-      if (f) f.accepted = accepted;
-    }
-    await mockDelay(undefined);
-    return;
-  }
   await apiPatch(`/pii-findings/${findingId}`, { accepted });
 }
 
@@ -108,26 +75,10 @@ export async function toggleAudioMuted(
   findingId: string,
   muted: boolean,
 ): Promise<void> {
-  if (USE_MOCK) {
-    const r = seedRecords.find((x) => x.id === redactionId);
-    if (r) {
-      for (const s of r.audioSegments) {
-        if (s.findingId === findingId) s.muted = muted;
-      }
-    }
-    await mockDelay(undefined);
-    return;
-  }
   await apiPatch(`/redaction-records/${redactionId}/audio-mute`, { findingId, muted });
 }
 
 export async function markRedactionReviewed(redactionId: string): Promise<void> {
-  if (USE_MOCK) {
-    const r = seedRecords.find((x) => x.id === redactionId);
-    if (r) r.reviewed = true;
-    await mockDelay(undefined);
-    return;
-  }
   await apiPatch(`/redaction-records/${redactionId}`, { reviewed: true });
 }
 
@@ -135,11 +86,6 @@ export async function patchRedactionRuleEnabled(
   piiType: PiiEntityType,
   enabled: boolean,
 ): Promise<void> {
-  if (USE_MOCK) {
-    _mockRules[piiType].enabled = enabled;
-    await mockDelay(undefined);
-    return;
-  }
   await apiPatch(`/redaction-rules/${piiType}`, { enabled });
 }
 
@@ -150,46 +96,13 @@ export async function createExportJob(input: {
   watermark: string;
   actorRole: string;
 }): Promise<ExportJob> {
-  if (USE_MOCK) {
-    const job: ExportJob = {
-      id: `EX-${2050 + _mockExports.length}`,
-      at: new Date().toISOString(),
-      actor: "You",
-      actorRole: input.actorRole,
-      recordIds: input.recordIds,
-      format: input.format,
-      scope: input.scope,
-      watermark: input.watermark,
-      status: "ready",
-      downloadCount: 0,
-      entitiesRedacted: 0,
-    };
-    _mockExports = [job, ..._mockExports];
-    return mockDelay(job);
-  }
   return apiPost<ExportJob>("/export-jobs", input);
 }
 
 export async function bumpExportDownload(jobId: string): Promise<ExportJob> {
-  if (USE_MOCK) {
-    _mockExports = _mockExports.map((e) =>
-      e.id === jobId ? { ...e, downloadCount: e.downloadCount + 1 } : e,
-    );
-    const row = _mockExports.find((e) => e.id === jobId);
-    if (!row) throw new Error("export_job_not_found");
-    return mockDelay(row);
-  }
   return apiPatch<ExportJob>(`/export-jobs/${jobId}`, { bumpDownload: true });
 }
 
 export async function retryExportJob(jobId: string): Promise<ExportJob> {
-  if (USE_MOCK) {
-    _mockExports = _mockExports.map((e) =>
-      e.id === jobId ? { ...e, status: "ready" as const } : e,
-    );
-    const row = _mockExports.find((e) => e.id === jobId);
-    if (!row) throw new Error("export_job_not_found");
-    return mockDelay(row);
-  }
   return apiPatch<ExportJob>(`/export-jobs/${jobId}`, { status: "ready" });
 }

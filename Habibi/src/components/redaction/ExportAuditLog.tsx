@@ -9,7 +9,7 @@ import {
   Clock,
 } from "lucide-react";
 import type { ExportJob } from "@/api/types/redaction";
-import { formatDateTime } from "@/data/redaction-seed";
+import { fmtDateTime } from "@/lib/format";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const FMT_ICON = { pdf: FileText, csv: FileSpreadsheet, "audio-zip": FileArchive } as const;
@@ -41,7 +41,7 @@ export function ExportAuditLog({ jobs, onDownload, onRetry }: Props) {
                     <span className="text-body-small font-semibold text-text">{j.id}</span>
                     <StatusPill status={j.status} />
                     <span className="ml-auto text-body-small text-text-subtlest">
-                      {formatDateTime(j.at)}
+                      {fmtDateTime(j.at)}
                     </span>
                   </div>
                   <div className="mt-025 truncate text-body-small text-text-subtle">

@@ -1,14 +1,15 @@
 import { Fragment } from "react";
-import type { PiiFinding, RedactionRecord } from "@/api/types/redaction";
-import { ENTITY_COLORS, DEFAULT_RULES } from "@/data/redaction-seed";
+import type { PiiFinding, RedactionRecord, RedactionRules } from "@/api/types/redaction";
+import { ENTITY_COLORS } from "@/lib/redaction";
 import { cn } from "@/lib/utils";
 
 interface Props {
   record: RedactionRecord;
+  rules: RedactionRules;
   onToggleFinding: (findingId: string) => void;
 }
 
-export function TranscriptRedactor({ record, onToggleFinding }: Props) {
+export function TranscriptRedactor({ record, rules, onToggleFinding }: Props) {
   return (
     <div className="space-y-150">
       {record.transcript.map((turn) => {
@@ -25,7 +26,7 @@ export function TranscriptRedactor({ record, onToggleFinding }: Props) {
                 {turn.speaker}
               </div>
               <div className="text-body leading-relaxed text-text">
-                {renderWithMarks(turn.text, turnFindings, onToggleFinding)}
+                {renderWithMarks(turn.text, turnFindings, rules, onToggleFinding)}
               </div>
             </div>
           </div>
@@ -40,7 +41,12 @@ export function TranscriptRedactor({ record, onToggleFinding }: Props) {
   );
 }
 
-function renderWithMarks(text: string, findings: PiiFinding[], onToggle: (id: string) => void) {
+function renderWithMarks(
+  text: string,
+  findings: PiiFinding[],
+  rules: RedactionRules,
+  onToggle: (id: string) => void,
+) {
   if (findings.length === 0) return text;
   const parts: React.ReactNode[] = [];
   let cursor = 0;
@@ -52,7 +58,7 @@ function renderWithMarks(text: string, findings: PiiFinding[], onToggle: (id: st
         key={f.id}
         type="button"
         onClick={() => onToggle(f.id)}
-        title={`${DEFAULT_RULES[f.type].label} · ${f.source} · click to ${f.accepted ? "unmask" : "re-mask"}`}
+        title={`${rules[f.type].label} · ${f.source} · click to ${f.accepted ? "unmask" : "re-mask"}`}
         className={cn(
           "mx-025 inline-flex items-baseline gap-050 rounded px-050 py-0 font-mono text-body-small transition-opacity",
           f.accepted ? "text-white" : "text-text line-through opacity-70",
