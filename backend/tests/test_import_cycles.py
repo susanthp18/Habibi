@@ -33,6 +33,10 @@ FIRST_IMPORTS = [
     # that would close the loop again. Its imports are deferred into the
     # functions that need them; this is what proves that stayed true.
     "agent_core.tools.grant",
+    # The wire shapes are a package now; its modules import each other at the
+    # top (common first), so the package must load with nothing else imported.
+    "schemas",
+    "schemas.outbound",
 ]
 
 
