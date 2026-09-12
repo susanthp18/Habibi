@@ -137,13 +137,22 @@ export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
   readonly path: string;
+  /** The server's `X-Request-Id`: the line to search its logs for. */
+  readonly requestId: string | null;
 
-  constructor(method: string, path: string, status: number, detail: string) {
+  constructor(
+    method: string,
+    path: string,
+    status: number,
+    detail: string,
+    requestId?: string | null,
+  ) {
     super(`${method} ${path} failed: ${detail}`);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
     this.path = path;
+    this.requestId = requestId ?? null;
   }
 }
 
@@ -190,7 +199,13 @@ export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
   });
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
-    throw new ApiError("GET", path, res.status, await errorDetail(res));
+    throw new ApiError(
+      "GET",
+      path,
+      res.status,
+      await errorDetail(res),
+      res.headers.get("X-Request-Id"),
+    );
   }
   const text = await res.text();
   if (!text) return undefined as T;
@@ -218,7 +233,13 @@ async function apiSend<T>(
     signal: requestSignal(init?.signal),
   });
   if (!res.ok) {
-    throw new ApiError(method, path, res.status, await errorDetail(res));
+    throw new ApiError(
+      method,
+      path,
+      res.status,
+      await errorDetail(res),
+      res.headers.get("X-Request-Id"),
+    );
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -247,7 +268,13 @@ export async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: H
     signal: withTimeout(60_000),
   });
   if (!res.ok) {
-    throw new ApiError("GET", path, res.status, await errorDetail(res));
+    throw new ApiError(
+      "GET",
+      path,
+      res.status,
+      await errorDetail(res),
+      res.headers.get("X-Request-Id"),
+    );
   }
   return { blob: await res.blob(), headers: res.headers };
 }
@@ -338,7 +365,13 @@ export async function apiEventStream(
     signal: init?.signal,
   });
   if (!res.ok) {
-    throw new ApiError("GET", path, res.status, await errorDetail(res));
+    throw new ApiError(
+      "GET",
+      path,
+      res.status,
+      await errorDetail(res),
+      res.headers.get("X-Request-Id"),
+    );
   }
   if (!res.body) return;
   const reader = res.body.getReader();

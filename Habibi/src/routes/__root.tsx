@@ -41,6 +41,11 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  // The API stamps X-Request-Id on every response; when the failure was a
+  // request, that id is the line in the server's log, so it is shown beside
+  // the browser's own reference.
+  const maybeRequestId = (error as { requestId?: unknown }).requestId;
+  const requestId = typeof maybeRequestId === "string" ? maybeRequestId : null;
   const correlationId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -65,6 +70,12 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         </p>
         <p className="mt-150 break-all rounded-medium bg-muted px-150 py-100 text-left text-body-small text-muted-foreground">
           Reference: {correlationId}
+          {requestId ? (
+            <>
+              <br />
+              Server request: {requestId}
+            </>
+          ) : null}
         </p>
         <div className="mt-300 flex flex-wrap justify-center gap-100">
           <button
