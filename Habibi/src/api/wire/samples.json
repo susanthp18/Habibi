@@ -14818,36 +14818,6 @@
   "path": "/voice/status"
  },
  {
-  "body": [
-   {
-    "accent": "Indian English",
-    "azureVoiceName": "en-IN-AartiNeural",
-    "duration": "0:03",
-    "gender": "Female",
-    "id": "priya",
-    "name": "Priya"
-   },
-   {
-    "accent": "Hindi-English",
-    "azureVoiceName": "en-IN-AashiNeural",
-    "duration": "0:03",
-    "gender": "Female",
-    "id": "anjali",
-    "name": "Anjali"
-   },
-   {
-    "accent": "Neutral English",
-    "azureVoiceName": "en-IN-AartiNeural",
-    "duration": "0:03",
-    "gender": "Female",
-    "id": "neha",
-    "name": "Neha"
-   }
-  ],
-  "key": "GET /tts-voices",
-  "path": "/tts-voices"
- },
- {
   "body": {
    "defaultVoice": "en-IN-AartiNeural",
    "items": [

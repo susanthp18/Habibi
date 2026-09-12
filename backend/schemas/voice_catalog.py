@@ -18,19 +18,6 @@ from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 TtsGender = Literal["Female", "Male"]
 
 
-class TtsVoiceResponse(BaseModel):
-    """Mirrors Habibi TtsVoice (+ azureVoiceName for PS-4)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    name: str
-    gender: TtsGender
-    accent: str
-    duration: str
-    azureVoiceName: str | None = None
-
-
 class TtsCatalogVoiceItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -103,6 +90,8 @@ class TtsSyncRunResponse(BaseModel):
     defaultVoice: str | None = None
     startedAt: str | None = None
     finishedAt: str | None = None
+    #: Rows written per non-Azure provider by the same refresh (provider_voice_sync).
+    providers: dict[str, int] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

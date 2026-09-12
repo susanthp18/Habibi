@@ -112,3 +112,47 @@ def test_soft_removal_is_scoped_to_the_provider_it_fetched(db_tx, monkeypatch) -
     assert _removed(stale) is not None
     # The whole point: another provider's voice is not this sync's business.
     assert _removed("fish-probe-voice") is None
+
+
+def test_the_admin_refresh_reaches_every_provider(db_tx, monkeypatch, api_headers) -> None:
+    """The Refresh button ran the Azure sync only, so Cartesia, Deepgram,
+    ElevenLabs and Fish each had a registry entry, a chip, and zero voices
+    behind it. One click now runs both halves, and the response says what each
+    provider contributed."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text as _text
+
+    import main as app_main
+    import provider_voice_sync
+    import tts_catalog_sync
+
+    monkeypatch.setattr(tts_catalog_sync, "fetch_azure_voices", lambda **_: [])
+    monkeypatch.setattr(
+        provider_voice_sync,
+        "ADAPTERS",
+        {
+            "fish": lambda: [
+                {
+                    "short_name": "fish:probe-voice",
+                    "display_name": "Probe",
+                    "local_name": "Probe",
+                    "gender": "Neutral",
+                    "locale": "und",
+                    "locale_name": "Undetermined",
+                    "styles": [],
+                    "provider_id": "fish",
+                    "raw": {},
+                }
+            ]
+        },
+    )
+
+    res = TestClient(app_main.app, headers=api_headers).post("/tts-voices/catalog/sync")
+    assert res.status_code == 200, res.text
+    assert res.json()["providers"] == {"fish": 1}
+    assert (
+        db_tx.execute(
+            _text("SELECT provider_id FROM tts_voice_catalog WHERE short_name = 'fish:probe-voice'")
+        ).scalar()
+        == "fish"
+    )

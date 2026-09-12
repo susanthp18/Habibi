@@ -3661,14 +3661,6 @@ export const TwilioVoiceStatusResponse = z.object({
   "supervisorPhone": z.string().nullable().optional(),
   "hint": z.string(),
 }).passthrough();
-export const TtsVoiceResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "gender": z.enum(["Female", "Male"]),
-  "accent": z.string(),
-  "duration": z.string(),
-  "azureVoiceName": z.string().nullable().optional(),
-}).passthrough();
 export const TtsCatalogVoiceItem = z.object({
   "shortName": z.string(),
   "displayName": z.string(),
@@ -3712,6 +3704,7 @@ export const TtsSyncRunResponse = z.object({
   "defaultVoice": z.string().nullable().optional(),
   "startedAt": z.string().nullable().optional(),
   "finishedAt": z.string().nullable().optional(),
+  "providers": z.record(z.string(), z.number()).optional(),
 }).passthrough();
 export const TtsPriceTierResponse = z.object({
   "tier": z.string(),
@@ -4107,7 +4100,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /voice/sandbox/{session_id}/tune", VoiceSandboxTuneResponse],
   ["POST /twilio/voice/outbound", TwilioOutboundCallResponse],
   ["GET /twilio/voice/status", TwilioVoiceStatusResponse],
-  ["GET /tts-voices", z.array(TtsVoiceResponse)],
   ["GET /tts-voices/catalog", TtsCatalogListResponse],
   ["GET /tts-voices/catalog/sync-runs", z.array(TtsSyncRunResponse)],
   ["GET /tts-voices/catalog/{short_name}", TtsCatalogVoiceItem],

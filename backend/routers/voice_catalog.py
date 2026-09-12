@@ -29,7 +29,6 @@ from schemas import (
     TtsLocaleCountResponse,
     TtsProviderCountResponse,
     TtsSyncRunResponse,
-    TtsVoiceResponse,
     TtsVoiceWarning,
 )
 
@@ -38,10 +37,6 @@ from api_support import _read_upload_capped, Utf8JSONResponse, ROUTER_DEPENDENCI
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
-
-@router.get("/tts-voices", response_model=list[TtsVoiceResponse])
-def list_tts_voices():
-    return db.list_tts_voices()
 
 @router.get("/tts-voices/catalog", response_model=TtsCatalogListResponse)
 def list_tts_voice_catalog(
@@ -92,14 +87,20 @@ def tts_voice_warning(shortName: str = Query(...)):
 
 @router.post("/tts-voices/catalog/sync", response_model=TtsSyncRunResponse)
 def sync_tts_voice_catalog():
-    """Admin refresh — pull Azure voices/list (JSON fallback).
+    """Admin refresh — every provider with a key, not only Azure.
 
-    When API-key auth is configured, require Admin / perm-admin-write so
-    arbitrary keys cannot hammer Azure. Local/dev with auth off stays open.
+    Azure goes through `tts_catalog_sync` (voices/list, JSON fallback, soft
+    removal scoped to Azure); the other providers go through
+    `provider_voice_sync`, each adapter independently, so a 401 on ElevenLabs
+    cannot cost the Cartesia catalog. The Refresh button used to run the first
+    half only, which is how four providers had a chip and no voices.
     """
+    import provider_voice_sync
     from tts_catalog_sync import run_sync
 
-    return run_sync(db.engine, source="admin")
+    summary = run_sync(db.engine, source="admin")
+    summary["providers"] = provider_voice_sync.run_sync(db.engine)
+    return summary
 
 # Audio bytes by design (the vendor's content type, cache headers). Listed in
 # tests/test_route_structure.py::_UNTYPED_BY_DESIGN.

@@ -137,8 +137,6 @@ export function toPatchInput(body: PromptVersionDraftInput): PromptVersionPatchI
   return patch;
 }
 
-type TtsVoiceApi = TtsVoice & { azureVoiceName?: string | null };
-
 const VERSIONS_KEY = ["prompt-versions"] as const;
 const PUBLISHED_KEY = ["prompt-versions", "published"] as const;
 const DEPLOYMENTS_KEY = ["bot-deployments"] as const;
@@ -222,18 +220,6 @@ export async function fetchPublishedPromptVersion(botId?: string): Promise<Promp
 export async function fetchPersonaPresets(): Promise<PersonaPreset[]> {
   if (USE_MOCK) return mockDelay(PRESETS);
   return apiGet<PersonaPreset[]>("/persona-presets");
-}
-
-export async function fetchTtsVoices(): Promise<TtsVoice[]> {
-  if (USE_MOCK) return mockDelay(TTS_VOICES);
-  const rows = await apiGet<TtsVoiceApi[]>("/tts-voices");
-  return rows.map(({ id, name, gender, accent, duration }) => ({
-    id,
-    name,
-    gender,
-    accent,
-    duration,
-  }));
 }
 
 export type TtsCatalogVoice = {
@@ -524,14 +510,6 @@ export function usePersonaPresets() {
   return useQuery({
     queryKey: ["persona-presets"],
     queryFn: fetchPersonaPresets,
-    staleTime: 60_000,
-  });
-}
-
-export function useTtsVoices() {
-  return useQuery({
-    queryKey: ["tts-voices"],
-    queryFn: fetchTtsVoices,
     staleTime: 60_000,
   });
 }

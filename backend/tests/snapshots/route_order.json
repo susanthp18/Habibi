@@ -312,7 +312,6 @@
  "POST /twilio/sms/status",
  "POST /twilio/voice/outbound",
  "GET /twilio/voice/status",
- "GET /tts-voices",
  "GET /tts-voices/catalog",
  "GET /tts-voices/catalog/sync-runs",
  "GET /tts-voices/catalog/{short_name}",

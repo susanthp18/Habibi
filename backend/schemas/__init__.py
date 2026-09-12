@@ -580,7 +580,6 @@ from schemas.voice_catalog import (
     TtsPriceTierResponse as TtsPriceTierResponse,
     TtsProviderCountResponse as TtsProviderCountResponse,
     TtsSyncRunResponse as TtsSyncRunResponse,
-    TtsVoiceResponse as TtsVoiceResponse,
     TtsVoiceWarning as TtsVoiceWarning,
 )
 from schemas.webhooks import (
