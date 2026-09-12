@@ -3,9 +3,9 @@
 **Date:** 2026-09-06
 **Status:** Read-only audit + architecture proposal. **No application code was changed to produce this.**
 **Base commit:** `026cada` — *see [Working-tree caveat](#working-tree-caveat), the tree was not clean during the audit.*
-**Companions:** [AGENT_STUDIO_BUG_HUNT.md](./AGENT_STUDIO_BUG_HUNT.md) (the 2026-08-25 pass, 61 of its 72 findings now fixed) · [agent_transformation_plan.md](./agent_transformation_plan.md) · [agent_transformation_phases.md](./agent_transformation_phases.md) · [audit-reports/TARGET-ARCHITECTURE.md](./audit-reports/TARGET-ARCHITECTURE.md) · [CONTEXT.md](./CONTEXT.md) · [docs/adr/0001](./docs/adr/0001-one-owner-for-the-tool-grant.md), [docs/adr/0002](./docs/adr/0002-cardless-agents-are-denied-every-tool.md)
+**Companions:** [AGENT_STUDIO_BUG_HUNT.md](./AGENT_STUDIO_BUG_HUNT.md) (the 2026-08-25 pass, 61 of its 72 findings now fixed) · [agent_transformation_plan.md](./agent_transformation_plan.md) · [agent_transformation_phases.md](./agent_transformation_phases.md) · [audit-reports/TARGET-ARCHITECTURE.md](../../audit-reports/TARGET-ARCHITECTURE.md) · [CONTEXT.md](../../CONTEXT.md) · [docs/adr/0001](../adr/0001-one-owner-for-the-tool-grant.md), [docs/adr/0002](../adr/0002-cardless-agents-are-denied-every-tool.md)
 **Complete findings:** [AGENT_STUDIO_FINDINGS.md](./AGENT_STUDIO_FINDINGS.md) — all 345 in full (mechanism, trigger, fix, files), the cross-cutting inventories, and the 33 gaps in this audit. **This document is the argument; that one is the reference.**
-**Evidence:** [audit-reports/agent-studio-nextgen/](./audit-reports/agent-studio-nextgen/) — `backlog.json`, 24 per-slice reports and their verdicts in `raw/`.
+**Evidence:** [audit-reports/agent-studio-nextgen/](../../audit-reports/agent-studio-nextgen/) — `backlog.json`, 24 per-slice reports and their verdicts in `raw/`.
 
 This document does **not** supersede the plan documents. Those describe where the product is going; this one describes where it actually is, what is wrong with it in detail, and the one architecture that gets from here to the agentic system the product owner asked for.
 

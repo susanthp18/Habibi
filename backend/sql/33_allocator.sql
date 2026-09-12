@@ -1,6 +1,6 @@
 -- W13 · the allocator, and the price nobody is allowed to believe yet.
 --
--- §10 of engines-production-design.md. The optimiser is not the hard part and
+-- §10 of docs/design/engines-production-design.md. The optimiser is not the hard part and
 -- the design note says so: Lagrangian decomposition prices each scarce resource,
 -- subtracts price x usage, and eighteen million account x action variables fall
 -- apart into independent per-account argmaxes. What this file is for is the part

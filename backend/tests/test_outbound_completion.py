@@ -1,6 +1,6 @@
 """The rest of the outbound engine: the parts that were still stubs or lies.
 
-Section 20 of ``outbound-agent-engine.md`` closed seven fields that were
+Section 20 of ``docs/design/outbound-agent-engine.md`` closed seven fields that were
 configured, validated, versioned and publishable while having no effect. This
 file covers the round after it, and four of the eight items are the same species
 of defect found in different rooms:

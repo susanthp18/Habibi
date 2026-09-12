@@ -1,6 +1,6 @@
 -- W7 · the analysis panel.
 --
--- One row per CASE, not per decision. §8.7 of engines-production-design.md:
+-- One row per CASE, not per decision. §8.7 of docs/design/engines-production-design.md:
 -- "the unit of analysis is the *case*, not the decision", and the design effect
 -- `1 + (m-1)*ICC` is computed from `cases_per_customer`, never from a decision
 -- count. Measured on the live corpus 2026-09-09: 268 dpd_tick day-cases across

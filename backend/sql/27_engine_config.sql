@@ -1,6 +1,6 @@
 -- W8a · configuration is data.
 --
--- §13.2 of engines-production-design.md. Until this table exists,
+-- §13.2 of docs/design/engines-production-design.md. Until this table exists,
 -- `logging_contract.config_version()` returns a sha over four environment
 -- variables -- a string that names nothing, so "what was the cost book when
 -- this decision was made?" has no answer a week later. W2 shipped that

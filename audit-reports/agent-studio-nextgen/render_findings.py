@@ -1,6 +1,6 @@
 """Render the complete findings reference from the verified evidence.
 
-The argument lives in AGENT_STUDIO_NEXT_GEN.md; this generates its companion —
+The argument lives in docs/design/AGENT_STUDIO_NEXT_GEN.md; this generates its companion —
 every finding in full, plus the cross-cutting inventories that are not findings
 at all (a drift pair or a doc-vs-code contradiction has no single site to pin an
 id to) and the critic's gaps in the audit itself.
@@ -17,10 +17,10 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 RAW = os.path.join(HERE, "raw")
-OUT = os.path.join(REPO, "AGENT_STUDIO_FINDINGS.md")
+OUT = os.path.join(REPO, "docs", "design", "AGENT_STUDIO_FINDINGS.md")
 
 # Slice key -> the screen an engineer would open. Ordered by the fix-loop order
-# in AGENT_STUDIO_NEXT_GEN.md §5, so reading top to bottom is the work order.
+# in docs/design/AGENT_STUDIO_NEXT_GEN.md §5, so reading top to bottom is the work order.
 SLICES = [
     ("ship", "Ship tab — canary, shadow, auto-rollback, deployments"),
     ("evals", "Evals tab — suites, reports, and the publish gates"),

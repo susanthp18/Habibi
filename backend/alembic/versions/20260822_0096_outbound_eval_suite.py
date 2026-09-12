@@ -13,7 +13,7 @@ and the gate could never be satisfied. A gate nothing can pass is not a gate,
 it is an outage waiting for the day somebody turns the flag on.
 
 The nine tasks are the outbound failure modes named in
-``outbound-agent-engine.md`` §13. Each has been shipped by somebody:
+``docs/design/outbound-agent-engine.md`` §13. Each has been shipped by somebody:
 
 * a full collections script played into a voicemail inbox;
 * a voicemail that says why we are calling, to whoever opens it;

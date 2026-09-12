@@ -1,6 +1,6 @@
 """The perception plane — facts from one turn, typed and provenance-tagged.
 
-§12 of ``engines-production-design.md``. The boundary this package sits on is
+§12 of ``docs/design/engines-production-design.md``. The boundary this package sits on is
 the point of it: perception produces *facts*, the ranking path produces
 *decisions*, and nothing crosses from here into the expected-value arithmetic.
 

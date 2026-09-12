@@ -1,6 +1,6 @@
 -- W12 · the offer family, absorbed.
 --
--- §9.7 and §15.4 of engines-production-design.md: the upsell engine is absorbed
+-- §9.7 and §15.4 of docs/design/engines-production-design.md: the upsell engine is absorbed
 -- at the INFRASTRUCTURE layer -- one log, one propensity contract, one
 -- exploration mechanism, one registry, one promotion gate, one OPE panel, one
 -- retention policy -- while the ESTIMATOR stays separate, because in-call

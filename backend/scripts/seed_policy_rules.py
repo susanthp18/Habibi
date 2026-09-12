@@ -119,7 +119,7 @@ RULE_SETS: list[dict[str, Any]] = [
         "effective_to": None,
         "notes": (
             "Amendment to the RBI (NBFC - Responsible Business Conduct) Directions, "
-            "2025, as described in decision-intelligence-engine.md. Seed data - "
+            "2025, as described in docs/design/decision-intelligence-engine.md. Seed data - "
             "confirm against the gazetted text before relying on it in production."
         ),
         "rules": [

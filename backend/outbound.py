@@ -41,7 +41,7 @@ no new infrastructure, and is exactly the quantity we want to bound.
 It is a cap on *our own dialling*, not a fleet-wide admission control: an inbound
 surge can still fill the voice worker. The cap's job is to stop a campaign
 outrunning the fleet, and for that it is sufficient. A Redis token bucket is the
-next step and is an open question in ``outbound-agent-engine.md`` §18.
+next step and is an open question in ``docs/design/outbound-agent-engine.md`` §18.
 
 Nothing here raises on the dial path. "The call was not placed" is always a valid
 outcome, same discipline as ``reco.recommend()`` and ``contact_policy.admit()``.

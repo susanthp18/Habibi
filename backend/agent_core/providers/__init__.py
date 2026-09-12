@@ -15,7 +15,7 @@ Four modules, in dependency order:
     silent default.
 
 The rule that shapes all four: **resolution failing is an error, not a reason to
-substitute something plausible.** See ``multilingual-architecture.md`` §3.
+substitute something plausible.** See ``docs/design/multilingual-architecture.md`` §3.
 """
 
 from __future__ import annotations

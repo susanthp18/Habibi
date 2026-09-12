@@ -36,4 +36,4 @@ Rotation is `POST /vault/refs/{ref_id}/rotate`. No deploy.
 | Azure Key Vault token | `AZURE_KEY_VAULT_TOKEN` | Azure backend | platform secret store |
 | PII column key | `PII_ENCRYPTION_KEY` | `customers` view (pgcrypto, `app.pii_key` startup GUC) | platform secret store; rotate with `scripts/rotate_pii_key.py` |
 
-See `agent_transformation_implementation.md` Phase 3.
+See `docs/design/agent_transformation_implementation.md` Phase 3.

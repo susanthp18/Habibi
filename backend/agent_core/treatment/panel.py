@@ -1,6 +1,6 @@
 """W7 · the analysis panel — one row per case, so `m` is a measurement.
 
-§8.7 of ``engines-production-design.md`` fixes the unit of analysis as the
+§8.7 of ``docs/design/engines-production-design.md`` fixes the unit of analysis as the
 **case**, and the design effect ``DE = 1 + (m - 1) * ICC`` — how many independent
 observations a given number of decisions is actually worth — is computed from
 cases per customer. Everything downstream of that number moves with it: the

@@ -1,6 +1,6 @@
 """R-INJ-1 — where every model input came from, and what that permits.
 
-§12.3 of ``engines-production-design.md``:
+§12.3 of ``docs/design/engines-production-design.md``:
 
     Every perception field is tagged with its provenance, and no field whose
     declared input set includes borrower speech may enter the EV vector as a

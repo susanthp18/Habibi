@@ -1,7 +1,7 @@
 -- W9a · the perception store: what was said, who said the model said it, and
 -- what it is allowed to touch.
 --
--- §12.3 of engines-production-design.md. Today `analyze_turn` classifies every
+-- §12.3 of docs/design/engines-production-design.md. Today `analyze_turn` classifies every
 -- customer turn — intent, sentiment, abuse, legal, language — and the result
 -- survives as three untyped columns on `interaction_transcript`: `intent`,
 -- `intent_score`, `sentiment_delta`. Which model produced them, with what

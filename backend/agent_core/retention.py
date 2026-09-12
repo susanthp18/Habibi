@@ -1,6 +1,6 @@
 """Retention: every record knows when it dies, and a citation says why.
 
-W8b of engines-production-design.md, §14.2. Before this module
+W8b of docs/design/engines-production-design.md, §14.2. Before this module
 ``treatment_decisions`` had no retention and no archive path, and "until
 purpose served" -- a statutory standard, not a schedule -- was answered
 nowhere.

@@ -1,6 +1,6 @@
 """Economic configuration as data, resolved env floor → tenant → portfolio.
 
-W8a of engines-production-design.md, §13.2. Until this module existed the
+W8a of docs/design/engines-production-design.md, §13.2. Until this module existed the
 engines read their cost book out of the process environment, so
 ``config_version`` on a decision row was a sha over four environment variables
 -- a string that names nothing, and cannot answer *what did a field visit cost

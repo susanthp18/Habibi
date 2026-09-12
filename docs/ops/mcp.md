@@ -97,4 +97,4 @@ approved, data-classed, and vault-ref authenticated. Idle mouth **excludes**
 - Arbitrary HTTP MCP URL on a voice card without data-class review.
 - Tokens in `.env` for connector OAuth — those live in `vault_refs`.
 
-See `agent_transformation_implementation.md` Phase 3.
+See `docs/design/agent_transformation_implementation.md` Phase 3.

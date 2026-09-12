@@ -1,6 +1,6 @@
 -- W8b · retention: every record knows when it dies, and why.
 --
--- §14.2 of engines-production-design.md. Today `treatment_decisions` has no
+-- §14.2 of docs/design/engines-production-design.md. Today `treatment_decisions` has no
 -- retention and no archive path: it grows forever, and "until purpose served"
 -- -- which is the statutory standard, not a schedule -- is answered nowhere.
 --

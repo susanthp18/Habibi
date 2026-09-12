@@ -1,6 +1,6 @@
 """The import contract: no language model is reachable from the ranking path.
 
-§12.1 of ``engines-production-design.md`` states the boundary and then states
+§12.1 of ``docs/design/engines-production-design.md`` states the boundary and then states
 why it is checked mechanically:
 
     The boundary is a CI contract, not a convention. An architecture rule that

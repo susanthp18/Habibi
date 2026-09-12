@@ -1,6 +1,6 @@
 -- W11a · the gate that can be evaluated: gates 14 and 15 get somewhere to live.
 --
--- §8.12 of engines-production-design.md lists fifteen gates. Two of them are
+-- §8.12 of docs/design/engines-production-design.md lists fifteen gates. Two of them are
 -- not statistics and cannot be computed from an artifact, and until this file
 -- existed there was nowhere in the schema to put either:
 --
