@@ -742,3 +742,37 @@ def test_decline_offer_reports_a_failed_write(monkeypatch) -> None:
     assert out["error"] == "crm_write_failed"
     # The borrower still said no: the in-call latch holds either way.
     assert ctx.offer_declined is True
+
+
+def test_voice_decline_offer_reports_a_failed_write_too(monkeypatch) -> None:
+    """The voice twin of the test above. The voice handler swallowed the
+    failed persist and told the model ``ok=True, "do not raise it again"`` --
+    so the next call offered it afresh because nothing was written. The
+    in-call latch still holds; the record says what happened."""
+    import asyncio
+
+    import capture
+    from voice import tools as voice_tools
+    from voice.session import VoiceSession
+
+    def _boom(conn, **kw):
+        raise RuntimeError("crm down")
+
+    monkeypatch.setattr(capture, "record_offer_declined", _boom)
+    session = VoiceSession(session_id=f"VS-{uuid.uuid4().hex[:8].upper()}")
+    session.customer_id = "CUST-T"
+    session.identity_verified = True
+    session.interaction_id = "INT-T"
+    state, tools = voice_tools.build_tools(
+        session,
+        bot_id=None,
+        start_recording=None,
+        nodes={},
+        allowed_tool_names=set(voice_tools.CATALOG.specs) | set(voice_tools.ALWAYS_ON),
+    )
+
+    result, _next = asyncio.run(tools["decline_offer"].handler({"reason": "not now"}, None))
+
+    assert result["ok"] is False
+    assert result["error"] == "crm_write_failed"
+    assert state.offer_declined is True

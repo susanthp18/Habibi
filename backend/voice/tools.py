@@ -2153,7 +2153,14 @@ def build_tools(
         try:
             await _persist()
         except Exception:
+            # The in-call latch above holds either way: the borrower said no
+            # and this call will not raise it again. But the *record* did not
+            # happen, and telling the model it did -- "do not raise it again"
+            # on ok=True -- is the same lie the text path stopped telling
+            # (bot_tools._tool_decline_offer): the next call would offer it
+            # afresh because nothing was written. The tool says what happened.
             logger.exception("decline_offer bookkeeping failed")
+            return {"ok": False, "error": "crm_write_failed", "declined": True}, None
 
         # Nothing to say back — the model already heard the "no". A second
         # inference here just produces filler on top of it.
