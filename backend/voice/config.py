@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 from env_loader import load_env
 from env_utils import env_bool
@@ -240,71 +239,11 @@ def kb_enrich_fallback() -> str:
     return "spec_only" if raw == "spec_only" else "inline"
 
 
-def voice_flow_graph() -> str:
-    """``auto`` (default) | ``db`` | ``required``.
-
-    There is one source of a conversation: the published Agent Studio graph.
-    The hardcoded Python script (``voice/flows.py``) that ``auto`` and ``db``
-    used to fall back to, and the ``legacy``/``hub`` modes that selected it,
-    are gone -- it was materialised as ``agent_core/cards/graphs/
-    collections.json`` and is published like any other graph. So every mode
-    now behaves as ``required``: a bot with no published, compilable graph
-    refuses the call and says which bot and why. The three names are kept so
-    a deployment that set one keeps booting; ``legacy`` and ``hub`` are
-    logged and treated as ``auto``.
-
-    Refusing is the point, and it is also the cost. Under ``required`` a broken
-    graph is a failed call rather than a degraded one, which is the correct
-    trade only once the graphs are real.
-
-    An unrecognised value falls back to ``auto`` rather than raising: an
-    operator typo must not take voice down.
-    """
-    load_env()
-    raw = (os.getenv("VOICE_FLOW_GRAPH") or "").strip().lower()
-    if raw in {"legacy", "hub"}:
-        logger.warning(
-            "VOICE_FLOW_GRAPH=%s is retired: the built-in script is a published graph now; "
-            "running as auto",
-            raw,
-        )
-        return "auto"
-    return raw if raw in {"db", "auto", "required"} else "auto"
-
-
-def voice_flow_required() -> bool:
-    """Is a published, compilable Agent Studio graph mandatory for every call?
-
-    Always, now that there is nothing else to run -- the name survives for the
-    call sites and the logs that read it.
-    """
-    return True
-
-
-def voice_uses_authored_flow(graph_data: Any, *, override: str | None = None) -> bool:
-    """Whether this call should compile ``prompt_versions.flow`` instead of Python.
-
-    ``legacy`` / ``hub`` never do. ``db`` / ``auto`` / ``required`` do when the
-    stored JSON has nodes. Sandbox per-call override is
-    ``session.extra["flowGraph"]``.
-
-    Note what this does *not* decide: under ``required`` a graph that is absent
-    still returns False here, because it genuinely is not authored. Turning that
-    into a refusal is :func:`voice_flow_required`'s job at the call site, where
-    there is a session to name in the error.
-    """
-    _ = (override or voice_flow_graph()).strip().lower()
-    from flow_graph import is_authored
-
-    return is_authored(graph_data)
-
-
 def voice_tool_change_messages() -> bool:
     """Announce advertised-tool-set changes to the model on node transitions.
 
-    Cheap enough to leave on. Note its value is proportional to how often the
-    tool set changes, so it is a strong win under VOICE_FLOW_GRAPH=legacy and a
-    marginal one under `hub`, which deliberately transitions less.
+    Cheap enough to leave on. Its value is proportional to how often the
+    tool set changes between nodes.
     """
     return _flag_default_on("VOICE_TOOL_CHANGE_MESSAGES")
 

@@ -216,7 +216,7 @@ class ToolState:
         # Product last discussed on the upsell node, for lead capture defaults.
         self.last_product_id: str | None = None
         self.upsell_presented = False
-        # --- hub graph (VOICE_FLOW_GRAPH=hub) ---
+        # --- one graph advertises both tools ---
         # Under the legacy graph the upsell was reachable ONLY from a successful
         # create_promise_to_pay, so the ordering was enforced by the graph
         # itself. A merged hub advertises both tools at once, and a prompt line

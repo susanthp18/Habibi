@@ -17,7 +17,6 @@ from loguru import logger
 
 from agent_core import default_context, default_tuning, load_active_bundle
 from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
-from voice import config as voice_config
 from voice.crm_sink import CrmSink
 from voice.natural import build_voice_system_prompt
 from voice.session import VoiceSession
@@ -538,8 +537,9 @@ def build_flow(call) -> None:
     # graph, so a bot with none refuses the call rather than running
     # something no publish could touch.
     _authored = bundle.get("flow")
-    _flow_override = session.extra.get("flowGraph")
-    if voice_config.voice_uses_authored_flow(_authored, override=_flow_override):
+    from flow_graph import is_authored
+
+    if is_authored(_authored):
         try:
             from voice.flows_dynamic import build_authored_flow
 
@@ -583,7 +583,7 @@ def build_flow(call) -> None:
         # No published graph at all: a configuration error with a name
         # attached, not something to paper over.
         raise RuntimeError(
-            f"voice_flow_required: bot {bot_id!r} has no published Agent Studio "
+            f"bot {bot_id!r} has no published Agent Studio "
             "flow -- publish one (the built-in conversation is "
             "agent_core/cards/graphs/collections.json)"
         )

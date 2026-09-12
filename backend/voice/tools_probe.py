@@ -176,7 +176,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                         interaction_id=session.interaction_id,
                         channel="voice",
                         live=_live_signals(),
-                        # Per-session A/B arm, same override pattern as flowGraph.
+                        # Per-session A/B arm, read from session.extra.
                         # Absent, the engine buckets the customer by RECO_AB_SPLIT.
                         variant=session.extra.get("recoVariant"),
                     )

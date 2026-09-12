@@ -1,11 +1,8 @@
 """Execute an authored flow graph as a Pipecat Flows conversation.
 
-The counterpart to ``voice/flows.py``: same output contract
-(``state, tools, initial_node_factory, global_functions``), but the graph comes
-from ``prompt_versions.flow`` instead of Python. Selected by
-``VOICE_FLOW_GRAPH=db`` or the default ``auto`` (when the published version
-has nodes); ``legacy`` / ``hub`` keep the hardcoded flow, so this cannot
-change a call until it is deliberately allowed.
+The output contract is ``state, tools, initial_node_factory,
+global_functions``; the graph is ``prompt_versions.flow`` -- the published
+Agent Studio graph is the only conversation there is.
 
 How a graph becomes a conversation
 ----------------------------------
