@@ -16,9 +16,20 @@ from typing import Any
 
 from sqlalchemy import text
 
-from db_core import _IST
+from db_core import (
+    _IST,
+    _actor_user_id,
+    _as_utc,
+    _rows,
+    _sql,
+    _tenant,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+)
 
 import money_inr
+from db_documents import _doc_channel, _doc_type_screen
 from agent_core.clock import utc_now
 
 
@@ -69,7 +80,6 @@ def _fmt_hm(total_seconds: float) -> str:
 
 
 def _work_item_age_hours(created_at: Any) -> int:
-    _as_utc = _db()._as_utc
     created = _as_utc(created_at)
     if created is None:
         return 0
@@ -83,7 +93,6 @@ def _work_item_sla(
     status: str | None,
 ) -> tuple[str, str]:
     """Compute (sla, slaLabel) server-side — seed strings like '1h 12m left' are not stored."""
-    _as_utc = _db()._as_utc
     due = _as_utc(sla_due_at)
     now = utc_now()
     if entity_type == "bounce" and status == "in_progress":
@@ -145,10 +154,6 @@ def _snippet(text: str | None, limit: int = 72) -> str:
 def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per-entity_type grouped enrichment — 6 queries, no N+1."""
     _mod = _db()
-    _rows = _mod._rows
-    _as_utc = _mod._as_utc
-    _doc_type_screen = _mod._doc_type_screen
-    _doc_channel = _mod._doc_channel
     by_type: dict[str, list[str]] = {}
     for r in rows:
         by_type.setdefault(r["entity_type"], []).append(r["entity_id"])
@@ -362,8 +367,6 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
 
 def _enacted_by_map(conn: Any, entity_ids: list[str]) -> dict[str, str]:
     """Latest treatment actor, plus clerk-sourced document requests."""
-    _mod = _db()
-    _rows = _mod._rows
     ids = [e for e in entity_ids if e]
     if not ids:
         return {}
@@ -408,15 +411,7 @@ def list_work_items(
     assignee='me' (default) scopes to the acting user from /me (ACTOR_USER_ID).
     Pass assignee=None / 'all' for the unfiltered tenant queue.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
-    _actor_user_id = _mod._actor_user_id
+    engine = _db().engine
     assignee_id: str | None
     if assignee in (None, "", "all"):
         assignee_id = None

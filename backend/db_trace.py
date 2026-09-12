@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 from typing import Any
+from db_core import _one, _rows
 
 
 def _db():
@@ -58,10 +59,7 @@ def _trace_redact(value: Any) -> Any:
 
 def get_turn_trace(interaction_id: str) -> list[dict[str, Any]]:
     """Every turn of one interaction, with its tool calls, retrievals and latency."""
-    _mod = _db()
-    _one = _mod._one
-    _rows = _mod._rows
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         exists = _one(
             conn.execute(

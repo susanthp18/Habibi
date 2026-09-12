@@ -12,6 +12,7 @@ from typing import Any
 from dataclasses import dataclass, field
 
 from sqlalchemy import text
+from db_core import _one, _rows, _tenant
 
 
 def _db():
@@ -600,12 +601,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
         raise ValueError(f"invalid_range: {range_key}")
     days, where_sql, params = _bot_analytics_window(range_key, channel)
 
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _one = _mod._one
-    _tenant = _mod._tenant
-
+    engine = _db().engine
     st = BotAnalyticsBuild(
         _one=_one,
         _rows=_rows,

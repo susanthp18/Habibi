@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
+from db_core import _as_dict, _one, _rows, _tenant
 
 
 def _db():
@@ -34,7 +35,6 @@ _VALID_DIFFICULTIES = frozenset({"easy", "medium", "hard"})
 
 
 def _sandbox_persona_from_sim(raw: Any) -> dict[str, Any]:
-    _as_dict = _db()._as_dict
     data = _as_dict(raw)
     overdue = data.get("overdue", 0)
     try:
@@ -87,7 +87,6 @@ def _sandbox_scripted_turns(raw: Any) -> list[dict[str, Any]]:
 
 
 def _map_sandbox_scenario(r: dict[str, Any]) -> dict[str, Any]:
-    _as_dict = _db()._as_dict
     sim = _as_dict(r.get("sim_persona"))
     difficulty = str(sim.get("difficulty") or "medium").lower()
     if difficulty not in _VALID_DIFFICULTIES:
@@ -116,10 +115,7 @@ def _map_sandbox_scenario(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_sandbox_scenarios() -> list[dict[str, Any]]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -138,7 +134,6 @@ def list_sandbox_scenarios() -> list[dict[str, Any]]:
 
 
 def _chunk_meta_grouped(conn: Any, chunk_ids: list[str]) -> dict[str, dict[str, Any]]:
-    _rows = _db()._rows
     ids = [c for c in chunk_ids if c and not str(c).startswith("faq-")]
     if not ids:
         return {}
@@ -268,10 +263,7 @@ def _map_sandbox_turn(r: dict[str, Any], chunk_meta: dict[str, dict[str, Any]]) 
 
 
 def get_sandbox_run(run_id: str) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _rows = _mod._rows
+    engine = _db().engine
     with engine.connect() as conn:
         r = _one(
             conn.execute(

@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy import text
 import json
+from db_core import _actor_user_id, _one, _rows, _speaker_screen, _tenant
 
 
 def _db():
@@ -65,7 +66,7 @@ def _actor_can_view_raw_pii(conn: Any) -> bool:
     """
     import authz
 
-    uid = (_db()._actor_user_id() or "").strip()
+    uid = (_actor_user_id() or "").strip()
     return bool(uid) and authz.has_permission(uid, authz.PII_RAW_READ)
 
 
@@ -79,8 +80,7 @@ def actor_is_admin(user_id: str | None = None) -> bool:
     """
     import authz
 
-    _mod = _db()
-    uid = (user_id or _mod._actor_user_id() or "").strip()
+    uid = (user_id or _actor_user_id() or "").strip()
     return bool(uid) and authz.has_permission(uid, authz.ADMIN_WRITE)
 
 
@@ -92,8 +92,6 @@ def _pii_findings_grouped(
     turn_text_by_id: dict[str, str],
 ) -> dict[str, list[dict[str, Any]]]:
     """Findings for many redaction records. Never puts raw PII in `text` unless allow_raw."""
-    _mod = _db()
-    _rows = _mod._rows
     if not redaction_ids:
         return {}
     rows = _rows(
@@ -140,8 +138,6 @@ def _pii_findings_grouped(
 
 
 def _redaction_audio_grouped(conn: Any, redaction_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not redaction_ids:
         return {}
     rows = _rows(
@@ -181,9 +177,6 @@ def _redaction_transcripts_grouped(
     conn: Any,
     interaction_ids: list[str],
 ) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
-    _speaker_screen = _mod._speaker_screen
     if not interaction_ids:
         return {}
     rows = _rows(
@@ -320,10 +313,7 @@ def list_redaction_records(
     names the last record of the previous page; the next page continues from
     that record's position in the sort (exclusive).
     """
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     capped = max(1, min(int(limit or 100), 200))
     params: dict[str, Any] = {"tenant_id": _tenant(), "limit": capped}
     cursor_sql = ""
@@ -359,10 +349,7 @@ def list_redaction_records(
 
 
 def get_redaction_record(redaction_id: str) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -377,10 +364,7 @@ def get_redaction_record(redaction_id: str) -> dict[str, Any]:
 
 def list_redaction_rules() -> list[dict[str, Any]]:
     """Tenant redaction rule configs — screen RedactionRules entries."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -414,10 +398,7 @@ def _map_redaction_rule(pii_type: str, row: dict[str, Any] | None) -> dict[str, 
 
 def get_redaction_rule(pii_type: str) -> dict[str, Any] | None:
     """Single redaction rule — used by write paths instead of re-listing."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _tenant = _mod._tenant
+    engine = _db().engine
     if pii_type not in _PII_LABELS:
         return None
     with engine.connect() as conn:

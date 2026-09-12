@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import text
 from agent_core.clock import utc_now
+from db_core import _one, _rows, _tenant
 
 
 def _db():
@@ -103,8 +104,6 @@ def _daily_series(
     env: str,
     tenant_id: str | None,
 ) -> list[dict[str, Any]]:
-    _mod = _db()
-    _rows = _mod._rows
     params: dict[str, Any] = {"start": start, "end": end, "env": env}
     tenant_sql = ""
     if tenant_id and tenant_id != "all":
@@ -790,10 +789,7 @@ def billing_overview(
     tenant_id: str = "all",
     env: str = "production",
 ) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     if period not in _BILLING_PERIODS:
         raise ValueError(f"invalid_period: {period}")
     if env not in _BILLING_ENVS:
@@ -824,10 +820,7 @@ def interaction_cost(interaction_id: str) -> dict[str, Any]:
     predates metering" — every voice call before the pipeline was instrumented
     has no events at all, and showing those as ₹0.00 would be a lie.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _rows = _mod._rows
+    engine = _db().engine
     with engine.begin() as conn:
         rows = _rows(
             conn.execute(
@@ -915,8 +908,6 @@ def _model_spend(
     has a single blended ``llm_chat`` row, so a gpt-5 turn and a gpt-4o-mini turn
     are indistinguishable in the rollup even though they price ~8x apart.
     """
-    _mod = _db()
-    _rows = _mod._rows
     params: dict[str, Any] = {
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -981,8 +972,6 @@ def _attributed_cost_per_call(
     batch work no call incurred) by a call count, so it is an allocation, not a
     measurement. This one only counts calls with attributed events.
     """
-    _mod = _db()
-    _one = _mod._one
     params: dict[str, Any] = {
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -1020,8 +1009,7 @@ def _attributed_cost_per_call(
 
 
 def upsert_budget_rule(budget_id: str, payload: dict[str, Any], rule_id: str | None = None) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     channels = [str(c).strip() for c in (payload.get("channels") or []) if str(c).strip()]
     if not channels:
         raise ValueError("channels_required")
@@ -1085,8 +1073,7 @@ def upsert_budget_rule(budget_id: str, payload: dict[str, Any], rule_id: str | N
 
 
 def delete_budget_rule(budget_id: str, rule_id: str) -> None:
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         # Drop alert history first (FK)
         conn.execute(

@@ -11,6 +11,27 @@ from __future__ import annotations
 from sqlalchemy import text
 
 import db_core
+from db_callbacks import _callback_source
+from db_core import (
+    DEFAULT_DETAIL_LIMIT,
+    _account_tail,
+    _activity,
+    _actor_user_id,
+    _assert_tenant_owns,
+    _ensure_customer,
+    _first_account_id,
+    _id,
+    _idempotent_response,
+    _one,
+    _rows,
+    _sql,
+    _store_idempotent_response,
+    _tenant,
+    _user_name,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+)
 from typing import Any
 
 
@@ -21,11 +42,207 @@ def _db():
     return d
 
 
+def _doc_channel(channel: str | None) -> str:
+    if channel in {"whatsapp", "email", "sms"}:
+        return channel
+    return "email"
+
+
+_DOC_TYPE_SCREEN = {
+    "account_statement",
+    "no_dues_certificate",
+    "interest_certificate",
+    "foreclosure_letter",
+    "loan_schedule",
+    "payment_receipt",
+    "kyc_letter",
+}
+
+
+_DOC_TYPE_ALIASES = {
+    "statement": "account_statement",
+    "account statement": "account_statement",
+    "6-month account statement": "account_statement",
+    "6 month account statement": "account_statement",
+    "no-dues certificate": "no_dues_certificate",
+    "no dues certificate": "no_dues_certificate",
+    "noc": "no_dues_certificate",
+    "interest certificate": "interest_certificate",
+    "foreclosure letter": "foreclosure_letter",
+    "loan schedule": "loan_schedule",
+    "repayment schedule": "loan_schedule",
+    "payment receipt": "payment_receipt",
+    "kyc letter": "kyc_letter",
+    "kyc confirmation letter": "kyc_letter",
+}
+
+
+_TEMPLATE_SCREEN = {
+    "template-statement": "T-STMT-6M",
+    "template-noc": "T-NODUES",
+}
+
+
+_DEFAULT_TEMPLATE_FOR_DOC = {
+    "account_statement": "T-STMT-6M",
+    "no_dues_certificate": "T-NODUES",
+    "interest_certificate": "T-INTCERT",
+    "foreclosure_letter": "T-FORECLOSE",
+    "loan_schedule": "T-SCHEDULE",
+    "payment_receipt": "T-RECEIPT",
+    "kyc_letter": "T-KYC",
+}
+
+
+def _doc_type_screen(raw: str | None) -> str:
+    """Map free-text / legacy seed doc_type values onto the screen enum."""
+    if not raw:
+        return "account_statement"
+    if raw in _DOC_TYPE_SCREEN:
+        return raw
+    key = raw.strip().lower()
+    if key in _DOC_TYPE_ALIASES:
+        return _DOC_TYPE_ALIASES[key]
+    compact = key.replace("-", "_").replace(" ", "_")
+    if compact in _DOC_TYPE_SCREEN:
+        return compact
+    if "statement" in key:
+        return "account_statement"
+    if "dues" in key or key == "noc":
+        return "no_dues_certificate"
+    if "interest" in key:
+        return "interest_certificate"
+    if "foreclos" in key:
+        return "foreclosure_letter"
+    if "schedule" in key or "amort" in key:
+        return "loan_schedule"
+    if "receipt" in key:
+        return "payment_receipt"
+    if "kyc" in key:
+        return "kyc_letter"
+    return "account_statement"
+
+
+def _doc_template_screen(template_id: str | None, doc_type: str) -> str:
+    if template_id and template_id in _TEMPLATE_SCREEN:
+        return _TEMPLATE_SCREEN[template_id]
+    if template_id:
+        return template_id
+    return _DEFAULT_TEMPLATE_FOR_DOC.get(doc_type, "T-STMT-6M")
+
+
+def _doc_requested_via(
+    requested_via: str | None,
+    handler_kind: str | None,
+    interaction_channel: str | None,
+    has_interaction: bool,
+) -> str:
+    if requested_via in {
+        "bot_voice",
+        "bot_chat",
+        "agent",
+        "mcp",
+        "clerk",
+        "vision",
+        "inbox",
+    }:
+        return requested_via
+    return _callback_source(handler_kind, interaction_channel, has_interaction)
+
+
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return email
+    user, domain = email.split("@", 1)
+    if not user:
+        return email
+    return f"{user[:2]}•••@{domain}"
+
+
+def _doc_delivery_target(
+    channel: str,
+    stored: str | None,
+    phone: str | None,
+    email: str | None,
+) -> str:
+    if stored:
+        return stored
+    if channel == "email":
+        return _mask_email(email) if email else ""
+    return phone or ""
+
+
+def _doc_event_tone(kind: str | None, note: str | None) -> str:
+    if kind in {"document_delivery_attempt"} and note in {"sent", "delivered"}:
+        return "success"
+    if kind in {"document_delivery_attempt"} and note in {"failed", "bounced"}:
+        return "danger"
+    if note and any(x in note.lower() for x in ("fail", "error", "bounce")):
+        return "danger"
+    if note and any(x in note.lower() for x in ("sent", "deliver")):
+        return "success"
+    return "info"
+
+
+def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, doc_type, delivery_channel, status, created_at,
+                       requested_via, source
+                FROM document_requests
+                WHERE customer_id = :customer_id
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """
+            ),
+            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
+        )
+    )
+    return [
+        {
+            "id": r["id"],
+            "type": r["doc_type"],
+            # The channel the request came through, from the stored origin.
+            # A literal "voice" made every WhatsApp, desk and MCP request read
+            # as a call on the customer's Documents tab.
+            "requestedVia": _requested_via_channel(r.get("requested_via")),
+            "requestedAt": r["created_at"],
+            "deliveryChannel": _doc_channel(r["delivery_channel"]),
+            "status": r["status"],
+            "source": r.get("source") or "crm",
+        }
+        for r in rows
+    ]
+
+
+#: `document_requests.requested_via` is an origin (bot_voice, bot_chat, agent,
+#: mcp, clerk, vision, inbox); the customer contract shows a channel.
+_REQUESTED_VIA_CHANNEL = {
+    "bot_voice": "voice",
+    "bot_chat": "whatsapp",
+    "clerk": "sms",
+    "inbox": "whatsapp",
+}
+
+
+def _requested_via_channel(origin: str | None) -> str:
+    return _REQUESTED_VIA_CHANNEL.get(str(origin or ""), "chat")
+
+
+def _document_by_id(conn: Any, document_id: str) -> dict[str, Any]:
+    row = _one(conn.execute(text("SELECT customer_id FROM document_requests WHERE id = :id"), {"id": document_id}))
+    if row is None:
+        raise KeyError("document_not_found")
+    for item in _document_contracts(conn, row["customer_id"]):
+        if item["id"] == document_id:
+            return item
+    raise KeyError("document_not_found")
+
+
 def _document_events(conn: Any, document_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
     """activity_events grouped by document_request id, for the Documents timeline."""
-    _mod = _db()
-    _doc_event_tone = _mod._doc_event_tone
-    _rows = _mod._rows
     if not document_ids:
         return {}
     rows = _rows(
@@ -57,20 +274,7 @@ def _document_events(conn: Any, document_ids: list[str]) -> dict[str, list[dict[
 
 def list_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Document Fulfilment Desk feed (richer than the Customer 360 contract)."""
-    _mod = _db()
-    _account_tail = _mod._account_tail
-    _doc_channel = _mod._doc_channel
-    _doc_delivery_target = _mod._doc_delivery_target
-    _doc_requested_via = _mod._doc_requested_via
-    _doc_template_screen = _mod._doc_template_screen
-    _doc_type_screen = _mod._doc_type_screen
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
-    engine = _mod.engine
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -170,21 +374,7 @@ def list_documents(*, limit: int | None = None, offset: int | None = None) -> li
 def create_document_request(
     payload: dict[str, Any], idempotency_key: str | None = None
 ) -> dict[str, Any]:
-    _mod = _db()
-    _DEFAULT_TEMPLATE_FOR_DOC = _mod._DEFAULT_TEMPLATE_FOR_DOC
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _doc_channel = _mod._doc_channel
-    _doc_delivery_target = _mod._doc_delivery_target
-    _doc_type_screen = _mod._doc_type_screen
-    _document_by_id = _mod._document_by_id
-    _ensure_customer = _mod._ensure_customer
-    _first_account_id = _mod._first_account_id
-    _id = _mod._id
-    _idempotent_response = _mod._idempotent_response
-    _one = _mod._one
-    _store_idempotent_response = _mod._store_idempotent_response
-    engine = _mod.engine
+    engine = _db().engine
     endpoint = "POST /documents"
     with engine.begin() as conn:
         cached = _idempotent_response(conn, idempotency_key, endpoint)
@@ -293,16 +483,7 @@ _DOCUMENT_TRANSITIONS: dict[str, frozenset[str]] = {
 
 def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write."""
-    _mod = _db()
-    _activity = _mod._activity
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _doc_channel = _mod._doc_channel
-    _doc_delivery_target = _mod._doc_delivery_target
-    _doc_type_screen = _mod._doc_type_screen
-    _document_by_id = _mod._document_by_id
-    _one = _mod._one
-    _user_name = _mod._user_name
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "document_requests", document_id)
         row = _one(
@@ -427,12 +608,7 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
         return _document_by_id(conn, document_id)
 
 def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _id = _mod._id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "document_requests", document_id)
         row = _one(
@@ -501,8 +677,6 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
         return {"id": attempt_id, "status": status, "attemptNumber": next_attempt}
 
 def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> None:
-    _mod = _db()
-    _tenant = _mod._tenant
     existing = conn.execute(
         text("SELECT 1 FROM document_templates WHERE id = :id"), {"id": template_id}
     ).fetchone()
@@ -527,9 +701,6 @@ def _ensure_document_file(
     size_kb: int | None = None,
 ) -> None:
     """Create or refresh the generated file row. storage_ref is always server-owned."""
-    _mod = _db()
-    _one = _mod._one
-    _tenant = _mod._tenant
     existing = _one(
         conn.execute(
             text("SELECT id FROM document_files WHERE request_id = :id ORDER BY created_at DESC LIMIT 1"),

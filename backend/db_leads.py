@@ -8,13 +8,35 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from schemas import LeadResponse
 from sqlalchemy import text
 
 import db_core
+from db_core import (
+    _account_tail,
+    _activity,
+    _actor_user_id,
+    _assert_tenant_owns,
+    _dump,
+    _ensure_customer,
+    _first_account_id,
+    _id,
+    _idempotent_response,
+    _one,
+    _rows,
+    _sql,
+    _store_idempotent_response,
+    _tenant,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+)
 from typing import Any
 from agent_core.clock import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 def _db():
@@ -85,16 +107,7 @@ def list_leads(
     offset: int | None = None,
     filters: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    _mod = _db()
-    _account_tail = _mod._account_tail
-    _dump = _mod._dump
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
-    engine = _mod.engine
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -224,13 +237,7 @@ def lead_metrics(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     is won-over-captured within the last 30 days, by capture date; and
     time-to-close spans every closed lead, not just recent ones.
     """
-    _mod = _db()
-    _one = _mod._one
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    engine = _mod.engine
+    engine = _db().engine
     params = {"tenant_id": _tenant(), **_vis_params(), **_lead_filter_params(filters)}
     with engine.connect() as conn:
         row = _one(
@@ -379,8 +386,6 @@ def _lead_events(conn: Any, lead_id: str) -> list[dict[str, Any]]:
     showed a stage move, a reassignment or an offer edit. Every one of those
     mutations has been writing an activity_events row all along.
     """
-    _mod = _db()
-    _rows = _mod._rows
     rows = _rows(
         conn.execute(
             text(
@@ -404,8 +409,6 @@ def _lead_events(conn: Any, lead_id: str) -> list[dict[str, Any]]:
     return [_lead_event(row) for row in rows]
 
 def _lead_followups(conn: Any, lead_id: str) -> list[dict[str, Any]]:
-    _mod = _db()
-    _rows = _mod._rows
     return _rows(
         conn.execute(
             text(
@@ -426,8 +429,6 @@ def _lead_followups_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[
     The list endpoint renders every lead on the board; per-lead queries here
     would be 2N round trips on a screen that already loads the whole pipeline.
     """
-    _mod = _db()
-    _rows = _mod._rows
     if not lead_ids:
         return {}
     rows = _rows(
@@ -451,8 +452,6 @@ def _lead_followups_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[
 
 def _lead_events_bulk(conn: Any, lead_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
     """Audit trail for many leads in one round trip."""
-    _mod = _db()
-    _rows = _mod._rows
     if not lead_ids:
         return {}
     rows = _rows(
@@ -507,11 +506,6 @@ def _next_followup_at(followups: list[dict[str, Any]]) -> Any:
     return None
 
 def _lead_by_id(conn: Any, lead_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _account_tail = _mod._account_tail
-    _dump = _mod._dump
-    _one = _mod._one
-    _rows = _mod._rows
     row = _one(
         conn.execute(
             text(
@@ -591,8 +585,6 @@ OPEN_LEAD_STAGES = ("interested", "contacted", "qualified")
 
 def find_open_lead(conn: Any, customer_id: str, product_id: str) -> dict[str, Any] | None:
     """An existing in-flight lead for this customer/product, if any."""
-    _mod = _db()
-    _one = _mod._one
     return _one(
         conn.execute(
             text(
@@ -615,8 +607,6 @@ def _route_team_id(conn: Any, product_id: str, explicit: str | None) -> str | No
     exist — a bad team_id is an IntegrityError, i.e. an HTTP 500 on a write
     that had nothing wrong with it."""
     _mod = _db()
-    _one = _mod._one
-    logger = _mod.logger
     candidate = explicit
     if not candidate:
         row = _one(
@@ -651,17 +641,7 @@ def create_lead(
     """Capture a lead, and emit ``lead_captured`` here -- the one path every
     capture goes through, bot or human."""
     _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _ensure_customer = _mod._ensure_customer
-    _first_account_id = _mod._first_account_id
-    _id = _mod._id
-    _idempotent_response = _mod._idempotent_response
-    _one = _mod._one
-    _store_idempotent_response = _mod._store_idempotent_response
-    _tenant = _mod._tenant
-    engine = _mod.engine
-    logger = _mod.logger
+    engine = _db().engine
     endpoint = "POST /leads"
     with engine.begin() as conn:
         # Same contract as create_promise / create_dispute / create_callback.
@@ -859,9 +839,7 @@ def offer_decision_exists(decision_id: str) -> bool:
     nothing, which is exactly the failure mode that left `offer_decisions` with
     zero responses in the first place.
     """
-    _mod = _db()
-    _tenant = _mod._tenant
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         return bool(
             conn.execute(
@@ -875,11 +853,7 @@ def offer_decision_exists(decision_id: str) -> bool:
 
 def patch_lead(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
-    _activity = _mod._activity
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _one = _mod._one
-    engine = _mod.engine
-    logger = _mod.logger
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "leads", lead_id)
         row = _one(
@@ -1005,10 +979,7 @@ def revalidate_lead_eligibility(lead_id: str, channel: str | None = None) -> dic
     who opted out afterwards kept an actionable lead with a green badge on it.
     Called by the nightly sweep and by the drawer's refresh action.
     """
-    _mod = _db()
-    _activity = _mod._activity
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     import capture
 
     with engine.begin() as conn:
@@ -1045,9 +1016,7 @@ def revalidate_lead_eligibility(lead_id: str, channel: str | None = None) -> dic
 def revalidate_open_leads(limit: int = 500) -> dict[str, Any]:
     """Nightly sweep over open leads. Returns a compact report."""
     _mod = _db()
-    _rows = _mod._rows
-    engine = _mod.engine
-    logger = _mod.logger
+    engine = _db().engine
     with engine.connect() as conn:
         ids = [
             r["id"]
@@ -1104,10 +1073,7 @@ def sweep_due_followups(limit: int = 500) -> dict[str, Any]:
     at ``high``, so a second pass over the same follow-up is a no-op and no
     "already escalated" bookkeeping column is needed.
     """
-    _mod = _db()
-    _activity = _mod._activity
-    _rows = _mod._rows
-    engine = _mod.engine
+    engine = _db().engine
     escalated: list[dict[str, Any]] = []
     with engine.begin() as conn:
         rows = _rows(
@@ -1185,13 +1151,7 @@ def _parse_followup_due(scheduled_at: Any) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 def add_lead_followup(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _id = _mod._id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "leads", lead_id)
         row = _one(conn.execute(text("SELECT customer_id, owner_user_id FROM leads WHERE id = :id"), {"id": lead_id}))
@@ -1246,10 +1206,7 @@ _FOLLOWUP_TRANSITIONS: dict[str, frozenset[str]] = {
 
 
 def patch_followup(followup_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         row = _one(conn.execute(text("SELECT customer_id, lead_id, promise_id, status FROM followups WHERE id = :id"), {"id": followup_id}))
         if row is None:

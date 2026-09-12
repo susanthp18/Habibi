@@ -12,6 +12,21 @@ import logging
 from typing import Any
 
 from sqlalchemy import text
+from db_core import (
+    _actor_user_id,
+    _assert_tenant_owns,
+    _assert_tenant_owns_customer,
+    _id,
+    _one,
+    _rows,
+    _sql,
+    _tenant,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+    current_tenant,
+    record_activity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +72,7 @@ def list_treatment_holds(
     offset: int | None = None,
 ) -> list[dict[str, Any]]:
     """Holds visible to the caller. Tenant- and object-scoped like any queue."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     where = ["c.tenant_id = :tenant_id"]
     params: dict[str, Any] = {
@@ -137,15 +145,7 @@ def create_treatment_hold(payload: dict[str, Any]) -> dict[str, Any]:
     end with one hold. The partial unique index is what enforces it; this
     surfaces the existing row instead of a 409 so the caller's flow continues.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
-    _id = _mod._id
-    _one = _mod._one
-    _tenant = _mod._tenant
-    record_activity = _mod.record_activity
+    engine = _db().engine
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in HOLD_KINDS:
         raise ValueError(f"invalid_kind: {kind}")
@@ -221,11 +221,7 @@ def release_treatment_hold(
     hold_id: str, payload: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Lift a hold. Two-person release for the acts §13.4 requires."""
-    _mod = _db()
-    engine = _mod.engine
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    record_activity = _mod.record_activity
+    engine = _db().engine
     body = payload or {}
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "treatment_holds", hold_id)
@@ -284,8 +280,6 @@ def release_treatment_hold(
 
 
 def _treatment_hold(conn: Any, hold_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _one = _mod._one
     row = _one(
         conn.execute(
             text(
@@ -330,10 +324,7 @@ def next_treatment(
     Read-only. Preview persistence writes zero decision rows; event and sweep
     callers remain the only producers of enactable plans.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
+    engine = _db().engine
     from agent_core.treatment import Trigger, recommend_treatment
 
     with engine.begin() as conn:
@@ -384,14 +375,7 @@ def list_treatment_cases(
     answers the question a floor lead actually has, which is "what has already
     been tried on this account and what is left".
     """
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     where = ["c.tenant_id = :tenant_id", "td.trigger_ref IS NOT NULL"]
     params: dict[str, Any] = {
@@ -470,8 +454,7 @@ def list_treatment_cases(
 
 def treatment_insights(days: int = 14) -> dict[str, Any]:
     """The shadow-rollout scoreboard behind ``GET /treatment/insights``."""
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     from agent_core.treatment import decisions as treatment_decisions
 
     with engine.connect() as conn:
@@ -489,7 +472,7 @@ def treatment_metrics(days: int = 28, *, include_simulated: bool = False) -> dic
     precisely because it targets borrowers who would have paid anyway.
     """
     _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     from agent_core.treatment import metrics as treatment_metrics_mod
 
     with engine.connect() as conn:
@@ -497,14 +480,13 @@ def treatment_metrics(days: int = 28, *, include_simulated: bool = False) -> dic
             conn,
             days=days,
             include_simulated=include_simulated,
-            tenant_id=_mod.current_tenant(),
+            tenant_id=current_tenant(),
         )
 
 
 def treatment_model_health(days: int = 14, *, include_simulated: bool = False) -> dict[str, Any]:
     """Drift and calibration only -- the S15 half, without the rest of S17."""
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     from agent_core.treatment import monitor
 
     with engine.connect() as conn:
@@ -519,9 +501,7 @@ def treatment_models(target: str | None = None, limit: int = 50) -> dict[str, An
     afterwards, and every log line downstream would keep naming the promoted
     version while different coefficients decided whether borrowers got called.
     """
-    _mod = _db()
-    engine = _mod.engine
-    current_tenant = _mod.current_tenant
+    engine = _db().engine
     from agent_core.treatment import registry
 
     tenant = current_tenant()
@@ -545,10 +525,7 @@ def next_authority(
     Writes a decision row (the shadow corpus) and enacts nothing outside live
     mode. Safe to call from Handoff / Floor / 360.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
+    engine = _db().engine
     from agent_core.authority import recommend_authority
 
     with engine.begin() as conn:
@@ -568,9 +545,7 @@ def next_authority(
 
 def apply_authority(payload: dict[str, Any]) -> dict[str, Any]:
     """Post the goodwill the matrix already approved. Live mode only."""
-    _mod = _db()
-    engine = _mod.engine
-    _assert_tenant_owns = _mod._assert_tenant_owns
+    engine = _db().engine
     from agent_core.authority import enact as authority_enact
     from agent_core.authority.enact import AuthorityError
 

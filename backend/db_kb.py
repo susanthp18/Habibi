@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
+from db_core import (
+    _actor_user_id,
+    _id,
+    _one,
+    _rows,
+    _tenant,
+    _vector_literal,
+    clamp_list_limit,
+    clamp_offset,
+)
 
 
 def _db():
@@ -113,11 +123,7 @@ _KB_DOC_SELECT = """
 
 
 def list_kb_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -133,9 +139,7 @@ def list_kb_documents(*, limit: int | None = None, offset: int | None = None) ->
 
 
 def get_kb_document(document_id: str) -> dict[str, Any] | None:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -155,11 +159,7 @@ def list_kb_chunks(
     is thousands of chunks, and the chunk viewer only ever renders a page of
     them. This was the largest single response the API could produce.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -191,10 +191,7 @@ def list_kb_chunks(
 
 
 def get_kb_stats() -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         doc_row = _one(
             conn.execute(
@@ -285,9 +282,7 @@ def get_kb_stats() -> dict[str, Any]:
 
 
 def get_kb_index_job(job_id: str) -> dict[str, Any] | None:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -322,9 +317,7 @@ def get_kb_index_job(job_id: str) -> dict[str, Any] | None:
 
 def patch_kb_document(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Enable/disable (chunk eviction), title/tags/chunk params. Returns document (+ optional jobId)."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     import kb_ingest
 
     with engine.begin() as conn:
@@ -367,9 +360,7 @@ def patch_kb_document(document_id: str, payload: dict[str, Any]) -> dict[str, An
 
 
 def reindex_kb_document(document_id: str) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     import kb_ingest
 
     with engine.begin() as conn:
@@ -401,9 +392,7 @@ def reindex_kb_document(document_id: str) -> dict[str, Any]:
 
 
 def reindex_all_kb_documents() -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
+    engine = _db().engine
     import kb_ingest
 
     job_ids: list[str] = []
@@ -461,10 +450,7 @@ def _kb_delete_minio_refs(storage_refs: list[str]) -> int:
 
 def delete_kb_document(document_id: str) -> dict[str, Any]:
     """Hard-delete a KB document (chunks/jobs/files cascade). Best-effort MinIO cleanup."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _one = _mod._one
+    engine = _db().engine
     with engine.begin() as conn:
         row = _one(
             conn.execute(
@@ -515,9 +501,7 @@ def delete_kb_document(document_id: str) -> dict[str, Any]:
 
 def purge_kb_documents(*, scope: str, confirm: bool) -> dict[str, Any]:
     """Hard-delete documents by scope. Requires confirm=True."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
+    engine = _db().engine
     if not confirm:
         raise ValueError("confirm_required")
     if scope not in ("all", "uploads", "corpus"):
@@ -686,10 +670,7 @@ def _kb_upload_rows(
     overlap: int,
     index_now: bool,
 ) -> str | None:
-    _mod = _db()
-    engine = _mod.engine
-    _tenant = _mod._tenant
-    _actor_user_id = _mod._actor_user_id
+    engine = _db().engine
     import json
 
     import kb_ingest
@@ -763,10 +744,7 @@ def create_kb_document_version(
     content_type: str,
 ) -> dict[str, Any]:
     """New version upload → MinIO + new kb_source_files row + reindex job."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _actor_user_id = _mod._actor_user_id
+    engine = _db().engine
     import kb_ingest
     import storage as object_store
 
@@ -861,9 +839,7 @@ def create_kb_document_version(
 
 def backfill_kb_sources_to_minio(*, limit: int | None = None) -> dict[str, Any]:
     """Optional: copy disk source_path originals into MinIO + kb_source_files."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
+    engine = _db().engine
     import kb_ingest
     import storage as object_store
 
@@ -939,7 +915,7 @@ def _embed_faq_pair(question: str, answer: str) -> str | None:
 
         blob = f"Q: {question.strip()}\nA: {answer.strip()}"
         vec = azure_openai.embed_texts([blob])[0]
-        return _db()._vector_literal(vec)
+        return _vector_literal(vec)
     except Exception:
         return None
 
@@ -958,11 +934,7 @@ def _serialize_kb_faq(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_kb_faqs(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -983,9 +955,7 @@ def list_kb_faqs(*, limit: int | None = None, offset: int | None = None) -> list
 
 
 def get_kb_faq(faq_id: str) -> dict[str, Any] | None:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -1004,9 +974,7 @@ def get_kb_faq(faq_id: str) -> dict[str, Any] | None:
 
 
 def create_kb_faq(payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     question = (payload.get("question") or "").strip()
     answer = (payload.get("answer") or "").strip()
     intent = (payload.get("intent") or "other").strip() or "other"
@@ -1085,9 +1053,7 @@ def create_kb_faq(payload: dict[str, Any]) -> dict[str, Any]:
 def patch_kb_faq(faq_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Validate under a short transaction, then embed *outside* any checked-out
     # connection so Azure latency cannot pin a pool slot.
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     with engine.begin() as conn:
         existing = _one(
             conn.execute(
@@ -1172,9 +1138,7 @@ def patch_kb_faq(faq_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def delete_kb_faq(faq_id: str) -> None:
     """Delete an FAQ pair. analytics_kb_gap_links.faq_pair_id is ON DELETE SET NULL."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
+    engine = _db().engine
     with engine.begin() as conn:
         existing = _one(
             conn.execute(text("SELECT id FROM faq_pairs WHERE id = :id"), {"id": faq_id})
@@ -1219,11 +1183,7 @@ def record_kb_gap(
     customer said, which on a collections line routinely contains a card or
     mobile number read aloud.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _tenant = _mod._tenant
-    _id = _mod._id
+    engine = _db().engine
     import pii_redact
 
     q = " ".join((pii_redact.redact_text(question) or "").split()).strip()
@@ -1284,9 +1244,7 @@ def purge_stale_kb_gaps(*, ttl_days: int = 90, conn: Any | None = None) -> int:
     cascade from this table, so deleting a linked gap would destroy the record
     that someone already fixed it.
     """
-    _mod = _db()
-    engine = _mod.engine
-    _tenant = _mod._tenant
+    engine = _db().engine
     sql = text(
         """
         DELETE FROM unanswered_questions uq
@@ -1313,10 +1271,7 @@ KB_GAP_LIST_LIMIT = 200
 
 
 def list_kb_gaps() -> list[dict[str, Any]]:
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -1381,9 +1336,6 @@ def _link_kb_gap_conn(
     kb_document_id: str | None = None,
     prompt_version_id: str | None = None,
 ) -> None:
-    _mod = _db()
-    _one = _mod._one
-    _tenant = _mod._tenant
     targets = [
         ("faqPairId", faq_pair_id),
         ("kbDocumentId", kb_document_id),
@@ -1489,8 +1441,7 @@ def _link_kb_gap_conn(
 
 
 def link_kb_gap(gap_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _link_kb_gap_conn(
             conn,

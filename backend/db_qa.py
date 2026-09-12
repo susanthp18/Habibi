@@ -11,6 +11,17 @@ from __future__ import annotations
 from sqlalchemy import text
 from typing import Any
 from agent_core.clock import utc_now
+from db_core import (
+    _activity,
+    _actor_user_id,
+    _ensure_interaction,
+    _id,
+    _one,
+    _rows,
+    clamp_list_limit,
+    clamp_offset,
+    current_tenant,
+)
 
 
 def _db():
@@ -56,9 +67,6 @@ def _qa_score_float(value: Any) -> float:
 def _load_rubric_tree(
     conn: Any, rubric_id: str = _QA_DEFAULT_RUBRIC_ID
 ) -> dict[str, Any] | None:
-    _mod = _db()
-    _one = _mod._one
-    _rows = _mod._rows
     rubric = _one(
         conn.execute(
             text(
@@ -149,8 +157,7 @@ def _load_rubric_tree(
 
 
 def get_rubric(rubric_id: str | None = None) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         tree = _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
         if tree is None:
@@ -165,8 +172,7 @@ def load_rubric_tree(rubric_id: str | None = None) -> dict[str, Any] | None:
     auto-scorer is a background sweep and a missing rubric is a reason to skip
     the tick, not to raise into a worker loop.
     """
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         return _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
 
@@ -178,9 +184,7 @@ def rubric_id_for_interaction(interaction_id: str) -> str | None:
     barge criteria. If the clerk rubric is missing, return None so autoscore
     skips rather than using the voice tree.
     """
-    _mod = _db()
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -238,8 +242,6 @@ def _qa_compute_total(rubric: dict[str, Any], entries: list[dict[str, Any]]) -> 
 def _qa_entries_grouped(
     conn: Any, scorecard_ids: list[str]
 ) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not scorecard_ids:
         return {}
     rows = _rows(
@@ -338,8 +340,6 @@ def _qa_upsert_entries(
     conn: Any, scorecard_id: str, entries: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Upsert per-criterion rows; returns the screen-shaped entries written."""
-    _mod = _db()
-    _one = _mod._one
     written: list[dict[str, Any]] = []
     for raw in entries:
         criterion_id = raw.get("criterionId")
@@ -494,10 +494,8 @@ def _scorecard_rows_to_screen(
 
 def list_scorecards(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """QA Scoring Queue — screen Scorecard shape. Paged: one row per scored call."""
-    _mod = _db()
-    _rows = _mod._rows
-    engine = _mod.engine
-    page, skip = _mod.clamp_list_limit(limit), _mod.clamp_offset(offset)
+    engine = _db().engine
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -525,9 +523,7 @@ def list_scorecards(*, limit: int | None = None, offset: int | None = None) -> l
 
 def qa_coverage_stats(*, days: int = 7) -> dict[str, Any]:
     """Share of completed interactions that have a scorecard in the window."""
-    _mod = _db()
-    current_tenant = _mod.current_tenant
-    engine = _mod.engine
+    engine = _db().engine
     window = max(1, min(int(days), 90))
     with engine.connect() as conn:
         row = (
@@ -576,8 +572,6 @@ def qa_coverage_stats(*, days: int = 7) -> dict[str, Any]:
 
 
 def _scorecard_by_id(conn: Any, scorecard_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _one = _mod._one
     row = _one(
         conn.execute(
             text(_SCORECARD_LIST_SQL + " WHERE qs.id = :id"),
@@ -590,12 +584,7 @@ def _scorecard_by_id(conn: Any, scorecard_id: str) -> dict[str, Any]:
 
 
 def create_scorecard(payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _ensure_interaction = _mod._ensure_interaction
-    _id = _mod._id
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         interaction = _ensure_interaction(conn, payload["interactionId"])
         rubric_id = payload.get("rubricId") or _QA_DEFAULT_RUBRIC_ID
@@ -677,11 +666,7 @@ def patch_scorecard(scorecard_id: str, payload: dict[str, Any]) -> dict[str, Any
     entries[] upserts qa_scorecard_entries and recomputes total_score/band.
     status=final sets scored_at + reviewer and writes a finalize activity row.
     """
-    _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         existing = _one(
             conn.execute(

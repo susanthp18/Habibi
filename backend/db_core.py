@@ -49,35 +49,47 @@ __all__ = [
     "DB_POOL_SIZE",
     "DB_STATEMENT_TIMEOUT_MS",
     "DEFAULT_DATABASE_URL",
+    "DEFAULT_DETAIL_LIMIT",
     "DEFAULT_LIST_LIMIT",
     "MAX_LIST_LIMIT",
     "TENANT_ID",
+    "UNKNOWN_CALLER_ID",
     "_IST",
     "_account_tail",
-    "assert_transition",
     "_activity",
     "_actor_user_id",
     "_as_dict",
     "_as_utc",
     "_assert_tenant_owns",
+    "_assert_tenant_owns_customer",
     "_bind_tenant_for_transaction",
+    "_consent_channel",
     "_db",
     "_dump",
+    "_duration",
+    "_ensure_customer",
+    "_ensure_interaction",
+    "_first_account_id",
     "_id",
+    "_idempotent_response",
     "_jsonb",
     "_one",
     "_rows",
+    "_short_product",
     "_speaker_screen",
     "_sql",
+    "_store_idempotent_response",
     "_tenant",
+    "_user_name",
     "_vis_params",
+    "assert_transition",
     "clamp_list_limit",
     "clamp_offset",
-    "UNKNOWN_CALLER_ID",
     "current_tenant",
-    "is_unknown_caller",
-    "unknown_caller_id",
     "engine",
+    "is_unknown_caller",
+    "record_activity",
+    "unknown_caller_id",
 ]
 
 
@@ -273,6 +285,8 @@ def _bind_tenant_for_transaction(conn) -> None:
 # and the frontend consumes it as one. So: a default cap that makes the query
 # safe, an opt-in `limit` up to a hard ceiling, and an `offset` to page.
 DEFAULT_LIST_LIMIT = max(1, _env_int("DEFAULT_LIST_LIMIT", 200))
+#: Rows a Customer 360 sub-list (ledger, EMIs, documents) carries.
+DEFAULT_DETAIL_LIMIT = max(1, _env_int("DEFAULT_DETAIL_LIMIT", 100))
 MAX_LIST_LIMIT = max(DEFAULT_LIST_LIMIT, _env_int("MAX_LIST_LIMIT", 1000))
 
 
@@ -583,3 +597,141 @@ def _db():
     import db as d
 
     return d
+
+
+def _assert_tenant_owns_customer(conn: Any, customer_id: str | None) -> None:
+    """The same guard where the id *is* the customer id."""
+    if not customer_id:
+        raise KeyError("customer_not_found")
+    found = conn.execute(
+        text("SELECT 1 FROM customers WHERE id = :row_id AND tenant_id = :tenant_id"),
+        {"row_id": customer_id, "tenant_id": _tenant()},
+    ).fetchone()
+    if not found:
+        raise KeyError("customer_not_found")
+
+
+def _duration(seconds: int | None) -> str:
+    if not seconds:
+        return ""
+    return f"{seconds // 60}m {seconds % 60}s"
+
+
+def _short_product(product: str | None) -> str:
+    if not product:
+        return "Card"
+    if "personal" in product.lower():
+        return "Personal Loan"
+    if "auto" in product.lower():
+        return "Auto Loan"
+    return "Card"
+
+
+def _user_name(conn: Any, user_id: str | None) -> str | None:
+    if not user_id:
+        return None
+    row = conn.execute(text("SELECT name FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    return row[0] if row else None
+
+
+def _first_account_id(conn: Any, customer_id: str) -> str | None:
+    row = conn.execute(
+        text(
+            """
+            SELECT id
+            FROM accounts
+            WHERE customer_id = :customer_id
+            ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id
+            LIMIT 1
+            """
+        ),
+        {"customer_id": customer_id},
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _ensure_customer(conn: Any, customer_id: str) -> None:
+    if not conn.execute(text("SELECT 1 FROM customers WHERE id = :id"), {"id": customer_id}).fetchone():
+        raise KeyError("customer_not_found")
+
+
+def _ensure_interaction(conn: Any, interaction_id: str) -> dict[str, Any]:
+    row = _one(conn.execute(text("SELECT id, customer_id, account_id FROM interactions WHERE id = :id"), {"id": interaction_id}))
+    if row is None:
+        raise KeyError("interaction_not_found")
+    return row
+
+
+def record_activity(
+    conn: Any,
+    entity_type: str,
+    entity_id: str,
+    kind: str,
+    label: str,
+    note: str | None = None,
+    customer_id: str | None = None,
+) -> None:
+    """Public alias for _activity — out-of-module callers (bot_runtime) should
+    not reach into a private helper for a supported operation."""
+    _activity(conn, entity_type, entity_id, kind, label, note, customer_id)
+
+
+def _idempotent_response(conn: Any, key: str | None, endpoint: str) -> dict[str, Any] | None:
+    """Return the stored response for ``key``, serialising concurrent replays.
+
+    The read alone was not enough: two requests carrying the same key both saw
+    no row, both performed the mutation, and the second ``ON CONFLICT DO
+    NOTHING`` store silently discarded its response — two promises for one
+    idempotent POST. The transaction-scoped advisory lock makes the second
+    caller wait for the first to commit, so its SELECT (READ COMMITTED, taken
+    after the lock) sees the canonical response and skips the write entirely.
+    """
+    if not key:
+        return None
+    # Two-int form. The first int folds tenant into endpoint with a separator:
+    # a hash collision between two (tenant, endpoint) pairs costs one spurious
+    # shared lock — extra serialisation, never a wrong answer, because identity
+    # is enforced by the primary key and by the SELECT below, not by the lock.
+    conn.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "  hashtext(:tenant_id || '/' || :endpoint), hashtext(:key))"
+        ),
+        {"tenant_id": _tenant(), "endpoint": endpoint, "key": key},
+    )
+    row = conn.execute(
+        text(
+            "SELECT response FROM idempotency_keys "
+            " WHERE tenant_id = :tenant_id AND key = :key AND endpoint = :endpoint"
+        ),
+        {"tenant_id": _tenant(), "key": key, "endpoint": endpoint},
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _store_idempotent_response(conn: Any, key: str | None, endpoint: str, response: dict[str, Any]) -> None:
+    if not key:
+        return
+    conn.execute(
+        text(
+            """
+            INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
+            VALUES (:tenant_id, :key, :endpoint, CAST(:response AS jsonb))
+            ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
+            """
+        ),
+        {
+            "tenant_id": _tenant(),
+            "key": key,
+            "endpoint": endpoint,
+            "response": json.dumps(response),
+        },
+    )
+
+
+def _consent_channel(channel: str) -> str | None:
+    if channel == "voice":
+        return "call"
+    if channel in {"whatsapp", "sms", "email"}:
+        return channel
+    return None

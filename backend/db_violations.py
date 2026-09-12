@@ -10,6 +10,15 @@ from __future__ import annotations
 
 from sqlalchemy import text
 from typing import Any
+from db_core import (
+    _activity,
+    _one,
+    _rows,
+    _speaker_screen,
+    _user_name,
+    clamp_list_limit,
+    clamp_offset,
+)
 
 
 def _db():
@@ -43,8 +52,6 @@ def _violation_severity_screen(severity: str | None) -> str:
     return "medium"
 
 def _transcript_turn(row: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _speaker_screen = _mod._speaker_screen
     return {
         "id": row["id"],
         "t": int(row["at_sec"] or 0),
@@ -54,8 +61,6 @@ def _transcript_turn(row: dict[str, Any]) -> dict[str, Any]:
 
 def _violation_notes_grouped(conn: Any, violation_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
     """Structured notes from activity_events (note_added / violation_note)."""
-    _mod = _db()
-    _rows = _mod._rows
     if not violation_ids:
         return {}
     rows = _rows(
@@ -86,8 +91,6 @@ def _violation_notes_grouped(conn: Any, violation_ids: list[str]) -> dict[str, l
     return grouped
 
 def _transcripts_by_interaction(conn: Any, interaction_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not interaction_ids:
         return {}
     rows = _rows(
@@ -114,8 +117,6 @@ def _build_violation_evidence(
     description: str | None,
 ) -> dict[str, Any]:
     """Offending turn + neighbours. Falls back to snippet-only when no transcript."""
-    _mod = _db()
-    _speaker_screen = _mod._speaker_screen
     snippet = (description or "").strip() or "No transcript evidence available."
     if not turns:
         return {
@@ -166,7 +167,7 @@ def _violation_rows_to_screen(
     # code/label follow the aliased rule, so a legacy row reads as its catalogue twin
     rule_meta = {
         row["id"]: (row["code"], row["label"])
-        for row in _db()._rows(conn.execute(text("SELECT id, code, label FROM compliance_rules")))
+        for row in _rows(conn.execute(text("SELECT id, code, label FROM compliance_rules")))
     }
     result: list[dict[str, Any]] = []
     for r in rows:
@@ -223,10 +224,8 @@ _VIOLATION_LIST_SQL = """
 
 def list_violations(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Compliance Risk feed — screen Violation shape. Paged: it grows with every call."""
-    _mod = _db()
-    _rows = _mod._rows
-    engine = _mod.engine
-    page, skip = _mod.clamp_list_limit(limit), _mod.clamp_offset(offset)
+    engine = _db().engine
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -250,8 +249,6 @@ def list_violations(*, limit: int | None = None, offset: int | None = None) -> l
         return _violation_rows_to_screen(conn, rows)
 
 def _violation_by_id(conn: Any, violation_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _one = _mod._one
     row = _one(
         conn.execute(
             text(_VIOLATION_LIST_SQL + " WHERE v.id = :id"),
@@ -267,11 +264,7 @@ def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any
     """Payload arrives with exclude_unset: a present key is intentional,
     so an explicit None clears assignee. Notes are NOT written here —
     use add_violation_note → activity_events."""
-    _mod = _db()
-    _activity = _mod._activity
-    _one = _mod._one
-    _user_name = _mod._user_name
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
         if row is None:
@@ -320,10 +313,7 @@ def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any
 
 def add_violation_note(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Free-text note on a violation. activity_events is the notes store."""
-    _mod = _db()
-    _activity = _mod._activity
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
         if row is None:

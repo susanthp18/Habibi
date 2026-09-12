@@ -8,12 +8,25 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 
 from __future__ import annotations
 
+import logging
 import visibility
 from datetime import date, datetime, timezone
 from schemas import HandoffQueueItem, HandoffQueueResponse, HandoffSessionResponse
 from sqlalchemy import text
 from typing import Any
 from agent_core.clock import utc_now
+from db_core import (
+    _activity,
+    _actor_user_id,
+    _assert_tenant_owns,
+    _dump,
+    _id,
+    _one,
+    _rows,
+    _tenant,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _db():
@@ -71,9 +84,6 @@ def _handoff_status(ix_status: str | None, claimed: bool) -> str:
     return "pending_claim"
 
 def _actor_team_id(conn: Any) -> str | None:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _one = _mod._one
     row = _one(
         conn.execute(
             text("SELECT team_id FROM users WHERE id = :id"),
@@ -84,9 +94,6 @@ def _actor_team_id(conn: Any) -> str | None:
 
 def _handoff_queue_visible(conn: Any, to_team_id: str | None) -> bool:
     """Whether this unclaimed handoff belongs on the actor's queue."""
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _one = _mod._one
     vis = visibility.resolve(_actor_user_id())
     if vis.is_unrestricted:
         return True
@@ -122,13 +129,7 @@ def _handoff_queue_sql_filter() -> str:
     """
 
 def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _dump = _mod._dump
-    _one = _mod._one
-    _rows = _mod._rows
-    _tenant = _mod._tenant
-    engine = _mod.engine
+    engine = _db().engine
     actor = _actor_user_id()
     vis = visibility.resolve(actor)
     with engine.connect() as conn:
@@ -223,11 +224,7 @@ def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
     )
 
 def get_active_handoff_session() -> dict[str, Any] | None:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _one = _mod._one
-    _tenant = _mod._tenant
-    engine = _mod.engine
+    engine = _db().engine
     actor = _actor_user_id()
     with engine.connect() as conn:
         row = _one(
@@ -257,13 +254,7 @@ def get_active_handoff_session() -> dict[str, Any] | None:
     return get_handoff_session(row["id"])
 
 def get_handoff_session(interaction_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _dump = _mod._dump
-    _one = _mod._one
-    _rows = _mod._rows
-    engine = _mod.engine
+    engine = _db().engine
     with engine.connect() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
         row = _one(
@@ -491,9 +482,6 @@ def _handoff_sentiment_series(
     return series
 
 def _handoff_customer_context(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _one = _mod._one
-    _rows = _mod._rows
     customer_id = row["customer_id"]
     account_id = row.get("account_id")
     last_promise = _one(
@@ -608,8 +596,6 @@ def _handoff_customer_context(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
 
 def _handoff_offer_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
-    _tenant = _mod._tenant
-    logger = _mod.logger
     from agent_core.reco import policy
 
     try:
@@ -625,8 +611,6 @@ def _handoff_offer_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
 
 def _handoff_authority_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
-    _tenant = _mod._tenant
-    logger = _mod.logger
     from agent_core.authority import policy
 
     try:
@@ -642,8 +626,6 @@ def _handoff_authority_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
 
 def _handoff_live_qa(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
-    _tenant = _mod._tenant
-    logger = _mod.logger
     from agent_core.live_qa import policy
 
     try:
@@ -660,9 +642,6 @@ def _handoff_live_qa(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
         return policy.empty()
 
 def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, Any]]:
-    _mod = _db()
-    _one = _mod._one
-    _rows = _mod._rows
     disclosures = _rows(
         conn.execute(
             text(
@@ -731,13 +710,7 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
     return items
 
 def claim_handoff(interaction_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _id = _mod._id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     actor = _actor_user_id()
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
@@ -836,12 +809,7 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
     return get_handoff_session(interaction_id)
 
 def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _id = _mod._id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     actor = _actor_user_id()
     item_id = (payload.get("itemId") or "").strip()
     rule_id = (payload.get("ruleId") or "").strip() or None
@@ -950,11 +918,7 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
     return get_handoff_session(interaction_id)
 
 def accept_handoff_suggestion(interaction_id: str, suggestion_id: str) -> dict[str, Any]:
-    _mod = _db()
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     actor = _actor_user_id()
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
@@ -990,8 +954,6 @@ def accept_handoff_suggestion(interaction_id: str, suggestion_id: str) -> dict[s
     return get_handoff_session(interaction_id)
 
 def _assert_handoff_assignee(conn: Any, interaction_id: str, actor: str) -> None:
-    _mod = _db()
-    _one = _mod._one
     row = _one(
         conn.execute(
             text(

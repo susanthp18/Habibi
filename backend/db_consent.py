@@ -8,12 +8,31 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 
 from __future__ import annotations
 
+import logging
 import contact_window
 from agent_core import clock
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from typing import Any
 from agent_core.clock import utc_now
+from db_core import (
+    _activity,
+    _actor_user_id,
+    _assert_tenant_owns_customer,
+    _consent_channel,
+    _ensure_customer,
+    _id,
+    _one,
+    _rows,
+    _sql,
+    _tenant,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+    current_tenant,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _db():
@@ -76,8 +95,6 @@ def _consent_channel_db(channel: str) -> str:
     return "all" if channel == "all" else contact_policy.normalize_channel(channel)
 
 def _consent_channel_screen(channel: str) -> str | None:
-    _mod = _db()
-    _consent_channel = _mod._consent_channel
     if channel == "all":
         return "all"
     return _consent_channel(channel)
@@ -132,8 +149,6 @@ def _optout_actor_label(actor_kind: str | None, user_name: str | None) -> str:
     return "System"
 
 def _consent_channels_grouped(conn: Any, consent_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not consent_ids:
         return {}
     rows = _rows(
@@ -168,8 +183,6 @@ def _consent_channels_grouped(conn: Any, consent_ids: list[str]) -> dict[str, li
     return grouped
 
 def _consent_optouts_grouped(conn: Any, consent_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not consent_ids:
         return {}
     rows = _rows(
@@ -205,8 +218,6 @@ def _consent_optouts_grouped(conn: Any, consent_ids: list[str]) -> dict[str, lis
     return grouped
 
 def _consent_audit_grouped(conn: Any, customer_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not customer_ids:
         return {}
     rows = _rows(
@@ -320,14 +331,7 @@ def contactable_summary(rec: dict[str, Any], now: datetime | None = None) -> dic
 def list_consent(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Consent & Communication Preferences feed (richer than Customer 360 consent)."""
     _mod = _db()
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
-    engine = _mod.engine
-    logger = _mod.logger
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -428,10 +432,7 @@ def list_consent(*, limit: int | None = None, offset: int | None = None) -> list
 
 def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str = "outreach") -> dict[str, Any]:
     """Dry-run of the contact gate for Inbox / Floor / Consent pills."""
-    _mod = _db()
-    _one = _mod._one
-    _tenant = _mod._tenant
-    engine = _mod.engine
+    engine = _db().engine
     import contact_policy
 
     with engine.connect() as conn:
@@ -458,8 +459,6 @@ def _ensure_consent_record(conn: Any, customer_id: str) -> str:
     readers already handle: ``contact_window.window_hours(None)`` is the
     platform default and ``contact_policy`` bounds it by statute.
     """
-    _mod = _db()
-    _one = _mod._one
     consent_id = f"consent-{customer_id}"
     existing = _one(
         conn.execute(text("SELECT id FROM consent_records WHERE customer_id = :id"), {"id": customer_id})
@@ -530,14 +529,7 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     stored string is left byte-identical; only a real edit is written.
     """
     _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _assert_tenant_owns_customer = _mod._assert_tenant_owns_customer
-    _ensure_customer = _mod._ensure_customer
-    _one = _mod._one
-    current_tenant = _mod.current_tenant
-    engine = _mod.engine
-    get_customer = _mod.get_customer
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns_customer(conn, customer_id)
         _ensure_customer(conn, customer_id)
@@ -674,20 +666,14 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
         )
 
-    customer = get_customer(customer_id)
+    customer = _db().get_customer(customer_id)
     if customer is None:
         raise KeyError("customer_not_found")
     return customer
 
 def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    _ensure_customer = _mod._ensure_customer
-    _id = _mod._id
-    current_tenant = _mod.current_tenant
-    engine = _mod.engine
-    get_customer = _mod.get_customer
+    engine = _db().engine
     channel_raw = payload["channel"]
     affected = list(_CONSENT_CHANNEL_ORDER) if channel_raw == "all" else [channel_raw]
     source = payload.get("source") or "Agent"
@@ -758,7 +744,7 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             customer_id=customer_id,
             change={"kind": "opt_out", "channel": channel_raw, "source": source},
         )
-    customer = get_customer(customer_id)
+    customer = _db().get_customer(customer_id)
     if customer is None:
         raise KeyError("customer_not_found")
     return customer

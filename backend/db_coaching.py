@@ -12,6 +12,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
+from db_core import current_tenant
 
 
 # Re-use helpers/engine from db — imported lazily inside functions to avoid cycles
@@ -401,7 +402,7 @@ def get_calibration_session(session_id: str) -> dict[str, Any] | None:
     """Single session with its criterion/reviewer data — no list-wide scan."""
     sessions = _calibration_sessions(
         _CALIBRATION_SESSION_SELECT + " AND cs.id = :session_id",
-        {"session_id": session_id, "tenant_id": _db().current_tenant()},
+        {"session_id": session_id, "tenant_id": current_tenant()},
     )
     return sessions[0] if sessions else None
 

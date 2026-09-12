@@ -74,3 +74,24 @@ def test_peels_reach_the_engine_through_db() -> None:
                 if any(alias.name == "engine" for alias in node.names):
                     bad.append(path.name)
     assert bad == [], bad
+
+
+def test_peels_import_db_core_helpers_instead_of_reaching_through_db() -> None:
+    """``_mod = _db(); _rows = _mod._rows`` pulled db_core's helpers through the
+    kernel module 488 times. Only ``engine`` goes through ``_db()`` (the
+    ``db_tx`` proxy hazard above); every other helper is imported from db_core."""
+    bad: list[str] = []
+    for path in sorted(BACKEND.glob("db_*.py")):
+        if path.name == "db_core.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            base = node.value
+            reaches = (isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "_db") or (
+                isinstance(base, ast.Name) and base.id == "_mod"
+            )
+            if reaches and node.attr.startswith("_"):
+                bad.append(f"{path.name}:{node.lineno} {node.attr}")
+    assert bad == [], bad

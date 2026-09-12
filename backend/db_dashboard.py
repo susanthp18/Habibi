@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 import money_inr
 from schemas import DashboardResponse
+from db_core import _dump, _duration, _one, _rows, _short_product, _tenant
 
 
 def _db():
@@ -669,14 +670,7 @@ def _dashboard_shape(st: DashboardBuild) -> dict[str, Any]:
 
 
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _rows = _mod._rows
-    _tenant = _mod._tenant
-    _dump = _mod._dump
-    _duration = _mod._duration
-    _short_product = _mod._short_product
+    engine = _db().engine
     window = _dashboard_window(range, segment, team)
     days = window["days"]
     families = window["families"]

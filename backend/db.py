@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import datetime
@@ -18,6 +17,18 @@ from env_utils import env_float
 from env_utils import env_int as _env_int
 
 from db_core import (
+    DEFAULT_DETAIL_LIMIT as DEFAULT_DETAIL_LIMIT,
+    _assert_tenant_owns_customer as _assert_tenant_owns_customer,
+    _duration as _duration,
+    _short_product as _short_product,
+    _user_name as _user_name,
+    _first_account_id as _first_account_id,
+    _ensure_customer as _ensure_customer,
+    _ensure_interaction as _ensure_interaction,
+    record_activity as record_activity,
+    _idempotent_response as _idempotent_response,
+    _store_idempotent_response as _store_idempotent_response,
+    _consent_channel as _consent_channel,
     ACTOR_USER_ID as ACTOR_USER_ID,
     BASE as BASE,
     DATABASE_URL as DATABASE_URL,
@@ -83,19 +94,6 @@ DEFAULT_CALLS_LIMIT = max(1, _env_int("DEFAULT_CALLS_LIMIT", 100))
 # customer's own history rather than the portfolio, so the ceiling can be
 # generous — but not absent: a five-year-old account with a thousand notes
 # should render its recent ones, not every one ever written.
-DEFAULT_DETAIL_LIMIT = max(1, _env_int("DEFAULT_DETAIL_LIMIT", 100))
-
-
-def _assert_tenant_owns_customer(conn: Any, customer_id: str | None) -> None:
-    """The same guard where the id *is* the customer id."""
-    if not customer_id:
-        raise KeyError("customer_not_found")
-    found = conn.execute(
-        text("SELECT 1 FROM customers WHERE id = :row_id AND tenant_id = :tenant_id"),
-        {"row_id": customer_id, "tenant_id": _tenant()},
-    ).fetchone()
-    if not found:
-        raise KeyError("customer_not_found")
 
 
 def pool_snapshot() -> dict[str, Any]:
@@ -155,22 +153,6 @@ def probe() -> None:
     """One round trip at boot: the schema is reachable, or the process does not start."""
     with engine.connect() as conn:
         conn.execute(text("SELECT 1 FROM tenants LIMIT 1"))
-
-
-def _duration(seconds: int | None) -> str:
-    if not seconds:
-        return ""
-    return f"{seconds // 60}m {seconds % 60}s"
-
-
-def _short_product(product: str | None) -> str:
-    if not product:
-        return "Card"
-    if "personal" in product.lower():
-        return "Personal Loan"
-    if "auto" in product.lower():
-        return "Auto Loan"
-    return "Card"
 
 
 def user_exists(user_id: str) -> bool:
@@ -407,108 +389,6 @@ def patch_agent_presence(status: str) -> dict[str, Any]:
     return _map_presence_row(row)
 
 
-def _user_name(conn: Any, user_id: str | None) -> str | None:
-    if not user_id:
-        return None
-    row = conn.execute(text("SELECT name FROM users WHERE id = :id"), {"id": user_id}).fetchone()
-    return row[0] if row else None
-
-
-def _first_account_id(conn: Any, customer_id: str) -> str | None:
-    row = conn.execute(
-        text(
-            """
-            SELECT id
-            FROM accounts
-            WHERE customer_id = :customer_id
-            ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id
-            LIMIT 1
-            """
-        ),
-        {"customer_id": customer_id},
-    ).fetchone()
-    return row[0] if row else None
-
-
-def _ensure_customer(conn: Any, customer_id: str) -> None:
-    if not conn.execute(text("SELECT 1 FROM customers WHERE id = :id"), {"id": customer_id}).fetchone():
-        raise KeyError("customer_not_found")
-
-
-def _ensure_interaction(conn: Any, interaction_id: str) -> dict[str, Any]:
-    row = _one(conn.execute(text("SELECT id, customer_id, account_id FROM interactions WHERE id = :id"), {"id": interaction_id}))
-    if row is None:
-        raise KeyError("interaction_not_found")
-    return row
-
-
-def record_activity(
-    conn: Any,
-    entity_type: str,
-    entity_id: str,
-    kind: str,
-    label: str,
-    note: str | None = None,
-    customer_id: str | None = None,
-) -> None:
-    """Public alias for _activity — out-of-module callers (bot_runtime) should
-    not reach into a private helper for a supported operation."""
-    _activity(conn, entity_type, entity_id, kind, label, note, customer_id)
-
-
-def _idempotent_response(conn: Any, key: str | None, endpoint: str) -> dict[str, Any] | None:
-    """Return the stored response for ``key``, serialising concurrent replays.
-
-    The read alone was not enough: two requests carrying the same key both saw
-    no row, both performed the mutation, and the second ``ON CONFLICT DO
-    NOTHING`` store silently discarded its response — two promises for one
-    idempotent POST. The transaction-scoped advisory lock makes the second
-    caller wait for the first to commit, so its SELECT (READ COMMITTED, taken
-    after the lock) sees the canonical response and skips the write entirely.
-    """
-    if not key:
-        return None
-    # Two-int form. The first int folds tenant into endpoint with a separator:
-    # a hash collision between two (tenant, endpoint) pairs costs one spurious
-    # shared lock — extra serialisation, never a wrong answer, because identity
-    # is enforced by the primary key and by the SELECT below, not by the lock.
-    conn.execute(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "  hashtext(:tenant_id || '/' || :endpoint), hashtext(:key))"
-        ),
-        {"tenant_id": _tenant(), "endpoint": endpoint, "key": key},
-    )
-    row = conn.execute(
-        text(
-            "SELECT response FROM idempotency_keys "
-            " WHERE tenant_id = :tenant_id AND key = :key AND endpoint = :endpoint"
-        ),
-        {"tenant_id": _tenant(), "key": key, "endpoint": endpoint},
-    ).fetchone()
-    return row[0] if row else None
-
-
-def _store_idempotent_response(conn: Any, key: str | None, endpoint: str, response: dict[str, Any]) -> None:
-    if not key:
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO idempotency_keys (tenant_id, key, endpoint, response)
-            VALUES (:tenant_id, :key, :endpoint, CAST(:response AS jsonb))
-            ON CONFLICT (tenant_id, endpoint, key) DO NOTHING
-            """
-        ),
-        {
-            "tenant_id": _tenant(),
-            "key": key,
-            "endpoint": endpoint,
-            "response": json.dumps(response),
-        },
-    )
-
-
 def _ptp_status(status: str) -> str:
     return "upcoming" if status == "due_today" else status
 
@@ -526,153 +406,6 @@ def _reminder_status_screen(status: str) -> str:
     if status == "acknowledged":
         return "sent"
     return "off"  # failed / unknown
-
-
-def _doc_channel(channel: str | None) -> str:
-    if channel in {"whatsapp", "email", "sms"}:
-        return channel
-    return "email"
-
-
-_DOC_TYPE_SCREEN = {
-    "account_statement",
-    "no_dues_certificate",
-    "interest_certificate",
-    "foreclosure_letter",
-    "loan_schedule",
-    "payment_receipt",
-    "kyc_letter",
-}
-
-_DOC_TYPE_ALIASES = {
-    "statement": "account_statement",
-    "account statement": "account_statement",
-    "6-month account statement": "account_statement",
-    "6 month account statement": "account_statement",
-    "no-dues certificate": "no_dues_certificate",
-    "no dues certificate": "no_dues_certificate",
-    "noc": "no_dues_certificate",
-    "interest certificate": "interest_certificate",
-    "foreclosure letter": "foreclosure_letter",
-    "loan schedule": "loan_schedule",
-    "repayment schedule": "loan_schedule",
-    "payment receipt": "payment_receipt",
-    "kyc letter": "kyc_letter",
-    "kyc confirmation letter": "kyc_letter",
-}
-
-_TEMPLATE_SCREEN = {
-    "template-statement": "T-STMT-6M",
-    "template-noc": "T-NODUES",
-}
-
-_DEFAULT_TEMPLATE_FOR_DOC = {
-    "account_statement": "T-STMT-6M",
-    "no_dues_certificate": "T-NODUES",
-    "interest_certificate": "T-INTCERT",
-    "foreclosure_letter": "T-FORECLOSE",
-    "loan_schedule": "T-SCHEDULE",
-    "payment_receipt": "T-RECEIPT",
-    "kyc_letter": "T-KYC",
-}
-
-
-def _doc_type_screen(raw: str | None) -> str:
-    """Map free-text / legacy seed doc_type values onto the screen enum."""
-    if not raw:
-        return "account_statement"
-    if raw in _DOC_TYPE_SCREEN:
-        return raw
-    key = raw.strip().lower()
-    if key in _DOC_TYPE_ALIASES:
-        return _DOC_TYPE_ALIASES[key]
-    compact = key.replace("-", "_").replace(" ", "_")
-    if compact in _DOC_TYPE_SCREEN:
-        return compact
-    if "statement" in key:
-        return "account_statement"
-    if "dues" in key or key == "noc":
-        return "no_dues_certificate"
-    if "interest" in key:
-        return "interest_certificate"
-    if "foreclos" in key:
-        return "foreclosure_letter"
-    if "schedule" in key or "amort" in key:
-        return "loan_schedule"
-    if "receipt" in key:
-        return "payment_receipt"
-    if "kyc" in key:
-        return "kyc_letter"
-    return "account_statement"
-
-
-def _doc_template_screen(template_id: str | None, doc_type: str) -> str:
-    if template_id and template_id in _TEMPLATE_SCREEN:
-        return _TEMPLATE_SCREEN[template_id]
-    if template_id:
-        return template_id
-    return _DEFAULT_TEMPLATE_FOR_DOC.get(doc_type, "T-STMT-6M")
-
-
-def _doc_requested_via(
-    requested_via: str | None,
-    handler_kind: str | None,
-    interaction_channel: str | None,
-    has_interaction: bool,
-) -> str:
-    if requested_via in {
-        "bot_voice",
-        "bot_chat",
-        "agent",
-        "mcp",
-        "clerk",
-        "vision",
-        "inbox",
-    }:
-        return requested_via
-    return _callback_source(handler_kind, interaction_channel, has_interaction)
-
-
-def _mask_email(email: str) -> str:
-    if "@" not in email:
-        return email
-    user, domain = email.split("@", 1)
-    if not user:
-        return email
-    return f"{user[:2]}•••@{domain}"
-
-
-def _doc_delivery_target(
-    channel: str,
-    stored: str | None,
-    phone: str | None,
-    email: str | None,
-) -> str:
-    if stored:
-        return stored
-    if channel == "email":
-        return _mask_email(email) if email else ""
-    return phone or ""
-
-
-def _doc_event_tone(kind: str | None, note: str | None) -> str:
-    if kind in {"document_delivery_attempt"} and note in {"sent", "delivered"}:
-        return "success"
-    if kind in {"document_delivery_attempt"} and note in {"failed", "bounced"}:
-        return "danger"
-    if note and any(x in note.lower() for x in ("fail", "error", "bounce")):
-        return "danger"
-    if note and any(x in note.lower() for x in ("sent", "deliver")):
-        return "success"
-    return "info"
-
-
-def _consent_channel(channel: str) -> str | None:
-    if channel == "voice":
-        return "call"
-    if channel in {"whatsapp", "sms", "email"}:
-        return channel
-    return None
 
 
 def _sentiment_delta(score: float | None) -> str:
@@ -1229,53 +962,6 @@ def _dispute_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             }
         )
     return out
-
-
-def _document_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT id, doc_type, delivery_channel, status, created_at,
-                       requested_via, source
-                FROM document_requests
-                WHERE customer_id = :customer_id
-                ORDER BY created_at DESC
-                LIMIT :limit
-                """
-            ),
-            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
-        )
-    )
-    return [
-        {
-            "id": r["id"],
-            "type": r["doc_type"],
-            # The channel the request came through, from the stored origin.
-            # A literal "voice" made every WhatsApp, desk and MCP request read
-            # as a call on the customer's Documents tab.
-            "requestedVia": _requested_via_channel(r.get("requested_via")),
-            "requestedAt": r["created_at"],
-            "deliveryChannel": _doc_channel(r["delivery_channel"]),
-            "status": r["status"],
-            "source": r.get("source") or "crm",
-        }
-        for r in rows
-    ]
-
-
-#: `document_requests.requested_via` is an origin (bot_voice, bot_chat, agent,
-#: mcp, clerk, vision, inbox); the customer contract shows a channel.
-_REQUESTED_VIA_CHANNEL = {
-    "bot_voice": "voice",
-    "bot_chat": "whatsapp",
-    "clerk": "sms",
-    "inbox": "whatsapp",
-}
-
-
-def _requested_via_channel(origin: str | None) -> str:
-    return _REQUESTED_VIA_CHANNEL.get(str(origin or ""), "chat")
 
 
 def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
@@ -1957,16 +1643,6 @@ def _dispute_by_id(conn: Any, dispute_id: str) -> dict[str, Any]:
     raise KeyError("dispute_not_found")
 
 
-def _document_by_id(conn: Any, document_id: str) -> dict[str, Any]:
-    row = _one(conn.execute(text("SELECT customer_id FROM document_requests WHERE id = :id"), {"id": document_id}))
-    if row is None:
-        raise KeyError("document_not_found")
-    for item in _document_contracts(conn, row["customer_id"]):
-        if item["id"] == document_id:
-            return item
-    raise KeyError("document_not_found")
-
-
 def create_promise(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
     endpoint = "POST /promises"
     with engine.begin() as conn:
@@ -2602,6 +2278,7 @@ from db_workspace import (  # noqa: E402
     _inr as _inr,
     _work_item_sla as _work_item_sla,
     list_work_items as list_work_items,
+    workspace_summary as workspace_summary,
 )
 
 from db_sandbox import (  # noqa: E402
@@ -2617,19 +2294,31 @@ from db_routing import (  # noqa: E402
     _routing_action_key as _routing_action_key,
     _routing_category as _routing_category,
     _routing_eval_condition as _routing_eval_condition,
+    create_routing_rule as create_routing_rule,
+    delete_routing_rule as delete_routing_rule,
     escalate_voice_interaction as escalate_voice_interaction,
     get_routing_rule as get_routing_rule,
+    list_routing_audit as list_routing_audit,
     list_routing_rule_executions as list_routing_rule_executions,
     list_routing_rules as list_routing_rules,
+    patch_routing_rule as patch_routing_rule,
+    reorder_routing_rules as reorder_routing_rules,
     simulate_routing_rules as simulate_routing_rules,
 )
 
 from db_redaction import (  # noqa: E402
     actor_is_admin as actor_is_admin,
+    create_export_job as create_export_job,
     get_redaction_record as get_redaction_record,
     get_redaction_rule as get_redaction_rule,
+    list_export_jobs as list_export_jobs,
     list_redaction_records as list_redaction_records,
     list_redaction_rules as list_redaction_rules,
+    patch_audio_segment_mute as patch_audio_segment_mute,
+    patch_export_job as patch_export_job,
+    patch_pii_finding as patch_pii_finding,
+    patch_redaction_record as patch_redaction_record,
+    patch_redaction_rule as patch_redaction_rule,
 )
 
 from db_kb import (  # noqa: E402
@@ -2712,25 +2401,6 @@ from db_coaching import (  # noqa: E402
     list_coaching_actions as list_coaching_actions,
     patch_calibration_session as patch_calibration_session,
     patch_coaching_action as patch_coaching_action,
-)
-from db_redaction import (  # noqa: E402
-    create_export_job as create_export_job,
-    list_export_jobs as list_export_jobs,
-    patch_audio_segment_mute as patch_audio_segment_mute,
-    patch_export_job as patch_export_job,
-    patch_pii_finding as patch_pii_finding,
-    patch_redaction_record as patch_redaction_record,
-    patch_redaction_rule as patch_redaction_rule,
-)
-from db_routing import (  # noqa: E402
-    create_routing_rule as create_routing_rule,
-    delete_routing_rule as delete_routing_rule,
-    list_routing_audit as list_routing_audit,
-    patch_routing_rule as patch_routing_rule,
-    reorder_routing_rules as reorder_routing_rules,
-)
-from db_workspace import (  # noqa: E402
-    workspace_summary as workspace_summary,
 )
 
 
@@ -2826,6 +2496,21 @@ from db_leads import (  # noqa: E402
 )
 
 from db_documents import (  # noqa: E402
+    _DOC_TYPE_SCREEN as _DOC_TYPE_SCREEN,
+    _DOC_TYPE_ALIASES as _DOC_TYPE_ALIASES,
+    _TEMPLATE_SCREEN as _TEMPLATE_SCREEN,
+    _DEFAULT_TEMPLATE_FOR_DOC as _DEFAULT_TEMPLATE_FOR_DOC,
+    _doc_channel as _doc_channel,
+    _doc_type_screen as _doc_type_screen,
+    _doc_template_screen as _doc_template_screen,
+    _doc_requested_via as _doc_requested_via,
+    _mask_email as _mask_email,
+    _doc_delivery_target as _doc_delivery_target,
+    _doc_event_tone as _doc_event_tone,
+    _document_contracts as _document_contracts,
+    _REQUESTED_VIA_CHANNEL as _REQUESTED_VIA_CHANNEL,
+    _requested_via_channel as _requested_via_channel,
+    _document_by_id as _document_by_id,
     _document_events as _document_events,
     _ensure_document_file as _ensure_document_file,
     _ensure_document_template as _ensure_document_template,

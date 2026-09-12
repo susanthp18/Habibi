@@ -17,6 +17,8 @@ from typing import Any
 
 from sqlalchemy import text
 from agent_core.clock import utc_now
+from db_prompt_studio.deployments import DEFAULT_BOT_ID
+from db_core import _activity, _actor_user_id, _id, _one, _rows, _tenant, _user_name
 
 
 def _db():
@@ -159,10 +161,7 @@ def _map_routing_rule(r: dict[str, Any]) -> dict[str, Any]:
 
 def get_routing_rule(rule_id: str) -> dict[str, Any] | None:
     """Single tenant-scoped rule — used by write paths instead of re-listing."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         row = _one(
             conn.execute(
@@ -175,10 +174,7 @@ def get_routing_rule(rule_id: str) -> dict[str, Any] | None:
 
 def list_routing_rules() -> list[dict[str, Any]]:
     """Priority-ordered routing rules with execution aggregates. Tenant-scoped."""
-    _mod = _db()
-    engine = _mod.engine
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -311,9 +307,6 @@ def simulate_routing_rules(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_team_id(conn: Any, action_key: str, params: dict[str, str] | None) -> str | None:
-    _mod = _db()
-    _one = _mod._one
-    _tenant = _mod._tenant
     params = params or {}
     hint = (params.get("team") or params.get("teamId") or params.get("queue") or "").strip()
     if hint:
@@ -347,10 +340,6 @@ def _resolve_team_id(conn: Any, action_key: str, params: dict[str, str] | None) 
 
 def _resolve_assignee_for_team(conn: Any, team_id: str | None) -> tuple[str | None, str | None, str | None]:
     """Return (assignee_user_id, assignee_name, team_name)."""
-    _mod = _db()
-    _one = _mod._one
-    _tenant = _mod._tenant
-    _user_name = _mod._user_name
     if not team_id:
         team_id = "card-collections"
     team = _one(
@@ -433,8 +422,6 @@ def _match_routing_rule(
     Connection-scoped on purpose — the escalation path is already inside a
     transaction and must not open a nested one.
     """
-    _mod = _db()
-    _id = _mod._id
     for rule in rules:
         if not rule.get("enabled"):
             continue
@@ -523,9 +510,6 @@ def _hold_on_escalation(
     because a customer stuck mid-transfer is a worse outcome than a hold that
     has to be placed by hand.
     """
-    _mod = _db()
-    _tenant = _mod._tenant
-    _id = _mod._id
     kind = _ESCALATION_HOLDS.get(reason)
     if not kind or not customer_id:
         return
@@ -580,12 +564,7 @@ def escalate_voice_interaction(
     ``voice.tools.escalate_to_human`` so PSTN calls spend one connection slot.
     """
     _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _id = _mod._id
-    _activity = _mod._activity
-    _actor_user_id = _mod._actor_user_id
-    DEFAULT_BOT_ID = _mod.DEFAULT_BOT_ID
+    engine = _db().engine
     ix = (interaction_id or "").strip()
     if not ix:
         raise ValueError("interaction_id_required")
@@ -850,11 +829,7 @@ def escalate_voice_interaction(
 
 def list_routing_rule_executions(rule_id: str) -> list[dict[str, Any]]:
     """Firing log for one rule — tenant-scoped via the parent rule."""
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    _rows = _mod._rows
-    _tenant = _mod._tenant
+    engine = _db().engine
     with engine.connect() as conn:
         parent = _one(
             conn.execute(

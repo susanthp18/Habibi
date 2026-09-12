@@ -13,6 +13,24 @@ from agent_core import clock
 from sqlalchemy import text
 
 import db_core
+from db_core import (
+    _account_tail,
+    _activity,
+    _assert_tenant_owns,
+    _ensure_customer,
+    _first_account_id,
+    _id,
+    _idempotent_response,
+    _one,
+    _rows,
+    _sql,
+    _store_idempotent_response,
+    _tenant,
+    _user_name,
+    _vis_params,
+    clamp_list_limit,
+    clamp_offset,
+)
 from typing import Any
 from agent_core.clock import utc_now
 
@@ -119,8 +137,6 @@ def _callback_event_tone(kind: str | None, note: str | None) -> str | None:
     return None
 
 def _callback_events(conn: Any, callback_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not callback_ids:
         return {}
     rows = _rows(
@@ -151,8 +167,6 @@ def _callback_events(conn: Any, callback_ids: list[str]) -> dict[str, list[dict[
     return grouped
 
 def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    _mod = _db()
-    _rows = _mod._rows
     if not callback_ids:
         return {}
     rows = _rows(
@@ -181,15 +195,7 @@ def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[di
 
 def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Callback & Scheduling Manager feed (richer than the Phase 3A write contract)."""
-    _mod = _db()
-    _account_tail = _mod._account_tail
-    _rows = _mod._rows
-    _sql = _mod._sql
-    _tenant = _mod._tenant
-    _vis_params = _mod._vis_params
-    clamp_list_limit = _mod.clamp_list_limit
-    clamp_offset = _mod.clamp_offset
-    engine = _mod.engine
+    engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
@@ -267,8 +273,7 @@ def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> li
         return result
 
 def create_callback(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-    _mod = _db()
-    engine = _mod.engine
+    engine = _db().engine
     endpoint = "POST /callbacks"
     with engine.begin() as conn:
         return _create_callback(conn, payload, idempotency_key, endpoint)
@@ -280,14 +285,6 @@ def _create_callback(
     endpoint: str = "POST /callbacks",
 ) -> dict[str, Any]:
     """Connection-scoped body of :func:`create_callback` — see _create_promise."""
-    _mod = _db()
-    _activity = _mod._activity
-    _ensure_customer = _mod._ensure_customer
-    _first_account_id = _mod._first_account_id
-    _id = _mod._id
-    _idempotent_response = _mod._idempotent_response
-    _one = _mod._one
-    _store_idempotent_response = _mod._store_idempotent_response
     cached = _idempotent_response(conn, idempotency_key, endpoint)
     if cached:
         return cached
@@ -378,12 +375,7 @@ _CALLBACK_TRANSITIONS: dict[str, frozenset[str]] = {
 def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write,
     so an explicit None clears assignee_user_id (unassign)."""
-    _mod = _db()
-    _activity = _mod._activity
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _one = _mod._one
-    _user_name = _mod._user_name
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "callbacks", callback_id)
         row = _one(
@@ -463,12 +455,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"id": callback_id, "status": payload.get("status")}
 
 def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
-    _activity = _mod._activity
-    _assert_tenant_owns = _mod._assert_tenant_owns
-    _id = _mod._id
-    _one = _mod._one
-    engine = _mod.engine
+    engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "callbacks", callback_id)
         row = _one(
