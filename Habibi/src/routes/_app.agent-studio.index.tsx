@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   useAgentStudioCards,
@@ -16,16 +16,12 @@ import { QueryErrorBanner } from "@/components/ui/query-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
+import { ReasonedAction } from "@/components/ui/reasoned-action";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SelectField } from "@/components/ui/select";
 import { changeVerb, parseLogTimestamp } from "@/lib/change-log-actions";
-import {
-  archiveAvailability,
-  groupRoster,
-  sandboxAvailability,
-  type ActionAvailability,
-} from "@/lib/agent-roster";
+import { archiveAvailability, groupRoster, sandboxAvailability } from "@/lib/agent-roster";
 import { cn } from "@/lib/utils";
 import { ROUTING } from "@/lib/agent-roster";
 import { Bot, ChevronDown, ChevronRight } from "lucide-react";
@@ -115,48 +111,6 @@ function EvalTrend({ reports, failed }: { reports: EvalReport[]; failed?: boolea
  * `busy` is the other thing and keeps the real `disabled` attribute: a
  * mutation in flight is transient and has nothing to explain.
  */
-function ReasonedAction({
-  availability,
-  busy = false,
-  onClick,
-  children,
-}: {
-  availability: ActionAvailability;
-  busy?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  const describedBy = useId();
-  const blocked = !availability.allowed;
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        loading={busy}
-        disabled={busy}
-        aria-disabled={blocked || undefined}
-        aria-describedby={blocked ? describedBy : undefined}
-        title={availability.reason}
-        className={cn(
-          blocked &&
-            "aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-background-neutral-subtle",
-        )}
-        onClick={() => {
-          if (blocked || busy) return;
-          onClick();
-        }}
-      >
-        {children}
-      </Button>
-      {blocked ? (
-        <span id={describedBy} className="sr-only">
-          {availability.reason}
-        </span>
-      ) : null}
-    </>
-  );
-}
 
 /**
  * Whether the change log is open, remembered across visits.

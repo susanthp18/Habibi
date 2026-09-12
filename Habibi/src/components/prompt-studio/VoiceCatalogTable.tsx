@@ -250,6 +250,9 @@ export function VoiceCatalogTable({
         style={fill ? undefined : { height }}
       >
         <table
+          // Virtualised: only the visible rows exist in the DOM, so the row
+          // count is declared for readers that would otherwise count them.
+          aria-rowcount={sorted.length}
           className="border-collapse text-body-small"
           style={{ width: tableWidth, minWidth: tableWidth, tableLayout: "fixed" }}
         >

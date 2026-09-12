@@ -83,9 +83,14 @@ CLEAN_CALL = (
 )
 
 
-def test_every_catalog_rule_has_a_detector():
-    """The registry is the contract detector_coverage reports against."""
-    assert len(DETECTORS) == 16
+def test_every_catalog_rule_has_a_detector(db_tx):
+    """The registry is the contract detector_coverage reports against: one
+    detector per seeded compliance rule, not a count that happens to match."""
+    from sqlalchemy import text
+
+    catalogue = {r[0] for r in db_tx.execute(text("SELECT id FROM compliance_rules WHERE enabled"))}
+    assert catalogue, "the seed carries no compliance rules"
+    assert set(DETECTORS) == catalogue, sorted(set(DETECTORS) ^ catalogue)
 
 
 # ------------------------------------------------------------------ disclosure
