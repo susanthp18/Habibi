@@ -185,3 +185,18 @@ def test_capture_lead_blocked_writes_no_row(db_tx, monkeypatch: pytest.MonkeyPat
     assert result.ok is False
     assert result.error == "eligibility_blocked"
     assert called["n"] == 0
+
+
+def test_a_promise_datetime_is_the_tenant_day_not_the_utc_day(monkeypatch) -> None:
+    """`2026-09-12T23:30:00Z` is already the 13th in India. The parser used to
+    split the string at `T` and record the 12th -- a promise a day earlier
+    than the borrower meant, and a pay link that expired a day early."""
+    from agent_core.tools.domain import _parse_promise_date
+
+    monkeypatch.setenv("APP_TIMEZONE", "Asia/Kolkata")
+    assert _parse_promise_date("2026-09-12T23:30:00Z") == "2026-09-13"
+    assert _parse_promise_date("2026-09-12T23:30:00+05:30") == "2026-09-12"
+    # A naive datetime is tenant-local, the same reading as a callback time.
+    assert _parse_promise_date("2026-09-12T23:30:00") == "2026-09-12"
+    assert _parse_promise_date("2026-09-12") == "2026-09-12"
+    assert _parse_promise_date("not-a-date") is None

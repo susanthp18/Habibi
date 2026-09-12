@@ -117,12 +117,22 @@ def _row_id_or_failure(
 
 
 def _parse_promise_date(raw: str) -> str | None:
-    """Normalize to YYYY-MM-DD or return None if invalid."""
+    """Normalize to the promised *tenant-local* day, YYYY-MM-DD, or None.
+
+    A bare date is taken as written. A datetime is an instant and is converted
+    the way ``_parse_scheduled_at`` reads one (an explicit offset is trusted, a
+    naive value is tenant-local) and then rendered as the tenant's calendar
+    day -- ``2026-09-12T23:30:00Z`` is the 13th in India, and splitting the
+    string at ``T`` recorded the 12th.
+    """
+    from agent_core import clock
+
     s = (raw or "").strip()
     if not s:
         return None
     if "T" in s:
-        s = s.split("T", 1)[0]
+        when = clock.to_instant(s)
+        return clock.to_local(when).date().isoformat() if when else None
     try:
         date.fromisoformat(s)
     except ValueError:
