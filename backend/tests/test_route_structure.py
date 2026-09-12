@@ -109,3 +109,51 @@ def test_no_route_takes_an_untyped_dict_body() -> None:
                 if ann.replace(" ", "").startswith("dict[str,Any]"):
                     hits.append(f"{path.stem}.{fn.name}")
     assert hits == [], f"routes with an untyped dict body: {hits}"
+
+
+# --- registration order ------------------------------------------------------
+
+_ORDER_SNAPSHOT = Path(__file__).resolve().parent / "snapshots" / "route_order.json"
+
+
+def _route_order() -> list[str]:
+    """``METHOD path`` in registration order. Order is behaviour: Starlette
+    matches first-registered-first, so ``/x/published`` declared after
+    ``/x/{id}`` is shadowed and answers 404 for a literal that exists."""
+    out: list[str] = []
+    for r in _api_routes():
+        for method in sorted(r.methods or ()):
+            out.append(f"{method} {r.path}")
+    return out
+
+
+def test_route_registration_order_is_pinned() -> None:
+    """Five static-before-parameterised pairs live on definition order alone
+    (CONFLICTS §C3); this is the ordered snapshot the router split was gated
+    on and never got. Regenerate with UPDATE_SNAPSHOTS=1 and read the diff:
+    a reordering is a behaviour change, not noise."""
+    import json
+    import os
+
+    current = _route_order()
+    if os.environ.get("UPDATE_SNAPSHOTS") == "1" or not _ORDER_SNAPSHOT.exists():
+        _ORDER_SNAPSHOT.write_text(json.dumps(current, indent=1) + "\n", encoding="utf-8")
+    pinned = json.loads(_ORDER_SNAPSHOT.read_text(encoding="utf-8"))
+    assert current == pinned, "route registration order changed; see the diff and regenerate deliberately"
+
+
+def test_no_static_path_is_shadowed_by_a_parameter_declared_before_it() -> None:
+    """The property the order snapshot protects, stated directly: for every
+    literal path there is no earlier-registered route with the same method
+    whose template matches it."""
+    seen: list[tuple[str, re.Pattern[str]]] = []
+    shadowed: list[str] = []
+    for r in _api_routes():
+        for method in sorted(r.methods or ()):
+            if "{" not in r.path:
+                for m, pattern in seen:
+                    if m == method and pattern.fullmatch(r.path):
+                        shadowed.append(f"{method} {r.path} (behind {pattern.pattern})")
+            template = "^" + re.sub(r"\{[^}]+\}", r"[^/]+", re.escape(r.path).replace(r"\{", "{").replace(r"\}", "}")) + "$"
+            seen.append((method, re.compile(template)))
+    assert shadowed == [], shadowed
