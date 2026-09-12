@@ -31,7 +31,14 @@ _CARVED = (
     "db_evals.py",
     "db_kb.py",
     "db_kb_snapshots.py",
-    "db_prompt_studio.py",
+    "db_prompt_studio/__init__.py",
+    "db_prompt_studio/cards.py",
+    "db_prompt_studio/common.py",
+    "db_prompt_studio/compile.py",
+    "db_prompt_studio/deployments.py",
+    "db_prompt_studio/publish.py",
+    "db_prompt_studio/versions.py",
+    "db_prompt_studio/voices.py",
     "db_redaction.py",
     "db_routing.py",
     "db_sandbox.py",
@@ -206,12 +213,12 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.list_kb_documents.__module__ == "db_kb"
     assert db.record_kb_gap.__module__ == "db_kb"
     assert db.get_kb_document.__module__ == "db_kb"
-    assert db.get_prompt_version.__module__ == "db_prompt_studio"
-    assert db.get_active_deployment.__module__ == "db_prompt_studio"
-    assert db.publish_prompt_version.__module__ == "db_prompt_studio"
-    assert db.compile_agent_studio_card.__module__ == "db_prompt_studio"
-    assert db._map_prompt_version.__module__ == "db_prompt_studio"
-    assert db._prompt_voice.__module__ == "db_prompt_studio"
+    assert db.get_prompt_version.__module__.startswith("db_prompt_studio.")
+    assert db.get_active_deployment.__module__.startswith("db_prompt_studio.")
+    assert db.publish_prompt_version.__module__.startswith("db_prompt_studio.")
+    assert db.compile_agent_studio_card.__module__.startswith("db_prompt_studio.")
+    assert db._map_prompt_version.__module__.startswith("db_prompt_studio.")
+    assert db._prompt_voice.__module__.startswith("db_prompt_studio.")
     assert db.list_eval_reports.__module__ == "db_evals"
     assert db.save_eval_report.__module__ == "db_evals"
     assert db.create_kb_snapshot.__module__ == "db_kb_snapshots"
