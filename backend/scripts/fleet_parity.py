@@ -79,11 +79,22 @@ def main() -> int:
         )
         members = len(parsed.grant_by_specialist)
         fleet = f"fleet of {members}" if members > 1 else "single"
-        if report["ok"]:
-            print(f"{label} ok   {parsed.bundle_hash[:12]}  {fleet}")
-        else:
+        # Derivation: a door's bundle names the member versions it merged. A
+        # member that has published since is a stale door -- the rebuild on
+        # publish did not happen (an experiment was running, or it failed).
+        stale = []
+        for member, version_id in parsed.member_versions.items():
+            current = db.get_published_prompt_version(member)
+            if current and str(current.get("id")) != version_id:
+                stale.append(f"{member}: merged {version_id}, published {current.get('id')}")
+        if not report["ok"]:
             bad += 1
             print(f"{label} MISMATCH {json.dumps(report.get('mismatches'))[:200]}")
+        elif stale:
+            bad += 1
+            print(f"{label} STALE  {'; '.join(stale)}")
+        else:
+            print(f"{label} ok   {parsed.bundle_hash[:12]}  {fleet}")
     print(f"\n{len(rows) - bad} of {len(rows)} active deployment(s) agree with their bundle")
     return 1 if bad else 0
 

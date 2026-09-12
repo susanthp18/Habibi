@@ -53,6 +53,9 @@ ENTRY_BINDING = "agent.entry_binding"
 #: rewrite of a published card is a rewrite of a published card, whoever
 #: the actor is; it used to happen with no entry and no tenant predicate.
 PLATFORM_SYNC = "agent.platform_sync"
+#: A door's bundle was re-derived because a member it merges published;
+#: the door got a new deployment (one deployment id is one bundle_hash).
+FLEET_REBUILD = "agent.fleet_rebuild"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -472,6 +475,39 @@ def record_platform_sync(
         action=PLATFORM_SYNC,
         bot_id=bot_id,
         payload={"promptVersionId": prompt_version_id, "filled": filled, "moved": moved},
+        entry_id=entry_id,
+    )
+
+
+def record_fleet_rebuild(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str | None,
+    entry_id: str,
+    bot_id: str,
+    deployment_id: str,
+    previous_deployment_id: str,
+    bundle_hash: str,
+    member_bot_id: str,
+    member_version_id: str,
+) -> dict[str, Any]:
+    """Publishing a member is a fleet act: the door's deployment changed, and
+    the entry names the member version that caused it. Written on the door,
+    because that is whose deployment it is."""
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=FLEET_REBUILD,
+        bot_id=bot_id,
+        payload={
+            "deploymentId": deployment_id,
+            "previousDeploymentId": previous_deployment_id,
+            "bundleHash": bundle_hash,
+            "memberBotId": member_bot_id,
+            "memberVersionId": member_version_id,
+        },
         entry_id=entry_id,
     )
 

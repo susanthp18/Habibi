@@ -83,6 +83,18 @@ export type PromptVersion = {
   flowUnreadable?: boolean;
   botId?: string;
   agentCard?: Record<string, unknown>;
+  /** On a publish response: what every door that merges this card did with
+   *  the news -- a new deployment, or a named reason it kept the old one. */
+  fleetRebuilds?: FleetRebuild[] | null;
+};
+
+export type FleetRebuild = {
+  doorBotId: string;
+  rebuilt: boolean;
+  reason?: string | null;
+  deploymentId?: string | null;
+  previousDeploymentId?: string | null;
+  bundleHash?: string | null;
 };
 export type PersonaPreset = {
   id: string;

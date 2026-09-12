@@ -287,6 +287,11 @@ def compile_bundle(
         flow=flow_obj,
         fleet_flow=fleet_flow,
         entry_by_specialist=entry_by_specialist,
+        member_versions={
+            str(m.get("bot_id")): str(m.get("prompt_version_id"))
+            for m in (members or ())
+            if m.get("bot_id") and m.get("prompt_version_id")
+        },
         agent_card=card_dump,
         bundle_hash="",
     )

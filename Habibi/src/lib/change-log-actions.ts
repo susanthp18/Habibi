@@ -31,6 +31,11 @@ export const CHANGE_LOG_ACTIONS = {
     verb: "moved the card's skill pins to the platform pack",
     tone: "neutral",
   },
+  "agent.fleet_rebuild": {
+    label: "Fleet rebuilt",
+    verb: "rebuilt the fleet bundle after a member published",
+    tone: "information",
+  },
 } as const satisfies Record<string, { label: string; verb: string; tone: LozengeTone }>;
 
 export type ChangeLogAction = keyof typeof CHANGE_LOG_ACTIONS;

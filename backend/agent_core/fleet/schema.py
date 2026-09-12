@@ -118,6 +118,12 @@ class CompiledBundle(BaseModel):
     #: the same merge that wrote the namespaces, so the two cannot disagree
     #: about what a member's entry is called.
     entry_by_specialist: dict[str, str] = Field(default_factory=dict)
+    #: bot_id -> the published prompt_version the member's subgraph and grant
+    #: were read from. A door's bundle is *derived* from its members' published
+    #: versions; naming them here makes the derivation part of the hash, so a
+    #: member republish changes the door's bundle_hash and "which version said
+    #: this on the hop" resolves from the artefact alone.
+    member_versions: dict[str, str] = Field(default_factory=dict)
     agent_card: dict[str, Any] = Field(default_factory=dict)
     bundle_hash: str = ""
 

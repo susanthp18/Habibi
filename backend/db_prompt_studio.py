@@ -1276,6 +1276,7 @@ def _fleet_members(card_raw: Any) -> list[dict[str, Any]]:
         out.append(
             {
                 "bot_id": target,
+                "prompt_version_id": str(published.get("id") or ""),
                 "card": published.get("agentCard") or {},
                 "flow": published.get("flow") if isinstance(published.get("flow"), dict) else {},
             }
@@ -2435,18 +2436,165 @@ def publish_prompt_version(
     bot_id = frozen.bot_id
     assert row is not None
 
-    # A member's new flow is not live until the bundle that merged it is rebuilt
-    # -- the door serves `compiled.fleet_flow`, so without this it keeps speaking
-    # the member's previous graph. Outside the transaction above because
-    # `recompile_published_bundle` opens its own, and best-effort because a
-    # failure here must not roll back a publish that already succeeded: a stale
-    # bundle is what the parity logger reports, a half-published card is not.
+    # Publishing a member is a fleet act. A door serves `compiled.fleet_flow`,
+    # derived from its members' published versions, so every door that merged
+    # this card gets a *new* deployment carrying the rebuilt bundle -- one
+    # deployment id is one bundle_hash, which is what "which version said this
+    # on the hop" needs -- and a change-log entry naming the member version
+    # that caused it. Outside the transaction above because a rebuild opens
+    # its own, and a failure must not roll back a publish that already
+    # succeeded: the reason is returned and logged, and fleet_parity reports
+    # the stale door.
+    rebuilds: list[dict[str, Any]] = []
     for door in doors_merging(bot_id):
         try:
-            recompile_published_bundle(door)
-        except Exception:
-            logger.exception("could not refresh the fleet bundle owned by %s", door)
-    return row
+            rebuilds.append(
+                rebuild_fleet_deployment(
+                    door, member_bot_id=bot_id, member_version_id=str(row["id"])
+                )
+            )
+        except Exception as exc:
+            logger.exception("could not rebuild the fleet bundle owned by %s", door)
+            rebuilds.append({"doorBotId": door, "rebuilt": False, "reason": f"error:{exc}"})
+    return {**row, "fleetRebuilds": rebuilds}
+
+
+def rebuild_fleet_deployment(
+    door_bot_id: str, *, member_bot_id: str, member_version_id: str
+) -> dict[str, Any]:
+    """Re-derive a door's bundle from its members' published versions and ship
+    it as a new deployment.
+
+    Not `recompile_published_bundle`: that fills `compiled` in place on a row
+    that never had one (a backfill) and deliberately leaves the deployment's
+    identity alone. This is the opposite case -- the artefact a live
+    deployment serves has changed, so the deployment changes: the active row
+    is retired, a new one is inserted with the same voice, tuning, snapshot
+    and frozen tools and the new bundle_hash, and the change log records
+    which member version made it happen.
+
+    A door with a running canary experiment is not rebuilt: the experiment
+    compares two deployments, and replacing the baseline under it would
+    measure nothing. The reason is returned; the parity report shows the
+    stale door until the experiment ends.
+    """
+    _mod = _db()
+    engine = _mod.engine
+    _one = _mod._one
+    _jsonb = _mod._jsonb
+    _tenant = _mod._tenant
+    _id = _mod._id
+    from agent_core import change_log
+
+    with engine.connect() as conn:
+        live = _one(
+            conn.execute(
+                text(
+                    "SELECT id FROM prompt_versions "
+                    " WHERE bot_id = :b AND status = 'published' AND tenant_id = :t LIMIT 1"
+                ),
+                {"b": door_bot_id, "t": _tenant()},
+            )
+        )
+    if live is None:
+        return {"doorBotId": door_bot_id, "rebuilt": False, "reason": "no_published_version"}
+
+    report = compile_agent_studio_card(door_bot_id, prompt_version_id=str(live["id"]))
+    bundle = report.get("bundle") or {}
+    bundle_hash = str(bundle.get("bundle_hash") or "")
+    version_id = str(bundle.get("prompt_version_id") or "")
+    if not bundle_hash or not version_id:
+        return {"doorBotId": door_bot_id, "rebuilt": False, "reason": "no_compiled_bundle"}
+
+    with engine.begin() as conn:
+        prior = _fetch_active_deployment_row(conn, bot_id=door_bot_id, environment="production")
+        if prior is None:
+            return {"doorBotId": door_bot_id, "rebuilt": False, "reason": "no_active_deployment"}
+        if str(prior.get("bundle_hash") or "") == bundle_hash:
+            return {
+                "doorBotId": door_bot_id,
+                "rebuilt": False,
+                "reason": "unchanged",
+                "deploymentId": prior["id"],
+                "bundleHash": bundle_hash,
+            }
+        running = _one(
+            conn.execute(
+                text(
+                    "SELECT id FROM deployment_experiments "
+                    " WHERE bot_id = :b AND status = 'running' AND tenant_id = :t LIMIT 1"
+                ),
+                {"b": door_bot_id, "t": _tenant()},
+            )
+        )
+        if running is not None:
+            return {
+                "doorBotId": door_bot_id,
+                "rebuilt": False,
+                "reason": f"experiment_running:{running['id']}",
+                "deploymentId": prior["id"],
+            }
+        conn.execute(
+            text(
+                "UPDATE prompt_versions SET compiled = CAST(:c AS jsonb), updated_at = now() "
+                " WHERE id = :id AND tenant_id = :t"
+            ),
+            {"c": _jsonb(bundle), "id": version_id, "t": _tenant()},
+        )
+        conn.execute(
+            text("UPDATE bot_deployments SET status = 'retired', updated_at = now() WHERE id = :id"),
+            {"id": prior["id"]},
+        )
+        dep_id = _id("DEP")
+        conn.execute(
+            text(
+                """
+                INSERT INTO bot_deployments (
+                  id, bot_id, prompt_version_id, kb_snapshot_id, tts_voice_id,
+                  environment, status, published_by_user_id, published_at,
+                  rollback_deployment_id, voice_config, tuning, traffic_pct, shadow,
+                  frozen_tools, bundle_hash, created_at, updated_at
+                )
+                SELECT :id, bot_id, prompt_version_id, kb_snapshot_id, tts_voice_id,
+                       environment, 'active', :actor, now(),
+                       id, voice_config, tuning, 100, false,
+                       frozen_tools, :bundle_hash, now(), now()
+                  FROM bot_deployments WHERE id = :prior
+                """
+            ),
+            {
+                "id": dep_id,
+                "actor": _mod._actor_user_id(),
+                "bundle_hash": bundle_hash,
+                "prior": prior["id"],
+            },
+        )
+        change_log.record_fleet_rebuild(
+            conn,
+            tenant_id=_tenant(),
+            actor_user_id=_mod._actor_user_id(),
+            entry_id=_id("AUD"),
+            bot_id=door_bot_id,
+            deployment_id=dep_id,
+            previous_deployment_id=str(prior["id"]),
+            bundle_hash=bundle_hash,
+            member_bot_id=member_bot_id,
+            member_version_id=member_version_id,
+        )
+    logger.info(
+        "fleet rebuilt · door=%s · deployment=%s · because %s published %s",
+        door_bot_id,
+        dep_id,
+        member_bot_id,
+        member_version_id,
+    )
+    return {
+        "doorBotId": door_bot_id,
+        "rebuilt": True,
+        "deploymentId": dep_id,
+        "previousDeploymentId": str(prior["id"]),
+        "bundleHash": bundle_hash,
+    }
 
 
 @dataclasses.dataclass(frozen=True)

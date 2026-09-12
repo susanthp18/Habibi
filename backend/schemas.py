@@ -2323,6 +2323,20 @@ class PromptVersionResponse(BaseModel):
     botId: str = "kaia-v2-4"
     agentCard: dict[str, Any] = Field(default_factory=dict)
     compiled: CompiledBundle | None = None
+    #: Present on a publish response: what every door that merges this card
+    #: did with the news (a new deployment, or a named reason it kept the old).
+    fleetRebuilds: list[FleetRebuildResponse] | None = None
+
+
+class FleetRebuildResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doorBotId: str
+    rebuilt: bool
+    reason: str | None = None
+    deploymentId: str | None = None
+    previousDeploymentId: str | None = None
+    bundleHash: str | None = None
 
 
 class EffectiveContractResponse(BaseModel):

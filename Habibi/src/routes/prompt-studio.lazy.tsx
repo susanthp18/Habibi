@@ -869,6 +869,16 @@ export function PromptStudioPage({
         skipAutosave.current = false;
       }, 0);
       toast.success(`Published ${publishedRow.label || nextLabel}`);
+      // Publishing a member is a fleet act: every door that merges this card
+      // got a new deployment, or says why it kept the old one. Silence here
+      // would mean the hop keeps speaking the previous graph and nobody knew.
+      for (const r of publishedRow.fleetRebuilds ?? []) {
+        if (r.rebuilt) {
+          toast.info(`${r.doorBotId} rebuilt its fleet bundle (${r.deploymentId})`);
+        } else if (r.reason !== "unchanged") {
+          toast.warning(`${r.doorBotId} did not rebuild its fleet bundle: ${r.reason}`);
+        }
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Publish failed");
     }
