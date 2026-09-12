@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import json
+from dataclasses import dataclass, field
 import logging
 import os
 import re
@@ -504,100 +505,71 @@ def prewarm() -> float:
     logger.info("kb ANN prewarm OK · %.0f ms", ms)
     return ms
 
+def _stage(stage_ms: dict[str, float], name: str, started: float) -> float:
+    """Record one stage's wall-clock milliseconds and return the new mark."""
+    now = time.perf_counter()
+    stage_ms[name] = round((now - started) * 1000.0, 2)
+    return now
+@dataclass
+class Retrieval:
+    """One retrieval as it moves through the phases below (ADR 0005).
 
-def retrieve(
-    *,
-    query: str,
-    top_k: int = 4,
-    include_draft_answer: bool = True,
-    source: str = "test",
-    sandbox_run_id: str | None = None,
-    interaction_id: str | None = None,
-    prefer_policy: bool = False,
-    #: What the caller wants to know: ``"exclusions"`` (what voids cover),
-    #: ``"coverage"`` (what it pays for), or None to derive it from the query
-    #: keywords as before. Split out of ``prefer_policy``, which was silently
-    #: forcing "exclusions" and returning policy boilerplate for questions about
-    #: benefits.
-    topic: str | None = None,
-    kb_snapshot_id: str | None = None,
-    product_keys: list[str] | None = None,
-    # Derive a product scope from the query when the caller supplies none.
-    # On by default: every caller benefits, and the empty-result retry makes it
-    # safe. Off for callers that deliberately want the whole corpus.
-    scope_from_query: bool = True,
-    # Which turn asked. interaction_id alone is session-grained, so "which
-    # retrieval backed turn 4's answer" was unanswerable. Optional: the
-    # speculative prefetch and the operator's test panel have no turn.
-    transcript_turn_id: str | None = None,
-) -> dict[str, Any]:
-    q = (query or "").strip()
-    if not q:
-        raise ValueError("query must not be empty")
-    if top_k < 1 or top_k > 20:
-        raise ValueError("topK must be between 1 and 20")
+    The request as asked, the plan derived from it (vector, pool, scope,
+    topic), the candidate rows, the ranked passages, the optional draft and
+    the margin -- plus the stage clocks the payload reports. Filled in order
+    by ``_retrieve_plan`` / ``_retrieve_search`` / ``_retrieve_rank`` /
+    ``_retrieve_draft`` / ``_retrieve_assemble``. The bodies are what
+    ``retrieve`` was, pinned by ``tests/test_kb_retrieve_snapshot.py``.
+    """
 
-    import kb_rate_limit
-
-    # The clock starts here, not after check_rate. `latencyMs` used to begin
-    # after the rate-limit round trip, so the number reported to the model and
-    # to the Inspector systematically understated what the caller waited for.
-    t0 = time.perf_counter()
-    stage_ms: dict[str, float] = {}
-
-    def _stage(name: str, started: float) -> float:
-        now = time.perf_counter()
-        stage_ms[name] = round((now - started) * 1000.0, 2)
-        return now
-
-    bucket = "inbox_suggestions" if source == "inbox" else "retrieve"
-    kb_rate_limit.check_rate(bucket)
-    mark = _stage("rate_ms", t0)
-
-    cache_key = _result_cache_key(
-        q,
-        top_k=top_k,
-        product_keys=product_keys,
-        kb_snapshot_id=kb_snapshot_id,
-        prefer_policy=prefer_policy,
-        topic=topic,
-        include_draft_answer=include_draft_answer,
-    )
-    cached = _result_cache_get(cache_key)
-    if cached is not None:
-        # Still logged, so retrieval analytics stay complete and a cached turn is
-        # distinguishable from one that never happened. The log write is buffered,
-        # so saying so costs nothing.
-        payload = dict(cached)
-        payload["latencyMs"] = int((time.perf_counter() - t0) * 1000)
-        payload["stageMs"] = dict(stage_ms)
-        payload["cached"] = True
-        record_retrieval_log(
-            {
-                "id": f"retrieval-{uuid.uuid4().hex[:12]}",
-                "tenant_id": db.current_tenant(),
-                "interaction_id": interaction_id,
-                "sandbox_run_id": sandbox_run_id,
-                "transcript_turn_id": transcript_turn_id,
-                "query": pii_redact.redact_text(q),
-                "top_chunks": json.dumps(
-                    [
-                        {"chunkId": r.get("chunkId"), "docId": r.get("docId"),
-                         "score": r.get("score"), "kind": r.get("docType")}
-                        for r in payload.get("results") or []
-                    ]
-                ),
-                "latency_ms": payload["latencyMs"],
-                "selected_answer_source": f"{source}:cached",
-                "created_at": datetime.now(timezone.utc),
-            },
-            defer=source in _DEFERRED_LOG_SOURCES,
-        )
-        return payload
+    query: str
+    top_k: int
+    include_draft_answer: bool
+    source: str
+    sandbox_run_id: str | None
+    interaction_id: str | None
+    prefer_policy: bool
+    topic: str | None
+    kb_snapshot_id: str | None
+    product_keys: list[str] | None
+    scope_from_query: bool
+    transcript_turn_id: str | None
+    q: str
+    t0: float
+    stage_ms: dict[str, float]
+    mark: float
+    cache_key: tuple
+    chat_model: str | None = None
+    chunk_rows: list[Any] = field(default_factory=list)
+    derived_scope: str | None = None
+    draft_answer: str | None = None
+    faq_rows: list[Any] = field(default_factory=list)
+    margin: float = 0.0
+    overfetch: int = 0
+    product_key_filter: list[str] = field(default_factory=list)
+    product_tokens: list[str] = field(default_factory=list)
+    q_l: str = ""
+    q_lit: str = ""
+    rerank_info: dict[str, Any] = field(default_factory=dict)
+    selected_source: str = ""
+    top: list[dict[str, Any]] = field(default_factory=list)
+    wants_coverage: bool = False
+    wants_exclusions: bool = False
+def _retrieve_plan(rt: Retrieval) -> None:
+    """The query vector, the candidate pool size, and the scope and topic the query asks for."""
+    top_k = rt.top_k
+    source = rt.source
+    prefer_policy = rt.prefer_policy
+    topic = rt.topic
+    product_keys = rt.product_keys
+    scope_from_query = rt.scope_from_query
+    q = rt.q
+    stage_ms = rt.stage_ms
+    mark = rt.mark
 
     query_vec = azure_openai.embed_texts([q])[0]
     q_lit = _vector_literal(query_vec)
-    mark = _stage("embed_ms", mark)
+    mark = _stage(stage_ms, "embed_ms", mark)
     # Bot / policy questions need a wider candidate pool so FAQ stubs don't crowd out
     # the actual policy document chunks.
     overfetch = max(top_k * 6, top_k, 24 if prefer_policy or source == "bot" else top_k * 4)
@@ -698,6 +670,25 @@ def retrieve(
             )
             if t in q_l
         ]
+
+    rt.mark = mark
+    rt.derived_scope = derived_scope
+    rt.overfetch = overfetch
+    rt.product_key_filter = product_key_filter
+    rt.product_tokens = product_tokens
+    rt.q_l = q_l
+    rt.q_lit = q_lit
+    rt.wants_coverage = wants_coverage
+    rt.wants_exclusions = wants_exclusions
+def _retrieve_search(rt: Retrieval) -> None:
+    """The snapshot scope and the ANN queries over chunks and FAQs, in one transaction."""
+    kb_snapshot_id = rt.kb_snapshot_id
+    stage_ms = rt.stage_ms
+    mark = rt.mark
+    derived_scope = rt.derived_scope
+    overfetch = rt.overfetch
+    product_key_filter = rt.product_key_filter
+    q_lit = rt.q_lit
 
     snap_doc_ids: set[str] | None = None
     snap_faq_ids: set[str] | None = None
@@ -875,7 +866,25 @@ def retrieve(
             derived_scope = None
             product_key_filter = []
 
-    mark = _stage("ann_ms", mark)
+    mark = _stage(stage_ms, "ann_ms", mark)
+
+    rt.mark = mark
+    rt.chunk_rows = chunk_rows
+    rt.derived_scope = derived_scope
+    rt.faq_rows = faq_rows
+    rt.product_key_filter = product_key_filter
+def _retrieve_rank(rt: Retrieval) -> None:
+    """Scoring, the optional cross-encoder rerank, and the top-k under the topic's rule."""
+    top_k = rt.top_k
+    q = rt.q
+    stage_ms = rt.stage_ms
+    mark = rt.mark
+    chunk_rows = rt.chunk_rows
+    faq_rows = rt.faq_rows
+    product_tokens = rt.product_tokens
+    q_l = rt.q_l
+    wants_coverage = rt.wants_coverage
+    wants_exclusions = rt.wants_exclusions
 
     scored: list[dict[str, Any]] = []
     for row in chunk_rows:
@@ -1007,7 +1016,18 @@ def retrieve(
     else:
         top = scored[:top_k]
 
-    mark = _stage("rank_ms", mark)
+    mark = _stage(stage_ms, "rank_ms", mark)
+
+    rt.mark = mark
+    rt.rerank_info = rerank_info
+    rt.top = top
+def _retrieve_draft(rt: Retrieval) -> None:
+    """The optional draft answer, and the margin between the best passage and the runner-up."""
+    include_draft_answer = rt.include_draft_answer
+    q = rt.q
+    stage_ms = rt.stage_ms
+    mark = rt.mark
+    top = rt.top
 
     draft_answer: str | None = None
     chat_model: str | None = None
@@ -1045,7 +1065,7 @@ def retrieve(
             chat_model = None
             selected_source = "snippets"
 
-    mark = _stage("draft_ms", mark)
+    mark = _stage(stage_ms, "draft_ms", mark)
 
     # Retrieval margin: the gap between the best passage and the runner-up.
     #
@@ -1074,6 +1094,28 @@ def retrieve(
             margin = max(0.0, float(top[0]["score"]) - float(top[1]["score"]))
         except (TypeError, ValueError):
             margin = 0.0
+
+    rt.mark = mark
+    rt.chat_model = chat_model
+    rt.draft_answer = draft_answer
+    rt.margin = margin
+    rt.selected_source = selected_source
+def _retrieve_assemble(rt: Retrieval) -> dict[str, Any]:
+    """The log row, the chunk hits, and the payload the caller and the cache get."""
+    source = rt.source
+    sandbox_run_id = rt.sandbox_run_id
+    interaction_id = rt.interaction_id
+    transcript_turn_id = rt.transcript_turn_id
+    q = rt.q
+    t0 = rt.t0
+    stage_ms = rt.stage_ms
+    cache_key = rt.cache_key
+    chat_model = rt.chat_model
+    draft_answer = rt.draft_answer
+    margin = rt.margin
+    rerank_info = rt.rerank_info
+    selected_source = rt.selected_source
+    top = rt.top
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
     log_id = f"retrieval-{uuid.uuid4().hex[:12]}"
@@ -1144,6 +1186,115 @@ def retrieve(
     }
     _result_cache_put(cache_key, payload)
     return payload
+def retrieve(
+    *,
+    query: str,
+    top_k: int = 4,
+    include_draft_answer: bool = True,
+    source: str = "test",
+    sandbox_run_id: str | None = None,
+    interaction_id: str | None = None,
+    prefer_policy: bool = False,
+    #: What the caller wants to know: ``"exclusions"`` (what voids cover),
+    #: ``"coverage"`` (what it pays for), or None to derive it from the query
+    #: keywords as before. Split out of ``prefer_policy``, which was silently
+    #: forcing "exclusions" and returning policy boilerplate for questions about
+    #: benefits.
+    topic: str | None = None,
+    kb_snapshot_id: str | None = None,
+    product_keys: list[str] | None = None,
+    # Derive a product scope from the query when the caller supplies none.
+    # On by default: every caller benefits, and the empty-result retry makes it
+    # safe. Off for callers that deliberately want the whole corpus.
+    scope_from_query: bool = True,
+    # Which turn asked. interaction_id alone is session-grained, so "which
+    # retrieval backed turn 4's answer" was unanswerable. Optional: the
+    # speculative prefetch and the operator's test panel have no turn.
+    transcript_turn_id: str | None = None,
+) -> dict[str, Any]:
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("query must not be empty")
+    if top_k < 1 or top_k > 20:
+        raise ValueError("topK must be between 1 and 20")
+
+    import kb_rate_limit
+
+    # The clock starts here, not after check_rate. `latencyMs` used to begin
+    # after the rate-limit round trip, so the number reported to the model and
+    # to the Inspector systematically understated what the caller waited for.
+    t0 = time.perf_counter()
+    stage_ms: dict[str, float] = {}
+
+    bucket = "inbox_suggestions" if source == "inbox" else "retrieve"
+    kb_rate_limit.check_rate(bucket)
+    mark = _stage(stage_ms, "rate_ms", t0)
+
+    cache_key = _result_cache_key(
+        q,
+        top_k=top_k,
+        product_keys=product_keys,
+        kb_snapshot_id=kb_snapshot_id,
+        prefer_policy=prefer_policy,
+        topic=topic,
+        include_draft_answer=include_draft_answer,
+    )
+    cached = _result_cache_get(cache_key)
+    if cached is not None:
+        # Still logged, so retrieval analytics stay complete and a cached turn is
+        # distinguishable from one that never happened. The log write is buffered,
+        # so saying so costs nothing.
+        payload = dict(cached)
+        payload["latencyMs"] = int((time.perf_counter() - t0) * 1000)
+        payload["stageMs"] = dict(stage_ms)
+        payload["cached"] = True
+        record_retrieval_log(
+            {
+                "id": f"retrieval-{uuid.uuid4().hex[:12]}",
+                "tenant_id": db.current_tenant(),
+                "interaction_id": interaction_id,
+                "sandbox_run_id": sandbox_run_id,
+                "transcript_turn_id": transcript_turn_id,
+                "query": pii_redact.redact_text(q),
+                "top_chunks": json.dumps(
+                    [
+                        {"chunkId": r.get("chunkId"), "docId": r.get("docId"),
+                         "score": r.get("score"), "kind": r.get("docType")}
+                        for r in payload.get("results") or []
+                    ]
+                ),
+                "latency_ms": payload["latencyMs"],
+                "selected_answer_source": f"{source}:cached",
+                "created_at": datetime.now(timezone.utc),
+            },
+            defer=source in _DEFERRED_LOG_SOURCES,
+        )
+        return payload
+
+    rt = Retrieval(
+        query=query,
+        top_k=top_k,
+        include_draft_answer=include_draft_answer,
+        source=source,
+        sandbox_run_id=sandbox_run_id,
+        interaction_id=interaction_id,
+        prefer_policy=prefer_policy,
+        topic=topic,
+        kb_snapshot_id=kb_snapshot_id,
+        product_keys=product_keys,
+        scope_from_query=scope_from_query,
+        transcript_turn_id=transcript_turn_id,
+        q=q,
+        t0=t0,
+        stage_ms=stage_ms,
+        mark=mark,
+        cache_key=cache_key,
+    )
+    _retrieve_plan(rt)
+    _retrieve_search(rt)
+    _retrieve_rank(rt)
+    _retrieve_draft(rt)
+    return _retrieve_assemble(rt)
 
 
 def catalog(
