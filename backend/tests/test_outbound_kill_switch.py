@@ -126,7 +126,7 @@ def test_the_carrier_call_is_refused_while_the_switch_is_off(
     def _explode(*_a, **_k):
         raise AssertionError("the carrier client must not be reached")
 
-    monkeypatch.setattr(twilio_ops, "_client", _explode)
+    monkeypatch.setattr(twilio_ops, "rest_client", _explode)
 
     with pytest.raises(twilio_ops.OutboundDisabled):
         twilio_ops.start_outbound_call(to="919655282324")

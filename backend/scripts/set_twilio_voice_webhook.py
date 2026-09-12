@@ -14,7 +14,6 @@ from env_loader import load_env
 
 load_env()
 
-from twilio.rest import Client  # noqa: E402
 from voice import twilio_ops  # noqa: E402
 
 
@@ -34,7 +33,7 @@ def main() -> int:
     status_callback = (
         twilio_ops.call_status_callback_url() or f"{base}/twilio/voice/call-status"
     )
-    client = Client(sid, token)
+    client = twilio_ops.rest_client()
     nums = client.incoming_phone_numbers.list(phone_number=phone, limit=5)
     if not nums:
         digits = twilio_ops.digits_only(phone)

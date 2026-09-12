@@ -67,14 +67,9 @@ def send(
     else:
         to = "+" + digits
 
-    from twilio.http.http_client import TwilioHttpClient
-    from twilio.rest import Client
+    from voice import twilio_ops
 
-    client = Client(
-        env_str("TWILIO_ACCOUNT_SID"),
-        env_str("TWILIO_AUTH_TOKEN"),
-        http_client=TwilioHttpClient(timeout=10),
-    )
+    client = twilio_ops.rest_client()
     kwargs: dict[str, Any] = {"to": to, "from_": from_number(), "body": body}
     callback = status_callback_url()
     if callback:

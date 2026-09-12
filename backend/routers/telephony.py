@@ -117,7 +117,9 @@ def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
         return False
 
 def _voice_ws_secrets_equal(a: str, b: str) -> bool:
-    if not a or not b or len(a) != len(b):
+    # No length short-circuit: compare_digest is constant-time only when it
+    # runs, and an early `len(a) != len(b)` return told a caller the length.
+    if not a or not b:
         return False
     return secrets.compare_digest(a.encode(), b.encode())
 

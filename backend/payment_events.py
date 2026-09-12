@@ -8,8 +8,6 @@ or hours). Voice is last-resort outreach and defaults off.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -55,14 +53,9 @@ def webhook_secret() -> str:
 
 
 def verify_webhook_signature(*, raw_body: bytes, header: str | None) -> bool:
-    secret = webhook_secret()
-    if not secret or not header:
-        return False
-    provided = header.strip()
-    if provided.lower().startswith("sha256="):
-        provided = provided[7:]
-    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, provided)
+    from payments import verify_hmac_sha256
+
+    return verify_hmac_sha256(secret=webhook_secret(), raw_body=raw_body, header=header)
 
 
 def _pick(body: dict[str, Any], *keys: str) -> Any:

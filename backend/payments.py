@@ -72,13 +72,13 @@ def webhook_secret(provider_name: str | None = None) -> str:
     return env_str("PAYMENT_WEBHOOK_SECRET")
 
 
-def verify_webhook_signature(
-    *,
-    provider_name: str,
-    raw_body: bytes,
-    header: str | None,
-) -> bool:
-    secret = webhook_secret(provider_name)
+def verify_hmac_sha256(*, secret: str, raw_body: bytes, header: str | None) -> bool:
+    """Whether ``header`` is the hex HMAC-SHA256 of ``raw_body`` under ``secret``.
+
+    The one verifier for every signed inbound webhook (payment providers, the
+    bank's payment events); an optional ``sha256=`` prefix is accepted. No
+    secret or no header is a refusal, never a pass.
+    """
     if not secret or not header:
         return False
     provided = header.strip()
@@ -86,6 +86,15 @@ def verify_webhook_signature(
         provided = provided[7:]
     expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, provided)
+
+
+def verify_webhook_signature(
+    *,
+    provider_name: str,
+    raw_body: bytes,
+    header: str | None,
+) -> bool:
+    return verify_hmac_sha256(secret=webhook_secret(provider_name), raw_body=raw_body, header=header)
 
 
 def parse_webhook_payload(provider_name: str, body: dict[str, Any]) -> dict[str, Any]:

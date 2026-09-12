@@ -291,7 +291,11 @@ def carrier_call(fn, *args, **kwargs):
     return carrier_breaker().call(_guarded)
 
 
-def _client():
+def rest_client():
+    """The Twilio REST client every caller shares the shape of: the account
+    credentials and a 10 s HTTP timeout. SMS and the webhook-setting script
+    used to construct their own, the script with no timeout at all.
+    """
     from twilio.http.http_client import TwilioHttpClient
     from twilio.rest import Client
 
@@ -391,7 +395,7 @@ def start_outbound_call(
         from agent_core.carrier_guard import refuse_real_carrier
 
         refuse_real_carrier("twilio.voice")
-        call = carrier_call(_client().calls.create, **kwargs)
+        call = carrier_call(rest_client().calls.create, **kwargs)
     except Exception as exc:
         event(
             "dial.failed",
@@ -433,7 +437,7 @@ def warm_transfer_to_supervisor(
         raise RuntimeError("call_sid required for warm transfer")
 
     conference = f"bb-handoff-{call_sid[-12:]}"
-    client = _client()
+    client = rest_client()
     from_number = twilio_phone()
     # Validate before redirecting: without a from_number the supervisor dial
     # below fails, and the customer is already parked alone in a conference

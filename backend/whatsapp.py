@@ -69,7 +69,7 @@ def send_text_message(*, to_phone: str, body: str, preview_url: bool = False) ->
     """Send a free-form WhatsApp text message. Raises ValueError on API/config errors."""
     import circuit_breaker
 
-    return circuit_breaker.get_breaker("whatsapp_meta").call(
+    return circuit_breaker.get_breaker("whatsapp_meta", ignore_exceptions=(ValueError,)).call(
         _send_text_message_uncircuited,
         to_phone=to_phone,
         body=body,
@@ -132,7 +132,7 @@ def send_template_message(
     """Send a WhatsApp utility template. Raises ValueError on API/config errors."""
     import circuit_breaker
 
-    return circuit_breaker.get_breaker("whatsapp_meta").call(
+    return circuit_breaker.get_breaker("whatsapp_meta", ignore_exceptions=(ValueError,)).call(
         _send_template_message_uncircuited,
         to_phone=to_phone,
         template_name=template_name,
