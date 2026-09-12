@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from fastapi.responses import JSONResponse
 from starlette.requests import HTTPConnection
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("main")
 
@@ -60,7 +61,9 @@ async def authz_guard(conn: HTTPConnection) -> None:
     # — that would hand an unauthenticated caller the default user's grants.
     actor = getattr(conn.state, "actor_user_id", None)
     try:
-        authz.check(method, path_template, actor)
+        # On a grant-cache miss `check` reads Postgres; off the event loop, or
+        # every request in flight waits on that one connection.
+        await run_in_threadpool(authz.check, method, path_template, actor)
     except authz.PermissionDenied as exc:
         logger.warning(
             "authz denied actor=%s %s %s (needs %s)",
