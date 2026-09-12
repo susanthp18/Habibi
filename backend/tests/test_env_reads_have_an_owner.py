@@ -126,9 +126,11 @@ def _is_env_read(node: ast.AST) -> bool:
 
 def _raw_reads() -> dict[str, int]:
     out: dict[str, int] = {}
-    for path in sorted(BACKEND.rglob("*.py")):
+    from tests.source_tree import production_modules
+
+    for path in production_modules(prune=SKIP_DIRS):
         rel = path.relative_to(BACKEND)
-        if any(part in SKIP_DIRS for part in rel.parts) or rel.name.startswith("seed_"):
+        if rel.name.startswith("seed_"):
             continue
         if rel.name in OWNER_FILES or "config" in rel.name:
             continue

@@ -57,9 +57,11 @@ def _functions(path: Path):
 
 def _over_ceiling() -> dict[str, int]:
     out: dict[str, int] = {}
-    for path in sorted(BACKEND.rglob("*.py")):
+    from tests.source_tree import production_modules
+
+    for path in production_modules(prune=SKIP_DIRS):
         rel = path.relative_to(BACKEND)
-        if any(part in SKIP_DIRS for part in rel.parts) or rel.name.startswith("seed_"):
+        if rel.name.startswith("seed_"):
             continue
         for qualname, length in _functions(path):
             if length > CEILING:

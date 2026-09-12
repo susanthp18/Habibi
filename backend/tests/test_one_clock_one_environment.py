@@ -25,13 +25,9 @@ _SKIP_DIRS = {"tests", "scripts", "alembic", ".venv", "__pycache__", "node_modul
 
 
 def _production_modules() -> list[Path]:
-    out = []
-    for path in BACKEND.rglob("*.py"):
-        rel = path.relative_to(BACKEND)
-        if rel.parts[0] in _SKIP_DIRS:
-            continue
-        out.append(path)
-    return out
+    from tests.source_tree import production_modules
+
+    return production_modules(prune=_SKIP_DIRS)
 
 
 def test_the_tenant_zone_is_spelled_once() -> None:
