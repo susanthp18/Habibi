@@ -15,18 +15,13 @@ import {
   languageTag,
   nextVersionLabel,
 } from "@/lib/prompt-studio";
-import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCompilePreview, type CompileReport } from "@/api/agent-studio";
 import { isNotFound } from "@/api/config";
 import { asRollbackTriggers, type AgentCard } from "@/api/agent-card";
-import { ShipTab, type ShipState } from "@/components/prompt-studio/ShipTab";
-import {
-  FILL_TABS,
-  PromptStudioShell,
-  type Tab,
-} from "@/components/prompt-studio/studio/PromptStudioShell";
+import { type ShipState } from "@/components/prompt-studio/ShipTab";
+import { PromptStudioShell, type Tab } from "@/components/prompt-studio/studio/PromptStudioShell";
 import { useStudioQueries } from "@/components/prompt-studio/studio/useStudioQueries";
 import { StudioTabBody } from "@/components/prompt-studio/studio/StudioTabBody";
 import { PresetConfirm } from "@/components/prompt-studio/studio/PresetConfirm";
