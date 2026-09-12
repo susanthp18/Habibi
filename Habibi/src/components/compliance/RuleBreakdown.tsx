@@ -1,5 +1,5 @@
 import type { Violation } from "@/api/types/compliance";
-import { groupByRule, severityColor } from "@/data/compliance-seed";
+import { groupByRule, severityColor } from "@/lib/compliance";
 import { ChartCard, SnapshotPill } from "@/components/charts";
 
 export function RuleBreakdown({
@@ -32,23 +32,21 @@ export function RuleBreakdown({
       }
     >
       <ul className="space-y-100">
-        {rows.map(({ rule, count, open }) => {
+        {rows.map(({ ruleId, code, label, severity, count, open }) => {
           const pct = (count / max) * 100;
-          const active = selectedRuleId === rule.id;
+          const active = selectedRuleId === ruleId;
           return (
-            <li key={rule.id}>
+            <li key={ruleId}>
               <button
-                onClick={() => onSelect(active ? "all" : rule.id)}
+                onClick={() => onSelect(active ? "all" : ruleId)}
                 className={`w-full rounded-medium px-100 py-075 text-left transition-colors ${
                   active ? "bg-background-brand-subtlest" : "hover:bg-surface-sunken"
                 }`}
               >
                 <div className="flex items-baseline justify-between gap-100">
                   <div className="min-w-0">
-                    <div className="truncate text-body-small font-medium text-text">
-                      {rule.label}
-                    </div>
-                    <div className="font-mono text-body-small text-text-subtlest">{rule.code}</div>
+                    <div className="truncate text-body-small font-medium text-text">{label}</div>
+                    <div className="font-mono text-body-small text-text-subtlest">{code}</div>
                   </div>
                   <div className="shrink-0 text-body-small text-text-subtle">
                     <span className="font-semibold tabular-nums text-text">{open}</span> / {count}
@@ -57,7 +55,7 @@ export function RuleBreakdown({
                 <div className="mt-050 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken p-px">
                   <div
                     className="h-full rounded-full transition-[width] duration-300"
-                    style={{ width: `${pct}%`, background: severityColor(rule.severity) }}
+                    style={{ width: `${pct}%`, background: severityColor(severity) }}
                   />
                 </div>
               </button>

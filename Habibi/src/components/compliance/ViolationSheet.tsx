@@ -5,14 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Bot, User, Clock, FileAudio, ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Violation } from "@/api/types/compliance";
-import {
-  RULES_BY_ID,
-  severityColor,
-  severityBg,
-  statusLabel,
-  formatWhen,
-  formatAt,
-} from "@/data/compliance-seed";
+import { severityColor, severityBg, statusLabel, formatWhen } from "@/lib/compliance";
+import { formatDuration } from "@/lib/format";
 import { Lozenge } from "@/components/ui/lozenge";
 import { SelectField } from "@/components/ui/select";
 
@@ -42,8 +36,6 @@ export function ViolationSheet({
   }, [assignees, assignee]);
 
   if (!v) return null;
-  const rule = RULES_BY_ID[v.ruleId];
-  if (!rule) return null;
 
   const handle = (fn: () => void) => {
     fn();
@@ -68,15 +60,14 @@ export function ViolationSheet({
             >
               {v.severity}
             </Lozenge>
-            <span className="font-mono text-body-small text-text-subtlest">{rule.code}</span>
+            <span className="font-mono text-body-small text-text-subtlest">{v.ruleCode}</span>
             <Lozenge tone="neutral" className="ml-auto">
               {statusLabel(v.status)}
             </Lozenge>
           </div>
           <SheetTitle className="text-left heading-small font-semibold text-text">
-            {rule.label}
+            {v.ruleLabel}
           </SheetTitle>
-          <div className="text-body-small text-text-subtle">{rule.description}</div>
         </SheetHeader>
 
         <div className="space-y-200 p-200">
@@ -102,7 +93,8 @@ export function ViolationSheet({
                 label="Occurred"
                 value={
                   <span className="inline-flex items-center gap-050">
-                    <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @ {formatAt(v.atSec)}
+                    <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @{" "}
+                    {formatDuration(v.atSec)}
                   </span>
                 }
               />
@@ -211,7 +203,7 @@ export function ViolationSheet({
               title="Audio seek from compliance is not wired yet — open Audit for playback"
               className="inline-flex cursor-not-allowed items-center gap-050 rounded-medium border border-border bg-surface-sunken px-150 py-075 text-body-small text-text-subtlest opacity-60"
             >
-              <FileAudio className="h-3.5 w-3.5" /> Jump to audio {formatAt(v.atSec)}
+              <FileAudio className="h-3.5 w-3.5" /> Jump to audio {formatDuration(v.atSec)}
             </button>
           </div>
         </div>
@@ -241,7 +233,7 @@ function Line({
   return (
     <div className={`flex gap-100 ${muted ? "text-text-subtlest" : "text-text"}`}>
       <span className="w-600 shrink-0 font-mono text-body-small text-text-subtlest">
-        {formatAt(turn.t)}
+        {formatDuration(turn.t)}
       </span>
       <span
         className={`w-14 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}

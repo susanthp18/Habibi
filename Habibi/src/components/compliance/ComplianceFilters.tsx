@@ -8,7 +8,7 @@ import type {
   ViolationStatus,
   Violation,
 } from "@/api/types/compliance";
-import { RULES, listActorNames } from "@/data/compliance-seed";
+import { groupByRule, listActorNames } from "@/lib/compliance";
 
 const RANGE_OPTIONS = [
   { value: "today", label: "Today" },
@@ -49,6 +49,7 @@ export function ComplianceFilters({
   resultCount: number;
 }) {
   const agents = listActorNames(all);
+  const rules = groupByRule(all);
   const patch = (p: Partial<ComplianceFilterState>) => onChange({ ...filters, ...p });
   const toggleSev = (s: Severity) => {
     const next = new Set(filters.severities);
@@ -96,7 +97,7 @@ export function ComplianceFilters({
           className="w-[15rem]"
           options={[
             { value: "all", label: "All rules" },
-            ...RULES.map((r) => ({ value: r.id, label: `${r.code} · ${r.label}` })),
+            ...rules.map((r) => ({ value: r.ruleId, label: `${r.code} · ${r.label}` })),
           ]}
         />
 

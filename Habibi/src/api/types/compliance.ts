@@ -1,8 +1,8 @@
 /**
  * Domain / wire types for the compliance surface.
  *
- * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
- * modules do not import their contract from fixtures (WP-048).
+ * `Violation` is `ViolationListResponse` on the wire: the row carries the
+ * code and label of the rule it hit, so nothing here looks a rule up.
  */
 
 import type { TranscriptTurn } from "./audit";
@@ -10,16 +10,6 @@ import type { TranscriptTurn } from "./audit";
 export type Severity = "critical" | "high" | "medium" | "low";
 export type ViolationStatus = "open" | "in_review" | "acknowledged" | "resolved";
 export type ActorKind = "bot" | "human";
-export type RuleCategory =
-  "disclosure" | "prohibited-language" | "consent" | "verification" | "sentiment";
-export interface ComplianceRule {
-  id: string;
-  code: string;
-  label: string;
-  category: RuleCategory;
-  severity: Severity;
-  description: string;
-}
 export interface ViolationNote {
   at: string;
   author: string;
@@ -30,6 +20,8 @@ export interface Violation {
   callId: string;
   customerName: string;
   ruleId: string;
+  ruleCode: string;
+  ruleLabel: string;
   severity: Severity;
   occurredAt: string;
   atSec: number;

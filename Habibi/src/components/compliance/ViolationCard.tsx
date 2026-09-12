@@ -1,14 +1,8 @@
 import { Bot, User, Clock, ExternalLink, CheckCircle2, Eye, UserPlus } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Violation } from "@/api/types/compliance";
-import {
-  RULES_BY_ID,
-  severityColor,
-  severityBg,
-  statusLabel,
-  formatWhen,
-  formatAt,
-} from "@/data/compliance-seed";
+import { severityColor, severityBg, statusLabel, formatWhen } from "@/lib/compliance";
+import { formatDuration } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 const STATUS_STYLES: Record<Violation["status"], LozengeTone> = {
@@ -31,9 +25,6 @@ export function ViolationCard({
   onAcknowledge: () => void;
   onResolve: () => void;
 }) {
-  const rule = RULES_BY_ID[v.ruleId];
-  if (!rule) return null;
-
   return (
     <div className="group flex overflow-hidden rounded-medium border border-border bg-surface transition-shadow">
       {/* Severity ribbon */}
@@ -49,8 +40,8 @@ export function ViolationCard({
               >
                 {v.severity}
               </span>
-              <span className="font-mono text-body-small text-text-subtlest">{rule.code}</span>
-              <span className="text-body font-semibold text-text">{rule.label}</span>
+              <span className="font-mono text-body-small text-text-subtlest">{v.ruleCode}</span>
+              <span className="text-body font-semibold text-text">{v.ruleLabel}</span>
             </div>
             <div className="mt-050 flex flex-wrap items-center gap-100 text-body-small text-text-subtle">
               <span className="inline-flex items-center gap-050">
@@ -65,7 +56,7 @@ export function ViolationCard({
               <span>{v.customerName}</span>
               <span>·</span>
               <span className="inline-flex items-center gap-050">
-                <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @ {formatAt(v.atSec)}
+                <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @ {formatDuration(v.atSec)}
               </span>
               <span>·</span>
               <span className="font-mono">{v.callId}</span>
@@ -156,7 +147,7 @@ function EvidenceLine({
   return (
     <div className={`flex gap-100 ${muted ? "text-text-subtlest" : "text-text"}`}>
       <span className="w-14 shrink-0 font-mono text-body-small text-text-subtlest">
-        {formatAt(t)}
+        {formatDuration(t)}
       </span>
       <span
         className={`w-800 shrink-0 text-body-small font-medium ${muted ? "text-text-subtlest" : "text-text"}`}

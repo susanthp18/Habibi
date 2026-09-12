@@ -3,33 +3,20 @@
 //   fetchViolations() → feed list  (GET /violations)
 //   assign / acknowledge / resolve / add note → Phase 3A writes (hardened in 3B)
 //
-// Mock branch preserves in-memory seed mutators. Live branch maps to PATCH +
-// POST /notes; the screen shape is richer than the old {id,status} stub, so
-// callers invalidate + refetch. Assignees resolve through /staff; note author
-// is the acting user from GET /me — never a hardcoded "You" / CURRENT_AGENT.
+// Writes map to PATCH + POST /notes; the screen shape is richer than the write
+// response, so callers invalidate + refetch. Assignees resolve through /staff;
+// the note author is the acting user from GET /me.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
 
 import type { Violation, ViolationStatus } from "@/api/types/compliance";
-import {
-  acknowledgeViolation as acknowledgeSeed,
-  addViolationNote as addSeedNote,
-  assignViolation as assignSeed,
-  resolveViolation as resolveSeed,
-  violations as seedViolations,
-} from "@/data/compliance-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
 import { humanNames, resolveActor, type Staff } from "./staff";
 
-export const POLICY_EXPORT_AVAILABLE = !USE_MOCK;
-
-export function violationAssigneeOptions(staff: Staff[], existing: string[]): string[] {
-  const fromStaff = humanNames(staff);
-  if (!USE_MOCK) return fromStaff;
-  if (fromStaff.length) return fromStaff;
-  return Array.from(new Set(existing.filter(Boolean))).sort();
+export function violationAssigneeOptions(staff: Staff[]): string[] {
+  return humanNames(staff);
 }
 
 export async function exportPolicyBundle(fmt: "opa" | "cedar"): Promise<{
@@ -40,7 +27,6 @@ export async function exportPolicyBundle(fmt: "opa" | "cedar"): Promise<{
 }
 
 export async function fetchViolations(): Promise<Violation[]> {
-  if (USE_MOCK) return mockDelay(seedViolations);
   return apiGet<Violation[]>("/violations");
 }
 
@@ -51,11 +37,6 @@ export function useViolations() {
 async function postNote(id: string, note: string): Promise<void> {
   const text = note.trim();
   if (!text) return;
-  if (USE_MOCK) {
-    const me = await currentActor();
-    addSeedNote(id, text, me.name);
-    return;
-  }
   await apiPost(`/violations/${id}/notes`, { text });
 }
 
@@ -99,11 +80,6 @@ export async function assignViolation(
   assignee: string,
   note = "Assigned for review.",
 ): Promise<void> {
-  if (USE_MOCK) {
-    const me = await currentActor();
-    assignSeed(v.id, assignee, note, me.name);
-    return;
-  }
   const actor = await resolveActor(assignee);
   if (actor.kind !== "human") {
     throw new Error(`${assignee} is a bot — compliance review is assigned to people`);
@@ -116,22 +92,12 @@ export async function assignViolation(
 }
 
 export async function acknowledgeViolation(v: Violation, note = "Acknowledged."): Promise<void> {
-  if (USE_MOCK) {
-    const me = await currentActor();
-    acknowledgeSeed(v.id, note, me.name);
-    return;
-  }
   await patchStatusThenNote(v, { status: "acknowledged" satisfies ViolationStatus }, note);
 }
 
 export async function resolveViolation(v: Violation, note: string): Promise<void> {
   const text = note.trim();
   if (!text) throw new Error("A resolution note is required");
-  if (USE_MOCK) {
-    const me = await currentActor();
-    resolveSeed(v.id, text, me.name);
-    return;
-  }
   await patchStatusThenNote(v, { status: "resolved" satisfies ViolationStatus }, text);
 }
 
@@ -177,14 +143,6 @@ export function useRuleCoverage() {
   return useQuery({
     queryKey: ["compliance-rule-coverage"],
     queryFn: async (): Promise<RuleCoverage> => {
-      if (USE_MOCK) {
-        return mockDelay({
-          rules: [],
-          interactionsEvaluated: 0,
-          rulesVersion: 1,
-          detectorsRegistered: 0,
-        });
-      }
       return apiGet<RuleCoverage>("/compliance/rule-coverage");
     },
     staleTime: 60_000,

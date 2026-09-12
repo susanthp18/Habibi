@@ -11,7 +11,7 @@ import { RuleCoverageCard } from "@/components/compliance/RuleCoverageCard";
 import { ViolationFeed } from "@/components/compliance/ViolationFeed";
 import { ViolationSheet } from "@/components/compliance/ViolationSheet";
 import type { ComplianceFilterState, Violation } from "@/api/types/compliance";
-import { defaultCompFilters, filterViolations } from "@/data/compliance-seed";
+import { defaultCompFilters, filterViolations } from "@/lib/compliance";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
@@ -19,7 +19,6 @@ import {
   acknowledgeViolation,
   assignViolation,
   exportPolicyBundle,
-  POLICY_EXPORT_AVAILABLE,
   resolveViolation,
   useViolations,
   violationAssigneeOptions,
@@ -71,14 +70,7 @@ function CompliancePage() {
     queryClient.invalidateQueries({ queryKey: ["violations"] });
   };
 
-  const assignees = useMemo(
-    () =>
-      violationAssigneeOptions(
-        staff,
-        items.map((v) => v.assignee).filter((name): name is string => Boolean(name)),
-      ),
-    [items, staff],
-  );
+  const assignees = useMemo(() => violationAssigneeOptions(staff), [staff]);
 
   const filtered = useMemo(() => filterViolations(items, filters), [items, filters]);
   const openItem = useMemo(() => items.find((v) => v.id === openId) ?? null, [items, openId]);
@@ -175,22 +167,18 @@ function CompliancePage() {
             >
               <Download className="h-3.5 w-3.5" /> Export compliance report
             </button>
-            {POLICY_EXPORT_AVAILABLE ? (
-              <>
-                <button
-                  onClick={() => void handlePolicyExport("opa")}
-                  className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
-                >
-                  OPA bundle
-                </button>
-                <button
-                  onClick={() => void handlePolicyExport("cedar")}
-                  className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
-                >
-                  Cedar
-                </button>
-              </>
-            ) : null}
+            <button
+              onClick={() => void handlePolicyExport("opa")}
+              className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
+            >
+              OPA bundle
+            </button>
+            <button
+              onClick={() => void handlePolicyExport("cedar")}
+              className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
+            >
+              Cedar
+            </button>
           </div>
           <p className="text-body-small text-text-subtle">
             Every rule hit — disclosure misses, prohibited language, consent breaches — with

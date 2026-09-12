@@ -33,7 +33,6 @@ const FIXTURE_IMPORTERS = [
   "audit.ts",
   "authority.ts",
   "billing.ts",
-  "compliance.ts",
   "consent.ts",
   "contact-policy.ts",
   "customers.ts",
