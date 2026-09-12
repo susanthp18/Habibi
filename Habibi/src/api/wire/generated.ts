@@ -3859,7 +3859,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /agent-studio/cards/{bot_id}/compile", CompileReport],
   ["GET /agent-studio/cards/{bot_id}/effective-contract", EffectiveContractResponse],
   ["POST /agent-studio/cards/{bot_id}/publish", PromptVersionResponse],
-  ["POST /agent-studio/cards/{bot_id}/connectors", PromptVersionResponse],
   ["GET /agent-studio/cards/{bot_id}/graph", AgentStudioGraphResponse],
   ["GET /agent-studio/skills", z.array(AgentStudioSkillSummaryResponse)],
   ["POST /agent-studio/skills", AgentStudioSkillResponse],

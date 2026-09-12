@@ -47,5 +47,11 @@
     "get_emi_schedule",
     "get_payment_history",
     "request_documents"
+  ],
+  "connectorDataClasses": [
+    "pii",
+    "money",
+    "internal",
+    "public"
   ]
 }

@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Lozenge } from "@/components/ui/lozenge";
 import { SelectField } from "@/components/ui/select";
+import { Chip } from "@/components/ui/chip";
+import { FilterGroup } from "@/components/records/FiltersBar";
+import { toggleIn } from "@/lib/utils";
+import STUDIO_VOCABULARY from "@/lib/studio-vocabulary.json";
 import { connectorHealthToast } from "@/lib/studio-trust";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
@@ -22,6 +26,7 @@ export function ConnectorsPanel() {
   const [authRef, setAuthRef] = useState("");
   const [issuer, setIssuer] = useState("");
   const [cimdConnectorId, setCimdConnectorId] = useState("");
+  const [dataClass, setDataClass] = useState<string[]>(["pii"]);
   const vault = useVaultRefs();
 
   const columns: RecordsColumn<Connector>[] = [
@@ -118,7 +123,7 @@ export function ConnectorsPanel() {
         token in this form. Idle mouth excludes <span className="font-mono">ext.*</span> so G6 does
         not blow the 12-tool cap.
       </p>
-      <div className="grid gap-100 md:grid-cols-4">
+      <div className="grid gap-100 md:grid-cols-5">
         <Input placeholder="slug" value={slug} onChange={(e) => setSlug(e.target.value)} />
         <Input
           placeholder="https://bank.example/mcp"
@@ -133,8 +138,20 @@ export function ConnectorsPanel() {
           onChange={setAuthRef}
           options={(vault.data ?? []).map((ref) => ({ value: ref.id, label: ref.name }))}
         />
+        <FilterGroup label="Data">
+          {STUDIO_VOCABULARY.connectorDataClasses.map((dc) => (
+            <Chip
+              key={dc}
+              active={dataClass.includes(dc)}
+              onClick={() => setDataClass(toggleIn(dataClass, dc))}
+            >
+              {dc}
+            </Chip>
+          ))}
+        </FilterGroup>
         <Button
           size="sm"
+          disabled={dataClass.length === 0}
           onClick={() => {
             if (!slug.trim()) return;
             void mut.upsert
@@ -143,7 +160,7 @@ export function ConnectorsPanel() {
                 url: url.trim() || undefined,
                 kind: url.trim() ? "remote_mcp" : "first_party",
                 authRef: authRef || undefined,
-                dataClass: ["pii"],
+                dataClass,
               })
               .then(() => toast.success("Connector saved"));
           }}
