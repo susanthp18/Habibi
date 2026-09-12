@@ -3631,7 +3631,8 @@ class ProviderUsageStatResponse(BaseModel):
 
 class ProviderEnvStatusResponse(BaseModel):
     values: dict[str, str]
-    region: str
+    #: The configured region or null -- never a default the runtime did not use.
+    region: str | None
     health: str
     latencyMs: int
     enabled: bool

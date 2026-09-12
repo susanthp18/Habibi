@@ -77,3 +77,45 @@ def test_the_environment_has_one_owner(monkeypatch: pytest.MonkeyPatch) -> None:
 
     src = inspect.getsource(bot_flow.resolve_call)
     assert 'load_active_bundle(\n                "production"' not in src
+
+
+# --- a third answer with one owner: where the audio goes -----------------------
+
+#: Modules allowed to spell an Azure region: the owner (azure_speech reads the
+#: variable), and seed data that describes a provider rather than choosing one.
+_REGION_OWNERS = {"azure_speech.py"}
+_REGION_LITERALS = {"eastus", "eastus2", "centralindia", "westeurope", "southeastasia"}
+
+
+def test_the_azure_region_is_spelled_nowhere() -> None:
+    """Three modules used to answer "which region": the provider factory fell
+    back to ``eastus2`` (a borrower's audio leaving the country the moment the
+    variable was unset), the ops screen displayed ``centralindia`` (a residency
+    claim the runtime did not honour), and ``voice/config.py`` required the
+    variable. One owner now, and no default anywhere."""
+    offenders = []
+    for path in _production_modules():
+        rel = str(path.relative_to(BACKEND)).replace("\\", "/")
+        if rel in _REGION_OWNERS:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and node.value in _REGION_LITERALS:
+                offenders.append(f"{rel}:{node.lineno}")
+    assert not offenders, offenders
+
+
+def test_a_missing_region_is_an_error_where_the_provider_is_built(monkeypatch) -> None:
+    from agent_core.providers import factory, pool
+    from azure_speech import AzureSpeechConfigError
+
+    monkeypatch.delenv("AZURE_SPEECH_REGION", raising=False)
+    monkeypatch.setenv("AZURE_SPEECH_KEY", "k")
+
+    class _Pool:
+        def acquire(self, session_id, *, tenant_id=None):
+            return "k"
+
+    monkeypatch.setattr(pool, "get_pool", lambda provider_id: _Pool())
+    with pytest.raises(AzureSpeechConfigError):
+        factory._credentials("azure", None, None)

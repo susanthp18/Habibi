@@ -1606,9 +1606,11 @@ def list_providers(environment: str = "sandbox") -> list[dict[str, Any]]:
             return {
                 "values": values,
                 # Credentials are process-wide env vars, so `values` is shared;
-                # only the DB-backed status is per-environment.
-                "region": values.get("region")
-                or ("centralindia" if for_env == "production" else "eastus"),
+                # only the DB-backed status is per-environment. The region is
+                # what the environment says or nothing: a displayed default
+                # that the runtime did not use is a lie on a data-residency
+                # screen.
+                "region": values.get("region") or None,
                 "health": health,
                 "latencyMs": latency,
                 "enabled": enabled,

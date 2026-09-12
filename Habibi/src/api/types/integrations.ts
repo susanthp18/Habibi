@@ -40,7 +40,7 @@ export type Provider = {
     Env,
     {
       values: Record<string, string>;
-      region: string;
+      region: string | null;
       health: HealthStatus;
       latencyMs: number;
       enabled: boolean;

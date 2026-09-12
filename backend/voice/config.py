@@ -78,7 +78,11 @@ def azure_speech_key() -> str:
 
 
 def azure_speech_region() -> str:
-    return _require("AZURE_SPEECH_REGION")
+    # The region has one owner (azure_speech.get_speech_region); this is the
+    # voice image's name for it.
+    from azure_speech import get_speech_region
+
+    return get_speech_region()
 
 
 def azure_speech_default_voice() -> str:

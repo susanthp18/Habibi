@@ -188,8 +188,6 @@ def _credentials(provider_id: str, session_id: str | None, tenant_id: str | None
     want ``api_key`` alone — so the difference is encoded here rather than in
     every call site.
     """
-    import os
-
     spec = SEED_BY_SLUG.get(provider_id)
     if spec is None or spec.key_env is None:
         return {}
@@ -197,7 +195,15 @@ def _credentials(provider_id: str, session_id: str | None, tenant_id: str | None
     key = pool_mod.get_pool(provider_id).acquire(session_id, tenant_id=tenant_id)
     creds: dict[str, Any] = {"api_key": key}
     if provider_id == "azure":
-        creds["region"] = os.getenv("AZURE_SPEECH_REGION") or "eastus2"
+        # One owner for the region, and no default. This used to fall back to
+        # eastus2 -- a borrower's audio quietly leaving the country the moment
+        # the variable was unset -- while the ops screen displayed
+        # centralindia. A missing region is a configuration error, raised
+        # where the provider is built, never a region chosen on the caller's
+        # behalf.
+        from azure_speech import get_speech_region
+
+        creds["region"] = get_speech_region()
     return creds
 
 
