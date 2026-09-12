@@ -335,7 +335,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/agent-studio/change-log"): BOT_READ,
     ("GET", "/agent-studio/cards/{bot_id}"): BOT_READ,
     ("PATCH", "/agent-studio/cards/{bot_id}"): AGENT_EDIT,
-    ("POST", "/agent-studio/cards/{bot_id}/archive"): AGENT_EDIT,
+    # Archiving retires the live production deployment (that is what "takes
+    # no traffic" means), so it is the inverse of publishing and needs the
+    # same right. Restore does not redeploy and stays an edit.
+    ("POST", "/agent-studio/cards/{bot_id}/archive"): AGENT_PUBLISH,
     ("POST", "/agent-studio/cards/{bot_id}/restore"): AGENT_EDIT,
     ("POST", "/agent-studio/cards/{bot_id}/compile"): AGENT_EDIT,
     ("GET", "/agent-studio/cards/{bot_id}/effective-contract"): BOT_READ,

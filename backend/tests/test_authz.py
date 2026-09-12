@@ -599,6 +599,28 @@ def test_deployment_rollback_requires_agent_publish() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        ("POST", "/prompt-versions/{version_id}/publish"),
+        ("POST", "/agent-studio/cards/{bot_id}/publish"),
+        # Archive retires the live production deployment: the inverse of
+        # publishing. It used to sit on AGENT_EDIT, so an editor could take a
+        # shipped agent off the air.
+        ("POST", "/agent-studio/cards/{bot_id}/archive"),
+        # Entry bindings decide which card answers the phone.
+        ("PUT", "/agent-studio/entry-bindings"),
+        ("DELETE", "/agent-studio/entry-bindings/{binding_id}"),
+    ],
+)
+def test_every_route_that_changes_what_ships_requires_agent_publish(route) -> None:
+    assert authz.ROUTE_PERMISSIONS[route] == authz.AGENT_PUBLISH, route
+
+
+def test_restore_is_an_edit_because_it_does_not_redeploy() -> None:
+    assert authz.ROUTE_PERMISSIONS[("POST", "/agent-studio/cards/{bot_id}/restore")] == authz.AGENT_EDIT
+
+
 def test_agent_cannot_publish_an_agent_card(gated_client: TestClient) -> None:
     """agent.publish is not on the floor-agent role — 403, not a silent publish."""
     res = gated_client.post(
