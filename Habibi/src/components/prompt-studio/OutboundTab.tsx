@@ -42,9 +42,10 @@ import { SelectField } from "@/components/ui/select";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { ApiError } from "@/api/config";
-import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 import { Empty } from "@/components/ui/empty";
+import { StatTile } from "@/components/ui/stat-tile";
 
 type Pane = "missions" | "cadence" | "reach" | "aftercall";
 
@@ -57,30 +58,6 @@ const PANES: Array<{ key: Pane; label: string; icon: typeof Target }> = [
 
 function pct(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : `${Math.round(value * 100)}%`;
-}
-
-function Stat({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: LozengeTone;
-}) {
-  return (
-    <div className="rounded-medium border border-border bg-surface px-150 py-100">
-      <div className="text-body-tiny uppercase tracking-wide text-text-subtlest">{label}</div>
-      <div
-        className={cn("mt-050 heading-small tabular-nums", tone === "danger" && "text-text-danger")}
-      >
-        {value}
-      </div>
-      {hint ? <div className="mt-025 text-body-tiny text-text-subtle">{hint}</div> : null}
-    </div>
-  );
 }
 
 /**
@@ -616,9 +593,16 @@ export function OutboundTab({
                     >
                       {r.status}
                     </Lozenge>
+                    {/* Skipped targets (DND, no consent, wrong window) are not
+                        done and not pending; folding them into either is how a
+                        campaign reads as "3/10" forever, or as finished with
+                        seven borrowers it never reached. */}
                     <span className="text-body-tiny tabular-nums text-text-subtle">
-                      {r.targets_done}/{r.targets_total} · {r.window_start_hour}:00–
-                      {r.window_end_hour}:00 · max {r.max_concurrent} at once
+                      {r.done ?? r.targets_done} done
+                      {r.skipped ? ` · ${r.skipped} skipped` : ""}
+                      {r.pending != null ? ` · ${r.pending} pending` : ""} of {r.targets_total} ·{" "}
+                      {r.window_start_hour}:00–{r.window_end_hour}:00 · max {r.max_concurrent} at
+                      once
                     </span>
                     <span className="ml-auto">
                       <Button
@@ -672,27 +656,31 @@ export function OutboundTab({
           ) : (
             <>
               <div className="grid gap-100 sm:grid-cols-2 lg:grid-cols-4">
-                <Stat
+                <StatTile
+                  variant="card"
                   label="Answer rate"
                   value={pct(stats.data?.answerRate)}
-                  hint={`${stats.data?.answered ?? 0} of ${stats.data?.attempts ?? 0} dials`}
+                  sub={`${stats.data?.answered ?? 0} of ${stats.data?.attempts ?? 0} dials`}
                 />
-                <Stat
+                <StatTile
+                  variant="card"
                   label="Right party"
                   value={pct(stats.data?.rightPartyRate)}
-                  hint="of the calls that were answered"
+                  sub="of the calls that were answered"
                 />
-                <Stat
+                <StatTile
+                  variant="card"
                   label="Dials per connect"
                   value={
                     stats.data?.attemptsPerConnect ? stats.data.attemptsPerConnect.toFixed(1) : "—"
                   }
-                  hint="the dominant term in cost per connect"
+                  sub="the dominant term in cost per connect"
                 />
-                <Stat
+                <StatTile
+                  variant="card"
                   label="Blocked by policy"
                   value={String(stats.data?.suppressed ?? 0)}
-                  hint="refused by the contact gate, not by the borrower"
+                  sub="refused by the contact gate, not by the borrower"
                 />
               </div>
               <p className="text-body-tiny text-text-subtlest">

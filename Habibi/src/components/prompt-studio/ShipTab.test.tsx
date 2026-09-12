@@ -40,6 +40,10 @@ vi.mock("@/api/prompt-studio", () => ({
   useRollbackBotDeployment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock("@/api/integrations", () => ({
+  useGatewayCanary: () => ({ data: undefined }),
+}));
+
 const { ShipTab } = await import("./ShipTab");
 
 function show(state: Record<string, unknown>, experiments: Record<string, unknown> = {}) {

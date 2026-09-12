@@ -15,7 +15,6 @@ import {
 // covered 7 of the schema's 14 members and every caller reached it through
 // `as never`, so nothing checked the other 7 or the spelling of these.
 import { isAuthoredCard, type AgentCard, type EvalRequire } from "@/api/agent-card";
-import { EvalCockpit } from "@/components/shared/EvalCockpit";
 import { CritiquesPanel } from "../CritiquesPanel";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner, QueryState } from "@/components/ui/query-state";
@@ -243,7 +242,6 @@ export function EvalsTab({
       ) : null}
       <EvalReportsList botId={botId} reportsQuery={reportsQuery} />
       <CritiquesPanel />
-      <EvalCockpit />
     </div>
   );
 }
