@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Sequence, Union
 
 from alembic import op
+from replay import apply_sql
 from sqlalchemy import text
 
 revision: str = "20260906_0110"
@@ -79,9 +80,8 @@ def upgrade() -> None:
         "ALTER TABLE mandate_presentations VALIDATE CONSTRAINT ck_mandate_presentations_no_abandon"
     )
 
-    sql = _SQL.read_text(encoding="utf-8")
+    apply_sql(_SQL)
     conn = op.get_bind()
-    conn.exec_driver_sql(sql)
 
     import authz
 

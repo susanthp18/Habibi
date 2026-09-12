@@ -19,16 +19,10 @@ DECLARE
     'permissions',
     'products',
     'product_eligibility_rules',
-    'product_campaigns',
-    -- leads was missing: every lead row reported the updated_at it was
-    -- inserted with, so "stale lead" reporting could never work.
-    'leads',
-    -- the base table: `customers` is a view over it since sql/02_customers_view
-    'customers_pii',
+    'customers',
     'customer_notes',
     'accounts',
     'emi_installments',
-    'payment_events',
     'consent_records',
     'channel_consents',
     'interactions',
@@ -39,17 +33,11 @@ DECLARE
     'payment_plans',
     'promises',
     'promise_reminders',
-    'payment_intents',
     'promise_installments',
     'disputes',
     'document_templates',
     'document_requests',
     'callbacks',
-    'treatment_holds',
-    'mandates',
-    'mandate_presentations',
-    'policy_rule_sets',
-    'policy_rules',
     'redaction_rule_configs',
     'redaction_records',
     'export_jobs',
@@ -89,10 +77,6 @@ DECLARE
     'calibration_reviewer_scores'
   ];
 BEGIN
-  -- The customers table was renamed customers_pii (sql/48): on a database
-  -- that was migrated, its trigger still carries the old name. Drop it so
-  -- the loop below leaves exactly one, under the table's own name.
-  EXECUTE 'DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers_pii';
   FOREACH table_name IN ARRAY mutable_tables LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_%I_updated_at ON %I', table_name, table_name);
     EXECUTE format(
@@ -103,7 +87,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- Unique published-prompt rule lives in sql/09_bot_config.sql
--- (ux_prompt_versions_one_published_per_bot). Do not recreate a tenant-global
--- or status-only unique here — that is what made a fleet impossible.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_versions_one_published
+  ON prompt_versions ((status))
+  WHERE status = 'published';
 

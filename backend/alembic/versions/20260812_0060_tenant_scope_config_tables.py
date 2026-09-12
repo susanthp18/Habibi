@@ -81,6 +81,17 @@ def _backfill(table: str) -> str:
 
 
 def upgrade() -> None:
+    # An empty database has the configuration rows the schema files seed and
+    # no tenant to attribute them to. sql/09_bot_config.sql seeds the default
+    # tenant for exactly this reason; the chain does the same here, and only
+    # here, so a replay from the baseline lands where the sql/ build does.
+    op.execute(
+        """
+        INSERT INTO tenants (id, name)
+        SELECT 'hdfc.retail', 'HDFC Retail'
+        WHERE NOT EXISTS (SELECT 1 FROM tenants)
+        """
+    )
     for table in TABLES:
         op.add_column(table, sa.Column("tenant_id", sa.Text(), nullable=True))
         op.execute(_backfill(table))

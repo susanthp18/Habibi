@@ -209,6 +209,8 @@ CREATE TABLE IF NOT EXISTS tts_voice_catalog (
 );
 CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_locale ON tts_voice_catalog (locale);
 CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_provider ON tts_voice_catalog (provider_id);
+CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_search
+  ON tts_voice_catalog (lower(display_name), lower(short_name), lower(local_name));
 CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_price_tier ON tts_voice_catalog (price_tier);
 CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_gender ON tts_voice_catalog (gender);
 CREATE INDEX IF NOT EXISTS idx_tts_voice_catalog_status ON tts_voice_catalog (status);

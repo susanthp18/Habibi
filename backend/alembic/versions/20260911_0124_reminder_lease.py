@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence, Union
 
-from alembic import op
+from replay import apply_sql
 
 revision: str = "20260911_0124"
 down_revision: Union[str, None] = "20260911_0123"
@@ -24,7 +24,7 @@ _SQL = Path(__file__).resolve().parents[2] / "sql" / "35_reminder_lease.sql"
 
 
 def upgrade() -> None:
-    op.get_bind().exec_driver_sql(_SQL.read_text(encoding="utf-8"))
+    apply_sql(_SQL)
 
 
 def downgrade() -> None:

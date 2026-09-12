@@ -33,9 +33,11 @@ CREATE TABLE IF NOT EXISTS a2a_partners (
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active','disabled')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (tenant_id, bot_id, cert_fingerprint)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- As migration 0111 built it: a unique index, one name on every database.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_a2a_partner_bot_cert
+  ON a2a_partners (tenant_id, bot_id, cert_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_a2a_partners_tenant ON a2a_partners(tenant_id);
 
 CREATE TABLE IF NOT EXISTS a2a_tasks (

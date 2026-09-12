@@ -37,7 +37,9 @@ def upgrade() -> None:
     op.execute(
         """
         INSERT INTO user_roles (user_id, role_id)
-        VALUES ('priya-nair', 'role-admin')
+        SELECT 'priya-nair', 'role-admin'
+        WHERE EXISTS (SELECT 1 FROM users WHERE id = 'priya-nair')
+          AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-admin')
         ON CONFLICT DO NOTHING
         """
     )

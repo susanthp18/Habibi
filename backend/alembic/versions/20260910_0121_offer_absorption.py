@@ -46,7 +46,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence, Union
 
-from alembic import op
+from replay import apply_sql
 
 revision: str = "20260910_0121"
 down_revision: Union[str, None] = "20260910_0120"
@@ -61,7 +61,7 @@ def upgrade() -> None:
     # the mirror's comments talk about percentages. Escaped here, not in the
     # mirror: `sql/*.sql` is also fed to psql on a fresh build, where `%%`
     # would be wrong.
-    op.get_bind().exec_driver_sql(_SQL.read_text(encoding="utf-8").replace("%", "%%"))
+    apply_sql(_SQL)
 
 
 def downgrade() -> None:

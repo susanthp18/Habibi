@@ -52,6 +52,10 @@ jobs:
       ALLOW_ACTOR_HEADER: "true"
       # Schema-only migrate; demo rows via scripts/seed_demo.py (not Alembic).
       ALEMBIC_SEED_DEMO: ""
+      # The PII columns are encrypted (sql/01_pii.sql); the build, the
+      # migrations and the tests read the key as the same startup parameter
+      # the application does. A CI-only key, never a deployment's.
+      PII_ENCRYPTION_KEY: ci-only-pii-key-not-for-any-deployment
       # seed_susanth._test_phone() refuses a hard-coded fallback, and it is right
       # to: that number receives real WhatsApp during testing, so a default either
       # points at a person's handset or seeds an undeliverable number that looks
@@ -152,7 +156,8 @@ jobs:
           sql_dir = Path("sql")
           files = sorted(sql_dir.glob("*.sql"))
           assert files, "no sql/*.sql found"
-          with psycopg.connect(dsn) as conn:
+          import pii_key
+          with psycopg.connect(dsn, options=pii_key.connect_option()) as conn:
               conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
               for f in files:
                   conn.execute(f.read_text(encoding="utf-8"))
@@ -160,15 +165,20 @@ jobs:
               conn.commit()
           PY
 
-      # sql/*.sql IS the authoritative current schema; revision 20260721_0001 is
-      # an intentional no-op that baselines it. Migrations 0002+ are deltas that
-      # are ALREADY reflected in sql/, so replaying them here raises
-      # DuplicateColumn (19 add_column calls collide). Stamp instead of upgrade.
-      # Chain integrity is asserted separately by tests/test_migrations.py.
+      # sql/*.sql is the authoritative current schema and the test database is
+      # built from it above, so it is stamped, not migrated. That the chain
+      # *would* build the same schema from an empty database is proved next:
+      # revision 0001 applies alembic/baseline/, the rest replay
+      # (alembic/replay.py), and the result is diffed against this build.
       - name: Stamp Alembic at head (schema already applied above)
         run: alembic stamp head
         env:
           ALEMBIC_SEED_DEMO: ""
+
+      - name: Migrate from empty equals the sql/ build
+        run: python scripts/migrate_from_empty.py
+        env:
+          MIGRATION_DATABASE_URL: postgresql+psycopg://collections:collections@localhost:5432/collections
 
       - name: Assert schema matches Alembic expectations
         run: |
@@ -243,7 +253,6 @@ jobs:
       - name: Pytest
         run: pytest -q -rs --cov=. --cov-report=xml --cov-report=term
         env:
-          RUN_ALEMBIC_ROUNDTRIP: "0"
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
 

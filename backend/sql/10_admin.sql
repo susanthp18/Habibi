@@ -235,9 +235,12 @@ CREATE TABLE IF NOT EXISTS billing_usage_daily (
   -- columns the billing screens read.
   units numeric(18,6) NOT NULL,
   cost_inr numeric(14,6) NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (service_id, tenant_id, environment, usage_date)
+  created_at timestamptz NOT NULL DEFAULT now()
 );
+-- The fact key, as the unique index migration 0021 built (not an inline
+-- constraint): one name on every database.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_usage_daily_fact
+  ON billing_usage_daily (service_id, tenant_id, environment, usage_date);
 CREATE INDEX IF NOT EXISTS idx_billing_usage_daily_tenant_id ON billing_usage_daily(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_billing_usage_daily_date ON billing_usage_daily(usage_date);
 

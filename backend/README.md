@@ -54,9 +54,13 @@ Seed coherent sample data (host venv):
 .venv/Scripts/python scripts/seed_demo.py
 ```
 
-The current SQL-applied schema is stamped as Alembic baseline `20260721_0001`.
-Phase 3A write support is migration `20260721_0002` (`idempotency_keys`).
-Use Alembic for future schema changes:
+`sql/*.sql` is the schema; `alembic upgrade head` on an empty database builds
+the same thing (revision `20260721_0001` applies `alembic/baseline/`, the rest
+replay -- see `alembic/replay.py`), and CI proves it with
+`scripts/migrate_from_empty.py`, which diffs the two builds. Every schema change
+is a migration plus its `sql/` mirror. Provision the application role first on a
+fresh database (`python scripts/rls.py provision-role ...`); the migrations turn
+row-level security on for it.
 ```
 .venv/Scripts/python -m alembic current
 .venv/Scripts/python -m alembic revision -m "describe change"

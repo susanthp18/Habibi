@@ -13,6 +13,12 @@ _ALEMBIC_DIR = Path(__file__).resolve().parent
 if str(_ALEMBIC_DIR) not in sys.path:
     sys.path.insert(0, str(_ALEMBIC_DIR))
 
+import replay  # noqa: E402  -- alembic/ is on sys.path just above
+
+# The additive operations are idempotent so the chain replays from the
+# baseline (alembic/replay.py says why).
+replay.install()
+
 config = context.config
 
 if config.config_file_name is not None:

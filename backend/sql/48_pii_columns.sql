@@ -18,7 +18,16 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE customers RENAME TO customers_pii;
+-- On a fresh build (sql/02 already created customers_pii and sql/02_customers_view
+-- the view) there is nothing to rename and no plaintext to move: every step
+-- below is conditional, so this file applies cleanly in both orders.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'customers' AND relkind = 'r')
+     AND NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'customers_pii') THEN
+    EXECUTE 'ALTER TABLE customers RENAME TO customers_pii';
+  END IF;
+END $$;
 
 ALTER TABLE customers_pii
   ADD COLUMN IF NOT EXISTS phone_primary_enc BYTEA,
@@ -29,20 +38,25 @@ ALTER TABLE customers_pii
   ADD COLUMN IF NOT EXISTS phone_alt_hmac BYTEA,
   ADD COLUMN IF NOT EXISTS email_hmac BYTEA;
 
-UPDATE customers_pii SET
-  phone_primary_enc  = pii_encrypt(phone_primary),
-  phone_alt_enc      = pii_encrypt(phone_alt),
-  email_enc          = pii_encrypt(email),
-  address_enc        = pii_encrypt(address),
-  phone_primary_hmac = pii_phone_hmac(phone_primary),
-  phone_alt_hmac     = pii_phone_hmac(phone_alt),
-  email_hmac         = pii_text_hmac(email);
-
-ALTER TABLE customers_pii
-  DROP COLUMN phone_primary,
-  DROP COLUMN phone_alt,
-  DROP COLUMN email,
-  DROP COLUMN address;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'customers_pii' AND column_name = 'phone_primary') THEN
+    UPDATE customers_pii SET
+      phone_primary_enc  = pii_encrypt(phone_primary),
+      phone_alt_enc      = pii_encrypt(phone_alt),
+      email_enc          = pii_encrypt(email),
+      address_enc        = pii_encrypt(address),
+      phone_primary_hmac = pii_phone_hmac(phone_primary),
+      phone_alt_hmac     = pii_phone_hmac(phone_alt),
+      email_hmac         = pii_text_hmac(email);
+    ALTER TABLE customers_pii
+      DROP COLUMN phone_primary,
+      DROP COLUMN phone_alt,
+      DROP COLUMN email,
+      DROP COLUMN address;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_customers_phone_primary_hmac ON customers_pii(phone_primary_hmac)
   WHERE phone_primary_hmac IS NOT NULL;

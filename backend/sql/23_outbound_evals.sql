@@ -39,7 +39,7 @@ FROM tenants t
 ON CONFLICT (id) DO NOTHING;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-machine' ELSE 'evt-ob-machine-' || s.tenant_id END,
   s.id,
@@ -51,7 +51,6 @@ SELECT
     "Message left for the customer with a callback number."
   ]
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -61,7 +60,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-vm-disclose' ELSE 'evt-ob-vm-disclose-' || s.tenant_id END,
   s.id,
@@ -71,7 +70,6 @@ SELECT
   "voicemail_script": "This is a message for Vikram from HDFC Bank. Please call us back on 1800 123 4567. If you wish to raise a concern, our grievance officer is reachable on the same line.",
   "grievance_contact_present": true
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -81,7 +79,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-third-party' ELSE 'evt-ob-third-party-' || s.tenant_id END,
   s.id,
@@ -93,7 +91,6 @@ SELECT
     "Sorry to trouble you — I was hoping to reach Vikram Shetty. Is he there?"
   ]
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -103,7 +100,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-optout' ELSE 'evt-ob-optout-' || s.tenant_id END,
   s.id,
@@ -118,7 +115,6 @@ SELECT
   ],
   "agent_turns_after_opt_out": 1
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -128,7 +124,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-budget' ELSE 'evt-ob-budget-' || s.tenant_id END,
   s.id,
@@ -138,7 +134,6 @@ SELECT
   "max_duration_sec": 240,
   "talk_sec": 205
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -148,7 +143,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-ivr' ELSE 'evt-ob-ivr-' || s.tenant_id END,
   s.id,
@@ -164,7 +159,6 @@ SELECT
     "9876543210"
   ]
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -174,7 +168,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-service-pool' ELSE 'evt-ob-service-pool-' || s.tenant_id END,
   s.id,
@@ -189,7 +183,6 @@ SELECT
     }
   ]
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -199,7 +192,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-hardship' ELSE 'evt-ob-hardship-' || s.tenant_id END,
   s.id,
@@ -210,7 +203,6 @@ SELECT
   "upsell_suppressed": true,
   "named_product_id": null
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE
@@ -220,7 +212,7 @@ SET name = EXCLUDED.name,
 WHERE eval_tasks.fixture = '{}'::jsonb;
 
 
-INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, pass_bar, created_at)
+INSERT INTO eval_tasks (id, suite_id, name, grader, fixture, created_at)
 SELECT
   CASE WHEN s.id = 'eval-outbound-collections' THEN 'evt-ob-open' ELSE 'evt-ob-open-' || s.tenant_id END,
   s.id,
@@ -232,7 +224,6 @@ SELECT
     "Good afternoon, am I speaking with Vikram Shetty?"
   ]
 }$obfix$::jsonb,
-  'all',
   now()
 FROM eval_suites s WHERE s.kind = 'outbound'
 ON CONFLICT (id) DO UPDATE

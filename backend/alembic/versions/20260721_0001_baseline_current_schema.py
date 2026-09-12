@@ -19,7 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    pass
+    """On an empty database, apply the schema this revision baselines.
+
+    ``alembic/baseline/*.sql`` is ``sql/*.sql`` as the first commit shipped it,
+    so ``alembic upgrade head`` from nothing walks the whole chain; on a
+    database that already has the schema (every stack that existed when this
+    was a no-op) nothing happens, as before."""
+    from pathlib import Path
+
+    import sqlalchemy as sa
+    from alembic import op
+
+    bind = op.get_bind()
+    if sa.inspect(bind).has_table("customers"):
+        return
+    baseline = Path(__file__).resolve().parents[1] / "baseline"
+    for path in sorted(baseline.glob("*.sql")):
+        # The driver reads `%` as a placeholder; the SQL is literal (plpgsql format() uses %I).
+        bind.exec_driver_sql(path.read_text(encoding="utf-8").replace("%", "%%"))
 
 
 def downgrade() -> None:
