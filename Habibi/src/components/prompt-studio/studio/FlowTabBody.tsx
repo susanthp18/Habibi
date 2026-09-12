@@ -27,7 +27,7 @@ export function FlowTabBody({
   flowUnreadable: boolean;
   loadingBuiltIn: boolean;
   setLoadingBuiltIn: Dispatch<SetStateAction<boolean>>;
-  setReplaceUnreadable: Dispatch<SetStateAction<boolean>>;
+  setReplaceUnreadable: (value: boolean) => void;
   onFlowValidation: (r: { ok: boolean; issues: FlowIssue[] }) => void;
   grantTools?: string[];
 }) {

@@ -15,43 +15,10 @@ import type {
   PromptVersion,
   VoiceConfig,
 } from "@/api/types/prompt-studio";
-import { stableStringify } from "@/lib/stable-stringify";
 import type { AgentCard } from "@/api/agent-card";
+import { asCard, fingerprintOf } from "./studioDraft";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
-
-/** Non-empty object, or null. `{}` is "no card", not "a card with no fields". */
-export function asCard(value: unknown): AgentCard | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return Object.keys(value as AgentCard).length ? (value as AgentCard) : null;
-}
-
-/**
- * Identity of the editor's state, used for both "is this dirty?" and "has this
- * already been autosaved?".
- *
- * `stableStringify`, not `JSON.stringify`, and the difference is the whole
- * bug. Key order matters to JSON.stringify and the two sides of this comparison
- * are built differently: local state starts from `DEFAULT_VOICE`, which omits
- * `style` and `params`, while the server emits every field in Pydantic field
- * order. So the first save stored a server-shaped baseline against seed-shaped
- * local state, `dirty` recomputed true the instant "Draft saved" appeared, and
- * the save invalidated the query that refetched the object that re-ran the
- * effect. A permanent unsaved chip on top of a PATCH loop that feeds itself.
- *
- * PublishDialog had already hit this and grown its own key-order-independent
- * serialiser; it now lives in @/lib/stable-stringify and both use it.
- */
-export function fingerprint(
-  p: string,
-  persona: PersonaState,
-  voice: VoiceConfig,
-  g: Guardrails,
-  flow: FlowGraph | null,
-  card: AgentCard | null,
-) {
-  return stableStringify({ p, persona, voice, g, flow, card });
-}
 
 /**
  * The draft-save machinery: `runSave`, `flushDraft`, the route blocker and the
@@ -116,8 +83,8 @@ export function useStudioDraft({
   markSaved: (fp: string) => void;
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>;
   setAutosaveNonce: Dispatch<SetStateAction<number>>;
-  setDraftId: Dispatch<SetStateAction<string | null>>;
-  setReplaceUnreadable: Dispatch<SetStateAction<boolean>>;
+  setDraftId: (value: string | null) => void;
+  setReplaceUnreadable: (value: boolean) => void;
 }) {
   /**
    * What a save would send, read at call time rather than captured.
@@ -163,7 +130,14 @@ export function useStudioDraft({
       return saveInFlight.current;
     }
     const e = editorRef.current;
-    const fpSent = fingerprint(e.prompt, e.persona, e.voice, e.guardrails, e.flow, e.card);
+    const fpSent = fingerprintOf({
+      prompt: e.prompt,
+      persona: e.persona,
+      voice: e.voice,
+      guardrails: e.guardrails,
+      flow: e.flow,
+      card: e.card,
+    });
     savingRef.current = true;
     setSaveStatus("saving");
     const work = (async () => {
@@ -250,7 +224,14 @@ export function useStudioDraft({
     let last: PromptVersion | null = null;
     if (saveInFlight.current) last = await saveInFlight.current;
     const e = editorRef.current;
-    const fp = fingerprint(e.prompt, e.persona, e.voice, e.guardrails, e.flow, e.card);
+    const fp = fingerprintOf({
+      prompt: e.prompt,
+      persona: e.persona,
+      voice: e.voice,
+      guardrails: e.guardrails,
+      flow: e.flow,
+      card: e.card,
+    });
     if (fp !== lastSavedFp.current && (e.draftId || e.prompt.trim())) {
       last = await runSave();
     }
@@ -284,7 +265,14 @@ export function useStudioDraft({
       setSaveStatus((s) => (s === "saving" || s === "saved" ? s : "idle"));
       return;
     }
-    const fp = fingerprint(prompt, persona, voice, guardrails, flow, asCard(effectiveCard));
+    const fp = fingerprintOf({
+      prompt,
+      persona,
+      voice,
+      guardrails,
+      flow,
+      card: asCard(effectiveCard),
+    });
     if (fp === lastSavedFp.current) return;
 
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);

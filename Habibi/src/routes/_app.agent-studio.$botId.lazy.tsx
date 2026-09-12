@@ -1,33 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { PromptEditor } from "@/components/prompt-studio/PromptEditor";
-import { PersonaSliders } from "@/components/prompt-studio/PersonaSliders";
-import { VoicePanel } from "@/components/prompt-studio/VoicePanel";
-import { GuardrailsPanel } from "@/components/prompt-studio/GuardrailsPanel";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { VALIDATOR_UNREACHABLE } from "@/components/flow/FlowCanvas";
 import { isEmptyGraph, validateFlow, type FlowGraph, type FlowIssue } from "@/api/flow";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
 import { useAutoLint, type PromptLintFinding } from "@/api/prompt-studio";
-import type {
-  Guardrails,
-  PersonaPreset,
-  PersonaState,
-  PromptVersion,
-  VoiceConfig,
-} from "@/api/types/prompt-studio";
+import type { PersonaPreset, PromptVersion } from "@/api/types/prompt-studio";
 import {
   DEFAULT_GUARDRAILS,
   DEFAULT_PERSONA,
@@ -40,32 +20,26 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCompilePreview, type CompileReport } from "@/api/agent-studio";
 import { isNotFound } from "@/api/config";
-import { asRollbackTriggers, isAuthoredCard, type AgentCard } from "@/api/agent-card";
+import { asRollbackTriggers, type AgentCard } from "@/api/agent-card";
 import { ShipTab, type ShipState } from "@/components/prompt-studio/ShipTab";
-import { BindingsTab } from "@/components/prompt-studio/BindingsTab";
-import { ChangeLogTab } from "@/components/prompt-studio/ChangeLogTab";
-import {
-  AgentGraphTab,
-  ConnectorsTab,
-  EvalsTab,
-  PolicyTab,
-  SkillsTab,
-  ToolsTab,
-} from "@/components/prompt-studio/AgentCardPanels";
-import { OutboundTab } from "@/components/prompt-studio/OutboundTab";
 import {
   FILL_TABS,
   PromptStudioShell,
   type Tab,
 } from "@/components/prompt-studio/studio/PromptStudioShell";
 import { useStudioQueries } from "@/components/prompt-studio/studio/useStudioQueries";
+import { StudioTabBody } from "@/components/prompt-studio/studio/StudioTabBody";
+import { PresetConfirm } from "@/components/prompt-studio/studio/PresetConfirm";
+import { useStudioDraft, type SaveStatus } from "@/components/prompt-studio/studio/useStudioDraft";
 import {
+  EMPTY_FIELDS,
+  INITIAL_STATE,
+  adopted,
   asCard,
-  fingerprint,
-  useStudioDraft,
-  type SaveStatus,
-} from "@/components/prompt-studio/studio/useStudioDraft";
-import { FlowTabBody } from "@/components/prompt-studio/studio/FlowTabBody";
+  fingerprintOf,
+  studioDraftReducer,
+  type EditorFields,
+} from "@/components/prompt-studio/studio/studioDraft";
 
 export const Route = createLazyFileRoute("/_app/agent-studio/$botId")({
   component: AgentCardEditor,
@@ -86,7 +60,7 @@ function AgentCardEditor() {
   return <PromptStudioPage key={botId} botId={botId} unansweredId={unansweredId} note={note} />;
 }
 
-function PromptStudioPage({
+export function PromptStudioPage({
   botId,
   unansweredId,
   note: gapNote,
@@ -117,13 +91,39 @@ function PromptStudioPage({
   } = useStudioQueries(botId);
   const ensureDraft = ensureDraftMutation.mutateAsync;
 
-  const [history, setHistory] = useState<PromptVersion[]>([]);
-  const [hydrated, setHydrated] = useState(false);
-  const [draftId, setDraftId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string>("");
-  const [persona, setPersona] = useState<PersonaState>(DEFAULT_PERSONA);
-  const [voice, setVoice] = useState<VoiceConfig>(DEFAULT_VOICE);
-  const [guardrails, setGuardrails] = useState<Guardrails>(DEFAULT_GUARDRAILS);
+  // The version list is the query's; the page keeps no mirror of it.
+  const history = useMemo(() => versionsQuery.data ?? [], [versionsQuery.data]);
+  const [draft, dispatch] = useReducer(studioDraftReducer, INITIAL_STATE);
+  const { hydrated, draftId, prompt, persona, voice, guardrails, flow, card, replaceUnreadable } =
+    draft;
+  const setPrompt = useCallback((value: string) => dispatch({ type: "prompt", value }), []);
+  const setPersona = useCallback(
+    (value: EditorFields["persona"] | ((p: EditorFields["persona"]) => EditorFields["persona"])) =>
+      dispatch({ type: "persona", value }),
+    [],
+  );
+  const setVoice = useCallback(
+    (value: EditorFields["voice"]) => dispatch({ type: "voice", value }),
+    [],
+  );
+  const setGuardrails = useCallback(
+    (value: EditorFields["guardrails"]) => dispatch({ type: "guardrails", value }),
+    [],
+  );
+  const setFlow = useCallback(
+    (value: FlowGraph | null | ((p: FlowGraph | null) => FlowGraph | null)) =>
+      dispatch({ type: "flow", value }),
+    [],
+  );
+  const setCard = useCallback((value: AgentCard | null) => dispatch({ type: "card", value }), []);
+  const setDraftId = useCallback(
+    (value: string | null) => dispatch({ type: "draftId", value }),
+    [],
+  );
+  const setReplaceUnreadable = useCallback(
+    (value: boolean) => dispatch({ type: "replaceUnreadable", value }),
+    [],
+  );
   // Preset awaiting confirmation because applying it would discard authored text.
   const [presetPending, setPresetPending] = useState<PersonaPreset | null>(null);
   // The dialog animates out over ~150ms, and it reads its subject from
@@ -142,25 +142,12 @@ function PromptStudioPage({
   // function of prompt *and* guardrails; comparing against both is the version
   // that cannot be forgotten when a third input is added.
   const [lintedFp, setLintedFp] = useState<string | null>(null);
-  // null until the version loads, so an autosave that fires before the flow is
-  // known omits it entirely rather than overwriting a stored graph with {}.
-  const [flow, setFlow] = useState<FlowGraph | null>(null);
   const [flowValid, setFlowValid] = useState(true);
   const [flowIssues, setFlowIssues] = useState<FlowIssue[]>([]);
   // The validator did not answer: blocked, and said as such rather than as
   // "0 flow errors -- publish blocked".
   const flowUnchecked = flowIssues.some((i) => i.code === "validator_unreachable");
-  // The Agent Card is an editor field like the prompt, not a side-channel: the
-  // Skills/Tools/Connectors tabs used to PATCH it straight to the server while
-  // the editor kept reading the published row, so every toggle snapped back —
-  // and a card-only edit was orphaned when publish created its own draft.
-  const [card, setCard] = useState<AgentCard | null>(null);
   const [loadingBuiltIn, setLoadingBuiltIn] = useState(false);
-  // Set by the two buttons on the "could not be read" panel, and by nothing
-  // else. The PATCH refuses the empty sentinel over an unparseable column
-  // without it, so an autosave cannot erase a corrupt graph while an explicit
-  // "replace it" still can.
-  const [replaceUnreadable, setReplaceUnreadable] = useState(false);
 
   const [tab, setTab] = useState<Tab>("prompt");
   const [diffOpen, setDiffOpen] = useState(false);
@@ -170,27 +157,6 @@ function PromptStudioPage({
   const [compileReport, setCompileReport] = useState<CompileReport | null>(null);
   /** Why the last compile produced no report. See `runCompile`. */
   const [compileError, setCompileError] = useState<string | null>(null);
-  // Ship settings for a bot with no Agent Card. An authored card keeps them in
-  // `card.experiment` instead — see `ship` below.
-  //
-  // `null` until the live experiment has been read, deliberately. This state is
-  // not persisted anywhere, so seeding it with hardcoded 100/false/[] meant the
-  // Ship tab asserted "full ship, no shadow, no auto-rollback" for a bot that
-  // might be running a 25% shadow canary — and asserted it again after every
-  // reload, silently discarding whatever the operator set last time. Falling
-  // back to what production is actually running is the only defensible resting
-  // value; `legacyShipBaseline` below is that value, and doubles as the diff
-  // baseline the publish dialog was missing.
-  const [legacyShipEdit, setLegacyShipEdit] = useState<ShipState | null>(null);
-
-  useEffect(() => {
-    setHydrated(false);
-    setDraftId(null);
-    setCard(null);
-    setCompileReport(null);
-    setReplaceUnreadable(false);
-  }, [botId]);
-
   const lastSavedFp = useRef<string>("");
   const autosaveTimer = useRef<number | null>(null);
   const skipAutosave = useRef(false);
@@ -225,6 +191,28 @@ function PromptStudioPage({
     setSavedTick((t) => t + 1);
   }, []);
 
+  /**
+   * Put a version on screen as the saved baseline: hydration, load draft,
+   * discard, publish and rollback all come through here. Autosave is held off
+   * until after paint so the adoption itself is never written back.
+   */
+  const adoptVersion = useCallback(
+    (
+      fields: EditorFields,
+      opts: { draftId: string | null; summary?: string; status?: SaveStatus },
+    ) => {
+      skipAutosave.current = true;
+      dispatch({ type: "adopt", fields, draftId: opts.draftId });
+      draftSummary.current = opts.summary || "draft autosave";
+      markSaved(fingerprintOf(fields));
+      if (opts.status) setSaveStatus(opts.status);
+      window.setTimeout(() => {
+        skipAutosave.current = false;
+      }, 0);
+    },
+    [markSaved],
+  );
+
   // The API, not a hardcoded copy. `?? PRESETS` made an empty persona_presets
   // table look populated — and the rows only ever existed in a migration that
   // a fresh install stamps rather than replays, so a new database showed four
@@ -258,69 +246,33 @@ function PromptStudioPage({
     // flight. On a dead URL that produced a fully editable studio during the
     // gap, and autosave was pointed at it.
     if (cardQuery.isPending) return;
+    if (hydrated) return;
     if (!versionsQuery.data.length) {
       // A bot row with no prompt version at all. This used to return early, so
       // `hydrated` stayed false forever and autosave never ran — you could type
       // into the editor and nothing was saved, with no error. Seed the defaults
       // instead so the first version can actually be authored.
-      if (!hydrated) {
-        skipAutosave.current = true;
-        setHistory([]);
-        setPrompt("");
-        setPersona(DEFAULT_PERSONA);
-        setVoice(DEFAULT_VOICE);
-        setGuardrails(DEFAULT_GUARDRAILS);
-        setFlow(null);
-        setCard(asCard(cardQuery.data?.agentCard));
-        setDraftId(null);
-        markSaved("");
-        setHydrated(true);
-        window.setTimeout(() => {
-          skipAutosave.current = false;
-        }, 0);
-      }
+      adoptVersion({ ...EMPTY_FIELDS, card: asCard(cardQuery.data?.agentCard) }, { draftId: null });
+      // An empty editor is the baseline, not a saved state.
+      markSaved("");
       return;
     }
-    setHistory(versionsQuery.data);
-    if (!hydrated) {
-      const live =
-        versionsQuery.data.find((v) => v.status === "published") ?? versionsQuery.data[0];
-      // Prefer newest draft if present (resume work after refresh).
-      const newestDraft = versionsQuery.data.find((v) => v.status === "draft");
-      const start = newestDraft ?? live;
-      skipAutosave.current = true;
-      setPrompt(start.prompt);
-      setPersona(start.persona ?? DEFAULT_PERSONA);
-      setVoice(start.voice ?? DEFAULT_VOICE);
-      setGuardrails(start.guardrails ?? DEFAULT_GUARDRAILS);
-      // `?? null` was not enough on its own. The backend serves `flow: {}` for a
-      // row it cannot parse, the response model materialises that into the
-      // populated empty sentinel, so `flow` was a non-null object and the
-      // "omit when null" protection below did not apply — the first autosave
-      // triggered by any other edit wrote the sentinel over the unreadable
-      // column, and the red panel became "No authored flow" before the operator
-      // could act on it. Held at null until they explicitly replace it.
-      setFlow(start.flowUnreadable ? null : (start.flow ?? null));
-      setCard(asCard(start.agentCard));
-      setDraftId(newestDraft?.id ?? null);
-      draftSummary.current = newestDraft?.summary || "draft autosave";
-      markSaved(
-        fingerprint(
-          start.prompt,
-          start.persona ?? DEFAULT_PERSONA,
-          start.voice ?? DEFAULT_VOICE,
-          start.guardrails ?? DEFAULT_GUARDRAILS,
-          start.flowUnreadable ? null : (start.flow ?? null),
-          asCard(start.agentCard),
-        ),
-      );
-      setHydrated(true);
-      // Allow autosave after paint.
-      window.setTimeout(() => {
-        skipAutosave.current = false;
-      }, 0);
-    }
-  }, [versionsQuery.data, hydrated, cardQuery.data?.agentCard, cardQuery.isPending]);
+    const live = versionsQuery.data.find((v) => v.status === "published") ?? versionsQuery.data[0];
+    // Prefer newest draft if present (resume work after refresh).
+    const newestDraft = versionsQuery.data.find((v) => v.status === "draft");
+    const start = newestDraft ?? live;
+    adoptVersion(adopted(start), {
+      draftId: newestDraft?.id ?? null,
+      summary: newestDraft?.summary,
+    });
+  }, [
+    versionsQuery.data,
+    hydrated,
+    cardQuery.data?.agentCard,
+    cardQuery.isPending,
+    adoptVersion,
+    markSaved,
+  ]);
 
   // Baseline for `dirty`: the live row if there is one, else the newest version
   // of any status — for a clone with only a draft, that draft is the right
@@ -349,48 +301,24 @@ function PromptStudioPage({
   // separate meant they never marked the editor dirty, never autosaved, and
   // were invisible to the compile preview — which read `card.experiment` and
   // cheerfully reported "full ship" for a publish that then 422'd at 40%.
-  // A card-less bot has nowhere to put them, so it falls back to local state.
-  const cardIsAuthored = isAuthoredCard(effectiveCard);
   // The Tools tab has always had a live grant, because it runs its own preview.
   // The Flow tab read `compileReport`, which is null until somebody presses
   // Publish or Compile and is reset to null on every recompile — so the canvas's
   // "not on this card" chip, the whole point of FLOW-3, was invisible in an
   // ordinary authoring session and stale afterwards. Two tabs of one editor
   // disagreeing about the same card's grant is the drift this phase is removing.
-  const flowPreview = useCompilePreview(botId, { agentCard: effectiveCard }, cardIsAuthored);
+  const flowPreview = useCompilePreview(botId, { agentCard: effectiveCard }, hydrated);
   const grantTools = compileReport?.effective_tools ?? flowPreview.data?.effective_tools;
 
-  /**
-   * What production is running, for a bot that has nowhere to author it.
-   *
-   * The live experiment row is the only durable record of a card-less bot's
-   * rollout, so it is both the resting value of the Ship tab's controls and the
-   * baseline the publish dialog diffs against. Absent one, a bot with an active
-   * deployment is at full traffic by definition, which is what the API means by
-   * having no experiment at all.
-   */
-  const legacyShipBaseline = useMemo<ShipState>(() => {
-    const live = (experimentsQuery.data ?? []).find((e) => e.status === "running");
-    if (!live) return { trafficPct: 100, autoRollback: [] };
-    return {
-      trafficPct: live.trafficPct,
-      autoRollback: asRollbackTriggers(live.autoRollback),
-    };
-  }, [experimentsQuery.data]);
   const ship = useMemo<ShipState>(() => {
-    if (!cardIsAuthored) return legacyShipEdit ?? legacyShipBaseline;
     const exp = effectiveCard.experiment;
     return {
       trafficPct: typeof exp?.traffic_pct === "number" ? exp.traffic_pct : 100,
       autoRollback: asRollbackTriggers(exp?.auto_rollback),
     };
-  }, [cardIsAuthored, effectiveCard, legacyShipEdit, legacyShipBaseline]);
+  }, [effectiveCard]);
 
   const setShip = (next: ShipState) => {
-    if (!cardIsAuthored) {
-      setLegacyShipEdit(next);
-      return;
-    }
     setCard({
       ...effectiveCard,
       experiment: {
@@ -405,15 +333,11 @@ function PromptStudioPage({
     // false here is what silently disabled autosave on a brand-new bot.
     if (!published) return hydrated && Boolean(prompt.trim());
     return (
-      fingerprint(prompt, persona, voice, guardrails, flow, asCard(effectiveCard)) !==
-      fingerprint(
-        published.prompt,
-        published.persona ?? DEFAULT_PERSONA,
-        published.voice ?? DEFAULT_VOICE,
-        published.guardrails ?? DEFAULT_GUARDRAILS,
-        published.flow ?? null,
-        asCard(cardQuery.data?.publishedCard) ?? asCard(published.agentCard),
-      )
+      fingerprintOf({ prompt, persona, voice, guardrails, flow, card: asCard(effectiveCard) }) !==
+      fingerprintOf({
+        ...adopted(published, asCard(cardQuery.data?.publishedCard) ?? asCard(published.agentCard)),
+        flow: published.flow ?? null,
+      })
     );
     // `flow` belongs here: without it a canvas edit never recomputes `dirty`,
     // so the debounced autosave never fires and the graph is lost on navigate.
@@ -438,7 +362,7 @@ function PromptStudioPage({
   const unsaved = useMemo(
     () =>
       hydrated &&
-      fingerprint(prompt, persona, voice, guardrails, flow, asCard(effectiveCard)) !==
+      fingerprintOf({ prompt, persona, voice, guardrails, flow, card: asCard(effectiveCard) }) !==
         lastSavedFp.current,
     // savedTick is the dependency that makes reading the ref safe: it changes
     // whenever markSaved moves the baseline.
@@ -718,40 +642,13 @@ function PromptStudioPage({
     // Up to a full autosave window of authored text used to go with the
     // switch. It is written to the draft it belongs to first.
     if (unsavedRef.current) await flushDraft();
-    skipAutosave.current = true;
-    setDraftId(v.id);
-    setPrompt(v.prompt);
-    // `?? DEFAULT_*` here for the same reason the hydration path has it: these
-    // three are non-null on every row served today, but a null would put
-    // `undefined` into state that half a dozen tabs dereference without a guard,
-    // and the crash would land on whichever tab the author opened next rather
-    // than here.
-    setPersona(v.persona ?? DEFAULT_PERSONA);
-    setVoice(v.voice ?? DEFAULT_VOICE);
-    setGuardrails(v.guardrails ?? DEFAULT_GUARDRAILS);
-    setFlow(v.flow ?? null);
-    setCard(asCard(v.agentCard));
-    // Autosave writes this back on the next keystroke. Before it was tracked,
-    // autosave sent a hardcoded "draft autosave" every time, so the note
-    // restore-as-draft had just written ("restored from v1.2") survived exactly
-    // until the author typed one character — and the version history then
-    // described a restored draft as an ordinary autosave.
-    draftSummary.current = v.summary || "draft autosave";
-    markSaved(
-      fingerprint(
-        v.prompt,
-        v.persona ?? DEFAULT_PERSONA,
-        v.voice ?? DEFAULT_VOICE,
-        v.guardrails ?? DEFAULT_GUARDRAILS,
-        v.flow ?? null,
-        asCard(v.agentCard),
-      ),
+    // The draft's own summary rides along, so autosave keeps the note
+    // restore-as-draft wrote ("restored from v1.2") instead of "draft autosave".
+    adoptVersion(
+      { ...adopted(v), flow: v.flow ?? null },
+      { draftId: v.id, summary: v.summary, status: "saved" },
     );
     clearLint();
-    setSaveStatus("saved");
-    window.setTimeout(() => {
-      skipAutosave.current = false;
-    }, 0);
     toast.info(`Loaded draft ${v.label || v.id}`);
   };
 
@@ -768,48 +665,23 @@ function PromptStudioPage({
           history.find((h) => h.status === "published" && h.id !== v.id) ??
           history.find((h) => h.id !== v.id) ??
           null;
-        skipAutosave.current = true;
-        // Always. Left pointing at the archived row, Publish stayed enabled
-        // and republished the text just discarded.
-        setDraftId(null);
-        draftSummary.current = "draft autosave";
+        // Always off the discarded row. Left pointing at it, Publish stayed
+        // enabled and republished the text just discarded.
         clearLint();
         if (!live) {
           // Nothing else to show: the seeded defaults, as a bot with no version
           // starts. Keeping the discarded text on screen let autosave write it
           // straight back out as a new draft.
-          setPrompt("");
-          setPersona(DEFAULT_PERSONA);
-          setVoice(DEFAULT_VOICE);
-          setGuardrails(DEFAULT_GUARDRAILS);
-          setFlow(null);
-          setCard(asCard(cardQuery.data?.publishedCard));
-          markSaved("");
-          setSaveStatus("idle");
-          window.setTimeout(() => {
-            skipAutosave.current = false;
-          }, 0);
-        } else {
-          setPrompt(live.prompt);
-          setPersona(live.persona ?? DEFAULT_PERSONA);
-          setVoice(live.voice ?? DEFAULT_VOICE);
-          setGuardrails(live.guardrails ?? DEFAULT_GUARDRAILS);
-          setFlow(live.flow ?? null);
-          setCard(asCard(live.agentCard));
-          markSaved(
-            fingerprint(
-              live.prompt,
-              live.persona ?? DEFAULT_PERSONA,
-              live.voice ?? DEFAULT_VOICE,
-              live.guardrails ?? DEFAULT_GUARDRAILS,
-              live.flow ?? null,
-              asCard(live.agentCard),
-            ),
+          adoptVersion(
+            { ...EMPTY_FIELDS, card: asCard(cardQuery.data?.publishedCard) },
+            { draftId: null, status: "idle" },
           );
-          setSaveStatus("idle");
-          window.setTimeout(() => {
-            skipAutosave.current = false;
-          }, 0);
+          markSaved("");
+        } else {
+          adoptVersion(
+            { ...adopted(live), flow: live.flow ?? null },
+            { draftId: null, status: "idle" },
+          );
         }
       }
       toast.success(`Discarded draft ${v.label || v.id}`);
@@ -857,30 +729,12 @@ function PromptStudioPage({
         trafficPct: ship.trafficPct,
         autoRollback: ship.autoRollback,
       });
-      skipAutosave.current = true;
-      setDraftId(null);
       setPublishOpen(false);
-      setPrompt(publishedRow.prompt);
-      setPersona(publishedRow.persona);
-      setVoice(publishedRow.voice);
-      setGuardrails(publishedRow.guardrails);
-      setFlow(publishedRow.flow ?? null);
-      setCard(asCard(publishedRow.agentCard));
-      markSaved(
-        fingerprint(
-          publishedRow.prompt,
-          publishedRow.persona,
-          publishedRow.voice,
-          publishedRow.guardrails,
-          publishedRow.flow ?? null,
-          asCard(publishedRow.agentCard),
-        ),
+      adoptVersion(
+        { ...adopted(publishedRow), flow: publishedRow.flow ?? null },
+        { draftId: null, status: "idle" },
       );
-      setSaveStatus("idle");
       clearLint();
-      window.setTimeout(() => {
-        skipAutosave.current = false;
-      }, 0);
       toast.success(`Published ${publishedRow.label || nextLabel}`);
       // Publishing a member is a fleet act: every door that merges this card
       // got a new deployment, or says why it kept the old one. Silence here
@@ -906,29 +760,7 @@ function PromptStudioPage({
     try {
       const dep = await rollbackMutation.mutateAsync(targetId);
       const live = (await versionsQuery.refetch()).data?.find((v) => v.id === dep.promptVersionId);
-      if (live) {
-        skipAutosave.current = true;
-        setDraftId(null);
-        setPrompt(live.prompt);
-        setPersona(live.persona);
-        setVoice(live.voice);
-        setGuardrails(live.guardrails);
-        setFlow(live.flow ?? null);
-        setCard(asCard(live.agentCard));
-        markSaved(
-          fingerprint(
-            live.prompt,
-            live.persona,
-            live.voice,
-            live.guardrails,
-            live.flow ?? null,
-            asCard(live.agentCard),
-          ),
-        );
-        window.setTimeout(() => {
-          skipAutosave.current = false;
-        }, 0);
-      }
+      if (live) adoptVersion({ ...adopted(live), flow: live.flow ?? null }, { draftId: null });
       toast.success(`Rolled back live config to ${dep.promptVersionId}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Rollback failed");
@@ -1009,11 +841,8 @@ function PromptStudioPage({
       guardrails: publishedRow?.guardrails ?? DEFAULT_GUARDRAILS,
       flow: publishedRow?.flow ?? null,
       agentCard: asCard(publishedRow?.agentCard),
-      // Only for a card-less bot; an authored card's rollout lives inside
-      // `agentCard.experiment` and is covered by the line above.
-      rollout: cardIsAuthored ? null : legacyShipBaseline,
     }),
-    [publishedRow, cardIsAuthored, legacyShipBaseline],
+    [publishedRow],
   );
 
   /**
@@ -1193,124 +1022,41 @@ function PromptStudioPage({
           </div>
         </div>
       ) : (
-        <div
-          className={cn(
-            "min-h-0 flex-1 p-250",
-            // Two scroll models, one per kind of tab, and never both at once.
-            //
-            // A "fill" tab is a workbench: it owns the viewport, sizes itself
-            // to the pane, and scrolls inside its own regions. A document tab
-            // is a form: it grows as long as it needs and this container
-            // scrolls it. Mixing the two is what produced the nested
-            // scrollbars — a page that scrolled *and* panes that scrolled,
-            // so reaching a control meant scrolling twice in two directions.
-            FILL_TABS.has(tab) ? "overflow-hidden" : "overflow-y-auto",
-          )}
-        >
-          <div className={cn(FILL_TABS.has(tab) && "h-full min-h-0")}>
-            {tab === "graph" && (
-              <AgentGraphTab
-                botId={botId}
-                card={effectiveCard}
-                onChange={(next) => setCard(next)}
-              />
-            )}
-            {tab === "tools" && (
-              <ToolsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
-            )}
-            {tab === "skills" && (
-              <SkillsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
-            )}
-            {tab === "connectors" && (
-              <ConnectorsTab
-                botId={botId}
-                card={effectiveCard}
-                onChange={(next) => setCard(next)}
-              />
-            )}
-            {tab === "policy" && <PolicyTab />}
-            {tab === "outbound" && (
-              <OutboundTab
-                botId={botId}
-                card={effectiveCard}
-                flow={flow}
-                onChange={(next) => setCard(next)}
-              />
-            )}
-            {tab === "bindings" && <BindingsTab botId={botId} />}
-            {tab === "changelog" && <ChangeLogTab botId={botId} />}
-            {tab === "evals" && (
-              <EvalsTab
-                botId={botId}
-                card={effectiveCard}
-                onChange={(next) => setCard(next)}
-                promptVersionId={draftId ?? undefined}
-              />
-            )}
-            {tab === "ship" && (
-              <ShipTab
-                botId={botId}
-                value={ship}
-                onChange={setShip}
-                activeDeploymentId={activeDeployment?.id}
-                priorDeploymentId={priorDeployment?.id}
-                rollbackDeploymentId={activeDeployment?.rollbackDeploymentId}
-                compileReport={compileReport}
-                onCompile={() => void runCompile()}
-                compileBusy={compileMutation.isPending}
-              />
-            )}
-            {tab === "prompt" && (
-              <PromptEditor
-                botId={botId}
-                value={prompt}
-                onChange={setPrompt}
-                onApplyPreset={applyPreset}
-                presets={presets}
-                presetsFailed={presetsQuery.isError}
-                lintFindings={freshLint}
-                lintFailed={autoLint.isError}
-                lintPending={autoLint.isPending && !autoLint.data}
-                // The footer's cost figure is only honest if it can assemble
-                // the message the runtime actually sends. Guardrails are most
-                // of the difference; persona decides the language line.
-                guardrails={guardrails}
-                persona={persona}
-              />
-            )}
-            {tab === "persona" && (
-              <PersonaSliders
-                value={persona}
-                onChange={setPersona}
-                presets={presets}
-                presetsFailed={presetsQuery.isError}
-                // Same pipeline PromptEditor gets. Omitted, these chips wrote
-                // traits straight to state — no confirmation, no toast, no
-                // undo — while the identical chip one tab over did all three.
-                onApplyPreset={applyPreset}
-                voice={voice}
-              />
-            )}
-            {tab === "voice" && (
-              <VoicePanel value={voice} onChange={setVoice} cardLocales={cardLocales} />
-            )}
-            {tab === "guardrails" && (
-              <GuardrailsPanel value={guardrails} onChange={setGuardrails} />
-            )}
-            {tab === "flow" && (
-              <FlowTabBody
-                flow={flow}
-                setFlow={setFlow}
-                flowUnreadable={flowUnreadable}
-                loadingBuiltIn={loadingBuiltIn}
-                setLoadingBuiltIn={setLoadingBuiltIn}
-                setReplaceUnreadable={setReplaceUnreadable}
-                onFlowValidation={onFlowValidation}
-                grantTools={grantTools}
-              />
-            )}
-          </div>
-        </div>
+        <StudioTabBody
+          tab={tab}
+          botId={botId}
+          fields={draft}
+          set={{
+            prompt: setPrompt,
+            persona: setPersona,
+            voice: setVoice,
+            guardrails: setGuardrails,
+            flow: setFlow,
+            card: setCard,
+          }}
+          effectiveCard={effectiveCard}
+          draftId={draftId}
+          ship={ship}
+          setShip={setShip}
+          activeDeployment={activeDeployment}
+          priorDeployment={priorDeployment}
+          compileReport={compileReport}
+          runCompile={() => void runCompile()}
+          compileBusy={compileMutation.isPending}
+          applyPreset={applyPreset}
+          presets={presets}
+          presetsFailed={presetsQuery.isError}
+          freshLint={freshLint}
+          lintFailed={autoLint.isError}
+          lintPending={autoLint.isPending && !autoLint.data}
+          cardLocales={cardLocales}
+          flowUnreadable={flowUnreadable}
+          loadingBuiltIn={loadingBuiltIn}
+          setLoadingBuiltIn={setLoadingBuiltIn}
+          setReplaceUnreadable={setReplaceUnreadable}
+          onFlowValidation={onFlowValidation}
+          grantTools={grantTools}
+        />
       )}
 
       {/* Version history was a permanent 320px rail on every tab but Flow.
@@ -1363,10 +1109,6 @@ function PromptStudioPage({
           guardrails,
           flow,
           agentCard: asCard(effectiveCard),
-          // Only meaningful for a card-less bot; an authored card carries the
-          // same three values inside `agentCard.experiment`, where the card
-          // diff already sees them.
-          rollout: cardIsAuthored ? null : ship,
         }}
         flowIssues={flowIssues}
         compileReport={compileReport}
@@ -1375,49 +1117,16 @@ function PromptStudioPage({
         onConfirm={(note) => void publish(note)}
       />
 
-      {/* Replaces a window.confirm. Same question, asked in the product's own
-            surface: themed, keyboard-navigable, escapable, and it names what is
-            about to be lost rather than restating the click. */}
-      <AlertDialog
-        open={presetPending !== null}
-        onOpenChange={(open) => {
-          if (!open) setPresetPending(null);
+      <PresetConfirm
+        pending={presetPending}
+        shown={presetShown.current}
+        prompt={prompt}
+        onCancel={() => setPresetPending(null)}
+        onConfirm={() => {
+          if (presetPending) commitPreset(presetPending);
+          setPresetPending(null);
         }}
-      >
-        <AlertDialogContent className="max-w-[28rem]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace the system prompt?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Applying <span className="font-medium text-text">{presetShown.current?.label}</span>{" "}
-              overwrites the prompt you have written and moves the persona sliders to that
-              preset&rsquo;s values.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-medium border border-border bg-surface-sunken p-100">
-            <div className="mb-050 text-body-small font-semibold text-text-subtlest">
-              Your current prompt
-            </div>
-            <p className="line-clamp-3 whitespace-pre-wrap font-mono text-body-small text-text-subtle">
-              {prompt.trim()}
-            </p>
-            <div className="mt-075 text-body-small text-text-subtlest">
-              {prompt.length.toLocaleString()} characters. This is a draft edit — nothing published
-              changes, and the toast that follows can undo it.
-            </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep my prompt</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (presetPending) commitPreset(presetPending);
-                setPresetPending(null);
-              }}
-            >
-              Replace with preset
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
 
       {busy && (
         <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-white shadow-overlay">

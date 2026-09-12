@@ -25,20 +25,8 @@ type DiffSide = {
   /** Publish sends these two as well; see `changedSections` below. */
   flow?: FlowGraph | null;
   agentCard?: AgentCard | null;
-  /**
-   * Rollout, for bots that have nowhere else to keep it.
-   *
-   * An authored card carries traffic/shadow/auto-rollback under
-   * `agentCard.experiment`, so `cardChanged` already covers it. A card-less bot
-   * keeps the same values in editor-local state, and publish ships them — so
-   * moving the canary to 40% used to be summarised as "Nothing differs from what
-   * is live", on the one screen whose job is to say what is about to change
-   * about production.
-   *
-   * No `shadow`: the card can no longer declare one, and canary refuses to open
-   * one, so there is nothing left for this dialog to summarise.
-   */
-  rollout?: { trafficPct: number; autoRollback: string[] } | null;
+  // No rollout field: every card is authored, so traffic and auto-rollback live
+  // under `agentCard.experiment` and `cardChanged` covers them.
 };
 
 type Props = {
@@ -91,10 +79,7 @@ export function PublishDialog({
   const flowChanged = stableStringify(from.flow ?? null) !== stableStringify(to.flow ?? null);
   const cardChanged =
     stableStringify(from.agentCard ?? null) !== stableStringify(to.agentCard ?? null);
-  const rolloutChanged =
-    stableStringify(from.rollout ?? null) !== stableStringify(to.rollout ?? null);
-  const nothingChanges =
-    added === 0 && removed === 0 && !flowChanged && !cardChanged && !rolloutChanged;
+  const nothingChanges = added === 0 && removed === 0 && !flowChanged && !cardChanged;
   const errors = flowIssues.filter((i) => i.severity === "error");
   const compileFailed = (compileReport?.gates ?? []).some((g) => g.status === "fail");
   // Publish waits for the compiler.
@@ -219,17 +204,6 @@ export function PublishDialog({
                   )}
                 >
                   {flowChanged ? "changed" : "unchanged"}
-                </span>
-              </span>
-              <span>
-                Rollout:{" "}
-                <span
-                  className={cn(
-                    "font-medium",
-                    rolloutChanged ? "text-text-warning-bolder" : undefined,
-                  )}
-                >
-                  {rolloutChanged ? "changed" : "unchanged"}
                 </span>
               </span>
               <span>
