@@ -4,7 +4,7 @@ Phase 3: connector OAuth and MCP keys live in `vault_refs`. LLM / Twilio /
 WhatsApp keys can move here next; until then they stay in the platform secret
 store. The UI never returns ciphertext or a token field.
 
-Local backend: HMAC-SHA256 CTR + HMAC tag sealed with `VAULT_MASTER_KEY`.
+Local backend: HMAC-SHA256 CTR + HMAC tag sealed with a key derived from `VAULT_MASTER_KEY` by scrypt (`agent_core/vault/seal.py`). Tokens carry a `v2:` marker; one without it was sealed under the earlier bare-SHA-256 derivation and is still readable. After changing `VAULT_MASTER_KEY`, or once to retire the old derivation, run `python scripts/reseal_vault.py` as the schema owner -- idempotent, reports counts, `--dry-run` counts only.
 That is the only variable that names it — the old fallback to
 `SKILL_PLATFORM_KEY` (the skill *signing* key) is gone, so rotating one no
 longer touches the other. Unset outside a declared non-production `APP_ENV` it

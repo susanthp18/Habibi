@@ -36,7 +36,9 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _digest(raw: str) -> bytes:
-    return hashlib.sha256(raw.encode("utf-8")).digest()
+    """The derivation the vault uses: scrypt over the master string, not a bare hash."""
+    vault = import_module("agent_core.vault.seal")
+    return hashlib.scrypt(raw.encode("utf-8"), salt=vault._KDF_SALT, n=2**14, r=8, p=1, dklen=32)
 
 
 # --- no key at all ----------------------------------------------------------
@@ -148,3 +150,24 @@ def test_round_trip_under_an_explicit_key(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("VAULT_MASTER_KEY", "the-real-vault-key")
     token = vault_seal.seal("टोकन — unicode survives")
     assert vault_seal.open_sealed(token) == "टोकन — unicode survives"
+
+
+def test_the_master_key_is_derived_not_hashed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare SHA-256 of the master string was the key, so a table of common
+    strings was a table of keys. scrypt with the application salt now; a token
+    sealed before the KDF is still opened (its format has no marker) and
+    `scripts/reseal_vault.py` rewrites it -- nothing seals with the old key."""
+    vault = import_module("agent_core.vault.seal")
+
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("VAULT_MASTER_KEY", "probe-master")
+    assert vault.master_key() != hashlib.sha256(b"probe-master").digest()
+    assert vault.master_key() == hashlib.scrypt(b"probe-master", salt=vault._KDF_SALT, n=2**14, r=8, p=1, dklen=32)
+
+    token = vault.seal("hello")
+    assert not vault.is_legacy(token)
+    assert vault.open_sealed(token) == "hello"
+
+    legacy = vault.seal("old", key=vault._legacy_master_key()).removeprefix(vault._V2)
+    assert vault.is_legacy(legacy)
+    assert vault.open_sealed(legacy) == "old"

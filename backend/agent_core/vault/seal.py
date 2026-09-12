@@ -22,6 +22,14 @@ from env_utils import NON_PROD_ENVS, env_name
 _NONCE = 16
 _TAG = 32
 
+#: Ciphertext format marker. A token without it was sealed under the v1 key
+#: (a bare SHA-256 of the master string); `open_sealed` still reads those so
+#: a deployment keeps working, and `scripts/reseal_vault.py` rewrites them.
+_V2 = "v2:"
+#: Static application salt for the KDF. The secret is the master string; the
+#: salt stops a precomputed table of common strings from being the key.
+_KDF_SALT = b"habibi-vault-master-v2"
+
 DEV_MASTER_KEY = "dev-vault-master-key-not-for-prod"
 
 
@@ -50,6 +58,15 @@ def master_key() -> bytes:
                 "development key outside development. Set VAULT_MASTER_KEY."
             )
         raw = DEV_MASTER_KEY
+    return hashlib.scrypt(raw.encode("utf-8"), salt=_KDF_SALT, n=2**14, r=8, p=1, dklen=32)
+
+
+def _legacy_master_key() -> bytes:
+    """The v1 derivation: a bare, unsalted SHA-256 of the master string.
+
+    Read-only, for tokens sealed before the KDF; nothing seals with it.
+    """
+    raw = (os.getenv("VAULT_MASTER_KEY") or "").strip() or DEV_MASTER_KEY
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 
@@ -71,12 +88,22 @@ def seal(plaintext: str, *, key: bytes | None = None) -> str:
     mac_key = hmac.new(master, nonce + b"mac", hashlib.sha256).digest()
     ct = bytes(a ^ b for a, b in zip(data, _stream(enc_key, nonce, len(data))))
     tag = hmac.new(mac_key, nonce + ct, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(nonce + tag + ct).decode("ascii")
+    return _V2 + base64.urlsafe_b64encode(nonce + tag + ct).decode("ascii")
+
+
+def is_legacy(token: str) -> bool:
+    """Sealed under the v1 key (no format marker)."""
+    return not token.startswith(_V2)
 
 
 def open_sealed(token: str, *, key: bytes | None = None) -> str:
-    master = key or master_key()
-    raw = base64.urlsafe_b64decode(token.encode("ascii"))
+    if key is not None:
+        master = key
+    elif is_legacy(token):
+        master = _legacy_master_key()
+    else:
+        master = master_key()
+    raw = base64.urlsafe_b64decode(token.removeprefix(_V2).encode("ascii"))
     if len(raw) < _NONCE + _TAG:
         raise ValueError("vault_ciphertext_truncated")
     nonce, tag, ct = raw[:_NONCE], raw[_NONCE : _NONCE + _TAG], raw[_NONCE + _TAG :]
