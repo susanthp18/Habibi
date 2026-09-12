@@ -180,13 +180,26 @@ def test_what_products_do_you_have_is_answered_from_the_corpus(
     )
 
     assert result.data["mode"] == "catalog"
-    assert result.data["confident"] is True
     assert [p["title"] for p in result.data["products"]] == [
         "Travel Protect360",
         "Home Protect360",
     ]
     # Similarity search is not attempted — there is nothing for it to find.
     assert retrieve.calls == []
+    # ...and because nothing was found, the envelope must not claim it was.
+    #
+    # This assertion used to read `confident is True`, on the reasoning that the
+    # product list is "exactly as authoritative as the knowledge base is". True,
+    # and beside the point: `confident` is read by both adapters to pick between
+    # "Answer ONLY from these snippets" and "do not answer from these". A list
+    # of product names with that first directive attached is what made the bot
+    # refuse a travel-benefits question three turns running — it had been told
+    # to answer only from snippets that said nothing.
+    #
+    # The list is still returned, and `products` still carries it. What changed
+    # is that the model is now told what it is holding. See the answer_policy in
+    # `kb.llm_payload`: name the products, do not describe their cover.
+    assert result.data["confident"] is False
 
 
 def test_catalog_scope_narrows_to_named_products(model_on, fake_azure, monkeypatch):

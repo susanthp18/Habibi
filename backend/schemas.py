@@ -1910,6 +1910,20 @@ class KbRetrieveRequest(BaseModel):
 
 
 class KbRetrieveResponse(BaseModel):
+    """The full shape of ``kb_retrieve.retrieve()``, not a subset of it.
+
+    ``extra="forbid"`` is right and stays. What was wrong is that retrieval grew
+    four fields — the top1-top2 margin, the per-stage timing split, whether the
+    reranker ran, and whether the row came from the result cache — and this model
+    was never told. Every one of them is present on both the fresh and the cached
+    path, so ``POST /kb/retrieve`` returned a hard 500 on every call, and the
+    Test Retrieval screen an operator would use to diagnose a bad answer was the
+    one surface that could not produce one.
+
+    A response model that describes less than the handler returns is not a
+    stricter contract, it is a broken endpoint. Keep these in step.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     results: list[KbRetrievalResultItem]
@@ -1918,6 +1932,14 @@ class KbRetrieveResponse(BaseModel):
     embeddingModel: str
     chatModel: str | None = None
     logId: str
+    #: Top1-top2 score gap. The reported confidence signal (the absolute top
+    #: score predicts retrieval success at AUC 0.548 — a coin flip), and what
+    #: the KB-gap screen thresholds on.
+    margin: float = 0.0
+    #: Per-stage milliseconds: rate_ms, embed_ms, ann_ms, rerank_ms, draft_ms.
+    stageMs: dict[str, float] = Field(default_factory=dict)
+    reranked: bool = False
+    cached: bool = False
 
 
 KbDocType = Literal["policy", "sop", "product", "compliance", "faq", "benefits"]

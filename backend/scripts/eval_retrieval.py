@@ -72,6 +72,12 @@ logger = logging.getLogger("eval_retrieval")
 
 GOLDEN_PATH = BACKEND_ROOT / "tests" / "fixtures" / "kb_golden.jsonl"
 
+# Multi-turn routing cases, kept in their own file on purpose: `--build-golden`
+# regenerates GOLDEN_PATH wholesale, and these are hand-written with their run-up
+# transcribed off real threads. Putting them in the golden set would mean losing
+# them the next time anyone rebuilds it.
+PLAN_CASES_PATH = BACKEND_ROOT / "tests" / "fixtures" / "kb_plan_cases.jsonl"
+
 # Hand-written spoken-form questions with a known product. These carry no exact
 # gold passage, only a product: "which chunk answers this" is a judgement call,
 # and a wrong gold id is worse than no gold id.
@@ -315,6 +321,214 @@ def run(cases: list[dict[str, Any]], *, top_k: int, scoped: bool) -> dict[str, A
     return report
 
 
+# ---------------------------------------------------------------------------
+# Routing: does the planner ask the right question of the corpus?
+# ---------------------------------------------------------------------------
+#
+# Everything above measures `kb_retrieve.retrieve()` — given a query, does the
+# right passage come back. That is one half of retrieval, and it was the healthy
+# half when a live WhatsApp thread failed three turns running on a question the
+# corpus answers at 0.69.
+#
+# The half nothing measured is what happens *before* retrieve: the planner
+# decides whether the caller wants a passage or a list of products, and a
+# `catalog` verdict skips retrieval entirely. Choose wrong and the model is
+# handed a product name with no body text, so it correctly refuses to answer.
+# No score anywhere moves, because no search ran.
+#
+# This runs the real tool handler — plan, gate, scope, branch and all — and
+# scores two properties the score-based metrics structurally cannot see:
+#
+#   mode      did it choose passage vs catalog the way a person would
+#   answerable did the rows come back carrying text that could answer, as
+#             opposed to rows whose snippet is just the document's own title
+#
+# `answerable` is deliberately computed here from the payload rather than read
+# off the handler's `confident` flag. A harness that trusts the field under test
+# cannot fail when that field lies, which is exactly how this shipped.
+
+
+def load_plan_cases() -> list[dict[str, Any]]:
+    if not PLAN_CASES_PATH.exists():
+        raise SystemExit("plan cases missing: %s" % PLAN_CASES_PATH)
+    cases = []
+    with PLAN_CASES_PATH.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                cases.append(json.loads(line))
+    return cases
+
+
+def _is_answerable(payload: dict[str, Any]) -> bool:
+    """True when at least one row carries body text distinct from its title.
+
+    The failure shape this exists to catch is a row like::
+
+        {"docTitle": "Travel Protect360", "snippet": "Travel Protect360"}
+
+    which satisfies "results is non-empty" and answers nothing.
+    """
+    for row in payload.get("results") or []:
+        snippet = str(row.get("snippet") or "").strip()
+        title = str(row.get("docTitle") or "").strip()
+        if snippet and snippet != title:
+            return True
+    return False
+
+
+def run_plans(cases: list[dict[str, Any]], *, with_recent: bool = True) -> dict[str, Any]:
+    """Drive the real tool handler over the routing cases.
+
+    ``with_recent=False`` replays every case with its run-up withheld, which is
+    how the harness demonstrates *why* a case fails rather than only that it
+    does. Run both and diff the mode column.
+    """
+    from agent_core.tools import kb as kb_tool
+
+    per_case: list[dict[str, Any]] = []
+    for case in cases:
+        recent = [tuple(pair) for pair in (case.get("recent") or [])] if with_recent else None
+        t0 = time.perf_counter()
+        try:
+            result = kb_tool.search_knowledge_base(
+                query=str(case.get("tool_query") or case.get("customer_text") or ""),
+                channel="text",
+                customer_text=str(case.get("customer_text") or ""),
+                recent=recent or None,
+                # The intent gate is a different mechanism with its own tests;
+                # pinning it here keeps this measuring routing alone.
+                intent="product_faq",
+                interaction_id=None,
+                record_offer=False,
+            )
+        except Exception as exc:  # a failed case is data, not a crashed run
+            logger.warning("case %s failed: %s", case.get("id"), exc)
+            per_case.append({"id": case.get("id"), "error": str(exc)})
+            continue
+        wall_ms = (time.perf_counter() - t0) * 1000.0
+        payload = result.data or {}
+
+        mode = str(payload.get("mode") or "")
+        answerable = _is_answerable(payload)
+        expect_mode = str(case.get("expect_mode") or "")
+        expect_answerable = bool(case.get("expect_answerable", True))
+        per_case.append(
+            {
+                "id": case.get("id"),
+                "customerText": case.get("customer_text"),
+                "hadRecent": bool(recent),
+                "mode": mode,
+                "expectMode": expect_mode,
+                "modeOk": (mode == expect_mode) if expect_mode else None,
+                "answerable": answerable,
+                "answerableOk": answerable == expect_answerable,
+                # What the handler *claims*, next to what is actually true. A
+                # row where these disagree is the envelope lying to the model.
+                "claimedConfident": bool(payload.get("confident")),
+                "honest": bool(payload.get("confident")) == answerable,
+                "planSource": payload.get("planSource"),
+                "queryUsed": payload.get("queryUsed"),
+                "results": len(payload.get("results") or []),
+                "wallMs": round(wall_ms, 1),
+            }
+        )
+
+    ok = [c for c in per_case if "error" not in c]
+    scored = [c for c in ok if c["modeOk"] is not None]
+
+    def _rate(rows: list[dict[str, Any]], key: str) -> float:
+        return round(sum(1 for c in rows if c[key]) / len(rows), 3) if rows else 0.0
+
+    return {
+        "cases": len(cases),
+        "ran": len(ok),
+        "errors": len(per_case) - len(ok),
+        "withRecent": with_recent,
+        "modeAccuracy": _rate(scored, "modeOk"),
+        "answerableRate": _rate(ok, "answerableOk"),
+        "honestyRate": _rate(ok, "honest"),
+        "perCase": per_case,
+    }
+
+
+def run_plans_repeated(
+    cases: list[dict[str, Any]], *, with_recent: bool = True, repeat: int = 1
+) -> dict[str, Any]:
+    """Run the routing cases ``repeat`` times and report the spread.
+
+    The planner is a model call at temperature 0, and it is **not** stable: over
+    four identical runs of these seven cases, two of them flipped between
+    ``passage`` and ``catalog``, moving mode accuracy between 0.857 and 1.000.
+
+    That is the single most important thing this harness has to say, and a
+    one-shot run hides it — you get a number that looks like a measurement and
+    is a sample of one. It is also why ``mode`` is reported but not gated on:
+    you cannot tune a coin flip. The property worth gating is
+    ``answerableRate``, because the fix for a flapping planner is to make the
+    flap harmless (a catalog answer scoped to one product still retrieves
+    passages) rather than to chase the boundary with prompt wording.
+    """
+    runs = [run_plans(cases, with_recent=with_recent) for _ in range(max(1, repeat))]
+    modes: dict[str, list[str]] = {}
+    for r in runs:
+        for c in r["perCase"]:
+            if "error" not in c:
+                modes.setdefault(c["id"], []).append(c["mode"])
+
+    merged = dict(runs[-1])
+    merged["repeat"] = len(runs)
+    for key in ("modeAccuracy", "answerableRate", "honestyRate"):
+        vals = [r[key] for r in runs]
+        merged[key] = round(sum(vals) / len(vals), 3)
+        merged[key + "Range"] = [min(vals), max(vals)]
+    merged["unstable"] = sorted(cid for cid, seen in modes.items() if len(set(seen)) > 1)
+    return merged
+
+
+def _print_plan_report(report: dict[str, Any]) -> None:
+    print(
+        "\nrouting  ran=%s errors=%s  run-up=%s"
+        % (report["ran"], report["errors"], "yes" if report["withRecent"] else "WITHHELD")
+    )
+    if report.get("repeat", 1) > 1:
+        print("  over %s runs of the same input" % report["repeat"])
+        for key, label in (
+            ("modeAccuracy", "mode accuracy   "),
+            ("answerableRate", "answerable      "),
+            ("honestyRate", "envelope honest "),
+        ):
+            lo, hi = report[key + "Range"]
+            print("  %s %.3f   (%.3f - %.3f)" % (label, report[key], lo, hi))
+        if report.get("unstable"):
+            print(
+                "  UNSTABLE — same input, different mode across runs: %s"
+                % ", ".join(report["unstable"])
+            )
+    else:
+        print(
+            "  mode accuracy   %.3f      answerable %.3f      envelope honest %.3f"
+            % (report["modeAccuracy"], report["answerableRate"], report["honestyRate"])
+        )
+    print("  %-22s %-9s %-9s %-11s %s" % ("case", "mode", "expected", "answerable", "claims"))
+    for c in report["perCase"]:
+        if "error" in c:
+            print("  %-22s ERROR %s" % (c["id"], c["error"][:60]))
+            continue
+        flag = " " if c["modeOk"] in (True, None) else "*"
+        print(
+            "%s %-22s %-9s %-9s %-11s %s"
+            % (
+                flag,
+                c["id"],
+                c["mode"] or "-",
+                c["expectMode"] or "-",
+                "yes" if c["answerable"] else "NO",
+                "confident" if c["claimedConfident"] else "weak",
+            )
+        )
+
+
 def _stage_stats(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
     totals: dict[str, list[float]] = {}
     for c in rows:
@@ -451,12 +665,43 @@ def main() -> int:
         action="store_true",
         help="also write the report to artifacts/retrieval_baseline.json",
     )
+    ap.add_argument(
+        "--plan",
+        action="store_true",
+        help="score routing (passage vs catalog) through the real tool handler",
+    )
+    ap.add_argument(
+        "--no-recent",
+        action="store_true",
+        help="with --plan, withhold each case's run-up to show what context buys",
+    )
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=5,
+        help="with --plan, run each case N times — the planner is not stable (default 5)",
+    )
     ap.add_argument("--out", type=str, default="", help="write the full report JSON here")
     args = ap.parse_args()
 
     if args.build_golden:
         n = build_golden(args.faq_per_product)
         print("wrote %s cases -> %s" % (n, GOLDEN_PATH))
+        return 0
+
+    if args.plan:
+        plan_cases = load_plan_cases()
+        if args.limit:
+            plan_cases = plan_cases[: args.limit]
+        report = run_plans_repeated(
+            plan_cases, with_recent=not args.no_recent, repeat=args.repeat
+        )
+        _print_plan_report(report)
+        if args.out:
+            out_path = Path(args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print("  report -> %s" % out_path)
         return 0
 
     cases = load_golden()

@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 import azure_openai
 import db
+from db_core import _vector_literal
 import pii_redact
 
 logger = logging.getLogger(__name__)
@@ -298,10 +299,6 @@ def _apply_rank_rules(score: float, rules: list[tuple[bool, float]]) -> float:
     return score
 
 
-def _vector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
-
-
 def _tokenize(s: str) -> list[str]:
     return [
         t
@@ -378,6 +375,7 @@ def _result_cache_key(
     product_keys: list[str] | None,
     kb_snapshot_id: str | None,
     prefer_policy: bool,
+    topic: str | None,
     include_draft_answer: bool,
 ) -> tuple:
     normalized = " ".join((q or "").lower().split())
@@ -394,6 +392,10 @@ def _result_cache_key(
         kb_snapshot_id,
         top_k,
         prefer_policy,
+        # Part of the key because it changes the result set, not just the
+        # ranking: an "exclusions" lookup reserves policy slots a "coverage"
+        # lookup does not. Omitted, the two would serve each other's answers.
+        topic,
         include_draft_answer,
     )
 
@@ -432,7 +434,7 @@ def result_cache_clear() -> int:
     """Drop every cached answer. Called after a document is (re)indexed.
 
     In-process: the worker that indexed clears its own cache, and the API's
-    copy ages out on KB_RESULT_CACHE_TTL_S (120 s). Until a cross-process
+    copy ages out on ``KB_RESULT_CACHE_TTL_S`` (120 s). Until a cross-process
     signal exists that TTL is the bound on how long a retired answer is served.
     """
     with _result_cache_lock:
@@ -512,6 +514,12 @@ def retrieve(
     sandbox_run_id: str | None = None,
     interaction_id: str | None = None,
     prefer_policy: bool = False,
+    #: What the caller wants to know: ``"exclusions"`` (what voids cover),
+    #: ``"coverage"`` (what it pays for), or None to derive it from the query
+    #: keywords as before. Split out of ``prefer_policy``, which was silently
+    #: forcing "exclusions" and returning policy boilerplate for questions about
+    #: benefits.
+    topic: str | None = None,
     kb_snapshot_id: str | None = None,
     product_keys: list[str] | None = None,
     # Derive a product scope from the query when the caller supplies none.
@@ -552,6 +560,7 @@ def retrieve(
         product_keys=product_keys,
         kb_snapshot_id=kb_snapshot_id,
         prefer_policy=prefer_policy,
+        topic=topic,
         include_draft_answer=include_draft_answer,
     )
     cached = _result_cache_get(cache_key)
@@ -616,30 +625,54 @@ def retrieve(
             logger.debug("product scope derivation failed", exc_info=True)
         if derived_scope:
             product_key_filter = [derived_scope]
-    wants_exclusions = prefer_policy or any(
-        k in q_l
-        for k in (
-            "exclu",
-            "invalid",
-            "not covered",
-            "policy wording",
-            "terms and conditions",
-            "limitation",
-            "void",
+    # `prefer_policy` used to be the first term of `wants_exclusions`, which made
+    # one flag do two unrelated jobs: "search the policy corpus and overfetch"
+    # and "the caller is asking what is NOT covered". Those come apart badly.
+    # Measured on this corpus, same query, same index:
+    #
+    #   retrieve("Travel Protect360 benefits")                  5/5 benefits chunks, 0.649-0.692
+    #   retrieve("Travel Protect360 benefits", prefer_policy=1) 0/5 — "Discounts offered",
+    #                                                           "Promotion Terms and Conditions"
+    #
+    # because setting it suppressed `wants_coverage` entirely (below) and then
+    # reserved `top_k - 1` of `top_k` slots for policy documents (see the
+    # diversification block). A question about what a product covers came back
+    # as boilerplate about what voids it.
+    #
+    # `topic` now carries that second meaning explicitly. `prefer_policy` keeps
+    # only the first: a wider candidate pool.
+    topic_n = (topic or "").strip().lower() or None
+    wants_exclusions = topic_n == "exclusions" or (
+        topic_n is None
+        and any(
+            k in q_l
+            for k in (
+                "exclu",
+                "invalid",
+                "not covered",
+                "policy wording",
+                "terms and conditions",
+                "limitation",
+                "void",
+            )
         )
     )
-    wants_coverage = (not wants_exclusions) and any(
-        k in q_l
-        for k in (
-            "cover",
-            "coverage",
-            "benefit",
-            "medical",
-            "hospital",
-            "cancel",
-            "baggage",
-            "delay",
-            "overseas",
+    wants_coverage = topic_n == "coverage" or (
+        topic_n is None
+        and (not wants_exclusions)
+        and any(
+            k in q_l
+            for k in (
+                "cover",
+                "coverage",
+                "benefit",
+                "medical",
+                "hospital",
+                "cancel",
+                "baggage",
+                "delay",
+                "overseas",
+            )
         )
     )
     # Soft product family filter from the query (keeps Travel hits ahead of Home/Maid).

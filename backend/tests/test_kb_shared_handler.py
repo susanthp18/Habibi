@@ -106,12 +106,21 @@ def test_text_channel_shapes_the_historical_payload(fake_retrieve):
     # Chunk plumbing stays Inspector-only, but the confidence verdict must
     # reach text too: without it a sub-threshold passage was handed to the
     # model as ground truth with no directive at all.
+    #
+    # `mode` and `topScore` were added deliberately. Both adapters used to drop
+    # `mode`, and it is the key that says whether a search actually ran: a
+    # catalog listing and a set of retrieved passages arrived looking identical,
+    # so a turn where retrieval had been skipped entirely was indistinguishable
+    # from one where it had succeeded — to the model, and to anyone reading the
+    # trace afterwards.
     assert set(out) == {
         "available",
         "intent",
         "queryUsed",
+        "mode",
         "results",
         "confident",
+        "topScore",
         "answer_policy",
         "logId",
     }
