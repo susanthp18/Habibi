@@ -32,6 +32,7 @@ Design notes, and where this deliberately differs from the obvious approach:
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass, field
 import logging
 import re
 from typing import Any, Iterable, Literal
@@ -614,31 +615,45 @@ def assert_publishable(
     return graph
 
 
-def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> FlowValidation:
-    """Structural check. Errors block publish; warnings are advisory.
+def _err(issues: list[FlowIssue], code: str, message: str, **loc: Any) -> None:
+    issues.append(FlowIssue(severity="error", code=code, message=message, **loc))
 
-    Deliberately does not require a non-empty graph: a draft mid-edit must stay
-    savable, or authors stop saving.
+
+def _warn(issues: list[FlowIssue], code: str, message: str, **loc: Any) -> None:
+    issues.append(FlowIssue(severity="warning", code=code, message=message, **loc))
+
+
+@dataclass
+class GraphCheck:
+    """One structural check of an authored graph: the graph, the known tools, the
+    issues found so far, and the edge index the reachability pass reads. Filled
+    in order by ``_check_nodes`` / ``_check_objectives`` / ``_check_edges`` /
+    ``_check_hops_and_reach``; the bodies are what ``validate_graph`` was.
     """
-    issues: list[FlowIssue] = []
-    tools = set(known_tools)
 
-    def err(code: str, message: str, **loc: Any) -> None:
-        issues.append(FlowIssue(severity="error", code=code, message=message, **loc))
+    graph: FlowGraph
+    issues: list[FlowIssue]
+    tools: set[str]
+    by_id: dict[str, FlowNode] = field(default_factory=dict)
+    incoming: set[str] = field(default_factory=set)
 
-    def warn(code: str, message: str, **loc: Any) -> None:
-        issues.append(FlowIssue(severity="warning", code=code, message=message, **loc))
+
+def _check_nodes(st: GraphCheck) -> None:
+    """Node ids, keys, types, tools and the start node."""
+    graph = st.graph
+    issues = st.issues
+    tools = st.tools
 
     # --- nodes ---
     seen_ids: set[str] = set()
     seen_keys: set[str] = set()
     for node in graph.nodes:
         if node.id in seen_ids:
-            err("duplicate_node_id", f"Duplicate node id {node.id!r}.", nodeId=node.id)
+            _err(issues, "duplicate_node_id", f"Duplicate node id {node.id!r}.", nodeId=node.id)
         seen_ids.add(node.id)
 
         if not valid_node_key(node.key):
-            err(
+            _err(issues, 
                 "invalid_node_key",
                 f"Node key {node.key!r} must be lowercase letters, digits and "
                 "underscores, starting with a letter, optionally prefixed with "
@@ -648,7 +663,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
         elif node.key in seen_keys:
             # Keys become transition tool names; a collision silently merges two
             # transitions into one.
-            err(
+            _err(issues, 
                 "duplicate_node_key",
                 f"Node key {node.key!r} is used more than once.",
                 nodeId=node.id,
@@ -656,7 +671,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
         seen_keys.add(node.key)
 
         if node.type == "conversation" and not node.data.instructions.strip():
-            warn(
+            _warn(issues, 
                 "empty_instructions",
                 f"Node {node.data.name!r} has no instructions.",
                 nodeId=node.id,
@@ -664,7 +679,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
 
         for tool in node.data.tools:
             if tools and tool not in tools:
-                err(
+                _err(issues, 
                     "unknown_tool",
                     f"Node {node.data.name!r} uses unknown tool {tool!r}.",
                     nodeId=node.id,
@@ -673,14 +688,14 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
         var_keys: set[str] = set()
         for var in node.data.extractVariables:
             if not _KEY_RE.match(var.key):
-                err(
+                _err(issues, 
                     "invalid_variable_key",
                     f"Variable {var.key!r} must be lowercase letters, digits "
                     "and underscores.",
                     nodeId=node.id,
                 )
             if var.key in var_keys:
-                err(
+                _err(issues, 
                     "duplicate_variable",
                     f"Variable {var.key!r} is declared twice on {node.data.name!r}.",
                     nodeId=node.id,
@@ -689,18 +704,24 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
 
     for tool in graph.globalTools:
         if tools and tool not in tools:
-            err("unknown_tool", f"Unknown global tool {tool!r}.")
+            _err(issues, "unknown_tool", f"Unknown global tool {tool!r}.")
 
     starts = [n for n in graph.nodes if n.type == "conversation" and n.data.isStart]
     if graph.nodes and not starts:
-        err("no_start", "Exactly one node must be marked as the start node.")
+        _err(issues, "no_start", "Exactly one node must be marked as the start node.")
     elif len(starts) > 1:
         for node in starts:
-            err(
+            _err(issues, 
                 "multiple_starts",
                 "More than one node is marked as the start node.",
                 nodeId=node.id,
             )
+
+
+def _check_objectives(st: GraphCheck) -> None:
+    """Mission entry points: one conversation node per objective."""
+    graph = st.graph
+    issues = st.issues
 
     # --- mission entry points ---
     #
@@ -712,7 +733,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
     for node in graph.nodes:
         for objective in node.data.entryFor:
             if objective not in OBJECTIVES:
-                err(
+                _err(issues, 
                     "unknown_objective",
                     f"{objective!r} is not a mission this system knows. "
                     f"One of: {', '.join(OBJECTIVES)}.",
@@ -720,7 +741,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
                 )
                 continue
             if node.type != "conversation":
-                err(
+                _err(issues, 
                     "entry_on_end_node",
                     "A call cannot begin at an end step.",
                     nodeId=node.id,
@@ -730,7 +751,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
     for objective, nodes in claimed.items():
         if len(nodes) > 1:
             for node in nodes:
-                err(
+                _err(issues, 
                     "duplicate_entry",
                     f"More than one step is the entry for {objective!r}. "
                     "Exactly one step must begin each mission.",
@@ -744,12 +765,18 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             continue
         for node in nodes:
             if not node.data.respondImmediately and not node.data.entryLine.strip():
-                err(
+                _err(issues, 
                     "silent_outbound_entry",
                     "This step begins an outbound call but neither speaks first "
                     "nor has an entry line — the borrower would answer to silence.",
                     nodeId=node.id,
                 )
+
+
+def _check_edges(st: GraphCheck) -> None:
+    """Edge ids, endpoints, conditions, and one route per pair."""
+    graph = st.graph
+    issues = st.issues
 
     # --- edges ---
     by_id = {n.id: n for n in graph.nodes}
@@ -760,18 +787,18 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
 
     for edge in graph.edges:
         if edge.id in seen_edge_ids:
-            err("duplicate_edge_id", f"Duplicate edge id {edge.id!r}.", edgeId=edge.id)
+            _err(issues, "duplicate_edge_id", f"Duplicate edge id {edge.id!r}.", edgeId=edge.id)
         seen_edge_ids.add(edge.id)
 
         if edge.source not in by_id:
-            err(
+            _err(issues, 
                 "dangling_source",
                 "Edge starts from a node that no longer exists.",
                 edgeId=edge.id,
             )
             continue
         if edge.target not in by_id:
-            err(
+            _err(issues, 
                 "dangling_target",
                 "Edge points at a node that no longer exists.",
                 edgeId=edge.id,
@@ -785,7 +812,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             # a stub hidden behind the card, so the author cannot see what they
             # made. Nothing legitimate needs one — staying put is what happens
             # when no transition fires.
-            err(
+            _err(issues, 
                 "self_edge",
                 "A step cannot transition to itself.",
                 edgeId=edge.id,
@@ -794,7 +821,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
 
         pair = (edge.source, edge.target)
         if pair in seen_pairs:
-            err(
+            _err(issues, 
                 "duplicate_edge",
                 "Two edges connect the same pair of nodes.",
                 edgeId=edge.id,
@@ -802,7 +829,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
         seen_pairs.add(pair)
 
         if by_id[edge.source].type == "end":
-            err(
+            _err(issues, 
                 "edge_from_end",
                 "An end node cannot transition anywhere.",
                 edgeId=edge.id,
@@ -813,21 +840,21 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
 
         cond = edge.data.condition
         if cond.type == "prompt" and not cond.prompt.strip():
-            err(
+            _err(issues, 
                 "empty_condition",
                 "A prompt transition needs a condition describing when it fires.",
                 edgeId=edge.id,
             )
         if cond.type == "expression":
             if not cond.clauses:
-                err(
+                _err(issues, 
                     "empty_expression",
                     "An expression transition needs at least one clause.",
                     edgeId=edge.id,
                 )
             for clause in cond.clauses:
                 if not clause.variable.strip():
-                    err(
+                    _err(issues, 
                         "empty_clause_variable",
                         "An expression clause needs a variable.",
                         edgeId=edge.id,
@@ -836,7 +863,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
                     clause.operator not in UNARY_OPERATORS
                     and not (clause.value or "").strip()
                 ):
-                    err(
+                    _err(issues, 
                         "empty_clause_value",
                         f"Operator {clause.operator!r} needs a value.",
                         edgeId=edge.id,
@@ -847,12 +874,23 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
         if len(edges) > 1 and any(e.data.condition.type == "always" for e in edges):
             for edge in edges:
                 if edge.data.condition.type == "always":
-                    err(
+                    _err(issues, 
                         "always_not_exclusive",
                         "An 'always' transition must be the node's only outgoing "
                         "transition — the others could never fire.",
                         edgeId=edge.id,
                     )
+
+    st.by_id = by_id
+    st.incoming = incoming
+
+
+def _check_hops_and_reach(st: GraphCheck) -> FlowValidation:
+    """Edges redundant with a built-in hop, and reachability from the start."""
+    graph = st.graph
+    issues = st.issues
+    by_id = st.by_id
+    incoming = st.incoming
 
     # --- redundant with a built-in hop (advisory) ---
     # An authored edge to a node a tool on the same source already transitions
@@ -874,7 +912,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
                 if target_key in hops.get(tool, ())
             )
             if covered:
-                warn(
+                _warn(issues, 
                     "redundant_with_tool",
                     f"{', '.join(covered)} already moves the call to "
                     f"{target_key!r}, so this transition is a second route to "
@@ -900,7 +938,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             # A mission entry is reached by being dialled, not by an edge.
             if node.data.entryFor:
                 continue
-            warn(
+            _warn(issues, 
                 "unreachable",
                 f"Node {node.data.name!r} cannot be reached from the start node.",
                 nodeId=node.id,
@@ -916,7 +954,7 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
             # Covered by "unreachable" when a start exists; this catches the
             # start-less draft case.
             if not start:
-                warn(
+                _warn(issues, 
                     "no_inbound",
                     f"Nothing transitions into {node.data.name!r}.",
                     nodeId=node.id,
@@ -925,6 +963,26 @@ def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> Flow
     return FlowValidation(
         ok=not any(i.severity == "error" for i in issues), issues=issues
     )
+
+
+def validate_graph(graph: FlowGraph, *, known_tools: Iterable[str] = ()) -> FlowValidation:
+    """Structural check. Errors block publish; warnings are advisory.
+
+    Deliberately does not require a non-empty graph: a draft mid-edit must stay
+    savable, or authors stop saving.
+    """
+    issues: list[FlowIssue] = []
+    tools = set(known_tools)
+
+    st = GraphCheck(
+        graph=graph,
+        issues=issues,
+        tools=tools,
+    )
+    _check_nodes(st)
+    _check_objectives(st)
+    _check_edges(st)
+    return _check_hops_and_reach(st)
 
 
 def _reachable_from(start_id: str, edges: list[FlowEdge]) -> set[str]:
