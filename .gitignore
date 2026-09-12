@@ -37,3 +37,6 @@ _docker_err.txt
 _docker_out.txt
 _wsl_clean.sh
 .hermes/
+
+# Patch artefacts left beside a file after `git apply`; never a project file
+*.patch
