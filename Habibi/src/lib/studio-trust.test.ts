@@ -6,6 +6,7 @@ import {
   connectorHealthToast,
   lintDisplay,
   modelBindingLabel,
+  structuredChange,
   modelBindingSelectable,
   shipRollbackTarget,
   worstEvalStatus,
@@ -84,3 +85,14 @@ describe("connectorHealthToast", () => {
 //
 // `shipRollbackTarget` and `modelBindingSelectable` were already unit-tested
 // above, so those two greps asserted nothing the file did not already prove.
+
+describe("structuredChange", () => {
+  it("does not call two absent sides unchanged", () => {
+    expect(structuredChange(null, undefined)).toBe("unknown");
+  });
+  it("compares by value once either side exists", () => {
+    expect(structuredChange({ a: 1 }, { a: 1 })).toBe("unchanged");
+    expect(structuredChange({ a: 1 }, { a: 2 })).toBe("changed");
+    expect(structuredChange(null, { a: 1 })).toBe("changed");
+  });
+});

@@ -11,6 +11,7 @@ import {
   type DeploymentExperiment,
 } from "@/api/agent-studio";
 import { useRollbackBotDeployment } from "@/api/prompt-studio";
+import { useGatewayCanary } from "@/api/integrations";
 import { shipRollbackTarget } from "@/lib/studio-trust";
 import { controlKindLabel, parseEffectiveContract } from "@/lib/studio-contract";
 import type { RollbackTrigger } from "@/api/agent-card";
@@ -84,6 +85,7 @@ export function ShipTab({
   const contractQuery = useEffectiveContract(botId);
   const rollbackExp = useRollbackExperiment();
   const rollbackDep = useRollbackBotDeployment();
+  const modelCanary = useGatewayCanary().data?.current ?? null;
   const running = (experiments.data ?? []).find((e) => e.status === "running") as
     DeploymentExperiment | undefined;
   const rollbackTarget = shipRollbackTarget({
@@ -162,6 +164,17 @@ export function ShipTab({
           </p>
         ) : null}
       </section>
+      {/* The gateway's model canary is a different canary from the traffic
+          split below: a candidate model under evaluation, promoted or failed
+          from Integrations. A publish while one is running rides on whichever
+          model the gateway is serving, so the Ship tab says so. */}
+      {modelCanary && modelCanary.status !== "promoted" ? (
+        <p className="rounded-medium border border-border-information bg-background-information-subtler px-150 py-100 text-body-small text-text-information-bolder">
+          Model canary in progress: <span className="font-mono">{modelCanary.candidateModel}</span>{" "}
+          ({modelCanary.stage} · {modelCanary.status}). Publishing does not promote it; that is done
+          from Integrations → Gateway.
+        </p>
+      ) : null}
       <label className="block space-y-050">
         <span className="text-body-small font-semibold">
           Next publish: canary traffic {value.trafficPct}%

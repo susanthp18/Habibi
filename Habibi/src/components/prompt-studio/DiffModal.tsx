@@ -6,7 +6,7 @@ import type {
   VoiceConfig,
 } from "@/api/types/prompt-studio";
 import { diffStudioVersions } from "@/lib/prompt-studio";
-import { stableStringify } from "@/lib/stable-stringify";
+import { structuredChange } from "@/lib/studio-trust";
 
 type Snapshot = {
   label: string;
@@ -43,9 +43,10 @@ type Props = {
 export function DiffModal({ open, onOpenChange, base, current }: Props) {
   if (!base) return null;
   const lines = diffStudioVersions(base, current);
-  const flowChanged = stableStringify(base.flow ?? null) !== stableStringify(current.flow ?? null);
-  const cardChanged =
-    stableStringify(base.agentCard ?? null) !== stableStringify(current.agentCard ?? null);
+  const flowChange = structuredChange(base.flow, current.flow);
+  const cardChange = structuredChange(base.agentCard, current.agentCard);
+  const flowChanged = flowChange === "changed";
+  const cardChanged = cardChange === "changed";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
@@ -59,11 +60,11 @@ export function DiffModal({ open, onOpenChange, base, current }: Props) {
           Text diff covers the system prompt, persona traits, voice settings and guardrails. The
           conversation graph is{" "}
           <span className={flowChanged ? "font-medium text-text-warning-bolder" : undefined}>
-            {flowChanged ? "changed" : "unchanged"}
+            {flowChange === "unknown" ? "not loaded" : flowChange}
           </span>{" "}
           and the agent card is{" "}
           <span className={cardChanged ? "font-medium text-text-warning-bolder" : undefined}>
-            {cardChanged ? "changed" : "unchanged"}
+            {cardChange === "unknown" ? "not loaded" : cardChange}
           </span>
           .
         </p>

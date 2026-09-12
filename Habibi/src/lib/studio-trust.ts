@@ -2,6 +2,7 @@
  * Truth helpers for Agent Studio. Kept out of React so vitest (node, no jsdom)
  * can pin the states the UI used to lie about.
  */
+import { stableStringify } from "@/lib/stable-stringify";
 
 export type EvalStatus = "pass" | "fail" | "skipped" | "error" | string;
 
@@ -17,6 +18,17 @@ export function worstEvalStatus(...statuses: Array<EvalStatus | null | undefined
  * The deployment to roll back *to* — the prior one, never the active row.
  * Rolling back the active id 409s with `deployment_already_active`.
  */
+/**
+ * Whether a structured section (the graph, the card) differs between two sides.
+ * Two absent sides are not "unchanged" -- the graph may simply not have loaded,
+ * and a publish dialog that printed "unchanged" from `null === null` claimed
+ * knowledge it did not have.
+ */
+export function structuredChange(from: unknown, to: unknown): "changed" | "unchanged" | "unknown" {
+  if (from == null && to == null) return "unknown";
+  return stableStringify(from ?? null) === stableStringify(to ?? null) ? "unchanged" : "changed";
+}
+
 export function shipRollbackTarget(opts: {
   rollbackDeploymentId?: string | null;
   priorDeploymentId?: string | null;

@@ -17,6 +17,8 @@ import {
 } from "@/lib/prompt-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useConfirm } from "@/components/ui/use-confirm";
+import { rollbackLive } from "@/components/prompt-studio/studio/rollbackLive";
 import { useCompilePreview, type CompileReport } from "@/api/agent-studio";
 import { isNotFound } from "@/api/config";
 import { asRollbackTriggers, type AgentCard } from "@/api/agent-card";
@@ -696,6 +698,8 @@ export function PromptStudioPage({
     }
   };
 
+  const { confirm, confirmDialog } = useConfirm();
+
   const publish = async (note: string) => {
     if (!flowValid) {
       toast.error(
@@ -746,21 +750,15 @@ export function PromptStudioPage({
     }
   };
 
-  const onRollback = async () => {
-    const targetId = activeDeployment?.rollbackDeploymentId ?? priorDeployment?.id;
-    if (!targetId) {
-      toast.info("No prior production deployment to roll back to.");
-      return;
-    }
-    try {
-      const dep = await rollbackMutation.mutateAsync(targetId);
-      const live = (await versionsQuery.refetch()).data?.find((v) => v.id === dep.promptVersionId);
-      if (live) adoptVersion({ ...adopted(live), flow: live.flow ?? null }, { draftId: null });
-      toast.success(`Rolled back live config to ${dep.promptVersionId}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Rollback failed");
-    }
-  };
+  const onRollback = () =>
+    rollbackLive({
+      targetId: activeDeployment?.rollbackDeploymentId ?? priorDeployment?.id,
+      unsaved,
+      confirm,
+      rollback: rollbackMutation.mutateAsync,
+      refetchVersions: async () => (await versionsQuery.refetch()).data,
+      adoptVersion,
+    });
 
   // The costed half, on demand. The free deterministic pass now runs itself
   // (`useAutoLint`), so this exists only to add the model's read of the WRITING
@@ -1109,6 +1107,7 @@ export function PromptStudioPage({
         compileReport={compileReport}
         compileError={compileError}
         compileBusy={compileMutation.isPending}
+        busy={publishMutation.isPending}
         onConfirm={(note) => void publish(note)}
       />
 
@@ -1128,6 +1127,7 @@ export function PromptStudioPage({
           Saving…
         </div>
       )}
+      {confirmDialog}
     </PromptStudioShell>
   );
 }

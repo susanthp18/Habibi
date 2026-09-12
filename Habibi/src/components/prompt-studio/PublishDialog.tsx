@@ -15,7 +15,7 @@ import { CompileReportList } from "@/components/prompt-studio/AgentCardPanels";
 import type { FlowGraph, FlowIssue } from "@/api/flow";
 import type { AgentCard } from "@/api/agent-card";
 import { cn } from "@/lib/utils";
-import { stableStringify } from "@/lib/stable-stringify";
+import { structuredChange } from "@/lib/studio-trust";
 
 type DiffSide = {
   prompt: string;
@@ -42,6 +42,8 @@ type Props = {
   /** Set when the compile call itself failed, so no report exists to show. */
   compileError?: string | null;
   compileBusy?: boolean;
+  /** The publish request is in flight; a second click would send a second one. */
+  busy?: boolean;
 };
 
 export function PublishDialog({
@@ -56,6 +58,7 @@ export function PublishDialog({
   compileReport = null,
   compileError = null,
   compileBusy = false,
+  busy = false,
 }: Props) {
   const [confirmText, setConfirmText] = useState("");
   const [localeConfirm, setLocaleConfirm] = useState("");
@@ -76,10 +79,12 @@ export function PublishDialog({
   // graph and a card are structured JSON, and rendering them as added and
   // removed text lines produces a number that is technically derived from the
   // change and tells the reader nothing about it.
-  const flowChanged = stableStringify(from.flow ?? null) !== stableStringify(to.flow ?? null);
-  const cardChanged =
-    stableStringify(from.agentCard ?? null) !== stableStringify(to.agentCard ?? null);
-  const nothingChanges = added === 0 && removed === 0 && !flowChanged && !cardChanged;
+  const flowChange = structuredChange(from.flow, to.flow);
+  const cardChange = structuredChange(from.agentCard, to.agentCard);
+  const flowChanged = flowChange === "changed";
+  const cardChanged = cardChange === "changed";
+  const nothingChanges =
+    added === 0 && removed === 0 && flowChange === "unchanged" && cardChange === "unchanged";
   const errors = flowIssues.filter((i) => i.severity === "error");
   const compileFailed = (compileReport?.gates ?? []).some((g) => g.status === "fail");
   // Publish waits for the compiler.
@@ -203,7 +208,7 @@ export function PublishDialog({
                     flowChanged ? "text-text-warning-bolder" : undefined,
                   )}
                 >
-                  {flowChanged ? "changed" : "unchanged"}
+                  {flowChange === "unknown" ? "not loaded" : flowChange}
                 </span>
               </span>
               <span>
@@ -214,7 +219,7 @@ export function PublishDialog({
                     cardChanged ? "text-text-warning-bolder" : undefined,
                   )}
                 >
-                  {cardChanged ? "changed" : "unchanged"}
+                  {cardChange === "unknown" ? "not loaded" : cardChange}
                 </span>
               </span>
             </div>
@@ -280,10 +285,10 @@ export function PublishDialog({
             Cancel
           </Button>
           <Button
-            disabled={blocked || !publishConfirmed || !localeConfirmed}
+            disabled={blocked || busy || !publishConfirmed || !localeConfirmed}
             onClick={() => onConfirm(note || `Published ${toLabel}`)}
           >
-            Publish {toLabel}
+            {busy ? "Publishing…" : `Publish ${toLabel}`}
           </Button>
         </DialogFooter>
       </DialogContent>
