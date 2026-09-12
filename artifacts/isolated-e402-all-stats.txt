@@ -1,4 +1,0 @@
-$ check . --isolated --select E402 --target-version py312 --statistics
-exit=1
-
-46	E402	module-import-not-at-top-of-file

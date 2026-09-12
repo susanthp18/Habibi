@@ -49,3 +49,12 @@ _wsl_clean.sh
 /kdp-axolotl-coloring-book/
 /Habibi/public/brand/
 /Habibi/public/videos/
+
+# Editor and tool state, loop/audit scratch — never project files
+/.idea/
+/.cursor/
+/.vite/
+/.loop/
+/_conv_trace/
+/artifacts/*
+!/artifacts/retrieval_*.json

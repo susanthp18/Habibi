@@ -1,4 +1,0 @@
-$ check . --output-format=concise
-exit=0
-
-All checks passed!

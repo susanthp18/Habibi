@@ -1,3 +1,0 @@
-$ check . --statistics
-exit=0
-

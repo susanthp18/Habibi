@@ -1,4 +1,0 @@
-$ check voice/bot.py worker.py bot_worker.py voice/spike.py --select E402 --ignore-noqa --output-format=concise
-exit=0
-
-All checks passed!

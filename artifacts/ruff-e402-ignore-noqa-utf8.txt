@@ -1,4 +1,0 @@
-$ check . --select E402 --ignore-noqa --statistics
-exit=1
-
-[1m14[0m	[1;31mE402[0m	module-import-not-at-top-of-file
