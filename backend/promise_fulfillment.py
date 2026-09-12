@@ -9,7 +9,6 @@ for the LLM to read aloud, and it never blocks the voice thread on Meta Graph.
 from __future__ import annotations
 
 import logging
-import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -24,18 +23,13 @@ from sqlalchemy.engine import Engine
 
 import webhooks_dispatch
 from contact_policy import BLOCKING_CONSENT
+from env_loader import env_str
 from agent_core import clock
-from env_loader import load_env
 
 logger = logging.getLogger(__name__)
 
 IST = clock.tenant_tz()
 OPEN_INTENT = ("created", "sent", "opened")
-
-
-def _env(name: str, default: str = "") -> str:
-    load_env()
-    return (os.getenv(name) or default).strip()
 
 
 # Meta templates: purpose-specific first, then the documented fallback.
@@ -67,12 +61,36 @@ def resolve_template(name_env: str, lang_env: str) -> tuple[str, str]:
     take different params — or Meta rejects the send. That constraint is stated
     in .env.example next to the vars.
     """
-    name = _env(name_env)
+    name = env_str(name_env)
     if name:
-        return name, (_env(lang_env) or "en_US")
-    fallback = _env(FALLBACK_TEMPLATE_NAME_ENV)
+        return name, (env_str(lang_env) or "en_US")
+    fallback = env_str(FALLBACK_TEMPLATE_NAME_ENV)
     if fallback:
-        return fallback, (_env(FALLBACK_TEMPLATE_LANG_ENV) or "en_US")
+        # Loudly, every time, and naming the variable that would stop it.
+        #
+        # Meta will reject a template whose parameter count does not match, so
+        # the arity is guarded for us. What is not guarded is the template's
+        # *text*: a fallback registered for something else entirely will send
+        # cleanly and say the wrong thing. This deployment is currently
+        # configured with `jaspers_market_order_confirmation_v1` — Meta's sample
+        # grocery-order template — as the last resort for a bank's payment
+        # links, which would reach a borrower as a valid message about an order
+        # they never placed.
+        #
+        # The fallback is still used rather than refused: with no template at
+        # all an out-of-window send does not happen, and silently not telling a
+        # borrower about their own promise is its own failure. But nobody should
+        # be able to say afterwards that this was not visible.
+        logger.warning(
+            "whatsapp template fallback in use: %s is unset, falling back to %s=%r. "
+            "Register a purpose template and set %s, or confirm the fallback's body "
+            "text and parameters suit this purpose.",
+            name_env,
+            FALLBACK_TEMPLATE_NAME_ENV,
+            fallback,
+            name_env,
+        )
+        return fallback, (env_str(FALLBACK_TEMPLATE_LANG_ENV) or "en_US")
     return "", ""
 
 
@@ -142,6 +160,68 @@ def _intent_expiry(promised_at: datetime, *, now: datetime | None = None) -> dat
 def _due_reminder_at(promised_at: datetime) -> datetime:
     day = _promised_date_ist(promised_at)
     return datetime(day.year, day.month, day.day, 8, 15, tzinfo=IST).astimezone(timezone.utc)
+
+
+def _refreshed(
+    conn: Any,
+    existing: Any,
+    *,
+    amount: Decimal,
+    expires_at: datetime,
+) -> dict[str, Any]:
+    """Reuse the open intent, but re-derive what the customer will be told.
+
+    The reuse path used to `return dict(existing)`, discarding the ``amount`` and
+    ``expires_at`` its caller had just computed from the live promise. Nothing
+    anywhere else updates them — there is no ``UPDATE payment_intents SET
+    expires_at`` in the tree — so a rescheduled promise kept the expiry of the
+    date it *used* to have. Live evidence::
+
+        PI-E71780FF85  promise PTP-SUSANTH-1  promised_at 2026-08-28
+                                              expires_at  2026-08-23
+
+    and what the borrower was actually sent:
+
+        "promise to pay ₹4,800 by 28 Aug 2026 … valid until 23 Aug 2026"
+
+    A payment link that dies five days before the money is due, in a message
+    that contradicts itself. `_confirm_copy` reads the date off the promise and
+    the expiry off the intent, so the two halves of one sentence came from two
+    records that had stopped agreeing.
+
+    Reuse is not optional — ``uq_payment_intents_open_promise`` permits one open
+    intent per promise — so the fix is to refresh rather than mint. The token and
+    the URL are deliberately untouched: a borrower may already be holding that
+    link, and rotating it would break the one they have.
+    """
+    row = dict(existing)
+    same_amount = Decimal(str(row.get("amount") or 0)) == Decimal(str(amount))
+    current = row.get("expires_at")
+    if current is not None and current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    if same_amount and current == expires_at:
+        return row
+    conn.execute(
+        text(
+            """
+            UPDATE payment_intents
+            SET amount = :amount, expires_at = :expires_at
+            WHERE id = :id
+            """
+        ),
+        {"id": row["id"], "amount": float(amount), "expires_at": expires_at},
+    )
+    logger.info(
+        "payment_intent %s refreshed · amount %s -> %s · expires %s -> %s",
+        row["id"],
+        row.get("amount"),
+        amount,
+        current.isoformat() if current else None,
+        expires_at.isoformat(),
+    )
+    row["amount"] = amount
+    row["expires_at"] = expires_at
+    return row
 
 
 def _load_promise(conn: Any, promise_id: str) -> dict[str, Any] | None:
@@ -261,7 +341,7 @@ def create_pay_intent(
             {"pid": promise_id, "statuses": list(OPEN_INTENT)},
         ).mappings().first()
         if existing:
-            return dict(existing)
+            return _refreshed(conn, existing, amount=amount, expires_at=expires_at)
     if payment_event_id:
         existing = conn.execute(
             text(
@@ -276,7 +356,7 @@ def create_pay_intent(
             {"eid": payment_event_id, "statuses": list(OPEN_INTENT)},
         ).mappings().first()
         if existing:
-            return dict(existing)
+            return _refreshed(conn, existing, amount=amount, expires_at=expires_at)
 
     token = secrets.token_urlsafe(24)
     intent_id = dbmod._id("PI")
@@ -346,7 +426,7 @@ def create_pay_intent(
                 {"eid": payment_event_id, "statuses": list(OPEN_INTENT)},
             ).mappings().first()
         if raced:
-            return dict(raced)
+            return _refreshed(conn, raced, amount=amount, expires_at=expires_at)
         raise
     row = conn.execute(
         text("SELECT * FROM payment_intents WHERE id = :id FOR UPDATE"),
@@ -1044,6 +1124,13 @@ def _prepare_reminder(
         return {"outcome": "failed", "reason": "intent_not_found"}
     if intent["status"] == "paid":
         return {"outcome": "sent"}
+    # Unlike the other reads of this table, this one does not filter on
+    # OPEN_INTENT — so it will happily pick up an intent the expiry sweep has
+    # already marked `expired` and send the borrower its dead URL, alongside a
+    # sentence telling them the link is valid until a date that has passed.
+    # Sending nothing is better than sending a link that cannot be paid.
+    if intent["status"] not in OPEN_INTENT:
+        return {"outcome": "failed", "reason": f"intent_{intent['status']}"}
     body = _confirm_copy(
         amount=intent["amount"],
         promised_at=promise["promised_at"],

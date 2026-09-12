@@ -2085,6 +2085,26 @@ def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             params["paid_amount"] = payload["paidAmount"]
         if updates:
             conn.execute(text(f"UPDATE promises SET {', '.join(updates)} WHERE id = :id"), params)
+        if payload.get("promisedDate"):
+            # Moving the date moves what the pay link has to say. The intent is
+            # a separate row carrying its own `expires_at`, derived from the
+            # promise date at the moment it was minted, and nothing here used to
+            # touch it — so a rescheduled promise kept the old expiry and the
+            # borrower was sent "pay by 28 Aug, link valid until 23 Aug".
+            #
+            # `fulfill` reuses the open intent (the partial unique index allows
+            # only one) and now refreshes its amount and expiry from the live
+            # promise, so this is a re-derivation rather than a second link.
+            import promise_fulfillment
+
+            try:
+                with conn.begin_nested():
+                    promise_fulfillment.fulfill(conn, promise_id)
+            except Exception:
+                # A reschedule must still succeed if the confirm cannot be
+                # re-sent — the operator's edit is the record, the message is a
+                # consequence of it.
+                logger.exception("promise reschedule re-fulfil failed promise=%s", promise_id)
         if next_status == "broken":
             conn.execute(
                 text(
