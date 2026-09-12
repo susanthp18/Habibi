@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import type { AgentTuning, AgentTuningPreset } from "@/api/types/agent-tuning";
 import { clampAgentTuning, tuningFingerprint } from "@/lib/agent-tuning";
 import { VoiceCatalogBrowser } from "@/components/prompt-studio/VoiceCatalogBrowser";
-import { VoiceDetailCard } from "@/components/prompt-studio/VoicePanel";
+import { VoiceDetailCard } from "@/components/prompt-studio/VoiceDetailCard";
 import { useVoicePreview } from "@/components/prompt-studio/useVoicePreview";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { SelectField } from "@/components/ui/select";
