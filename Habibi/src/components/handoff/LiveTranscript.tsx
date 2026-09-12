@@ -57,6 +57,9 @@ export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Pr
       <div
         ref={scrollRef}
         onScroll={onScroll}
+        role="log"
+        aria-live="polite"
+        aria-label="Live transcript"
         className="min-h-0 flex-1 overflow-y-auto px-250 py-200"
       >
         <div className="mx-auto max-w-3xl space-y-150">

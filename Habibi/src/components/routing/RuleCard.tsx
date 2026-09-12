@@ -62,11 +62,20 @@ export function RuleCard({
 }: Props) {
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
       draggable
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
         "group rounded-large border bg-surface p-150 transition-all cursor-pointer",
         selected
@@ -96,7 +105,11 @@ export function RuleCard({
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-100" onClick={(e) => e.stopPropagation()}>
+        <div
+          role="presentation"
+          className="flex flex-col items-end gap-100"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="text-body-small text-text-subtlest">
             {rule.triggersLast24h} triggers · 24h
           </div>

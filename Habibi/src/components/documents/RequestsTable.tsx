@@ -116,7 +116,7 @@ export function RequestsTable({
         header: "",
         width: "2.5rem",
         cell: (d) => (
-          <span onClick={(e) => e.stopPropagation()}>
+          <span role="presentation" onClick={(e) => e.stopPropagation()}>
             <Checkbox
               checked={selected.has(d.id)}
               onCheckedChange={() => onToggle(d.id)}
@@ -274,6 +274,7 @@ export function RequestsTable({
         className: "text-right",
         cell: (d) => (
           <div
+            role="presentation"
             className="inline-flex items-center justify-end gap-050"
             onClick={(e) => e.stopPropagation()}
           >

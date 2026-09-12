@@ -67,7 +67,7 @@ export function HandoffQueueList({
       <div className="grid h-full place-items-center p-400 text-center">
         <div>
           <Headphones className="mx-auto mb-150 h-8 w-8 text-text-subtlest" />
-          <p className="text-sm font-semibold text-text">No pending handoffs</p>
+          <h1 className="text-sm font-semibold text-text">No pending handoffs</h1>
           <p className="mt-050 max-w-sm text-body text-text-subtlest">
             Escalated calls for your team will land here. Claim one to open the live cockpit.
           </p>
@@ -77,7 +77,10 @@ export function HandoffQueueList({
   }
 
   return (
-    <ul className="mx-auto w-full max-w-2xl space-y-150 p-200">
+    <ul className="mx-auto w-full max-w-2xl space-y-150 p-200" aria-labelledby="handoff-heading">
+      <h1 id="handoff-heading" className="sr-only">
+        Pending handoffs
+      </h1>
       {items.map((item) => (
         <li
           key={item.interactionId}

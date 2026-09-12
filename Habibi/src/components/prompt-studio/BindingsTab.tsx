@@ -143,10 +143,10 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
             aria-label="Locale"
           />
         </label>
-        <label className="text-body-small">
+        <div className="text-body-small">
           <span className="mb-050 block text-text-subtlest">Scope</span>
           <Select value={scope} onValueChange={(v) => setScope(v as "card" | "tenant")}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Scope">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -154,7 +154,7 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
               <SelectItem value="tenant">Tenant default</SelectItem>
             </SelectContent>
           </Select>
-        </label>
+        </div>
         <label className="text-body-small">
           <span className="mb-050 block text-text-subtlest">Priority</span>
           <Input

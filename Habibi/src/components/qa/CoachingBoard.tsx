@@ -118,7 +118,11 @@ export function CoachingBoard({
                         </div>
                       </button>
                       {/* The card is draggable; the picker must not start a drag. */}
-                      <div className="mt-075" onMouseDown={(e) => e.stopPropagation()}>
+                      <div
+                        role="presentation"
+                        className="mt-075"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
                         <SelectField
                           aria-label={statusLabel}
                           value={a.status}

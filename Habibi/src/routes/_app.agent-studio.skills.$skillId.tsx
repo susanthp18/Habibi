@@ -175,7 +175,7 @@ function SkillEditor() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex items-center justify-between border-b border-border px-400 py-200">
           <div>
-            <div className="font-mono heading-medium font-semibold">{skill.slug}</div>
+            <h1 className="font-mono heading-medium font-semibold">{skill.slug}</h1>
             <div className="text-body-small text-text-subtle">
               Tools are a catalog multi-select — never free text. Prefix tokens{" "}
               {tokensCounted ? "" : "≈ "}

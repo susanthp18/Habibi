@@ -84,7 +84,7 @@ export function FaqTable({
         align: "center",
         className: "min-w-[5.5rem]",
         cell: (f) => (
-          <div onClick={(e) => e.stopPropagation()}>
+          <div role="presentation" onClick={(e) => e.stopPropagation()}>
             <Switch
               aria-label={`Enable FAQ: ${f.question}`}
               checked={f.enabled}
@@ -100,7 +100,7 @@ export function FaqTable({
         className: "min-w-[3.5rem]",
         cell: (f) =>
           onDelete ? (
-            <div onClick={(e) => e.stopPropagation()}>
+            <div role="presentation" onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 onClick={() => onDelete(f.id)}

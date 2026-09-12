@@ -167,7 +167,7 @@ export function DocumentsTable({
         cell: (d) => {
           const busy = reindexing.has(d.id) || deletingId === d.id;
           return (
-            <div onClick={(e) => e.stopPropagation()}>
+            <div role="presentation" onClick={(e) => e.stopPropagation()}>
               <Switch
                 aria-label={`Enable ${d.title}`}
                 checked={d.enabled}
@@ -186,7 +186,11 @@ export function DocumentsTable({
         cell: (d) => {
           const busy = reindexing.has(d.id) || deletingId === d.id;
           return (
-            <div className="inline-flex items-center gap-025" onClick={(e) => e.stopPropagation()}>
+            <div
+              role="presentation"
+              className="inline-flex items-center gap-025"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 type="button"
                 onClick={() => onReindex(d.id)}

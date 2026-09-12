@@ -156,6 +156,7 @@ export function RecordsTable<T>({
       )}
     >
       <div
+        role="region"
         className="records-scroll min-h-0 flex-1 overflow-auto focus-visible:outline-none"
         tabIndex={0}
         aria-label={`${ariaLabel}. Scroll horizontally and vertically to view all columns and records.`}
@@ -187,6 +188,15 @@ export function RecordsTable<T>({
                   <th
                     key={col.id}
                     data-sticky={col.sticky ? "true" : undefined}
+                    aria-sort={
+                      sortable
+                        ? active
+                          ? sort.dir === -1
+                            ? "descending"
+                            : "ascending"
+                          : "none"
+                        : undefined
+                    }
                     className={cn(
                       "border-b border-r border-border bg-surface-sunken px-150 py-100 text-body-small font-semibold text-text-subtle last:border-r-0",
                       alignClass(col.align),

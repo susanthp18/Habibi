@@ -233,8 +233,14 @@ export function PublishDialog({
             ) : null}
           </div>
           <div>
-            <label className="text-body-small font-semibold text-text-subtlest">Change note</label>
+            <label
+              htmlFor="publish-note"
+              className="text-body-small font-semibold text-text-subtlest"
+            >
+              Change note
+            </label>
             <Input
+              id="publish-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="What changed and why"
@@ -259,10 +265,11 @@ export function PublishDialog({
                 Callers hear the voice, not the card. If that is deliberate — a localisation
                 override — say so.
               </p>
-              <label className="block font-semibold">
+              <label htmlFor="publish-locale-confirm" className="block font-semibold">
                 Type <span className="font-mono">LANGUAGE</span> to confirm
               </label>
               <Input
+                id="publish-locale-confirm"
                 value={localeConfirm}
                 onChange={(e) => setLocaleConfirm(e.target.value)}
                 placeholder="LANGUAGE"
@@ -270,10 +277,14 @@ export function PublishDialog({
             </div>
           )}
           <div>
-            <label className="text-body-small font-semibold text-text-subtlest">
+            <label
+              htmlFor="publish-confirm"
+              className="text-body-small font-semibold text-text-subtlest"
+            >
               Type <span className="font-mono">PUBLISH</span> to confirm
             </label>
             <Input
+              id="publish-confirm"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
               placeholder="PUBLISH"

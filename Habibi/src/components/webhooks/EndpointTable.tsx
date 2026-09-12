@@ -197,7 +197,7 @@ export function EndpointTable({
         cell: (ep) => {
           const isPaused = ep.status === "paused";
           return (
-            <div onClick={(e) => e.stopPropagation()}>
+            <div role="presentation" onClick={(e) => e.stopPropagation()}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon" variant="ghost" className="h-7 w-7">

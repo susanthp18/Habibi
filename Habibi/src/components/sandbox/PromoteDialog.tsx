@@ -53,10 +53,18 @@ export function PromoteDialog({
             reset and are not published.
           </div>
           <div>
-            <label className="text-body-small font-semibold text-text-subtlest">
+            <label
+              htmlFor="promote-confirm"
+              className="text-body-small font-semibold text-text-subtlest"
+            >
               Type <span className="font-mono">PROMOTE</span> to confirm
             </label>
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="PROMOTE" />
+            <Input
+              id="promote-confirm"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="PROMOTE"
+            />
           </div>
         </div>
         <DialogFooter>

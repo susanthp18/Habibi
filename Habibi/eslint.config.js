@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import eslintPluginPrettier from "eslint-plugin-prettier/recommended";
 import globals from "globals";
+import jsxA11y from "eslint-plugin-jsx-a11y";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
@@ -62,9 +63,27 @@ export default tseslint.config(
     plugins: {
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
+      "jsx-a11y": jsxA11y,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // The accessibility floor. Introduced at the recommended set; what it
+      // found on introduction was fixed rather than baselined.
+      ...jsxA11y.flatConfigs.recommended.rules,
+      // The design-system inputs render native controls; a <label> wrapping
+      // one is associated the way a wrapped <input> is.
+      "jsx-a11y/label-has-associated-control": [
+        "error",
+        {
+          controlComponents: ["Input", "Textarea", "SelectField", "Switch", "Checkbox", "Slider"],
+          depth: 3,
+        },
+      ],
+      // A scrollable region takes focus so the keyboard can scroll it; a
+      // resizable separator takes the pointer and the arrow keys. Both are
+      // widgets by ARIA, whatever the default lists say.
+      "jsx-a11y/no-noninteractive-tabindex": ["error", { roles: ["region", "separator"] }],
+
       "no-restricted-imports": [
         "error",
         {
@@ -80,6 +99,14 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
     },
+  },
+  {
+    // A focusable separator with aria-valuenow is the ARIA window-splitter
+    // pattern: the pointer drags it and the arrow keys move it. aria-query
+    // lists `separator` as non-interactive, so the rule cannot tell the
+    // splitter from a rule line; the exception is this one file.
+    files: ["src/components/shared/SplitPanes.tsx"],
+    rules: { "jsx-a11y/no-noninteractive-element-interactions": "off" },
   },
   {
     files: ["src/components/**/*.{ts,tsx}", "src/routes/**/*.{ts,tsx}"],

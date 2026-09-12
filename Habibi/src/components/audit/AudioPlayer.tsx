@@ -101,8 +101,20 @@ export function AudioPlayer({
         <div className="mx-100 flex-1">
           <div
             ref={barRef}
-            className="relative flex h-500 cursor-pointer items-center gap-025 overflow-hidden rounded bg-surface-sunken px-050"
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(currentTime)}
+            className="relative flex h-500 cursor-pointer items-center gap-025 overflow-hidden rounded bg-surface-sunken px-050 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-brand"
             onClick={handleClick}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") onSeek(Math.max(0, currentTime - 5));
+              else if (e.key === "ArrowRight") onSeek(Math.min(duration, currentTime + 5));
+              else return;
+              e.preventDefault();
+            }}
           >
             {bars.map((v, i) => {
               const barPct = i / bars.length;

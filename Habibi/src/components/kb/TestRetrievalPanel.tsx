@@ -116,11 +116,15 @@ export function TestRetrievalPanel() {
           </div>
         </div>
         <div>
-          <label className="mb-050 block text-body-small font-medium text-text-subtlest">
+          <label
+            htmlFor="kb-test-query"
+            className="mb-050 block text-body-small font-medium text-text-subtlest"
+          >
             Query
           </label>
           <div className="flex gap-100">
             <Input
+              id="kb-test-query"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void run()}

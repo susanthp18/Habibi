@@ -80,10 +80,14 @@ export function RulesSheet({ open, onOpenChange, rules, onChange }: Props) {
                     </label>
                   </div>
                   <div className="mt-100">
-                    <label className="mb-050 block text-body-small font-semibold text-text-subtlest">
+                    <label
+                      htmlFor="redaction-replacement"
+                      className="mb-050 block text-body-small font-semibold text-text-subtlest"
+                    >
                       Replacement pattern
                     </label>
                     <input
+                      id="redaction-replacement"
                       value={r.replacement}
                       onChange={(e) =>
                         onChange({ ...rules, [t]: { ...r, replacement: e.target.value } })

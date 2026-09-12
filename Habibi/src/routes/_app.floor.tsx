@@ -170,6 +170,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
+      <h1 className="sr-only">Floor command</h1>
       {liveHint && (
         <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-200 py-075 text-body-small text-text-brand">
           {liveHint}

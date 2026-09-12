@@ -83,8 +83,14 @@ export function WrapUpBar({
 
       <div className="grid gap-150 md:grid-cols-[220px_1fr_auto]">
         <div>
-          <label className="text-body-small font-medium text-text-subtle">Disposition</label>
+          <label
+            htmlFor="wrapup-disposition"
+            className="text-body-small font-medium text-text-subtle"
+          >
+            Disposition
+          </label>
           <SelectField
+            id="wrapup-disposition"
             aria-label="Disposition"
             value={disposition}
             onChange={setDisposition}
@@ -122,10 +128,11 @@ export function WrapUpBar({
         </div>
 
         <div>
-          <label className="text-body-small font-medium text-text-subtle">
+          <label htmlFor="wrapup-notes" className="text-body-small font-medium text-text-subtle">
             Notes (CRM writeback)
           </label>
           <textarea
+            id="wrapup-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
