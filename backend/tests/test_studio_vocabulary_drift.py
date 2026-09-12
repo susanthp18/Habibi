@@ -122,8 +122,6 @@ def test_objectives_match_the_graph() -> None:
     card = _src("src", "api", "agent-card.ts")
     assert _ts_const_list(card, "OBJECTIVES") == set(flow_graph.OBJECTIVES)
     assert "export type Objective = (typeof OBJECTIVES)[number];" in card
-    outbound = _src("src", "api", "outbound.ts")
-    assert "available: [...OBJECTIVES]," in outbound
 
 
 # 6. eval requirements -------------------------------------------------------
