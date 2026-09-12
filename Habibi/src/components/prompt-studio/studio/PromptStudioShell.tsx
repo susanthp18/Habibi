@@ -6,7 +6,6 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { AppShell } from "@/components/shell/AppShell";
 import { StudioHeader } from "@/components/prompt-studio/StudioHeader";
 import {
   FileText,
@@ -134,60 +133,58 @@ export function PromptStudioShell({
   }, [syncTabEdges]);
 
   return (
-    <AppShell>
-      <div className="flex h-full min-h-0 flex-col">
-        <StudioHeader {...header} />
+    <div className="flex h-full min-h-0 flex-col">
+      <StudioHeader {...header} />
 
-        {banners}
+      {banners}
 
-        {/* The twelve tabs need 1006px and the strip had `overflow-x: visible`
+      {/* The twelve tabs need 1006px and the strip had `overflow-x: visible`
             and no scrolling, so below roughly 1030px the last of them simply
             hung outside the container with nothing to reach them by: on a
             1024px laptop, or this app in a split window, Evals and Ship were
             unclickable — including the only route to canary and publish
             settings. Scrolling the strip is the fix; `shrink-0` stops the
             labels compressing into ellipses instead. */}
-        <div className="relative shrink-0 border-b border-border bg-surface">
-          <div
-            ref={tabStripRef}
-            onScroll={syncTabEdges}
-            className="scrollbar-none overflow-x-auto px-250"
-          >
-            <div className="flex w-max gap-050">
-              {TABS.map((t) => {
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.key}
-                    data-tab={t.key}
-                    onClick={() => setTab(t.key)}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-075 border-b-2 px-150 py-100 text-body-small",
-                      tab === t.key
-                        ? "border-border-brand font-semibold text-text-brand"
-                        : "border-transparent text-text-subtle hover:text-text",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
+      <div className="relative shrink-0 border-b border-border bg-surface">
+        <div
+          ref={tabStripRef}
+          onScroll={syncTabEdges}
+          className="scrollbar-none overflow-x-auto px-250"
+        >
+          <div className="flex w-max gap-050">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.key}
+                  data-tab={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-075 border-b-2 px-150 py-100 text-body-small",
+                    tab === t.key
+                      ? "border-border-brand font-semibold text-text-brand"
+                      : "border-transparent text-text-subtle hover:text-text",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
-          {/* Each fade appears only while that side actually has tabs behind
+        </div>
+        {/* Each fade appears only while that side actually has tabs behind
               it, so it reads as "there is more this way" rather than as a
               permanent decoration that means nothing. */}
-          {!tabEdges.atStart && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-surface to-transparent" />
-          )}
-          {!tabEdges.atEnd && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-surface to-transparent" />
-          )}
-        </div>
-
-        {children}
+        {!tabEdges.atStart && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-surface to-transparent" />
+        )}
+        {!tabEdges.atEnd && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-surface to-transparent" />
+        )}
       </div>
-    </AppShell>
+
+      {children}
+    </div>
   );
 }
