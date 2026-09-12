@@ -35,6 +35,8 @@ import time
 from typing import Any
 
 import httpx
+
+import circuit_breaker
 from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
@@ -297,7 +299,10 @@ def synthesize(
 
     def attempt(key: str) -> httpx.Response:
         try:
-            r = httpx.post(
+            # Transport faults trip the breaker; a rejected key is a credential
+            # fact the pool handles and never counts against the vendor.
+            r = circuit_breaker.get_breaker("fish_tts", failure_exceptions=(httpx.HTTPError,)).call(
+                httpx.post,
                 f"{base_url()}/v1/tts",
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -309,6 +314,8 @@ def synthesize(
                 json=payload,
                 timeout=_TIMEOUT,
             )
+        except circuit_breaker.CircuitOpenError as exc:
+            raise FishTTSError(f"fish tts unavailable: {exc}") from exc
         except httpx.HTTPError as exc:
             raise FishTTSError(f"fish tts transport error: {exc}") from exc
 

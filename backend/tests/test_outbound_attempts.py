@@ -624,3 +624,42 @@ def test_forgot_tells_the_engine_the_call_was_not_worth_making() -> None:
     assert call_closer._next_action_hint("connected", "opt_out_requested", None) == (
         "stop_contact"
     )
+
+
+def test_a_call_whose_worker_stopped_heartbeating_is_reaped(db_tx) -> None:
+    """voice_sessions.last_heartbeat_at was written on every turn and read by
+    nobody. A voice process killed mid-call left the session live, the
+    interaction active and the attempt holding its slot."""
+    from voice import persist
+
+    attempt = _reserve(db_tx)
+    _place(db_tx, attempt, "CA-TEST-ZOMBIE")
+    ix = _an_interaction_for_the_dialled_borrower(db_tx)
+    db_tx.execute(text("UPDATE interactions SET status = 'active', ended_at = NULL WHERE id = :ix"), {"ix": ix})
+    assert outbound.bind_interaction(db_tx, attempt_id=attempt["id"], interaction_id=ix)
+    stale = datetime.now(timezone.utc) - timedelta(hours=2)
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO voice_sessions (id, interaction_id, transport, status, started_at, last_heartbeat_at)
+            VALUES ('vs-zombie', :ix, 'twilio', 'live', :t, :t),
+                   ('vs-alive', :ix, 'twilio', 'live', :t, now())
+            """
+        ),
+        {"ix": ix, "t": stale},
+    )
+
+    class _Engine:
+        def begin(self):
+            import db as dbmod
+
+            return dbmod.engine.begin()
+
+    reaped = {r["sessionId"] for r in persist.reap_stale(_Engine(), timedelta(minutes=30))}
+    # Membership, not equality: the dev database carries real zombies too.
+    assert "vs-zombie" in reaped and "vs-alive" not in reaped
+    assert db_tx.execute(text("SELECT status FROM voice_sessions WHERE id = 'vs-alive'")).scalar_one() == "live"
+    assert db_tx.execute(text("SELECT status FROM interactions WHERE id = :ix"), {"ix": ix}).scalar_one() == "abandoned"
+    row = outbound.get(db_tx, attempt["id"])
+    assert row["state"] == outbound.STATE_FAILED
+    assert row["provider_error"] == "voice_session_lost"

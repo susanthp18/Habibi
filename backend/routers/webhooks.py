@@ -10,6 +10,7 @@ import logging
 
 import asyncio
 import db
+import request_context
 import json
 import db_webhooks
 import whatsapp
@@ -53,7 +54,22 @@ async def payment_provider_webhook(provider: str, request: Request):
     raw = await request.body()
     sig = request.headers.get("X-Payment-Signature") or request.headers.get("X-Razorpay-Signature")
     if not payments.verify_webhook_signature(provider_name=provider, raw_body=raw, header=sig):
+        # The one line an investigation of "we never got the payment" starts
+        # from. The request id ties it to the access log; the body is not
+        # logged, it is the PSP's and may carry a customer.
+        logger.warning(
+            "webhook rejected provider=%s reason=invalid_signature bytes=%s request_id=%s",
+            provider,
+            len(raw),
+            request_context.get_request_id(),
+        )
         raise HTTPException(status_code=401, detail="invalid_signature")
+    logger.info(
+        "webhook accepted provider=%s bytes=%s request_id=%s",
+        provider,
+        len(raw),
+        request_context.get_request_id(),
+    )
     try:
         body = json.loads(raw.decode("utf-8") or "{}")
     except json.JSONDecodeError as exc:
@@ -85,7 +101,17 @@ async def payment_events_webhook(request: Request):
         or request.headers.get("X-Payment-Signature")
     )
     if not pe.verify_webhook_signature(raw_body=raw, header=sig):
+        logger.warning(
+            "webhook rejected provider=payment-events reason=invalid_signature bytes=%s request_id=%s",
+            len(raw),
+            request_context.get_request_id(),
+        )
         raise HTTPException(status_code=401, detail="invalid_signature")
+    logger.info(
+        "webhook accepted provider=payment-events bytes=%s request_id=%s",
+        len(raw),
+        request_context.get_request_id(),
+    )
     try:
         body = json.loads(raw.decode("utf-8") or "{}")
     except json.JSONDecodeError as exc:

@@ -617,3 +617,31 @@ def test_a_subscription_names_only_catalogue_events(db_tx) -> None:
     with pytest.raises(ValueError, match="unknown_event_type"):
         db_webhooks._ensure_event_type(db_tx, "call.completed\r\nX-Injected: 1")
     assert db_webhooks._ensure_event_type(db_tx, "call.completed").startswith("evt-")
+
+
+def test_a_dead_receiver_opens_its_breaker_and_parks_the_rest(db_tx, transport, monkeypatch) -> None:
+    """One breaker per endpoint. Each delivery used to burn its own retry
+    ladder against a host that was down; once the breaker opens, a delivery is
+    parked for the reset window without charging an attempt."""
+    import circuit_breaker
+    import db
+
+    monkeypatch.setenv("CIRCUIT_FAILURE_THRESHOLD", "2")
+    _park_foreign_pending(db_tx)
+    ep = _endpoint(db_tx, max_attempts=5)
+    circuit_breaker._breakers.pop(f"webhook:{ep['id']}", None)
+    transport["reply"].update(status=503, body="down")
+    ids = wd.dispatch(db_tx, "promise.kept", {"promiseId": "P-1"})
+    ids += wd.dispatch(db_tx, "promise.kept", {"promiseId": "P-2"})
+    ids += wd.dispatch(db_tx, "promise.kept", {"promiseId": "P-3"})
+    for _ in range(3):
+        wd.process_one(db.engine)
+
+    posted = len(transport["calls"])
+    assert posted == 2, "the third delivery must not reach a receiver two failures already condemned"
+    rows = [_delivery(db_tx, i) for i in ids]
+    parked = [r for r in rows if r["http_status"] is None]
+    assert len(parked) == 1
+    assert parked[0]["status"] == "pending" and parked[0]["attempt_number"] == 0
+    assert parked[0]["next_retry_at"] is not None
+    assert circuit_breaker.get_breaker(f"webhook:{ep['id']}").snapshot()["state"] == "open"

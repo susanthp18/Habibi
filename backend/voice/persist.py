@@ -12,7 +12,7 @@ import logging
 import re
 import socket
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -716,6 +716,64 @@ def heartbeat(session_id: str) -> None:
         )
 
 
+def reap_stale(engine: Any, older_than: timedelta) -> list[dict[str, str]]:
+    """End the calls whose worker stopped heartbeating.
+
+    A voice process killed mid-call left its session ``live`` and its
+    interaction ``active`` forever: the floor showed a call that was not
+    happening, the fleet gate counted a slot that was free, and the campaign
+    never got its attempt back. ``last_heartbeat_at`` was written on every
+    turn and read by nobody. Same threshold as the dialer's stale sweep --
+    longer than any plausible silence inside a live call -- and the same
+    verdict: ``abandoned``/``failed``, never deleted, because a call we lost
+    track of is evidence.
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                UPDATE voice_sessions
+                   SET status = 'failed', ended_at = now(), updated_at = now()
+                 WHERE status IN ('starting', 'live')
+                   AND COALESCE(last_heartbeat_at, started_at, created_at) < :cutoff
+                RETURNING id, interaction_id
+                """
+            ),
+            {"cutoff": _now() - older_than},
+        ).mappings().all()
+        reaped = [{"sessionId": r["id"], "interactionId": r["interaction_id"]} for r in rows]
+        for r in reaped:
+            conn.execute(
+                text(
+                    """
+                    UPDATE interactions
+                       SET status = 'abandoned', ended_at = now(), updated_at = now()
+                     WHERE id = :ix AND status = 'active'
+                    """
+                ),
+                {"ix": r["interactionId"]},
+            )
+            # Free the dial slot the attempt still held; the state machine
+            # never walks backwards, so a closed attempt stays closed.
+            from outbound import TERMINAL
+
+            conn.execute(
+                text(
+                    """
+                    UPDATE call_attempts
+                       SET state = 'failed',
+                           provider_error = COALESCE(provider_error, 'voice_session_lost'),
+                           ended_at = now(), updated_at = now()
+                     WHERE interaction_id = :ix AND NOT (state = ANY(:terminal))
+                    """
+                ),
+                {"ix": r["interactionId"], "terminal": list(TERMINAL)},
+            )
+    if reaped:
+        logger.warning("voice: reaped %s stale session(s): %s", len(reaped), [r["sessionId"] for r in reaped])
+    return reaped
+
+
 def complete_voice_call(
     *,
     session_id: str,
@@ -1355,6 +1413,22 @@ def list_transcript_turns(interaction_id: str) -> list[dict[str, Any]]:
     return out
 
 
+def transcript_export_payload(
+    interaction_id: str, session_id: str | None, turns: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """What the export file holds. Masked at write, but the write-time mask
+    leaves long digit runs alone; the bundle export scrubs those, and this
+    artefact leaves the system the same way."""
+    from transcript_view import scrub_identifiers
+
+    return {
+        "interactionId": interaction_id,
+        "sessionId": session_id,
+        "turnCount": len(turns),
+        "turns": [{**t, "text": scrub_identifiers(str(t.get("text") or ""))} for t in turns],
+    }
+
+
 def export_transcript_json(
     *,
     interaction_id: str,
@@ -1368,12 +1442,7 @@ def export_transcript_json(
     if not turns:
         return None
 
-    payload = {
-        "interactionId": interaction_id,
-        "sessionId": session_id,
-        "turnCount": len(turns),
-        "turns": turns,
-    }
+    payload = transcript_export_payload(interaction_id, session_id, turns)
     raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()
     filename = f"{interaction_id}.transcript.json"

@@ -712,14 +712,16 @@ def chat_with_tools(
     try:
         import usage_meter
 
-        from agent_core.platform_flags import llm_gateway_enabled as _gw_on
 
         usage_meter.record_chat_usage(
             prompt_tokens=int(prompt_tokens) if prompt_tokens is not None else None,
             completion_tokens=int(completion_tokens) if completion_tokens is not None else None,
             total_tokens=int(total_tokens) if total_tokens is not None else None,
             model=deployment,
-            source_ref=f"llm_gateway.{gw_profile}" if _gw_on() else "azure_openai.chat_with_tools",
+            # Whatever the flag says, this branch is the Azure kill-switch: the
+            # gateway meters the turns it serves itself (llm_gateway.client),
+            # and labelling these as gateway spend double-counted the cap.
+            source_ref="azure_openai.chat_with_tools",
         )
     except Exception:
         logger.exception("chat usage metering failed")

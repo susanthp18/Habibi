@@ -34,6 +34,8 @@ from typing import Any
 
 import httpx
 
+import circuit_breaker
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -119,7 +121,10 @@ def synthesize(
 
     def attempt(key: str) -> httpx.Response:
         try:
-            r = httpx.post(
+            r = circuit_breaker.get_breaker(
+                "openrouter_tts", failure_exceptions=(httpx.HTTPError,)
+            ).call(
+                httpx.post,
                 f"{base_url()}/audio/speech",
                 headers={
                     "Authorization": f"Bearer {key}",
@@ -128,6 +133,8 @@ def synthesize(
                 json=payload,
                 timeout=timeout_s,
             )
+        except circuit_breaker.CircuitOpenError as exc:
+            raise OpenRouterTTSError(f"openrouter tts unavailable: {exc}") from exc
         except httpx.HTTPError as exc:
             raise OpenRouterTTSError(f"openrouter tts transport error: {exc}") from exc
 

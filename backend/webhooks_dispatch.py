@@ -71,6 +71,7 @@ from sqlalchemy.engine import Connection, Engine
 
 import request_context
 from agent_core.clock import utc_now
+from circuit_breaker import CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +459,51 @@ def settle(
     return "pending" if retryable else status
 
 
+def park(conn: Connection, job: dict[str, Any], *, seconds: float) -> None:
+    """Give the delivery back without charging an attempt: the endpoint's
+    breaker is open, so the POST was never made. It stays pending and due once
+    the breaker's reset window has passed."""
+    conn.execute(
+        text(
+            """
+            UPDATE webhook_deliveries
+            SET attempt_number = GREATEST(attempt_number - 1, 0),
+                next_retry_at = now() + make_interval(secs => :secs),
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": job["id"], "secs": float(seconds)},
+    )
+
+
+class _ReceiverDown(Exception):
+    """A 5xx, raised so the breaker counts it: the call returned, the receiver did not serve."""
+
+    def __init__(self, http_status: int, body: str) -> None:
+        super().__init__(f"receiver returned {http_status}")
+        self.http_status = http_status
+        self.body = body
+
+
+def _post_or_raise(url: str, **kwargs: Any) -> tuple[int, str]:
+    http_status, body = _post(url, **kwargs)
+    if http_status >= 500:
+        raise _ReceiverDown(http_status, body)
+    return http_status, body
+
+
+def _endpoint_breaker(endpoint_id: str) -> Any:
+    """One breaker per receiver. A receiver that is down fails every delivery
+    the same way; without this each one burned its own retry ladder against a
+    dead host and the queue spent its budget learning the same fact N times."""
+    import circuit_breaker
+
+    return circuit_breaker.get_breaker(f"webhook:{endpoint_id}")
+
+
 # --- worker ----------------------------------------------------------------
 
 
@@ -498,9 +544,27 @@ def process_one(engine: Engine) -> bool:
             TIMESTAMP_HEADER: timestamp,
             SIGNATURE_HEADER: sign(secret_hash, timestamp, raw),
         }
-        http_status, body = _post(
-            pinned.url, headers=headers, body=raw, timeout=timeout_seconds(), sni=pinned.host
-        )
+        breaker = _endpoint_breaker(str(job.get("endpoint_id") or ""))
+        try:
+            http_status, body = breaker.call(
+                _post_or_raise,
+                pinned.url,
+                headers=headers,
+                body=raw,
+                timeout=timeout_seconds(),
+                sni=pinned.host,
+            )
+        except _ReceiverDown as down:
+            # Counted by the breaker as a failure; settled below like any 5xx.
+            http_status, body = down.http_status, down.body
+    except CircuitOpenError:
+        # Not an attempt: the POST never left. Park it for the reset window.
+        try:
+            with engine.begin() as conn:
+                park(conn, job, seconds=breaker.reset_timeout_s)
+        except Exception:
+            logger.exception("webhook park failed delivery=%s", job["id"])
+        return True
     except Exception as exc:
         # No response means no HTTP status. 0 classifies as server_err, which is
         # right: a connection that never completed is worth another attempt, and

@@ -149,17 +149,29 @@ def _put_azure(name: str, secret: str) -> str:
     url = _azure_url()
     if not token or not url:
         raise ValueError("azure_key_vault_not_configured")
-    import httpx
-
     secret_name = name.replace(" ", "-")
-    resp = httpx.put(
+    _vault_call(
+        "put",
         f"{url}/secrets/{secret_name}?api-version=7.4",
         headers={"Authorization": f"Bearer {token}"},
         json={"value": secret},
-        timeout=10.0,
     )
-    resp.raise_for_status()
     return secret_name
+
+
+def _vault_call(method: str, url: str, **kwargs):
+    """Key Vault through the breaker: the unseal path runs on every call that
+    resolves a connector secret, and a vault that is down was retried bare."""
+    import httpx
+
+    import circuit_breaker
+
+    def _go() -> httpx.Response:
+        resp = getattr(httpx, method)(url, timeout=10.0, **kwargs)
+        resp.raise_for_status()
+        return resp
+
+    return circuit_breaker.get_breaker("azure_key_vault", failure_exceptions=(httpx.HTTPError,)).call(_go)
 
 
 def _get_azure(secret_name: str) -> str:
@@ -167,14 +179,11 @@ def _get_azure(secret_name: str) -> str:
     url = _azure_url()
     if not token or not url:
         raise ValueError("azure_key_vault_not_configured")
-    import httpx
-
-    resp = httpx.get(
+    resp = _vault_call(
+        "get",
         f"{url}/secrets/{secret_name}?api-version=7.4",
         headers={"Authorization": f"Bearer {token}"},
-        timeout=10.0,
     )
-    resp.raise_for_status()
     value = resp.json().get("value")
     if not value:
         raise ValueError("azure_secret_empty")
