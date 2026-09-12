@@ -30,7 +30,6 @@ const BASELINE = {
   "src/components/prompt-studio/VoicePanel.tsx": 1019,
   "src/components/prompt-studio/OutboundTab.tsx": 807,
   "src/routes/_app.agent-studio.index.tsx": 744,
-  "src/routes/_app.sandbox.lazy.tsx": 727,
   "src/routes/_app.handoff.lazy.tsx": 563,
   "src/api/prompt-studio.ts": 838,
   "src/api/agent-studio.ts": 815,

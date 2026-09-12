@@ -31,6 +31,9 @@ if (typeof proto.releasePointerCapture !== "function") {
 if (typeof proto.scrollIntoView !== "function") {
   proto.scrollIntoView = () => {};
 }
+if (typeof proto.scrollTo !== "function") {
+  proto.scrollTo = () => {};
+}
 
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {

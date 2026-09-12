@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createLazyFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { SandboxHeader, type SandboxMode } from "@/components/sandbox/SandboxHeader";
@@ -10,42 +10,36 @@ import { TuningStudio } from "@/components/sandbox/TuningStudio";
 import { SplitPanes } from "@/components/inbox/SplitPanes";
 import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
-import { EMPTY_INSIGHTS, type LiveToolCall } from "@/components/sandbox/voice/liveEvents";
-import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
-import {
-  appendSandboxTurn,
-  createSandboxRun,
-  exportInteraction,
-  isIntentKey,
-  useSandboxScenarios,
-  type SandboxChunkHit,
-  type SandboxHistoryItem,
-  type SandboxRun,
-} from "@/api/sandbox";
+import { EMPTY_INSIGHTS } from "@/components/sandbox/voice/liveEvents";
+import { exportInteraction, useSandboxScenarios } from "@/api/sandbox";
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
 import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
 import { useKbSnapshots } from "@/api/kb";
-import type { IntentKey, SandboxTurn } from "@/api/types/sandbox";
-import { mergeSandboxChunkMeta } from "@/lib/sandbox";
+import type { IntentKey } from "@/api/types/sandbox";
+import { EMPTY_SESSION, sandboxSessionReducer } from "@/components/sandbox/sandboxSession";
+import { downloadJson, openingTurns } from "@/components/sandbox/sessionOpening";
+import { useTextRehearsal } from "@/components/sandbox/useTextRehearsal";
 import { LoadingState } from "@/components/ui/loading-state";
 import type { AgentTuning } from "@/api/types/agent-tuning";
 import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig } from "@/lib/agent-tuning";
 
 export const Route = createLazyFileRoute("/_app/sandbox")({
-  component: SandboxPage,
+  component: SandboxRoute,
 });
 
-function makeId() {
-  return Math.random().toString(36).slice(2, 10);
+function SandboxRoute() {
+  return <SandboxPage search={Route.useSearch()} />;
 }
 
-function SandboxPage() {
+export type SandboxSearch = { promptVersionId?: string; skillSlug?: string; botId?: string };
+
+export function SandboxPage({ search }: { search: SandboxSearch }) {
   const {
     promptVersionId: searchPromptId,
     skillSlug: searchSkillSlug,
     botId: searchBotId,
-  } = Route.useSearch();
+  } = search;
   const cardsQuery = useAgentStudioCards();
   const skillsQuery = useAgentStudioSkills();
   const [botId, setBotId] = useState(searchBotId || "");
@@ -83,15 +77,9 @@ function SandboxPage() {
   const [promptVersionId, setPromptVersionId] = useState<string>("");
   const [kbSnapshotId, setKbSnapshotId] = useState("current");
   const [scenarioId, setScenarioId] = useState<string>("");
-  const [turns, setTurns] = useState<SandboxTurn[]>([]);
-  const [scriptIndex, setScriptIndex] = useState(0);
-  const [awaiting, setAwaiting] = useState(false);
+  const [session, dispatch] = useReducer(sandboxSessionReducer, EMPTY_SESSION);
+  const { turns, scriptIndex, run, halted, flowNode, textToolCalls, liveMetrics } = session;
   const [promoteOpen, setPromoteOpen] = useState(false);
-  const [run, setRun] = useState<SandboxRun | null>(null);
-  // Where the authored graph is. The server walks it and reports the step; the
-  // client carries it forward so the next turn continues rather than restarts.
-  const [flowNode, setFlowNode] = useState<string | null>(null);
-  const [halted, setHalted] = useState(false);
   const [mode, setMode] = useState<SandboxMode>("text");
   // Declared up here with the other hooks: the panes are assembled after two
   // early returns, and a hook called past those would break the rules-of-hooks
@@ -101,8 +89,6 @@ function SandboxPage() {
   const [autoPlayTts, setAutoPlayTts] = useState(false);
   const [tuning, setTuning] = useState<AgentTuning>(DEFAULT_AGENT_TUNING);
   const [liveEnabled, setLiveEnabled] = useState(false);
-  const [liveMetrics, setLiveMetrics] = useState<TurnMetric[]>([]);
-  const [textToolCalls, setTextToolCalls] = useState<LiveToolCall[]>([]);
   const [nextCallDirty, setNextCallDirty] = useState(false);
   const bootstrapped = useRef(false);
   const tuningBaseline = useRef(DEFAULT_AGENT_TUNING);
@@ -149,55 +135,19 @@ function SandboxPage() {
   }, [activePrompt, skillsQuery.data]);
   const activeKb = kbOptions.find((k) => k.id === kbSnapshotId) ?? kbOptions[0]!;
 
-  const bootstrapLocal = useCallback(
-    (sid: string): SandboxTurn[] => {
-      const s = scenarios.find((x) => x.id === sid);
-      if (!s) return [];
-      const opening = (s.openingBot || "")
-        .replaceAll("{customer_name}", s.persona.name)
-        .replaceAll("{agent_name}", "Priya")
-        .replaceAll("{bank_name}", "HDFC Bank")
-        .replaceAll("{language}", s.persona.language);
-      return [
-        {
-          id: makeId(),
-          role: "system",
-          text: `New session · ${s.title}`,
-          ts: Date.now(),
-          systemKind: "info",
-        },
-        {
-          id: makeId(),
-          role: "bot",
-          text:
-            opening || `Hello, this is Priya from HDFC Bank. Am I speaking with ${s.persona.name}?`,
-          ts: Date.now(),
-          chunkIds: [],
-          latencyMs: 0,
-          tokens: 0,
-        },
-      ];
-    },
-    [scenarios],
-  );
-
   useEffect(() => {
     if (!scenario) return;
     if (bootstrapped.current) return;
-    setTurns(bootstrapLocal(scenario.id));
-    setScriptIndex(0);
-    setRun(null);
-    setHalted(false);
-    setFlowNode(null);
+    dispatch({ type: "start", turns: openingTurns(scenario) });
     bootstrapped.current = true;
-  }, [scenario, bootstrapLocal]);
+  }, [scenario]);
 
   useEffect(() => {
     // The cursor belongs to the graph it was walked in. Carrying it across a
     // version switch posts card A's node key against card B's graph, which
     // resolves to nothing — or, on a fleet graph where two members own the same
     // local name, to a step in the wrong member.
-    setFlowNode(null);
+    dispatch({ type: "clearFlowNode" });
     if (!activePrompt?.voice) return;
     const next = tuningFromVoiceConfig(activePrompt.voice, DEFAULT_AGENT_TUNING);
     setTuning(next);
@@ -232,196 +182,30 @@ function SandboxPage() {
     };
   }, []);
 
+  const { awaiting, handleCustomerText, playNext, skipEnd, canPlayNext } = useTextRehearsal({
+    scenario,
+    activePrompt,
+    kbSnapshotId,
+    skillSlug,
+    mode,
+    session,
+    dispatch,
+  });
+
   const changeScenario = useCallback(
     (id: string) => {
       setScenarioId(id);
-      setTurns(bootstrapLocal(id));
-      setScriptIndex(0);
-      setRun(null);
-      setHalted(false);
-      setFlowNode(null);
-      setTextToolCalls([]);
+      const next = scenarios.find((x) => x.id === id);
+      if (next) dispatch({ type: "start", turns: openingTurns(next) });
     },
-    [bootstrapLocal],
+    [scenarios],
   );
 
   const reset = useCallback(() => {
     if (!scenario) return;
-    setTurns(bootstrapLocal(scenario.id));
-    setScriptIndex(0);
-    setRun(null);
-    setHalted(false);
-    setFlowNode(null);
-    setLiveMetrics([]);
-    setTextToolCalls([]);
+    dispatch({ type: "start", turns: openingTurns(scenario), clearMetrics: true });
     toast.info("Conversation reset");
-  }, [scenario, bootstrapLocal]);
-
-  const ensureRun = useCallback(async (): Promise<SandboxRun> => {
-    if (run && run.status === "running") return run;
-    if (!scenario || !activePrompt) throw new Error("Scenario / prompt not ready");
-    const created = await createSandboxRun({
-      promptVersionId: activePrompt.id,
-      scenarioId: scenario.id,
-      scenarioTitle: scenario.title,
-      kbSnapshotId: kbSnapshotId === "current" ? null : kbSnapshotId,
-      openingTemplate: scenario.openingBot,
-      persona: scenario.persona,
-    });
-    setRun(created);
-    if (created.openingMessage) {
-      setTurns((prev) => {
-        const withoutOpening = prev.filter((t) => t.role !== "bot");
-        const system = withoutOpening.find((t) => t.role === "system");
-        return [
-          system ?? {
-            id: makeId(),
-            role: "system" as const,
-            text: `New session · ${scenario.title}`,
-            ts: Date.now(),
-            systemKind: "info" as const,
-          },
-          {
-            id: makeId(),
-            role: "bot" as const,
-            text: created.openingMessage!,
-            ts: Date.now(),
-            chunkIds: [],
-            latencyMs: 0,
-            tokens: 0,
-          },
-        ];
-      });
-    }
-    return created;
-  }, [run, scenario, activePrompt, kbSnapshotId]);
-
-  const handleCustomerText = useCallback(
-    async (text: string, fromScript: boolean) => {
-      if (!scenario || !activePrompt || halted || mode !== "text") return;
-      setAwaiting(true);
-      try {
-        const activeRun = await ensureRun();
-        const history: SandboxHistoryItem[] = turns
-          .filter((t) => t.role === "bot" || t.role === "customer")
-          .map((t) => ({ role: t.role as "bot" | "customer", text: t.text }));
-
-        const result = await appendSandboxTurn({
-          runId: activeRun.id,
-          text,
-          history,
-          skillSlug: skillSlug || undefined,
-          nodeKey: flowNode,
-          scenario,
-          turnIndex: fromScript
-            ? scriptIndex
-            : Math.min(scriptIndex, Math.max(0, scenario.turns.length - 1)),
-          personaState: activePrompt.persona,
-          guardrails: activePrompt.guardrails,
-        });
-
-        const intentKey = isIntentKey(result.customerTurn.intent)
-          ? result.customerTurn.intent
-          : undefined;
-        const customerTurn: SandboxTurn = {
-          id: result.customerTurn.id,
-          role: "customer",
-          text: result.customerTurn.text,
-          ts: Date.now(),
-          intent: intentKey,
-          intentScores: result.customerTurn.intentScores as SandboxTurn["intentScores"],
-          sentiment: result.customerTurn.sentiment,
-        };
-        const chunks: SandboxChunkHit[] = result.botTurn.chunks ?? [];
-        mergeSandboxChunkMeta(chunks);
-        const botTurn: SandboxTurn = {
-          id: result.botTurn.id,
-          role: "bot",
-          text: result.botTurn.text,
-          ts: Date.now(),
-          chunkIds: result.botTurn.chunkIds,
-          chunks,
-          latencyMs: result.botTurn.latencyMs,
-          tokens: result.botTurn.tokens,
-          guardrailFlags: result.botTurn.guardrailFlags,
-        };
-
-        setTurns((prev) => {
-          const next = [...prev, customerTurn, botTurn];
-          if (result.botTurn.guardrailFlags.includes("auto-escalate")) {
-            next.push({
-              id: makeId(),
-              role: "system",
-              text: "Auto-escalation triggered · routing to Tier 2",
-              ts: Date.now(),
-              systemKind: "warn",
-            });
-          }
-          if (result.botTurn.halted) {
-            next.push({
-              id: makeId(),
-              role: "system",
-              text: `Run halted · guardrail ${result.botTurn.guardrailFlags.join(", ")}`,
-              ts: Date.now(),
-              systemKind: "warn",
-            });
-          }
-          return next;
-        });
-
-        const simulatedCalls = (result.botTurn.toolCalls ?? []).map((call, i): LiveToolCall => {
-          const at = Date.now();
-          return {
-            id: `${result.botTurn.id}-${call.name}-${i}`,
-            name: call.name,
-            status: call.ok ? "done" : "error",
-            result: call.result,
-            startedAt: at,
-            endedAt: at,
-          };
-        });
-        if (simulatedCalls.length) {
-          setTextToolCalls((prev) => [...prev, ...simulatedCalls]);
-        }
-
-        // The step the server walked to. Null when the card authors no flow,
-        // which leaves the cursor where it was rather than resetting it.
-        if (result.nodeKey) setFlowNode(result.nodeKey);
-
-        if (result.botTurn.halted) {
-          setHalted(true);
-          setRun((r) => (r ? { ...r, status: "completed" } : r));
-        }
-        if (fromScript) setScriptIndex((i) => i + 1);
-        return !result.botTurn.halted;
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Sandbox turn failed");
-        return false;
-      } finally {
-        setAwaiting(false);
-      }
-    },
-    [scenario, activePrompt, halted, ensureRun, turns, scriptIndex, mode, skillSlug, flowNode],
-  );
-
-  const playNext = useCallback(() => {
-    if (!scenario) return;
-    const nextTurn = scenario.turns[scriptIndex];
-    if (!nextTurn) return;
-    void handleCustomerText(nextTurn.customer, true);
-  }, [scenario, scriptIndex, handleCustomerText]);
-
-  const skipEnd = useCallback(() => {
-    if (!scenario || awaiting || halted) return;
-    const remaining = scenario.turns.slice(scriptIndex, scriptIndex + 3).map((t) => t.customer);
-    if (remaining.length === 0) return;
-    void (async () => {
-      for (const text of remaining) {
-        const ok = await handleCustomerText(text, true);
-        if (!ok) break;
-      }
-    })();
-  }, [scenario, scriptIndex, awaiting, halted, handleCustomerText]);
+  }, [scenario]);
 
   const exportTranscript = useCallback(() => {
     if (!scenario || !activePrompt) return;
@@ -434,13 +218,7 @@ function SandboxPage() {
       tuning,
       turns,
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sandbox-${scenario.id}-${activePrompt.label}-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJson(`sandbox-${scenario.id}-${activePrompt.label}-${Date.now()}.json`, payload);
     toast.success("Transcript exported");
   }, [scenario, activePrompt, activeKb, turns, run, tuning]);
 
@@ -459,8 +237,8 @@ function SandboxPage() {
       language: "English",
     },
     tuning,
-    onTurns: setTurns,
-    onMetrics: setLiveMetrics,
+    onTurns: (value) => dispatch({ type: "turns", value }),
+    onMetrics: (value) => dispatch({ type: "metrics", value }),
   });
 
   /**
@@ -503,11 +281,6 @@ function SandboxPage() {
       })
       .catch((err: Error) => toast.error("Promote failed", { description: err.message }));
   };
-
-  const canPlayNext = useMemo(() => {
-    if (!scenario || halted || awaiting || mode !== "text") return false;
-    return scriptIndex < scenario.turns.length;
-  }, [scriptIndex, scenario, halted, awaiting, mode]);
 
   const turnsUsed = useMemo(() => turns.filter((t) => t.role === "customer").length, [turns]);
   const turnsMax = useMemo(() => {
@@ -653,8 +426,7 @@ function SandboxPage() {
           onCard={(id) => {
             setBotId(id);
             setPromptVersionId("");
-            setRun(null);
-            setTextToolCalls([]);
+            dispatch({ type: "invalidateRun", clearTools: true });
           }}
           skillSlug={skillSlug}
           // The card's attached packs, not the whole library: a slug the card
@@ -666,17 +438,13 @@ function SandboxPage() {
           promptVersions={versions}
           onPromptVersion={(id) => {
             setPromptVersionId(id);
-            setRun(null);
-            setHalted(false);
-            setTurns(bootstrapLocal(scenario.id));
-            setScriptIndex(0);
-            setTextToolCalls([]);
+            dispatch({ type: "start", turns: openingTurns(scenario) });
           }}
           kbSnapshotId={kbSnapshotId}
           kbSnapshots={kbOptions}
           onKbSnapshot={(id) => {
             setKbSnapshotId(id);
-            setRun(null);
+            dispatch({ type: "invalidateRun" });
           }}
           scenarioId={scenario.id}
           scenarios={scenarios}
