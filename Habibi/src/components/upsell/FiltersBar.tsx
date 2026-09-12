@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select";
 import type { Filters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
-import { SOURCE_LABELS, TEAM_OPTIONS, products as seedProducts } from "@/data/upsell-seed";
+import { SOURCE_LABELS } from "@/lib/upsell";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -11,8 +11,8 @@ interface Props {
   onPatch: (p: Partial<Filters>) => void;
   onReset: () => void;
   owners: string[];
-  /** Live catalog from GET /products; falls back to the seed while loading. */
-  products?: Product[];
+  products: Product[];
+  teams: string[];
 }
 
 const SENTIMENTS: Sentiment[] = ["positive", "neutral", "negative"];
@@ -32,8 +32,7 @@ const priorityTone: Record<Priority, string> = {
   low: "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
 };
 
-export function FiltersBar({ filters, onPatch, onReset, owners, products }: Props) {
-  const productOptions = products && products.length > 0 ? products : seedProducts;
+export function FiltersBar({ filters, onPatch, onReset, owners, products, teams }: Props) {
   const active =
     !!filters.search ||
     filters.team !== "all" ||
@@ -78,7 +77,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
         className="w-[8.125rem]"
         options={[
           { value: "all", label: "All teams" },
-          ...TEAM_OPTIONS.map((t) => ({ value: t, label: t })),
+          ...teams.map((t) => ({ value: t, label: t })),
         ]}
       />
 
@@ -102,7 +101,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
         className="w-[9.375rem]"
         options={[
           { value: "all", label: "All products" },
-          ...productOptions.map((p) => ({ value: p.id, label: p.name })),
+          ...products.map((p) => ({ value: p.id, label: p.name })),
         ]}
       />
 

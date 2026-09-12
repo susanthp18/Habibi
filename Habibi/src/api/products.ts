@@ -14,8 +14,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { Product } from "@/api/types/upsell";
-import { products as mockProducts } from "@/data/upsell-seed";
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 /** Wire shape of GET /products (schemas.ProductResponse). */
 interface ProductWire {
@@ -50,7 +49,6 @@ function toProduct(w: ProductWire): Product {
 }
 
 export async function fetchProducts(): Promise<Product[]> {
-  if (USE_MOCK) return mockDelay(mockProducts);
   const wire = await apiGet<ProductWire[]>("/products");
   return wire.map(toProduct);
 }

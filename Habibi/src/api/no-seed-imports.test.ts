@@ -34,10 +34,8 @@ const FIXTURE_IMPORTERS = [
   "billing.ts",
   "contact-policy.ts",
   "customers.ts",
-  "products.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.
   "prompt-studio.ts",
-  "upsell.ts",
 ];
 
 /** The type-import exceptions. Empty since WP-048 closed; stays empty. */

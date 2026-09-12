@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Lead, LeadStage } from "@/api/types/upsell";
-import { fmtMoney, leadValue, STAGE_LABELS, STAGE_ORDER } from "@/data/upsell-seed";
+import { leadValue, STAGE_LABELS, STAGE_ORDER } from "@/lib/upsell";
+import { fmtMoney } from "@/lib/upsell";
 import { cn } from "@/lib/utils";
 import { LeadCard } from "./LeadCard";
 

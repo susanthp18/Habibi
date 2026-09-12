@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Lead, Sentiment } from "@/api/types/upsell";
-import { fmtMoney, fmtRelative, leadValue, SOURCE_LABELS } from "@/data/upsell-seed";
+import { fmtRelative, leadValue, SOURCE_LABELS } from "@/lib/upsell";
+import { fmtMoney } from "@/lib/upsell";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
 

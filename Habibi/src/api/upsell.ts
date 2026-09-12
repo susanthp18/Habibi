@@ -3,16 +3,11 @@
 //   fetchLeads()  → the lead pipeline   (GET /leads)
 //   patchLead()   → stage / owner / team / offer  (PATCH /leads/:id)
 //   createLead()  → manual capture      (POST /leads)
-//
-// In mock mode these mutate the in-memory seed; live they hit the API. The two
-// paths are kept behaviourally identical on purpose — a difference between them
-// is a bug that only shows up in production.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
 
 import type {
-  Filters,
   FollowUpChannel,
   FollowUp,
   Lead,
@@ -22,31 +17,14 @@ import type {
   Priority,
   Team,
 } from "@/api/types/upsell";
-import {
-  TEAM_OPTIONS,
-  assign,
-  computeMetrics,
-  createLead as createSeedLead,
-  defaultFilters,
-  filterLeads,
-  leads,
-  listCustomers,
-  listOwners,
-  markFollowUpDone,
-  markLost,
-  markWon,
-  moveStage,
-  reassignTeam,
-  scheduleFollowUp,
-  updateOffer,
-} from "@/data/upsell-seed";
 import type { Customer } from "@/api/types/customer360";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { resolveProduct } from "./products";
 import { humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team as StaffTeam } from "./teams";
 
 /** Resolve an owner name to a real user id, or undefined for "Unassigned". */
+
 async function ownerUserId(owner: string | undefined): Promise<string | undefined> {
   if (owner === undefined || owner === "Unassigned") return undefined;
   const actor = await resolveActor(owner);
@@ -73,12 +51,10 @@ export function followUpChannelFromPolicy(
 }
 
 export function leadOwnerOptions(staff: Staff[]): string[] {
-  if (USE_MOCK) return listOwners();
   return [...humanNames(staff), "Unassigned"];
 }
 
 export function leadTeamOptions(teams: StaffTeam[]): string[] {
-  if (USE_MOCK) return [...TEAM_OPTIONS];
   return teamNames(teams);
 }
 
@@ -88,7 +64,6 @@ export function leadCustomerOptions(customers: Customer[]): Array<{
   accountId: string;
   tail: string;
 }> {
-  if (USE_MOCK) return listCustomers();
   return customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -142,26 +117,7 @@ function leadQueryString(query: LeadQuery = {}): string {
   return qs ? `?${qs}` : "";
 }
 
-/** LeadQuery → the seed's Filters shape, so mock mode filters identically. */
-function seedFilters(query: LeadQuery): Filters {
-  return {
-    ...defaultFilters,
-    search: query.q ?? "",
-    team: (query.team ?? "all") as Filters["team"],
-    owner: query.owner ?? "all",
-    productId: query.productId ?? "all",
-    source: (query.source ?? "all") as Filters["source"],
-    sentiments: (query.sentiments ?? []) as Filters["sentiments"],
-    priorities: (query.priorities ?? []) as Filters["priorities"],
-    myQueue: false,
-  };
-}
-
 export async function fetchLeads(query: LeadQuery = {}): Promise<Lead[]> {
-  if (USE_MOCK) {
-    const rows = filterLeads(leads, seedFilters(query));
-    return mockDelay(query.stage ? rows.filter((l) => l.stage === query.stage) : rows);
-  }
   return apiGet<Lead[]>(`/leads${leadQueryString(query)}`);
 }
 
@@ -181,22 +137,6 @@ export interface LeadMetrics {
 }
 
 export async function fetchLeadMetrics(query: LeadQuery = {}): Promise<LeadMetrics> {
-  if (USE_MOCK) {
-    const rows = await fetchLeads(query);
-    const m = computeMetrics(rows);
-    return mockDelay({
-      total: rows.length,
-      openLeads: m.openLeads,
-      pipelineValue: m.pipelineValue,
-      wonWeek: m.wonWeek,
-      wonWeekAmount: m.wonWeekAmount,
-      conversionRate: m.conversionRate,
-      captured30d: 0,
-      won30d: 0,
-      avgDaysToClose: m.avgDaysToClose,
-      perStage: m.perStage,
-    });
-  }
   return apiGet<LeadMetrics>(`/leads/metrics${leadQueryString(query)}`);
 }
 
@@ -219,17 +159,6 @@ export async function patchLead(
     lossReason?: string;
   },
 ): Promise<Lead> {
-  if (USE_MOCK) {
-    if (patch.stage && patch.stage !== lead.stage)
-      moveStage(lead.id, patch.stage, undefined, patch.lossReason);
-    if (patch.owner !== undefined) assign(lead.id, patch.owner);
-    if (patch.team !== undefined) reassignTeam(lead.id, patch.team);
-    if (patch.offer !== undefined) updateOffer(lead.id, patch.offer);
-    if (patch.wonAmount !== undefined) markWon(lead.id, patch.wonAmount);
-    if (patch.lossReason !== undefined) markLost(lead.id, patch.lossReason);
-    return mockDelay(leads.find((l) => l.id === lead.id) ?? lead);
-  }
-
   // Only send what actually changed. The endpoint uses exclude_unset, so an
   // explicit null clears a column while an omitted key leaves it alone —
   // sending every field on every patch would wipe values nobody touched.
@@ -259,9 +188,6 @@ export async function revalidateLead(
   lead: Lead,
   channel: FollowUpChannel = leadContactChannel(lead.source),
 ): Promise<{ leadId: string; eligible: boolean; blockReason: string | null }> {
-  if (USE_MOCK) {
-    return mockDelay({ leadId: lead.id, eligible: true, blockReason: null });
-  }
   return apiPost(`/leads/${lead.id}/revalidate?channel=${channel}`, {});
 }
 
@@ -269,11 +195,6 @@ export async function addLeadFollowUp(
   lead: Lead,
   input: { at: string; channel: FollowUpChannel; note: string },
 ): Promise<{ id: string; status: string }> {
-  if (USE_MOCK) {
-    scheduleFollowUp(lead.id, input.at, input.channel, input.note);
-    return mockDelay({ id: `FU-${Date.now()}`, status: "open" });
-  }
-
   return apiPost<{ id: string; status: string }>(`/leads/${lead.id}/followups`, {
     scheduledAt: input.at,
     channel: input.channel,
@@ -286,10 +207,6 @@ export async function markLeadFollowUpDone(
   followUp: FollowUp,
   index: number,
 ): Promise<{ id: string; status: string }> {
-  if (USE_MOCK) {
-    markFollowUpDone(lead.id, index);
-    return mockDelay({ id: followUp.id ?? `FU-${index}`, status: "done" });
-  }
   if (!followUp.id) throw new Error("Follow-up id missing");
   return apiPatch<{ id: string; status: string }>(`/followups/${followUp.id}`, { status: "done" });
 }
@@ -304,8 +221,6 @@ export async function createLead(input: {
   priority: Priority;
   note: string;
 }): Promise<Lead> {
-  if (USE_MOCK) return mockDelay(createSeedLead(input));
-
   // ROI comes from the catalog the server serves, not a hardcoded copy of it —
   // otherwise the ROI stored on the lead can disagree with the product.
   const product = await resolveProduct(input.productId);
@@ -337,20 +252,6 @@ export async function captureLeadFromPolicy(input: {
 }): Promise<Lead> {
   const source = input.source ?? "agent";
   const amount = input.indicativeAmount ?? 0;
-  if (USE_MOCK) {
-    return mockDelay(
-      createSeedLead({
-        customerId: input.customerId,
-        productId: input.productId,
-        indicativeAmount: amount,
-        team: "Retail Sales",
-        owner: "Unassigned",
-        source,
-        priority: "normal",
-        note: input.note || "Captured from offer policy",
-      }),
-    );
-  }
   const product = await resolveProduct(input.productId);
   return apiPost<Lead>("/leads", {
     customerId: input.customerId,

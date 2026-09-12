@@ -13,7 +13,9 @@ import { LeadTable } from "@/components/upsell/LeadTable";
 import { LeadSheet } from "@/components/upsell/LeadSheet";
 import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
 import type { Filters, LeadStage } from "@/api/types/upsell";
-import { STAGE_LABELS, defaultFilters, moneyValue } from "@/data/upsell-seed";
+import { STAGE_LABELS, defaultFilters, moneyValue } from "@/lib/upsell";
+import { useTeams } from "@/api/teams";
+import { leadTeamOptions } from "@/api/upsell";
 import {
   leadOwnerOptions,
   patchLead,
@@ -93,6 +95,8 @@ function UpsellPage() {
   // against real data.
   const { data: staff = [] } = useStaff();
   const { data: catalog = [] } = useProducts();
+  const { data: teams = [] } = useTeams();
+  const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
   const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
 
   const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
@@ -199,6 +203,7 @@ function UpsellPage() {
           onReset={() => setFilters(defaultFilters)}
           owners={owners}
           products={catalog}
+          teams={teamOptions}
         />
 
         <div className="flex shrink-0 items-center gap-100">

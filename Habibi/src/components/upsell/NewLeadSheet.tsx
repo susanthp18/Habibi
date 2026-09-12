@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import type { LeadSource, Priority, Team } from "@/api/types/upsell";
-import { CURRENT_AGENT, products } from "@/data/upsell-seed";
 import { createLead, leadCustomerOptions, leadOwnerOptions, leadTeamOptions } from "@/api/upsell";
 import { useProducts } from "@/api/products";
 import { useTeams } from "@/api/teams";
@@ -45,14 +44,21 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
   // server has not heard of.
   const { data: catalog = [] } = useProducts();
   const { data: teams = [] } = useTeams();
-  const productOptions = useMemo(() => (catalog.length > 0 ? catalog : products), [catalog]);
+  const productOptions = catalog;
   const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
 
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
-  const [productId, setProductId] = useState(products[0].id);
-  const [amount, setAmount] = useState(String(products[0].minTicket * 2));
+  const [productId, setProductId] = useState("");
+  const [amount, setAmount] = useState("");
+  useEffect(() => {
+    const first = productOptions[0];
+    if (!productId && first) {
+      setProductId(first.id);
+      setAmount(String(first.minTicket * 2));
+    }
+  }, [productId, productOptions]);
   const [team, setTeam] = useState<Team>("Retail Sales");
-  const [owner, setOwner] = useState(me?.name ?? CURRENT_AGENT);
+  const [owner, setOwner] = useState(me?.name ?? "");
   const [source, setSource] = useState<LeadSource>("agent");
   const [priority, setPriority] = useState<Priority>("normal");
   const [note, setNote] = useState("");

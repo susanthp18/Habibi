@@ -1,5 +1,5 @@
 import { Sparkles, Wallet, Trophy, TrendingUp, Timer } from "lucide-react";
-import { fmtMoney } from "@/data/upsell-seed";
+import { fmtMoney } from "@/lib/upsell";
 import type { LeadMetrics } from "@/api/upsell";
 
 function Tile({

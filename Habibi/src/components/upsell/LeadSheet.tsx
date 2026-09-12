@@ -23,13 +23,12 @@ import {
   STAGE_LABELS,
   STAGE_ORDER,
   SOURCE_LABELS,
-  fmtDateTime,
-  fmtMoney,
   fmtRelative,
   fmtSentiment,
   moneyValue,
-  products,
-} from "@/data/upsell-seed";
+} from "@/lib/upsell";
+import { fmtMoney } from "@/lib/upsell";
+import { fmtDateTime } from "@/lib/format";
 import {
   addLeadFollowUp,
   leadContactChannel,
@@ -97,7 +96,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
   const { data: catalog = [] } = useProducts();
   const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
   const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
-  const productOptions = useMemo(() => (catalog.length > 0 ? catalog : products), [catalog]);
+  const productOptions = catalog;
 
   const [productId, setProductId] = useState(lead.offer.productId);
   const [amount, setAmount] = useState(String(lead.offer.indicativeAmount));
