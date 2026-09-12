@@ -1,11 +1,11 @@
-"""The Tool Grant's own guarantees. Permanent — outlives the migration.
+"""The Tool Grant's own guarantees.
 
-Split from ``test_tool_grant_characterization.py``, which compares the module
-against the seven formulas it replaces and is deleted with them in #13. These
-assertions are not about the old formulas at all: they are the properties
-ADR-0001 and ADR-0002 require the grant to hold forever, and ADR-0001 in
-particular rejects a two-module design *because* "the relationship between them
-is asserted by a test". That test cannot be scaffolding.
+The properties ADR-0001 and ADR-0002 require the grant to hold forever;
+ADR-0001 rejects a two-module design *because* "the relationship between them
+is asserted by a test". The seven formulas the grant replaced are gone (the
+characterization file that compared them went with the last one); what
+remains beside the grant is the publish gate's *scope* check, which is not a
+grant and is pinned below as exactly that.
 
 ``voice.tools.ALWAYS_ON`` is this module's ``VOICE_ALWAYS``, imported under
 that name. The pin that they are the same object cannot import ``voice.tools``
@@ -24,9 +24,11 @@ import pytest
 
 from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS, card_dump
 from agent_core.cards.schema import LOCKED_MOUTH_TOOLS
+from agent_core.skills.intersect import PLATFORM_SKILL_TOOLS
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.grant import (
     TEXT,
+    TEXT_ALWAYS,
     VOICE,
     VOICE_ALWAYS,
     VOICE_FLOW_TOOLS,
@@ -203,3 +205,52 @@ def test_the_floor_is_granted_on_voice_and_absent_on_text(bot_id, card_and_packs
     # verify_identity is a real text tool on cards that include it; the nine
     # flow verbs and capture_call_goal are the voice-only half of the floor.
     assert not (VOICE_FLOW_TOOLS | {"capture_call_goal"}) & text
+
+
+# --- the publish gate's scope is not a second grant --------------------------
+
+
+@pytest.mark.parametrize("bot_id", BOTS)
+def test_the_publish_scope_is_the_authors_declaration_not_the_grant(bot_id, card_and_packs) -> None:
+    """G9 checks a pack's tools against ``include | locked | platform`` -- what
+    the author declared -- and never against the catalog. That is a scope for
+    reporting authoring errors, not a grant, and the two differ in exactly two
+    documented ways:
+
+    * the scope permits names no runtime could call (locked engines with no
+      mouth tool, skill-gated tools no attached pack grants);
+    * the scope omits the always-on floor, which the grant carries.
+
+    Anything else the scope permits and the grant does not must be a catalog
+    tool no attached pack grants -- never a name a runtime would have granted.
+    """
+    card, packs = card_and_packs(bot_id)
+    scope = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS
+    static = ToolGrant.static_grant(card, packs)
+
+    assert static - scope == (VOICE_ALWAYS | TEXT_ALWAYS) - scope
+
+    unreachable = scope - static
+    locked_without_a_mouth_tool = {"evaluate_live_qa", "recommend_treatment"}
+    assert locked_without_a_mouth_tool <= unreachable
+    for name in unreachable - locked_without_a_mouth_tool:
+        assert name in CATALOG_NAMES
+        assert not any(name in p.allowed_tools for p in packs)
+
+
+def test_the_cardless_fallbacks_stay_gone() -> None:
+    """The text and sandbox runtimes used private tool lists when no card
+    resolved; both contained skill-gated writes. ADR-0002 deleted them, and a
+    cardless mouth is granted nothing at the live seam, not only inside
+    ToolGrant.
+    """
+    import bot_tools
+    import sandbox_runtime
+    from agent_core.skills.runtime import resolve_mouth
+
+    assert not hasattr(bot_tools, "TOOL_DEFINITIONS")
+    assert not hasattr(sandbox_runtime, "_SANDBOX_TOOL_NAMES")
+
+    tools = resolve_mouth({}).tools()
+    assert tools.allowed == frozenset()
+    assert tools.offered == ()

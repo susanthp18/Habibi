@@ -945,25 +945,6 @@ def _resolve_attached(
     return packs, missing
 
 
-def effective_tools(
-    card: AgentCard,
-    *,
-    catalog_names: set[str],
-    channel_tools: set[str] | None = None,
-    attached_skills: list[SkillPack] | None = None,
-    issues: list[dict[str, Any]] | None = None,
-) -> list[str]:
-    """include ∩ catalog ∩ channel ∪ locked, with skill-gated writes filtered."""
-    packs, _ = _resolve_attached(card, attached_skills)
-    return skill_effective_tools(
-        card,
-        catalog_names=catalog_names,
-        channel_tools=channel_tools,
-        attached_skills=packs if (card.skills or attached_skills is not None) else None,
-        issues=issues,
-    )
-
-
 # G12's accepted set is the card's own vocabulary. Restating it here meant a
 # canary naming only the outbound triggers filtered to empty and failed the
 # gate with "canary split requires auto_rollback".
@@ -1172,7 +1153,10 @@ def _tool_gates(
         # Connector binding happens inside the tool intersection. When it fails
         # the compile continues without the ext.* names, and G10 below reports
         # why instead of leaving the author a card that looks connector-less.
-        tools = st.tools = effective_tools(
+        # The one grant formula (ADR-0001): ToolGrant.for_card calls this same
+        # function with the same inputs; the gate passes `issues` so a failed
+        # connector bind reaches the author through G10.
+        tools = st.tools = skill_effective_tools(
             card,
             catalog_names=catalog_names,
             channel_tools=channel_tools,
@@ -1363,6 +1347,9 @@ def _ship_gates(
         unsigned = [p.slug for p in packs if not p.signed]
         if unsigned:
             g9_issues.append({"unsigned": unsigned})
+        # The author's declared scope, deliberately not the grant: a pack that
+        # names a tool the card never included is an authoring error to report,
+        # and the grant would already have dropped it in silence.
         allowed_scope = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS
         extras: dict[str, list[str]] = {}
         unknown_skill_tools: dict[str, list[str]] = {}
