@@ -24,6 +24,7 @@ import pytest
 
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
 from agent_core.skills import runtime
+from tests.mouth_state import mouth_state
 
 
 def _card() -> dict:
@@ -77,7 +78,7 @@ def test_the_turn_state_denies_rather_than_reverting_to_defaults(
     """What the fix is for: no packs means the gated-write filter denies."""
     _db_raises(monkeypatch, RuntimeError("connection reset by peer"))
     _never_disk(monkeypatch)
-    state = runtime.mouth_turn_state(_card(), intent="payment_intent")
+    state = mouth_state(_card(), intent="payment_intent")
     assert state["packs"] == []
     # Not "nothing is allowed" — reads are ungated and stay. The property is
     # that every skill-gated *write* is gone, which is what the disk fallback
@@ -223,7 +224,7 @@ def test_the_turn_state_denies_writes_for_a_corrupt_signed_pack(
 
     substituted = set(pack_for_slug("ptp-negotiate").allowed_tools) & SKILL_GATED_TOOLS
     _one_corrupt_signed_row(monkeypatch)
-    state = runtime.mouth_turn_state(_card(), intent="payment_intent")
+    state = mouth_state(_card(), intent="payment_intent")
     assert "ptp-negotiate" not in {p.slug for p in state["packs"]}
 
     allowed = set(state["allowed"] or [])

@@ -10,7 +10,8 @@ from agent_core.skills.defaults import COLLECTIONS_SKILLS, all_first_party_packs
 from agent_core.skills.gardener import assert_unsigned, draft_from_gap
 from agent_core.skills.intersect import SKILL_GATED_TOOLS, effective_tools, offered_tools
 from agent_core.skills.pack import approx_tokens
-from agent_core.skills.runtime import description_block, mouth_turn_state, tools_after_references
+from agent_core.skills.runtime import description_block, tools_after_references
+from tests.mouth_state import mouth_state
 from agent_core.skills.scripts import run_script
 from agent_core.skills.sign import sign_hash, verify_signature
 from agent_core.tools.catalog import CATALOG
@@ -113,7 +114,7 @@ def test_g9_reports_unresolved_when_attached_list_is_partial() -> None:
 def test_empty_collections_card_still_loads_skills() -> None:
     dumped = card_dump(COLLECTIONS_BOT_ID)
     dumped["skills"] = []
-    state = mouth_turn_state(dumped)
+    state = mouth_state(dumped)
     assert state["prefix"]
     assert "ptp-negotiate" in state["prefix"]
     assert any(p.slug == "verify-and-disclose" for p in state["packs"])
@@ -241,8 +242,8 @@ def test_idle_offered_hides_gated_writes() -> None:
     assert SKILL_GATED_TOOLS
 
 
-def test_mouth_turn_state_legacy_empty_card() -> None:
-    state = mouth_turn_state({})
+def test_mouth_state_of_an_empty_card_grants_nothing() -> None:
+    state = mouth_state({})
     assert state["allowed"] == set()
     assert state["offered"] == []
     assert state["prefix"] == ""

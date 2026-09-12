@@ -50,7 +50,7 @@ from agent_core.providers.fish_emotions import (  # noqa: E402
     EMOTION_TAGS_TONE,
 )
 
-Kind = Literal["stt", "tts", "llm"]
+Kind = Literal["stt", "tts"]
 
 
 @dataclass(frozen=True)

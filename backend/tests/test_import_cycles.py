@@ -18,7 +18,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 # Entry points that must survive being the first thing a process imports.
 # agent_core.skills.runtime is the one that mattered: voice/bot.py defers
-# `from agent_core.skills.runtime import mouth_turn_state` into the function
+# `from agent_core.skills.runtime import resolve_mouth` into the function
 # that assembles the system prompt, so in the voice worker it was the first
 # module to touch the agent_core.cards <-> agent_core.skills cycle and every
 # call would have died building its prompt.

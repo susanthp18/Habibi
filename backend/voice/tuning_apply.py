@@ -101,9 +101,6 @@ def language_supported(code: str | None) -> bool:
     return False
 
 
-# Backwards-compatible alias for in-module call sites.
-_language = normalize_language
-
 
 def text_aggregation_mode(tuning: dict[str, Any]):
     from pipecat.services.tts_service import TextAggregationMode
@@ -229,7 +226,7 @@ def stt_settings_kwargs(tuning: dict[str, Any]) -> dict[str, Any]:
     ``AzureSTTService.Settings`` instance.
     """
     stt = normalize_tuning(tuning)["stt"]
-    return {"language": _language(stt["language"]), "profanity": stt["profanity"]}
+    return {"language": normalize_language(stt["language"]), "profanity": stt["profanity"]}
 
 
 def build_stt_settings(tuning: dict[str, Any]):
@@ -257,7 +254,7 @@ def tts_settings_kwargs(tuning: dict[str, Any]) -> dict[str, Any]:
     stt = normalized["stt"]
     kwargs: dict[str, Any] = {
         "voice": tts["voice"],
-        "language": _language(stt.get("language") or "en-IN"),
+        "language": normalize_language(stt.get("language") or "en-IN"),
         "rate": tts.get("rate") or "1.05",
         "pitch": tts.get("pitch") or "+2%",
     }
@@ -373,7 +370,7 @@ async def apply_live_tuning_delta(
                 tts_delta.setdefault(key, value)
         # language is an enum on Settings — map if present as string.
         if "language" in tts_delta and isinstance(tts_delta["language"], str):
-            tts_delta["language"] = _language(tts_delta["language"])
+            tts_delta["language"] = normalize_language(tts_delta["language"])
         from agent_core.providers.factory import settings_field_names
 
         allowed = settings_field_names(tts_settings_cls)

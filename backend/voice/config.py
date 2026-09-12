@@ -7,17 +7,10 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
-from pathlib import Path
 from typing import Any
 
-# Allow `python -m voice.spike` and `python voice/spike.py` from backend/.
-_BACKEND_ROOT = Path(__file__).resolve().parent.parent
-if str(_BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_ROOT))
-
-from env_loader import load_env  # noqa: E402
-from env_utils import env_bool  # noqa: E402
+from env_loader import load_env
+from env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -336,8 +329,8 @@ def voice_memory_max_age_days() -> int:
 def voice_startup_timing() -> bool:
     """Attach StartupTimingObserver — diagnostic, off by default.
 
-    This is what says whether the ~1.2s handshake tax in voice/SPIKE_NOTES.md
-    is transport setup or service construction.
+    This is what says whether the handshake tax on a new call is transport
+    setup or service construction.
     """
     return _flag("VOICE_STARTUP_TIMING")
 

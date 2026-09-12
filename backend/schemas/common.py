@@ -484,9 +484,6 @@ class HandoffSessionResponse(BaseModel):
     speakers: dict[str, str] = {}
 
 
-# Back-compat alias — older callers imported HandoffResponse.
-HandoffResponse = HandoffSessionResponse
-
 
 class HandoffQueueItem(BaseModel):
     interactionId: str

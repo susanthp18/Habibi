@@ -297,34 +297,6 @@ def resolve_mouth(
     )
 
 
-def mouth_turn_state(
-    card_raw: Any,
-    *,
-    intent: str | None = None,
-    active_slug: str | None = None,
-    catalog_names: set[str] | None = None,
-    channel_tools: set[str] | None = None,
-) -> dict[str, Any]:
-    """Both halves in one untyped dict — the shape callers used before the split.
-
-    Kept only for the tests that pin fail-closed pack resolution through it. No
-    runtime calls this; they ask ``resolve_mouth`` for the half they need.
-    Retired with the other legacy tool formulas.
-    """
-    mouth = resolve_mouth(card_raw, intent=intent, active_slug=active_slug)
-    prompt = mouth.prompt()
-    tools = mouth.tools(catalog_names=catalog_names, channel_tools=channel_tools)
-    return {
-        "card": mouth.card,
-        "packs": list(mouth.packs),
-        "allowed": set(tools.allowed) if tools.allowed is not None else None,
-        "offered": list(tools.offered) if tools.offered is not None else None,
-        "prefix": prompt.prefix,
-        "active_slug": mouth.active_slug,
-        "body_message": prompt.body_message,
-    }
-
-
 def load_skill(
     slug: str,
     attached: list[SkillPack],

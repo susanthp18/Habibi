@@ -43,7 +43,6 @@ SYSTEM_SAFE_VARIABLES: frozenset[str] = frozenset(
 )
 
 TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
-_TOKEN_RE = TOKEN_RE  # backwards-compatible alias
 
 
 # Sentinels that delimit the untrusted CRM card. A customer-controlled value
@@ -70,7 +69,7 @@ def _render(template: str, context: Mapping[str, Any], allowed: frozenset[str]) 
             return values[key]
         return match.group(0)
 
-    return _TOKEN_RE.sub(repl, template)
+    return TOKEN_RE.sub(repl, template)
 
 
 def render_prompt(template: str, context: Mapping[str, Any]) -> str:

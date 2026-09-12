@@ -121,9 +121,9 @@ def test_publish_carries_the_card_into_the_runtime_bundle(cloned_bot) -> None:
     bundle = load_active_bundle("production", bot_id=cloned_bot)
     assert _skill_ids(bundle["agentCard"]) == expected
 
-    from agent_core.skills.runtime import mouth_turn_state
+    from tests.mouth_state import mouth_state
 
-    state = mouth_turn_state(bundle["agentCard"])
+    state = mouth_state(bundle["agentCard"])
     assert state["prefix"], "skill descriptions must reach the system prefix"
     assert state["offered"] is not None
 

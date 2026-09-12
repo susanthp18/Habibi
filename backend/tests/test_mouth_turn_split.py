@@ -14,7 +14,7 @@ Regenerating, if a deliberate behaviour change ever makes that necessary::
 
     git show <pre-change-sha>:backend/agent_core/skills/runtime.py
 
-load it as a module and project ``mouth_turn_state`` through ``_project``.
+load it as a module and project its ``mouth_turn_state`` through ``_project``.
 Changing a value here without that provenance means the test has stopped being
 an oracle.
 

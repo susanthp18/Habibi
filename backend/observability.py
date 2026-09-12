@@ -123,6 +123,12 @@ voice_calls_admitted = Counter(
     registry=REGISTRY,
 )
 
+voice_calls_slot_reaped = Counter(
+    "voice_calls_slot_reaped_total",
+    "Admission slots reclaimed from sessions that never released them (a teardown leak).",
+    registry=REGISTRY,
+)
+
 voice_calls_rejected = Counter(
     "voice_calls_rejected_total",
     "Voice calls refused because the process was at capacity.",

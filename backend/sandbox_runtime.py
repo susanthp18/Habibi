@@ -1459,43 +1459,39 @@ def _sandbox_model(st: SandboxTurn) -> None:
     # nothing. Reported as absent rather than as an empty offer.
     offered_tools: list[str] = []
     turn_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
-    from agent_core.telemetry import span as _span
-
     try:
-        with _span("gen_ai.invoke_agent", gen_ai_operation_name="invoke_agent", gen_ai_agent_name="sandbox"):
-            if _sandbox_tools_enabled(payload, turn_context):
-                (
-                    bot_text,
-                    chat_latency,
-                    tokens,
-                    tool_trace,
-                    offered_tools,
-                ) = _run_sandbox_tool_loop(
-                    messages=messages,
-                    intent=str(intent or "general"),
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    agent_card=contract_card,
-                    walker=flow_walker,
-                    specialist_grants=flow_walk.specialist_grants(compiled),
-                    specialist_entries=flow_walk.specialist_entries(compiled),
-                    skill_slug=skill_slug,
-                    frozen_connector_tools=contract_frozen_tools,
-                )
-            else:
-                with _span("gen_ai.chat", gen_ai_operation_name="chat"):
-                    chat = azure_openai.chat_complete_detailed(
-                        messages,
-                        temperature=temperature,
-                        max_completion_tokens=max_tokens,
-                    )
-                bot_text = chat["content"] or "I understand. Let me help you with that."
-                chat_latency = int(chat["latencyMs"] or 0)
-                tokens = int(
-                    chat.get("totalTokens")
-                    or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
-                    or max(1, len(bot_text) // 4)
-                )
+        if _sandbox_tools_enabled(payload, turn_context):
+            (
+                bot_text,
+                chat_latency,
+                tokens,
+                tool_trace,
+                offered_tools,
+            ) = _run_sandbox_tool_loop(
+                messages=messages,
+                intent=str(intent or "general"),
+                temperature=temperature,
+                max_tokens=max_tokens,
+                agent_card=contract_card,
+                walker=flow_walker,
+                specialist_grants=flow_walk.specialist_grants(compiled),
+                specialist_entries=flow_walk.specialist_entries(compiled),
+                skill_slug=skill_slug,
+                frozen_connector_tools=contract_frozen_tools,
+            )
+        else:
+            chat = azure_openai.chat_complete_detailed(
+                messages,
+                temperature=temperature,
+                max_completion_tokens=max_tokens,
+            )
+            bot_text = chat["content"] or "I understand. Let me help you with that."
+            chat_latency = int(chat["latencyMs"] or 0)
+            tokens = int(
+                chat.get("totalTokens")
+                or ((chat.get("promptTokens") or 0) + (chat.get("completionTokens") or 0))
+                or max(1, len(bot_text) // 4)
+            )
     except Exception as exc:
         logger.exception("sandbox chat failed")
         raise RuntimeError(f"sandbox_chat_failed: {exc}") from exc

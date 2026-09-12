@@ -1408,15 +1408,12 @@ def _tool_loop(
                 bot_jobs.mark_cancelled(conn, job_id, "takeover_mid_flight")
             return False
 
-        from agent_core.telemetry import span as _span
-
-        with _span("gen_ai.chat", gen_ai_operation_name="chat"):
-            result = azure_openai.chat_with_tools(
-                messages,
-                tools=turn_tools,
-                temperature=temperature,
-                max_completion_tokens=max_completion_tokens,
-            )
+        result = azure_openai.chat_with_tools(
+            messages,
+            tools=turn_tools,
+            temperature=temperature,
+            max_completion_tokens=max_completion_tokens,
+        )
         tool_calls = result.get("toolCalls") or []
         if not tool_calls:
             final_text = (result.get("content") or "").strip()
@@ -1452,12 +1449,7 @@ def _tool_loop(
                     }
                 )
                 continue
-            with _span(
-                "gen_ai.execute_tool",
-                gen_ai_operation_name="execute_tool",
-                gen_ai_tool_name=tc["name"],
-            ):
-                ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
+            ok, payload, latency_ms = bot_tools.execute_tool(tool_ctx, tc["name"], tc["arguments"])
             if ok and flow_walker is not None:
                 if tc["name"] == "handoff_to_agent":
                     # `advance` never moves for a handoff: there is no edge

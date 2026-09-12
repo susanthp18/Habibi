@@ -35,7 +35,6 @@ from schemas.common import (
     HandoffNextEmi as HandoffNextEmi,
     HandoffQueueItem as HandoffQueueItem,
     HandoffQueueResponse as HandoffQueueResponse,
-    HandoffResponse as HandoffResponse,
     HandoffSessionResponse as HandoffSessionResponse,
     HandoffSuggestion as HandoffSuggestion,
     HandoffTranscriptTurn as HandoffTranscriptTurn,
