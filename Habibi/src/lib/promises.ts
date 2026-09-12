@@ -1,3 +1,4 @@
+import { PROMISE_STATUSES } from "@/api/types/promises";
 import type {
   PromiseStatus,
   PromiseChannel,
@@ -133,7 +134,7 @@ export function computeMetrics(list: Promise[]) {
   };
 }
 
-export const STATUS_ORDER: PromiseStatus[] = ["upcoming", "due_today", "kept", "broken", "partial"];
+export const STATUS_ORDER: PromiseStatus[] = [...PROMISE_STATUSES];
 
 export const REMINDER_LABELS: Record<ReminderStatus, string> = {
   off: "Off",

@@ -7,7 +7,8 @@
 // Mirrors the conversations.channel CHECK constraint (sql/04_interactions.sql).
 // Narrower than the database, the inbox drops threads it was meant to show.
 export type InboxChannel = "whatsapp" | "sms" | "email" | "chat" | "voice";
-export type Sender = "customer" | "bot" | "agent" | "system";
+export const SENDERS = ["customer", "bot", "agent", "system"] as const;
+export type Sender = (typeof SENDERS)[number];
 /** Stored conversation status — "mine" is derived (assignedUserId === me). */
 export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
 export type SlaLevel = "ok" | "warn" | "breach";

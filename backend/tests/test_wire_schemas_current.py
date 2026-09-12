@@ -30,3 +30,20 @@ def test_generated_wire_schemas_are_current() -> None:
     assert current == expected, (
         "Habibi/src/api/wire/generated.ts is stale: run `python scripts/gen_wire_schemas.py`"
     )
+
+
+def test_generated_constants_are_current() -> None:
+    """constants.json carries the vocabularies and thresholds both ends agree
+    on; the TypeScript reads it instead of restating them."""
+    constants = GENERATED.with_name("constants.json")
+    if not constants.exists():
+        pytest.skip("frontend tree not mounted beside the backend")
+    import sys
+
+    sys.path.insert(0, str(BACKEND / "scripts"))
+    import gen_wire_schemas
+
+    current = constants.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    assert current == gen_wire_schemas.build_constants(), (
+        "Habibi/src/api/wire/constants.json is stale: run `python scripts/gen_wire_schemas.py`"
+    )

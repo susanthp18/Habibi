@@ -4,10 +4,20 @@
  * The wire shape the api/ module for this surface reads and writes.
  */
 
-export type PromiseStatus = "upcoming" | "due_today" | "kept" | "broken" | "partial";
+/** The column's CHECK, as the wire declares it (api/wire/constants.json pins these lists). */
+export const PROMISE_STATUSES = ["upcoming", "due_today", "kept", "broken", "partial"] as const;
+export type PromiseStatus = (typeof PROMISE_STATUSES)[number];
 export type PromiseChannel = "voice" | "whatsapp" | "sms" | "chat" | "email";
 export type PromiseSource = "bot" | "agent" | "self";
-export type ReminderStatus = "off" | "queued" | "scheduled" | "sent" | "acknowledged" | "failed";
+export const REMINDER_STATUSES = [
+  "off",
+  "queued",
+  "scheduled",
+  "sent",
+  "acknowledged",
+  "failed",
+] as const;
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
 export interface PtpEvent {
   at: string;
   label: string;
