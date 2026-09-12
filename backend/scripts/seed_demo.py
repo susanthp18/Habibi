@@ -17,6 +17,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+import env_utils  # noqa: E402
 
 # Load .env the same way the API does when available.
 try:
@@ -28,7 +29,7 @@ except Exception:
 
 
 def _is_prod() -> bool:
-    return (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+    return env_utils.is_prod()
 
 
 def main() -> int:

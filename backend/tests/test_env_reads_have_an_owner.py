@@ -31,7 +31,7 @@ OWNER_FILES = ("env_utils.py", "env_loader.py", "db_core.py", "platform_flags.py
 
 #: file -> raw reads on 2026-09-12. A file may shrink or disappear; never grow or join.
 BASELINE: dict[str, int] = {
-    "actor_context.py": 6,
+    "actor_context.py": 5,
     "agent_core/a2a.py": 1,
     "agent_core/cards/routing.py": 1,
     "agent_core/carrier_guard.py": 1,
@@ -71,7 +71,7 @@ BASELINE: dict[str, int] = {
     "kb_rate_limit.py": 1,
     "kb_retrieve.py": 4,
     "llm_gateway/client.py": 8,
-    "main.py": 4,
+    "main.py": 3,
     "mcp_server.py": 3,
     "mcp_tools.py": 1,
     "observability.py": 6,
@@ -82,7 +82,7 @@ BASELINE: dict[str, int] = {
     "routers/outbound.py": 4,
     "routers/telephony.py": 3,
     "sandbox_runtime.py": 3,
-    "storage.py": 7,
+    "storage.py": 6,
     "tts_catalog_sync.py": 5,
     "tts_preview_cache.py": 2,
     "usage_meter.py": 3,

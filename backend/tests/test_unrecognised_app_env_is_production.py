@@ -14,7 +14,6 @@ the import-time freeze unexercised. A subprocess (and the
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,15 +22,24 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parents[1]
 
-_LAPTOP_ENVS = frozenset({"dev", "test", "local"})
+def test_is_prod_has_one_owner_and_it_is_an_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the assignment and the owner. A comment would keep passing after a
+    revert; so would a second copy of the list beside ``env_utils.is_prod``."""
+    import env_utils
 
-
-def test_is_prod_formula_is_the_laptop_allowlist() -> None:
-    """Pin the assignment. A comment would keep passing after a revert."""
     src = (BACKEND / "main.py").read_text(encoding="utf-8")
-    assert '_IS_PROD = _APP_ENV not in {"dev", "test", "local"}' in src
+    assert "_IS_PROD = is_prod()" in src
     actor = (BACKEND / "actor_context.py").read_text(encoding="utf-8")
-    assert 'not in {"dev", "test", "local"}' in actor
+    assert "return is_prod()" in actor
+    # The list is read the allow-list way round: only a declared non-production
+    # name is not production, and anything unrecognised is.
+    for name in ("dev", "test", "local", "ci"):
+        monkeypatch.setenv("APP_ENV", name)
+        assert env_utils.is_prod() is False, name
+    for name in ("staging", "prod", "production", "porduction", ""):
+        monkeypatch.setenv("APP_ENV", name)
+        monkeypatch.delenv("ENV", raising=False)
+        assert env_utils.is_prod() is (name != ""), name
     middleware_src = src[
         src.index("class ApiKeyMiddleware") : src.index("class RequestIdMiddleware")
     ]
@@ -44,8 +52,10 @@ def test_ci_production_job_freezes_is_prod_without_monkeypatch() -> None:
     The main suite sets ``APP_ENV=dev`` and two tests setattr ``_IS_PROD``.
     This test is the other half: no monkeypatch, import-time value only.
     """
-    env = (os.getenv("APP_ENV") or "dev").strip().lower()
-    if env in _LAPTOP_ENVS:
+    import env_utils
+
+    env = env_utils.env_name()
+    if not env_utils.is_prod():
         pytest.skip("import-time freeze is asserted by the APP_ENV=production CI job")
 
     import main as app_main

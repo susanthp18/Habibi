@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from env_utils import is_prod
 import secrets
 import threading
 import time
@@ -83,9 +84,8 @@ def reset_actor_user_id(token: Any) -> None:
 
 
 def _app_is_prod() -> bool:
-    # Same laptop allow-list as main._IS_PROD. Unrecognised names (staging,
-    # a typo) are production — they must not inherit the open envelope.
-    return (os.getenv("APP_ENV") or "dev").strip().lower() not in {"dev", "test", "local"}
+    # env_utils.is_prod: unrecognised names (staging, a typo) are production.
+    return is_prod()
 
 
 def _allow_actor_header() -> bool:

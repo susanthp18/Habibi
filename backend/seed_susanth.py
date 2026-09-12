@@ -7,6 +7,7 @@ Phone comes from WHATSAPP_TEST_TO (synthetic fallback for non-prod only).
 from __future__ import annotations
 
 import os
+import env_utils
 from datetime import datetime, timedelta, timezone
 
 import psycopg
@@ -24,8 +25,8 @@ ACTOR = "priya-nair"
 
 
 def _is_prod() -> bool:
-    """Same production detection as scripts/seed_demo.py."""
-    return (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+    """Same production detection as everything else: env_utils.is_prod."""
+    return env_utils.is_prod()
 
 
 def _test_phone() -> str:

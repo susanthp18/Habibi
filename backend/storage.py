@@ -10,6 +10,7 @@ import io
 import ipaddress
 import logging
 import os
+import env_utils
 import threading
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -44,7 +45,7 @@ def _cfg() -> dict[str, Any]:
     # minioadmin/minioadmin and talk plaintext to it — credentials nobody
     # chose, on a host that is not the developer's laptop.
     loopback = _is_loopback_endpoint(endpoint)
-    is_prod = (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+    is_prod = env_utils.is_prod()
     if not access or not secret:
         if is_prod:
             raise StorageConfigError(

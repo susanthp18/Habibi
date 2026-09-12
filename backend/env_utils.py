@@ -40,15 +40,23 @@ def env_name() -> str:
     return (os.getenv("APP_ENV") or os.getenv("ENV") or "dev").strip().lower()
 
 
-def env_allows_dev_key() -> bool:
-    """Whether the environment has *said* it is not production.
+def is_prod() -> bool:
+    """Is this process production? Unrecognised means yes.
 
-    The one question both the skill signing key and the vault master key ask
-    before falling back to a constant that anyone reading this repository can
-    see. A second copy of the allow-list would drift, and the two keys must
-    agree on what counts as production.
+    The one answer. Only an environment that has *said* it is not production
+    (``NON_PROD_ENVS``) gets the open envelope, the development keys, the
+    seedable database and the loopback defaults; ``staging``, a typo, or an
+    unset name on a deployed host is production. Seven sites used to decide
+    this for themselves and five of them asked the question the other way
+    round -- ``in {"prod", "production"}`` -- so ``APP_ENV=staging`` was
+    allowed the dev MinIO credentials and the demo seeder.
     """
-    return env_name() in NON_PROD_ENVS
+    return env_name() not in NON_PROD_ENVS
+
+
+def env_allows_dev_key() -> bool:
+    """Whether the environment has *said* it is not production (``not is_prod()``)."""
+    return not is_prod()
 
 
 # One truth set for every flag. ``"on"`` belongs here: ``MINIO_SECURE=on`` used

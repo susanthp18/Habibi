@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 
 from env_loader import load_env
+import env_utils
 from env_utils import env_bool
 
 load_env()
@@ -44,7 +44,7 @@ from sqlalchemy import text  # noqa: E402
 
 
 def _is_prod() -> bool:
-    return (os.getenv("APP_ENV") or "dev").strip().lower() in {"prod", "production"}
+    return env_utils.is_prod()
 
 
 def _customer(conn, customer_id: str) -> dict:

@@ -14,6 +14,7 @@ from datetime import timezone
 from decimal import Decimal
 
 import money_inr
+import env_utils
 from typing import Any
 
 from sqlalchemy import text
@@ -45,12 +46,8 @@ def provider() -> str:
     return raw if raw in {"hosted", "razorpay"} else "hosted"
 
 
-def app_env() -> str:
-    return env_str("APP_ENV", "dev").lower()
-
-
 def is_production() -> bool:
-    return app_env() in {"prod", "production"}
+    return env_utils.is_prod()
 
 
 def public_base_url() -> str:

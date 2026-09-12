@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from typing import Callable
 
 from env_loader import env_str, load_env
-from env_utils import env_bool
+from env_utils import env_bool, env_name, is_prod
 
 load_env()
 
@@ -45,10 +45,11 @@ import storage
 
 logger = logging.getLogger(__name__)
 
-# Unrecognised APP_ENV is production. Only an explicit laptop name keeps the
-# open envelope — a typo or APP_ENV=staging must not silently disable auth.
-_APP_ENV = (os.getenv("APP_ENV") or "dev").strip().lower()
-_IS_PROD = _APP_ENV not in {"dev", "test", "local"}
+# Unrecognised APP_ENV is production (env_utils.is_prod). Only an environment
+# that has said it is not production keeps the open envelope — a typo or
+# APP_ENV=staging must not silently disable auth.
+_APP_ENV = env_name()
+_IS_PROD = is_prod()
 
 from api_support import EMBEDDED_VOICE_HOST as _EMBEDDED_VOICE_HOST  # noqa: E402
 
@@ -319,7 +320,7 @@ def _assert_hardening_gate() -> None:
     container (HABIBI_DEPLOYED=1) is always hardened. There is no hatch.
     """
     deployed = env_bool("HABIBI_DEPLOYED")
-    unhardened_ok = _APP_ENV in {"dev", "test", "local"} and not deployed
+    unhardened_ok = not _IS_PROD and not deployed
     if unhardened_ok:
         return
     inactive = _inactive_hardening_controls()
