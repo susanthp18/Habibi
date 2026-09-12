@@ -130,10 +130,11 @@ def test_a_channel_toggle_leaves_an_en_dash_window_byte_identical(db_tx) -> None
 
 
 def test_a_channel_toggle_leaves_a_null_window_null(db_tx) -> None:
-    """NULL stays NULL. The serializer defaults (Mon–Fri, 10–19) must not land."""
+    """NULL stays NULL. The serializer defaults (Mon–Fri and the gate's 09–20
+    bounds, `contact_window.window_hours`) must not land."""
     cid = _fresh(db_tx, days=None, hours=None, preferred=None)
     echo = _get_echo(None, None)
-    assert echo == {"days": [1, 2, 3, 4, 5], "startHour": 10, "endHour": 19}
+    assert echo == {"days": [1, 2, 3, 4, 5], "startHour": 9, "endHour": 20}
     before = _stored(db_tx, cid)
     assert _sms_status(db_tx, cid) == "opted_in"
 

@@ -9,7 +9,6 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 from __future__ import annotations
 
 import contact_window
-import re
 from agent_core import clock
 from datetime import datetime, timedelta
 from sqlalchemy import text
@@ -70,11 +69,11 @@ def _optout_source_screen(raw: str | None) -> str:
     return "Web" if mapped == "Onboarding" else mapped
 
 def _consent_channel_db(channel: str) -> str:
-    if channel == "call":
-        return "voice"
-    if channel == "all":
-        return "all"
-    return channel
+    """Screen channel -> stored channel. The gate's normaliser is the owner of
+    "call means voice"; `all` is the consent screen's own word."""
+    import contact_policy
+
+    return "all" if channel == "all" else contact_policy.normalize_channel(channel)
 
 def _consent_channel_screen(channel: str) -> str | None:
     _mod = _db()
@@ -110,12 +109,10 @@ def _format_allowed_days(days: list[int]) -> str:
     return ",".join(_DAY_NUM_TO_NAME[d] for d in unique)
 
 def _parse_allowed_hours(raw: str | None) -> tuple[int, int]:
-    if not raw:
-        return 10, 19
-    m = re.search(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})", raw)
-    if not m:
-        return 10, 19
-    return int(m.group(1)), int(m.group(3))
+    """The gate's reading of a window, defaults included: a row with no window
+    on file is shown the bounds the gate enforces (09:00-20:00), not a
+    10:00-19:00 this screen used to invent."""
+    return contact_window.window_hours(raw)
 
 def _format_allowed_hours(start_hour: int, end_hour: int) -> str:
     return f"{int(start_hour):02d}:00-{int(end_hour):02d}:00 IST"
