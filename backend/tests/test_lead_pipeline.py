@@ -57,7 +57,6 @@ def test_a_lead_captured_from_the_ui_lands_in_the_offer_funnel(db_tx):
     denominator kept counting the call it came from.
     """
     customer_id = _a_customer(db_tx)
-    emitted: list[str] = []
     lead = db.create_lead(
         {
             "customerId": customer_id,
@@ -66,10 +65,10 @@ def test_a_lead_captured_from_the_ui_lands_in_the_offer_funnel(db_tx):
             "channel": "voice",
         },
         allow_duplicate=True,
-        emitted=emitted,
     )
 
-    assert emitted == ["lead_captured"]
+    # The event row is the fact; the out-parameter that used to echo its name
+    # back to the caller was read by nothing and is gone.
     assert _events(db_tx, lead["id"], "lead_captured") == 1
     # The CRM audit entry is a separate fact and still written.
     assert _events(db_tx, lead["id"], "lead_created") == 1

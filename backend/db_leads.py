@@ -644,16 +644,9 @@ def create_lead(
     idempotency_key: str | None = None,
     *,
     allow_duplicate: bool = False,
-    emitted: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Capture a lead. ``emitted`` is an out-parameter: the names of the
-    analytics events that actually landed.
-
-    The bot tool reports those names back to the model, and it must not claim
-    an event whose row was never written — so the fact has to travel out of
-    here rather than being assumed by the caller. It is not part of the API
-    response because it is not part of the lead.
-    """
+    """Capture a lead, and emit ``lead_captured`` here -- the one path every
+    capture goes through, bot or human."""
     _mod = _db()
     _activity = _mod._activity
     _actor_user_id = _mod._actor_user_id
@@ -799,8 +792,6 @@ def create_lead(
                     actor_bot_id=bot_id,
                     actor_user_id=None if bot_id else _actor_user_id(),
                 )
-            if emitted is not None:
-                emitted.append("lead_captured")
         except Exception:
             logger.exception("lead_captured event failed for %s", lead_id)
         _activity(conn, "lead", lead_id, "lead_created", "Lead created", None, customer_id)

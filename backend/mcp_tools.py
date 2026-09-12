@@ -98,10 +98,15 @@ def _get_emi_schedule(customer_id: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _check_product_eligibility(customer_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    # A read-only surface: the check is answered, not recorded. The voice and
+    # text mouths record `eligibility_checked` because a borrower was asked;
+    # a partner system polling eligibility is not a conversation, and the
+    # event it used to write was attributed to nobody.
     result = domain.check_product_eligibility(
         customer_id=customer_id,
         product_id=str(args.get("product_id") or ""),
         channel="mcp",
+        record_event=False,
     )
     return result.to_llm()
 

@@ -624,7 +624,6 @@ def _catalog_result(
         products = [p for p in products if str(p.get("productKey", "")).lower() in wanted]
 
     results = _catalog_rows(products) + list(passages or [])
-    analytics: list[str] = []
     if (
         record_offer
         and results
@@ -633,15 +632,14 @@ def _catalog_result(
             gate_intent in {"product_faq", "upsell_opportunity"}
             or (session_intent or "") in {"product_faq", "upsell_opportunity"}
         )
-        and _record_product_interest(
+    ):
+        _record_product_interest(
             interaction_id=interaction_id,
             gate_intent=gate_intent,
             bot_id=bot_id,
             snippet=(plan.query or "")[:240] or None,
             topics=["catalog"],
         )
-    ):
-        analytics.append("product_interest")
 
     return ToolResult(
         ok=True,
@@ -669,7 +667,6 @@ def _catalog_result(
             "preferPolicy": False,
             "snapshotId": kb_snapshot_id,
         },
-        analytics=analytics,
     )
 
 
@@ -953,7 +950,6 @@ def search_knowledge_base(
             interaction_id=interaction_id,
         )
 
-    analytics: list[str] = []
     if (
         record_offer
         and results
@@ -962,18 +958,17 @@ def search_knowledge_base(
             gate_intent in {"product_faq", "upsell_opportunity"}
             or (session_intent or "") in {"product_faq", "upsell_opportunity"}
         )
-        and _record_product_interest(
+    ):
+        # product_interest, not offer_presented: answering a policy question is
+        # not making an offer, and conflating them made the upsell funnel report
+        # a presentation rate the bot had not earned.
+        _record_product_interest(
             interaction_id=interaction_id,
             gate_intent=gate_intent,
             bot_id=bot_id,
             snippet=(query or "")[:240] or None,
             topics=_kb_topics(results),
         )
-    ):
-        # product_interest, not offer_presented: answering a policy question is
-        # not making an offer, and conflating them made the upsell funnel report
-        # a presentation rate the bot had not earned.
-        analytics.append("product_interest")
 
     # A scoped catalog plan: the caller named a product, so they get the listing
     # AND what the documents behind it actually say. Retrieval has already run
@@ -1023,5 +1018,4 @@ def search_knowledge_base(
             "judgeReason": "judge_removed",
             "unvetted": False,
         },
-        analytics=analytics,
     )

@@ -246,3 +246,23 @@ def test_an_external_query_does_not_create_a_kb_gap(db_tx, monkeypatch) -> None:
     )
 
     assert calls == []
+
+
+def test_the_read_only_surface_records_no_commercial_event(db_tx) -> None:
+    """``check_product_eligibility`` over MCP wrote an ``eligibility_checked``
+    commercial event attributed to nobody: a partner system polling
+    eligibility is not a borrower being asked. The check is answered, not
+    recorded."""
+    from sqlalchemy import text
+
+    cid = db_tx.execute(text("SELECT id FROM customers LIMIT 1")).scalar()
+    pid = db_tx.execute(text("SELECT id FROM products LIMIT 1")).scalar()
+    before = db_tx.execute(
+        text("SELECT count(*) FROM activity_events WHERE kind = 'eligibility_checked'")
+    ).scalar()
+    result = mcp_tools.call_tool("check_product_eligibility", {"customer_id": cid, "product_id": pid})
+    assert "eligible" in result
+    after = db_tx.execute(
+        text("SELECT count(*) FROM activity_events WHERE kind = 'eligibility_checked'")
+    ).scalar()
+    assert after == before

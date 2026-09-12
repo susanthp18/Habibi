@@ -75,7 +75,6 @@ def ingest_customer_document(
         spoken_summary="receipt captured as a document request",
         entity="document_request",
         entity_id=doc_id,
-        analytics=["vision_ingest"],
     )
 
 

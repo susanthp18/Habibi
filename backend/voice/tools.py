@@ -705,6 +705,7 @@ def build_tools(
         args: dict[str, Any],
         flow_manager,
     ) -> tuple[Any, dict[str, Any] | None]:
+        args = CATALOG.normalize("capture_call_goal", args)
         goal = str(args.get("goal_summary") or "").strip()
         if not goal:
             return (
@@ -2692,16 +2693,24 @@ def build_tools(
                     "dpd": dpd_val,
                     "product": product_val,
                 }
+                # `reason` is CATALOG-normalised to ESCALATION_REASONS above;
+                # this used to branch on "abuse", "legal", "angry" and
+                # "verify_failed" too, which the enum cannot produce, so those
+                # arms were unreachable and the routing they described never
+                # happened. The lexicon decides which compliance flag it was.
                 reason_l = (reason or "").lower()
-                if "hardship" in reason_l:
+                if reason_l == "hardship":
                     route_ctx["intent"] = "hardship"
-                elif "dispute" in reason_l:
+                elif reason_l == "dispute":
                     route_ctx["intent"] = "dispute"
-                elif reason_l in {"compliance", "abuse", "legal"}:
+                elif reason_l == "compliance":
+                    from agent_core import lexicon
+
+                    last = str(_sink_call("last_customer_text", "") or "")
                     route_ctx["guardrail_flag"] = (
-                        "legal-threat" if "legal" in reason_l else "abusive-language"
+                        "legal-threat" if lexicon.is_legal_threat(last.lower()) else "abusive-language"
                     )
-                elif reason_l in {"sentiment_drop", "angry"}:
+                elif reason_l == "sentiment_drop":
                     route_ctx["sentiment"] = "angry"
                 elif reason_l in {"verification_failed", "verify_failed"}:
                     route_ctx["verification_status"] = "failed"

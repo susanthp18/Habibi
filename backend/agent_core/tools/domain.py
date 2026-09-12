@@ -9,7 +9,6 @@ worker and the API both run on threads; the voice bot wraps them in
 Every handler returns a :class:`ToolResult` so the caller can uniformly derive:
   * what to say (``spoken_summary``)
   * what the UI should deep-link to (``entity`` / ``entity_id`` / ``deep_link``)
-  * which analytics flags fired (``analytics``)
 """
 
 from __future__ import annotations
@@ -41,7 +40,6 @@ class ToolResult:
     entity: str | None = None
     entity_id: str | None = None
     deep_link: str | None = None
-    analytics: list[str] = field(default_factory=list)
     error: str | None = None
 
     def __post_init__(self) -> None:
@@ -52,8 +50,6 @@ class ToolResult:
         # skipped the guard.
         if self.data is None:
             self.data = {}
-        if self.analytics is None:
-            self.analytics = []
 
     def to_llm(self) -> dict[str, Any]:
         """Payload handed back to the model — deliberately compact.
@@ -301,8 +297,13 @@ def check_product_eligibility(
     interaction_id: str | None = None,
     bot_id: str | None = None,
     channel: str | None = None,
+    record_event: bool = True,
 ) -> ToolResult:
-    """Evaluate live eligibility and record the check as a commercial event."""
+    """Evaluate live eligibility and record the check as a commercial event.
+
+    ``record_event=False`` answers without writing: the read-only MCP surface
+    asks on behalf of a partner system, not a borrower in a conversation.
+    """
     pid = (product_id or "").strip()
     if not pid:
         return ToolResult(ok=False, error="product_id_required")
@@ -313,6 +314,7 @@ def check_product_eligibility(
         interaction_id=interaction_id,
         bot_id=bot_id,
         channel=channel,
+        record_event=record_event,
     )
     if flags is _ELIGIBILITY_FAILED:
         return _eligibility_failure_result(pid)
@@ -346,7 +348,6 @@ def check_product_eligibility(
             if eligible
             else "do not pitch this product; move on without explaining the internal reason"
         ),
-        analytics=["eligibility_checked"],
     )
 
 
@@ -501,9 +502,8 @@ def capture_lead(
     # Same CRM-write failure contract as the sibling handlers: the model gets a
     # structured result it can speak around instead of an exception escaping
     # into the turn loop.
-    analytics: list[str] = []
     try:
-        lead = db.create_lead(payload, idempotency_key=idempotency_key, emitted=analytics)
+        lead = db.create_lead(payload, idempotency_key=idempotency_key)
     except ValueError as exc:
         # Race: another writer captured the same product between the lookup
         # above and this insert. The advisory lock in create_lead makes this the
@@ -543,17 +543,11 @@ def capture_lead(
         return failure
     assert lead_id is not None  # _row_id_or_failure returns one or the other
 
-    # Report only the events that actually landed: Bot Analytics reads this
-    # list, and claiming an upsell_presented whose row was never written makes
-    # the funnel disagree with the commercial-events table it is derived from.
-    # Each event is committed independently so a failure in the second does not
-    # retract the first — clearing the list wholesale reported a lead_captured
-    # that HAD been written as if it had not.
-    #
-    # `lead_captured` is no longer emitted here. It is emitted inside
-    # create_lead, which is the one path every capture goes through; doing it
-    # in both places wrote the event twice for a bot capture and not at all for
-    # a human one. `analytics` carries out what actually landed in there.
+    # `lead_captured` is emitted inside create_lead, the one path every capture
+    # goes through; `upsell_presented` is committed here, independently, so a
+    # failure in the second does not retract the first. The commercial-events
+    # table is what Bot Analytics reads -- the result used to carry a list of
+    # event names beside it that nothing read.
     if interaction_id:
         try:
             with db.engine.begin() as conn:
@@ -564,7 +558,6 @@ def capture_lead(
                     source="capture_lead",
                     actor_bot_id=bot_id,
                 )
-            analytics.append("upsell_presented")
         except Exception:
             logger.exception("offer_presented event failed for %s", lead_id)
 
@@ -590,7 +583,6 @@ def capture_lead(
         entity=_entity("capture_lead"),
         entity_id=lead_id,
         deep_link=_link("capture_lead", lead_id),
-        analytics=analytics,
     )
 
 
@@ -690,7 +682,6 @@ def request_documents(
         entity=_entity("request_documents"),
         entity_id=doc_id,
         deep_link=_link("request_documents", doc_id),
-        analytics=["document_requested"],
     )
 
 
@@ -790,7 +781,6 @@ def create_promise_to_pay(
         entity=_entity("create_promise_to_pay"),
         entity_id=promise_id,
         deep_link=_link("create_promise_to_pay", promise_id),
-        analytics=["ptp_captured"],
     )
 
 
@@ -859,7 +849,6 @@ def flag_dispute(
         entity=_entity("flag_dispute"),
         entity_id=dispute_id,
         deep_link=_link("flag_dispute", dispute_id),
-        analytics=["dispute_flagged"],
     )
 
 
@@ -933,7 +922,6 @@ def apply_goodwill(
         spoken_summary="confirm the goodwill reversal briefly, without offering more",
         entity="dispute",
         entity_id=posted.get("disputeId"),
-        analytics=["goodwill_applied"],
     )
 
 
@@ -1004,7 +992,6 @@ def request_callback(
         entity=_entity("request_callback"),
         entity_id=callback_id,
         deep_link=_link("request_callback", callback_id),
-        analytics=["callback_requested"],
     )
 
 
@@ -1135,5 +1122,4 @@ def handoff_to_agent(
             "reason": reason_n,
         },
         spoken_summary="one short sentence that a specialist will continue, then stop",
-        analytics=["agent_handoff"],
     )

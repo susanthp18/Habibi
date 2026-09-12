@@ -625,10 +625,10 @@ _FLAG_RULE_MAP = {
     "rate-quoted": "r-false",
 }
 
-#: Flags that describe the *caller's* conduct or a session limit, not bot
-#: misconduct -- owned next to the producer (agent_core.guardrails) and
-#: read here and by the turn critic.
-from agent_core.guardrails import NON_BOT_FLAGS as _NON_BOT_FLAGS
+# Flags that describe the caller's conduct or a session limit, not bot
+# misconduct, are listed once beside their producer
+# (agent_core.guardrails.NON_BOT_FLAGS); _FLAG_RULE_MAP above simply does not
+# name them, and the turn critic filters on the same list.
 
 
 def rule_for_flag(flag: str) -> str | None:
