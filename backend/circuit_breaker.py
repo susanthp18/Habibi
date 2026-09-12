@@ -159,20 +159,41 @@ class CircuitBreaker:
             self._probe_admitted = False
             self._probe_admitted_at = None
 
+    def _observe(self, started: float, outcome: str) -> None:
+        """One histogram for every dependency: the breaker is the seam each
+        adapter entry point already passes through."""
+        try:
+            import observability
+
+            observability.observe_dependency_call(
+                dependency=self.name, outcome=outcome, seconds=time.monotonic() - started
+            )
+        except Exception:
+            # Instrumentation must never be the reason a call fails.
+            logger.debug("dependency metric failed", exc_info=True)
+
     def call(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
-        probe_id = self._before_call()
+        started = time.monotonic()
+        try:
+            probe_id = self._before_call()
+        except CircuitOpenError:
+            self._observe(started, "rejected")
+            raise
         try:
             result = fn(*args, **kwargs)
         # NOTE: the default ignore_exceptions is an empty tuple, which matches
         # nothing — this clause is then a deliberate no-op, not dead code.
         except self.ignore_exceptions:
             self._release_probe(probe_id)
+            self._observe(started, "ignored")
             raise
         except Exception as exc:
             if self.failure_exceptions is not None and not isinstance(exc, self.failure_exceptions):
                 self._release_probe(probe_id)
+                self._observe(started, "ignored")
                 raise
             self._on_failure(probe_id)
+            self._observe(started, "error")
             raise
         except BaseException:
             # KeyboardInterrupt / SystemExit / GeneratorExit: not a dependency
@@ -180,26 +201,36 @@ class CircuitBreaker:
             self._release_probe(probe_id)
             raise
         self._on_success(probe_id)
+        self._observe(started, "ok")
         return result
 
     async def acall(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """`call` for a coroutine function -- the voice LLM client is async."""
-        probe_id = self._before_call()
+        started = time.monotonic()
+        try:
+            probe_id = self._before_call()
+        except CircuitOpenError:
+            self._observe(started, "rejected")
+            raise
         try:
             result = await fn(*args, **kwargs)
         except self.ignore_exceptions:
             self._release_probe(probe_id)
+            self._observe(started, "ignored")
             raise
         except Exception as exc:
             if self.failure_exceptions is not None and not isinstance(exc, self.failure_exceptions):
                 self._release_probe(probe_id)
+                self._observe(started, "ignored")
                 raise
             self._on_failure(probe_id)
+            self._observe(started, "error")
             raise
         except BaseException:
             self._release_probe(probe_id)
             raise
         self._on_success(probe_id)
+        self._observe(started, "ok")
         return result
 
 

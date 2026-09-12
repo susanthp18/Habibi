@@ -94,6 +94,22 @@ http_in_flight = Gauge(
     registry=REGISTRY,
 )
 
+#: Every dependency call that goes through a circuit breaker -- Azure OpenAI,
+#: Azure Speech, Twilio, Meta, MinIO, the LLM gateway -- lands here once, with
+#: its outcome. The breaker is the one seam every adapter entry point already
+#: passes through, so this is one histogram rather than ten.
+dependency_calls = Histogram(
+    "dependency_call_duration_seconds",
+    "Latency of calls to an external dependency, by breaker name and outcome.",
+    ["dependency", "outcome"],
+    buckets=_LATENCY_BUCKETS,
+    registry=REGISTRY,
+)
+
+
+def observe_dependency_call(*, dependency: str, outcome: str, seconds: float) -> None:
+    dependency_calls.labels(dependency=dependency, outcome=outcome).observe(seconds)
+
 authz_denials = Counter(
     "authz_denials_total",
     "Requests refused by the route permission registry.",

@@ -119,6 +119,24 @@ def _http_chat(
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    import circuit_breaker
+
+    # The gateway had no breaker: every caller retried three times against a
+    # dead gateway, on every turn. The breaker opens after the threshold and
+    # the retry loop sees CircuitOpenError immediately.
+    breaker = circuit_breaker.get_breaker("llm_gateway")
+
+    def _post_once() -> Any:
+        resp = httpx.post(
+            base_url() + "/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=timeout or 20.0,
+        )
+        if resp.status_code >= 500:
+            resp.raise_for_status()
+        return resp
+
     retries = 2
     last_exc: Exception | None = None
     for attempt in range(retries + 1):
@@ -127,17 +145,13 @@ def _http_chat(
             # the same request a few milliseconds later.
             time.sleep(0.25 * (2 ** (attempt - 1)))
         try:
-            resp = httpx.post(
-                base_url() + "/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=timeout or 20.0,
-            )
-            if resp.status_code >= 500 and attempt < retries:
-                continue
+            resp = breaker.call(_post_once)
             resp.raise_for_status()
             data = resp.json()
             return _normalize_openai(data)
+        except circuit_breaker.CircuitOpenError as exc:
+            last_exc = exc
+            break
         except Exception as exc:
             last_exc = exc
             if attempt >= retries:
