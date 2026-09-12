@@ -32,7 +32,7 @@ The mouth speaks a date and amount. The engines decide whether the write is lega
 
 1. Confirm identity already passed this call. If not, stop and load `verify-and-disclose`.
 2. Call `run_skill_script` with `emi_remaining` when the caller asks how many EMIs are left.
-3. Call `run_skill_script` with `promise_date_in_window` before offering a date. Preferred window is `10:00-19:00 IST` unless the CRM card says otherwise.
+3. Call `run_skill_script` with `promise_date_in_window` before offering a date. The window is the one on the CRM card; when the card carries none, the script applies the platform default -- never state a window the card does not carry.
 4. Call `evaluate_authority` before any concession language.
 5. Call `create_promise_to_pay` with amount and ISO date. A spoken promise with no row is a miss.
 

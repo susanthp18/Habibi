@@ -234,3 +234,47 @@ def test_an_hours_edit_leaves_null_days_null(db_tx) -> None:
     assert after["allowed_days"] is None
     assert after["allowed_hours"] == "09:00-18:00 IST"
     assert after["preferred_window"] == "09:00-18:00 IST"
+
+
+def test_a_first_write_records_no_window_the_borrower_never_gave(db_tx) -> None:
+    """The consent row a channel toggle creates carries no window.
+
+    ``_ensure_consent_record`` used to insert ``Mon-Fri`` / ``10:00-19:00 IST``
+    for a borrower with no row -- a preference nobody recorded, written by the
+    first operator to toggle a channel and indistinguishable afterwards from
+    one the borrower gave. Nothing on file stays nothing on file; the readers
+    fall back to the platform default and the statutory bound.
+    """
+    cid = f"wp002-{uuid.uuid4().hex[:10]}"
+    db_tx.execute(
+        text("INSERT INTO customers (id, tenant_id, name, risk) VALUES (:id, :t, 'WP-002', 'low')"),
+        {"id": cid, "t": db.current_tenant()},
+    )
+    assert (
+        db_tx.execute(
+            text("SELECT count(*) FROM consent_records WHERE customer_id = :id"), {"id": cid}
+        ).scalar()
+        == 0
+    )
+
+    db.patch_consent(cid, {"channels": [{"channel": "sms", "status": "opted_out"}]})
+
+    stored = _stored(db_tx, cid)
+    assert stored["allowed_days"] is None
+    assert stored["allowed_hours"] is None
+    assert stored["preferred_window"] is None
+    assert _sms_status(db_tx, cid) == "opted_out"
+
+
+def test_a_whatsapp_first_contact_records_no_window_either(db_tx) -> None:
+    """Same fabrication, second site: the customer row WhatsApp creates for an
+    unknown number carried ``preferred_window = '10:00-19:00 IST'``."""
+    import db_inbox
+
+    phone = "+9199" + uuid.uuid4().hex[:8].translate(str.maketrans("abcdef", "123456"))
+    customer, recognised = db_inbox._ensure_whatsapp_customer(db_tx, phone, "Window Test")
+    assert recognised is False
+    window = db_tx.execute(
+        text("SELECT preferred_window FROM customers WHERE id = :id"), {"id": customer["id"]}
+    ).scalar()
+    assert window is None

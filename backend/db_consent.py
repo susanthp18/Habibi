@@ -396,6 +396,15 @@ def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str
     return payload
 
 def _ensure_consent_record(conn: Any, customer_id: str) -> str:
+    """The consent row a channel or window write hangs off.
+
+    A borrower with no row gets one with **no window**. This used to insert
+    ``Mon-Fri`` / ``10:00-19:00 IST`` -- a consent the borrower never gave,
+    written by the first operator to toggle a channel, indistinguishable
+    afterwards from a recorded preference. Nothing on file is a fact the
+    readers already handle: ``contact_window.window_hours(None)`` is the
+    platform default and ``contact_policy`` bounds it by statute.
+    """
     _mod = _db()
     _one = _mod._one
     consent_id = f"consent-{customer_id}"
@@ -408,7 +417,7 @@ def _ensure_consent_record(conn: Any, customer_id: str) -> str:
         text(
             """
             INSERT INTO consent_records (id, customer_id, dnd_registry, allowed_days, allowed_hours)
-            VALUES (:id, :customer_id, false, 'Mon-Fri', '10:00-19:00 IST')
+            VALUES (:id, :customer_id, false, NULL, NULL)
             """
         ),
         {"id": consent_id, "customer_id": customer_id},

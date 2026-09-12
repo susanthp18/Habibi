@@ -47,7 +47,9 @@ _EMPTY_SHA = "e3b0c44298fc1c14"
 # card, so its description left the prefix. Re-measured, not guessed.
 _PREFIX_SHA = "dfff68314cf3fe86"
 _PREFIX_LEN = 1356
-_PTP_BODY_SHA = "609184e1d6d1522f"
+# Moved again when the pack stopped stating a calling window the CRM card does
+# not carry (the platform default is the script's, not prose). Re-measured.
+_PTP_BODY_SHA = "9d7e7743dd089e92"
 
 _PACK_SLUGS = [
     "broken-ptp-chase",

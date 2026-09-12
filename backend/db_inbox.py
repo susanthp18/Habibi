@@ -2270,7 +2270,7 @@ def _ensure_whatsapp_customer(
             INSERT INTO customers
               (id, tenant_id, assigned_user_id, name, phone_primary, risk, preferred_window, dnd, segment)
             VALUES
-              (:id, :tenant_id, NULL, :name, :phone, 'medium', '10:00-19:00 IST', false, 'retail')
+              (:id, :tenant_id, NULL, :name, :phone, 'medium', NULL, false, 'retail')
             ON CONFLICT (id) DO NOTHING
             """
         ),
