@@ -9,17 +9,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { QueueRow, SlaLevel } from "@/api/types/workspace";
-import {
-  brokenPtps,
-  callbacks,
-  disputes,
-  docRequests,
-  nextCallback as seedNextCallback,
-  nextLead as seedNextLead,
-  slaCountdowns as seedSlaCountdowns,
-  stats as seedStats,
-} from "@/data/workspace-seed";
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export type WorkItemEntityType =
   "dispute" | "callback" | "document_request" | "promise" | "followup" | "lead" | "bounce";
@@ -69,18 +59,7 @@ function mapWorkItem(row: WorkItemApi): WorkItem {
   };
 }
 
-/** Mock: stitch the four seed arrays (no followups/leads in the seed tabs). */
-function mockWorkItems(): WorkItem[] {
-  return [
-    ...disputes.map((r) => ({ ...r, entityType: "dispute" as const })),
-    ...callbacks.map((r) => ({ ...r, entityType: "callback" as const })),
-    ...docRequests.map((r) => ({ ...r, entityType: "document_request" as const })),
-    ...brokenPtps.map((r) => ({ ...r, entityType: "promise" as const })),
-  ];
-}
-
 export async function fetchWorkItems(assignee: "me" | "all" = "me"): Promise<WorkItem[]> {
-  if (USE_MOCK) return mockDelay(mockWorkItems());
   const q = assignee === "all" ? "all" : "me";
   const rows = await apiGet<WorkItemApi[]>(`/work-items?assignee=${q}`);
   return rows.map(mapWorkItem);
@@ -227,15 +206,6 @@ function withDemoFill(summary: WorkspaceSummary): WorkspaceSummary {
 export async function fetchWorkspaceSummary(
   assignee: "me" | "all" = "me",
 ): Promise<WorkspaceSummary> {
-  if (USE_MOCK) {
-    return mockDelay({
-      stats: { ...seedStats, windowLabel: "Seed day" },
-      nextCallback: { id: "CB-seed", ...seedNextCallback },
-      nextLead: seedNextLead,
-      slaCountdowns: seedSlaCountdowns,
-      outsideWindowCount: 1,
-    });
-  }
   const q = assignee === "all" ? "all" : "me";
   const live = await apiGet<WorkspaceSummary>(`/workspace/summary?assignee=${q}`);
   return withDemoFill(live);

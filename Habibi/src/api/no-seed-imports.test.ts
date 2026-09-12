@@ -38,12 +38,9 @@ const FIXTURE_IMPORTERS = [
   "consent.ts",
   "contact-policy.ts",
   "customers.ts",
-  "dashboard.ts",
   "disputes.ts",
   "documents.ts",
   "floor.ts",
-  "handoff.ts",
-  "inbox.ts",
   "integrations.ts",
   "kb.ts",
   "products.ts",
@@ -57,7 +54,6 @@ const FIXTURE_IMPORTERS = [
   "sandbox.ts",
   "upsell.ts",
   "webhooks.ts",
-  "workspace.ts",
 ];
 
 /** The type-import exceptions. Empty since WP-048 closed; stays empty. */

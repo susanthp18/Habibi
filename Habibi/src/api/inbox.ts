@@ -16,8 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import type { Thread } from "@/api/types/inbox";
-import { cannedResponses as seedCanned, threads as seedThreads } from "@/data/inbox-seed";
-import { apiGet, apiPost, apiUpload, mockDelay, retryUnlessClientError, USE_MOCK } from "./config";
+import { apiGet, apiPost, apiUpload, retryUnlessClientError } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
 
@@ -88,7 +87,6 @@ export function mergeThreads(prev: Thread[], deltas: Thread[]): Thread[] {
 export async function fetchConversations(opts?: {
   updatedAfter?: string | null;
 }): Promise<Thread[]> {
-  if (USE_MOCK) return mockDelay(structuredClone(seedThreads));
   const q =
     opts?.updatedAfter != null && opts.updatedAfter !== ""
       ? `?updatedAfter=${encodeURIComponent(opts.updatedAfter)}`
@@ -102,7 +100,6 @@ export function useConversations() {
   const query = useQuery({
     queryKey: ["conversations"],
     queryFn: async () => {
-      if (USE_MOCK) return fetchConversations();
       conversationPollCount += 1;
       const prev = queryClient.getQueryData<Thread[]>(["conversations"]);
       // Full list on first fetch and every ~15th poll (~60s at 4s interval).
@@ -120,7 +117,6 @@ export function useConversations() {
     // client bug, not a blip.
     retry: retryUnlessClientError,
     refetchInterval: (q) => {
-      if (USE_MOCK) return false;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return false;
       }
@@ -135,7 +131,6 @@ export function useConversations() {
 
   // Resume polling immediately when the tab becomes visible again.
   useEffect(() => {
-    if (USE_MOCK) return;
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -149,7 +144,6 @@ export function useConversations() {
 }
 
 export async function fetchCannedResponses(): Promise<CannedResponse[]> {
-  if (USE_MOCK) return mockDelay(seedCanned);
   return apiGet<CannedResponse[]>("/canned-responses");
 }
 
@@ -163,64 +157,14 @@ export function useCannedResponses() {
 }
 
 export async function takeoverConversation(threadId: string): Promise<Thread> {
-  if (USE_MOCK) {
-    const thread = seedThreads.find((t) => t.id === threadId);
-    if (!thread) throw new Error("conversation_not_found");
-    thread.status = "assigned";
-    thread.assignedUserId = "priya-nair";
-    thread.isMine = true;
-    const time = formatNowLabel();
-    thread.messages.push({
-      id: `sys-${Date.now()}`,
-      kind: "system",
-      text: "You took over from bot",
-      time,
-    });
-    return structuredClone(thread);
-  }
   return apiPost<Thread>(`/conversations/${threadId}/takeover`, {});
 }
 
 export async function returnConversationToBot(threadId: string): Promise<Thread> {
-  if (USE_MOCK) {
-    const thread = seedThreads.find((t) => t.id === threadId);
-    if (!thread) throw new Error("conversation_not_found");
-    thread.status = "bot";
-    thread.assignedUserId = null;
-    thread.isMine = false;
-    const time = formatNowLabel();
-    thread.messages.push({
-      id: `sys-${Date.now()}`,
-      kind: "system",
-      text: "Returned conversation to bot",
-      time,
-    });
-    return structuredClone(thread);
-  }
   return apiPost<Thread>(`/conversations/${threadId}/return-to-bot`, {});
 }
 
 export async function sendConversationMessage(threadId: string, text: string): Promise<Thread> {
-  if (USE_MOCK) {
-    const thread = seedThreads.find((t) => t.id === threadId);
-    if (!thread) throw new Error("conversation_not_found");
-    const time = formatNowLabel();
-    thread.messages.push({
-      id: `m-${Date.now()}`,
-      sender: "agent",
-      text,
-      time,
-      delivery: "sent",
-    });
-    thread.lastPreview = text;
-    thread.lastFrom = "agent";
-    thread.lastTime = time;
-    thread.unread = 0;
-    thread.status = "assigned";
-    thread.assignedUserId = "priya-nair";
-    thread.isMine = true;
-    return structuredClone(thread);
-  }
   return apiPost<Thread>(`/conversations/${threadId}/messages`, { text });
 }
 
@@ -239,32 +183,6 @@ export async function refreshConversationSuggestions(
   threadId: string,
   opts: { topK?: number; includeDraftAnswer?: boolean } = {},
 ): Promise<ConversationSuggestionsRefreshResult> {
-  if (USE_MOCK) {
-    const thread = seedThreads.find((t) => t.id === threadId);
-    const chips = thread?.ragSuggestions?.length
-      ? thread.ragSuggestions
-      : ["Mock KB: NCD protector preserves bonus on windscreen claims."];
-    const includeDraft = opts.includeDraftAnswer ?? false;
-    const draftAnswer = includeDraft
-      ? "Mock draft: NCD Protector keeps your no-claim bonus if you claim for windscreen damage only (see Motor policy)."
-      : null;
-    if (thread) {
-      thread.ragSuggestions = chips;
-      thread.ragDraftAnswer = draftAnswer;
-    }
-    return mockDelay(
-      {
-        conversationId: threadId,
-        ragSuggestions: chips,
-        draftAnswer,
-        chatModel: includeDraft ? "mock-chat" : null,
-        latencyMs: 120,
-        logId: `mock-${Date.now()}`,
-        thread: thread ? structuredClone(thread) : null,
-      },
-      400,
-    );
-  }
   return apiPost<ConversationSuggestionsRefreshResult>(
     `/conversations/${threadId}/suggestions/refresh`,
     {
@@ -279,10 +197,6 @@ export async function ingestInboxDocument(
   file: File,
   conversationId?: string,
 ): Promise<{ documentRequestId?: string; source?: string }> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    return { documentRequestId: `mock-doc-${Date.now()}`, source: "vision" };
-  }
   const form = new FormData();
   form.append("customer_id", customerId);
   form.append("file", file);

@@ -16,7 +16,6 @@ import { useCannedResponses } from "@/api/inbox";
 import { usePatchPresence } from "@/api/presence";
 import {
   acceptHandoffSuggestion,
-  HANDOFF_SCRIPTED_REPLAY,
   postHandoffDisclosure,
   useClaimHandoff,
   useHandoffActive,
@@ -44,7 +43,6 @@ function HandoffPage() {
   const claimMut = useClaimHandoff();
 
   useEffect(() => {
-    if (HANDOFF_SCRIPTED_REPLAY) return;
     if (interactionId) return;
     const mine = active.data?.interactionId ?? queue.data?.activeInteractionId;
     if (mine) {
@@ -59,10 +57,6 @@ function HandoffPage() {
       },
     });
   };
-
-  if (HANDOFF_SCRIPTED_REPLAY) {
-    return <>{!active.data ? <HandoffSkeleton /> : <HandoffLive session={active.data} />}</>;
-  }
 
   if (interactionId) {
     return (
