@@ -24,7 +24,7 @@ from typing import Any
 
 from agent_core.treatment import actions as A
 from agent_core.treatment.config import Policy
-from agent_core.treatment.features import AccountFeatures, Trigger
+from agent_core.treatment.features import CONSENT_UNAVAILABLE, AccountFeatures, Trigger
 from env_utils import env_int
 
 logger = logging.getLogger(__name__)
@@ -202,6 +202,10 @@ def veto(
 
     if STALE_SNAPSHOT in features.stale_inputs and spec.channel:
         return STALE_SNAPSHOT
+    # The consent read failed: nothing is known about any channel, which is
+    # not the same as "no consent on any channel". No channel until it is.
+    if CONSENT_UNAVAILABLE in features.stale_inputs and spec.channel:
+        return CONSENT_UNAVAILABLE
 
     held = _hold_veto(action, features)
     if held:

@@ -2050,6 +2050,7 @@ export const InboxInteractionSummaryResponse = z.object({
 export const InboxThreadContextResponse = z.object({
   "riskLevel": z.enum(["High", "Medium", "Low"]),
   "contactableNow": z.boolean(),
+  "contactableReason": z.string().nullable().optional(),
   "contactWindow": z.string(),
   "outstanding": z.number(),
   "outstandingAging": z.string(),

@@ -198,13 +198,14 @@ def _inbox_delivery(status: str | None, sender: str) -> str | None:
     return None
 
 
-def _inbox_contactable(
-    conn: Any,
-    customer_id: str,
-    dnd: bool,
-    preferred_window: str | None,
-    channel: str = "whatsapp",
-) -> bool:
+def _inbox_contactable(conn: Any, customer_id: str, channel: str = "whatsapp") -> tuple[bool, str | None]:
+    """The gate's verdict for this thread, and why when it is a refusal.
+
+    When the gate itself cannot be read this is ``(False, "policy_unavailable")``
+    and the failure is logged. It used to fall back to a DND flag and a window
+    check -- a second, weaker copy of the gate that answered "contactable" for
+    a borrower the real gate would have refused on frequency or consent.
+    """
     try:
         import contact_policy
 
@@ -214,13 +215,10 @@ def _inbox_contactable(
             channel=channel,
             purpose="outreach",
         )
-        return bool(decision.allowed)
+        return bool(decision.allowed), (None if decision.allowed else str(decision.reason or "refused"))
     except Exception:
-        if dnd:
-            return False
-        return not contact_window.outside_preferred_window(
-            datetime.now(_IST).isoformat(), preferred_window
-        )
+        logger.exception("contact policy unreadable for inbox thread customer=%s", customer_id)
+        return False, "policy_unavailable"
 
 
 def _inbox_aging(dpd: int | None) -> str:
@@ -445,9 +443,11 @@ def _thread_context(conn: Any, customer_id: str, account_id: str | None, risk: s
         )
         next_emi_amount = float(emi["amount"] or 0)
 
+    contactable, contactable_reason = _inbox_contactable(conn, customer_id)
     return {
         "riskLevel": _inbox_risk(risk),
-        "contactableNow": _inbox_contactable(conn, customer_id, bool(dnd), preferred_window),
+        "contactableNow": contactable,
+        "contactableReason": contactable_reason,
         "contactWindow": preferred_window or contact_window.DEFAULT_WINDOW,
         "outstanding": float(outstanding or 0),
         "outstandingAging": _inbox_aging(dpd),

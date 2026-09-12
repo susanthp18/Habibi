@@ -78,6 +78,9 @@ class InboxThreadContextResponse(BaseModel):
 
     riskLevel: Literal["High", "Medium", "Low"]  # `critical` on the book reads High here
     contactableNow: bool
+    #: Why not, when not: the gate's refusal reason, or `policy_unavailable`
+    #: when the gate could not be read (never a guess from the DND flag).
+    contactableReason: str | None = None
     contactWindow: str
     outstanding: float
     outstandingAging: str

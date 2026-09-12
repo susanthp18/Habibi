@@ -47,6 +47,10 @@ _SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
 
 logger = logging.getLogger(__name__)
 
+#: A stale-input marker: the consent read failed, so nothing is known about
+#: any channel. `policy.veto` refuses every channelled action while it is set.
+CONSENT_UNAVAILABLE = "consent_unavailable"
+
 #: v2 added the case-history fields (``case_attempts`` and friends) when the
 #: follow-through loop landed. Bumped rather than sneaked in: a row logged
 #: before the loop existed has no attempt count, and a model trained across the
@@ -524,11 +528,16 @@ class SqlFeatureProvider:
         import capture
         import contact_policy
 
+        stale: set[str] = set()
         try:
             consent = capture.latest_consent_by_channel(conn, customer_id)
         except Exception:
+            # Recorded as a stale input, which vetoes every channelled action
+            # (policy.CONSENT_UNAVAILABLE). An empty dict here used to read as
+            # "no consent on any channel" -- a fact the snapshot never had.
             logger.exception("consent read failed for %s", customer_id)
             consent = {}
+            stale.add(CONSENT_UNAVAILABLE)
 
         # The same intersection ``contact_policy._veto`` applies, taken from the
         # same module. The planner and the gate have to agree about a borrower's
@@ -560,6 +569,7 @@ class SqlFeatureProvider:
             # their OR rather than one of them.
             dnd=bool(base["dnd"] or base["dnd_registry"]),
             consent_by_channel=consent,
+            stale_inputs=tuple(sorted(stale)),
             allowed_hours=_hours,
             calling_window=policy_rules.calling_window(conn, "voice", tenant_id=base["tenant_id"]),
             allowed_days=_days,

@@ -633,3 +633,29 @@ def test_w6_soak_defaults_to_not_yet_measured(
     monkeypatch.delenv("W6_DECLARED_BOOK_SCALE", raising=False)
     assert soak_w6.main() == 2
     assert "not yet measured" in capsys.readouterr().out
+
+
+def test_an_unreadable_consent_store_is_a_stale_input_not_an_empty_consent(db_tx, monkeypatch) -> None:
+    """The consent read used to swallow its exception and hand the engine `{}`
+    -- "no consent on any channel", a fact the snapshot never had. It is a
+    stale input now, and every channelled action is vetoed for that reason
+    while WAIT stays legal."""
+    import capture
+    from agent_core.treatment.features import CONSENT_UNAVAILABLE, SqlFeatureProvider
+
+    row = db_tx.execute(
+        text("SELECT c.id AS customer_id, a.id AS account_id FROM customers c JOIN accounts a ON a.customer_id = c.id LIMIT 1")
+    ).mappings().first()
+    assert row
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("consent store unreachable")
+
+    monkeypatch.setattr(capture, "latest_consent_by_channel", _boom)
+    served = SqlFeatureProvider().build(
+        row["customer_id"], account_id=row["account_id"], trigger=Trigger(kind="manual"), now=datetime.now(timezone.utc), conn=db_tx
+    )
+    assert CONSENT_UNAVAILABLE in served.stale_inputs
+    kwargs = dict(features=served, trigger=Trigger(kind="manual"), at=datetime.now(timezone.utc), policy=config.policy(), last_rung=0)
+    assert policy.veto(None, action=A.SMS, **kwargs) == CONSENT_UNAVAILABLE
+    assert policy.veto(None, action=A.WAIT, **kwargs) is None

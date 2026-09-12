@@ -163,3 +163,19 @@ def test_the_staleness_check_never_breaks_a_send() -> None:
             raise RuntimeError("database on fire")
 
     whatsapp_outbound._warn_if_queue_is_not_draining(_Boom())  # must not raise
+
+
+def test_an_unreadable_contact_policy_reads_as_not_contactable(db_tx, monkeypatch) -> None:
+    """The context rail's tick used to fall back to the DND flag and a window
+    check when `contact_policy.evaluate` raised -- a second, weaker gate that
+    said "contactable" for a borrower the real gate would have refused. An
+    unreadable gate is a refusal now, with its reason on the wire."""
+    import contact_policy
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("policy store unreachable")
+
+    monkeypatch.setattr(contact_policy, "evaluate", _boom)
+    contactable, reason = db_inbox._inbox_contactable(db_tx, "CL-100023")
+    assert contactable is False
+    assert reason == "policy_unavailable"
