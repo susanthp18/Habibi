@@ -278,7 +278,9 @@ def _floor_reads(st: FloorBuild) -> None:
                 )
             ):
                 bucket = flags_by.setdefault(fr["interaction_id"], [])
-                if len(bucket) < 8:
+                # A flag raised on two turns is one flag on the card; the list
+                # is what the floor keys its chips by.
+                if len(bucket) < 8 and fr["flag"] not in bucket:
                     bucket.append(fr["flag"])
 
             scores: dict[str, list[float]] = {}

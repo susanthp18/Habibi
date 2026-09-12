@@ -42,3 +42,10 @@ def test_floor_snapshot_shape(db_tx, as_actor) -> None:
         assert "recommendedAction" in call
         assert "flags" in call
         assert call["risk"] in {"low", "medium", "high"}
+
+
+def test_floor_flags_are_a_set(db_tx, as_actor) -> None:
+    """A flag raised on two turns is one chip on the card, not two with one key."""
+    as_actor("priya-nair")
+    for call in db_floor.get_floor_snapshot()["calls"]:
+        assert len(call["flags"]) == len(set(call["flags"])), call["interactionId"]
