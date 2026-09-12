@@ -269,6 +269,7 @@ function BindingRow({ binding, botId }: { binding: ProviderBinding; botId: strin
             variant="outline"
             onClick={del}
             disabled={remove.isPending}
+            aria-label={inherited ? "Remove the tenant default" : "Remove this binding"}
             // An inherited row belongs to the tenant, not to this card. The
             // endpoint would happily delete it and every other card would
             // silently change provider.

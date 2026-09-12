@@ -93,7 +93,7 @@ export function StudioHeader({
           </Lozenge>
         )}
         {dirty && (
-          <Lozenge tone="warning">
+          <Lozenge tone="warning" role="status">
             <span className="h-1.5 w-1.5 rounded-full bg-background-warning-bold" /> unsaved · draft{" "}
             {nextVersion}
           </Lozenge>

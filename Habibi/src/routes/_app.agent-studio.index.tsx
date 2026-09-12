@@ -495,7 +495,7 @@ function FleetIndex() {
                 </label>
                 {/* A form, so Enter in the name field submits instead of doing nothing. */}
                 <Button type="submit" disabled={clone.isPending || !templateId}>
-                  Create draft
+                  {clone.isPending ? "Creating…" : "Create draft"}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   Cancel

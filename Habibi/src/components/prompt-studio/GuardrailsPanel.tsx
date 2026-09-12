@@ -168,10 +168,11 @@ export function GuardrailsPanel({ value, onChange }: Props) {
             <div className="mt-200 mb-050 flex items-center justify-between text-body-small">
               <span className="font-medium">Max call duration</span>
               <span className="font-mono text-body-small text-text-subtle">
-                {Math.round(value.maxSeconds / 60)}m
+                {Math.floor(value.maxSeconds / 60)}:{String(value.maxSeconds % 60).padStart(2, "0")}
               </span>
             </div>
             <Slider
+              aria-label="Max call duration"
               value={[value.maxSeconds]}
               min={120}
               max={MAX_CALL_SECONDS}

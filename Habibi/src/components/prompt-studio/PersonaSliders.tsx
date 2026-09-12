@@ -215,6 +215,7 @@ export function PersonaSliders({
                 </span>
               </div>
               <Slider
+                aria-label={t.label}
                 value={[value.traits[t.key]]}
                 min={0}
                 max={100}

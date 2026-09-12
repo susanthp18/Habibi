@@ -206,7 +206,7 @@ export function PromptEditor({
                 }
               >
                 <strong className="font-semibold text-text-subtle">
-                  {shipped.toLocaleString()} sent/call
+                  {shipped.toLocaleString()} tokens per call
                 </strong>
                 {tokens > 0 && (
                   <span className="ml-050 text-text-subtlest/80">

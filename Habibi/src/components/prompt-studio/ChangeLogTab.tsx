@@ -227,7 +227,7 @@ function EntryRow({ entry }: { entry: ChangeLogEntry }) {
 export function ChangeLogTab({ botId }: { botId: string }) {
   // Grows toward the API's 500 ceiling; the window used to be a silent 50.
   const [limit, setLimit] = useState(50);
-  const { data, isPending, isError, error, isFetching } = useChangeLog(botId, limit);
+  const { data, isPending, isError, error, isFetching, refetch } = useChangeLog(botId, limit);
 
   if (isPending) {
     return (
@@ -245,6 +245,16 @@ export function ChangeLogTab({ botId }: { botId: string }) {
           Change log unavailable — chain integrity cannot be confirmed, so treat it as unverified
           rather than intact. {(error as Error)?.message ?? ""}
         </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="ml-auto shrink-0"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </Button>
       </div>
     );
   }
