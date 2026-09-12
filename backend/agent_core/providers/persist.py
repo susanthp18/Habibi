@@ -33,9 +33,17 @@ def _sid(prefix: str) -> str:
 
 
 def sync_seed() -> dict[str, int]:
-    """Upsert providers and provider_models from the code seed. Idempotent."""
+    """Upsert providers and provider_models from the code seed. Idempotent.
+
+    A model the seed no longer ships is **disabled**, not deleted: bindings
+    reference it, and a binding to a retired model must still be visible on
+    the Bindings tab so an operator can move it. It used to be left enabled
+    forever -- the seed only ever added -- so a model removed from the code
+    kept appearing in every picker and stayed bindable.
+    """
     providers = 0
     models = 0
+    retired = 0
     with db.engine.begin() as conn:
         for spec in SEED:
             conn.execute(
@@ -87,8 +95,32 @@ def sync_seed() -> dict[str, int]:
             )
             models += 1
 
-    logger.info("provider seed synced · providers=%d · models=%d", providers, models)
-    return {"providers": providers, "models": models}
+        shipped = [(r["provider_id"], r["kind"], r["model_id"]) for r in as_rows()]
+        retired = conn.execute(
+            text(
+                """
+                UPDATE provider_models m
+                   SET enabled = false, updated_at = now()
+                 WHERE m.enabled
+                   AND m.provider_id IN (SELECT id FROM providers)
+                   AND NOT EXISTS (
+                     SELECT 1 FROM unnest(CAST(:pids AS text[]), CAST(:kinds AS text[]),
+                                          CAST(:mids AS text[])) AS s(pid, kind, mid)
+                      WHERE s.pid = m.provider_id AND s.kind = m.kind AND s.mid = m.model_id
+                   )
+                """
+            ),
+            {
+                "pids": [p for p, _, _ in shipped],
+                "kinds": [k for _, k, _ in shipped],
+                "mids": [m for _, _, m in shipped],
+            },
+        ).rowcount
+
+    logger.info(
+        "provider seed synced · providers=%d · models=%d · retired=%d", providers, models, retired
+    )
+    return {"providers": providers, "models": models, "retired": int(retired or 0)}
 
 
 # --------------------------------------------------------------------- reads
