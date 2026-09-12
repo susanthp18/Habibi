@@ -29,13 +29,7 @@ const TYPE_IMPORT = /^[ \t]*import\s+type\b|^[ \t]*import\s*\{[^}]*\btype\s+\w/;
  * types — and only until the mock branch itself goes. Delete an entry when its
  * module stops importing from data/; do not add one.
  */
-const FIXTURE_IMPORTERS = [
-  "authority.ts",
-  "contact-policy.ts",
-  "customers.ts",
-  // Held by the Studio stream while this ratchet landed; fixtures only.
-  "prompt-studio.ts",
-];
+const FIXTURE_IMPORTERS = ["authority.ts", "contact-policy.ts", "customers.ts"];
 
 /** The type-import exceptions. Empty since WP-048 closed; stays empty. */
 const TYPE_IMPORTERS: string[] = [];

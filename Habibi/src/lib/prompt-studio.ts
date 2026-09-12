@@ -1,5 +1,3 @@
-// Persona & Prompt Studio seed + helpers (deterministic, in-memory)
-
 import type {
   PersonaTraitKey,
   PersonaState,
@@ -12,13 +10,8 @@ import type {
   LanguageName,
   DiffLine,
 } from "@/api/types/prompt-studio";
-import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
+import STUDIO_VOCABULARY from "@/lib/studio-vocabulary.json";
 
-/**
- * Variables a *system* prompt may interpolate. Mirrors
- * ``prompt_render.SYSTEM_SAFE_VARIABLES`` — static operator facts, never a
- * customer-controlled field.
- */
 export const SYSTEM_SAFE_VARIABLES = [
   "agent_name",
   "bank_name",
@@ -89,15 +82,6 @@ export function detectCrmVars(prompt: string): string[] {
   return Array.from(new Set(promptTokens(prompt).filter((v) => crm.has(v))));
 }
 
-export const TTS_VOICES: TtsVoice[] = [
-  { id: "priya", name: "Priya", gender: "Female", accent: "Indian English", duration: "0:03" },
-  { id: "anjali", name: "Anjali", gender: "Female", accent: "Hindi-English", duration: "0:03" },
-  { id: "neha", name: "Neha", gender: "Female", accent: "Neutral English", duration: "0:03" },
-  { id: "ravi", name: "Ravi", gender: "Male", accent: "Indian English", duration: "0:03" },
-  { id: "arjun", name: "Arjun", gender: "Male", accent: "Hindi-English", duration: "0:03" },
-  { id: "kabir", name: "Kabir", gender: "Male", accent: "Neutral English", duration: "0:03" },
-];
-
 /**
  * The languages a card may be authored in, with the BCP-47 tag each one binds.
  *
@@ -125,66 +109,6 @@ export function languageTag(name: string): string | undefined {
   return LANGUAGE_ENTRIES.find((l) => l.name.toLowerCase() === name.trim().toLowerCase())?.tag;
 }
 
-// Mirrors the persona_presets rows these stand in for, and CRM-token-free
-// for the same reason those are: every runtime renders a system prompt with
-// render_system_prompt and then deletes any line still holding a CRM token.
-// A mock that ships {customer_name} teaches the pattern that gets the line
-// silently dropped in production, which is exactly how the live Collections
-// prompt ended up losing two of its six lines.
-const EMPATHETIC_PROMPT = `You are {agent_name}, an inbound collections voice agent for {bank_name}.
-Greet the caller warmly and acknowledge their situation before discussing dues.
-Their account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.
-Speak in {language}. Be patient, empathetic and non-judgemental.
-Never threaten legal action. Offer Promise-to-Pay options when the caller signals hardship.`;
-
-const FIRM_PROMPT = `You are {agent_name}, a collections agent for {bank_name}.
-Address the caller directly and state the purpose of the call within the first two sentences.
-State the overdue amount and due date from the CRM context card, exactly as given. Never estimate or round them.
-Speak in {language}. Be concise and outcome-focused; ask for a specific payment date.
-Never threaten legal action and never imply consequences the bank has not authorised.`;
-
-const COMPLIANCE_PROMPT = `You are {agent_name}, a compliance-first collections agent for {bank_name}.
-Verify the caller's identity before sharing any account information.
-Account details are in the CRM context card and may only be discussed after verification succeeds.
-Speak in {language}. Keep to the script; if a request falls outside policy, say so plainly and escalate.
-Never quote an interest rate, waiver or settlement figure that a tool has not returned.`;
-
-const UPSELL_PROMPT = `You are {agent_name}, a collections and relationship voice agent for {bank_name}.
-Resolve the caller's query about their overdue balance first — the figures are in the CRM context card.
-Only once the collections matter is settled and sentiment is not negative, mention at most one offer returned by recommend_next_offer.
-Speak in {language}. Never name a product the tool did not give you.`;
-
-export const PRESETS: PersonaPreset[] = [
-  {
-    id: "empathetic",
-    label: "Empathetic Collector",
-    description: "Warm, patient, hardship-aware",
-    traits: STUDIO_VOCABULARY.mouthDefaults.persona.traits,
-    promptTemplate: EMPATHETIC_PROMPT,
-  },
-  {
-    id: "firm",
-    label: "Firm Collector",
-    description: "Direct, outcome-focused",
-    traits: { empathy: 35, firmness: 80, formality: 65, verbosity: 40, upsell: 15 },
-    promptTemplate: FIRM_PROMPT,
-  },
-  {
-    id: "compliance",
-    label: "Compliance-First",
-    description: "Every disclosure, every time",
-    traits: { empathy: 55, firmness: 55, formality: 90, verbosity: 55, upsell: 5 },
-    promptTemplate: COMPLIANCE_PROMPT,
-  },
-  {
-    id: "upsell",
-    label: "Upsell-Focused",
-    description: "Resolve, then convert",
-    traits: { empathy: 65, firmness: 45, formality: 55, verbosity: 55, upsell: 75 },
-    promptTemplate: UPSELL_PROMPT,
-  },
-];
-
 /**
  * The mouth defaults are the backend's (`db_prompt_studio._DEFAULT_*`); this
  * JSON is their export and `test_studio_vocabulary_drift` holds the two
@@ -196,81 +120,6 @@ export const DEFAULT_GUARDRAILS: Guardrails = STUDIO_VOCABULARY.mouthDefaults.gu
 export const DEFAULT_VOICE: VoiceConfig = STUDIO_VOCABULARY.mouthDefaults.voice;
 
 export const DEFAULT_PERSONA: PersonaState = STUDIO_VOCABULARY.mouthDefaults.persona;
-
-export const VERSION_HISTORY: PromptVersion[] = [
-  {
-    id: "v1_4",
-    label: "v1.4",
-    author: "Anita Rao",
-    status: "published",
-    createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(),
-    summary: "+ recording disclosure, empathy 70→75",
-    prompt: EMPATHETIC_PROMPT,
-    persona: { ...DEFAULT_PERSONA, traits: { ...PRESETS[0].traits, empathy: 75 } },
-    voice: { ...DEFAULT_VOICE },
-    guardrails: { ...DEFAULT_GUARDRAILS },
-  },
-  {
-    id: "v1_3",
-    label: "v1.3",
-    author: "Anita Rao",
-    status: "archived",
-    createdAt: new Date(Date.now() - 6 * 86400_000).toISOString(),
-    summary: "+ upsell-focused fallback path",
-    prompt: EMPATHETIC_PROMPT.replace(
-      "Offer Promise-to-Pay",
-      "Offer Promise-to-Pay or product upgrade",
-    ),
-    persona: { ...DEFAULT_PERSONA, traits: { ...PRESETS[0].traits, upsell: 40 } },
-    voice: { ...DEFAULT_VOICE, warmth: 55 },
-    guardrails: { ...DEFAULT_GUARDRAILS, neverPromiseWaiver: false },
-  },
-  {
-    id: "v1_2",
-    label: "v1.2",
-    author: "Vikram Shah",
-    status: "archived",
-    createdAt: new Date(Date.now() - 12 * 86400_000).toISOString(),
-    summary: "− legal-threat language, + Hindi fallback",
-    prompt: FIRM_PROMPT,
-    persona: {
-      ...DEFAULT_PERSONA,
-      traits: PRESETS[1].traits,
-      fallbackLanguages: ["Hindi", "Marathi"],
-    },
-    voice: { ...DEFAULT_VOICE, voiceId: "ravi" },
-    guardrails: { ...DEFAULT_GUARDRAILS, prohibited: ["police", "arrest", "harassment"] },
-  },
-  {
-    id: "v1_1",
-    label: "v1.1",
-    author: "Vikram Shah",
-    status: "archived",
-    createdAt: new Date(Date.now() - 20 * 86400_000).toISOString(),
-    summary: "initial compliance pass",
-    prompt: COMPLIANCE_PROMPT.replace("Never quote interest rates.", ""),
-    persona: { ...DEFAULT_PERSONA, traits: PRESETS[2].traits },
-    voice: { ...DEFAULT_VOICE, warmth: 45 },
-    guardrails: { ...DEFAULT_GUARDRAILS, neverQuoteRate: false },
-  },
-  {
-    id: "v1_0",
-    label: "v1.0",
-    author: "Anita Rao",
-    status: "archived",
-    createdAt: new Date(Date.now() - 30 * 86400_000).toISOString(),
-    summary: "first draft",
-    prompt: "You are BigBound AI. Collect the overdue amount.",
-    persona: DEFAULT_PERSONA,
-    voice: DEFAULT_VOICE,
-    guardrails: {
-      ...DEFAULT_GUARDRAILS,
-      prohibited: [],
-      alwaysDiscloseRecording: false,
-      escalateAbuse: false,
-    },
-  },
-];
 
 // ---------- helpers ----------
 

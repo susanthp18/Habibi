@@ -3,7 +3,7 @@
 Same idea as `test_agent_card_schema_drift`: two type systems on opposite sides
 of a JSON boundary, so no compiler spans them and a hand-written mirror rots
 quietly. Each test here fails when either side is edited alone. Where the TS
-side can import a value, it imports `src/data/studio-vocabulary.json`, which is
+side can import a value, it imports `src/lib/studio-vocabulary.json`, which is
 the Python owner's export; where it cannot (a `Literal`, a `Record` key set), the
 TS source is read as text.
 """
@@ -32,7 +32,7 @@ def _ts_const_list(src: str, name: str) -> set[str]:
 
 
 def _vocabulary() -> dict:
-    return json.loads(_src("src", "data", "studio-vocabulary.json"))
+    return json.loads(_src("src", "lib", "studio-vocabulary.json"))
 
 
 # 1. reachability ------------------------------------------------------------
@@ -66,14 +66,10 @@ def test_prompt_token_regexes_match() -> None:
     import prompt_render
     from flow_vars import TEMPLATE_RE
 
-    seed = _src("src", "data", "prompt-studio-seed.ts")
+    seed = _src("src", "lib", "prompt-studio.ts")
     assert _ts_regex_source(seed, "FLOW_TOKEN_RE") == TEMPLATE_RE.pattern
     assert prompt_lint._FLOW_TOKEN_RE is TEMPLATE_RE
     assert _ts_regex_source(seed, "PROMPT_TOKEN_RE") == prompt_render.TOKEN_RE.pattern
-    # The mock lint scans with the exported regex, not a third literal.
-    api = _src("src", "api", "prompt-studio.ts")
-    assert "matchAll(PROMPT_TOKEN_RE)" in api
-    assert re.search(r"matchAll\(/\\\{", api) is None
 
 
 # 3. mouth defaults ----------------------------------------------------------
@@ -85,8 +81,8 @@ def test_mouth_defaults_are_the_backend_export() -> None:
         "persona": d._DEFAULT_PERSONA,
         "voice": d._DEFAULT_VOICE,
         "guardrails": d._DEFAULT_GUARDRAILS,
-    }, "regenerate Habibi/src/data/studio-vocabulary.json from db_prompt_studio._DEFAULT_*"
-    seed = _src("src", "data", "prompt-studio-seed.ts")
+    }, "regenerate Habibi/src/lib/studio-vocabulary.json from db_prompt_studio._DEFAULT_*"
+    seed = _src("src", "lib", "prompt-studio.ts")
     for name in ("DEFAULT_GUARDRAILS", "DEFAULT_VOICE", "DEFAULT_PERSONA"):
         assert re.search(rf"export const {name}: \w+ = STUDIO_VOCABULARY\.mouthDefaults\.\w+;", seed), name
 
@@ -161,21 +157,6 @@ def test_the_inspector_names_the_globals_the_runtime_strips() -> None:
     assert set(_vocabulary()["globalToolsStrippedAtRuntime"]) == set(flow_graph.GLOBAL_TOOLS_STRIPPED_AT_RUNTIME)
     inspector = _src("src", "components", "flow", "FlowInspector.tsx")
     assert "STUDIO_VOCABULARY.globalToolsStrippedAtRuntime" in inspector
-
-
-# recording disclosure (item B) ----------------------------------------------
-
-def test_recording_disclosure_pattern_is_the_runtime_detector() -> None:
-    """The mock lint used /record/i, which accepts "I'll record that in the CRM".
-    It now compiles the same pattern `mentions_recording_disclosure` runs."""
-    from agent_core.guardrails import _DISCLOSURE_RE
-
-    assert _vocabulary()["recordingDisclosurePattern"] == _DISCLOSURE_RE.pattern, (
-        "regenerate Habibi/src/data/studio-vocabulary.json from agent_core.guardrails._DISCLOSURE_RE"
-    )
-    api = _src("src", "api", "prompt-studio.ts")
-    assert "new RegExp(STUDIO_VOCABULARY.recordingDisclosurePattern" in api
-    assert "/record/i" not in api
 
 
 def test_the_whatsapp_history_check_is_the_same_detector() -> None:

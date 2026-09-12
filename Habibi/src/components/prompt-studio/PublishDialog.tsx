@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Guardrails, PersonaState, VoiceConfig } from "@/api/types/prompt-studio";
-import { diffStudioVersions } from "@/data/prompt-studio-seed";
+import { diffStudioVersions } from "@/lib/prompt-studio";
 import type { CompileReport } from "@/api/agent-studio";
 import { CompileReportList } from "@/components/prompt-studio/AgentCardPanels";
 import type { FlowGraph, FlowIssue } from "@/api/flow";

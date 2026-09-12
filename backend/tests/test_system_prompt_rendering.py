@@ -155,11 +155,11 @@ def test_the_editor_variable_palette_matches_the_renderer() -> None:
 
     from tests.conftest import frontend_file
 
-    seed = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
+    seed = frontend_file("src", "lib", "prompt-studio.ts").read_text(encoding="utf-8")
 
     def names(const: str) -> set[str]:
         block = re.search(rf"export const {const} = \[(.*?)\]", seed, re.S)
-        assert block, f"{const} not found in prompt-studio-seed.ts"
+        assert block, f"{const} not found in lib/prompt-studio.ts"
         return set(re.findall(r'"([a-z_]+)"', block.group(1)))
 
     assert names("SYSTEM_SAFE_VARIABLES") == set(SYSTEM_SAFE_VARIABLES)

@@ -12,17 +12,8 @@ import type {
   PersonaPreset,
   PersonaState,
   PromptVersion,
-  TtsVoice,
   VoiceConfig,
 } from "@/api/types/prompt-studio";
-import {
-  KNOWN_VARIABLES,
-  PRESETS,
-  PROMPT_TOKEN_RE,
-  TTS_VOICES,
-  VERSION_HISTORY,
-} from "@/data/prompt-studio-seed";
-import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
 import {
   ApiError,
   apiGet,
@@ -31,8 +22,6 @@ import {
   apiPostBlob,
   isNotFound,
   retryUnlessClientError,
-  mockDelay,
-  USE_MOCK,
 } from "./config";
 import type { FlowGraph } from "./flow";
 import { stableStringify } from "@/lib/stable-stringify";
@@ -138,7 +127,9 @@ export function toPatchInput(body: PromptVersionDraftInput): PromptVersionPatchI
 }
 
 const VERSIONS_KEY = ["prompt-versions"] as const;
+
 const PUBLISHED_KEY = ["prompt-versions", "published"] as const;
+
 const DEPLOYMENTS_KEY = ["bot-deployments"] as const;
 
 function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
@@ -160,49 +151,14 @@ function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ["outbound", "missions"] });
 }
 
-let _mockVersions: PromptVersion[] = VERSION_HISTORY.map((v) => ({
-  ...v,
-  persona: {
-    ...v.persona,
-    traits: { ...v.persona.traits },
-    fallbackLanguages: [...v.persona.fallbackLanguages],
-  },
-  voice: { ...v.voice },
-  guardrails: { ...v.guardrails, prohibited: [...v.guardrails.prohibited] },
-}));
-
-function _mockClone(v: PromptVersion): PromptVersion {
-  return {
-    ...v,
-    persona: {
-      ...v.persona,
-      traits: { ...v.persona.traits },
-      fallbackLanguages: [...v.persona.fallbackLanguages],
-    },
-    voice: { ...v.voice },
-    guardrails: { ...v.guardrails, prohibited: [...v.guardrails.prohibited] },
-    flow: v.flow ? { ...v.flow, nodes: [...v.flow.nodes], edges: [...v.flow.edges] } : v.flow,
-  };
-}
-
 // ---------- reads ----------
 
 export async function fetchPromptVersions(botId?: string): Promise<PromptVersion[]> {
-  if (USE_MOCK) return mockDelay(_mockVersions.map(_mockClone));
   const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
   return apiGet<PromptVersion[]>(`/prompt-versions${q}`);
 }
 
 export async function fetchPublishedPromptVersion(botId?: string): Promise<PromptVersion | null> {
-  if (USE_MOCK) {
-    return mockDelay(
-      _mockClone(
-        _mockVersions.find((v) => v.status === "published") ??
-          _mockVersions[0] ??
-          VERSION_HISTORY[0],
-      ),
-    );
-  }
   const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
   try {
     return await apiGet<PromptVersion>(`/prompt-versions/published${q}`);
@@ -218,7 +174,6 @@ export async function fetchPublishedPromptVersion(botId?: string): Promise<Promp
 }
 
 export async function fetchPersonaPresets(): Promise<PersonaPreset[]> {
-  if (USE_MOCK) return mockDelay(PRESETS);
   return apiGet<PersonaPreset[]>("/persona-presets");
 }
 
@@ -302,34 +257,6 @@ export type TtsVoiceWarning = {
 };
 
 export async function fetchTtsVoiceCatalog(params: TtsCatalogQuery = {}): Promise<TtsCatalogList> {
-  if (USE_MOCK) {
-    return mockDelay({
-      items: TTS_VOICES.map((v) => ({
-        shortName: `en-IN-${v.name}Neural`,
-        displayName: v.name,
-        localName: v.name,
-        gender: v.gender,
-        locale: "en-IN",
-        localeName: "English (India)",
-        voiceType: "Neural",
-        status: "GA",
-        priceTier: "standard",
-        isPremium: false,
-        approxUsdPer1MChars: 15,
-        styles: [],
-        personalities: [],
-        scenarios: [],
-        wordsPerMinute: null,
-        sampleRateHertz: 48000,
-        modelSeries: ["Monolingual"],
-      })),
-      total: TTS_VOICES.length,
-      nextCursor: null,
-      lastSyncedAt: new Date().toISOString(),
-      defaultVoice: "en-IN-AartiNeural",
-      premiumHiddenByDefault: true,
-    });
-  }
   const q = new URLSearchParams();
   if (params.q) q.set("q", params.q);
   if (params.locale) q.set("locale", params.locale);
@@ -346,68 +273,22 @@ export async function fetchTtsVoiceCatalog(params: TtsCatalogQuery = {}): Promis
 }
 
 export async function fetchTtsVoiceDetail(shortName: string): Promise<TtsCatalogVoice> {
-  if (USE_MOCK) {
-    const catalog = await fetchTtsVoiceCatalog();
-    const found = catalog.items.find((v) => v.shortName === shortName);
-    if (!found) throw new Error(`tts_voice_not_found: ${shortName}`);
-    return mockDelay(found);
-  }
   return apiGet<TtsCatalogVoice>(`/tts-voices/catalog/${encodeURIComponent(shortName)}`);
 }
 
 export async function fetchTtsPricing(): Promise<TtsPriceTier[]> {
-  if (USE_MOCK) {
-    return mockDelay([
-      {
-        tier: "standard",
-        label: "Standard Neural",
-        approxUsdPer1MChars: 15,
-        isPremium: false,
-        notes: "",
-      },
-      { tier: "hd", label: "Neural HD", approxUsdPer1MChars: 22, isPremium: true, notes: "" },
-    ]);
-  }
   return apiGet<TtsPriceTier[]>("/tts-voices/pricing");
 }
 
 export async function syncTtsVoiceCatalog(): Promise<TtsSyncRun> {
-  if (USE_MOCK) {
-    return mockDelay({
-      id: `sync-mock-${Date.now()}`,
-      source: "mock",
-      fetchedCount: TTS_VOICES.length,
-      upserted: TTS_VOICES.length,
-      softRemoved: 0,
-      unchanged: 0,
-      region: "centralindia",
-      defaultVoice: "en-IN-AartiNeural",
-    });
-  }
   return apiPost<TtsSyncRun>("/tts-voices/catalog/sync", {});
 }
 
 export async function fetchTtsSyncRuns(limit = 20): Promise<TtsSyncRun[]> {
-  if (USE_MOCK) {
-    return mockDelay([
-      {
-        id: "sync-mock-1",
-        source: "mock",
-        fetchedCount: TTS_VOICES.length,
-        upserted: TTS_VOICES.length,
-        softRemoved: 0,
-        unchanged: 0,
-        region: "centralindia",
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-      },
-    ]);
-  }
   return apiGet<TtsSyncRun[]>(`/tts-voices/catalog/sync-runs?limit=${limit}`);
 }
 
 export async function fetchTtsVoiceWarning(shortName: string): Promise<TtsVoiceWarning | null> {
-  if (USE_MOCK) return mockDelay(null);
   return apiGet<TtsVoiceWarning | null>(
     `/tts-voices/catalog-warning?shortName=${encodeURIComponent(shortName)}`,
   );
@@ -463,25 +344,6 @@ export async function fetchBotDeployments(params?: {
   status?: "active" | "rolled_back" | "retired";
   botId?: string;
 }): Promise<BotDeployment[]> {
-  if (USE_MOCK) {
-    const published = VERSION_HISTORY.find((v) => v.status === "published") ?? VERSION_HISTORY[0];
-    return mockDelay([
-      {
-        id: "DEP-2026-07-PROD",
-        botId: "kaia-v2-4",
-        promptVersionId: published?.id ?? "v1_4",
-        kbSnapshotId: "kb-snapshot-2026-07",
-        ttsVoiceId:
-          published?.voice.azureVoiceName ?? published?.voice.voiceId ?? "en-IN-AartiNeural",
-        environment: "production" as const,
-        status: "active" as const,
-        publishedBy: "Priya Nair",
-        publishedAt: "2026-07-21T08:30:00Z",
-        rollbackDeploymentId: null,
-        voiceConfig: {},
-      },
-    ]);
-  }
   const q = new URLSearchParams();
   if (params?.environment) q.set("environment", params.environment);
   if (params?.status) q.set("status", params.status);
@@ -546,24 +408,6 @@ export type PromptTokenEstimateInput = {
 export async function estimatePromptTokens(
   input: PromptTokenEstimateInput,
 ): Promise<PromptTokenEstimate> {
-  if (USE_MOCK) {
-    const tokens = Math.ceil((input.prompt || "").length / 4);
-    const usdPer1M = 2.5;
-    const usd = (n: number) => Math.round(((n * usdPer1M) / 1_000_000) * 1_000_000) / 1_000_000;
-    // The mock keeps the shape honest about the ratio it stands in for: the
-    // generated sections dwarf the authored text on a real card, and a mock
-    // that returned equal figures would make the footer look broken offline.
-    const assembled = input.guardrails ? tokens + 700 : null;
-    return mockDelay({
-      tokens,
-      encoding: "heuristic",
-      usdPer1M,
-      costUsd: usd(tokens),
-      source: "heuristic",
-      assembledTokens: assembled,
-      assembledCostUsd: assembled === null ? null : usd(assembled),
-    });
-  }
   return apiPost<PromptTokenEstimate>("/prompt-versions/estimate-tokens", {
     prompt: input.prompt,
     ...(input.guardrails ? { guardrails: input.guardrails } : {}),
@@ -606,25 +450,6 @@ export function usePromptTokenEstimate(input: PromptTokenEstimateInput) {
 // ---------- writes ----------
 
 export async function createPromptVersion(input: PromptVersionDraftInput): Promise<PromptVersion> {
-  if (USE_MOCK) {
-    const label = input.label?.trim() || null;
-    const id = (label ?? "draft").replace(/\./g, "_") + `-${Date.now().toString(36).slice(-4)}`;
-    const created: PromptVersion = {
-      id,
-      label: label ?? id,
-      author: "You",
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      summary: input.summary ?? "",
-      prompt: input.prompt,
-      persona: input.persona,
-      voice: input.voice,
-      guardrails: input.guardrails,
-      flow: input.flow,
-    };
-    _mockVersions = [created, ..._mockVersions];
-    return mockDelay(_mockClone(created));
-  }
   return apiPost<PromptVersion>("/prompt-versions", input);
 }
 
@@ -632,24 +457,6 @@ export async function patchPromptVersion(
   versionId: string,
   input: PromptVersionPatchInput,
 ): Promise<PromptVersion> {
-  if (USE_MOCK) {
-    const idx = _mockVersions.findIndex((v) => v.id === versionId);
-    if (idx < 0) throw new Error(`prompt_version_not_found: ${versionId}`);
-    if (_mockVersions[idx].status !== "draft") throw new Error("prompt_version_not_draft");
-    const next = {
-      ..._mockVersions[idx],
-      ...(input.label !== undefined ? { label: input.label ?? _mockVersions[idx].label } : {}),
-      ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
-      ...(input.persona !== undefined ? { persona: input.persona } : {}),
-      ...(input.voice !== undefined ? { voice: input.voice } : {}),
-      ...(input.guardrails !== undefined ? { guardrails: input.guardrails } : {}),
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      ...(input.flow !== undefined ? { flow: input.flow } : {}),
-      ...(input.agentCard !== undefined ? { agentCard: input.agentCard } : {}),
-    };
-    _mockVersions = _mockVersions.map((v, i) => (i === idx ? next : v));
-    return mockDelay(_mockClone(next));
-  }
   return apiPatch<PromptVersion>(`/prompt-versions/${versionId}`, input);
 }
 
@@ -662,23 +469,6 @@ export async function publishPromptVersion(
     autoRollback?: string[] | null;
   },
 ): Promise<PromptVersion> {
-  if (USE_MOCK) {
-    const idx = _mockVersions.findIndex((v) => v.id === versionId);
-    if (idx < 0) throw new Error(`prompt_version_not_found: ${versionId}`);
-    if (_mockVersions[idx].status !== "draft") throw new Error("prompt_version_not_draft");
-    _mockVersions = _mockVersions.map((v, i) => {
-      if (i === idx) {
-        return {
-          ...v,
-          status: "published" as const,
-          summary: summary.trim() || v.summary,
-        };
-      }
-      if (v.status === "published") return { ...v, status: "archived" as const };
-      return v;
-    });
-    return mockDelay(_mockClone(_mockVersions[idx]));
-  }
   return apiPost<PromptVersion>(`/prompt-versions/${versionId}/publish`, {
     summary,
     kbSnapshotId: opts?.kbSnapshotId ?? null,
@@ -688,62 +478,14 @@ export async function publishPromptVersion(
 }
 
 export async function restorePromptVersionAsDraft(versionId: string): Promise<PromptVersion> {
-  if (USE_MOCK) {
-    const source = _mockVersions.find((v) => v.id === versionId);
-    if (!source) throw new Error(`prompt_version_not_found: ${versionId}`);
-    const created: PromptVersion = {
-      ..._mockClone(source),
-      id: `${source.id}-r-${Date.now().toString(36).slice(-4)}`,
-      label: source.label,
-      author: "You",
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      summary: `restored from ${source.label}`,
-    };
-    _mockVersions = [created, ..._mockVersions];
-    return mockDelay(_mockClone(created));
-  }
   return apiPost<PromptVersion>(`/prompt-versions/${versionId}/restore-as-draft`, {});
 }
 
 export async function rollbackBotDeployment(deploymentId: string): Promise<BotDeployment> {
-  if (USE_MOCK) {
-    // Simulate rollback: re-publish the prompt tied to the target deployment id.
-    const published = _mockVersions.find((v) => v.status === "published");
-    const archived = _mockVersions.find((v) => v.status === "archived") ?? _mockVersions[1];
-    if (!archived) throw new Error("no_prior_deployment");
-    _mockVersions = _mockVersions.map((v) => {
-      if (v.id === archived.id) return { ...v, status: "published" as const };
-      if (v.status === "published") return { ...v, status: "archived" as const };
-      return v;
-    });
-    return mockDelay({
-      id: `DEP-RB-${Date.now().toString(36).slice(-4)}`,
-      botId: "kaia-v2-4",
-      promptVersionId: archived.id,
-      kbSnapshotId: "kb-snapshot-2026-07",
-      ttsVoiceId: archived.voice.azureVoiceName ?? archived.voice.voiceId ?? "en-IN-AartiNeural",
-      environment: "production",
-      status: "active",
-      publishedBy: "You",
-      publishedAt: new Date().toISOString(),
-      rollbackDeploymentId: published?.id ? "DEP-2026-07-PROD" : null,
-      voiceConfig: {},
-    });
-  }
   return apiPost<BotDeployment>(`/bot-deployments/${deploymentId}/rollback`, {});
 }
 
 export async function discardPromptVersion(versionId: string): Promise<PromptVersion> {
-  if (USE_MOCK) {
-    const idx = _mockVersions.findIndex((v) => v.id === versionId);
-    if (idx < 0) throw new Error(`prompt_version_not_found: ${versionId}`);
-    if (_mockVersions[idx].status !== "draft") throw new Error("prompt_version_not_draft");
-    _mockVersions = _mockVersions.map((v, i) =>
-      i === idx ? { ...v, status: "archived" as const } : v,
-    );
-    return mockDelay(_mockClone(_mockVersions[idx]));
-  }
   return apiPost<PromptVersion>(`/prompt-versions/${versionId}/discard`, {});
 }
 
@@ -759,58 +501,6 @@ export async function lintPromptVersion(input: {
   guardrails: Guardrails;
   includeLlm?: boolean;
 }): Promise<PromptLintFinding[]> {
-  if (USE_MOCK) {
-    const findings: PromptLintFinding[] = [];
-    const unknown = Array.from(input.prompt.matchAll(PROMPT_TOKEN_RE))
-      .map((m) => m[1])
-      .filter((v) => !KNOWN_VARIABLES.includes(v as (typeof KNOWN_VARIABLES)[number]));
-    for (const v of Array.from(new Set(unknown))) {
-      findings.push({
-        severity: "warn",
-        code: "unknown_variable",
-        message: `Unknown variable {${v}} — will not be substituted at runtime.`,
-      });
-    }
-    // Mirrors prompt_lint.lint_prompt. With the guardrail ON the platform
-    // appends the disclosure to every call itself, so a silent prompt is not a
-    // defect — reporting one told authors to write "Always disclose that the
-    // call is recorded", which is what made a live call say it three times. The
-    // gap worth reporting is the opposite: the guardrail off AND no disclosure,
-    // where nothing on the card discloses anything.
-    // The same pattern `agent_core.guardrails.mentions_recording_disclosure`
-    // runs on live turns, so the mock and the real lint agree on what counts
-    // as disclosing. A bare /record/ accepted "I'll record that in the CRM".
-    const discloses = new RegExp(STUDIO_VOCABULARY.recordingDisclosurePattern, "i").test(
-      input.prompt,
-    );
-    if (input.guardrails.alwaysDiscloseRecording) {
-      if (discloses) {
-        findings.push({
-          severity: "info",
-          code: "recording_disclosure_duplicated",
-          message:
-            "The alwaysDiscloseRecording guardrail already adds a recording disclosure to every voice call, worded to be said once and not repeated. You can delete this line.",
-        });
-      }
-    } else if (!discloses) {
-      findings.push({
-        severity: "warn",
-        code: "recording_disclosure_unenforced",
-        message:
-          "Nothing on this card discloses call recording — the guardrail is off and the prompt does not mention it either.",
-      });
-    }
-    for (const w of input.guardrails.prohibited || []) {
-      if (w && input.prompt.toLowerCase().includes(w.toLowerCase())) {
-        findings.push({
-          severity: "error",
-          code: "prohibited_word_in_prompt",
-          message: `Prohibited phrase "${w}" appears in the system prompt.`,
-        });
-      }
-    }
-    return mockDelay(findings);
-  }
   const res = await apiPost<{ findings: PromptLintFinding[] }>("/prompt-versions/lint", {
     prompt: input.prompt,
     guardrails: input.guardrails,
@@ -894,10 +584,6 @@ export async function fetchActiveBotDeployment(
   environment: "production" | "sandbox" = "production",
   botId?: string,
 ): Promise<BotDeployment | null> {
-  if (USE_MOCK) {
-    const rows = await fetchBotDeployments({ environment, status: "active", botId });
-    return rows[0] ?? null;
-  }
   const q = new URLSearchParams({ environment });
   if (botId) q.set("botId", botId);
   try {
@@ -1120,10 +806,6 @@ function mockPreviewAudio(): Blob {
 }
 
 export async function previewTts(input: TtsPreviewInput): Promise<TtsPreviewResult> {
-  if (USE_MOCK) {
-    await mockDelay(null, 200);
-    return { blob: mockPreviewAudio(), cacheHit: true, voiceName: "mock", latencyMs: 200 };
-  }
   const { blob, headers } = await apiPostBlob("/tts/preview", {
     text: input.text,
     voiceId: input.voiceId,

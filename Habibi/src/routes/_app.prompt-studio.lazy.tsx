@@ -34,7 +34,7 @@ import {
   DEFAULT_VOICE,
   languageTag,
   nextVersionLabel,
-} from "@/data/prompt-studio-seed";
+} from "@/lib/prompt-studio";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";

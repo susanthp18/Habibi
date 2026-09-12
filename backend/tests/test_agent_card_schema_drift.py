@@ -97,9 +97,9 @@ def test_rollback_triggers_match() -> None:
 # ---------------------------------------------------------------------------
 
 def _ts_const(name: str) -> set[str]:
-    src = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
+    src = frontend_file("src", "lib", "prompt-studio.ts").read_text(encoding="utf-8")
     match = re.search(rf"{name}\s*=\s*\[(.*?)\]\s*as const", src, re.S)
-    assert match, f"{name} not found in prompt-studio-seed.ts"
+    assert match, f"{name} not found in lib/prompt-studio.ts"
     return set(re.findall(r'"([^"]+)"', match.group(1)))
 
 

@@ -5,7 +5,7 @@ import type {
   PromptVersion,
   VoiceConfig,
 } from "@/api/types/prompt-studio";
-import { diffStudioVersions } from "@/data/prompt-studio-seed";
+import { diffStudioVersions } from "@/lib/prompt-studio";
 import { stableStringify } from "@/lib/stable-stringify";
 
 type Snapshot = {

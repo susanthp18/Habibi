@@ -10,7 +10,7 @@ import type {
   PersonaTraitKey,
   VoiceConfig,
 } from "@/api/types/prompt-studio";
-import { LANGUAGES, languageTag, renderPersonaPreview } from "@/data/prompt-studio-seed";
+import { LANGUAGES, languageTag, renderPersonaPreview } from "@/lib/prompt-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const TRAITS: Array<{ key: PersonaTraitKey; label: string; lo: string; hi: string }> = [

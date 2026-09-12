@@ -1,6 +1,6 @@
 """The Studio's language list and the runtime's must be the same list.
 
-`Habibi/src/data/prompt-studio-seed.ts` offers the languages an operator can
+`Habibi/src/lib/prompt-studio.ts` offers the languages an operator can
 pick; `agent_core/languages.py` owns the BCP-47 tag each one binds. They are
 hand-written mirrors across a JSON boundary no type system spans — the same
 situation as the Agent Card, and guarded the same way.
@@ -21,9 +21,9 @@ from tests.conftest import frontend_file
 
 def _ts_entries() -> list[tuple[str, str]]:
     """Name/tag pairs from the exported `LANGUAGE_ENTRIES` constant."""
-    src = frontend_file("src", "data", "prompt-studio-seed.ts").read_text(encoding="utf-8")
+    src = frontend_file("src", "lib", "prompt-studio.ts").read_text(encoding="utf-8")
     match = re.search(r"LANGUAGE_ENTRIES\s*=\s*\[(.*?)\]\s*as const", src, re.S)
-    assert match, "LANGUAGE_ENTRIES not found in prompt-studio-seed.ts"
+    assert match, "LANGUAGE_ENTRIES not found in lib/prompt-studio.ts"
     return re.findall(r'name:\s*"([^"]+)",\s*tag:\s*"([^"]+)"', match.group(1))
 
 

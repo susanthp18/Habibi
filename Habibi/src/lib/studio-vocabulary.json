@@ -10,7 +10,9 @@
         "upsell": 20
       },
       "language": "English",
-      "fallbackLanguages": ["Hindi"]
+      "fallbackLanguages": [
+        "Hindi"
+      ]
     },
     "voice": {
       "voiceId": "priya",
@@ -22,7 +24,14 @@
       "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?"
     },
     "guardrails": {
-      "prohibited": ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
+      "prohibited": [
+        "guarantee",
+        "police",
+        "arrest",
+        "threaten",
+        "family will pay",
+        "harassment"
+      ],
       "escalateAbuse": true,
       "escalateLegal": true,
       "neverQuoteRate": true,
@@ -33,7 +42,6 @@
       "maxSeconds": 480
     }
   },
-  "recordingDisclosurePattern": "(?:\\b(?:this|the|your|our)\\s+(?:call|conversation|chat)\\s+(?:is|are|was|may\\s+be|might\\s+be|will\\s+be|could\\s+be)(?:\\s+being)?\\s+recorded\\b|\\b(?:am|are|is|will\\s+be)\\s+recording\\s+(?:this|the|your|our)\\s+(?:call|conversation|chat)\\b|\\brecorded\\s+for\\s+(?:quality|training|compliance|verification|monitoring)\\b|\\b(?:calls|conversations|chats)\\s+(?:is|are|was|may\\s+be|might\\s+be|will\\s+be|could\\s+be)(?:\\s+being)?\\s+recorded\\b)",
   "globalToolsStrippedAtRuntime": [
     "get_customer_context",
     "get_emi_schedule",

@@ -22,7 +22,7 @@ import {
   type TtsCatalogVoice,
 } from "@/api/prompt-studio";
 import type { VoiceConfig, VoiceParamValue } from "@/api/types/prompt-studio";
-import { DEFAULT_VOICE } from "@/data/prompt-studio-seed";
+import { DEFAULT_VOICE } from "@/lib/prompt-studio";
 import { cn } from "@/lib/utils";
 import { useProviderModels, type ProviderModel } from "@/api/providers";
 import { VoiceCatalogBrowser, tierBadge, useSelectedCatalogVoice } from "./VoiceCatalogBrowser";

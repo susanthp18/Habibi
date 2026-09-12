@@ -25,7 +25,7 @@ import {
   useFlowVariables,
 } from "@/api/flow";
 import { useOutboundVocabulary } from "@/api/outbound";
-import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
+import STUDIO_VOCABULARY from "@/lib/studio-vocabulary.json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

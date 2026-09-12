@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PersonaState } from "@/api/types/prompt-studio";
-import { DEFAULT_PERSONA } from "@/data/prompt-studio-seed";
+import { DEFAULT_PERSONA } from "@/lib/prompt-studio";
 
 vi.mock("@/api/prompt-studio", () => ({ previewTts: vi.fn() }));
 

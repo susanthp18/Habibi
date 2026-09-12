@@ -7,7 +7,7 @@ import {
   detectCrmVars,
   detectFlowVars,
   detectUndefinedVars,
-} from "@/data/prompt-studio-seed";
+} from "@/lib/prompt-studio";
 
 type Props = {
   value: string;
