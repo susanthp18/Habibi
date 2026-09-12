@@ -35,7 +35,6 @@ SKIP_DIRS = {
 BASELINE: dict[str, int] = {
     "voice/flows_dynamic.py::build_authored_flow": 399,
     "voice/bot_pipeline.py::build_services": 396,
-    "bank_boundary/ingest.py::load": 372,
     "voice/bot_handlers_connect.py::build": 360,
     "voice/bot_handlers_connect.py::build.on_client_connected": 325,
 }

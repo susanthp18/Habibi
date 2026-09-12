@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass, field
 import json
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -63,32 +64,45 @@ def _paise(row: Mapping[str, Any]) -> int:
     return 0
 
 
-def load(
-    conn: Any,
-    *,
-    tenant_id: str,
-    portfolio_id: str = "",
-    contract_code: str,
-    schema_version: str,
-    source: str,
-    business_date: date,
-    source_ref: str,
-    control_count: int,
-    control_sum_paise: int,
-    event_time: datetime,
-    rows: Sequence[Mapping[str, Any]],
-    known_from: datetime | None = None,
-    mapping_namespace: str = "reference",
-) -> dict[str, Any]:
-    """Atomic ingest. A mismatch rejects the whole batch."""
-    if not schema_ready.w5_ready(conn):
-        raise IngestRejected("w5_schema_missing")
-    if contract_code not in ALL_CODES:
-        raise IngestRejected(f"unknown_contract:{contract_code}")
-    if contract_code == "F9":
-        raise IngestRejected("f9_requires_evaluation_adapter")
-    if contract_code not in INBOUND:
-        raise IngestRejected(f"outbound_contract_requires_outbox:{contract_code}")
+@dataclass
+class Ingest:
+    """One batch as it moves through the phases below: the request, the arrival
+    time, the contract's version and binding, the payload hash and any prior
+    manifest, the control breaks, the validated rows, and the manifest that
+    accepted it. A phase that rejects raises; a replay returns the prior
+    manifest. The bodies are what ``load`` was.
+    """
+
+    business_date: date
+    conn: Any
+    contract_code: str
+    control_count: int
+    control_sum_paise: int
+    event_time: datetime
+    known_from: datetime | None
+    mapping_namespace: str
+    portfolio_id: str
+    rows: Sequence[Mapping[str, Any]]
+    schema_version: str
+    source: str
+    source_ref: str
+    tenant_id: str
+    adapter: Any = None
+    arrival: datetime = None
+    payload_hash: str = ""
+    validated: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _ingest_admit(st: Ingest) -> dict[str, Any] | None:
+    """The arrival clock, the declared contract version and the tenant's binding to it."""
+    business_date = st.business_date
+    conn = st.conn
+    contract_code = st.contract_code
+    event_time = st.event_time
+    known_from = st.known_from
+    portfolio_id = st.portfolio_id
+    schema_version = st.schema_version
+    tenant_id = st.tenant_id
 
     arrival = known_from or _now()
     if arrival.tzinfo is None:
@@ -148,6 +162,26 @@ def load(
             detail={"schema_version": schema_version},
         )
         raise IngestRejected("binding")
+
+    st.event_time = event_time
+    st.arrival = arrival
+
+
+def _ingest_replay(st: Ingest) -> dict[str, Any] | None:
+    """The payload hash against prior manifests: a replay returns, a mismatch rejects."""
+    business_date = st.business_date
+    conn = st.conn
+    contract_code = st.contract_code
+    control_count = st.control_count
+    control_sum_paise = st.control_sum_paise
+    event_time = st.event_time
+    portfolio_id = st.portfolio_id
+    rows = st.rows
+    schema_version = st.schema_version
+    source = st.source
+    source_ref = st.source_ref
+    tenant_id = st.tenant_id
+    arrival = st.arrival
 
     payload_hash = _hash_rows(rows)
     existing = conn.execute(
@@ -243,6 +277,27 @@ def load(
         )
         raise IngestRejected("hash_mismatch")
 
+    st.payload_hash = payload_hash
+
+
+def _ingest_controls(st: Ingest) -> dict[str, Any] | None:
+    """Control count, control sum, duplicate keys, the adapter's validation and the preflight."""
+    business_date = st.business_date
+    conn = st.conn
+    contract_code = st.contract_code
+    control_count = st.control_count
+    control_sum_paise = st.control_sum_paise
+    event_time = st.event_time
+    mapping_namespace = st.mapping_namespace
+    portfolio_id = st.portfolio_id
+    rows = st.rows
+    schema_version = st.schema_version
+    source = st.source
+    source_ref = st.source_ref
+    tenant_id = st.tenant_id
+    arrival = st.arrival
+    payload_hash = st.payload_hash
+
     breaks: list[dict[str, Any]] = []
     if len(rows) != control_count:
         breaks.append({"kind": "count", "observed": len(rows), "control": control_count})
@@ -264,7 +319,7 @@ def load(
         breaks.append({"kind": "unknown_map", "contract": contract_code})
 
     if breaks:
-        manifest_id = _reject(
+        _reject(
             conn,
             tenant_id=tenant_id,
             portfolio_id=portfolio_id,
@@ -338,6 +393,28 @@ def load(
             breaks=[{"kind": "unknown_map", "raw": exc.raw}],
         )
         raise IngestRejected("unknown_map") from exc
+
+    st.adapter = adapter
+    st.validated = validated
+
+
+def _ingest_apply(st: Ingest) -> dict[str, Any]:
+    """The manifest row, the facts and identifiers, under one savepoint."""
+    business_date = st.business_date
+    conn = st.conn
+    contract_code = st.contract_code
+    control_count = st.control_count
+    control_sum_paise = st.control_sum_paise
+    event_time = st.event_time
+    portfolio_id = st.portfolio_id
+    schema_version = st.schema_version
+    source = st.source
+    source_ref = st.source_ref
+    tenant_id = st.tenant_id
+    adapter = st.adapter
+    arrival = st.arrival
+    payload_hash = st.payload_hash
+    validated = st.validated
 
     apply_tx = conn.begin_nested()
     manifest_id = _id("BM")
@@ -435,6 +512,56 @@ def load(
             raise
         raise IngestRejected("validation") from exc
     return {"id": manifest_id, "state": "accepted", "replayed": False}
+
+
+def load(
+    conn: Any,
+    *,
+    tenant_id: str,
+    portfolio_id: str = "",
+    contract_code: str,
+    schema_version: str,
+    source: str,
+    business_date: date,
+    source_ref: str,
+    control_count: int,
+    control_sum_paise: int,
+    event_time: datetime,
+    rows: Sequence[Mapping[str, Any]],
+    known_from: datetime | None = None,
+    mapping_namespace: str = "reference",
+) -> dict[str, Any]:
+    """Atomic ingest. A mismatch rejects the whole batch."""
+    if not schema_ready.w5_ready(conn):
+        raise IngestRejected("w5_schema_missing")
+    if contract_code not in ALL_CODES:
+        raise IngestRejected(f"unknown_contract:{contract_code}")
+    if contract_code == "F9":
+        raise IngestRejected("f9_requires_evaluation_adapter")
+    if contract_code not in INBOUND:
+        raise IngestRejected(f"outbound_contract_requires_outbox:{contract_code}")
+
+    st = Ingest(
+        business_date=business_date,
+        conn=conn,
+        contract_code=contract_code,
+        control_count=control_count,
+        control_sum_paise=control_sum_paise,
+        event_time=event_time,
+        known_from=known_from,
+        mapping_namespace=mapping_namespace,
+        portfolio_id=portfolio_id,
+        rows=rows,
+        schema_version=schema_version,
+        source=source,
+        source_ref=source_ref,
+        tenant_id=tenant_id,
+    )
+    for phase in (_ingest_admit, _ingest_replay, _ingest_controls):
+        replayed = phase(st)
+        if replayed is not None:
+            return replayed
+    return _ingest_apply(st)
 
 
 def _preflight(
