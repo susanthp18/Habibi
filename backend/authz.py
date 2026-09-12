@@ -407,6 +407,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/routing-rules/{rule_id}/executions"): BOT_READ,
     ("POST", "/routing-rules"): BOT_WRITE,
     ("POST", "/routing-rules/reorder"): BOT_WRITE,
+    ("POST", "/routing-rules/simulate"): BOT_READ,
     ("PATCH", "/routing-rules/{rule_id}"): BOT_WRITE,
     ("DELETE", "/routing-rules/{rule_id}"): BOT_WRITE,
     ("GET", "/sandbox/scenarios"): BOT_READ,

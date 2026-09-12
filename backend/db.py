@@ -2621,6 +2621,7 @@ from db_routing import (  # noqa: E402
     get_routing_rule as get_routing_rule,
     list_routing_rule_executions as list_routing_rule_executions,
     list_routing_rules as list_routing_rules,
+    simulate_routing_rules as simulate_routing_rules,
 )
 
 from db_redaction import (  # noqa: E402

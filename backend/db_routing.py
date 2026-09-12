@@ -272,6 +272,44 @@ def _routing_eval_node(node: Any, context: dict[str, Any]) -> bool:
     return _routing_eval_condition(node, context)
 
 
+def simulate_routing_rules(context: dict[str, Any]) -> dict[str, Any]:
+    """Dry-run every enabled rule against a hand-built context, condition by condition.
+
+    The Routing screen's simulator. Nothing is written: no execution row, no
+    audit -- ``_match_routing_rule`` is the live path and logs. The browser
+    used to carry its own copy of the evaluator for this, which drifted from
+    the one that actually routes calls (boolean coercion, ``in`` on lists).
+    """
+    results: list[dict[str, Any]] = []
+    firing: str | None = None
+    for rule in list_routing_rules():
+        if not rule.get("enabled"):
+            continue
+        nodes: list[dict[str, Any]] = []
+        for node in rule.get("when") or []:
+            if not isinstance(node, dict):
+                continue
+            conds = node["or"] if isinstance(node.get("or"), list) else [node]
+            evaluated = [
+                {"id": str(c.get("id") or ""), "matched": _routing_eval_condition(c, context)}
+                for c in conds
+                if isinstance(c, dict)
+            ]
+            nodes.append(
+                {
+                    "nodeId": str(node.get("id") or ""),
+                    "isOr": "or" in node,
+                    "matched": any(c["matched"] for c in evaluated) if "or" in node else all(c["matched"] for c in evaluated),
+                    "conditions": evaluated,
+                }
+            )
+        matched = bool(nodes) and all(n["matched"] for n in nodes)
+        if matched and firing is None:
+            firing = rule["id"]
+        results.append({"ruleId": rule["id"], "matched": matched, "nodes": nodes})
+    return {"results": results, "firingRuleId": firing}
+
+
 def _resolve_team_id(conn: Any, action_key: str, params: dict[str, str] | None) -> str | None:
     _mod = _db()
     _one = _mod._one

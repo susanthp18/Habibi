@@ -3442,6 +3442,25 @@ export const RoutingRuleExecutionResponse = z.object({
   "evaluatedAt": z.string(),
   "context": z.record(z.string(), z.unknown()),
 }).passthrough();
+export const RoutingSimulateConditionResponse = z.object({
+  "id": z.string(),
+  "matched": z.boolean(),
+}).passthrough();
+export const RoutingSimulateNodeResponse = z.object({
+  "nodeId": z.string(),
+  "isOr": z.boolean(),
+  "matched": z.boolean(),
+  "conditions": z.array(RoutingSimulateConditionResponse),
+}).passthrough();
+export const RoutingSimulateRuleResponse = z.object({
+  "ruleId": z.string(),
+  "matched": z.boolean(),
+  "nodes": z.array(RoutingSimulateNodeResponse),
+}).passthrough();
+export const RoutingSimulateResponse = z.object({
+  "results": z.array(RoutingSimulateRuleResponse),
+  "firingRuleId": z.string().nullable().optional(),
+}).passthrough();
 export const RoutingAuditEntryResponse = z.object({
   "id": z.string(),
   "at": z.string(),
@@ -4091,6 +4110,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /routing-rules/{rule_id}/executions", z.array(RoutingRuleExecutionResponse)],
   ["PATCH /routing-rules/{rule_id}", RoutingRuleListResponse],
   ["DELETE /routing-rules/{rule_id}", OkResponse],
+  ["POST /routing-rules/simulate", RoutingSimulateResponse],
   ["POST /routing-rules/reorder", z.array(RoutingRuleListResponse)],
   ["GET /routing-audit", z.array(RoutingAuditEntryResponse)],
   ["POST /sandbox/payment-events", PaymentEventWebhookResponse],

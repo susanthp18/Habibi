@@ -140,6 +140,38 @@ class RoutingReorderRequest(BaseModel):
     orderedIds: list[str] = Field(min_length=1)
 
 
+class RoutingSimulateRequest(BaseModel):
+    """The simulator's hand-built context: the fields the rule editor offers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    context: dict[str, Any]
+
+
+class RoutingSimulateConditionResponse(BaseModel):
+    id: str
+    matched: bool
+
+
+class RoutingSimulateNodeResponse(BaseModel):
+    nodeId: str
+    isOr: bool
+    matched: bool
+    conditions: list[RoutingSimulateConditionResponse]
+
+
+class RoutingSimulateRuleResponse(BaseModel):
+    ruleId: str
+    matched: bool
+    nodes: list[RoutingSimulateNodeResponse]
+
+
+class RoutingSimulateResponse(BaseModel):
+    results: list[RoutingSimulateRuleResponse]
+    #: The first enabled rule that matched, in priority order.
+    firingRuleId: str | None = None
+
+
 RoutingAuditAction = Literal[
     "created", "edited", "reordered", "toggled", "deleted", "duplicated"
 ]
