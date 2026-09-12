@@ -35,6 +35,7 @@ import time
 from typing import Any
 
 import httpx
+from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ def list_voices(
 
 def _clamp(value: Any, lo: float, hi: float, default: float) -> float:
     try:
-        return max(lo, min(hi, float(value)))
+        return clamp(float(value), lo, hi)
     except (TypeError, ValueError):
         return default
 

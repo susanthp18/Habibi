@@ -25,6 +25,7 @@ from typing import Any
 from agent_core.treatment import actions as A
 from agent_core.treatment.config import Policy
 from agent_core.treatment.features import AccountFeatures, Trigger
+from env_utils import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +402,7 @@ def _mandate_limit(conn: Any, features: AccountFeatures, *, at: datetime) -> int
     published = resolve(conn, tenant_id=features.tenant_id, at=at).mandate_presentation_limit()
     if published is not None:
         return max(1, published)
-    return max(1, _env_int("TREATMENT_MANDATE_MAX_PRESENTATIONS", 3))
+    return max(1, env_int("TREATMENT_MANDATE_MAX_PRESENTATIONS", 3))
 
 
 def _emi_date_veto(features: AccountFeatures) -> str | None:
@@ -502,15 +503,6 @@ def _self_service_veto(conn: Any, features: AccountFeatures) -> str | None:
         return SELF_SERVICE_OPEN
     return None
 
-
-def _env_int(name: str, default: int) -> int:
-    import os
-
-    raw = (os.getenv(name) or "").strip()
-    try:
-        return int(raw) if raw else default
-    except ValueError:
-        return default
 
 
 def _field_veto(

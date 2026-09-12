@@ -21,6 +21,7 @@ import db
 from db_core import _vector_literal
 import pii_redact
 from agent_core.clock import utc_now
+from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -287,16 +288,11 @@ PENALTY_POINTER_FAQ = -0.12
 PENALTY_EXCLUSION_FAQ = -0.04
 POINTER_FAQ_MAX_CHARS = 120
 
-
-def _clamp(score: float) -> float:
-    return max(0.0, min(1.0, score))
-
-
 def _apply_rank_rules(score: float, rules: list[tuple[bool, float]]) -> float:
     """Apply (condition, delta) rules in order, clamping after each step."""
     for matched, delta in rules:
         if matched:
-            score = _clamp(score + delta)
+            score = clamp(score + delta)
     return score
 
 
@@ -890,7 +886,7 @@ def _retrieve_rank(rt: Retrieval) -> None:
     for row in chunk_rows:
         if not row["enabled"] or row["status"] != "indexed":
             continue
-        score = _clamp(float(row["score"] or 0.0))
+        score = clamp(float(row["score"] or 0.0))
         doc_type = (row.get("doc_type") or "").lower()
         title_l = (row.get("doc_title") or "").lower()
         heading_l = (row.get("heading") or "").lower()
@@ -948,7 +944,7 @@ def _retrieve_rank(rt: Retrieval) -> None:
         )
 
     for row in faq_rows:
-        score = _clamp(float(row["score"] or 0.0))
+        score = clamp(float(row["score"] or 0.0))
         answer = row["answer"] or ""
         text_blob = f"{row['question']}\n{answer}"
         score = _apply_rank_rules(

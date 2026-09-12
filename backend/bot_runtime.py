@@ -35,15 +35,10 @@ from prompt_render import (
     strip_unrendered_crm_tokens,
 )
 from agent_core.clock import utc_now
+from env_utils import env_int
 
 logger = logging.getLogger(__name__)
 
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int((os.getenv(name) or str(default)).strip())
-    except ValueError:
-        return default
 
 
 def _bot_id() -> str | None:
@@ -68,15 +63,15 @@ def _bot_id() -> str | None:
 
 
 def _history_limit() -> int:
-    return max(4, _env_int("BOT_HISTORY_LIMIT", 16))
+    return max(4, env_int("BOT_HISTORY_LIMIT", 16))
 
 
 def _max_tool_iterations() -> int:
-    return max(1, _env_int("BOT_MAX_TOOL_ITERATIONS", 6))
+    return max(1, env_int("BOT_MAX_TOOL_ITERATIONS", 6))
 
 
 def _hard_max_turns() -> int:
-    return max(1, _env_int("BOT_HARD_MAX_TURNS", 12))
+    return max(1, env_int("BOT_HARD_MAX_TURNS", 12))
 
 
 def _load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | None:

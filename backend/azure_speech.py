@@ -22,6 +22,7 @@ import threading
 import httpx
 
 from env_loader import load_env
+from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -146,19 +147,14 @@ def catalog_styles_for_voice(short_name: str | None) -> list[str] | None:
     except Exception:
         return None
 
-
-def _clamp(n: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, n))
-
-
 def _rate_attr(speed: float) -> str:
     # SSML relative multiplier — keep within Azure's 0.5–2.0 guidance.
-    s = _clamp(float(speed), 0.5, 1.5)
+    s = clamp(float(speed), 0.5, 1.5)
     return f"{s:.2f}"
 
 
 def _pitch_attr(pitch_semitones: int) -> str:
-    p = int(_clamp(int(pitch_semitones), -6, 6))
+    p = int(clamp(int(pitch_semitones), -6, 6))
     # Azure rejects pitch="0st"; use default for neutral pitch.
     if p == 0:
         return "default"
@@ -167,7 +163,7 @@ def _pitch_attr(pitch_semitones: int) -> str:
 
 def _volume_attr(warmth: int) -> str:
     # Soft volume cue from warmth (kept as one axis of timbre).
-    w = int(_clamp(int(warmth), 0, 100))
+    w = int(clamp(int(warmth), 0, 100))
     pct = int(round((w - 50) / 50 * 20))
     if pct == 0:
         return "default"
@@ -176,13 +172,13 @@ def _volume_attr(warmth: int) -> str:
 
 def _warmth_pitch_bias(warmth: int) -> int:
     """Warmer → slightly higher pitch (timbre cue), cooler → lower."""
-    w = int(_clamp(int(warmth), 0, 100))
+    w = int(clamp(int(warmth), 0, 100))
     return int(round((w - 50) / 50 * 2))  # -2 .. +2 semitones
 
 
 def _warmth_rate_scale(warmth: int) -> float:
     """Warmer → slightly slower (more deliberate); cooler → snappier."""
-    w = int(_clamp(int(warmth), 0, 100))
+    w = int(clamp(int(warmth), 0, 100))
     return 1.0 - ((w - 50) / 50 * 0.06)  # 0.94 .. 1.06
 
 
@@ -208,15 +204,15 @@ def _warmth_express_as(warmth: int, voice_name: str) -> tuple[str | None, float]
             return None, 1.0
         capable_styles = {"friendly", "serious", "empathetic", "cheerful", "calm"}
 
-    w = int(_clamp(int(warmth), 0, 100))
+    w = int(clamp(int(warmth), 0, 100))
     if w >= 65 and "friendly" in capable_styles:
-        return "friendly", float(_clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
+        return "friendly", float(clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
     if w >= 65 and "cheerful" in capable_styles:
-        return "cheerful", float(_clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
+        return "cheerful", float(clamp(0.9 + (w - 65) / 35 * 1.1, 0.5, 2.0))
     if w <= 35 and "serious" in capable_styles:
-        return "serious", float(_clamp(0.9 + (35 - w) / 35 * 1.1, 0.5, 2.0))
+        return "serious", float(clamp(0.9 + (35 - w) / 35 * 1.1, 0.5, 2.0))
     if "empathetic" in capable_styles and 35 < w < 65:
-        return "empathetic", float(_clamp(0.9 + abs(w - 50) / 50 * 0.6, 0.5, 2.0))
+        return "empathetic", float(clamp(0.9 + abs(w - 50) / 50 * 0.6, 0.5, 2.0))
     return None, 1.0
 
 
@@ -244,10 +240,10 @@ def build_ssml(
     if len(cleaned) > _MAX_TEXT_CHARS:
         cleaned = cleaned[:_MAX_TEXT_CHARS].rstrip() + "…"
 
-    pause = int(_clamp(int(pause_ms), 0, 2000))
+    pause = int(clamp(int(pause_ms), 0, 2000))
     # Combine user pitch with warmth timbre bias.
-    effective_pitch = int(_clamp(int(pitch) + _warmth_pitch_bias(warmth), -6, 6))
-    effective_speed = float(_clamp(float(speed) * _warmth_rate_scale(warmth), 0.5, 1.5))
+    effective_pitch = int(clamp(int(pitch) + _warmth_pitch_bias(warmth), -6, 6))
+    effective_speed = float(clamp(float(speed) * _warmth_rate_scale(warmth), 0.5, 1.5))
     rate = _rate_attr(effective_speed)
     pitch_a = _pitch_attr(effective_pitch)
     volume = _volume_attr(warmth)

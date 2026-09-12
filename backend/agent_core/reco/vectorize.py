@@ -25,21 +25,17 @@ from typing import Any
 from agent_core.reco import scoring
 from agent_core.reco.candidates import Candidate
 from agent_core.reco.features import CallSignals, CustomerFeatures
+from agent_core.numbers import clamp
 
 # Bumped when the *meaning* of an existing name changes. An artifact whose
 # vector_version does not match is refused rather than silently mis-scored.
 VECTOR_VERSION = "v1"
 
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
-
-
 def _norm(value: float | None, cap: float) -> float | None:
     """Scale to 0..1 against a cap, preserving None."""
     if value is None:
         return None
-    return _clamp01(float(value) / cap)
+    return clamp(float(value) / cap)
 
 
 def vector(
@@ -54,17 +50,17 @@ def vector(
 
     return {
         # --- the rule scorer's own sub-scores, verbatim -------------------
-        "affinity": _clamp01(candidate.affinity),
+        "affinity": clamp(candidate.affinity),
         "affordability": scoring.affordability(features, candidate),
         "credit_health": scoring.credit_health(features),
         "in_call_intent": scoring.intent_match(signals, candidate),
-        "sentiment": _clamp01((signals.sentiment_current + 1.0) / 2.0),
+        "sentiment": clamp((signals.sentiment_current + 1.0) / 2.0),
         "fatigue": scoring.fatigue_score(features),
         "exit_intent": scoring.exit_intent(features),
         # --- catalog / commercial ----------------------------------------
-        "margin_score": _clamp01(candidate.margin_score),
+        "margin_score": clamp(candidate.margin_score),
         "campaign_priority": (
-            _clamp01(candidate.campaign_priority)
+            clamp(candidate.campaign_priority)
             if candidate.campaign_priority is not None
             else None
         ),
@@ -73,7 +69,7 @@ def vector(
         # The rule scorer folds DPD into credit_health; a model may find the
         # raw value carries signal the fold discards.
         "dpd_worst": _norm(features.dpd_worst, 180.0),
-        "utilization": _clamp01(features.utilization) if features.utilization is not None else None,
+        "utilization": clamp(features.utilization) if features.utilization is not None else None,
         "relationship_months": _norm(features.relationship_months, 120.0),
         "account_count": _norm(float(features.account_count), 5.0),
         "months_since_last_payment": _norm(features.months_since_last_payment, 24.0),
@@ -89,7 +85,7 @@ def vector(
         ),
         "commitment_secured": 1.0 if (signals.commitment_secured or signals.ptp_captured) else 0.0,
         "customer_turns": _norm(float(signals.customer_turns), 30.0),
-        "sentiment_trend": _clamp01((signals.sentiment_trend + 1.0) / 2.0),
+        "sentiment_trend": clamp((signals.sentiment_trend + 1.0) / 2.0),
     }
 
 

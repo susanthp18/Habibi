@@ -35,6 +35,7 @@ from typing import Any, Protocol, Sequence
 from agent_core.treatment import actions as A
 from agent_core.treatment.config import Costs, Policy
 from agent_core.treatment.features import AccountFeatures, Trigger
+from agent_core.numbers import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -137,11 +138,6 @@ REPEAT_ACTION_DECAY = 0.55
 #: constant with no producer is a claim the log cannot make.
 ESTIMAND_RESPONSE_PRIOR = "response_prior"
 ESTIMAND_TAU_MODEL = "tau_model"
-
-
-def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return max(lo, min(hi, value))
-
 
 @dataclass(frozen=True)
 class ScoredAction:
@@ -283,7 +279,7 @@ def p_reach(
     if spec.digital and features.digital_attempts_since_connect:
         base *= DIGITAL_DECAY ** features.digital_attempts_since_connect
 
-    return _clamp(base, 0.01, 0.95), used_history
+    return clamp(base, 0.01, 0.95), used_history
 
 
 def p_resolve(
@@ -304,7 +300,7 @@ def p_resolve(
     if features.ptp_keep_rate is not None:
         # 0.6× for a serial breaker, 1.4× for someone who always pays. Absent
         # history leaves the multiplier at 1.0 rather than assuming the worst.
-        base *= 0.6 + 0.8 * _clamp(features.ptp_keep_rate)
+        base *= 0.6 + 0.8 * clamp(features.ptp_keep_rate)
 
     if timed_with_credit and (A.spec(action).digital or action == A.REPRESENT_MANDATE):
         # For a message, landing after the credit is a helpful nudge. For a
@@ -325,7 +321,7 @@ def p_resolve(
         # remembers; one who bounced three weeks ago has reorganised around it.
         base *= max(0.6, 1.0 - 0.02 * (age_hours / 24.0))
 
-    return _clamp(base, 0.0, 0.95)
+    return clamp(base, 0.0, 0.95)
 
 
 #: Multiplier on the urgency half-life for actions that reach nobody.
