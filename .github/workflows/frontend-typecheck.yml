@@ -42,7 +42,7 @@ jobs:
         run: npx tsc --noEmit
 
       # Both of these were already written, already passing, and gated by
-      # nothing. `test` is 11 vitest suites / 107 assertions covering the pure
+      # nothing. `test` is the vitest suites (36 files today) covering the pure
       # functions this app makes decisions with; `lint` is eslint plus two
       # hand-written scanners that check every spacing and type value against
       # the design scale — check-spacing-scale.mjs exists because a 1000px

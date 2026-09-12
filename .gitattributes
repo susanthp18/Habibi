@@ -1,0 +1,26 @@
+# One line ending everywhere: LF in the repository and in every checkout,
+# Windows included. core.autocrlf on a Windows clone turned each checkout
+# into CRLF, prettier (endOfLine: lf) then failed npm run lint on every
+# file, and the "fix" was endOfLine: auto -- which let both endings in.
+* text=auto eol=lf
+
+# Binaries: never normalised, never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.pptx binary
+*.gz binary
+*.zip binary
+*.npz binary
+*.fst binary
+*.bin binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
