@@ -99,8 +99,11 @@ def rescan_compliance(
     return compliance.backfill(batch=limit) if all else compliance.sweep(limit=limit)
 
 @router.get("/violations", response_model=list[ViolationListResponse])
-def list_violations():
-    return db.list_violations()
+def list_violations(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_violations(limit=limit, offset=offset)
 
 @router.patch("/violations/{violation_id}", response_model=ViolationListResponse)
 def patch_violation(violation_id: str, payload: ViolationPatchRequest):

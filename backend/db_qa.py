@@ -492,11 +492,12 @@ def _scorecard_rows_to_screen(
     return result
 
 
-def list_scorecards() -> list[dict[str, Any]]:
-    """QA Scoring Queue — screen Scorecard shape."""
+def list_scorecards(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    """QA Scoring Queue — screen Scorecard shape. Paged: one row per scored call."""
     _mod = _db()
     _rows = _mod._rows
     engine = _mod.engine
+    page, skip = _mod.clamp_list_limit(limit), _mod.clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -513,8 +514,10 @@ def list_scorecards() -> list[dict[str, Any]]:
                       END,
                       i.started_at DESC NULLS LAST,
                       qs.created_at DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip},
             )
         )
         return _scorecard_rows_to_screen(conn, rows)

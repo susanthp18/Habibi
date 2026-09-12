@@ -212,11 +212,12 @@ _VIOLATION_LIST_SQL = """
     LEFT JOIN interactions i ON i.id = v.interaction_id
 """
 
-def list_violations() -> list[dict[str, Any]]:
-    """Compliance Risk feed — screen Violation shape."""
+def list_violations(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    """Compliance Risk feed — screen Violation shape. Paged: it grows with every call."""
     _mod = _db()
     _rows = _mod._rows
     engine = _mod.engine
+    page, skip = _mod.clamp_list_limit(limit), _mod.clamp_offset(offset)
     with engine.connect() as conn:
         rows = _rows(
             conn.execute(
@@ -231,8 +232,10 @@ def list_violations() -> list[dict[str, Any]]:
                         ELSE 1
                       END DESC,
                       COALESCE(i.started_at, v.created_at) DESC
+                    LIMIT :limit OFFSET :offset
                     """
-                )
+                ),
+                {"limit": page, "offset": skip},
             )
         )
         return _violation_rows_to_screen(conn, rows)

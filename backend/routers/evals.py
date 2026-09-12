@@ -51,8 +51,11 @@ def get_rubric(rubric_id: str | None = Query(default=None, alias="rubricId")):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.get("/scorecards", response_model=list[ScorecardListResponse])
-def list_scorecards():
-    return db.list_scorecards()
+def list_scorecards(
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    return db.list_scorecards(limit=limit, offset=offset)
 
 @router.get("/qa/coverage", response_model=QaCoverageResponse)
 def qa_coverage(days: int = Query(default=7, ge=1, le=90)):

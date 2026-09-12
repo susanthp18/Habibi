@@ -199,6 +199,8 @@ PAGED_ACCESSORS = [
     "list_kb_snapshots",
     "list_prompt_versions",
     "list_bot_deployments",
+    "list_violations",
+    "list_scorecards",
 ]
 
 #: Accessors deliberately left unpaged, each with a stated reason. Listing them
@@ -238,6 +240,8 @@ PAGED_ROUTES = [
     "/bot-deployments",
     "/export-jobs",
     "/coaching-actions",
+    "/violations",
+    "/scorecards",
     "/calibration-sessions",
     # Missed by pass 1: these three had no limit/offset at all — accessor or
     # route — so they were not "bounded but unwired", they were unbounded. Found
