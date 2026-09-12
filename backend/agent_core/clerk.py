@@ -94,7 +94,9 @@ def enqueue_from_treatment(
 
 def process_one() -> bool:
     """Drain one submitted/working clerk job. Never blocks a voice turn."""
-    job = claim_next()
+    from bank_boundary.clerk_allowlist import ALLOWED_WORKFLOWS
+
+    job = claim_next(tuple(sorted(ALLOWED_WORKFLOWS)))
     if job is None:
         return False
     jid = job["id"]

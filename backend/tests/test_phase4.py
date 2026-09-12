@@ -15,18 +15,7 @@ from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP, CHANNEL_TEXT, CHANNEL_VOICE
 from agent_core.treatment import actions as A
 from agent_core.treatment import decisions, enact
-from work_runtime import (
-    WorkRuntime,
-    claim_next,
-    finish,
-    idempotency_key,
-    list_jobs,
-    park_input_required,
-    query,
-    signal,
-    start_workflow,
-    upsert_job,
-)
+from work_runtime import idempotency_key, park_input_required, query, signal, start_workflow
 
 
 def _require_table(db_tx, name: str) -> None:
@@ -132,32 +121,6 @@ def test_g11_fails_closed_when_required_and_no_run() -> None:
     g11 = next(g for g in report.gates if g.gate == "G11")
     assert g11.status == "fail"
     assert report.http_status() == 409
-
-
-def test_temporal_adapter_fails_closed(monkeypatch) -> None:
-    monkeypatch.setenv("TEMPORAL_ENABLED", "true")
-    calls = (
-        lambda: start_workflow(
-            workflow_type="bounce_chase",
-            payload={},
-            customer_id=None,
-            idempotency_key="x:bounce_chase:probe",
-        ),
-        lambda: signal("wrj-x", "approve", {}),
-        lambda: query("wrj-x"),
-        lambda: list_jobs(),
-        lambda: claim_next(),
-        lambda: finish("wrj-x", ok=True),
-        lambda: park_input_required("wrj-x", "floor"),
-        lambda: upsert_job(
-            workflow_type="treatment_book_sweep",
-            payload={},
-            idempotency_key="x:cursor:probe",
-        ),
-    )
-    for call in calls:
-        with pytest.raises(RuntimeError, match="temporal_adapter_not_promoted"):
-            call()
 
 
 def test_work_runtime_resumes_approval_after_restart(db_tx, account) -> None:
@@ -606,17 +569,16 @@ def test_tuner_is_gone() -> None:
         importlib.import_module("agent_core.tuner")
 
 
-def test_both_adapters_satisfy_the_work_runtime_protocol() -> None:
-    from work_runtime import adapter_pg, adapter_temporal
-
-    assert isinstance(adapter_pg, WorkRuntime)
-    assert isinstance(adapter_temporal, WorkRuntime)
-
-
 def test_port_exports_every_adapter_operation() -> None:
+    """``api.py`` must forward every public operation ``adapter_pg`` defines.
+
+    This is what the ``WorkRuntime`` Protocol was for. The Protocol needed a
+    second implementation to be worth declaring and never had one, so the same
+    property is asserted directly against the two modules that exist.
+    """
     import inspect
 
-    from work_runtime import adapter_pg, adapter_temporal
+    from work_runtime import adapter_pg, api
 
     def _defined(module) -> set[str]:
         return {
@@ -625,17 +587,11 @@ def test_port_exports_every_adapter_operation() -> None:
             if obj.__module__ == module.__name__ and not name.startswith("_")
         }
 
-    protocol_ops = {
-        name
-        for name, obj in inspect.getmembers(WorkRuntime, inspect.isfunction)
-        if not name.startswith("_")
-    }
-    assert _defined(adapter_pg) == protocol_ops
-    assert _defined(adapter_temporal) == protocol_ops
+    assert _defined(api) == _defined(adapter_pg)
 
 
 def test_no_module_imports_adapter_pg_directly() -> None:
-    """Callers reach the port. The selector in api.py is the only importer."""
+    """Callers reach the port. ``api.py`` is the only module that imports it."""
     import ast
     import os
     from pathlib import Path
