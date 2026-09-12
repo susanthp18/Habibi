@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import json
+from dataclasses import dataclass, field
 import logging
 import os
 import time
@@ -990,14 +991,91 @@ def create_sandbox_run(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Customer utterance → retrieve → chat → persist customer + bot turns."""
-    customer_text = (payload.get("text") or "").strip()
-    if not customer_text:
-        raise ValueError("text must not be empty")
+@dataclass
+class SandboxTurn:
+    """One rehearsed turn as it moves through the phases below.
+
+    The run and the contract it rehearses, the thread so far, what
+    retrieval and classification found, what the model answered, what the
+    guardrails said and the rows that were written -- plus the stage clocks
+    the timing line reports. Filled in order by ``_sandbox_contract`` /
+    ``_sandbox_preflight`` / ``_sandbox_assemble`` / ``_sandbox_model`` /
+    ``_sandbox_judge_and_persist`` / ``_sandbox_response``; a phase that
+    cannot go on raises, as the one function it was did. Pinned by
+    ``tests/test_sandbox_turn_snapshot.py``.
+    """
+
+    run_id: str
+    payload: dict[str, Any]
+    customer_text: str
+    bot_text: str = ""
+    bot_turn_id: str = ""
+    bot_turn_index: int = 0
+    chat_latency: int = 0
+    chunk_ids: list[str] = field(default_factory=list)
+    compiled: dict[str, Any] | None = None
+    contract_card: dict[str, Any] | None = None
+    contract_flow: dict[str, Any] | None = None
+    contract_frozen_tools: list[str] = field(default_factory=list)
+    contract_prompt: str = ""
+    customer_turn_id: str = ""
+    effective_max: int = 0
+    elapsed: float = 0.0
+    elapsed_seconds: float = 0.0
+    enrichment_async: bool = False
+    enrichment_future: Any = None
+    enrichment_wait_ms: float = 0.0
+    enrichment_wall_ms: float = 0.0
+    flags: list[str] = field(default_factory=list)
+    flow_walker: Any = None
+    grounding: list[dict[str, Any]] = field(default_factory=list)
+    guardrails: dict[str, Any] = field(default_factory=dict)
+    halted: bool = False
+    history: list[dict[str, Any]] = field(default_factory=list)
+    intent: str | None = None
+    intent_scores: dict[str, float] | None = None
+    latency_ms: int = 0
+    max_tokens: int = 0
+    max_turns: int = 0
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    offered_tools: list[str] = field(default_factory=list)
+    persona: dict[str, Any] = field(default_factory=dict)
+    prior_customers: int = 0
+    recording_disclosed: bool = False
+    rehearsal_channel: str = ""
+    retrieval: dict[str, Any] = field(default_factory=dict)
+    retrieve_latency: int = 0
+    run: dict[str, Any] | None = None
+    sent_label: str | None = None
+    sentiment: float | None = None
+    skill_prefix: str | None = None
+    skill_slug: str | None = None
+    t0: float = 0.0
+    t_after_preflight: float = 0.0
+    t_guardrails_end: float = 0.0
+    t_guardrails_start: float = 0.0
+    t_persist_end: float = 0.0
+    t_persist_start: float = 0.0
+    t_retrieve_end: float = 0.0
+    t_retrieve_start: float = 0.0
+    t_turn_start: float = 0.0
+    t_understanding_end: float = 0.0
+    t_understanding_start: float = 0.0
+    temperature: float = 0.0
+    tokens: int = 0
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
+    turn_count: int = 0
+    understanding_llm: bool = False
+    version: dict[str, Any] | None = None
+
+
+def _sandbox_contract(st: SandboxTurn) -> None:
+    """The run, its counts, the pinned version and the compiled contract it rehearses."""
+    run_id = st.run_id
+    customer_text = st.customer_text
 
     # Stage clocks — report-only, see _STAGE_TIMING_LOG_PREFIX.
-    _t_turn_start = time.perf_counter()
+    t_turn_start = time.perf_counter()
 
     # Enrichment starts here — before the preflight queries, before retrieval —
     # and is collected just before assembly needs its intent. See the notes on
@@ -1097,7 +1175,35 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(connector, dict)
         for name in connector.get("tool_names") or []
     ]
-    # The authored graph, walked rather than described. Before this the sandbox
+
+    st.compiled = compiled
+    st.contract_card = contract_card
+    st.contract_flow = contract_flow
+    st.contract_frozen_tools = contract_frozen_tools
+    st.contract_prompt = contract_prompt
+    st.enrichment_async = enrichment_async
+    st.enrichment_future = enrichment_future
+    st.enrichment_wait_ms = enrichment_wait_ms
+    st.enrichment_wall_ms = enrichment_wall_ms
+    st.prior_customers = prior_customers
+    st.run = run
+    st.t_turn_start = t_turn_start
+    st.turn_count = turn_count
+    st.understanding_llm = understanding_llm
+    st.version = version
+
+
+def _sandbox_preflight(st: SandboxTurn) -> None:
+    """The walker, the card's ceiling, the persona, the skill, the channel and the thread so far."""
+    run_id = st.run_id
+    payload = st.payload
+    compiled = st.compiled
+    contract_card = st.contract_card
+    contract_flow = st.contract_flow
+    contract_frozen_tools = st.contract_frozen_tools
+    prior_customers = st.prior_customers
+    version = st.version
+
     # read `flow` only to render a lozenge saying it had not run it, so "Test in
     # Sandbox" exercised the grant but never the script that narrows it.
     #
@@ -1179,7 +1285,39 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 history.append({"role": role, "text": hr["text"], "turn_index": hr["turn_index"]})
     if not history:
         history = payload.get("history") if isinstance(payload.get("history"), list) else []
-    _t_after_preflight = time.perf_counter()
+    t_after_preflight = time.perf_counter()
+
+    st.effective_max = effective_max
+    st.flow_walker = flow_walker
+    st.guardrails = guardrails
+    st.history = history
+    st.max_turns = max_turns
+    st.persona = persona
+    st.rehearsal_channel = rehearsal_channel
+    st.skill_prefix = skill_prefix
+    st.skill_slug = skill_slug
+    st.t_after_preflight = t_after_preflight
+
+
+def _sandbox_assemble(st: SandboxTurn) -> None:
+    """Retrieval, the prior summary, the classification and the messages the model is handed."""
+    run_id = st.run_id
+    payload = st.payload
+    customer_text = st.customer_text
+    contract_card = st.contract_card
+    contract_frozen_tools = st.contract_frozen_tools
+    contract_prompt = st.contract_prompt
+    enrichment_future = st.enrichment_future
+    enrichment_wait_ms = st.enrichment_wait_ms
+    enrichment_wall_ms = st.enrichment_wall_ms
+    guardrails = st.guardrails
+    history = st.history
+    persona = st.persona
+    rehearsal_channel = st.rehearsal_channel
+    run = st.run
+    skill_prefix = st.skill_prefix
+    skill_slug = st.skill_slug
+    version = st.version
 
     # Whether the recording disclosure has already been made on this RUN. The
     # opening greeting is stored as bot turn 0, so a template that says "this
@@ -1209,7 +1347,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
     max_tokens = int(llm_tuning.get("max_completion_tokens") or 320)
 
-    _t_retrieve_start = time.perf_counter()
+    t_retrieve_start = time.perf_counter()
     try:
         retrieval = kb_retrieve.retrieve(
             query=customer_text,
@@ -1222,7 +1360,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         logger.exception("sandbox retrieve failed; continuing without KB")
         retrieval = {"results": [], "latencyMs": 0, "logId": None}
-    _t_retrieve_end = time.perf_counter()
+    t_retrieve_end = time.perf_counter()
 
     results = list(retrieval.get("results") or [])
     context_blocks = context_blocks_from_results(results)
@@ -1242,7 +1380,7 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # With the overlap on, that call is already in flight and this stage is the
     # remainder of it plus the assembly itself; with the flag off, nothing was
     # started above and the call happens inline here, as it always did.
-    _t_understanding_start = time.perf_counter()
+    t_understanding_start = time.perf_counter()
     prefetched_understanding = None
     if enrichment_future is not None:
         (
@@ -1264,9 +1402,11 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         understanding=prefetched_understanding,
         channel=rehearsal_channel,
     )
-    _t_understanding_end = time.perf_counter()
+    t_understanding_end = time.perf_counter()
     messages = assembled["messages"]
     intent = assembled["intent"]
+    from agent_core.skills.runtime import resolve_mouth
+
     skill_body = resolve_mouth(
         contract_card,
         intent=str(intent or ""),
@@ -1278,6 +1418,40 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     intent_scores = assembled["intent_scores"]
     sentiment = assembled["sentiment"]
     sent_label = assembled["sentiment_label"]
+
+    st.chunk_ids = chunk_ids
+    st.enrichment_wait_ms = enrichment_wait_ms
+    st.enrichment_wall_ms = enrichment_wall_ms
+    st.grounding = grounding
+    st.intent = intent
+    st.intent_scores = intent_scores
+    st.max_tokens = max_tokens
+    st.messages = messages
+    st.recording_disclosed = recording_disclosed
+    st.retrieval = retrieval
+    st.sent_label = sent_label
+    st.sentiment = sentiment
+    st.t_retrieve_end = t_retrieve_end
+    st.t_retrieve_start = t_retrieve_start
+    st.t_understanding_end = t_understanding_end
+    st.t_understanding_start = t_understanding_start
+    st.temperature = temperature
+
+
+def _sandbox_model(st: SandboxTurn) -> None:
+    """The model: the tool loop when tools are on, one chat call when they are not."""
+    payload = st.payload
+    compiled = st.compiled
+    contract_card = st.contract_card
+    contract_frozen_tools = st.contract_frozen_tools
+    flow_walker = st.flow_walker
+    intent = st.intent
+    max_tokens = st.max_tokens
+    messages = st.messages
+    retrieval = st.retrieval
+    run = st.run
+    skill_slug = st.skill_slug
+    temperature = st.temperature
 
     t0 = time.perf_counter()
     tool_trace: list[dict[str, Any]] = []
@@ -1338,10 +1512,41 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         elapsed_seconds = elapsed
 
+    st.bot_text = bot_text
+    st.chat_latency = chat_latency
+    st.elapsed = elapsed
+    st.elapsed_seconds = elapsed_seconds
+    st.latency_ms = latency_ms
+    st.offered_tools = offered_tools
+    st.retrieve_latency = retrieve_latency
+    st.t0 = t0
+    st.tokens = tokens
+    st.tool_trace = tool_trace
+
+
+def _sandbox_judge_and_persist(st: SandboxTurn) -> None:
+    """The guardrails on the reply, then both turn rows and the run's aggregates under the row lock."""
+    run_id = st.run_id
+    customer_text = st.customer_text
+    bot_text = st.bot_text
+    chunk_ids = st.chunk_ids
+    effective_max = st.effective_max
+    elapsed_seconds = st.elapsed_seconds
+    guardrails = st.guardrails
+    intent = st.intent
+    latency_ms = st.latency_ms
+    max_turns = st.max_turns
+    prior_customers = st.prior_customers
+    recording_disclosed = st.recording_disclosed
+    rehearsal_channel = st.rehearsal_channel
+    sent_label = st.sent_label
+    tokens = st.tokens
+    turn_count = st.turn_count
+
     customer_turn_index = int(turn_count)
     bot_turn_index = customer_turn_index + 1
     exchange_n = prior_customers + 1
-    _t_guardrails_start = time.perf_counter()
+    t_guardrails_start = time.perf_counter()
     flags = evaluate_guardrails(
         customer_text=customer_text,
         bot_text=bot_text,
@@ -1358,12 +1563,12 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         channel=rehearsal_channel,
     )
     halted = should_halt(flags)
-    _t_guardrails_end = time.perf_counter()
+    t_guardrails_end = time.perf_counter()
 
     customer_turn_id = f"{run_id}-T{customer_turn_index}"
     bot_turn_id = f"{run_id}-T{bot_turn_index}"
 
-    _t_persist_start = time.perf_counter()
+    t_persist_start = time.perf_counter()
     with db.engine.begin() as conn:
         run_locked = conn.execute(
             text(
@@ -1495,27 +1700,84 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "tok": int(run_locked["aggregate_tokens"] or 0) + tokens,
             },
         )
-    _t_persist_end = time.perf_counter()
+    t_persist_end = time.perf_counter()
+
+    st.bot_turn_id = bot_turn_id
+    st.bot_turn_index = bot_turn_index
+    st.customer_turn_id = customer_turn_id
+    st.flags = flags
+    st.halted = halted
+    st.prior_customers = prior_customers
+    st.t_guardrails_end = t_guardrails_end
+    st.t_guardrails_start = t_guardrails_start
+    st.t_persist_end = t_persist_end
+    st.t_persist_start = t_persist_start
+    st.turn_count = turn_count
+
+
+def _sandbox_response(st: SandboxTurn) -> dict[str, Any]:
+    """The stage-timing line and the response the studio renders."""
+    run_id = st.run_id
+    customer_text = st.customer_text
+    bot_text = st.bot_text
+    bot_turn_id = st.bot_turn_id
+    bot_turn_index = st.bot_turn_index
+    chat_latency = st.chat_latency
+    chunk_ids = st.chunk_ids
+    compiled = st.compiled
+    contract_flow = st.contract_flow
+    customer_turn_id = st.customer_turn_id
+    elapsed = st.elapsed
+    enrichment_async = st.enrichment_async
+    enrichment_wait_ms = st.enrichment_wait_ms
+    enrichment_wall_ms = st.enrichment_wall_ms
+    flags = st.flags
+    flow_walker = st.flow_walker
+    grounding = st.grounding
+    halted = st.halted
+    intent = st.intent
+    intent_scores = st.intent_scores
+    latency_ms = st.latency_ms
+    offered_tools = st.offered_tools
+    retrieval = st.retrieval
+    retrieve_latency = st.retrieve_latency
+    sent_label = st.sent_label
+    sentiment = st.sentiment
+    t0 = st.t0
+    t_after_preflight = st.t_after_preflight
+    t_guardrails_end = st.t_guardrails_end
+    t_guardrails_start = st.t_guardrails_start
+    t_persist_end = st.t_persist_end
+    t_persist_start = st.t_persist_start
+    t_retrieve_end = st.t_retrieve_end
+    t_retrieve_start = st.t_retrieve_start
+    t_turn_start = st.t_turn_start
+    t_understanding_end = st.t_understanding_end
+    t_understanding_start = st.t_understanding_start
+    tokens = st.tokens
+    tool_trace = st.tool_trace
+    understanding_llm = st.understanding_llm
+    version = st.version
 
     stage_timings = _stage_timings(
         run_id=run_id,
         turn_index=bot_turn_index,
-        turn_start=_t_turn_start,
-        after_preflight=_t_after_preflight,
-        retrieve_start=_t_retrieve_start,
-        retrieve_end=_t_retrieve_end,
-        understanding_start=_t_understanding_start,
-        understanding_end=_t_understanding_end,
+        turn_start=t_turn_start,
+        after_preflight=t_after_preflight,
+        retrieve_start=t_retrieve_start,
+        retrieve_end=t_retrieve_end,
+        understanding_start=t_understanding_start,
+        understanding_end=t_understanding_end,
         understanding_llm_enabled=understanding_llm,
         enrichment_async=enrichment_async,
         enrichment_wall_ms=enrichment_wall_ms,
         enrichment_wait_ms=enrichment_wait_ms,
         llm_start=t0,
         llm_end=t0 + elapsed,
-        guardrails_start=_t_guardrails_start,
-        guardrails_end=_t_guardrails_end,
-        persist_start=_t_persist_start,
-        persist_end=_t_persist_end,
+        guardrails_start=t_guardrails_start,
+        guardrails_end=t_guardrails_end,
+        persist_start=t_persist_start,
+        persist_end=t_persist_end,
         reported_chat_ms=chat_latency,
         reported_retrieve_ms=retrieve_latency,
         tool_calls=len(tool_trace),
@@ -1578,6 +1840,21 @@ def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             "halted": halted,
         },
     }
+
+
+def append_sandbox_turn(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Customer utterance → retrieve → chat → persist customer + bot turns."""
+    customer_text = (payload.get("text") or "").strip()
+    if not customer_text:
+        raise ValueError("text must not be empty")
+
+    st = SandboxTurn(run_id=run_id, payload=payload, customer_text=customer_text)
+    _sandbox_contract(st)
+    _sandbox_preflight(st)
+    _sandbox_assemble(st)
+    _sandbox_model(st)
+    _sandbox_judge_and_persist(st)
+    return _sandbox_response(st)
 
 
 def complete_sandbox_run(run_id: str) -> dict[str, Any]:
