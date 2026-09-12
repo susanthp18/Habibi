@@ -509,6 +509,16 @@ def patch_audio_segment_mute(
             text("UPDATE redaction_audio_segments SET muted = :m WHERE id = :id"),
             {"id": row["id"], "m": bool(muted)},
         )
+        # Muting audio changes what an export of the call contains: an evidence
+        # change, and it leaves the same activity row a finding decision does.
+        d._activity(
+            conn,
+            "redaction_record",
+            redaction_id,
+            "audio_segment_updated",
+            "Audio segment muted" if muted else "Audio segment unmuted",
+            note=f"{finding_id}:muted={bool(muted)}",
+        )
         return {
             "redactionId": redaction_id,
             "findingId": finding_id,
