@@ -153,7 +153,8 @@ export function DocumentInspector({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="mt-050 h-400 text-body font-semibold"
+              size="compact"
+              className="mt-050 font-semibold"
               disabled={busy}
             />
           </div>

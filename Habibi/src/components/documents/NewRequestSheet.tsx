@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SelectField } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { DocChannel, DocType } from "@/api/types/documents";
@@ -86,53 +87,38 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-200 py-150 space-y-150">
           <Field label="Customer">
-            <select
+            <SelectField
               value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
+              onChange={setCustomerId}
               disabled={!pool.length || busy}
-              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
-            >
-              {!pool.length && <option value="">Loading customers…</option>}
-              {pool.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.accountId}
-                </option>
-              ))}
-            </select>
+              placeholder={pool.length ? undefined : "Loading customers…"}
+              options={pool.map((c) => ({ value: c.id, label: `${c.name} · ${c.accountId}` }))}
+            />
           </Field>
 
           <Field label="Document type">
-            <select
+            <SelectField
               value={docType}
               disabled={busy}
-              onChange={(e) => {
-                const t = e.target.value as DocType;
+              onChange={(v) => {
+                const t = v as DocType;
                 setDocType(t);
                 setTemplateId(templatesFor(t)[0]?.id ?? "");
               }}
-              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
-            >
-              {(Object.keys(DOC_TYPE_LABELS) as DocType[]).map((t) => (
-                <option key={t} value={t}>
-                  {DOC_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
+              options={(Object.keys(DOC_TYPE_LABELS) as DocType[]).map((t) => ({
+                value: t,
+                label: DOC_TYPE_LABELS[t],
+              }))}
+            />
           </Field>
 
           <Field label="Template">
-            <select
+            <SelectField
               value={templateId}
               disabled={busy}
-              onChange={(e) => setTemplateId(e.target.value)}
-              className="h-9 w-full rounded-medium border border-border bg-surface px-100 text-body"
-            >
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={setTemplateId}
+              options={templates.map((t) => ({ value: t.id, label: t.name }))}
+            />
           </Field>
 
           <Field label="Period (optional)">
@@ -141,7 +127,6 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
               disabled={busy}
               onChange={(e) => setPeriod(e.target.value)}
               placeholder="e.g. May–Oct 2026"
-              className="h-9 text-body"
             />
           </Field>
 

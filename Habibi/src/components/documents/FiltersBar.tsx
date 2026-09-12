@@ -1,6 +1,13 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { DocChannel, DocType, Filters, RequestedVia } from "@/api/types/documents";
 import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/data/documents-seed";
@@ -51,7 +58,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
             value={filters.search}
             onChange={(e) => onPatch({ search: e.target.value })}
             placeholder="Search customer, account, request id…"
-            className="h-400 pl-400 text-body-small"
+            size="compact"
+            className="pl-400"
           />
         </div>
 
@@ -65,21 +73,27 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
               onClick={() => onPatch({ docTypes: toggle(filters.docTypes, t) })}
             />
           ))}
-          <select
-            value=""
-            onChange={(e) => {
-              if (!e.target.value) return;
-              onPatch({ docTypes: toggle(filters.docTypes, e.target.value as DocType) });
-            }}
-            className="h-300 rounded-medium border border-border bg-surface px-050 text-body-small"
-          >
-            <option value="">+ more</option>
-            {(Object.keys(DOC_TYPE_LABELS) as DocType[]).slice(4).map((t) => (
-              <option key={t} value={t}>
-                {DOC_TYPE_LABELS[t]} {filters.docTypes.includes(t) ? "✓" : ""}
-              </option>
-            ))}
-          </select>
+          {/* Toggles several values at once, so it is a checkbox menu and never
+              was a select — the "✓" it used to paint into option labels was the
+              tell. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" className="h-400">
+                + more
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {(Object.keys(DOC_TYPE_LABELS) as DocType[]).slice(4).map((t) => (
+                <DropdownMenuCheckboxItem
+                  key={t}
+                  checked={filters.docTypes.includes(t)}
+                  onCheckedChange={() => onPatch({ docTypes: toggle(filters.docTypes, t) })}
+                >
+                  {DOC_TYPE_LABELS[t]}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div className="flex items-center gap-050">
@@ -118,21 +132,20 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           ))}
         </div>
 
-        <select
+        <SelectField
+          aria-label="Assignee"
           value={filters.assignee}
-          onChange={(e) => onPatch({ assignee: e.target.value })}
-          className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
-        >
-          <option value="all">All assignees</option>
-          {assignees.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onPatch({ assignee: v })}
+          size="compact"
+          className="w-[9.375rem]"
+          options={[
+            { value: "all", label: "All assignees" },
+            ...assignees.map((a) => ({ value: a, label: a })),
+          ]}
+        />
 
         {activeCount > 0 && (
-          <Button size="sm" variant="ghost" className="h-7 text-body-small" onClick={onReset}>
+          <Button size="sm" variant="ghost" className="h-400" onClick={onReset}>
             <X className="mr-050 h-3 w-3" /> Clear
           </Button>
         )}

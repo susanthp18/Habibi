@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { CoachingAction } from "@/api/types/qa";
 import { AGENT_POOL } from "@/data/qa-seed";
+import { SelectField } from "@/components/ui/select";
 
 const CATEGORIES = ["Empathy", "Resolution", "Compliance", "Script adherence", "Upsell"];
 
@@ -49,31 +50,23 @@ export function NewCoachingSheet({
         <div className="flex-1 space-y-150 overflow-y-auto p-200 text-body-small">
           <label className="block">
             <span className="mb-050 block font-medium text-text-subtle">Agent</span>
-            <select
+            <SelectField
+              aria-label="Agent"
               value={agent}
-              onChange={(e) => setAgent(e.target.value)}
-              className="w-full rounded-medium border border-border bg-surface px-100 py-075"
-            >
-              {AGENT_POOL.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
+              onChange={setAgent}
+              size="compact"
+              options={AGENT_POOL.map((a) => ({ value: a, label: a }))}
+            />
           </label>
           <label className="block">
             <span className="mb-050 block font-medium text-text-subtle">Focus area</span>
-            <select
+            <SelectField
+              aria-label="Focus area"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full rounded-medium border border-border bg-surface px-100 py-075"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              onChange={setCategory}
+              size="compact"
+              options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+            />
           </label>
           <label className="block">
             <span className="mb-050 block font-medium text-text-subtle">Action title</span>

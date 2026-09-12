@@ -14,6 +14,7 @@ import { usePromptTokenEstimate } from "@/api/prompt-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import { toast } from "sonner";
 import { isNotFound } from "@/api/config";
 
@@ -385,18 +386,15 @@ function SkillEditor() {
             <div className="rounded-medium border border-border p-150">
               <div className="text-body font-medium">Code-mode</div>
               <p className="text-body-tiny text-text-subtle">JSON in, JSON out. No terminal.</p>
-              <select
-                className="mt-100 w-full rounded-medium border border-border bg-surface px-100 py-050 text-body-small"
+              <SelectField
+                aria-label="Script"
+                className="mt-100"
+                size="compact"
                 value={activeScript}
                 disabled={scripts.length === 0}
-                onChange={(e) => setScriptName(e.target.value)}
-              >
-                {scripts.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setScriptName}
+                options={scripts.map((s) => ({ value: s.name, label: s.name }))}
+              />
               <textarea
                 className="mt-100 min-h-24 w-full rounded-medium border border-border bg-surface p-100 font-mono text-body-tiny"
                 value={scriptJson}

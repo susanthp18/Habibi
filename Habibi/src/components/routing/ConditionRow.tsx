@@ -34,7 +34,7 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
   return (
     <div className="flex items-center gap-075">
       <Select value={cond.field} onValueChange={setField}>
-        <SelectTrigger className="h-400 w-[9.375rem] text-body-small">
+        <SelectTrigger size="compact" className="w-[9.375rem]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -47,7 +47,7 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
       </Select>
 
       <Select value={cond.op} onValueChange={(v) => onChange({ ...cond, op: v as RuleOperator })}>
-        <SelectTrigger className="h-400 w-1000 text-body-small">
+        <SelectTrigger size="compact" className="w-1000">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -61,7 +61,7 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
 
       {field.type === "enum" ? (
         <Select value={String(cond.value)} onValueChange={(v) => onChange({ ...cond, value: v })}>
-          <SelectTrigger className="h-400 flex-1 text-body-small">
+          <SelectTrigger size="compact" className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -77,7 +77,7 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
           value={String(cond.value)}
           onValueChange={(v) => onChange({ ...cond, value: v === "true" })}
         >
-          <SelectTrigger className="h-400 flex-1 text-body-small">
+          <SelectTrigger size="compact" className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -87,7 +87,8 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
         </Select>
       ) : (
         <Input
-          className="h-400 flex-1 text-body-small"
+          size="compact"
+          className="flex-1"
           type={field.type === "number" ? "number" : "text"}
           value={String(cond.value)}
           onChange={(e) =>

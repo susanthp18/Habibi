@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import type { Filters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
 import { SOURCE_LABELS, TEAM_OPTIONS, products as seedProducts } from "@/data/upsell-seed";
 import { cn } from "@/lib/utils";
@@ -64,61 +65,58 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
           value={filters.search}
           onChange={(e) => onPatch({ search: e.target.value })}
           placeholder="Search customer, account, product, snippet, lead ID…"
-          className="h-400 pl-400 text-body-small"
+          size="compact"
+          className="pl-400"
         />
       </div>
 
-      <select
+      <SelectField
+        aria-label="Team"
         value={filters.team}
-        onChange={(e) => onPatch({ team: e.target.value as Filters["team"] })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="all">All teams</option>
-        {TEAM_OPTIONS.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onPatch({ team: v as Filters["team"] })}
+        size="compact"
+        className="w-[8.125rem]"
+        options={[
+          { value: "all", label: "All teams" },
+          ...TEAM_OPTIONS.map((t) => ({ value: t, label: t })),
+        ]}
+      />
 
-      <select
+      <SelectField
+        aria-label="Owner"
         value={filters.owner}
-        onChange={(e) => onPatch({ owner: e.target.value })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="all">All owners</option>
-        {owners.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onPatch({ owner: v })}
+        size="compact"
+        className="w-[8.75rem]"
+        options={[
+          { value: "all", label: "All owners" },
+          ...owners.map((o) => ({ value: o, label: o })),
+        ]}
+      />
 
-      <select
+      <SelectField
+        aria-label="Product"
         value={filters.productId}
-        onChange={(e) => onPatch({ productId: e.target.value })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="all">All products</option>
-        {productOptions.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onPatch({ productId: v })}
+        size="compact"
+        className="w-[9.375rem]"
+        options={[
+          { value: "all", label: "All products" },
+          ...productOptions.map((p) => ({ value: p.id, label: p.name })),
+        ]}
+      />
 
-      <select
+      <SelectField
+        aria-label="Source"
         value={filters.source}
-        onChange={(e) => onPatch({ source: e.target.value as Filters["source"] })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="all">All sources</option>
-        {SOURCES.map((s) => (
-          <option key={s} value={s}>
-            {SOURCE_LABELS[s]}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onPatch({ source: v as Filters["source"] })}
+        size="compact"
+        className="w-[8.75rem]"
+        options={[
+          { value: "all", label: "All sources" },
+          ...SOURCES.map((s) => ({ value: s, label: SOURCE_LABELS[s] })),
+        ]}
+      />
 
       <div className="flex items-center gap-050">
         {SENTIMENTS.map((s) => {
@@ -173,7 +171,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products }: Prop
       </button>
 
       {active && (
-        <Button size="sm" variant="ghost" className="h-7 px-100 text-body-small" onClick={onReset}>
+        <Button size="sm" variant="ghost" className="h-400" onClick={onReset}>
           <X className="mr-050 h-3 w-3" /> Reset
         </Button>
       )}

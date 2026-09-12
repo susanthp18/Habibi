@@ -61,7 +61,8 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
         <div>
           <Label className="text-body-small font-medium text-text-subtlest">Name</Label>
           <Input
-            className="mt-050 h-400 text-body"
+            size="compact"
+            className="mt-050"
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
@@ -81,7 +82,7 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
               value={draft.category}
               onValueChange={(v) => setDraft({ ...draft, category: v as RuleCategory })}
             >
-              <SelectTrigger className="mt-050 h-400 text-body">
+              <SelectTrigger size="compact" className="mt-050">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -197,7 +198,7 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
               setDraft({ ...draft, then: { ...draft.then, key: v as ActionKey } })
             }
           >
-            <SelectTrigger className="mt-050 h-400 text-body">
+            <SelectTrigger size="compact" className="mt-050">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -210,7 +211,8 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
           </Select>
           {(draft.then.key === "route_specialist" || draft.then.key === "handoff_human") && (
             <Input
-              className="mt-100 h-400 text-body-small"
+              size="compact"
+              className="mt-100"
               placeholder="Team name (e.g. Hardship Desk)"
               value={draft.then.params?.team ?? ""}
               onChange={(e) =>
@@ -226,7 +228,8 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
           )}
           {draft.then.key === "send_sms" && (
             <Input
-              className="mt-100 h-400 text-body-small"
+              size="compact"
+              className="mt-100"
               placeholder="Template id (e.g. dnd_followup_v2)"
               value={draft.then.params?.template ?? ""}
               onChange={(e) =>
@@ -242,7 +245,8 @@ export function RuleEditor({ rule, onSave, onCancel, onSaveAndTest }: Props) {
           )}
           {draft.then.key === "play_disclosure" && (
             <Input
-              className="mt-100 h-400 text-body-small"
+              size="compact"
+              className="mt-100"
               placeholder="Disclosure doc (e.g. waiver_policy_v3)"
               value={draft.then.params?.doc ?? ""}
               onChange={(e) =>

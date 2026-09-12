@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { CbChannel, CbPriority, CbReason } from "@/api/types/callbacks";
 import {
@@ -12,6 +13,12 @@ import {
   isWithinDndWindow,
 } from "@/data/callbacks-seed";
 import { createCallback } from "@/api/callbacks";
+
+const WINDOW_OPTIONS = [
+  { value: "30", label: "30 minutes" },
+  { value: "60", label: "60 minutes" },
+  { value: "120", label: "2 hours" },
+];
 
 const REASONS: CbReason[] = [
   "payment_discussion",
@@ -131,18 +138,14 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                 Customer
               </div>
-              <select
+              <SelectField
+                aria-label="Customer"
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
+                onChange={setCustomerId}
                 disabled={busy}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {custs.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} · {c.accountId}
-                  </option>
-                ))}
-              </select>
+                size="compact"
+                options={custs.map((c) => ({ value: c.id, label: `${c.name} · ${c.accountId}` }))}
+              />
             </div>
             <div className="col-span-2">
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Reason</div>
@@ -178,48 +181,38 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Window</div>
-              <select
-                value={windowMins}
-                onChange={(e) => setWindowMins(parseInt(e.target.value) as 30 | 60 | 120)}
+              <SelectField
+                aria-label="Window"
+                value={String(windowMins)}
+                onChange={(v) => setWindowMins(parseInt(v) as 30 | 60 | 120)}
                 disabled={busy}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                <option value={30}>30 minutes</option>
-                <option value={60}>60 minutes</option>
-                <option value={120}>2 hours</option>
-              </select>
+                size="compact"
+                options={WINDOW_OPTIONS}
+              />
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Queue</div>
-              <select
+              <SelectField
+                aria-label="Queue"
                 value={queue}
-                onChange={(e) => setQueue(e.target.value)}
+                onChange={setQueue}
                 disabled={busy}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {queues.map((q) => (
-                  <option key={q} value={q}>
-                    {q}
-                  </option>
-                ))}
-              </select>
+                size="compact"
+                options={queues.map((q) => ({ value: q, label: q }))}
+              />
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                 Assignee
               </div>
-              <select
+              <SelectField
+                aria-label="Assignee"
                 value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
+                onChange={setAssignee}
                 disabled={busy}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {assignees.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
+                size="compact"
+                options={assignees.map((a) => ({ value: a, label: a }))}
+              />
             </div>
             <div className="col-span-2">
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">

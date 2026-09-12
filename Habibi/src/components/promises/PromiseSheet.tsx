@@ -130,7 +130,7 @@ export function CreatePromiseSheet({
         <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[17.5rem]">
@@ -144,26 +144,16 @@ export function CreatePromiseSheet({
           </Field>
           <div className="grid grid-cols-2 gap-150">
             <Field label="Amount (₹)">
-              <Input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="h-9"
-              />
+              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </Field>
             <Field label="Promised date">
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-9"
-              />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-150">
             <Field label="Channel">
               <Select value={channel} onValueChange={(v) => setChannel(v as PromiseChannel)}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,7 +167,7 @@ export function CreatePromiseSheet({
             </Field>
             <Field label="Source">
               <Select value={source} onValueChange={(v) => setSource(v as PromiseSource)}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -191,7 +181,7 @@ export function CreatePromiseSheet({
           <div className="grid grid-cols-2 gap-150">
             <Field label="Owner">
               <Select value={owner} onValueChange={setOwner}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -205,7 +195,7 @@ export function CreatePromiseSheet({
             </Field>
             <Field label="Reminders">
               <Select value={reminder} onValueChange={(v) => setReminder(v as ReminderStatus)}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -404,7 +394,7 @@ export function PromiseDetailSheet({
                       type="number"
                       value={partialAmt}
                       onChange={(e) => setPartialAmt(e.target.value)}
-                      className="mt-050 h-9"
+                      className="mt-050"
                     />
                   </div>
                   <Button
@@ -430,7 +420,7 @@ export function PromiseDetailSheet({
                       type="date"
                       value={rescheduleDate}
                       onChange={(e) => setRescheduleDate(e.target.value)}
-                      className="mt-050 h-9"
+                      className="mt-050"
                     />
                   </div>
                   <Button

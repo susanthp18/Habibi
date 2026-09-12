@@ -71,7 +71,7 @@ export function Simulator({ rules }: { rules: Rule[] }) {
                     value={String(ctx[f.key as keyof SimContext])}
                     onValueChange={(v) => update(f.key as keyof SimContext, v)}
                   >
-                    <SelectTrigger className="mt-025 h-400 text-body-small">
+                    <SelectTrigger size="compact" className="mt-025">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -92,7 +92,8 @@ export function Simulator({ rules }: { rules: Rule[] }) {
                   </div>
                 ) : (
                   <Input
-                    className="mt-025 h-400 text-body-small"
+                    size="compact"
+                    className="mt-025"
                     type="number"
                     value={String(ctx[f.key as keyof SimContext])}
                     onChange={(e) => update(f.key as keyof SimContext, Number(e.target.value))}

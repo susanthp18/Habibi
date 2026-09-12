@@ -14,6 +14,7 @@ import {
   FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { DocChannel, DocRequest } from "@/api/types/documents";
@@ -180,23 +181,15 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
           {tab === "details" && (
             <div className="space-y-150">
               <Field label="Assignee">
-                <select
+                <SelectField
                   value={d.assignee}
                   disabled={busy}
-                  onChange={(e) => {
-                    void run(
-                      () => assignDocument(d, e.target.value),
-                      `Assigned to ${e.target.value}`,
-                    );
+                  onChange={(v) => {
+                    void run(() => assignDocument(d, v), `Assigned to ${v}`);
                   }}
-                  className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  {assigneeOptions.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
+                  size="compact"
+                  options={assigneeOptions.map((a) => ({ value: a, label: a }))}
+                />
               </Field>
 
               <Field label="Delivery channel">
@@ -225,20 +218,15 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
               </Field>
 
               <Field label="Template">
-                <select
+                <SelectField
                   value={d.templateId}
                   disabled={busy}
-                  onChange={(e) => {
-                    void run(() => changeTemplate(d, e.target.value), "Template updated");
+                  onChange={(v) => {
+                    void run(() => changeTemplate(d, v), "Template updated");
                   }}
-                  className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                  size="compact"
+                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                />
                 <div className="mt-050 text-body-small text-text-subtlest">{tpl.description}</div>
               </Field>
 

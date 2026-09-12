@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import type { DisputeSource, DisputeType, Filters } from "@/api/types/disputes";
 import { SOURCE_LABELS, TYPE_LABELS } from "@/data/disputes-seed";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,13 @@ interface Props {
   onReset: () => void;
   assignees: string[];
 }
+
+const AMOUNT_OPTIONS = [
+  { value: "any", label: "Any amount" },
+  { value: "lt5", label: "Under ₹5k" },
+  { value: "5to25", label: "₹5k – ₹25k" },
+  { value: "gt25", label: "Over ₹25k" },
+];
 
 const TYPES = Object.keys(TYPE_LABELS) as DisputeType[];
 const SOURCES = Object.keys(SOURCE_LABELS) as DisputeSource[];
@@ -46,7 +54,8 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           value={filters.search}
           onChange={(e) => onPatch({ search: e.target.value })}
           placeholder="Search customer, account, snippet, dispute ID…"
-          className="h-400 pl-400 text-body-small"
+          size="compact"
+          className="pl-400"
         />
       </div>
 
@@ -88,29 +97,26 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         ))}
       </div>
 
-      <select
+      <SelectField
+        aria-label="Amount"
         value={filters.amount}
-        onChange={(e) => onPatch({ amount: e.target.value as Filters["amount"] })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="any">Any amount</option>
-        <option value="lt5">Under ₹5k</option>
-        <option value="5to25">₹5k – ₹25k</option>
-        <option value="gt25">Over ₹25k</option>
-      </select>
+        onChange={(v) => onPatch({ amount: v as Filters["amount"] })}
+        size="compact"
+        className="w-[8.75rem]"
+        options={AMOUNT_OPTIONS}
+      />
 
-      <select
+      <SelectField
+        aria-label="Assignee"
         value={filters.assignee}
-        onChange={(e) => onPatch({ assignee: e.target.value })}
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        <option value="all">All assignees</option>
-        {assignees.map((a) => (
-          <option key={a} value={a}>
-            {a}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onPatch({ assignee: v })}
+        size="compact"
+        className="w-[9.375rem]"
+        options={[
+          { value: "all", label: "All assignees" },
+          ...assignees.map((a) => ({ value: a, label: a })),
+        ]}
+      />
 
       <button
         onClick={() => onPatch({ myQueue: !filters.myQueue })}

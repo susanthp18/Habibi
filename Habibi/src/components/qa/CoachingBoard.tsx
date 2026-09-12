@@ -1,5 +1,6 @@
 import { Plus, Calendar, Link2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SelectField } from "@/components/ui/select";
 import type { CoachingAction, CoachingStatus } from "@/api/types/qa";
 
 const COLS: Array<{ key: CoachingStatus; label: string; tint: string }> = [
@@ -116,21 +117,19 @@ export function CoachingBoard({
                           )}
                         </div>
                       </button>
-                      <label className="mt-075 block">
-                        <span className="sr-only">{statusLabel}</span>
-                        <select
+                      {/* The card is draggable; the picker must not start a drag. */}
+                      <div className="mt-075" onMouseDown={(e) => e.stopPropagation()}>
+                        <SelectField
+                          aria-label={statusLabel}
                           value={a.status}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onChange={(e) => onMove(a.id, e.target.value as CoachingStatus)}
-                          className="focus-ring w-full rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text"
-                        >
-                          {COLS.map((option) => (
-                            <option key={option.key} value={option.key}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          onChange={(v) => onMove(a.id, v as CoachingStatus)}
+                          size="compact"
+                          options={COLS.map((option) => ({
+                            value: option.key,
+                            label: option.label,
+                          }))}
+                        />
+                      </div>
                     </div>
                   );
                 })}

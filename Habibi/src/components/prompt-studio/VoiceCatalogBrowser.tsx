@@ -480,12 +480,7 @@ export function VoiceCatalogBrowser({
           )}
         >
           <Select value={locale} onValueChange={setLocale} disabled={disabled}>
-            <SelectTrigger
-              className={cn(
-                "h-9 w-[9.375rem] text-body-small",
-                compact && "h-400 w-[8.125rem] text-body-small",
-              )}
-            >
+            <SelectTrigger size="compact" className={compact ? "w-[8.125rem]" : "w-[9.375rem]"}>
               <SelectValue placeholder="Locale" />
             </SelectTrigger>
             <SelectContent>
@@ -497,12 +492,7 @@ export function VoiceCatalogBrowser({
             </SelectContent>
           </Select>
           <Select value={gender} onValueChange={setGender} disabled={disabled}>
-            <SelectTrigger
-              className={cn(
-                "h-9 w-[6.875rem] text-body-small",
-                compact && "h-400 w-[6.25rem] text-body-small",
-              )}
-            >
+            <SelectTrigger size="compact" className={compact ? "w-[6.25rem]" : "w-[6.875rem]"}>
               <SelectValue placeholder="Gender" />
             </SelectTrigger>
             <SelectContent>
@@ -514,7 +504,7 @@ export function VoiceCatalogBrowser({
           </Select>
           {!compact ? (
             <Select value={status} onValueChange={setStatus} disabled={disabled}>
-              <SelectTrigger className="h-9 w-[6.875rem] text-body-small">
+              <SelectTrigger size="compact" className="w-[6.875rem]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>

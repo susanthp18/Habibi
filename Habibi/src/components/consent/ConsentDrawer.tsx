@@ -2,12 +2,21 @@ import { useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField } from "@/components/ui/select";
 import { RefreshCw, ShieldOff, Ban } from "lucide-react";
 import { ChannelMatrix } from "./ChannelMatrix";
 import { AllowedHoursEditor } from "./AllowedHoursEditor";
 import { FrequencyCapsEditor } from "./FrequencyCapsEditor";
 import { OptOutLog } from "./OptOutLog";
 import { ContactablePill } from "./ContactablePill";
+
+const OPT_OUT_CHANNELS = [
+  { value: "all", label: "All channels" },
+  { value: "call", label: "Call" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "sms", label: "SMS" },
+  { value: "email", label: "Email" },
+];
 import type {
   ChannelConsent,
   AllowedWindow,
@@ -176,28 +185,22 @@ export function ConsentDrawer({
             </div>
             <div className="rounded-medium border border-border bg-surface p-150 space-y-100">
               <div className="flex flex-wrap gap-100">
-                <select
+                <SelectField
+                  aria-label="Opt-out channel"
                   value={optChannel}
-                  onChange={(e) => setOptChannel(e.target.value as ConsentChannel | "all")}
-                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  <option value="all">All channels</option>
-                  <option value="call">Call</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="sms">SMS</option>
-                  <option value="email">Email</option>
-                </select>
-                <select
+                  onChange={(v) => setOptChannel(v as ConsentChannel | "all")}
+                  size="compact"
+                  className="w-[9.375rem]"
+                  options={OPT_OUT_CHANNELS}
+                />
+                <SelectField
+                  aria-label="Opt-out source"
                   value={optSource}
-                  onChange={(e) => setOptSource(e.target.value as OptOutSource)}
-                  className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  {SOURCES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setOptSource(v as OptOutSource)}
+                  size="compact"
+                  className="w-[9.375rem]"
+                  options={SOURCES.map((s) => ({ value: s, label: s }))}
+                />
               </div>
               <Textarea
                 value={optNote}

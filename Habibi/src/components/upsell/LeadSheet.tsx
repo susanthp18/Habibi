@@ -45,7 +45,15 @@ import { useTeams } from "@/api/teams";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+const FOLLOW_UP_CHANNELS = [
+  { value: "voice", label: "Voice" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "email", label: "Email" },
+  { value: "sms", label: "SMS" },
+];
 
 interface Props {
   lead: Lead;
@@ -323,32 +331,29 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
               <div>
                 <div className="mb-075 text-body-small font-semibold text-text-subtlest">Offer</div>
                 <div className="grid grid-cols-2 gap-100">
-                  <select
+                  <SelectField
+                    aria-label="Product"
                     value={productId}
-                    onChange={(e) => {
-                      setProductId(e.target.value);
-                      const p = productOptions.find((x) => x.id === e.target.value);
+                    onChange={(v) => {
+                      setProductId(v);
+                      const p = productOptions.find((x) => x.id === v);
                       if (p) setRoi(p.indicativeROI);
                     }}
-                    className="col-span-2 h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    {productOptions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    size="compact"
+                    className="col-span-2"
+                    options={productOptions.map((p) => ({ value: p.id, label: p.name }))}
+                  />
                   <Input
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="Indicative amount"
-                    className="h-400 text-body-small"
+                    size="compact"
                   />
                   <Input
                     value={roi}
                     onChange={(e) => setRoi(e.target.value)}
                     placeholder="Indicative ROI"
-                    className="h-400 text-body-small"
+                    size="compact"
                   />
                 </div>
                 <Button size="sm" className="mt-100 h-7 text-body-small" onClick={saveOffer}>
@@ -362,41 +367,32 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                   <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                     Owner
                   </div>
-                  <select
+                  <SelectField
+                    aria-label="Owner"
                     value={lead.owner ?? "Unassigned"}
-                    onChange={(e) => {
-                      leadMutation.mutate({ owner: e.target.value });
-                      toast.success(`Assigned to ${e.target.value}`);
+                    onChange={(v) => {
+                      leadMutation.mutate({ owner: v });
+                      toast.success(`Assigned to ${v}`);
                     }}
-                    className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    {owners.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
+                    size="compact"
+                    options={owners.map((o) => ({ value: o, label: o }))}
+                  />
                 </div>
                 <div>
                   <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                     Team
                   </div>
-                  <select
+                  <SelectField
+                    aria-label="Team"
+                    placeholder="Unassigned"
                     value={lead.team ?? ""}
-                    onChange={(e) => {
-                      leadMutation.mutate({
-                        team: e.target.value as Team,
-                      });
-                      toast.success(`Routed to ${e.target.value}`);
+                    onChange={(v) => {
+                      leadMutation.mutate({ team: v as Team });
+                      toast.success(`Routed to ${v}`);
                     }}
-                    className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    {teamOptions.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
+                    size="compact"
+                    options={teamOptions.map((t) => ({ value: t, label: t }))}
+                  />
                 </div>
               </div>
 
@@ -500,16 +496,13 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     onChange={(e) => setFuDate(e.target.value)}
                     className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
                   />
-                  <select
+                  <SelectField
+                    aria-label="Follow-up channel"
                     value={fuChannel}
-                    onChange={(e) => setFuChannel(e.target.value as FollowUpChannel)}
-                    className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    <option value="voice">Voice</option>
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="email">Email</option>
-                    <option value="sms">SMS</option>
-                  </select>
+                    onChange={(v) => setFuChannel(v as FollowUpChannel)}
+                    size="compact"
+                    options={FOLLOW_UP_CHANNELS}
+                  />
                 </div>
                 <Textarea
                   value={fuNote}
@@ -616,11 +609,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                 <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                   Disbursed amount
                 </div>
-                <Input
-                  value={wonAmt}
-                  onChange={(e) => setWonAmt(e.target.value)}
-                  className="h-400 text-body-small"
-                />
+                <Input value={wonAmt} onChange={(e) => setWonAmt(e.target.value)} size="compact" />
               </div>
               <Button
                 size="sm"
@@ -643,7 +632,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                   value={lossReason}
                   onChange={(e) => setLossReason(e.target.value)}
                   placeholder="e.g. Rate not competitive"
-                  className="h-400 text-body-small"
+                  size="compact"
                 />
               </div>
               <Button size="sm" className="h-400" onClick={submitLost}>

@@ -129,7 +129,7 @@ export function PlanBuilderSheet({
         <div className="mt-200 space-y-150">
           <Field label="Customer">
             <Select value={customerId} onValueChange={setCustomerId}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[17.5rem]">
@@ -150,16 +150,11 @@ export function PlanBuilderSheet({
 
           <div className="grid grid-cols-2 gap-150">
             <Field label="Plan total (₹)">
-              <Input
-                type="number"
-                value={total}
-                onChange={(e) => setTotal(e.target.value)}
-                className="h-9"
-              />
+              <Input type="number" value={total} onChange={(e) => setTotal(e.target.value)} />
             </Field>
             <Field label="Owner">
               <Select value={owner} onValueChange={setOwner}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -185,16 +180,11 @@ export function PlanBuilderSheet({
 
           <div className="grid grid-cols-2 gap-150">
             <Field label="Start date">
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-9"
-              />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </Field>
             <Field label="Cadence">
               <Select value={cadence} onValueChange={(v) => setCadence(v as PlanCadence)}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

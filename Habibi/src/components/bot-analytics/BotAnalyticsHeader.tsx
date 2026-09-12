@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
 import { Lozenge } from "@/components/ui/lozenge";
+import { SelectField } from "@/components/ui/select";
 
 const RANGES: Array<{ key: RangeKey; label: string }> = [
   { key: "7d", label: "7d" },
@@ -49,17 +50,14 @@ export function BotAnalyticsHeader({
               </button>
             ))}
           </div>
-          <select
+          <SelectField
+            aria-label="Channel"
             value={channel}
-            onChange={(e) => onChannel(e.target.value as ChannelKey)}
-            className="rounded-medium border border-border bg-surface px-100 py-050 text-body-small"
-          >
-            {CHANNELS.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => onChannel(v as ChannelKey)}
+            size="compact"
+            className="w-[9.375rem]"
+            options={CHANNELS.map((c) => ({ value: c.key, label: c.label }))}
+          />
           <button
             onClick={() =>
               toast.success("Export queued", {

@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "eslint . && node scripts/check-spacing-scale.mjs && node scripts/check-type-scale.mjs && node scripts/check-no-source-grep-tests.mjs && node scripts/check-file-size.mjs",
+    "lint": "eslint . && node scripts/check-spacing-scale.mjs && node scripts/check-type-scale.mjs && node scripts/check-dropdown-chrome.mjs && node scripts/check-no-source-grep-tests.mjs && node scripts/check-file-size.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "format": "prettier --write .",
     "check:spacing": "node scripts/check-spacing-scale.mjs"

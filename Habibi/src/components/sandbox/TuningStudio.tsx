@@ -10,6 +10,7 @@ import { VoiceCatalogBrowser } from "@/components/prompt-studio/VoiceCatalogBrow
 import { VoiceDetailCard } from "@/components/prompt-studio/VoicePanel";
 import { useVoicePreview } from "@/components/prompt-studio/useVoicePreview";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { SelectField } from "@/components/ui/select";
 import { fetchTtsVoiceDetail, type TtsCatalogVoice } from "@/api/prompt-studio";
 import { fetchTuningPresets } from "@/api/voice-sandbox";
 import { cn } from "@/lib/utils";
@@ -214,13 +215,13 @@ export function TuningStudio({
             />
           )}
         </div>
-        <label className="mt-075 flex items-center gap-050 text-body-small text-text-subtle">
-          <span className="text-text-subtlest">Preset</span>
-          <select
+        <div className="mt-075 flex items-center gap-050 text-body-small text-text-subtlest">
+          Preset
+          <SelectField
+            aria-label="Preset"
             value={presetId}
             disabled={disabled}
-            onChange={(e) => {
-              const id = e.target.value;
+            onChange={(id) => {
               setPresetId(id);
               const p = presets.find((x) => x.id === id);
               if (p) {
@@ -233,15 +234,11 @@ export function TuningStudio({
                 queueLiveApply({ llm: next.llm, tts: next.tts });
               }
             }}
-            className="min-w-0 flex-1 rounded border border-border bg-surface px-075 py-050 text-body-small"
-          >
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            size="compact"
+            className="min-w-0 flex-1"
+            options={presets.map((p) => ({ value: p.id, label: p.label }))}
+          />
+        </div>
         {presetsError ? (
           <p className="mt-050 text-body-tiny text-text-danger">
             Server presets could not be loaded — the list is empty rather than a browser copy the
@@ -646,24 +643,21 @@ function SelectRow({
   nextCall?: boolean;
 }) {
   return (
-    <label className="flex items-center justify-between gap-100 text-body-small text-text-subtle">
+    <div className="flex items-center justify-between gap-100 text-body-small text-text-subtle">
       <span className="inline-flex items-center gap-050">
         {label}
         {nextCall ? NEXT_BADGE : null}
       </span>
-      <select
+      <SelectField
+        aria-label={label}
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded border border-border bg-surface px-075 py-025 text-body-small"
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={onChange}
+        size="compact"
+        className="w-[10rem]"
+        options={options.map((o) => ({ value: o, label: o }))}
+      />
+    </div>
   );
 }
 

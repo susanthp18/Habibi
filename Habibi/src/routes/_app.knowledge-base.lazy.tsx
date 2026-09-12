@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SelectField } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -840,15 +841,17 @@ function KnowledgeBasePage() {
           <div className="space-y-150">
             <div>
               <Label className="text-body-small text-text-subtlest">Scope</Label>
-              <select
-                className="mt-050 flex h-9 w-full rounded-medium border border-input bg-background px-150 text-sm"
+              <SelectField
+                aria-label="Scope"
+                className="mt-050"
                 value={purgeScope}
-                onChange={(e) => setPurgeScope(e.target.value as KbPurgeScope)}
-              >
-                <option value="uploads">Uploaded docs only (safe default)</option>
-                <option value="corpus">Corpus docs from source_db</option>
-                <option value="all">Entire knowledge base</option>
-              </select>
+                onChange={(v) => setPurgeScope(v as KbPurgeScope)}
+                options={[
+                  { value: "uploads", label: "Uploaded docs only (safe default)" },
+                  { value: "corpus", label: "Corpus docs from source_db" },
+                  { value: "all", label: "Entire knowledge base" },
+                ]}
+              />
             </div>
             <div>
               <Label className="text-body-small text-text-subtlest">Type DELETE</Label>

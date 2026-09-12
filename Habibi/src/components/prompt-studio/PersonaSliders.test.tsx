@@ -8,7 +8,8 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PersonaState } from "@/api/types/prompt-studio";
@@ -33,13 +34,17 @@ function renderWith(value: PersonaState) {
 }
 
 describe("PersonaSliders languages", () => {
-  it("removes the new primary from the fallback list", () => {
+  it("removes the new primary from the fallback list", async () => {
+    const user = userEvent.setup();
     const onChange = renderWith({
       ...DEFAULT_PERSONA,
       language: "English",
       fallbackLanguages: ["Hindi", "Tamil"],
     });
-    fireEvent.change(screen.getByLabelText("Primary language"), { target: { value: "Hindi" } });
+    // A SelectField, not a native select: the label still names the control
+    // because the id lands on the trigger, but choosing means opening it.
+    await user.click(screen.getByRole("combobox", { name: "Primary language" }));
+    await user.click(await screen.findByRole("option", { name: "Hindi" }));
     expect(onChange).toHaveBeenCalledTimes(1);
     const next = onChange.mock.calls[0][0] as PersonaState;
     expect(next.language).toBe("Hindi");

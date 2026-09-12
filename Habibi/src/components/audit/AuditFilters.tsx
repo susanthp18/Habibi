@@ -42,7 +42,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           value={filters.dateRange}
           onValueChange={(v) => set("dateRange", v as AuditFilterState["dateRange"])}
         >
-          <SelectTrigger className="w-[8.125rem]">
+          <SelectTrigger size="compact" className="w-[8.125rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -57,7 +57,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           value={filters.channel}
           onValueChange={(v) => set("channel", v as AuditFilterState["channel"])}
         >
-          <SelectTrigger className="w-[8.125rem]">
+          <SelectTrigger size="compact" className="w-[8.125rem]">
             <SelectValue placeholder="Channel" />
           </SelectTrigger>
           <SelectContent>
@@ -72,7 +72,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           value={filters.handler}
           onValueChange={(v) => set("handler", v as AuditFilterState["handler"])}
         >
-          <SelectTrigger className="w-[8.125rem]">
+          <SelectTrigger size="compact" className="w-[8.125rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -84,7 +84,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
         </Select>
 
         <Select value={filters.agent} onValueChange={(v) => set("agent", v)}>
-          <SelectTrigger className="w-[9.375rem]">
+          <SelectTrigger size="compact" className="w-[9.375rem]">
             <SelectValue placeholder="Agent" />
           </SelectTrigger>
           <SelectContent>
@@ -101,7 +101,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           value={filters.disposition}
           onValueChange={(v) => set("disposition", v as AuditFilterState["disposition"])}
         >
-          <SelectTrigger className="w-[11.25rem]">
+          <SelectTrigger size="compact" className="w-[11.25rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -118,7 +118,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           value={filters.sentiment}
           onValueChange={(v) => set("sentiment", v as AuditFilterState["sentiment"])}
         >
-          <SelectTrigger className="w-[8.125rem]">
+          <SelectTrigger size="compact" className="w-[8.125rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

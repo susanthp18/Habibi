@@ -40,6 +40,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SlaChip } from "./SlaChip";
@@ -234,18 +235,13 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
           {tab === "details" && (
             <div className="space-y-150">
               <Field label="Assignee">
-                <select
+                <SelectField
                   value={d.assignee}
-                  onChange={(e) => handleAssign(e.target.value)}
+                  onChange={handleAssign}
                   disabled={busy}
-                  className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  {assigneeOptions.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
+                  size="compact"
+                  options={assigneeOptions.map((a) => ({ value: a, label: a }))}
+                />
               </Field>
               <Field label="Status">
                 <div className="flex flex-wrap gap-075">
@@ -318,7 +314,7 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                     value={evName}
                     onChange={(e) => setEvName(e.target.value)}
                     placeholder="e.g. payment-receipt.pdf"
-                    className="h-400 text-body-small"
+                    size="compact"
                   />
                   <Button
                     size="sm"
@@ -406,17 +402,15 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
               ) : (
                 <>
                   <Field label="Resolution code">
-                    <select
+                    <SelectField
                       value={resolutionCode}
-                      onChange={(e) => setResolutionCode(e.target.value as ResolutionCode)}
-                      className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                    >
-                      {(Object.keys(RESOLUTION_LABELS) as ResolutionCode[]).map((k) => (
-                        <option key={k} value={k}>
-                          {RESOLUTION_LABELS[k]}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => setResolutionCode(v as ResolutionCode)}
+                      size="compact"
+                      options={(Object.keys(RESOLUTION_LABELS) as ResolutionCode[]).map((k) => ({
+                        value: k,
+                        label: RESOLUTION_LABELS[k],
+                      }))}
+                    />
                   </Field>
                   <Field label="Resolution notes">
                     <Textarea

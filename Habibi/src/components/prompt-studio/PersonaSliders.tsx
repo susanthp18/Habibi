@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Play, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
+import { SelectField } from "@/components/ui/select";
 import { previewTts } from "@/api/prompt-studio";
 import type {
   PersonaPreset,
@@ -235,24 +236,21 @@ export function PersonaSliders({
           >
             Primary language
           </label>
-          <select
+          <SelectField
             id="persona-primary-language"
             value={value.language}
-            onChange={(e) =>
+            onChange={(v) =>
               // The new primary leaves the fallback list: the chips hide it, but
               // the stored list used to keep it, so a card that moved from
               // Hindi to English still declared Hindi as its own fallback.
               update({
-                language: e.target.value,
-                fallbackLanguages: value.fallbackLanguages.filter((l) => l !== e.target.value),
+                language: v,
+                fallbackLanguages: value.fallbackLanguages.filter((l) => l !== v),
               })
             }
-            className="w-full rounded-medium border border-border bg-surface px-100 py-075 text-body-small"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </select>
+            size="compact"
+            options={LANGUAGES.map((l) => ({ value: l, label: l }))}
+          />
           {/* The tag, because this control now binds the recogniser and there is
               no other place in the Studio that says so. It was inert on voice
               until recently: the tab wrote a display name, the recogniser read

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SelectField } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { DisputeType } from "@/api/types/disputes";
 import { TYPE_LABELS } from "@/data/disputes-seed";
@@ -95,43 +96,31 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
         <div className="min-h-0 flex-1 space-y-150 overflow-y-auto p-200 text-body-small">
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Customer</div>
-            <select
+            <SelectField
+              aria-label="Customer"
               value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="h-9 w-full rounded-medium border border-border bg-surface px-100"
-            >
-              {pool.length === 0 && <option value="">No customers loaded</option>}
-              {pool.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.accountId}
-                </option>
-              ))}
-            </select>
+              onChange={setCustomerId}
+              disabled={pool.length === 0}
+              placeholder={pool.length ? undefined : "No customers loaded"}
+              size="compact"
+              options={pool.map((c) => ({ value: c.id, label: `${c.name} · ${c.accountId}` }))}
+            />
           </div>
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Type</div>
-            <select
+            <SelectField
+              aria-label="Type"
               value={type}
-              onChange={(e) => setType(e.target.value as DisputeType)}
-              className="h-9 w-full rounded-medium border border-border bg-surface px-100"
-            >
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setType(v as DisputeType)}
+              size="compact"
+              options={TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] }))}
+            />
           </div>
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">
               Amount (₹)
             </div>
-            <Input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="h-9"
-            />
+            <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Notes</div>

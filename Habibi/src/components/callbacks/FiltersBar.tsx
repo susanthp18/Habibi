@@ -1,5 +1,6 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { SelectField } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CbChannel, CbReason, CbStatus, Filters } from "@/api/types/callbacks";
@@ -74,33 +75,32 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
             value={filters.search}
             onChange={(e) => onPatch({ search: e.target.value })}
             placeholder="Search customer, account, ID…"
-            className="h-400 pl-400 text-body-small"
+            size="compact"
+            className="pl-400"
           />
         </div>
-        <select
+        <SelectField
+          aria-label="Queue"
           value={filters.queue}
-          onChange={(e) => onPatch({ queue: e.target.value })}
-          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-        >
-          <option value="all">All queues</option>
-          {queues.map((q) => (
-            <option key={q} value={q}>
-              {q}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={(v) => onPatch({ queue: v })}
+          size="compact"
+          className="w-[8.75rem]"
+          options={[
+            { value: "all", label: "All queues" },
+            ...queues.map((q) => ({ value: q, label: q })),
+          ]}
+        />
+        <SelectField
+          aria-label="Assignee"
           value={filters.assignee}
-          onChange={(e) => onPatch({ assignee: e.target.value })}
-          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-        >
-          <option value="all">All assignees</option>
-          {assignees.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onPatch({ assignee: v })}
+          size="compact"
+          className="w-[9.375rem]"
+          options={[
+            { value: "all", label: "All assignees" },
+            ...assignees.map((a) => ({ value: a, label: a })),
+          ]}
+        />
         <Chip
           on={filters.myQueueOnly}
           label={`My queue · ${myQueue}`}
@@ -112,7 +112,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
           onClick={() => onPatch({ dndSafeOnly: !filters.dndSafeOnly })}
         />
         {activeCount > 0 && (
-          <Button variant="ghost" size="sm" className="h-400 text-body-small" onClick={onReset}>
+          <Button variant="ghost" size="sm" className="h-400" onClick={onReset}>
             <X className="mr-050 h-3 w-3" /> Reset ({activeCount})
           </Button>
         )}

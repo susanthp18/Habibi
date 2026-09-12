@@ -1,5 +1,7 @@
 import { Search, X } from "lucide-react";
 import type { ConsentFilterState, ConsentChannel } from "@/api/types/consent";
+import { Input } from "@/components/ui/input";
+import { SelectField } from "@/components/ui/select";
 import { CHANNEL_LABEL, defaultConsentFilters } from "@/data/consent-seed";
 
 const STATUSES: { id: ConsentFilterState["status"]; label: string }[] = [
@@ -41,41 +43,32 @@ export function ConsentFilters({
     <div className="flex flex-wrap items-center gap-100 border-b border-border bg-surface px-250 py-100">
       <div className="relative min-w-[13.75rem] flex-1">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
-        <input
+        <Input
           value={filters.q}
           onChange={(e) => onChange({ ...filters, q: e.target.value })}
           placeholder="Search name, account, phone, email…"
-          className="h-400 w-full rounded-medium border border-border bg-surface pl-400 pr-100 text-body-small outline-none focus:border-border-brand"
+          size="compact"
+          className="pl-400"
         />
       </div>
 
-      <select
+      <SelectField
+        aria-label="Channel"
         value={filters.channel}
-        onChange={(e) =>
-          onChange({ ...filters, channel: e.target.value as ConsentFilterState["channel"] })
-        }
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        {CHANNELS.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.label}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onChange({ ...filters, channel: v as ConsentFilterState["channel"] })}
+        size="compact"
+        className="w-[9.375rem]"
+        options={CHANNELS.map((c) => ({ value: c.id, label: c.label }))}
+      />
 
-      <select
+      <SelectField
+        aria-label="Segment"
         value={filters.segment}
-        onChange={(e) =>
-          onChange({ ...filters, segment: e.target.value as ConsentFilterState["segment"] })
-        }
-        className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
-      >
-        {SEGMENTS.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.label}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onChange({ ...filters, segment: v as ConsentFilterState["segment"] })}
+        size="compact"
+        className="w-[9.375rem]"
+        options={SEGMENTS.map((s) => ({ value: s.id, label: s.label }))}
+      />
 
       <div className="flex flex-wrap gap-050">
         {STATUSES.map((s) => {

@@ -40,12 +40,13 @@ export function AuditLog({ entries }: { entries: AuditEntry[] }) {
       <div className="flex shrink-0 items-center gap-100 border-b border-border bg-surface px-150 py-100">
         <Input
           placeholder="Search rule or change…"
-          className="h-400 flex-1 text-body-small"
+          size="compact"
+          className="flex-1"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
         <Select value={author} onValueChange={setAuthor}>
-          <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
+          <SelectTrigger size="compact" className="w-[8.75rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

@@ -4,6 +4,7 @@ import type { PromptVersion } from "@/api/types/prompt-studio";
 import type { Scenario } from "@/api/types/sandbox";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
+import { SelectField } from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -243,6 +244,8 @@ export function SandboxHeader(p: Props) {
   );
 }
 
+/** A named picker in the run toolbar — the label sits beside the control, not
+ *  inside a pill of its own, so it matches every other filter bar in the app. */
 function Select({
   label,
   value,
@@ -255,19 +258,16 @@ function Select({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <label className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text-subtle">
-      <span className="text-text-subtlest">{label}</span>
-      <select
+    <span className="inline-flex items-center gap-050 text-body-small text-text-subtlest">
+      {label}
+      <SelectField
+        aria-label={label}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-transparent text-text focus:outline-none"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={onChange}
+        options={options}
+        size="compact"
+        className="w-[10.625rem]"
+      />
+    </span>
   );
 }

@@ -34,52 +34,58 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
         <p className="text-xs text-text-subtle">Portfolio health at a glance</p>
       </div>
 
-      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
-        <CalendarDays className="h-3.5 w-3.5 text-text-subtle" />
-        <Select value={range} onValueChange={(v) => onRange(v as Range)}>
-          <SelectTrigger className="h-7 w-[9.375rem] border-0 shadow-none focus:ring-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {rangeOptions.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <Select value={range} onValueChange={(v) => onRange(v as Range)}>
+        <SelectTrigger
+          size="compact"
+          className="w-[10.625rem]"
+          icon={<CalendarDays />}
+          aria-label="Date range"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {rangeOptions.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
-      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
-        <Filter className="h-3.5 w-3.5 text-text-subtle" />
-        <Select value={segment} onValueChange={(v) => onSegment(v as Segment)}>
-          <SelectTrigger className="h-7 w-[10.625rem] border-0 shadow-none focus:ring-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All portfolios</SelectItem>
-            <SelectItem value="card">Credit Card</SelectItem>
-            <SelectItem value="personal">Personal Loan</SelectItem>
-            <SelectItem value="auto">Auto Loan</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Select value={segment} onValueChange={(v) => onSegment(v as Segment)}>
+        <SelectTrigger
+          size="compact"
+          className="w-[11.875rem]"
+          icon={<Filter />}
+          aria-label="Portfolio"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All portfolios</SelectItem>
+          <SelectItem value="card">Credit Card</SelectItem>
+          <SelectItem value="personal">Personal Loan</SelectItem>
+          <SelectItem value="auto">Auto Loan</SelectItem>
+        </SelectContent>
+      </Select>
 
-      <div className="flex items-center gap-075 rounded-medium border border-border bg-surface px-100 py-050">
-        <Users2 className="h-3.5 w-3.5 text-text-subtle" />
-        <Select value={team} onValueChange={(v) => onTeam(v as TeamFilter)}>
-          <SelectTrigger className="h-7 w-[8.125rem] border-0 shadow-none focus:ring-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All handling</SelectItem>
-            <SelectItem value="bot">Bot only</SelectItem>
-            <SelectItem value="human">Human only</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Select value={team} onValueChange={(v) => onTeam(v as TeamFilter)}>
+        <SelectTrigger
+          size="compact"
+          className="w-[9.375rem]"
+          icon={<Users2 />}
+          aria-label="Handling"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All handling</SelectItem>
+          <SelectItem value="bot">Bot only</SelectItem>
+          <SelectItem value="human">Human only</SelectItem>
+        </SelectContent>
+      </Select>
 
-      <Button variant="outline" size="sm" onClick={onExport} className="h-9 gap-075">
+      <Button variant="outline" size="sm" onClick={onExport} className="h-400 gap-075">
         <Download className="h-3.5 w-3.5" />
         Export
       </Button>

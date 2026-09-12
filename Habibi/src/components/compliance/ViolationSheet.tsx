@@ -14,6 +14,7 @@ import {
   formatAt,
 } from "@/data/compliance-seed";
 import { Lozenge } from "@/components/ui/lozenge";
+import { SelectField } from "@/components/ui/select";
 
 export function ViolationSheet({
   v,
@@ -148,19 +149,16 @@ export function ViolationSheet({
             <section className="rounded-medium border border-border bg-surface p-150">
               <div className="mb-100 text-body-small font-semibold text-text-subtlest">Action</div>
               <div className="mb-100 flex flex-wrap gap-100">
-                <select
+                <SelectField
+                  aria-label="Reviewer"
                   value={assignee}
-                  onChange={(e) => setAssignee(e.target.value)}
+                  onChange={setAssignee}
                   disabled={!assignees.length}
-                  className="h-400 flex-1 min-w-[10rem] rounded-medium border border-border bg-surface px-100 text-body-small"
-                >
-                  {!assignees.length && <option value="">Loading reviewers…</option>}
-                  {assignees.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={assignees.length ? undefined : "Loading reviewers…"}
+                  size="compact"
+                  className="flex-1 min-w-[10rem]"
+                  options={assignees.map((r) => ({ value: r, label: r }))}
+                />
                 <Button
                   size="sm"
                   variant="outline"

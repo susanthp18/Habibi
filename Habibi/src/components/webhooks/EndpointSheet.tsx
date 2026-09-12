@@ -104,7 +104,8 @@ export function EndpointSheet({
             <Input
               value={draft.url}
               placeholder="https://…"
-              className="font-mono text-body-small"
+              size="compact"
+              className="font-mono"
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
             {!draft.url.startsWith("https://") && (
@@ -288,7 +289,8 @@ export function EndpointSheet({
                 <div key={i} className="flex items-center gap-100">
                   <Input
                     placeholder="Header"
-                    className="font-mono text-body-small"
+                    size="compact"
+                    className="font-mono"
                     value={h.key}
                     onChange={(e) => {
                       const next = [...draft.headers];
@@ -298,7 +300,8 @@ export function EndpointSheet({
                   />
                   <Input
                     placeholder="Value"
-                    className="font-mono text-body-small"
+                    size="compact"
+                    className="font-mono"
                     value={h.value}
                     onChange={(e) => {
                       const next = [...draft.headers];

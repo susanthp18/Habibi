@@ -46,12 +46,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Switch } from "@/components/ui/switch";
+import { SelectField } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useProducts } from "@/api/products";
 import { cn } from "@/lib/utils";
-
-/** Matches the raw `<select>` already used elsewhere on this tab. */
-const SELECT_CLASS =
-  "h-200 w-full rounded-small border border-border bg-surface px-100 text-body-small";
 
 export type OutboundEditorProps = {
   card: AgentCard;
@@ -256,31 +259,26 @@ export function DirectionPanel({
       <div className="grid gap-100 sm:grid-cols-2 lg:grid-cols-3">
         <div className="space-y-050">
           <Label htmlFor="ob-direction">Direction</Label>
-          <select
+          <SelectField
             id="ob-direction"
-            className={SELECT_CLASS}
+            size="compact"
             disabled={!editable}
             value={ob.direction}
-            onChange={(e) => set({ direction: e.target.value as Direction })}
-          >
-            {vocab.directions.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => set({ direction: v as Direction })}
+            options={vocab.directions.map((d) => ({ value: d, label: d }))}
+          />
         </div>
 
         <div className="space-y-050">
           <Label htmlFor="ob-pool">Caller-ID pool</Label>
           {poolNames.length > 0 ? (
-            <select
+            <SelectField
               id="ob-pool"
-              className={SELECT_CLASS}
+              size="compact"
               disabled={!editable}
               value={ob.number_pool ?? ""}
-              onChange={(e) => {
-                const name = e.target.value || null;
+              onChange={(v) => {
+                const name = v || null;
                 const match = vocab.numberPools.find((p) => p.name === name);
                 // Adopt the pool's own kind on selection. Choosing a 1600-series
                 // pool and leaving pool_kind on "general" is the combination
@@ -290,14 +288,14 @@ export function DirectionPanel({
                   ...(match ? { pool_kind: match.kind as PoolKind } : {}),
                 });
               }}
-            >
-              <option value="">— share the general pool —</option>
-              {vocab.numberPools.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name} ({p.kind})
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "", label: "— share the general pool —" },
+                ...vocab.numberPools.map((p) => ({
+                  value: p.name,
+                  label: `${p.name} (${p.kind})`,
+                })),
+              ]}
+            />
           ) : (
             <Input
               id="ob-pool"
@@ -311,19 +309,14 @@ export function DirectionPanel({
 
         <div className="space-y-050">
           <Label htmlFor="ob-pool-kind">Pool kind</Label>
-          <select
+          <SelectField
             id="ob-pool-kind"
-            className={SELECT_CLASS}
+            size="compact"
             disabled={!editable}
             value={ob.pool_kind}
-            onChange={(e) => set({ pool_kind: e.target.value as PoolKind })}
-          >
-            {vocab.poolKinds.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => set({ pool_kind: v as PoolKind })}
+            options={vocab.poolKinds.map((k) => ({ value: k, label: k }))}
+          />
           {kindDisagrees ? (
             <p className="text-body-tiny text-text-danger">
               Pool {knownPool?.name} is registered as {knownPool?.kind}. G-OB4 reads the card, so
@@ -445,25 +438,25 @@ function MissionEditor({
         <div className="space-y-050">
           <Label htmlFor={`m-entry-${index}`}>Entry step</Label>
           {Object.keys(graphEntries).length > 0 ? (
-            <select
+            <SelectField
               id={`m-entry-${index}`}
-              className={SELECT_CLASS}
+              size="compact"
               disabled={!editable}
+              placeholder="— choose a step —"
               value={entry}
-              onChange={(e) => setObjective({ entry_node: e.target.value })}
-            >
-              <option value="">— choose a step —</option>
-              {/* The graph's own claims first: picking one of these is the only
-                  way to satisfy G-OB2 without editing the flow. */}
-              {Object.entries(graphEntries).map(([obj, node]) => (
-                <option key={`${obj}:${node}`} value={node}>
-                  {node} (claims {obj})
-                </option>
-              ))}
-              {entry && !Object.values(graphEntries).includes(entry) ? (
-                <option value={entry}>{entry} — not in the published flow</option>
-              ) : null}
-            </select>
+              onChange={(v) => setObjective({ entry_node: v })}
+              options={[
+                // The graph's own claims first: picking one of these is the only
+                // way to satisfy G-OB2 without editing the flow.
+                ...Object.entries(graphEntries).map(([obj, node]) => ({
+                  value: node,
+                  label: `${node} (claims ${obj})`,
+                })),
+                ...(entry && !Object.values(graphEntries).includes(entry)
+                  ? [{ value: entry, label: `${entry} — not in the published flow` }]
+                  : []),
+              ]}
+            />
           ) : (
             <Input
               id={`m-entry-${index}`}
@@ -488,45 +481,44 @@ function MissionEditor({
 
         <div className="space-y-050">
           <Label htmlFor={`m-cadence-${index}`}>Cadence</Label>
-          <select
+          <SelectField
             id={`m-cadence-${index}`}
-            className={SELECT_CLASS}
+            size="compact"
             disabled={!editable}
             value={objective.cadence ?? "default"}
-            onChange={(e) => setObjective({ cadence: e.target.value })}
-          >
-            {/* Only ladders the card defines. Offering "default" unconditionally
-                swapped the authored ladder for the built-in one with no warning. */}
-            {cadenceNames.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-            {!cadenceNames.includes(objective.cadence ?? "default") ? (
-              <option value={objective.cadence ?? "default"}>
-                {objective.cadence ?? "default"} — not defined, falls back to the built-in ladder
-              </option>
-            ) : null}
-          </select>
+            onChange={(v) => setObjective({ cadence: v })}
+            options={[
+              // Only ladders the card defines. Offering "default" unconditionally
+              // swapped the authored ladder for the built-in one with no warning.
+              ...cadenceNames.map((n) => ({ value: n, label: n })),
+              ...(!cadenceNames.includes(objective.cadence ?? "default")
+                ? [
+                    {
+                      value: objective.cadence ?? "default",
+                      label: `${objective.cadence ?? "default"} — not defined, falls back to the built-in ladder`,
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
 
         <div className="space-y-050">
           <Label htmlFor={`m-authority-${index}`}>Authority profile</Label>
-          <select
+          <SelectField
             id={`m-authority-${index}`}
-            className={SELECT_CLASS}
+            size="compact"
             disabled={!editable}
             value={objective.authority_profile ?? ""}
-            onChange={(e) => setObjective({ authority_profile: e.target.value || null })}
-          >
-            <option value="">— no extra ceiling —</option>
-            {vocab.authorityProfiles.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-                {p.ceilingInr === null ? "" : ` (₹${p.ceilingInr})`}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setObjective({ authority_profile: v || null })}
+            options={[
+              { value: "", label: "— no extra ceiling —" },
+              ...vocab.authorityProfiles.map((p) => ({
+                value: p.name,
+                label: p.ceilingInr === null ? p.name : `${p.name} (₹${p.ceilingInr})`,
+              })),
+            ]}
+          />
           <p className="text-body-tiny text-text-subtlest">
             A profile can only lower what the matrix already permits.
           </p>
@@ -596,21 +588,14 @@ function MissionEditor({
         <div className="grid gap-100 sm:grid-cols-3">
           <div className="space-y-050">
             <Label htmlFor={`m-vm-${index}`}>Leave a message</Label>
-            <select
+            <SelectField
               id={`m-vm-${index}`}
-              className={SELECT_CLASS}
+              size="compact"
               disabled={!editable}
               value={vm.leave ?? "first_attempt_only"}
-              onChange={(e) =>
-                setObjective({ voicemail: { ...vm, leave: e.target.value as VoicemailMode } })
-              }
-            >
-              {vocab.voicemailModes.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setObjective({ voicemail: { ...vm, leave: v as VoicemailMode } })}
+              options={vocab.voicemailModes.map((m) => ({ value: m, label: m }))}
+            />
           </div>
           <NumberField
             id={`m-vm-sec-${index}`}
@@ -680,23 +665,27 @@ export function MissionsEditor(props: OutboundEditorProps) {
           why the agent is calling — published with this card
         </span>
         <span className="ml-auto flex items-center gap-075">
-          <select
-            aria-label="Add a mission"
-            className={cn(SELECT_CLASS, "w-auto")}
-            disabled={!editable || available.length === 0}
-            value=""
-            onChange={(e) => {
-              if (e.target.value) add(e.target.value);
-            }}
-          >
-            <option value="">{available.length ? "Add a mission…" : "All missions added"}</option>
-            {available.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-          <Plus aria-hidden className="size-100 text-text-subtlest" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-400"
+                disabled={!editable || available.length === 0}
+              >
+                <Plus aria-hidden className="size-100" />
+                {available.length ? "Add a mission" : "All missions added"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {available.map((o) => (
+                <DropdownMenuItem key={o} onSelect={() => add(o)}>
+                  {o}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
       </div>
       {ob.objectives.length === 0 ? (
@@ -848,21 +837,19 @@ function CadenceEditor({
 
       <div className="space-y-050">
         <Label htmlFor={`c-escalate-${index}`}>When the attempts run out</Label>
-        <select
+        <SelectField
           id={`c-escalate-${index}`}
-          className={cn(SELECT_CLASS, "sm:w-1/2")}
+          size="compact"
+          className="sm:w-1/2"
           disabled={!editable}
           value={cadence.escalate_to ?? ""}
-          onChange={(e) => set({ escalate_to: e.target.value || null })}
-        >
-          <option value="">— stop, escalate to nobody —</option>
-          <option value="human">human</option>
-          {handoffTargets.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => set({ escalate_to: v || null })}
+          options={[
+            { value: "", label: "— stop, escalate to nobody —" },
+            { value: "human", label: "human" },
+            ...handoffTargets.map((t) => ({ value: t, label: t })),
+          ]}
+        />
         <p className="text-body-tiny text-text-subtlest">
           Only this card&apos;s handoff targets are offered. G-OB7 rejects an agent that is not on
           the allowlist — a ladder with a missing top rung.
@@ -1024,19 +1011,15 @@ export function PostCallEditor({
         </label>
         <div className="flex items-center gap-100">
           <Label htmlFor="pc-qa">QA</Label>
-          <select
+          <SelectField
             id="pc-qa"
-            className={cn(SELECT_CLASS, "w-auto")}
+            size="compact"
+            className="w-[11.25rem]"
             disabled={!editable}
             value={pc.qa}
-            onChange={(e) => setPostCall({ qa: e.target.value as PostCallQa })}
-          >
-            {vocab.qaModes.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setPostCall({ qa: v as PostCallQa })}
+            options={vocab.qaModes.map((m) => ({ value: m, label: m }))}
+          />
         </div>
       </div>
 
@@ -1047,25 +1030,32 @@ export function PostCallEditor({
             one outcome, and what it triggers
           </span>
           <span className="ml-auto">
-            <select
-              aria-label="Add a rule"
-              className={cn(SELECT_CLASS, "w-auto")}
-              disabled={!editable || unruled.length === 0}
-              value=""
-              onChange={(e) => {
-                if (!e.target.value) return;
-                setPostCall({ on_outcome: [...pc.on_outcome, { when: e.target.value, do: [] }] });
-              }}
-            >
-              <option value="">
-                {unruled.length ? "Add a rule…" : "Every outcome has a rule"}
-              </option>
-              {unruled.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-400"
+                  disabled={!editable || unruled.length === 0}
+                >
+                  <Plus aria-hidden className="size-100" />
+                  {unruled.length ? "Add a rule" : "Every outcome has a rule"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {unruled.map((c) => (
+                  <DropdownMenuItem
+                    key={c}
+                    onSelect={() =>
+                      setPostCall({ on_outcome: [...pc.on_outcome, { when: c, do: [] }] })
+                    }
+                  >
+                    {c}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </span>
         </div>
 

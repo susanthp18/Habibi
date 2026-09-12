@@ -1,6 +1,7 @@
 import { FileText, FileSpreadsheet, FileArchive, ShieldCheck, Play } from "lucide-react";
 import type { ExportFormat, ExportScope } from "@/api/types/redaction";
 import { cn } from "@/lib/utils";
+import { SelectField } from "@/components/ui/select";
 
 interface Props {
   selectedCount: number;
@@ -99,15 +100,13 @@ export function ExportConfigPanel(p: Props) {
 
       <div>
         <div className="mb-050 text-body-small font-semibold text-text-subtlest">Access</div>
-        <select
+        <SelectField
+          aria-label="Access"
           value={p.accessRole}
-          onChange={(e) => p.onAccessRole(e.target.value)}
-          className="w-full rounded-medium border border-border bg-surface-sunken px-100 py-075 text-body-small focus:border-border-brand focus:outline-none"
-        >
-          {ROLES.map((r) => (
-            <option key={r}>{r}</option>
-          ))}
-        </select>
+          onChange={p.onAccessRole}
+          size="compact"
+          options={ROLES.map((r) => ({ value: r, label: r }))}
+        />
       </div>
 
       <div className="flex items-center justify-between rounded-medium bg-surface-sunken px-100 py-075 text-body-small">

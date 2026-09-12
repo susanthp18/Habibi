@@ -28,8 +28,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Lozenge } from "@/components/ui/lozenge";
+import { SelectField } from "@/components/ui/select";
 import { connectorHealthToast } from "@/lib/studio-trust";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
+
+const VAULT_PURPOSES = [
+  "connector_oauth",
+  "mcp_key",
+  "webhook",
+  "llm",
+  "twilio",
+  "whatsapp",
+  "other",
+].map((p) => ({ value: p, label: p }));
 
 const SCOPES = ["crm.read", "kb.search", "offers.read", "policy.read", "tasks.write"] as const;
 
@@ -144,18 +155,14 @@ export function ConnectorsPanel() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <select
-          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
+        <SelectField
+          aria-label="Vault ref"
+          placeholder="Vault ref (optional)"
+          size="compact"
           value={authRef}
-          onChange={(e) => setAuthRef(e.target.value)}
-        >
-          <option value="">Vault ref (optional)</option>
-          {(vault.data ?? []).map((ref) => (
-            <option key={ref.id} value={ref.id}>
-              {ref.name}
-            </option>
-          ))}
-        </select>
+          onChange={setAuthRef}
+          options={(vault.data ?? []).map((ref) => ({ value: ref.id, label: ref.name }))}
+        />
         <Button
           size="sm"
           onClick={() => {
@@ -197,18 +204,14 @@ export function ConnectorsPanel() {
             onChange={(e) => setIssuer(e.target.value)}
           />
         </div>
-        <select
-          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
+        <SelectField
+          aria-label="Connector"
+          placeholder="Select connector…"
+          size="compact"
           value={cimdConnectorId}
-          onChange={(e) => setCimdConnectorId(e.target.value)}
-        >
-          <option value="">Select connector…</option>
-          {rows.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.displayName || r.slug}
-            </option>
-          ))}
-        </select>
+          onChange={setCimdConnectorId}
+          options={rows.map((r) => ({ value: r.id, label: r.displayName || r.slug }))}
+        />
         <Button
           size="sm"
           variant="outline"
@@ -472,19 +475,13 @@ export function VaultPanel() {
       </p>
       <div className="grid gap-100 md:grid-cols-4">
         <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <select
-          className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small"
+        <SelectField
+          aria-label="Purpose"
+          size="compact"
           value={purpose}
-          onChange={(e) => setPurpose(e.target.value)}
-        >
-          {["connector_oauth", "mcp_key", "webhook", "llm", "twilio", "whatsapp", "other"].map(
-            (p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ),
-          )}
-        </select>
+          onChange={setPurpose}
+          options={VAULT_PURPOSES}
+        />
         <Input
           type="password"
           placeholder="secret (write-only)"

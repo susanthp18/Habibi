@@ -44,7 +44,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         value={filters.source}
         onValueChange={(v) => onChange({ source: v as Filters["source"] })}
       >
-        <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
+        <SelectTrigger size="compact" className="w-[8.125rem]">
           <SelectValue placeholder="Source" />
         </SelectTrigger>
         <SelectContent>
@@ -59,7 +59,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         value={filters.aging}
         onValueChange={(v) => onChange({ aging: v as Filters["aging"] })}
       >
-        <SelectTrigger className="h-400 w-[8.125rem] text-body-small">
+        <SelectTrigger size="compact" className="w-[8.125rem]">
           <SelectValue placeholder="Aging" />
         </SelectTrigger>
         <SelectContent>
@@ -75,7 +75,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         value={filters.amount}
         onValueChange={(v) => onChange({ amount: v as Filters["amount"] })}
       >
-        <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
+        <SelectTrigger size="compact" className="w-[8.75rem]">
           <SelectValue placeholder="Amount" />
         </SelectTrigger>
         <SelectContent>
@@ -87,7 +87,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       </Select>
 
       <Select value={filters.owner} onValueChange={(v) => onChange({ owner: v })}>
-        <SelectTrigger className="h-400 w-[8.75rem] text-body-small">
+        <SelectTrigger size="compact" className="w-[8.75rem]">
           <SelectValue placeholder="Owner" />
         </SelectTrigger>
         <SelectContent>
@@ -106,7 +106,8 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
           placeholder="Search customer, account, PTP id"
           value={filters.search}
           onChange={(e) => onChange({ search: e.target.value })}
-          className="h-400 pl-400 text-body-small"
+          size="compact"
+          className="pl-400"
         />
       </div>
     </div>

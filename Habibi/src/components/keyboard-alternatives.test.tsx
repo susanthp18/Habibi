@@ -140,12 +140,16 @@ describe("QA coaching status", () => {
     createdAt: "2099-01-01T10:00:00.000Z",
   };
 
-  it("advances status from the card select, not only onDrop", async () => {
+  it("advances status from the card picker, not only onDrop", async () => {
     const user = userEvent.setup();
     const onMove = vi.fn();
     render(<CoachingBoard actions={[action]} onMove={onMove} onNew={vi.fn()} onOpen={vi.fn()} />);
 
-    await user.selectOptions(screen.getByLabelText("Status for Missed disclosure"), "in_progress");
+    // The picker is the app-wide SelectField now, not a native select, so the
+    // keyboard path this file exists to prove is open/choose rather than
+    // selectOptions. The card is draggable and the picker must not start a drag.
+    await user.click(screen.getByRole("combobox", { name: "Status for Missed disclosure" }));
+    await user.click(await screen.findByRole("option", { name: "In progress" }));
     expect(onMove).toHaveBeenCalledTimes(1);
     expect(onMove).toHaveBeenCalledWith("ca-1", "in_progress");
   });

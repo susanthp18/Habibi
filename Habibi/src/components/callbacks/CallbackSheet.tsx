@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { X, Send, Phone, ExternalLink, AlertTriangle, Bot, User, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Callback, CbChannel, CbDisposition, CbPriority } from "@/api/types/callbacks";
 import {
@@ -246,35 +247,27 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                   <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                     Queue
                   </div>
-                  <select
+                  <SelectField
+                    aria-label="Queue"
                     value={cb.queue}
-                    onChange={(e) => doQueue(e.target.value)}
+                    onChange={doQueue}
                     disabled={busy}
-                    className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    {queueOptions.map((q) => (
-                      <option key={q} value={q}>
-                        {q}
-                      </option>
-                    ))}
-                  </select>
+                    size="compact"
+                    options={queueOptions.map((q) => ({ value: q, label: q }))}
+                  />
                 </div>
                 <div>
                   <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                     Assignee
                   </div>
-                  <select
+                  <SelectField
+                    aria-label="Assignee"
                     value={cb.assignee}
-                    onChange={(e) => doAssign(e.target.value)}
+                    onChange={doAssign}
                     disabled={busy}
-                    className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-                  >
-                    {assigneeOptions.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
+                    size="compact"
+                    options={assigneeOptions.map((a) => ({ value: a, label: a }))}
+                  />
                 </div>
                 <div>
                   <div className="mb-050 text-body-small font-semibold text-text-subtlest">

@@ -1,4 +1,10 @@
+import { SelectField } from "@/components/ui/select";
 import type { AllowedWindow } from "@/api/types/consent";
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({
+  value: String(i),
+  label: `${String(i).padStart(2, "0")}:00`,
+}));
 
 const DAYS = [
   { d: 1, label: "M" },
@@ -52,31 +58,25 @@ export function AllowedHoursEditor({
       <div className="flex flex-wrap items-end gap-150">
         <div>
           <div className="mb-050 text-body-small text-text-subtlest">Start</div>
-          <select
-            value={window.startHour}
-            onChange={(e) => onChange({ ...window, startHour: Number(e.target.value) })}
-            className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
-          >
-            {Array.from({ length: 24 }, (_, i) => (
-              <option key={i} value={i}>
-                {String(i).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+          <SelectField
+            aria-label="Start hour"
+            value={String(window.startHour)}
+            onChange={(v) => onChange({ ...window, startHour: Number(v) })}
+            size="compact"
+            className="w-[6.25rem]"
+            options={HOUR_OPTIONS}
+          />
         </div>
         <div>
           <div className="mb-050 text-body-small text-text-subtlest">End</div>
-          <select
-            value={window.endHour}
-            onChange={(e) => onChange({ ...window, endHour: Number(e.target.value) })}
-            className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
-          >
-            {Array.from({ length: 24 }, (_, i) => (
-              <option key={i} value={i}>
-                {String(i).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
+          <SelectField
+            aria-label="End hour"
+            value={String(window.endHour)}
+            onChange={(v) => onChange({ ...window, endHour: Number(v) })}
+            size="compact"
+            className="w-[6.25rem]"
+            options={HOUR_OPTIONS}
+          />
         </div>
         <div className="text-body-small text-text-subtlest">Timezone: {timezone}</div>
       </div>

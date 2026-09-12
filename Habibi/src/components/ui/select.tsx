@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
+import { cva, type VariantProps } from "class-variance-authority";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -12,18 +13,60 @@ const SelectGroup = SelectPrimitive.Group;
 
 const SelectValue = SelectPrimitive.Value;
 
+/*
+ * Two sizes, named — the same `default`/`compact` vocabulary Button already uses.
+ *
+ * They were not named before, so every dense surface re-declared the dense look
+ * by hand: 57 triggers carried 18 different className strings and the raw
+ * `<select>`s beside them carried 29 more. `h-400` here is what 34 of those
+ * strings were reaching for; `h-7`, `h-300` and `h-200` were each one file's
+ * guess at the same thing.
+ *
+ * `compact` is for dense surfaces only — filter bars, toolbars, table rows —
+ * never a form's default, which is the same rule Button states at its own
+ * `compact`.
+ */
+const selectTriggerVariants = cva(
+  "focus-ring flex w-full items-center justify-between whitespace-nowrap rounded-medium border border-border-input bg-background-input px-075 cursor-pointer data-[placeholder]:text-text-subtlest hover:bg-background-input-hovered disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+  {
+    variants: {
+      size: {
+        default: "h-9 py-075 text-body",
+        compact: "h-400 text-body-small",
+      },
+    },
+    defaultVariants: { size: "default" },
+  },
+);
+
+export interface SelectTriggerProps
+  extends
+    React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>,
+    VariantProps<typeof selectTriggerVariants> {
+  /** Leading glyph inside the trigger. Dashboard's filter pills need one. */
+  icon?: React.ReactNode;
+}
+
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
+  SelectTriggerProps
+>(({ className, children, size, icon, ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "focus-ring flex h-9 w-full items-center justify-between whitespace-nowrap rounded-medium border border-border-input bg-background-input px-075 py-075 text-body cursor-pointer data-[placeholder]:text-text-subtlest hover:bg-background-input-hovered disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      selectTriggerVariants({ size }),
+      // The icon sits before the value, so the free space has to move to the
+      // chevron's left instead of being split three ways by `justify-between`.
+      icon && "gap-075 [&>*:nth-child(2)]:mr-auto",
       className,
     )}
     {...props}
   >
+    {icon ? (
+      <span aria-hidden className="shrink-0 text-text-subtle [&>svg]:size-3.5">
+        {icon}
+      </span>
+    ) : null}
     {children}
     <SelectPrimitive.Icon asChild>
       <ChevronDown className="h-4 w-4 opacity-50" />
@@ -137,6 +180,92 @@ const SelectSeparator = React.forwardRef<
   />
 ));
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName;
+
+/**
+ * A value picker over a flat list of options — the shape 80-odd call sites want.
+ *
+ * Those sites were raw `<select>`s, because this file only ever exported the
+ * primitives and the five-element incantation is too much ceremony to repeat per
+ * filter. Repeating it 80 times would also repeat the two things Radix does not
+ * do for you, and get them wrong in different places:
+ *
+ *   - an item's value may not be the empty string, so "none" needs a sentinel
+ *   - `value=""` on the root means *unset*, which is how a placeholder shows
+ *
+ * Both live here, once. Sites that need grouped or custom-rendered items still
+ * use the primitives directly — `VoiceCatalogBrowser` and `ConditionRow` do.
+ */
+export type SelectOption = {
+  value: string;
+  label: React.ReactNode;
+  disabled?: boolean;
+};
+
+/**
+ * Stands in for `""` when "nothing" is a choice the user can pick *back*, not
+ * merely the state before they chose. Radix rejects an empty item value outright
+ * (it cannot tell it from "no selection"), so the swap happens at this boundary
+ * and no caller ever sees it.
+ */
+export const SELECT_NONE = "__none__";
+
+export interface SelectFieldProps extends VariantProps<typeof selectTriggerVariants> {
+  value: string | null | undefined;
+  onChange: (value: string) => void;
+  options: readonly SelectOption[];
+  /** Shown when `value` is empty. Not selectable — use an option for that. */
+  placeholder?: string;
+  disabled?: boolean;
+  /** Layout only: width, flex, margins. Chrome comes from `size`. */
+  className?: string;
+  /** Width of the popover; defaults to the trigger's. */
+  contentClassName?: string;
+  icon?: React.ReactNode;
+  id?: string;
+  "aria-label"?: string;
+  name?: string;
+}
+
+export function SelectField({
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  className,
+  contentClassName,
+  size,
+  icon,
+  id,
+  name,
+  "aria-label": ariaLabel,
+}: SelectFieldProps) {
+  // An empty `value` means one of two different things, and they render
+  // differently: the placeholder if nothing has been chosen, or the "none"
+  // option's own label if the list offers "none" as a choice.
+  const offersNone = options.some((o) => !o.value);
+  return (
+    <Select
+      // `undefined` is Radix's "nothing selected", which is what renders the
+      // placeholder. `""` would be read as a value and match no item.
+      value={value ? value : offersNone ? SELECT_NONE : undefined}
+      onValueChange={(v) => onChange(v === SELECT_NONE ? "" : v)}
+      disabled={disabled}
+      name={name}
+    >
+      <SelectTrigger id={id} aria-label={ariaLabel} className={className} size={size} icon={icon}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent className={contentClassName}>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value || SELECT_NONE} disabled={o.disabled}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 export {
   Select,

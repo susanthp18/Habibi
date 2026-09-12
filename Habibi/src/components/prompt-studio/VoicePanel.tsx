@@ -706,7 +706,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
                     value={value.style || styles[0]}
                     onValueChange={(s) => onSlider({ style: s })}
                   >
-                    <SelectTrigger className="h-9 text-body-small">
+                    <SelectTrigger size="compact">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

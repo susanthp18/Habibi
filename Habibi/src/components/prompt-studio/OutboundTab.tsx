@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SelectField } from "@/components/ui/select";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { ApiError } from "@/api/config";
@@ -252,18 +253,13 @@ function CohortBuilder({ botId, objectives }: { botId: string; objectives: strin
         </div>
         <div className="space-y-050">
           <Label htmlFor="cohort-objective">Mission</Label>
-          <select
+          <SelectField
             id="cohort-objective"
             value={objective}
-            onChange={(e) => setObjective(e.target.value)}
-            className="h-200 w-full rounded-small border border-border bg-surface px-100 text-body-small"
-          >
-            {objectives.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
+            onChange={setObjective}
+            size="compact"
+            options={objectives.map((o) => ({ value: o, label: o }))}
+          />
         </div>
       </div>
 

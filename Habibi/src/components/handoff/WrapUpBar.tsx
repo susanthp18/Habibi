@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, FileText, Save, X } from "lucide-react";
 import type { WrapUpPayload } from "@/api/handoff";
+import { SelectField } from "@/components/ui/select";
 
 type Props = {
   open: boolean;
@@ -83,15 +84,14 @@ export function WrapUpBar({
       <div className="grid gap-150 md:grid-cols-[220px_1fr_auto]">
         <div>
           <label className="text-body-small font-medium text-text-subtle">Disposition</label>
-          <select
+          <SelectField
+            aria-label="Disposition"
             value={disposition}
-            onChange={(e) => setDisposition(e.target.value)}
-            className="mt-050 h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small text-text focus:border-border-brand focus:outline-none"
-          >
-            {dispositions.map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </select>
+            onChange={setDisposition}
+            size="compact"
+            className="mt-050"
+            options={dispositions.map((d) => ({ value: d, label: d }))}
+          />
           <label className="mt-100 flex items-center gap-075 text-body-small text-text-subtle">
             <input
               type="checkbox"

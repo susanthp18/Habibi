@@ -1,4 +1,5 @@
 import { Phone, MessageCircle, MessageSquare, Mail, type LucideIcon } from "lucide-react";
+import { SelectField } from "@/components/ui/select";
 import type { ChannelConsent, ConsentChannel, ConsentStatus } from "@/api/types/consent";
 
 const CHANNEL_ORDER: ConsentChannel[] = ["call", "whatsapp", "sms", "email"];
@@ -46,17 +47,13 @@ export function ChannelMatrix({
             <div className="inline-flex items-center gap-075 text-body-small font-medium text-text">
               <Icon className="h-3.5 w-3.5 text-text-subtle" /> {label}
             </div>
-            <select
+            <SelectField
+              aria-label={`${label} consent`}
               value={c.status}
-              onChange={(e) => update(key, { status: e.target.value as ConsentStatus })}
-              className="h-7 rounded-medium border border-border bg-surface px-100 text-body-small"
-            >
-              {STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => update(key, { status: v as ConsentStatus })}
+              size="compact"
+              options={STATUS_OPTIONS}
+            />
             <div className="text-right text-body-small text-text-subtle">
               {c.usedThisWeek}/{c.frequencyCapPerWeek}
             </div>

@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select";
 import type {
   ComplianceFilterState,
   Severity,
@@ -8,6 +9,25 @@ import type {
   Violation,
 } from "@/api/types/compliance";
 import { RULES, listActorNames } from "@/data/compliance-seed";
+
+const RANGE_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "all", label: "All time" },
+];
+const ACTOR_OPTIONS = [
+  { value: "all", label: "Bot & human" },
+  { value: "bot", label: "Bot only" },
+  { value: "human", label: "Human only" },
+];
+const STATUS_OPTIONS = [
+  { value: "all", label: "Any status" },
+  { value: "open", label: "Open" },
+  { value: "in_review", label: "In review" },
+  { value: "acknowledged", label: "Acknowledged" },
+  { value: "resolved", label: "Resolved" },
+];
 
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 const SEV_COLORS: Record<Severity, string> = {
@@ -54,70 +74,61 @@ export function ComplianceFilters({
             value={filters.q}
             onChange={(e) => patch({ q: e.target.value })}
             placeholder="Search snippet, customer, call ID…"
-            className="h-9 pl-400 text-body"
+            size="compact"
+            className="pl-400"
           />
         </div>
 
-        <select
+        <SelectField
+          aria-label="Date range"
           value={filters.dateRange}
-          onChange={(e) =>
-            patch({ dateRange: e.target.value as ComplianceFilterState["dateRange"] })
-          }
-          className="h-9 rounded-medium border border-border bg-surface px-100 text-body"
-        >
-          <option value="today">Today</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="all">All time</option>
-        </select>
+          onChange={(v) => patch({ dateRange: v as ComplianceFilterState["dateRange"] })}
+          size="compact"
+          className="w-[8.75rem]"
+          options={RANGE_OPTIONS}
+        />
 
-        <select
+        <SelectField
+          aria-label="Rule"
           value={filters.ruleId}
-          onChange={(e) => patch({ ruleId: e.target.value })}
-          className="h-9 rounded-medium border border-border bg-surface px-100 text-body max-w-[15rem]"
-        >
-          <option value="all">All rules</option>
-          {RULES.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.code} · {r.label}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => patch({ ruleId: v })}
+          size="compact"
+          className="w-[15rem]"
+          options={[
+            { value: "all", label: "All rules" },
+            ...RULES.map((r) => ({ value: r.id, label: `${r.code} · ${r.label}` })),
+          ]}
+        />
 
-        <select
+        <SelectField
+          aria-label="Actor kind"
           value={filters.actor}
-          onChange={(e) => patch({ actor: e.target.value as ComplianceFilterState["actor"] })}
-          className="h-9 rounded-medium border border-border bg-surface px-100 text-body"
-        >
-          <option value="all">Bot & human</option>
-          <option value="bot">Bot only</option>
-          <option value="human">Human only</option>
-        </select>
+          onChange={(v) => patch({ actor: v as ComplianceFilterState["actor"] })}
+          size="compact"
+          className="w-[8.75rem]"
+          options={ACTOR_OPTIONS}
+        />
 
-        <select
+        <SelectField
+          aria-label="Actor"
           value={filters.agent}
-          onChange={(e) => patch({ agent: e.target.value })}
-          className="h-9 rounded-medium border border-border bg-surface px-100 text-body max-w-[11.25rem]"
-        >
-          <option value="all">All actors</option>
-          {agents.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => patch({ agent: v })}
+          size="compact"
+          className="w-[11.25rem]"
+          options={[
+            { value: "all", label: "All actors" },
+            ...agents.map((a) => ({ value: a, label: a })),
+          ]}
+        />
 
-        <select
+        <SelectField
+          aria-label="Status"
           value={filters.status}
-          onChange={(e) => patch({ status: e.target.value as "all" | ViolationStatus })}
-          className="h-9 rounded-medium border border-border bg-surface px-100 text-body"
-        >
-          <option value="all">Any status</option>
-          <option value="open">Open</option>
-          <option value="in_review">In review</option>
-          <option value="acknowledged">Acknowledged</option>
-          <option value="resolved">Resolved</option>
-        </select>
+          onChange={(v) => patch({ status: v as "all" | ViolationStatus })}
+          size="compact"
+          className="w-[9.375rem]"
+          options={STATUS_OPTIONS}
+        />
 
         {hasFilters && (
           <Button

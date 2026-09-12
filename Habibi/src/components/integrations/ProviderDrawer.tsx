@@ -198,7 +198,8 @@ export function ProviderDrawer({
                       />
                     ) : (
                       <Input
-                        className="h-400 font-mono text-body-small"
+                        size="compact"
+                        className="font-mono"
                         value={cfg.values[f.key] ?? ""}
                         placeholder={f.placeholder}
                         readOnly={locked}

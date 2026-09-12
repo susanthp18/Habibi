@@ -278,7 +278,8 @@ export function AssignedQueue() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Customer, account, id…"
-                className="h-400 pl-400 text-body-small"
+                size="compact"
+                className="pl-400"
               />
             </div>
             <div>

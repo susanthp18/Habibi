@@ -13,6 +13,18 @@ import { useMe } from "@/api/me";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField } from "@/components/ui/select";
+
+const SOURCE_OPTIONS = [
+  { value: "agent", label: "Agent" },
+  { value: "bot_voice", label: "Bot · Voice" },
+  { value: "bot_chat", label: "Bot · Chat" },
+];
+const PRIORITY_OPTIONS = [
+  { value: "high", label: "High" },
+  { value: "normal", label: "Normal" },
+  { value: "low", label: "Low" },
+];
 
 interface Props {
   onClose: () => void;
@@ -101,104 +113,83 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
         <div className="min-h-0 flex-1 space-y-150 overflow-y-auto p-200">
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Customer</div>
-            <select
+            <SelectField
+              aria-label="Customer"
               value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-            >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · #{c.tail}
-                </option>
-              ))}
-            </select>
+              onChange={setCustomerId}
+              size="compact"
+              options={customers.map((c) => ({ value: c.id, label: `${c.name} · #${c.tail}` }))}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-100">
             <div className="col-span-2">
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Product</div>
-              <select
+              <SelectField
+                aria-label="Product"
                 value={productId}
-                onChange={(e) => {
-                  setProductId(e.target.value);
-                  const p = productOptions.find((x) => x.id === e.target.value);
+                onChange={(v) => {
+                  setProductId(v);
+                  const p = productOptions.find((x) => x.id === v);
                   if (p) setAmount(String(p.minTicket * 2));
                 }}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {productOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.indicativeROI}
-                  </option>
-                ))}
-              </select>
+                size="compact"
+                options={productOptions.map((p) => ({
+                  value: p.id,
+                  label: `${p.name} · ${p.indicativeROI}`,
+                }))}
+              />
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">
                 Indicative amount (₹)
               </div>
-              <Input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="h-400 text-body-small"
-              />
+              <Input value={amount} onChange={(e) => setAmount(e.target.value)} size="compact" />
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Source</div>
-              <select
+              <SelectField
+                aria-label="Source"
                 value={source}
-                onChange={(e) => setSource(e.target.value as LeadSource)}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                <option value="agent">Agent</option>
-                <option value="bot_voice">Bot · Voice</option>
-                <option value="bot_chat">Bot · Chat</option>
-              </select>
+                onChange={(v) => setSource(v as LeadSource)}
+                size="compact"
+                options={SOURCE_OPTIONS}
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-100">
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Team</div>
-              <select
+              <SelectField
+                aria-label="Team"
                 value={team}
-                onChange={(e) => setTeam(e.target.value as Team)}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {teamOptions.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setTeam(v as Team)}
+                size="compact"
+                options={teamOptions.map((t) => ({ value: t, label: t }))}
+              />
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">Owner</div>
-              <select
+              <SelectField
+                aria-label="Owner"
                 value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-              >
-                {owners.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
+                onChange={setOwner}
+                size="compact"
+                options={owners.map((o) => ({ value: o, label: o }))}
+              />
             </div>
           </div>
 
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Priority</div>
-            <select
+            <SelectField
+              aria-label="Priority"
               value={priority}
-              onChange={(e) => setPriority(e.target.value as Priority)}
-              className="h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small"
-            >
-              <option value="high">High</option>
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-            </select>
+              onChange={(v) => setPriority(v as Priority)}
+              size="compact"
+              options={PRIORITY_OPTIONS}
+            />
           </div>
 
           <div>

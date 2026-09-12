@@ -35,7 +35,8 @@ export function MaskedInput({ value, onChange, onRotate, placeholder }: Props) {
   return (
     <div className="flex items-center gap-050">
       <Input
-        className="h-400 flex-1 font-mono text-body-small"
+        size="compact"
+        className="flex-1 font-mono"
         value={revealed ? value : mask(value)}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

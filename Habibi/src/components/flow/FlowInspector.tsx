@@ -29,13 +29,20 @@ import STUDIO_VOCABULARY from "@/data/studio-vocabulary.json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const OPERATORS = Object.keys(OPERATOR_LABELS) as FlowOperator[];
 
-/** Matches the system's Input height and chrome; `select` has no primitive. */
-const selectCls =
-  "focus-ring h-9 shrink-0 rounded-medium border border-border-input bg-background-input px-075 text-body-small text-text transition-colors hover:bg-background-input-hovered disabled:cursor-not-allowed disabled:opacity-50";
+const VARIABLE_TYPES = [
+  { value: "string", label: "text" },
+  { value: "number", label: "number" },
+  { value: "boolean", label: "yes/no" },
+];
+const BOOLEAN_VALUES = [
+  { value: "true", label: "true" },
+  { value: "false", label: "false" },
+];
 
 /**
  * The inspector is a panel, not a scrolling column of controls.
@@ -832,18 +839,14 @@ export function NodeInspector({
                       disabled={readOnly}
                       onChange={(e) => setVariable(i, { key: e.target.value })}
                     />
-                    <select
-                      className={selectCls}
+                    <SelectField
+                      aria-label="Variable type"
+                      className="w-[7.5rem] shrink-0"
                       value={v.type}
                       disabled={readOnly}
-                      onChange={(e) =>
-                        setVariable(i, { type: e.target.value as FlowVariable["type"] })
-                      }
-                    >
-                      <option value="string">text</option>
-                      <option value="number">number</option>
-                      <option value="boolean">yes/no</option>
-                    </select>
+                      onChange={(val) => setVariable(i, { type: val as FlowVariable["type"] })}
+                      options={VARIABLE_TYPES}
+                    />
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1048,30 +1051,25 @@ export function EdgeInspector({
                     <option key={name} value={name} />
                   ))}
                 </datalist>
-                <select
-                  className={selectCls}
+                <SelectField
+                  aria-label="Operator"
+                  className="w-[9.375rem] shrink-0"
                   value={clause.operator}
                   disabled={readOnly}
-                  onChange={(e) => setClause(i, { operator: e.target.value as FlowOperator })}
-                >
-                  {OPERATORS.map((op) => (
-                    <option key={op} value={op}>
-                      {OPERATOR_LABELS[op]}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setClause(i, { operator: v as FlowOperator })}
+                  options={OPERATORS.map((op) => ({ value: op, label: OPERATOR_LABELS[op] }))}
+                />
                 {!UNARY_OPERATORS.has(clause.operator) ? (
                   booleans.has(clause.variable) ? (
-                    <select
-                      className={selectCls}
+                    <SelectField
+                      aria-label="Value"
+                      placeholder="choose…"
+                      className="w-[7.5rem] shrink-0"
                       value={clause.value ?? ""}
                       disabled={readOnly}
-                      onChange={(e) => setClause(i, { value: e.target.value })}
-                    >
-                      <option value="">choose…</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
+                      onChange={(v) => setClause(i, { value: v })}
+                      options={BOOLEAN_VALUES}
+                    />
                   ) : (
                     <Input
                       value={clause.value ?? ""}

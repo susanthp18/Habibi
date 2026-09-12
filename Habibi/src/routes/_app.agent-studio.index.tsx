@@ -18,6 +18,7 @@ import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SelectField } from "@/components/ui/select";
 import { changeVerb, parseLogTimestamp } from "@/lib/change-log-actions";
 import {
   archiveAvailability,
@@ -392,7 +393,7 @@ function FleetIndex() {
     await runArchive(card, false);
   };
   const [open, setOpen] = useState(false);
-  // Empty until the catalog loads. Seeding "lapse" up front meant the <select>
+  // Empty until the catalog loads. Seeding "lapse" up front meant the picker
   // rendered its first real option while state still said "lapse", so Create
   // cloned a template the user never picked — or 409'd on an unknown id.
   const [templateId, setTemplateId] = useState("");
@@ -470,24 +471,20 @@ function FleetIndex() {
                     .catch((err: Error) => toast.error(err.message));
                 }}
               >
-                <label className="text-body-small">
+                <div className="flex items-center gap-075 text-body-small">
                   Template
-                  <select
-                    className="ml-075 rounded-medium border border-border bg-surface px-100 py-050"
+                  <SelectField
+                    aria-label="Template"
+                    className="ml-075 w-[12.5rem]"
                     value={templateId}
-                    onChange={(e) => {
-                      setTemplateId(e.target.value);
-                      const t = (templates.data ?? []).find((x) => x.id === e.target.value);
+                    onChange={(v) => {
+                      setTemplateId(v);
+                      const t = (templates.data ?? []).find((x) => x.id === v);
                       if (t) setName(t.label);
                     }}
-                  >
-                    {(templates.data ?? []).map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={(templates.data ?? []).map((t) => ({ value: t.id, label: t.label }))}
+                  />
+                </div>
                 <label className="text-body-small">
                   Name
                   <Input
