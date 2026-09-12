@@ -285,3 +285,38 @@ def test_role_message_still_bans_contentless_filler() -> None:
     overlay = VOICE_NATURALNESS_OVERLAY.lower()
     assert "contentless filler" in overlay
     assert "one moment" in overlay
+
+
+def test_a_second_escalation_on_one_call_writes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The model repeating `escalate_to_human`, or a retried tool turn, opened a
+    second Inbox thread and filed a second handoff. The first is in motion; the
+    second call is answered without a write."""
+    import db
+
+    session = VoiceSession(session_id="VS-TURNTEST1")
+    session.interaction_id = "CL-ESCALATE-PROBE"
+    nodes: dict = {}
+    from voice.tools import ALWAYS_ON, CATALOG, build_tools
+
+    state, tools = build_tools(
+        session,
+        bot_id=None,
+        start_recording=None,
+        nodes=nodes,
+        allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
+    )
+    nodes["escalate_close"] = lambda: {"name": "escalate_close"}
+    writes: list[str] = []
+
+    def _escalate(**kw):
+        writes.append(kw["reason"])
+        return {"assigneeName": "Priya", "teamName": None, "conversationId": "CV-1"}
+
+    monkeypatch.setattr(db, "escalate_voice_interaction", _escalate)
+
+    first, node = asyncio.run(tools["escalate_to_human"].handler({"reason": "hardship"}, None))
+    assert first["escalated"] is True and node["name"] == "escalate_close"
+    second, node = asyncio.run(tools["escalate_to_human"].handler({"reason": "hardship"}, None))
+    assert second["already_escalated"] is True and node["name"] == "escalate_close"
+    assert writes == ["hardship"]
+    assert state.escalated is True

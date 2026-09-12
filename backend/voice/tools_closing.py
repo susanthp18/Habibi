@@ -99,6 +99,18 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # or legal-threat call is worse than a mis-labelled one.
         reason = str(args.get("reason") or "customer_requested")
         detail = args.get("detail")
+        if state.escalated:
+            # A second call on the same call -- the model repeating itself, or
+            # a retried tool turn -- must not open a second Inbox thread, file
+            # a second handoff or dial the supervisor twice. The first one is
+            # in motion; say so and stay on the closing node.
+            return {
+                "ok": True,
+                "escalated": True,
+                "already_escalated": True,
+                "reason": reason,
+                "say": "the handoff is already in motion; reassure briefly and stop talking",
+            }, _node("escalate_close")
         # Suppresses the offer engine and the close probe for the rest of the
         # call. Pitching a product to someone being handed to a human — usually
         # because they are angry or have threatened legal action — turns a
