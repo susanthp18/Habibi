@@ -17,7 +17,10 @@ from agent_core.platform_flags import llm_gateway_enabled
 
 logger = logging.getLogger(__name__)
 
-PROFILES = ("voice", "text", "analysis", "internal")
+#: The profiles a caller can reach: `azure_openai.chat_with_tools` routes
+#: analysis-profile work to `analysis` and everything else to `text`. The voice
+#: runtime talks to Azure directly (voice/llm_pool) and never enters here.
+PROFILES = ("text", "analysis")
 
 _spend_inr: dict[str, float] = {p: 0.0 for p in PROFILES}
 
