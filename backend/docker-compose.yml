@@ -7,7 +7,7 @@
 #
 # env_file: worker and bot_worker mount the full backend/.env
 # (including Azure/Meta/Twilio secrets). For production, prefer per-service
-# env_file lists or Docker secrets so sidecars only receive DB + REDIS + their
+# env_file lists or Docker secrets so sidecars only receive DB + their
 # own credentials. Local compose keeps .env for developer convenience.
 #
 # Quick start (from backend/):
@@ -32,19 +32,6 @@
 # Rollback is two commands; see docs/ops/rollback.md. Do not `alembic downgrade`.
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: collections_redis
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   db:
     image: pgvector/pgvector:pg16
     container_name: collections_db
@@ -109,12 +96,10 @@ services:
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
       VOICE_RUNNER_URL: http://voice:7860
-      REDIS_URL: redis://redis:6379/0
       VOICE_WS_VIA_API: "true"
       # Corpus on host at ../source_db — required for /kb/ingest/source-db + reindex.
       SOURCE_DB_ROOT: /source_db
       # Single worker — connection budget assumes 1× pool.
-      UVICORN_WORKERS: "1"
       APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       - ../source_db:/source_db:ro
@@ -143,8 +128,6 @@ services:
       db:
         condition: service_healthy
       minio:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
@@ -316,7 +299,6 @@ services:
       HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${VOICE_DB_POOL_SIZE:-3}
       DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
-      REDIS_URL: redis://redis:6379/0
       APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       # See the api service — filesystem fallback for voice_session_store only.
@@ -329,8 +311,6 @@ services:
       db:
         condition: service_healthy
       api:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       # The runner's event loop is what / answers; a wedged Pipecat

@@ -356,13 +356,3 @@ def voice_dtmf_input_enabled() -> bool:
     return _flag("VOICE_DTMF_INPUT_ENABLED")
 
 
-def redis_url() -> str | None:
-    return _optional("REDIS_URL")
-
-
-def voice_public_base_url() -> str | None:
-    """Public HTTPS origin for the Pipecat runner (Media Streams /ws).
-
-    Must point at the voice process (:7860), not the CRM API (:8000).
-    """
-    return _optional("VOICE_PUBLIC_BASE_URL")

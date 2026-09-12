@@ -24,7 +24,6 @@ twilio>=9.0,<10
 # that excludes 3.14.2; the voice image has the same floor in
 # requirements-voice.txt (pipecat).
 aiohttp>=3.14.3
-redis>=5.0,<6
 websockets>=12.0,<16
 # Metrics exposition for /metrics. Pure Python, no transitive dependencies —
 # chosen over the OpenTelemetry SDK for this pass because a Prometheus text
