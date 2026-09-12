@@ -3,6 +3,7 @@
 Usage (from backend/, venv active, Azure voice env set)::
 
     python scripts/run_voice_evals.py
+    python scripts/run_voice_evals.py --validate   # CI: shape only, no Azure
 
 Requires the pipecat eval CLI. Falls back to a structural validation of the
 scenario files when the CLI is unavailable, so CI still catches a malformed
@@ -179,6 +180,10 @@ def main() -> int:
     try:
         manifest = _render_suite(work)
         rendered_scenarios = work / "scenarios"
+        if "--validate" in sys.argv:
+            # CI: no Azure, no bot process. The rendered suite is checked for
+            # shape, and every scenario file is checked to be on the manifest.
+            return dry_validate(rendered_scenarios)
         # Prefer the real eval CLI; fall back to structural validation.
         try:
             proc = subprocess.run(

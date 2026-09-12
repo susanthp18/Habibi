@@ -256,6 +256,12 @@ jobs:
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
 
+      # The voice eval scenarios cannot run here (they drive the bot through
+      # Azure STT/LLM/TTS); what CI proves is that every scenario file is on
+      # the manifest and the rendered suite is shaped the way the runner reads.
+      - name: Voice eval suite renders
+        run: python scripts/run_voice_evals.py --validate
+
       - name: Upload coverage XML
         if: always()
         uses: actions/upload-artifact@v4

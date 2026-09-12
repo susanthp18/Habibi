@@ -6,6 +6,10 @@
 #
 # Scenarios exercise the shared domain tools through the voice bot entrypoint.
 # Keep them short — these are smoke evals, not conversation soak tests.
+#
+# Every file in scenarios/ is listed (tests/test_voice_eval_suite.py pins it);
+# a scenario that should not run says so here, with the reason, rather than
+# being left off the list.
 concurrency: 2
 runs_dir: .cache/eval-runs
 record: false
@@ -17,9 +21,18 @@ suite:
   # file's directory, not the working directory.
   - bot: ../bot.py
     scenarios:
-      - promise_to_pay_happy
+      - asks_capabilities
+      - close_probe_converts
+      - close_probe_declines
+      - close_probe_suppressed_after_escalation
       - dispute_paid_already
+      - escalate_honest_handoff
+      - goal_before_verify
+      - no_unprompted_balance
+      - offer_id_mismatch
+      - persona_mood_not_asserted
+      - promise_to_pay_happy
+      - upsell_before_commitment
+      - upsell_blocked_by_dnd
       - upsell_lead_capture
       - upsell_suppressed_when_angry
-      - close_probe_declines
-      - escalate_honest_handoff
