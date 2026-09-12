@@ -7,7 +7,7 @@
 export type PromiseStatus = "upcoming" | "due_today" | "kept" | "broken" | "partial";
 export type PromiseChannel = "voice" | "whatsapp" | "sms" | "chat" | "email";
 export type PromiseSource = "bot" | "agent" | "self";
-export type ReminderStatus = "off" | "scheduled" | "sent";
+export type ReminderStatus = "off" | "queued" | "scheduled" | "sent" | "acknowledged" | "failed";
 export interface PtpEvent {
   at: string;
   label: string;

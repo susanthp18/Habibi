@@ -135,6 +135,15 @@ export function computeMetrics(list: Promise[]) {
 
 export const STATUS_ORDER: PromiseStatus[] = ["upcoming", "due_today", "kept", "broken", "partial"];
 
+export const REMINDER_LABELS: Record<ReminderStatus, string> = {
+  off: "Off",
+  queued: "Queued",
+  scheduled: "Scheduled",
+  sent: "Sent",
+  acknowledged: "Acknowledged",
+  failed: "Failed",
+};
+
 export const STATUS_LABELS: Record<PromiseStatus, string> = {
   upcoming: "Upcoming",
   due_today: "Due today",

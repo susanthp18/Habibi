@@ -548,7 +548,7 @@ def _serialize_conversation(
             last_msg = item
             break
     last_from = (last_msg or {}).get("sender") or "bot"
-    if last_from not in {"customer", "bot", "agent"}:
+    if last_from not in {"customer", "bot", "agent", "system"}:
         last_from = "bot"
     last_preview = (last_msg or {}).get("text") or ""
     last_time = (last_msg or {}).get("time") or _inbox_clock(row["updated_at"] or row["created_at"])

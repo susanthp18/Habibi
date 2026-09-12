@@ -41,6 +41,26 @@ def test_accounts_status_is_the_lms_vocabulary(db_tx) -> None:
     assert _check_values(db_tx, "accounts") == set(re.findall(r"'([a-z_]+)'::text", lms))
 
 
+def _column_check(conn, table: str, column: str) -> set[str]:
+    row = conn.execute(
+        text(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid = CAST(:t AS regclass) AND conname = :c"
+        ),
+        {"t": table, "c": f"{table}_{column}_check"},
+    ).scalar()
+    assert row, f"{table}.{column} has no CHECK"
+    return set(re.findall(r"'([a-z_]+)'::text", row))
+
+
+def test_promise_and_sender_vocabularies_are_the_columns(db_tx) -> None:
+    """Three Literals said three different things about promises.reminder_status
+    (4, 3 and 6 values) and the thread's lastFrom could not say "system"."""
+    assert _column_check(db_tx, "promises", "status") == set(get_args(schemas.PromiseStatus))
+    assert _column_check(db_tx, "promises", "reminder_status") == set(get_args(schemas.ReminderStatus))
+    assert _column_check(db_tx, "messages", "sender") == set(get_args(schemas.Sender))
+
+
 def test_invoice_and_export_status_match_the_wire(db_tx) -> None:
     assert _check_values(db_tx, "invoices") == set(get_args(schemas.BillingInvoiceStatus))
     assert _check_values(db_tx, "export_jobs") == set(get_args(schemas.ExportStatus))

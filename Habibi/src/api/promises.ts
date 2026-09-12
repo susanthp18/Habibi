@@ -39,7 +39,7 @@ const promiseListSchema = z.object({
   channel: z.enum(["voice", "whatsapp", "chat", "email", "sms"]),
   source: z.enum(["bot", "agent", "self"]),
   owner: z.string(),
-  reminderStatus: z.enum(["off", "scheduled", "sent"]),
+  reminderStatus: z.enum(["off", "queued", "scheduled", "sent", "acknowledged", "failed"]),
   status: z.enum(["upcoming", "due_today", "kept", "broken", "partial"]),
   paidAmount: z.number().nullable(),
   notes: z.string().nullable(),

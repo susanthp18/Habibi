@@ -200,7 +200,13 @@ export function ConversationList({
                           <span className="font-medium text-text-brand">Bot is typing…</span>
                         ) : (
                           <>
-                            {t.lastFrom === "bot" ? "Bot: " : t.lastFrom === "agent" ? "You: " : ""}
+                            {t.lastFrom === "bot"
+                              ? "Bot: "
+                              : t.lastFrom === "agent"
+                                ? "You: "
+                                : t.lastFrom === "system"
+                                  ? "System: "
+                                  : ""}
                             {t.lastPreview}
                           </>
                         )}

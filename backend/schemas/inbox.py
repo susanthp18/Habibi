@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # shared verbatim by the API, the validator and the voice runtime, so it is
 # defined once in flow_graph and reused here rather than restated.
 from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
+from schemas.common import Sender
 
 class HandoffDisclosureRequest(BaseModel):
     itemId: str
@@ -118,7 +119,7 @@ class ConversationListResponse(BaseModel):
     unread: int
     lastTime: str
     lastPreview: str
-    lastFrom: Literal["customer", "bot", "agent"]
+    lastFrom: Sender
     sentiment: Literal["positive", "neutral", "negative"]
     ragSuggestions: list[str] = []
     ragDraftAnswer: str | None = None

@@ -24,6 +24,16 @@ RiskLevel = Literal["critical", "high", "medium", "low"]
 Channel = Literal["voice", "whatsapp", "chat", "email", "sms"]
 
 
+#: promises.status -- the CHECK's list; due_today is a row state, not a screen derivation.
+PromiseStatus = Literal["upcoming", "due_today", "kept", "broken", "partial"]
+
+#: promises.reminder_status -- the CHECK's list.
+ReminderStatus = Literal["off", "queued", "scheduled", "sent", "acknowledged", "failed"]
+
+#: messages.sender -- the CHECK's list.
+Sender = Literal["customer", "bot", "agent", "system"]
+
+
 Sentiment = Literal["positive", "neutral", "negative"]
 
 
@@ -107,8 +117,8 @@ class PromiseResponse(BaseModel):
     createdAt: str
     channel: Channel
     handler: str
-    status: Literal["upcoming", "kept", "broken", "partial"]
-    reminderStatus: Literal["queued", "sent", "acknowledged", "off"]
+    status: PromiseStatus
+    reminderStatus: ReminderStatus
 
 
 # Disputes carry the work-item tones plus "done": a resolved dispute has no

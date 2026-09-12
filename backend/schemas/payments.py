@@ -18,6 +18,8 @@ from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 from schemas.common import (
     Channel,
     PromiseResponse,
+    PromiseStatus,
+    ReminderStatus,
 )
 
 class PtpEventResponse(BaseModel):
@@ -39,8 +41,8 @@ class PromiseListResponse(BaseModel):
     channel: Channel
     source: Literal["bot", "agent", "self"]
     owner: str
-    reminderStatus: Literal["off", "scheduled", "sent"]
-    status: Literal["upcoming", "due_today", "kept", "broken", "partial"]
+    reminderStatus: ReminderStatus
+    status: PromiseStatus
     paidAmount: float | None = None
     notes: str | None = None
     planId: str | None = None
@@ -89,7 +91,7 @@ class PromiseCreateRequest(BaseModel):
     # acting user when neither is supplied).
     ownerUserId: str | None = None
     ownerBotId: str | None = None
-    reminderStatus: Literal["off", "queued", "scheduled", "sent", "acknowledged", "failed"] = "queued"
+    reminderStatus: ReminderStatus = "queued"
 
 
 class PromisePatchRequest(BaseModel):

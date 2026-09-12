@@ -76,7 +76,9 @@ export function CreatePromiseSheet({
   const [channel, setChannel] = useState<PromiseChannel>("whatsapp");
   const [source, setSource] = useState<PromiseSource>("agent");
   const [owner, setOwner] = useState(owners[0] ?? "AI Bot");
-  const [reminder, setReminder] = useState<ReminderStatus>("scheduled");
+  // A new promise's reminder is off or queued; "scheduled" and "sent" are what
+  // the reminder worker writes back, not what an operator declares.
+  const [reminder, setReminder] = useState<ReminderStatus>("queued");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -86,8 +88,8 @@ export function CreatePromiseSheet({
       setDate(todayISO());
       setChannel("whatsapp");
       setSource("agent");
-      setOwner(owners[0] ?? "AI Bot");
-      setReminder("scheduled");
+      setOwner(owners[0] ?? "");
+      setReminder("queued");
       setNotes("");
     }
   }, [open, owners, customers]);
@@ -195,8 +197,7 @@ export function CreatePromiseSheet({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="off">Off</SelectItem>
-                  <SelectItem value="scheduled">24h before</SelectItem>
-                  <SelectItem value="sent">Same-day nudge</SelectItem>
+                  <SelectItem value="queued">Queue a reminder</SelectItem>
                 </SelectContent>
               </Select>
             </Field>

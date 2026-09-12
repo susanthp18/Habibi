@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import type { Promise, PromiseStatus } from "@/api/types/promises";
+import { REMINDER_LABELS } from "@/lib/promises";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -122,11 +123,7 @@ export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
             ) : (
               <BellRing className="h-3 w-3" />
             )}
-            {p.reminderStatus === "off"
-              ? "Off"
-              : p.reminderStatus === "sent"
-                ? "Sent"
-                : "Scheduled"}
+            {REMINDER_LABELS[p.reminderStatus]}
           </span>
         </div>
         {(p.confirmChannel || p.paymentIntentStatus || p.payLinkSent) && (
