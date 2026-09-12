@@ -26,6 +26,137 @@ from voice.bot_handlers_scope import (
 )
 
 
+async def _bind_crm_session(
+    scope: HandlerScope,
+    *,
+    provider_call_id: str | None,
+    mission_customer: str | None,
+    direction: str,
+    attempt_id: str | None,
+) -> None:
+    """The CRM bind, run beside the greeting as a task (see on_client_connected).
+
+    Was a closure inside the handler; lifted out unchanged, reading the call's
+    objects through the scope and the four values the handler derived."""
+    _flow_holder = scope._flow_holder
+    _inject_developer = scope._inject_developer
+    _store = scope._store
+    bot_id = scope.bot_id
+    bundle = scope.bundle
+    emitter = scope.emitter
+    sandbox_session = scope.sandbox_session
+    session = scope.session
+    sink = scope.sink
+    transport_name = scope.transport_name
+
+    try:
+        row = await asyncio.to_thread(
+            bind_session_start,
+            session,
+            deployment_id=bundle.get("deploymentId"),
+            transport=transport_name,
+            provider_call_id=provider_call_id,
+            customer_id=mission_customer,
+            direction=direction,
+            bot_id=bot_id,
+        )
+        await sink.start()
+        logger.info(
+            "CRM session live · interaction={} · customer={}",
+            row["interactionId"],
+            row["customerId"],
+        )
+        # The mission's time budget. Started here rather than at pipeline
+        # build because the clock should run from the moment the borrower
+        # answered, not from the moment we started dialling — ring time is
+        # not their conversation.
+        _budget = budget.budget_for(session)
+        if _budget > 0:
+            from voice.tools import spawn_session_task
+
+            async def _nudge(textmsg: str) -> None:
+                await _inject_developer([{"role": "developer", "content": textmsg}])
+
+            async def _hard_stop() -> None:
+                tools_map = (_flow_holder.get("tools") or {})
+                ender = tools_map.get("end_call")
+                if ender is not None:
+                    await ender(None)
+
+            spawn_session_task(
+                session.session_id,
+                budget.watch(session, nudge=_nudge, end_call=_hard_stop),
+            )
+            logger.info("mission budget armed · {}s", _budget)
+
+        # Media connected: join the attempt to the conversation it produced.
+        # Without this the dial and the call sit in two tables with nothing
+        # between them, which is exactly the state the product was in.
+        if direction == "outbound" and (attempt_id or provider_call_id):
+
+            def _bind_attempt() -> None:
+                import db as _db
+                import outbound as _outbound
+
+                with _db.engine.begin() as conn:
+                    _outbound.bind_interaction(
+                        conn,
+                        attempt_id=attempt_id,
+                        provider_call_id=provider_call_id,
+                        interaction_id=row["interactionId"],
+                    )
+
+            try:
+                await asyncio.to_thread(_bind_attempt)
+            except Exception:
+                logger.exception("attempt→interaction bind failed (non-fatal)")
+        # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
+        # sessionId after unification; both written so clients can rely on
+        # either field without guessing.
+        if _store is not None and sandbox_session and sandbox_session.get("sessionId"):
+
+            def _bind_ids(cur: dict[str, Any]) -> dict[str, Any]:
+                return {
+                    **cur,
+                    "voiceSessionId": session.session_id,
+                    "interactionId": row["interactionId"],
+                    # A stop that landed first is terminal — re-marking the
+                    # session live would resurrect a closed run.
+                    "status": "live" if cur.get("status") != "stopped" else "stopped",
+                    "updatedAt": time.time(),
+                }
+
+            try:
+                # to_thread like bind_session_start above: the store is a
+                # Postgres round-trip now, and this runs on the connect path
+                # where blocking the loop delays the greeting.
+                await asyncio.to_thread(
+                    _store.mutate, str(sandbox_session["sessionId"]), _bind_ids
+                )
+            except Exception:
+                logger.exception("sandbox session CRM id patch failed (non-fatal)")
+    except Exception as bind_exc:
+        # "The call continues without DB" was the bug, not the mitigation:
+        # session.interaction_id stayed None, every CRM job for the rest of
+        # the call was dropped by the interaction_id guards, and a
+        # collections call completed with no record that it ever happened.
+        #
+        # Degrade, do not abort — hanging up on a borrower mid-disclosure to
+        # protect a database is not a trade this call gets to make. The flag
+        # is read at teardown, where CrmSink.stop files a minimal
+        # interaction row (start, end, disposition=crm_degraded) so the call
+        # is at least auditable.
+        mark_crm_degraded(session, bind_exc)
+
+    # Emitted from in here, after the ids are real. Firing it on the
+    # connect path would have published interaction_id=None and given
+    # the studio a deep link to nothing.
+    await emitter.session_bound(
+        interaction_id=session.interaction_id,
+        customer_id=session.customer_id,
+    )
+
+
 def build(scope: HandlerScope) -> None:
     """Register this section's handlers on the call's objects."""
     ActionError = scope.ActionError
@@ -42,7 +173,6 @@ def build(scope: HandlerScope) -> None:
     _store = scope._store
     bot_id = scope.bot_id
     bot_turn_state = scope.bot_turn_state
-    bundle = scope.bundle
     emitter = scope.emitter
     flow_manager = scope.flow_manager
     initial_node = scope.initial_node
@@ -50,11 +180,8 @@ def build(scope: HandlerScope) -> None:
     runner_args = scope.runner_args
     sandbox_load_error = scope.sandbox_load_error
     sandbox_persona = scope.sandbox_persona
-    sandbox_session = scope.sandbox_session
     session = scope.session
-    sink = scope.sink
     transport = scope.transport
-    transport_name = scope.transport_name
     voicemail_detector = scope.voicemail_detector
     worker = scope.worker
     hs = scope.hs
@@ -218,115 +345,16 @@ def build(scope: HandlerScope) -> None:
         # the product. So it runs as a task, and the things that genuinely need
         # an interaction id — `session_bound`, and teardown — await the task
         # rather than the caller awaiting the database.
-        async def _bind_crm_session() -> None:
-            try:
-                row = await asyncio.to_thread(
-                    bind_session_start,
-                    session,
-                    deployment_id=bundle.get("deploymentId"),
-                    transport=transport_name,
-                    provider_call_id=provider_call_id,
-                    customer_id=mission_customer,
-                    direction=direction,
-                    bot_id=bot_id,
-                )
-                await sink.start()
-                logger.info(
-                    "CRM session live · interaction={} · customer={}",
-                    row["interactionId"],
-                    row["customerId"],
-                )
-                # The mission's time budget. Started here rather than at pipeline
-                # build because the clock should run from the moment the borrower
-                # answered, not from the moment we started dialling — ring time is
-                # not their conversation.
-                _budget = budget.budget_for(session)
-                if _budget > 0:
-                    from voice.tools import spawn_session_task
 
-                    async def _nudge(textmsg: str) -> None:
-                        await _inject_developer([{"role": "developer", "content": textmsg}])
-
-                    async def _hard_stop() -> None:
-                        tools_map = (_flow_holder.get("tools") or {})
-                        ender = tools_map.get("end_call")
-                        if ender is not None:
-                            await ender(None)
-
-                    spawn_session_task(
-                        session.session_id,
-                        budget.watch(session, nudge=_nudge, end_call=_hard_stop),
-                    )
-                    logger.info("mission budget armed · {}s", _budget)
-
-                # Media connected: join the attempt to the conversation it produced.
-                # Without this the dial and the call sit in two tables with nothing
-                # between them, which is exactly the state the product was in.
-                if direction == "outbound" and (attempt_id or provider_call_id):
-
-                    def _bind_attempt() -> None:
-                        import db as _db
-                        import outbound as _outbound
-
-                        with _db.engine.begin() as conn:
-                            _outbound.bind_interaction(
-                                conn,
-                                attempt_id=attempt_id,
-                                provider_call_id=provider_call_id,
-                                interaction_id=row["interactionId"],
-                            )
-
-                    try:
-                        await asyncio.to_thread(_bind_attempt)
-                    except Exception:
-                        logger.exception("attempt→interaction bind failed (non-fatal)")
-                # Deep-link keys for Sandbox → Customer 360. voiceSessionId equals
-                # sessionId after unification; both written so clients can rely on
-                # either field without guessing.
-                if _store is not None and sandbox_session and sandbox_session.get("sessionId"):
-
-                    def _bind_ids(cur: dict[str, Any]) -> dict[str, Any]:
-                        return {
-                            **cur,
-                            "voiceSessionId": session.session_id,
-                            "interactionId": row["interactionId"],
-                            # A stop that landed first is terminal — re-marking the
-                            # session live would resurrect a closed run.
-                            "status": "live" if cur.get("status") != "stopped" else "stopped",
-                            "updatedAt": time.time(),
-                        }
-
-                    try:
-                        # to_thread like bind_session_start above: the store is a
-                        # Postgres round-trip now, and this runs on the connect path
-                        # where blocking the loop delays the greeting.
-                        await asyncio.to_thread(
-                            _store.mutate, str(sandbox_session["sessionId"]), _bind_ids
-                        )
-                    except Exception:
-                        logger.exception("sandbox session CRM id patch failed (non-fatal)")
-            except Exception as bind_exc:
-                # "The call continues without DB" was the bug, not the mitigation:
-                # session.interaction_id stayed None, every CRM job for the rest of
-                # the call was dropped by the interaction_id guards, and a
-                # collections call completed with no record that it ever happened.
-                #
-                # Degrade, do not abort — hanging up on a borrower mid-disclosure to
-                # protect a database is not a trade this call gets to make. The flag
-                # is read at teardown, where CrmSink.stop files a minimal
-                # interaction row (start, end, disposition=crm_degraded) so the call
-                # is at least auditable.
-                mark_crm_degraded(session, bind_exc)
-
-            # Emitted from in here, after the ids are real. Firing it on the
-            # connect path would have published interaction_id=None and given
-            # the studio a deep link to nothing.
-            await emitter.session_bound(
-                interaction_id=session.interaction_id,
-                customer_id=session.customer_id,
+        crm_bind_task = asyncio.create_task(
+            _bind_crm_session(
+                scope,
+                provider_call_id=provider_call_id,
+                mission_customer=mission_customer,
+                direction=direction,
+                attempt_id=attempt_id,
             )
-
-        crm_bind_task = asyncio.create_task(_bind_crm_session())
+        )
         # Teardown waits on this; see `_finalize_call`. Held on the session so
         # the completion record cannot be filed before the row it belongs to.
         session.extra['_crm_bind_task'] = crm_bind_task

@@ -362,11 +362,11 @@ def test_the_crm_bind_runs_beside_the_greeting_not_in_front_of_it() -> None:
     from tests.voice_tools_source import handlers_source
 
     src = handlers_source()
-    assert "async def _bind_crm_session()" in src
-    assert "asyncio.create_task(_bind_crm_session())" in src
+    assert "async def _bind_crm_session(" in src
     # The handler must not await the bind — that is the whole point.
-    spawn = src.index("crm_bind_task = asyncio.create_task(_bind_crm_session())")
-    assert "await _bind_crm_session()" not in src[spawn - 200 : spawn + 200]
+    spawn = src.index("crm_bind_task = asyncio.create_task(")
+    assert "_bind_crm_session(" in src[spawn : spawn + 120]
+    assert "await _bind_crm_session(" not in src[spawn - 200 : spawn + 400]
 
 
 def test_session_bound_is_emitted_only_once_the_ids_are_real() -> None:
@@ -376,7 +376,8 @@ def test_session_bound_is_emitted_only_once_the_ids_are_real() -> None:
     from tests.voice_tools_source import handlers_source
 
     src = handlers_source()
-    body = src[src.index("async def _bind_crm_session()") : src.index("crm_bind_task =")]
+    start = src.index("async def _bind_crm_session(")
+    body = src[start : src.index("def build(scope: HandlerScope)", start)]
     assert "emitter.session_bound(" in body, (
         "session_bound belongs inside the bind, after interaction_id is set"
     )

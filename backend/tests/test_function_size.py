@@ -6,7 +6,7 @@ rewrite. Pass 5 took the 859-line text turn, the 588-line sandbox turn, the
 639-line retrieval and the four screen readers apart under behaviour
 snapshots (``tests/snapshots/*.json``). What is left over the ceiling is
 listed here with its measured length; a split lowers the number or removes
-the name, and nothing may join the list.
+the name, and nothing may join the list. The list emptied the same day.
 
 Seeds are data and are not measured; tests, migrations and scripts are not
 production modules.
@@ -31,11 +31,10 @@ SKIP_DIRS = {
     "__pycache__",
 }
 
-#: ``path::qualname`` -> measured lines on 2026-09-12. Shrink or delete; never add.
-BASELINE: dict[str, int] = {
-    "voice/bot_handlers_connect.py::build": 360,
-    "voice/bot_handlers_connect.py::build.on_client_connected": 325,
-}
+#: ``path::qualname`` -> measured lines. Emptied on 2026-09-12: every production
+#: function is under the ceiling. A function that grows past it must be split,
+#: not listed.
+BASELINE: dict[str, int] = {}
 
 
 def _functions(path: Path):
