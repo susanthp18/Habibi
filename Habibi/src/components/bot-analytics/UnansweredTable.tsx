@@ -57,29 +57,36 @@ export function UnansweredTable({
   const onPromptFix = async (r: UnansweredQuestion) => {
     setBusyId(r.id);
     try {
-      if (GAP_WRITES_PERSIST) {
-        let publishedId = publishedQuery.data?.id;
-        if (!publishedId) {
-          try {
-            const fresh = await publishedQuery.refetch();
-            publishedId = fresh.data?.id;
-          } catch {
-            // Fall through — navigate without link if publish lookup fails.
-          }
+      // The card the text channel answers from is whatever the server's default
+      // resolves to (`/prompt-versions/published` carries its botId); it used to
+      // be a literal here, so a fleet with a different door deep-linked to the
+      // wrong card.
+      let published = publishedQuery.data;
+      if (!published) {
+        try {
+          published = (await publishedQuery.refetch()).data;
+        } catch {
+          // Fall through — the toast below says the link was not made.
         }
-        if (publishedId) {
-          try {
-            await linkKbGap(r.id, { promptVersionId: publishedId });
-          } catch (err) {
-            toast.message("Gap link skipped", {
-              description: err instanceof Error ? err.message : "Could not persist prompt link",
-            });
-          }
+      }
+      if (GAP_WRITES_PERSIST && published?.id) {
+        try {
+          await linkKbGap(r.id, { promptVersionId: published.id });
+        } catch (err) {
+          toast.message("Gap link skipped", {
+            description: err instanceof Error ? err.message : "Could not persist prompt link",
+          });
         }
+      }
+      if (!published?.botId) {
+        toast.message("No published card to open", {
+          description: "Publish a card for the text channel first.",
+        });
+        return;
       }
       void navigate({
         to: "/agent-studio/$botId",
-        params: { botId: "kaia-v2-4" },
+        params: { botId: published.botId },
         search: { unansweredId: r.id, note: r.text },
       });
     } finally {
