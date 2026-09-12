@@ -172,7 +172,11 @@ def ping() -> dict[str, Any]:
             return {"ok": False, "configured": True, "detail": f"bucket_missing:{bucket}"}
         return {"ok": True, "configured": True, "bucket": bucket}
     except Exception as exc:
-        return {"ok": False, "configured": True, "detail": str(exc)}
+        # /ready is public and auth-exempt (load balancers poll it). The
+        # exception text names hosts, buckets and sometimes credentials in
+        # the connection string; it belongs in the log, not the 503 body.
+        logger.warning("minio readiness probe failed: %s", exc)
+        return {"ok": False, "configured": True, "detail": "unreachable"}
 
 
 def _minio_breaker():

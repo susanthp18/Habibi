@@ -75,3 +75,23 @@ def test_hourly_reach_answers_for_a_customer(client, db_tx) -> None:
     res = client.get(f"/customers/{cid}/outbound/hours", headers=HEADERS)
     assert res.status_code == 200, res.text
     assert isinstance(res.json(), list)
+
+
+def test_ready_does_not_echo_the_storage_exception(client, monkeypatch) -> None:
+    """/ready is public and auth-exempt; MinIO's exception text names hosts,
+    buckets and sometimes the credentials in a connection string. The 503
+    says unreachable and the log says why."""
+    import storage
+
+    class _Client:
+        def bucket_exists(self, bucket):
+            raise RuntimeError("S3 operation failed; endpoint=http://minio:9000 access_key=SECRET")
+
+    monkeypatch.setattr(storage, "is_configured", lambda: True)
+    monkeypatch.setattr(storage, "get_client", lambda: _Client())
+    monkeypatch.setattr(storage, "get_bucket", lambda: "kb")
+    r = client.get("/ready", headers=HEADERS)
+    assert r.status_code == 503
+    body = r.text
+    assert "SECRET" not in body and "minio:9000" not in body
+    assert r.json()["detail"]["minio"]["detail"] == "unreachable"
