@@ -40,3 +40,12 @@ _wsl_clean.sh
 
 # Patch artefacts left beside a file after `git apply`; never a project file
 *.patch
+
+# Personal working material beside the repo, never part of it
+/Mockups/
+/Site/
+/Videos/
+/index.html
+/kdp-axolotl-coloring-book/
+/Habibi/public/brand/
+/Habibi/public/videos/
