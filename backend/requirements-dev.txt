@@ -1,0 +1,8 @@
+# Test and lint tooling. Not in requirements.txt on purpose: nothing here ships
+# in an image. The `voice-dev` Dockerfile stage (docker-compose.dev.yml) and CI
+# install it on top of the runtime lock. Pinned because an unpinned linter turns
+# somebody else's release into your red build.
+pytest==9.1.1
+# Coverage: CI gates on the measured number (--cov-fail-under in backend-pytest.yml).
+pytest-cov==7.1.0
+ruff==0.6.9

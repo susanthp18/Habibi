@@ -33,16 +33,6 @@ prometheus-client==0.26.0
 # Error tracking. Inert unless SENTRY_DSN is set, so this costs an unconfigured
 # deployment an import and nothing else.
 sentry-sdk==2.66.1
-# Dev / regression (auth CORS lock + readiness)
-pytest==9.1.1
-# Coverage. CI publishes a number (`--cov=. --cov-report=xml`); no fail-under —
-# a gate introduced before the number is known is a gate people learn to ignore.
-pytest-cov==7.1.0
-# Linting. ruff.toml has existed since July and ruff was never installed, so the
-# per-file E402 ignores protecting the modules that must set env before
-# importing db were documentation rather than configuration. Pinned because an
-# unpinned linter turns somebody else's release into your red build.
-ruff==0.6.9
 # W13's allocator. numpy is the eighteen-million-row reduced-value pass -- one
 # O(n) argmax and bincount per iteration instead of the 504 pure-Python passes
 # the coordinate-descent solve took -- and scipy is the HiGHS the allocation

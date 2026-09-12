@@ -91,3 +91,12 @@ ENV DB_PROCESS_ROLE=voice
 EXPOSE 7860
 # Bind all interfaces so published compose ports reach the runner.
 CMD ["python", "-m", "voice.bot", "--host", "0.0.0.0", "--port", "7860"]
+
+# Laptop test image: the voice image plus the test tooling. docker-compose.dev.yml
+# builds this target for the `voice` service, which is where the suite runs;
+# the shipped images above carry no pytest and no ruff.
+FROM voice AS voice-dev
+USER root
+COPY requirements-dev.txt .
+RUN pip install -r requirements-dev.txt
+USER app

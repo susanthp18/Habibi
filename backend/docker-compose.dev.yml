@@ -40,6 +40,8 @@ services:
       HABIBI_DEPLOYED: "0"
 
   voice:
+    build:
+      target: voice-dev
     environment:
       HABIBI_DEPLOYED: "0"
       # The suite runs here as the app role; tests of the owner's path (audit
