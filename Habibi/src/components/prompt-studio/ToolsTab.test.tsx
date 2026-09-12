@@ -46,6 +46,7 @@ vi.mock("@/api/flow", () => ({
 }));
 
 vi.mock("@/api/agent-studio", () => ({
+  useAgentStudioSkills: () => ({ data: [], isPending: false, isError: false }),
   // The tab asks the compiler for G4/G6 rather than counting for itself; an
   // empty gate list is enough for the rows to render.
   useCompilePreview: () => ({

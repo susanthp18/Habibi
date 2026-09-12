@@ -126,7 +126,7 @@ export function StudioTabBody({
         {tab === "connectors" && (
           <ConnectorsTab botId={botId} card={effectiveCard} onChange={(next) => setCard(next)} />
         )}
-        {tab === "policy" && <PolicyTab />}
+        {tab === "policy" && <PolicyTab card={effectiveCard} onChange={(next) => setCard(next)} />}
         {tab === "outbound" && (
           <OutboundTab
             botId={botId}

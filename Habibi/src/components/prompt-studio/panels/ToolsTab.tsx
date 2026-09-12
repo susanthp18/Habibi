@@ -3,7 +3,7 @@ import { gateTone } from "@/lib/gate-status";
 import { Button } from "@/components/ui/button";
 import { useFlowTools } from "@/api/flow";
 import { catalogToolsForCard, controlKindLabel } from "@/lib/studio-contract";
-import { useCompilePreview } from "@/api/agent-studio";
+import { useAgentStudioSkills, useCompilePreview } from "@/api/agent-studio";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { NotAuthoredNotice } from "./NotAuthoredNotice";
@@ -38,6 +38,18 @@ export function ToolsTab({
   // sixteen, so a card whose include list names something the catalog does not
   // have showed nothing but a green G6 until Publish refused it.
   const g4 = preview.data?.gates.find((g) => g.gate === "G4");
+  // G9 too: a skill whose allowed tools are not on the card fails publish, and
+  // this is the tab where the author would put them on it.
+  const g9 = preview.data?.gates.find((g) => g.gate === "G9");
+  // Which skill wants each tool, so the row can say why a tool matters here.
+  const skills = useAgentStudioSkills();
+  const requiredBy = new Map<string, string[]>();
+  for (const ref of card.skills ?? []) {
+    const skill = skills.data?.find((s) => s.slug === ref.skill_id || s.id === ref.skill_id);
+    for (const tool of skill?.allowedTools ?? []) {
+      requiredBy.set(tool, [...(requiredBy.get(tool) ?? []), skill?.slug ?? ref.skill_id ?? "?"]);
+    }
+  }
   const idle = preview.data?.idle_voice_tools;
   // `??`, not `||`. A compiler that reports a voice-tool cap of 0 — a card
   // configured to offer no idle tools at all — is making a statement, and `||`
@@ -68,7 +80,12 @@ export function ToolsTab({
           <span className="font-mono">{idle ?? "—"}</span> / {cap} idle voice tools
         </div>
         <div className="rounded-medium border border-border px-150 py-100 text-body-small text-text-subtle">
-          <span className="font-mono">{new Set([...include, ...locked]).size}</span> on the card
+          {/* The compiler's grant, not a client union of include and locked: the
+              union counts tools the catalog dropped and misses the floor. */}
+          <span className="font-mono">
+            {preview.data?.effective_tools.length ?? new Set([...include, ...locked]).size}
+          </span>{" "}
+          {preview.data ? "granted by the compiler" : "on the card"}
           <span className="ml-075 text-text-subtlest">(skill-gated ones load on demand)</span>
         </div>
         {!isAuthoredCard(card) ? null : preview.isError ? (
@@ -80,9 +97,9 @@ export function ToolsTab({
           >
             compile failed — {preview.error instanceof Error ? preview.error.message : "no answer"}
           </Lozenge>
-        ) : g6 || g4 ? (
+        ) : g6 || g4 || g9 ? (
           <>
-            {[g4, g6].map((g) =>
+            {[g4, g6, g9].map((g) =>
               g ? (
                 <Lozenge key={g.gate} tone={gateTone(g.status)}>
                   {g.gate} {g.status}
@@ -154,6 +171,10 @@ export function ToolsTab({
                       <Lozenge tone="warning">required by policy</Lozenge>
                     ) : isFloor ? (
                       <Lozenge tone="neutral">always on (runtime floor)</Lozenge>
+                    ) : requiredBy.has(t.key) ? (
+                      <Lozenge tone={on ? "information" : "danger"}>
+                        required by skill {requiredBy.get(t.key)?.join(", ")}
+                      </Lozenge>
                     ) : (
                       <span className="text-text-subtle">optional</span>
                     )}
