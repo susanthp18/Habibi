@@ -1,12 +1,11 @@
 import { CheckCircle2, AlertTriangle, ShieldOff } from "lucide-react";
 import type { ConsentRecord } from "@/api/types/consent";
-import { contactableSummary } from "@/data/consent-seed";
 import { Lozenge } from "@/components/ui/lozenge";
 
 /* `dense` used to switch the inline padding. The Lozenge is already the compact size the
  * dense call sites wanted, so the prop is kept for source compatibility and ignored. */
 export function ContactablePill({ record }: { record: ConsentRecord; dense?: boolean }) {
-  const s = contactableSummary(record);
+  const s = record.contactable;
   const map = {
     green: { tone: "success", Icon: CheckCircle2, label: "Contactable" },
     amber: { tone: "warning", Icon: AlertTriangle, label: "Partial" },

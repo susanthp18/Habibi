@@ -3,9 +3,8 @@
 //   fetchConsent() → registry list  (GET /consent)
 //   save / renew / opt-out / toggle DND → Phase 3A writes (widened for screen)
 //
-// Mock branch preserves the in-memory seed mutators exactly. Live branch maps
-// to PATCH/POST endpoints; the screen shape is richer than the write response,
-// so callers invalidate + refetch.
+// Writes map to PATCH/POST endpoints; the screen shape is richer than the write
+// response, so callers invalidate + refetch.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
@@ -19,15 +18,8 @@ import type {
   ConsentRecord,
   OptOutSource,
 } from "@/api/types/consent";
-import {
-  captureOptOut as captureSeedOptOut,
-  consentRecords as seedConsent,
-  renewConsent as renewSeedConsent,
-  saveConsentPreferences as saveSeedConsent,
-  toggleDndRegistry as toggleSeedDnd,
-  allowedWindowsEqual,
-} from "@/data/consent-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { allowedWindowsEqual } from "@/lib/consent";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { customerSchema } from "./customers";
 
 // -----------------------------------------------------------------------------
@@ -88,10 +80,13 @@ const consentRecordSchema = z.object({
   outreachToday: z.number(),
   dailyCap: z.number(),
   lastDecisionReason: z.string().nullable(),
+  contactable: z.object({
+    status: z.enum(["green", "amber", "red"]),
+    reasons: z.array(z.string()),
+  }),
 });
 
 export async function fetchConsent(): Promise<ConsentRecord[]> {
-  if (USE_MOCK) return mockDelay(seedConsent);
   return apiGet<ConsentRecord[]>("/consent", { schema: z.array(consentRecordSchema) });
 }
 
@@ -122,20 +117,12 @@ export async function saveConsent(
   patch: ConsentPreferencesPatch,
   note: string,
 ): Promise<void> {
-  if (USE_MOCK) {
-    saveSeedConsent(rec.id, patch, note);
-    return;
-  }
   await apiPatch(`/consent/${rec.customerId}`, consentPatchBody(rec, patch, note), {
     schema: customerSchema,
   });
 }
 
 export async function renewConsent(rec: ConsentRecord): Promise<void> {
-  if (USE_MOCK) {
-    renewSeedConsent(rec.id);
-    return;
-  }
   const newExp = new Date();
   newExp.setFullYear(newExp.getFullYear() + 1);
   await apiPatch(
@@ -155,10 +142,6 @@ export async function captureOptOut(
   rec: ConsentRecord,
   evt: { channel: ConsentChannel | "all"; source: OptOutSource; note: string },
 ): Promise<void> {
-  if (USE_MOCK) {
-    captureSeedOptOut(rec.id, evt);
-    return;
-  }
   await apiPost(
     `/consent/${rec.customerId}/opt-out`,
     { channel: evt.channel, source: evt.source, note: evt.note },
@@ -167,10 +150,6 @@ export async function captureOptOut(
 }
 
 export async function toggleDnd(rec: ConsentRecord, on: boolean): Promise<void> {
-  if (USE_MOCK) {
-    toggleSeedDnd(rec.id, on);
-    return;
-  }
   const channels = on
     ? rec.channels.map((c) => (c.channel === "call" ? { ...c, status: "dnd" as const } : c))
     : rec.channels.map((c) =>

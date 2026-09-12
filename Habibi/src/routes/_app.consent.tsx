@@ -14,7 +14,7 @@ import type {
   ConsentPreferencesPatch,
   OptOutSource,
 } from "@/api/types/consent";
-import { defaultConsentFilters, filterConsents } from "@/data/consent-seed";
+import { defaultConsentFilters, filterConsents } from "@/lib/consent";
 import { Lozenge } from "@/components/ui/lozenge";
 import { captureOptOut, renewConsent, saveConsent, toggleDnd, useConsent } from "@/api/consent";
 

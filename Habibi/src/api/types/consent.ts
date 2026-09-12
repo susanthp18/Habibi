@@ -59,19 +59,12 @@ export interface ConsentRecord {
   outreachToday?: number;
   dailyCap?: number;
   lastDecisionReason?: string | null;
+  /** The row's reading across the four channels, in the borrower's zone. */
+  contactable: ContactableSummary;
 }
-export type ContactableReason =
-  | "ok"
-  | "channel_opted_out"
-  | "channel_dnd"
-  | "dnd_registry"
-  | "outside_hours"
-  | "frequency_cap"
-  | "consent_expired";
-export interface ContactableResult {
-  ok: boolean;
-  reason: ContactableReason;
-  message: string;
+export interface ContactableSummary {
+  status: "green" | "amber" | "red";
+  reasons: string[];
 }
 export interface ConsentFilterState {
   q: string;

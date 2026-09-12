@@ -3,7 +3,7 @@ import { CalendarClock, Clock, Shield, User } from "lucide-react";
 import { ChannelChip } from "./ChannelChip";
 import { ContactablePill } from "./ContactablePill";
 import type { ConsentRecord } from "@/api/types/consent";
-import { contactableSummary, daysUntil } from "@/data/consent-seed";
+import { daysUntil } from "@/lib/consent";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,
@@ -87,10 +87,10 @@ export function ConsentTable({
         header: "Contactable",
         headerIcon: <Shield className="h-3.5 w-3.5" />,
         sortable: true,
-        sortValue: (r) => CONTACTABLE_RANK[contactableSummary(r).status] ?? 0,
+        sortValue: (r) => CONTACTABLE_RANK[r.contactable.status] ?? 0,
         cell: (r) => <ContactablePill record={r} />,
         footer: (visible) => {
-          const ok = visible.filter((r) => contactableSummary(r).status === "green").length;
+          const ok = visible.filter((r) => r.contactable.status === "green").length;
           return <span className="text-text-subtlest">{ok} contactable</span>;
         },
       },

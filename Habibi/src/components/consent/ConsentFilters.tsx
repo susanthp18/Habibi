@@ -2,7 +2,7 @@ import { Search, X } from "lucide-react";
 import type { ConsentFilterState, ConsentChannel } from "@/api/types/consent";
 import { Input } from "@/components/ui/input";
 import { SelectField } from "@/components/ui/select";
-import { CHANNEL_LABEL, defaultConsentFilters } from "@/data/consent-seed";
+import { CHANNEL_LABEL, defaultConsentFilters } from "@/lib/consent";
 
 const STATUSES: { id: ConsentFilterState["status"]; label: string }[] = [
   { id: "all", label: "All" },

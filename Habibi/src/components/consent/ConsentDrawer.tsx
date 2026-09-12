@@ -25,7 +25,7 @@ import type {
   ConsentChannel,
   OptOutSource,
 } from "@/api/types/consent";
-import { allowedWindowsEqual } from "@/data/consent-seed";
+import { allowedWindowsEqual } from "@/lib/consent";
 import { Lozenge } from "@/components/ui/lozenge";
 
 const SOURCES: OptOutSource[] = [

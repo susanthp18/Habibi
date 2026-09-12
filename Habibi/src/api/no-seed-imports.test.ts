@@ -32,7 +32,6 @@ const TYPE_IMPORT = /^[ \t]*import\s+type\b|^[ \t]*import\s*\{[^}]*\btype\s+\w/;
 const FIXTURE_IMPORTERS = [
   "authority.ts",
   "billing.ts",
-  "consent.ts",
   "contact-policy.ts",
   "customers.ts",
   "products.ts",

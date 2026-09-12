@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { consentPatchBody } from "./consent";
 import type { AllowedWindow, ConsentRecord } from "@/api/types/consent";
-import { allowedWindowsEqual } from "@/data/consent-seed";
+import { allowedWindowsEqual } from "@/lib/consent";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +27,7 @@ function rec(window: AllowedWindow): ConsentRecord {
     onDndRegistry: false,
     optOutLog: [],
     audit: [],
+    contactable: { status: "green", reasons: ["All channels available."] },
   };
 }
 

@@ -1,5 +1,5 @@
 import type { ChannelConsent, ConsentChannel } from "@/api/types/consent";
-import { CHANNEL_LABEL } from "@/data/consent-seed";
+import { CHANNEL_LABEL } from "@/lib/consent";
 
 export function FrequencyCapsEditor({
   channels,
