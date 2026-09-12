@@ -176,3 +176,21 @@ def test_recording_disclosure_pattern_is_the_runtime_detector() -> None:
     api = _src("src", "api", "prompt-studio.ts")
     assert "new RegExp(STUDIO_VOCABULARY.recordingDisclosurePattern" in api
     assert "/record/i" not in api
+
+
+def test_the_whatsapp_history_check_is_the_same_detector() -> None:
+    """bot_runtime kept a fourth copy -- four substrings -- that accepted
+    "recorded for quality" and rejected the wording the pattern accepts.
+    One detector: whatever mentions_recording_disclosure says, the history
+    check says."""
+    import bot_runtime
+    from agent_core.guardrails import mentions_recording_disclosure
+
+    said = "This conversation may be recorded for training and quality purposes."
+    assert mentions_recording_disclosure(said)
+    assert bot_runtime._history_already_disclosed_recording(
+        [{"role": "assistant", "content": said}]
+    )
+    assert not bot_runtime._history_already_disclosed_recording(
+        [{"role": "user", "content": said}, {"role": "assistant", "content": "I'll record that in the CRM."}]
+    )

@@ -276,14 +276,19 @@ def _parse_dialog_reset_at(state: dict[str, Any]) -> datetime | None:
 
 
 def _history_already_disclosed_recording(history: list[dict[str, str]]) -> bool:
-    markers = ("recorded for quality", "call is recorded", "whatsapp is recorded", "recorded for compliance")
-    for turn in history:
-        if turn.get("role") != "assistant":
-            continue
-        body = (turn.get("content") or "").lower()
-        if any(m in body for m in markers):
-            return True
-    return False
+    """Has any bot turn in this thread stated the recording disclosure?
+
+    The detector is ``agent_core.guardrails.mentions_recording_disclosure`` --
+    the same one the guardrail evaluator and the Studio lint run. This used to
+    be a fourth copy (a tuple of four substrings) that disagreed with the
+    other three about what counts as a disclosure.
+    """
+    from agent_core.guardrails import mentions_recording_disclosure
+
+    return any(
+        turn.get("role") == "assistant" and mentions_recording_disclosure(turn.get("content") or "")
+        for turn in history
+    )
 
 
 def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recording: bool) -> str:
