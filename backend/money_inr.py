@@ -25,8 +25,23 @@ with ``toLocaleString("en-IN")``. The two disagreed one row apart.
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
 #: What a null amount reads as. Not "₹0" — an amount nobody has is not zero.
 NULL_DISPLAY = "—"
+
+PAISA = Decimal("0.01")
+
+
+def amount(value: object) -> Decimal:
+    """A rupee amount as the ledger stores it: exact, to the paisa.
+
+    The ledger columns are ``numeric(14,2)``. Comparing a cap against a
+    request as floats needed a ``0.009`` slop to survive ``0.1 + 0.2``, and the
+    slop let a request half a paisa over the cap through. There is no half
+    paisa: round to the column's precision and compare exactly.
+    """
+    return Decimal(str(value if value is not None else 0)).quantize(PAISA, rounding=ROUND_HALF_UP)
 
 
 def group_indian(digits: str) -> str:

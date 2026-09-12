@@ -198,6 +198,35 @@ def test_apply_refuses_an_amount_above_the_cap(db_tx, customer, monkeypatch) -> 
     assert not _ledger_waivers(db_tx, customer["account_id"])
 
 
+def test_the_cap_is_money_not_a_float_with_a_slop(db_tx, customer, monkeypatch) -> None:
+    """`asked > cap + 0.009` let a request a paisa over the cap through: 400.01
+    against a cap of 400 posted. The ledger is numeric(14,2); the comparison
+    is exact to the paisa, and a request below a paisa over rounds to the cap
+    rather than sneaking past it.
+    """
+    monkeypatch.setenv("AUTHORITY_MODE", "live")
+    _prepare_eligible(db_tx, customer)
+    from agent_core.authority import recommend_authority
+    from agent_core.authority.enact import AuthorityError, apply_goodwill
+
+    result = recommend_authority(
+        customer_id=customer["customer_id"],
+        account_id=customer["account_id"],
+        asked_amount=400,
+        conn=db_tx,
+    )
+    assert result.approved_amount == 400
+    with pytest.raises(AuthorityError, match="amount_above_cap"):
+        apply_goodwill(decision_id=result.decision_id, amount=400.01, conn=db_tx)
+    assert not _ledger_waivers(db_tx, customer["account_id"])
+
+    posted = apply_goodwill(decision_id=result.decision_id, amount=400.004, conn=db_tx)
+    assert posted["amount"] == 400
+    waivers = _ledger_waivers(db_tx, customer["account_id"])
+    assert len(waivers) == 1
+    assert str(waivers[0]["amount"]) == "-400.00"
+
+
 def test_mission_ceiling_is_what_apply_goodwill_posts(
     db_tx, customer, monkeypatch
 ) -> None:

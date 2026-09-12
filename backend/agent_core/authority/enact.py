@@ -7,6 +7,7 @@ escalation *is* the review.
 
 from __future__ import annotations
 
+from decimal import Decimal
 import logging
 from typing import Any
 
@@ -58,13 +59,14 @@ def apply_goodwill(
                 raise AuthorityError("already_applied")
             if row["verdict"] == VERDICT_ESCALATE:
                 raise AuthorityError("verdict_escalate")
-            cap = float(row["approved_amount"] or row["cap_amount"] or 0)
+            cap = money_inr.amount(row["approved_amount"] or row["cap_amount"] or 0)
             if cap <= 0:
                 raise AuthorityError("no_approved_amount")
-            asked = float(amount) if amount is not None else cap
+            asked = money_inr.amount(amount) if amount is not None else cap
             if asked <= 0:
                 raise AuthorityError("invalid_amount")
-            if asked > cap + 0.009:
+            # Exact, to the paisa: the cap is money, not a float with a slop.
+            if asked > cap:
                 raise AuthorityError("amount_above_cap")
             posted = min(asked, cap)
 
@@ -137,7 +139,7 @@ def post_waiver_for_dispute(
         account_id = row["account_id"]
         if not account_id:
             raise AuthorityError("account_missing")
-        posted = float(amount if amount is not None else (row["disputed_amount"] or 0))
+        posted = money_inr.amount(amount if amount is not None else (row["disputed_amount"] or 0))
         if posted <= 0:
             raise AuthorityError("invalid_amount")
         return _post(
@@ -159,13 +161,15 @@ def _post(
     *,
     account_id: str,
     customer_id: str,
-    amount: float,
+    amount: Decimal,
     fee_type: str,
     decision_id: str | None,
     dispute_id: str | None,
     description: str | None = None,
 ) -> dict[str, Any]:
     import db
+
+    amount = money_inr.amount(amount)
 
     ledger_id = db._id("LED")
     posted_at = utc_now()
@@ -197,7 +201,7 @@ def _post(
             "id": ledger_id,
             "account_id": account_id,
             "description": desc,
-            "amount": float(-abs(amount)),
+            "amount": -abs(amount),
             "posted_at": posted_at,
             "decision_id": decision_id,
             "dispute_id": resolved_dispute,
@@ -212,7 +216,7 @@ def _post(
             "account_id": account_id,
             "type": "waiver",
             "description": desc,
-            "amount": float(-abs(amount)),
+            "amount": str(-abs(amount)),
             "posted_at": posted_at,
             "decision_id": decision_id,
             "dispute_id": resolved_dispute,
@@ -228,7 +232,7 @@ def _post(
             WHERE id = :id
             """
         ),
-        {"id": account_id, "paid": float(abs(amount))},
+        {"id": account_id, "paid": abs(amount)},
     )
 
     if resolved_dispute:

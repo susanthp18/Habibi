@@ -12,6 +12,8 @@ import hmac
 import logging
 from datetime import timezone
 from decimal import Decimal
+
+import money_inr
 from typing import Any
 
 from sqlalchemy import text
@@ -118,7 +120,7 @@ def parse_webhook_payload(provider_name: str, body: dict[str, Any]) -> dict[str,
 
 
 def _money(value: Any) -> Decimal:
-    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    return money_inr.amount(value)
 
 
 def record_payment(
