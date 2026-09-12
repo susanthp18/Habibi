@@ -1,5 +1,5 @@
 import type { BehaviorMetrics } from "@/lib/customerInsights";
-import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function BehaviorMetricsStrip({ metrics }: { metrics: BehaviorMetrics }) {

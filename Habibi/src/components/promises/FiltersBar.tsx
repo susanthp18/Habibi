@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Filters, PromiseStatus } from "@/api/types/promises";
-import { STATUS_LABELS, STATUS_ORDER } from "@/data/promises-seed";
+import { STATUS_LABELS, STATUS_ORDER } from "@/lib/promises";
 
 interface Props {
   filters: Filters;

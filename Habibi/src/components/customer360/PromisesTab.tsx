@@ -1,7 +1,7 @@
 import { Bell, BellOff, HandCoins, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Customer, Promise } from "@/api/types/customer360";
-import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import { StatusChip, ptpStatusTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
 

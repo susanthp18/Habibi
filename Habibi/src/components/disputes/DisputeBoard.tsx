@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Dispute, DisputeStatus } from "@/api/types/disputes";
-import { STATUS_LABELS, STATUS_ORDER, fmtMoney } from "@/data/disputes-seed";
+import { STATUS_LABELS, STATUS_ORDER } from "@/lib/disputes";
+import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DisputeCard } from "./DisputeCard";
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { bindControlId } from "@/components/ui/bind-control-id";
 import {
   Sheet,
@@ -26,7 +26,7 @@ import type {
   PromiseStatus,
   ReminderStatus,
 } from "@/api/types/promises";
-import { fmtDate, fmtMoney, listCustomerSlim } from "@/data/promises-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 
 // --- Create sheet ---
 export interface CreateInput {
@@ -54,8 +54,7 @@ interface CreateProps {
   onOpenChange: (v: boolean) => void;
   onSubmit: (input: CreateInput) => void;
   owners: string[];
-  /** Real customers to pick from (live mode). Falls back to seed roster when omitted. */
-  customers?: CustomerOption[];
+  customers: CustomerOption[];
 }
 
 const todayISO = () => {
@@ -69,12 +68,8 @@ export function CreatePromiseSheet({
   onOpenChange,
   onSubmit,
   owners,
-  customers: customersProp,
+  customers,
 }: CreateProps) {
-  const customers = useMemo<CustomerOption[]>(
-    () => (customersProp && customersProp.length ? customersProp : listCustomerSlim()),
-    [customersProp],
-  );
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [amount, setAmount] = useState("5000");
   const [date, setDate] = useState(todayISO());

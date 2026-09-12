@@ -1,5 +1,5 @@
 import type { ActivityPreviewItem } from "@/lib/customerInsights";
-import { fmtRelative } from "@/data/customer360-seed";
+import { fmtRelative } from "@/lib/format";
 import { StatusChip, type ChipTone } from "./StatusChip";
 
 function kindTone(kind: string): ChipTone {

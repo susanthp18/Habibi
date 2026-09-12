@@ -37,9 +37,7 @@ const FIXTURE_IMPORTERS = [
   "consent.ts",
   "contact-policy.ts",
   "customers.ts",
-  "documents.ts",
   "products.ts",
-  "promises.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.
   "prompt-studio.ts",
   "qa.ts",

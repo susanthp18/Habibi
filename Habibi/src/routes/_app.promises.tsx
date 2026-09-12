@@ -16,7 +16,7 @@ import {
 } from "@/components/promises/PromiseSheet";
 import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
 import type { Filters, PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
-import { computeMetrics, defaultFilters, filterPromises, followUps } from "@/data/promises-seed";
+import { computeMetrics, defaultFilters, filterPromises } from "@/lib/promises";
 import {
   createPlan,
   createPromise,
@@ -203,9 +203,7 @@ function PromisesPage() {
             <div>
               <h1 className="text-body font-semibold text-text">Promises & payment plans</h1>
               <p className="text-body-small text-text-subtle">
-                {totalMetrics.activeCount} active · {totalMetrics.keptRate}% kept-rate ·{" "}
-                {followUps.length} follow-up
-                {followUps.length === 1 ? "" : "s"} created this session
+                {totalMetrics.activeCount} active · {totalMetrics.keptRate}% kept-rate
               </p>
             </div>
           </div>
@@ -228,24 +226,6 @@ function PromisesPage() {
               owners={owners}
               counts={metrics.counts}
             />
-
-            {followUps.length > 0 && (
-              <div className="flex items-start gap-150 rounded-large border border-border-danger-subtle bg-background-danger-subtler/60 px-150 py-100 text-body-small">
-                <Inbox className="mt-025 h-4 w-4 text-text-danger" />
-                <div className="flex-1">
-                  <div className="font-semibold text-text-danger-bolder">
-                    Broken promises routed to Follow-up Queue
-                  </div>
-                  <div className="text-text-danger-bolder/80">
-                    {followUps
-                      .slice(0, 3)
-                      .map((f) => `${f.customerName} · ${f.promiseId}`)
-                      .join(" · ")}
-                    {followUps.length > 3 && ` · +${followUps.length - 3} more`}
-                  </div>
-                </div>
-              </div>
-            )}
 
             <PromisePipeline
               promises={filtered}

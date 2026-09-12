@@ -19,7 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { PlanCadence } from "@/api/types/promises";
-import { buildSchedule, fmtDate, fmtMoney, listCustomerSlim } from "@/data/promises-seed";
+import { buildSchedule } from "@/lib/promises";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import type { CustomerOption } from "./PromiseSheet";
 
 export interface PlanInput {
@@ -38,8 +39,7 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   onSubmit: (input: PlanInput) => void;
   owners: string[];
-  /** Real customers to pick from (live mode). Falls back to seed roster when omitted. */
-  customers?: CustomerOption[];
+  customers: CustomerOption[];
 }
 
 const startDefault = () => {
@@ -48,17 +48,7 @@ const startDefault = () => {
   return d.toISOString().slice(0, 10);
 };
 
-export function PlanBuilderSheet({
-  open,
-  onOpenChange,
-  onSubmit,
-  owners,
-  customers: customersProp,
-}: Props) {
-  const customers = useMemo<CustomerOption[]>(
-    () => (customersProp && customersProp.length ? customersProp : listCustomerSlim()),
-    [customersProp],
-  );
+export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, customers }: Props) {
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [total, setTotal] = useState("30000");
   const [installments, setInstallments] = useState(4);

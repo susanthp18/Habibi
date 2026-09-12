@@ -14,7 +14,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import type { Promise, PromiseStatus } from "@/api/types/promises";
-import { fmtDate, fmtMoney } from "@/data/promises-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 

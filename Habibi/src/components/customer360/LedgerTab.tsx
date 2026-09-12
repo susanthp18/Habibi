@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Customer, LedgerEntry, LedgerType } from "@/api/types/customer360";
-import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import { StatusChip, ledgerTypeTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
 import {

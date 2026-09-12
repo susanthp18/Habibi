@@ -12,11 +12,11 @@ import { RequestsTable } from "@/components/documents/RequestsTable";
 import { RequestSheet } from "@/components/documents/RequestSheet";
 import { NewRequestSheet } from "@/components/documents/NewRequestSheet";
 import type { DocChannel, DocRequest, DocStatus, Filters } from "@/api/types/documents";
-import { computeMetrics, defaultFilters, filterDocs } from "@/data/documents-seed";
+import { computeMetrics, defaultFilters, filterDocs } from "@/lib/documents";
 import {
-  finishDocumentGenerate,
   documentAssigneeOptions,
   markGenerating,
+  markSent,
   reassignChannel,
   retryDocument,
   useDocuments,
@@ -68,14 +68,7 @@ function DocumentsPage() {
     queryClient.invalidateQueries({ queryKey: ["documents"] });
   };
 
-  const assignees = useMemo(
-    () =>
-      documentAssigneeOptions(
-        staff,
-        items.map((d) => d.assignee),
-      ),
-    [items, staff],
-  );
+  const assignees = useMemo(() => documentAssigneeOptions(staff), [staff]);
 
   const customerOptions = useMemo(
     () =>
@@ -131,17 +124,12 @@ function DocumentsPage() {
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Retry failed"),
   });
 
-  // Generate → sent (or failed). Live: real PATCH sequence; mock: seed mutators.
   const runGenerate = async (d: DocRequest) => {
     try {
       await markGenerating(d);
       invalidate();
-      const result = await finishDocumentGenerate(d);
-      if (result === "failed") {
-        toast.error(`Failed · ${d.customerName}`);
-      } else {
-        toast.success(`Sent · ${d.customerName}`);
-      }
+      await markSent(d);
+      toast.success(`Sent · ${d.customerName}`);
       invalidate();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Generate failed");

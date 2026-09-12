@@ -1,7 +1,7 @@
 import { AlertCircle } from "lucide-react";
 
 import { useCallCost, type CallCostLine } from "@/api/call-cost";
-import { inrCompact } from "@/data/billing-seed";
+import { inrCompact } from "@/lib/format";
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
 

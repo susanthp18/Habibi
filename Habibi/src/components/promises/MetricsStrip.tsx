@@ -1,5 +1,5 @@
 import { TrendingUp, Clock, AlertTriangle, HandCoins, Timer } from "lucide-react";
-import { fmtMoney } from "@/data/promises-seed";
+import { fmtMoney } from "@/lib/format";
 
 interface Metrics {
   keptRate: number;

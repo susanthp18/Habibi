@@ -1,10 +1,10 @@
 import { Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Customer, Dispute, DisputeStatus } from "@/api/types/customer360";
-import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import type { SlaTone } from "@/api/types/dispute-sla";
 import type { DisputeType } from "@/api/types/disputes";
-import { TYPE_LABELS } from "@/data/disputes-seed";
+import { TYPE_LABELS } from "@/lib/disputes";
 import { cn } from "@/lib/utils";
 import { StatusChip, disputeStatusTone } from "./StatusChip";
 

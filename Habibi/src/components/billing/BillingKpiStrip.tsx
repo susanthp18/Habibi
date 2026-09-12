@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, TrendingUp, Wallet, Coins, Gauge } from "lucide-react";
 import type { DayPoint } from "@/api/types/billing";
-import { inrCompact } from "@/data/billing-seed";
+import { inrCompact } from "@/lib/format";
 import { LivelineSpark } from "@/components/charts";
 import { cn } from "@/lib/utils";
 

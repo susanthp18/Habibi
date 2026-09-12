@@ -10,13 +10,7 @@ import { DisputeBoard } from "@/components/disputes/DisputeBoard";
 import { DisputeSheet } from "@/components/disputes/DisputeSheet";
 import { NewDisputeSheet } from "@/components/disputes/NewDisputeSheet";
 import type { Dispute, Filters } from "@/api/types/disputes";
-import {
-  CURRENT_AGENT,
-  computeMetrics,
-  defaultFilters,
-  filterDisputes,
-  STATUS_LABELS,
-} from "@/data/disputes-seed";
+import { computeMetrics, defaultFilters, filterDisputes, STATUS_LABELS } from "@/lib/disputes";
 import { assignDispute, disputeAssigneeOptions, moveDispute, useDisputes } from "@/api/disputes";
 import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
@@ -71,7 +65,10 @@ function DisputesPage() {
     [disputesData, staff],
   );
 
-  const filtered = useMemo(() => filterDisputes(disputesData, filters), [filters, disputesData]);
+  const filtered = useMemo(
+    () => filterDisputes(disputesData, filters, me?.name),
+    [filters, disputesData, me?.name],
+  );
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
 
   // Derive the open sheet from fetched data so it stays fresh after invalidation.
@@ -103,10 +100,13 @@ function DisputesPage() {
     moveMutation.mutate({ d, status });
   };
 
-  // "Assign to me" must mean the real acting user, not a seed constant —
-  // otherwise the assignment disagrees with the actor recorded on the write.
+  // "Assign to me" means the acting user; without one there is nobody to assign to.
   const handleAssignMe = (d: Dispute) => {
-    assignMutation.mutate({ d, assignee: me?.name ?? CURRENT_AGENT });
+    if (!me?.name) {
+      toast.error("Who you are has not loaded yet");
+      return;
+    }
+    assignMutation.mutate({ d, assignee: me.name });
   };
 
   const customerOptions = useMemo(

@@ -144,4 +144,4 @@ export function billingExportUrl(period: Period, tenantId: string, env: Env): st
   return `${API_BASE_URL}/billing/export.csv?${qs.toString()}`;
 }
 
-export { changePct, inr, inrCompact, sumRange, usageUnits } from "@/data/billing-seed";
+export { changePct, sumRange, usageUnits } from "@/data/billing-seed";

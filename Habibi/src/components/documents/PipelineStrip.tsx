@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { DocStatus } from "@/api/types/documents";
-import { STATUS_LABELS, STATUS_ORDER } from "@/data/documents-seed";
+import { STATUS_LABELS, STATUS_ORDER } from "@/lib/documents";
 import { ChevronRight } from "lucide-react";
 
 const TONE: Record<DocStatus, { bar: string; text: string; dot: string }> = {

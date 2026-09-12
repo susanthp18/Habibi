@@ -21,8 +21,8 @@ import {
   STATUS_LABELS,
   STATUS_ORDER,
   agingInfo,
-  fmtDate,
-} from "@/data/documents-seed";
+} from "@/lib/documents";
+import { fmtDate } from "@/lib/format";
 import {
   FilterTable,
   type FilterChip,

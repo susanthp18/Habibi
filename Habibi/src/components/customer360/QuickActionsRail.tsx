@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Customer } from "@/api/types/customer360";
-import { fmtDate, fmtMoney } from "@/data/customer360-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import type { NbaItem, NbaActionKind } from "@/lib/customerInsights";
 import { StatusChip, ptpStatusTone, disputeStatusTone } from "./StatusChip";
 import { cn } from "@/lib/utils";

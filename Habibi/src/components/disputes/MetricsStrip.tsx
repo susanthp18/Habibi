@@ -1,5 +1,5 @@
 import { AlertOctagon, TimerReset, Timer, CheckCircle2, TrendingUp } from "lucide-react";
-import { fmtMoney } from "@/data/disputes-seed";
+import { fmtMoney } from "@/lib/format";
 
 interface Metrics {
   openCount: number;

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { User, Wallet } from "lucide-react";
 import type { PaymentPlan } from "@/api/types/promises";
-import { fmtDate, fmtMoney } from "@/data/promises-seed";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,

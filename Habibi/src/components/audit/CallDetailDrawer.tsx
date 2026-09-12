@@ -24,7 +24,8 @@ import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
 import type { CallRecord } from "@/api/types/audit";
-import { formatDateTime, formatDuration } from "@/data/audit-seed";
+import { formatDuration } from "@/lib/format";
+import { formatDateTime } from "@/data/audit-seed";
 
 interface Props {
   call: CallRecord | null;

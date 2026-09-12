@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Play, Pause, SkipBack, SkipForward, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/data/audit-seed";
+import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface Props {

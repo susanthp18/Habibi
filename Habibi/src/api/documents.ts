@@ -3,10 +3,9 @@
 //   fetchDocuments() → queue list  (GET /document-requests)
 //   create / assign / channel / template / status transitions → Phase 3A writes
 //
-// Mock branch preserves the in-memory seed mutators exactly. Live branch maps
-// to POST/PATCH (+ delivery-attempts on retry); the screen shape is richer than
-// the write response, so callers invalidate + refetch. Assignees resolve through
-// /staff (never hardcoded CURRENT_AGENT maps).
+// Writes map to POST/PATCH (+ delivery-attempts on retry); the screen shape is
+// richer than the write response, so callers invalidate + refetch. Assignees
+// resolve through /staff.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
@@ -18,31 +17,17 @@ import type {
   DocType,
   NewRequestInput,
 } from "@/api/types/documents";
-import {
-  assign as assignSeed,
-  changeTemplate as changeSeedTemplate,
-  createRequest as createSeedRequest,
-  documents as seedDocuments,
-  markFailed as markSeedFailed,
-  markGenerating as markSeedGenerating,
-  markSent as markSeedSent,
-  reassignChannel as reassignSeedChannel,
-  retry as retrySeed,
-  setStatus as setSeedStatus,
-} from "@/data/documents-seed";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
 import { humanNames, resolveActor, type Staff } from "./staff";
 
 export const UNASSIGNED = "Unassigned";
 
-export function documentAssigneeOptions(staff: Staff[], existing: string[]): string[] {
-  if (!USE_MOCK) return humanNames(staff);
-  return Array.from(new Set(existing)).sort();
+export function documentAssigneeOptions(staff: Staff[]): string[] {
+  return humanNames(staff);
 }
 
 export async function fetchDocuments(): Promise<DocRequest[]> {
-  if (USE_MOCK) return mockDelay(seedDocuments);
   return apiGet<DocRequest[]>("/document-requests");
 }
 
@@ -51,10 +36,6 @@ export function useDocuments() {
 }
 
 export async function createRequest(input: NewRequestInput): Promise<{ id: string }> {
-  if (USE_MOCK) {
-    const created = createSeedRequest(input);
-    return { id: created.id };
-  }
   const me = await currentActor();
   const created = await apiPost<{ id: string }>("/document-requests", {
     customerId: input.customerId,
@@ -72,10 +53,6 @@ export async function createRequest(input: NewRequestInput): Promise<{ id: strin
 }
 
 export async function assignDocument(doc: DocRequest, assignee: string): Promise<void> {
-  if (USE_MOCK) {
-    assignSeed(doc.id, assignee);
-    return;
-  }
   if (assignee === UNASSIGNED) {
     await apiPatch(`/document-requests/${doc.id}`, { assigneeUserId: null });
     return;
@@ -88,18 +65,10 @@ export async function assignDocument(doc: DocRequest, assignee: string): Promise
 }
 
 export async function reassignChannel(doc: DocRequest, channel: DocChannel): Promise<void> {
-  if (USE_MOCK) {
-    reassignSeedChannel(doc.id, channel);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, { deliveryChannel: channel });
 }
 
 export async function changeTemplate(doc: DocRequest, templateId: string): Promise<void> {
-  if (USE_MOCK) {
-    changeSeedTemplate(doc.id, templateId);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, { templateId });
 }
 
@@ -108,10 +77,6 @@ export async function setStatus(
   next: DocStatus,
   extra?: Partial<Pick<DocRequest, "generatedAt" | "sentAt" | "failedReason" | "sizeKb">>,
 ): Promise<void> {
-  if (USE_MOCK) {
-    setSeedStatus(doc.id, next, extra);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, {
     status: next,
     ...extra,
@@ -119,10 +84,6 @@ export async function setStatus(
 }
 
 export async function markGenerating(doc: DocRequest): Promise<void> {
-  if (USE_MOCK) {
-    markSeedGenerating(doc.id);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, {
     status: "generating",
     generatedAt: new Date().toISOString(),
@@ -131,10 +92,6 @@ export async function markGenerating(doc: DocRequest): Promise<void> {
 }
 
 export async function markSent(doc: DocRequest): Promise<void> {
-  if (USE_MOCK) {
-    markSeedSent(doc.id);
-    return;
-  }
   const sizeKb = doc.sizeKb ?? 140 + Math.floor(Math.random() * 400);
   await apiPatch(`/document-requests/${doc.id}`, {
     status: "sent",
@@ -145,38 +102,14 @@ export async function markSent(doc: DocRequest): Promise<void> {
 }
 
 export async function markFailed(doc: DocRequest, reason: string): Promise<void> {
-  if (USE_MOCK) {
-    markSeedFailed(doc.id, reason);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, {
     status: "failed",
     failedReason: reason,
   });
 }
 
-/**
- * Generate → sent (or the mock demo-failure). The 1.6s pause is part of the
- * fulfilment animation; live never persists a random "failed" from here.
- */
-export async function finishDocumentGenerate(doc: DocRequest): Promise<"sent" | "failed"> {
-  const shouldFail =
-    USE_MOCK && doc.id.endsWith("7") && doc.status !== "failed" && Math.random() < 0.15;
-  await new Promise((r) => setTimeout(r, 1600));
-  if (shouldFail) {
-    await markFailed(doc, "Delivery gateway rejected · retrying available");
-    return "failed";
-  }
-  await markSent(doc);
-  return "sent";
-}
-
 /** Reset to requested and bump attempts via the delivery-attempts endpoint. */
 export async function retryDocument(doc: DocRequest): Promise<void> {
-  if (USE_MOCK) {
-    retrySeed(doc.id);
-    return;
-  }
   await apiPatch(`/document-requests/${doc.id}`, {
     status: "requested",
     failedReason: null,

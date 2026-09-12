@@ -4,8 +4,7 @@
 //   fetchPaymentPlans()  → plans table     (GET /payment-plans)
 //   createPromise / movePromise / reschedulePromise / createPlan → writes
 //
-// Mock branch preserves the in-memory seed behaviour exactly; the live branch
-// maps to the Phase 3A write endpoints and relies on query invalidation for the
+// Writes map to the Phase 3A endpoints and rely on query invalidation for the
 // refreshed list (POST/PATCH return the Customer-360 promise shape, not the
 // richer screen shape, so the route refetches rather than using the response).
 // -----------------------------------------------------------------------------
@@ -16,17 +15,9 @@ import { z } from "zod";
 import type { CreateInput, CustomerOption } from "@/components/promises/PromiseSheet";
 import type { PlanInput } from "@/components/promises/PlanBuilderSheet";
 import type { PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
-import {
-  buildSchedule,
-  createPlan as createSeedPlan,
-  createPromise as createSeedPromise,
-  movePromise as moveSeedPromise,
-  plans as seedPlans,
-  promises as seedPromises,
-  reschedulePromise as rescheduleSeedPromise,
-} from "@/data/promises-seed";
+import { buildSchedule } from "@/lib/promises";
 import type { Customer } from "@/api/types/customer360";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { ptpPromiseSchema } from "./customers";
 import { resolveActor, type Staff } from "./staff";
 
@@ -109,12 +100,10 @@ const promiseResendConfirmSchema = ptpPromiseSchema.extend({
 const paymentPlanCreateSchema = z.object({ id: z.string(), promise: ptpPromiseSchema });
 
 export async function fetchPromises(): Promise<Ptp[]> {
-  if (USE_MOCK) return mockDelay(seedPromises);
   return apiGet<Ptp[]>("/promises", { schema: z.array(promiseListSchema) });
 }
 
 export async function fetchPaymentPlans(): Promise<PaymentPlan[]> {
-  if (USE_MOCK) return mockDelay(seedPlans);
   return apiGet<PaymentPlan[]>("/payment-plans", { schema: z.array(paymentPlanSchema) });
 }
 
@@ -126,9 +115,7 @@ export function usePaymentPlans() {
   return useQuery({ queryKey: ["payment-plans"], queryFn: fetchPaymentPlans, staleTime: 15_000 });
 }
 
-/** Mock sheets fall back to the seed roster (`listCustomerSlim`). */
-export function promiseSheetCustomers(customers: Customer[]): CustomerOption[] | undefined {
-  if (USE_MOCK) return undefined;
+export function promiseSheetCustomers(customers: Customer[]): CustomerOption[] {
   return customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -137,15 +124,14 @@ export function promiseSheetCustomers(customers: Customer[]): CustomerOption[] |
   }));
 }
 
-/** Live unions the /staff roster so the picker can assign anyone real. */
+/** The /staff roster unioned with the owners already on the board. */
 export function promiseOwnerOptions(staff: Staff[], existing: string[]): string[] {
   const set = new Set(existing);
-  if (!USE_MOCK) staff.forEach((s) => set.add(s.name));
+  staff.forEach((s) => set.add(s.name));
   return Array.from(set).sort();
 }
 
 export async function createPromise(input: CreateInput): Promise<{ id: string }> {
-  if (USE_MOCK) return createSeedPromise(input);
   // The owner triplet is authoritative (see DATA_MODEL.md): `source` is derived
   // from owner_kind on read, so resolving the chosen owner sets both.
   const actor = await resolveActor(input.owner);
@@ -169,10 +155,6 @@ export async function movePromise(
   status: PromiseStatus,
   opts?: { paidAmount?: number },
 ): Promise<void> {
-  if (USE_MOCK) {
-    moveSeedPromise(p.id, status, opts);
-    return;
-  }
   await apiPatch(
     `/promises/${p.id}`,
     { status, paidAmount: opts?.paidAmount },
@@ -181,29 +163,14 @@ export async function movePromise(
 }
 
 export async function resendPromiseConfirm(p: Ptp): Promise<void> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    p.payLinkSent = true;
-    p.confirmStatus = "sent";
-    p.events = [
-      ...p.events,
-      { at: new Date().toISOString(), label: "Payment link resent", tone: "info" },
-    ];
-    return;
-  }
   await apiPost(`/promises/${p.id}/resend-confirm`, {}, { schema: promiseResendConfirmSchema });
 }
 
 export async function reschedulePromise(p: Ptp, newDate: string): Promise<void> {
-  if (USE_MOCK) {
-    rescheduleSeedPromise(p.id, newDate);
-    return;
-  }
   await apiPatch(`/promises/${p.id}`, { promisedDate: newDate }, { schema: ptpPromiseSchema });
 }
 
 export async function createPlan(input: PlanInput): Promise<{ id: string }> {
-  if (USE_MOCK) return createSeedPlan(input);
   const schedule = buildSchedule({
     total: input.total,
     installments: input.installments,

@@ -14,7 +14,7 @@ import {
 import { RiskBadge } from "@/components/customer360/RiskBadge";
 import { Input } from "@/components/ui/input";
 import type { Customer } from "@/api/types/customer360";
-import { fmtMoney, fmtRelative } from "@/data/customer360-seed";
+import { fmtMoney, fmtRelative } from "@/lib/format";
 import { useCustomers } from "@/api/customers";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";

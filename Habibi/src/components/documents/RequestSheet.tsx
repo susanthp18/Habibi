@@ -24,10 +24,10 @@ import {
   TEMPLATES,
   VIA_LABELS,
   agingInfo,
-  fmtDate,
   renderPreview,
   templatesFor,
-} from "@/data/documents-seed";
+} from "@/lib/documents";
+import { fmtDate } from "@/lib/format";
 import {
   UNASSIGNED,
   assignDocument,

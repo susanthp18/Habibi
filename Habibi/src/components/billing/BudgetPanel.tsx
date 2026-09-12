@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, Bell, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BudgetRule } from "@/api/types/billing";
-import { inrCompact } from "@/data/billing-seed";
+import { inrCompact } from "@/lib/format";
 import type { BillingBudget } from "@/api/billing";
 import type { AlertEvent } from "@/api/types/billing";
 import { cn, formatKbDate } from "@/lib/utils";

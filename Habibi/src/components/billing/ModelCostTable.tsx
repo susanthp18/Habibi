@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import type { BillingModelSpend } from "@/api/billing";
-import { inrCompact } from "@/data/billing-seed";
+import { inrCompact } from "@/lib/format";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 
 export function ModelCostTable({

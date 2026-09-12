@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallFlag, CallRecord } from "@/api/types/audit";
-import { formatDateTime, formatDuration, sentimentColor } from "@/data/audit-seed";
+import { formatDuration } from "@/lib/format";
+import { formatDateTime, sentimentColor } from "@/data/audit-seed";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,

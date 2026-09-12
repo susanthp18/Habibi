@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { DisputeType } from "@/api/types/disputes";
-import { TYPE_LABELS } from "@/data/disputes-seed";
+import { TYPE_LABELS } from "@/lib/disputes";
 
 type Kind = "ptp" | "dispute" | "statement" | "call" | null;
 

@@ -996,46 +996,4 @@ export function getCustomer(id: string): Customer | undefined {
   return _customers.find((c) => c.id === id);
 }
 
-// ---- utility formatters ----
-export function fmtMoney(n: number | null | undefined) {
-  const value = typeof n === "number" && Number.isFinite(n) ? n : 0;
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  return `${sign}₹${abs.toLocaleString("en-IN")}`;
-}
-
-export function fmtDate(iso: string | null | undefined, opts?: Intl.DateTimeFormatOptions) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    ...(opts ?? { month: "short", day: "numeric", year: "numeric" }),
-  });
-}
-
-export function fmtDateTime(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-export function fmtRelative(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  const diff = (Date.now() - d.getTime()) / 1000;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  const days = Math.floor(diff / 86400);
-  if (days < 7) return `${days}d ago`;
-  return fmtDate(iso, { month: "short", day: "numeric" });
-}
+export { fmtDate, fmtDateTime, fmtMoney, fmtRelative } from "@/lib/format";

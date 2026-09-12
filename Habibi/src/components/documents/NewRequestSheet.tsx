@@ -8,7 +8,7 @@ import { SelectField } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { DocChannel, DocType } from "@/api/types/documents";
-import { CHANNEL_LABELS, DOC_TYPE_LABELS, templatesFor } from "@/data/documents-seed";
+import { CHANNEL_LABELS, DOC_TYPE_LABELS, templatesFor } from "@/lib/documents";
 import { createRequest } from "@/api/documents";
 
 export interface DocumentCustomerOption {

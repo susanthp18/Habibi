@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { SelectField } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { DisputeType } from "@/api/types/disputes";
-import { TYPE_LABELS } from "@/data/disputes-seed";
+import { TYPE_LABELS } from "@/lib/disputes";
 import { createDispute } from "@/api/disputes";
 
 export interface DisputeCustomerOption {

@@ -26,9 +26,8 @@ import {
   STATUS_LABELS,
   STATUS_ORDER,
   TYPE_LABELS,
-  fmtDate,
-  fmtMoney,
-} from "@/data/disputes-seed";
+} from "@/lib/disputes";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import {
   addNote,
   assignDispute,

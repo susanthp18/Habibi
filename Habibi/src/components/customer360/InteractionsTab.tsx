@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Channel, Customer, Interaction, Sentiment } from "@/api/types/customer360";
-import { fmtDateTime, fmtRelative } from "@/data/customer360-seed";
+import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 

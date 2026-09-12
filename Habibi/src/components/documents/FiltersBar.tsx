@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { DocChannel, DocType, Filters, RequestedVia } from "@/api/types/documents";
-import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/data/documents-seed";
+import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/lib/documents";
 
 interface Props {
   filters: Filters;

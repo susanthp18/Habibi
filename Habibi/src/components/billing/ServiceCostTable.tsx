@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { DayPoint, Service } from "@/api/types/billing";
-import { changePct, inrCompact, sumRange, usageUnits } from "@/data/billing-seed";
+import { inrCompact } from "@/lib/format";
+import { changePct, sumRange, usageUnits } from "@/data/billing-seed";
 import { cn } from "@/lib/utils";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
