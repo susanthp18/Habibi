@@ -254,6 +254,16 @@ def evaluate_guardrails(
     return list(dict.fromkeys(flags))
 
 
+#: Flags that describe the *caller's* conduct or a limit on the session, not
+#: something the bot said wrongly. ``evaluate_guardrails`` raises them beside
+#: the bot-misconduct flags because the callers count flags; readers that act
+#: on "the bot broke a rule" -- the turn critic, the compliance filer -- must
+#: leave these out. One list, here, next to the producer.
+NON_BOT_FLAGS: frozenset[str] = frozenset(
+    {"auto-escalate", "max-turns", "max-seconds", "politics-religion"}
+)
+
+
 def should_halt(flags: list[str]) -> bool:
     return any(
         f.startswith("prohibited:")

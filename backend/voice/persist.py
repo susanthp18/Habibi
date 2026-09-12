@@ -626,11 +626,9 @@ _FLAG_RULE_MAP = {
 }
 
 #: Flags that describe the *caller's* conduct or a session limit, not bot
-#: misconduct. Listed so a reader can see they were considered and rejected
-#: rather than overlooked.
-_NON_BOT_FLAGS = frozenset(
-    {"auto-escalate", "max-turns", "max-seconds", "politics-religion"}
-)
+#: misconduct -- owned next to the producer (agent_core.guardrails) and
+#: read here and by the turn critic.
+from agent_core.guardrails import NON_BOT_FLAGS as _NON_BOT_FLAGS
 
 
 def rule_for_flag(flag: str) -> str | None:

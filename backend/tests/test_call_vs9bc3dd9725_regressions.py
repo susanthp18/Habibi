@@ -165,3 +165,20 @@ def test_a_stray_tool_result_cannot_drive_the_counter_negative() -> None:
     obs._tool_calls = max(0, obs._tool_calls - 1)
     assert obs._tool_calls == 0
     assert obs.busy(grace_seconds=0) is False
+
+
+def test_a_session_limit_is_not_a_rule_the_bot_broke() -> None:
+    """``max-turns``, ``max-seconds``, ``auto-escalate`` and the caller's own
+    ``politics-religion`` describe the session or the caller, not the reply.
+    Passed through, the critic told the model "your last reply broke a
+    compliance rule (max-turns) -- do not repeat that wording", which it can
+    act on only by apologising for nothing. The list is the producer's
+    (``agent_core.guardrails.NON_BOT_FLAGS``); persist.py and the critic read
+    it."""
+    from agent_core.guardrails import NON_BOT_FLAGS
+
+    assert tc._guardrail_correction(sorted(NON_BOT_FLAGS)) is None
+    mixed = tc._guardrail_correction(["max-turns", "hours-breach"])
+    assert mixed is not None
+    assert "hours-breach" in mixed.directive
+    assert "max-turns" not in mixed.directive

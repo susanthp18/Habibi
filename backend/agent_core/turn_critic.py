@@ -168,6 +168,8 @@ def _guardrail_correction(
     """
     if not flags:
         return None
+    from agent_core.guardrails import NON_BOT_FLAGS
+
     names: list[str] = []
     for flag in flags if isinstance(flags, (list, tuple, set)) else [flags]:
         if isinstance(flag, dict):
@@ -175,7 +177,11 @@ def _guardrail_correction(
         else:
             name = flag
         name = str(name or "").strip()
-        if name and name.lower() not in {"none", "ok"}:
+        # A session limit or the caller's own conduct is not a rule the bot
+        # broke. Passing "max-turns" here told the model "your last reply
+        # broke a compliance rule (max-turns) -- do not repeat that wording",
+        # which it cannot act on except by apologising for nothing.
+        if name and name.lower() not in {"none", "ok"} and name not in NON_BOT_FLAGS:
             names.append(name)
     if not names:
         return None
