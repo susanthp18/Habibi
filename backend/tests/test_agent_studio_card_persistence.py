@@ -160,3 +160,40 @@ def test_a_restored_draft_keeps_the_label_it_restores(db_tx) -> None:
     draft = db.restore_prompt_version_as_draft(published["id"])
     assert draft["label"] == published["label"]
     assert draft["status"] == "draft"
+
+
+def test_a_card_that_does_not_author_a_channel_is_not_served_on_it(cloned_bot) -> None:
+    """``identity.channels`` was read at publish (G-F11, the locked-tool check)
+    and by no runtime: a card authored ``["voice"]`` still answered WhatsApp.
+    ``load_active_bundle(channel=...)`` honours it, and the refusal is not a
+    ``KeyError`` -- every runtime reads that as "no deployment" and falls back,
+    which a refused channel must not."""
+    from agent_core.deployment import ChannelNotAuthored
+
+    card_row = db.get_agent_studio_card(cloned_bot)
+    voice_only = dict(card_row["agentCard"])
+    voice_only["identity"] = {**voice_only["identity"], "channels": ["voice"]}
+    db.patch_prompt_version(card_row["draftVersionId"], {"agentCard": voice_only})
+    db.publish_prompt_version(card_row["draftVersionId"], "voice only")
+
+    assert load_active_bundle("production", bot_id=cloned_bot, channel="voice")["botId"] == cloned_bot
+    with pytest.raises(ChannelNotAuthored, match="channel_not_authored"):
+        load_active_bundle("production", bot_id=cloned_bot, channel="whatsapp")
+    # No channel asked for is the old call exactly.
+    assert load_active_bundle("production", bot_id=cloned_bot)["botId"] == cloned_bot
+
+
+def test_a_binding_to_a_card_that_does_not_answer_the_channel_is_refused(cloned_bot, db_tx) -> None:
+    """The binding is the one place a channel is pointed at a card, so it is
+    the cheapest place to learn the card does not answer it: a 409 on a screen
+    rather than a dead job later."""
+    from agent_core.cards.routing import upsert_entry_binding
+
+    card_row = db.get_agent_studio_card(cloned_bot)
+    voice_only = dict(card_row["agentCard"])
+    voice_only["identity"] = {**voice_only["identity"], "channels": ["voice"]}
+    db.patch_prompt_version(card_row["draftVersionId"], {"agentCard": voice_only})
+    db.publish_prompt_version(card_row["draftVersionId"], "voice only")
+
+    with pytest.raises(ValueError, match="entry_binding_channel_not_authored"):
+        upsert_entry_binding(channel="whatsapp", bot_id=cloned_bot, address="+910000000001", conn=db_tx)

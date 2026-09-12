@@ -268,10 +268,13 @@ def resolve_call(call) -> None:
             if sandbox_session.get("kbSnapshotId"):
                 bundle["kbSnapshotId"] = sandbox_session["kbSnapshotId"]
         else:
+            # ChannelNotAuthored is a RuntimeError, not a KeyError: it passes
+            # this handler and refuses the call, like a missing graph.
             bundle = load_active_bundle(
                 fallback_environments=("sandbox",),
                 bot_id=cohort_bot_id,
                 customer_id=cohort_key,
+                channel="voice",
             )
     except KeyError:
         logger.warning("No active deployment — using minimal fallback instruction")

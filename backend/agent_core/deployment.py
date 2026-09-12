@@ -28,18 +28,30 @@ def active_environment() -> str:
     return (os.getenv("BOT_ENVIRONMENT") or "production").strip() or "production"
 
 
+class ChannelNotAuthored(RuntimeError):
+    """The deployment's card does not answer this channel.
+
+    Deliberately not a ``KeyError``: every runtime treats a ``KeyError`` from
+    :func:`load_active_bundle` as "no deployment" and falls back, and a card
+    that refused a channel must not be served by the fallback.
+    """
+
+
 def load_active_bundle(
     environment: str | None = None,
     *,
     bot_id: str | None = None,
     fallback_environments: tuple[str, ...] = (),
     customer_id: str | None = None,
+    channel: str | None = None,
 ) -> dict[str, Any]:
     """Load active deployment + prompt version + voice config.
 
     Raises KeyError('active_deployment_not_found') when no active row exists
     for the requested (or fallback) environment(s). Optional customer_id
     hash-splits a running canary experiment; retired baselines load by id.
+    ``channel`` given, the card's ``identity.channels`` is honoured: a card
+    that does not author the channel raises :class:`ChannelNotAuthored`.
     """
     envs: list[str] = []
     for env in (environment or active_environment(), *fallback_environments):
@@ -117,6 +129,11 @@ def load_active_bundle(
         "bundleHash": deployment.get("bundleHash"),
     }
     _dual_compute_parity(bundle)
+    if channel:
+        from agent_core.cards.schema import authors_channel
+
+        if not authors_channel(bundle["agentCard"], channel):
+            raise ChannelNotAuthored(f"channel_not_authored:{bundle.get('botId') or bot_id}:{channel}")
     return bundle
 
 

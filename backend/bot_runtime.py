@@ -24,7 +24,7 @@ import whatsapp as wa
 from agent_core import lexicon
 from agent_core import perception
 from agent_core.compaction import run_up
-from agent_core.deployment import load_active_bundle
+from agent_core.deployment import ChannelNotAuthored, load_active_bundle
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.sentiment import sentiment_label
 from agent_core.understanding import analyze_turn
@@ -883,8 +883,15 @@ def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             bot_id=_bot_id(),
             fallback_environments=("sandbox", "production"),
             customer_id=conv.get("customer_id"),
+            channel="whatsapp",
         )
         guardrails = bundle.get("guardrails") or {}
+    except ChannelNotAuthored as exc:
+        # The card says it does not answer WhatsApp. Not a transient fault:
+        # dead now, with the reason on the row, rather than five retries.
+        with engine.begin() as conn:
+            bot_jobs.mark_dead(conn, job, str(exc))
+        return
     except KeyError as exc:
         with engine.begin() as conn:
             bot_jobs.mark_failed_or_retry(conn, job, f"deployment:{exc}")

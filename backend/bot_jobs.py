@@ -341,26 +341,33 @@ def mark_cancelled(conn: Connection, job_id: str, reason: str) -> bool:
     return res.rowcount == 1
 
 
+def mark_dead(conn: Connection, job: dict[str, Any], error: str) -> str:
+    """Dead-letter now. For a refusal that will not change with time -- a
+    card that does not answer this channel -- retrying with backoff is five
+    more chances to be refused the same way."""
+    conn.execute(
+        text(
+            """
+            UPDATE bot_turn_jobs
+            SET status = 'dead',
+                error = :error,
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": job["id"], "error": error[:MAX_JOB_ERROR_CHARS]},
+    )
+    return "dead"
+
+
 def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> str:
     """Backoff retry or dead-letter. Returns final status."""
     attempt = int(job.get("attempt") or 1)
     cap = max_attempts()
     if attempt >= cap:
-        conn.execute(
-            text(
-                """
-                UPDATE bot_turn_jobs
-                SET status = 'dead',
-                    error = :error,
-                    locked_at = NULL,
-                    locked_by = NULL,
-                    updated_at = now()
-                WHERE id = :id
-                """
-            ),
-            {"id": job["id"], "error": error[:MAX_JOB_ERROR_CHARS]},
-        )
-        return "dead"
+        return mark_dead(conn, job, error)
 
     delay_sec = min(300, 2 ** min(attempt, 6))
     run_after = datetime.now(timezone.utc) + timedelta(seconds=delay_sec)

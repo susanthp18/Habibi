@@ -509,3 +509,26 @@ def is_authored(raw: Any) -> bool:
     """Non-empty JSON that claims to be a card. Invalid JSON still counts as authored
     so the compiler can fail G0 rather than silently shipping it."""
     return isinstance(raw, dict) and bool(raw)
+
+
+def authors_channel(raw: Any, channel: str) -> bool:
+    """Does this card say it answers ``channel``?
+
+    ``identity.channels`` was read by the publish compiler (G-F11, the
+    locked-tool check) and the skill-pack filter and by no runtime: a card
+    authored ``["voice"]`` still answered WhatsApp. An unauthored or
+    unparseable card makes no statement and is not refused here -- G0 and
+    ADR-0002 own that failure. The channel names are the card's
+    (``Channel``); ``text`` and ``sandbox_live`` are the runtimes' spellings
+    of ``whatsapp`` and ``voice``.
+    """
+    if not is_authored(raw):
+        return True
+    try:
+        channels = {str(c).strip().lower() for c in (parse_card(raw).identity.channels or ())}
+    except Exception:
+        return True
+    wanted = {"text": "whatsapp", "sandbox_live": "voice", "sandbox": "whatsapp"}.get(
+        (channel or "").strip().lower(), (channel or "").strip().lower()
+    )
+    return not channels or wanted in channels

@@ -161,6 +161,17 @@ def upsert_entry_binding(
 
     if not (channel or "").strip() or not (bot_id or "").strip():
         raise ValueError("entry_binding_channel_and_bot_required")
+    # A binding is the one place a channel is pointed at a card, so it is the
+    # cheapest place to find out the card does not answer it. The runtime
+    # refuses too (load_active_bundle(channel=...)), but a refusal at
+    # authoring time is a 409 on a screen; at runtime it is a dead job.
+    from agent_core.cards.schema import authors_channel
+
+    import db_prompt_studio as _dps
+
+    published = _dps.get_published_prompt_version(bot_id)
+    if published is not None and not authors_channel(published.get("agentCard"), channel):
+        raise ValueError(f"entry_binding_channel_not_authored:{bot_id}:{channel}")
     addr = (address or "").strip() or None
     params = {
         "id": f"eb-{uuid.uuid4().hex[:12]}",
