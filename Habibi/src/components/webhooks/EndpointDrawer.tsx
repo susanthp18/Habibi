@@ -17,6 +17,7 @@ import { useEventCatalog } from "@/api/webhooks";
 import { SIGNATURE_HEADER_EXAMPLE, successRate, within } from "@/lib/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
 import { EventPicker } from "./EventPicker";
+import { QueryState } from "@/components/ui/query-state";
 import { cn } from "@/lib/utils";
 
 export function EndpointDrawer({
@@ -42,7 +43,7 @@ export function EndpointDrawer({
 }) {
   const [tab, setTab] = useState("overview");
   const [testEvent, setTestEvent] = useState<EventKey>("call.completed");
-  const catalog = useEventCatalog().data ?? [];
+  const catalogQuery = useEventCatalog();
   const [testBusy, setTestBusy] = useState(false);
 
   const epDeliveries = useMemo(
@@ -203,11 +204,13 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             value="events"
             className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
           >
-            <EventPicker
-              catalog={catalog}
-              selected={endpoint.events}
-              onChange={(events) => onUpdate({ ...endpoint, events })}
-            />
+            <QueryState query={catalogQuery} label="the event catalogue">
+              <EventPicker
+                catalog={catalogQuery.data ?? []}
+                selected={endpoint.events}
+                onChange={(events) => onUpdate({ ...endpoint, events })}
+              />
+            </QueryState>
           </TabsContent>
 
           {/* Delivery log */}

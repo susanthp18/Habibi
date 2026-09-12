@@ -18,7 +18,7 @@ const SAMPLES = [
 function scoreColor(s: number) {
   if (s >= 0.8) return "bg-background-success-bold";
   if (s >= 0.5) return "bg-background-brand-bold";
-  return "bg-text-muted";
+  return "bg-text-subtlest";
 }
 
 function highlight(text: string, terms: string[]) {

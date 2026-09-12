@@ -92,7 +92,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
       </div>
 
       {stream.approvals.length > 0 ? (
-        <div className="border-t border-border bg-background-warning-subtlest px-150 py-100">
+        <div className="border-t border-border bg-background-warning-subtler px-150 py-100">
           <p className="mb-075 text-body-small font-semibold text-text">Pending approval</p>
           <ul className="space-y-050">
             {stream.approvals.map((job) => (

@@ -70,7 +70,15 @@ function WebhooksPage() {
     });
   };
 
-  const deleteEndpoint = (ep: Endpoint) => {
+  const deleteEndpoint = async (ep: Endpoint) => {
+    if (
+      !(await confirm({
+        title: `Delete ${ep.name}?`,
+        description: "Its deliveries stop and its signing secret is gone. This cannot be undone.",
+        confirmLabel: "Delete",
+      }))
+    )
+      return;
     mut.remove.mutate(ep, {
       onSuccess: () => {
         if (activeId === ep.id) setDrawerOpen(false);
@@ -104,7 +112,17 @@ function WebhooksPage() {
     });
   };
 
-  const rotateOne = (ep: Endpoint) => {
+  const confirmRotate = (count: number) =>
+    confirm({
+      title: `Rotate the signing secret for ${count} endpoint${count === 1 ? "" : "s"}?`,
+      description:
+        "Each receiver stops verifying deliveries until it is redeployed with the new secret.",
+      confirmLabel: "Rotate",
+      cancelLabel: "Leave them",
+    });
+
+  const rotateOne = async (ep: Endpoint) => {
+    if (!(await confirmRotate(1))) return;
     mut.rotate.mutate(ep, {
       onSuccess: (res) => revealSecretOnce(ep.name, res.secretOnce),
       onError: (e) => toast.error(e instanceof Error ? e.message : "Rotate failed"),
@@ -242,14 +260,6 @@ function WebhooksPage() {
   // renderer. `useConfirm` is awaitable, so these three handlers keep the shape
   // they had — the browser dialog's one-liner ergonomics were the only reason
   // it was still here.
-  const confirmRotate = (count: number) =>
-    confirm({
-      title: `Rotate the signing secret for ${count} endpoint${count === 1 ? "" : "s"}?`,
-      description:
-        "Each receiver stops verifying deliveries until it is redeployed with the new secret.",
-      confirmLabel: "Rotate",
-      cancelLabel: "Leave them",
-    });
 
   const rotateSequential = async (ep: Endpoint) => {
     const res = await mut.rotate.mutateAsync(ep);

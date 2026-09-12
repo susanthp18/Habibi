@@ -21,7 +21,7 @@ const STATUS_META: Record<
   },
   upcoming: {
     tone: "neutral",
-    dot: "bg-text-muted",
+    dot: "bg-text-subtlest",
     label: "Upcoming",
     chipDot: "var(--icon-accent-gray)",
   },

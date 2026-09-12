@@ -242,7 +242,7 @@ export function ConversationPanel({
   const lastCustomer = [...turns].reverse().find((t) => t.role === "customer" && t.intent);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-surface-page">
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
       {mode === "live" && live && (
         <div className="shrink-0 border-b border-border bg-surface">
           <div className="flex items-center gap-100 px-200 py-100">

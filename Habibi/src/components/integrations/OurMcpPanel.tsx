@@ -10,6 +10,7 @@ import {
   type McpTask,
 } from "@/api/integrations";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/use-confirm";
 import { Input } from "@/components/ui/input";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
@@ -24,6 +25,7 @@ export function OurMcpPanel() {
   const [name, setName] = useState("cursor-read");
   const [scopes, setScopes] = useState<string[]>(["crm.read"]);
   const [once, setOnce] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const s = status.data;
 
   const copy = async (value: string) => {
@@ -65,15 +67,38 @@ export function OurMcpPanel() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                void keyMut.rotate.mutateAsync(r.id).then((row) => {
-                  if (row.key) setOnce(row.key);
-                })
-              }
+              onClick={async () => {
+                if (
+                  !(await confirm({
+                    title: `Rotate ${r.name}?`,
+                    description:
+                      "Every caller holding the current key is refused until it is redeployed with the new one.",
+                    confirmLabel: "Rotate",
+                  }))
+                )
+                  return;
+                const row = await keyMut.rotate.mutateAsync(r.id);
+                if (row.key) setOnce(row.key);
+              }}
             >
               Rotate
             </Button>
-            <Button size="sm" variant="outline" onClick={() => keyMut.revoke.mutate(r.id)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (
+                  !(await confirm({
+                    title: `Revoke ${r.name}?`,
+                    description:
+                      "Callers holding this key are refused from now on. A revoked key cannot be restored.",
+                    confirmLabel: "Revoke",
+                  }))
+                )
+                  return;
+                keyMut.revoke.mutate(r.id);
+              }}
+            >
               Revoke
             </Button>
           </div>
@@ -199,6 +224,7 @@ export function OurMcpPanel() {
         ariaLabel="MCP tasks"
         tableClassName="min-w-full"
       />
+      {confirmDialog}
     </div>
   );
 }

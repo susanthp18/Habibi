@@ -25,6 +25,7 @@ import {
   type ProviderSlot,
 } from "@/api/providers";
 import { LoadingState } from "@/components/ui/loading-state";
+import { useConfirm } from "@/components/ui/use-confirm";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,7 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
   const [scope, setScope] = useState<"card" | "tenant">("card");
   const models = useProviderModels(slot);
   const upsert = useUpsertBinding(botId);
+  const { confirm, confirmDialog } = useConfirm();
 
   const priorityNum = Number(priority);
   // The server enforces 1..1000; saying so here beats a 422 the author has to
@@ -64,12 +66,14 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
   const priorityValid = Number.isInteger(priorityNum) && priorityNum >= 1 && priorityNum <= 1000;
   const canSave = Boolean(modelId) && priorityValid && !upsert.isPending;
 
-  const save = () => {
+  const save = async () => {
     if (
       scope === "tenant" &&
-      !window.confirm(
-        "A tenant default applies to every card that has no binding of its own. Save it?",
-      )
+      !(await confirm({
+        title: "Save a tenant default?",
+        description: "A tenant default applies to every card that has no binding of its own.",
+        confirmLabel: "Save default",
+      }))
     ) {
       return;
     }
@@ -181,6 +185,7 @@ function AddBindingRow({ botId, onDone }: { botId: string; onDone: () => void })
       <p className="mt-100 text-body-small text-text-subtlest">
         Saving replaces any existing binding for the same slot, locale and priority on this card.
       </p>
+      {confirmDialog}
     </div>
   );
 }

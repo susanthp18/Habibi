@@ -125,7 +125,7 @@ export function ExportConfigPanel(p: Props) {
           "flex w-full items-center justify-center gap-100 rounded-medium py-100 text-body font-semibold text-white transition-colors",
           canExport
             ? "bg-background-brand-bold hover:bg-background-brand-bold-hovered"
-            : "cursor-not-allowed bg-text-muted",
+            : "cursor-not-allowed bg-text-subtlest",
         )}
       >
         <Play className="h-4 w-4" />

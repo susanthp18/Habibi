@@ -226,7 +226,7 @@ function TypingIndicator({ speaker }: { speaker: TranscriptTurn["speaker"] }) {
 function Dot({ delay }: { delay: string }) {
   return (
     <span
-      className="h-1.5 w-1.5 typing-dot rounded-full bg-text-muted"
+      className="h-1.5 w-1.5 typing-dot rounded-full bg-text-subtlest"
       style={{ animationDelay: delay }}
     />
   );

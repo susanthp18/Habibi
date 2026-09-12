@@ -15,6 +15,7 @@ import { Trash2, Plus } from "lucide-react";
 import type { Endpoint, SigningAlgo, TargetSystem } from "@/api/types/webhooks";
 import { useEventCatalog } from "@/api/webhooks";
 import { EventPicker } from "./EventPicker";
+import { QueryState } from "@/components/ui/query-state";
 
 type Draft = Omit<Endpoint, "id" | "createdAt" | "status" | "secret" | "secretRef"> & {
   id?: string;
@@ -43,7 +44,7 @@ export function EndpointSheet({
   onSave: (d: Draft) => void;
   onSaveAndTest: (d: Draft) => void;
 }) {
-  const catalog = useEventCatalog().data ?? [];
+  const catalogQuery = useEventCatalog();
   const [draft, setDraft] = useState<Draft>(empty());
 
   useEffect(() => {
@@ -142,12 +143,14 @@ export function EndpointSheet({
                 {draft.events.length} selected
               </span>
             </div>
-            <EventPicker
-              catalog={catalog}
-              selected={draft.events}
-              columns={2}
-              onChange={(events) => setDraft((d) => ({ ...d, events }))}
-            />
+            <QueryState query={catalogQuery} label="the event catalogue">
+              <EventPicker
+                catalog={catalogQuery.data ?? []}
+                selected={draft.events}
+                columns={2}
+                onChange={(events) => setDraft((d) => ({ ...d, events }))}
+              />
+            </QueryState>
           </div>
 
           <Separator />

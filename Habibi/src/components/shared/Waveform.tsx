@@ -19,7 +19,7 @@ export function Waveform({
             key={i}
             className={cn(
               "block w-025 rounded-full",
-              active ? "bg-background-brand-bold" : "bg-text-muted/50",
+              active ? "bg-background-brand-bold" : "bg-text-subtlest/50",
             )}
             style={{
               height: `${h}%`,

@@ -45,7 +45,7 @@ export function QueryState({
   empty,
   children,
 }: {
-  query: { isPending: boolean; isError: boolean; error?: unknown };
+  query: { isPending: boolean; isError: boolean; error?: unknown; data?: unknown };
   /** Names the thing being loaded — "connectors", "the skill catalog". */
   label: string;
   /**
@@ -63,13 +63,17 @@ export function QueryState({
       </div>
     );
   }
-  if (query.isError) {
+  // A refetch that failed after a success still has the last answer: show it,
+  // and say the read failed, rather than replacing a list the operator was
+  // looking at with a banner. Only a read that never succeeded is banner-only.
+  if (query.isError && query.data === undefined) {
     return <QueryErrorBanner label={label} error={query.error} />;
   }
   return (
     <>
+      {query.isError && <QueryErrorBanner label={label} error={query.error} />}
       {children}
-      {empty}
+      {!query.isError && empty}
     </>
   );
 }

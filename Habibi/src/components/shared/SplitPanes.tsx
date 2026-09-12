@@ -165,7 +165,7 @@ export function SplitPanes({
               onKeyDown={(e) => onKeyDown(e, i)}
               className="focus-ring group relative z-10 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-border hover:bg-background-brand-bold/35 active:bg-background-brand-bold/50"
             >
-              <div className="pointer-events-none h-400 w-050 rounded-full bg-text-muted/40 opacity-0 transition-opacity group-hover:opacity-100" />
+              <div className="pointer-events-none h-400 w-050 rounded-full bg-text-subtlest/40 opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
           )}
         </Fragment>

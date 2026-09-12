@@ -8,7 +8,7 @@ export function ApprovalsQueue() {
   const qc = useQueryClient();
   if (isError) {
     return (
-      <div className="border-b border-border bg-background-danger-subtlest px-200 py-100">
+      <div className="border-b border-border bg-background-danger-subtler px-200 py-100">
         <QueryErrorBanner label="pending approvals" error={error} />
       </div>
     );
@@ -28,7 +28,7 @@ export function ApprovalsQueue() {
   };
 
   return (
-    <div className="border-b border-border bg-background-warning-subtlest px-200 py-100">
+    <div className="border-b border-border bg-background-warning-subtler px-200 py-100">
       <p className="mb-075 text-body-small font-semibold text-text">Pending approvals</p>
       <ul className="space-y-050">
         {jobs.map((job) => (

@@ -142,7 +142,7 @@ export function Simulator({ rules }: { rules: Rule[] }) {
                     r.matched
                       ? "border-border-success-subtle bg-background-success-subtler/60"
                       : "border-border bg-surface",
-                    firing?.id === r.rule.id && "ring-1 ring-border-border-success",
+                    firing?.id === r.rule.id && "ring-1 ring-border-success",
                   )}
                 >
                   <div className="flex items-center gap-100 text-body-small">

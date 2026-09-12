@@ -32,26 +32,13 @@ const BROWSER_MODAL = /(^|[^.\w])(window\s*\.\s*)?(prompt|confirm|alert)\s*\(/;
 
 /**
  * `confirm(` and `alert(` are common enough as local identifiers that a bare
- * match is noisy; only these directories are checked for modals, and a
+ * match is noisy; only these directories are checked for modals, a file that
+ * imports `useConfirm` is calling its own `confirm`, and an
  * `// eslint-disable`-style escape is deliberately not offered — the rule has
  * no legitimate exception in this app.
  */
+const OWN_CONFIRM = /from "@\/components\/ui\/use-confirm"/;
 const VIEW_DIRS = ["routes", "components"];
-
-/**
- * Modal violations that predate this rule. Shrink-only, same reasoning as
- * `check-no-source-grep-tests.mjs`: a gate introduced red is a gate people
- * learn to ignore, so the four that exist are named and the fifth cannot be
- * added. Each is a `window.confirm` guarding a destructive action, which is the
- * case AlertDialog exists for — they are worth converting, but not in the same
- * change that introduces the rule.
- */
-const ALLOWED_MODALS = new Set([
-  "src/components/billing/BudgetPanel.tsx",
-  "src/components/platform/OutboundControlPanel.tsx",
-  "src/routes/_app.inbox.tsx",
-  "src/routes/_app.webhooks.tsx",
-]);
 
 function walk(dir) {
   const out = [];
@@ -77,14 +64,18 @@ function code(text) {
 const problems = [];
 for (const file of walk(SRC)) {
   const rel = relative(ROOT, file).replace(/\\/g, "/");
-  const body = code(readFileSync(file, "utf8"));
+  const raw = readFileSync(file, "utf8");
+  const body = code(raw);
   const inApi = rel.startsWith("src/api/");
   const inView = VIEW_DIRS.some((d) => rel.startsWith(`src/${d}/`));
 
   if (!inApi && inView && RAW_TRANSPORT.test(body)) {
     problems.push(`${rel}: calls fetch()/API_BASE_URL directly — put the request in src/api/`);
   }
-  if (inView && !ALLOWED_MODALS.has(rel) && BROWSER_MODAL.test(body)) {
+  const modal = OWN_CONFIRM.test(raw)
+    ? /(^|[^.\w])window\s*\.\s*(prompt|confirm|alert)\s*\(/
+    : BROWSER_MODAL;
+  if (inView && modal.test(body)) {
     problems.push(`${rel}: uses a browser modal — use AlertDialog, which can show a pending state`);
   }
 }
