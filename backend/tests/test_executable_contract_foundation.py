@@ -6,7 +6,7 @@ import pytest
 
 from agent_core.cards.compile import CompileReport, GateResult
 from agent_core.fleet.compile import compile_bundle, digest, parity_report
-from agent_core.tools.gates import GATE_FLOOR, GATE_IDENTITY, enforce_human_gate
+from agent_core.tools.gates import GATE_IDENTITY, enforce_human_gate
 from agent_core.tools.grant import TEXT, VOICE, ToolGrant
 from sandbox_runtime import simulate_sandbox_tool
 
@@ -46,7 +46,10 @@ def test_compiled_bundle_is_deterministic_and_self_hashing() -> None:
         live_persona={"tone": "calm"},
         live_guardrails={"maxTurns": 3},
         live_flow={"nodes": [], "edges": []},
-        live_tools=[],
+        # A cardless voice mouth keeps the flow-control floor (ADR-0002,
+        # amended): that is what the live runtime builds and what the bundle
+        # must agree with.
+        live_tools=sorted(ToolGrant.for_card(None, (), channel=VOICE).allowed),
         bundle=first,
         bot_id="collections",
         prompt_version_id="pv-1",
@@ -80,17 +83,14 @@ def test_shared_human_gates_fail_closed() -> None:
         )
         == GATE_IDENTITY
     )
+    # `require: floor` is retired: no floor ledger ever existed, so it blocked
+    # forever while the regulator export said a supervisor approved it. A
+    # stored value reads as the half that is enforced -- identity.
+    floor_card = {"human_gates": [{"tool_name": "apply_goodwill", "require": "floor"}]}
+    assert enforce_human_gate("apply_goodwill", card=floor_card, identity_verified=True) is None
     assert (
-        enforce_human_gate(
-            "apply_goodwill",
-            card={
-                "human_gates": [
-                    {"tool_name": "apply_goodwill", "require": "floor"}
-                ]
-            },
-            identity_verified=True,
-        )
-        == GATE_FLOOR
+        enforce_human_gate("apply_goodwill", card=floor_card, identity_verified=False)
+        == GATE_IDENTITY
     )
 
 
