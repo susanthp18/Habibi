@@ -27,6 +27,7 @@ Divergence that is *real* stays expressible as parameters:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 import os
 import re
 from functools import lru_cache
@@ -670,45 +671,66 @@ def _catalog_result(
     )
 
 
-def search_knowledge_base(
-    *,
-    query: str,
-    channel: str,
-    customer_text: str = "",
-    intent: str | None = None,
-    session_intent: str | None = None,
-    product_hint: str | None = None,
-    product_keys: list[str] | None = None,
-    kb_snapshot_id: str | None = None,
-    interaction_id: str | None = None,
-    bot_id: str | None = None,
-    apply_intent_gate: bool = True,
-    should_expand_query: bool = True,
-    prefer_policy: bool | None = None,
-    top_k: int | None = None,
-    snippet_chars: int | None = None,
-    # Accepted and ignored: callers still pass it. Kept rather than removed so
-    # this is one change, not a signature break across six call sites.
-    confidence_threshold: float = KB_CONFIDENCE_THRESHOLD,
-    record_offer: bool = True,
-    gap_sink: Callable[[dict[str, Any]], None] | None = None,
-    recent: list[tuple[str, str]] | None = None,
-    plan_budget_s: float | None = None,
-) -> ToolResult:
-    """Retrieve KB passages under the shared gate/steering/confidence policy.
-
-    Synchronous like every other domain handler — the voice adapter wraps it in
-    ``asyncio.to_thread`` so the audio path is never blocked.
-
-    ``ok=False`` covers the recoverable cases the model can act on:
-    ``empty_query``, ``retrieval_unavailable`` (bad/stale snapshot — must never
-    silently widen to the whole corpus), and ``retrieval_failed``.
+@dataclass
+class KbSearch:
+    """One knowledge-base search as it moves through the phases below: the request
+    as asked, the plan (gate, expansion, product scope), the passages fetched,
+    the judgement on them (confidence, margin, gap), and the result. A phase
+    that ends the search early returns the ToolResult; the bodies are what
+    ``search_knowledge_base`` was.
     """
-    q = (query or "").strip() or (customer_text or "").strip()
-    if not q:
-        return ToolResult(ok=False, error="empty_query")
 
-    defaults = _DEFAULTS.get(channel) or _DEFAULTS["text"]
+    apply_intent_gate: Any
+    bot_id: Any
+    channel: Any
+    customer_text: Any
+    defaults: dict[str, Any]
+    gap_sink: Any
+    intent: Any
+    interaction_id: Any
+    kb_snapshot_id: Any
+    plan_budget_s: Any
+    prefer_policy: bool | None
+    product_hint: Any
+    product_keys: list[str] | None
+    q: str
+    query: Any
+    recent: Any
+    record_offer: Any
+    session_intent: Any
+    should_expand_query: Any
+    snippet_chars: Any
+    top_k: Any
+    chunk_ids: list[str] = field(default_factory=list)
+    confident: bool = False
+    expanded: str = ""
+    gate_intent: str = ""
+    margin: float = 0.0
+    plan: Any = None
+    raw: dict[str, Any] = field(default_factory=dict)
+    results: list[dict[str, Any]] = field(default_factory=list)
+    top: float = 0.0
+
+
+def _kb_plan(st: KbSearch) -> ToolResult | None:
+    """The intent gate, the query expansion and the retrieval plan; a refusal or a catalog answer ends here."""
+    apply_intent_gate = st.apply_intent_gate
+    bot_id = st.bot_id
+    channel = st.channel
+    customer_text = st.customer_text
+    intent = st.intent
+    interaction_id = st.interaction_id
+    kb_snapshot_id = st.kb_snapshot_id
+    plan_budget_s = st.plan_budget_s
+    prefer_policy = st.prefer_policy
+    product_hint = st.product_hint
+    product_keys = st.product_keys
+    q = st.q
+    query = st.query
+    recent = st.recent
+    record_offer = st.record_offer
+    session_intent = st.session_intent
+    should_expand_query = st.should_expand_query
 
     gate_intent = intent or session_intent or "unknown"
     if apply_intent_gate:
@@ -731,7 +753,6 @@ def search_knowledge_base(
                 },
             )
 
-    import kb_retrieve
     from agent_core.tools import kb_plan
 
     # The keyword derivation is now the *fallback*, not the decision. It is
@@ -803,6 +824,27 @@ def search_knowledge_base(
             session_intent=session_intent,
         )
 
+    st.prefer_policy = prefer_policy
+    st.product_keys = product_keys
+    st.expanded = expanded
+    st.gate_intent = gate_intent
+    st.plan = plan
+
+
+def _kb_fetch(st: KbSearch) -> ToolResult | None:
+    """The retrieval under the plan, trimmed to the passages the model is shown."""
+    channel = st.channel
+    defaults = st.defaults
+    interaction_id = st.interaction_id
+    kb_snapshot_id = st.kb_snapshot_id
+    prefer_policy = st.prefer_policy
+    product_keys = st.product_keys
+    snippet_chars = st.snippet_chars
+    top_k = st.top_k
+    expanded = st.expanded
+
+    import kb_retrieve
+
     k = top_k or (defaults["top_k_policy"] if prefer_policy else defaults["top_k"])
     cap = snippet_chars or (
         defaults["snippet_policy"] if prefer_policy else defaults["snippet"]
@@ -863,6 +905,28 @@ def search_knowledge_base(
     # chunkIds line up index-for-index with results so an RTVI rag.hits event
     # can never report passages the model was not shown.
     chunk_ids = [str(r.get("chunkId") or r.get("id") or "") for r in rows]
+
+    st.chunk_ids = chunk_ids
+    st.raw = raw
+    st.results = results
+
+
+def _kb_judge(st: KbSearch) -> ToolResult | None:
+    """Confidence, margin, the gap sink, the offer record; a catalog answer ends here."""
+    bot_id = st.bot_id
+    channel = st.channel
+    gap_sink = st.gap_sink
+    interaction_id = st.interaction_id
+    kb_snapshot_id = st.kb_snapshot_id
+    q = st.q
+    query = st.query
+    record_offer = st.record_offer
+    session_intent = st.session_intent
+    chunk_ids = st.chunk_ids
+    gate_intent = st.gate_intent
+    plan = st.plan
+    raw = st.raw
+    results = st.results
 
     # A non-numeric score (driver quirk, hand-written FAQ row) must not raise
     # out of the turn loop. Reported for observability only — nothing gates on
@@ -991,6 +1055,27 @@ def search_knowledge_base(
             chunk_ids=chunk_ids,
         )
 
+    st.confident = confident
+    st.margin = margin
+    st.top = top
+
+
+def _kb_result(st: KbSearch) -> ToolResult:
+    """The passages as the model sees them."""
+    kb_snapshot_id = st.kb_snapshot_id
+    prefer_policy = st.prefer_policy
+    chunk_ids = st.chunk_ids
+    confident = st.confident
+    expanded = st.expanded
+    gate_intent = st.gate_intent
+    margin = st.margin
+    plan = st.plan
+    raw = st.raw
+    results = st.results
+    top = st.top
+
+    from agent_core.tools import kb_plan
+
     return ToolResult(
         ok=True,
         data={
@@ -1019,3 +1104,73 @@ def search_knowledge_base(
             "unvetted": False,
         },
     )
+
+
+def search_knowledge_base(
+    *,
+    query: str,
+    channel: str,
+    customer_text: str = "",
+    intent: str | None = None,
+    session_intent: str | None = None,
+    product_hint: str | None = None,
+    product_keys: list[str] | None = None,
+    kb_snapshot_id: str | None = None,
+    interaction_id: str | None = None,
+    bot_id: str | None = None,
+    apply_intent_gate: bool = True,
+    should_expand_query: bool = True,
+    prefer_policy: bool | None = None,
+    top_k: int | None = None,
+    snippet_chars: int | None = None,
+    # Accepted and ignored: callers still pass it. Kept rather than removed so
+    # this is one change, not a signature break across six call sites.
+    confidence_threshold: float = KB_CONFIDENCE_THRESHOLD,
+    record_offer: bool = True,
+    gap_sink: Callable[[dict[str, Any]], None] | None = None,
+    recent: list[tuple[str, str]] | None = None,
+    plan_budget_s: float | None = None,
+) -> ToolResult:
+    """Retrieve KB passages under the shared gate/steering/confidence policy.
+
+    Synchronous like every other domain handler — the voice adapter wraps it in
+    ``asyncio.to_thread`` so the audio path is never blocked.
+
+    ``ok=False`` covers the recoverable cases the model can act on:
+    ``empty_query``, ``retrieval_unavailable`` (bad/stale snapshot — must never
+    silently widen to the whole corpus), and ``retrieval_failed``.
+    """
+    q = (query or "").strip() or (customer_text or "").strip()
+    if not q:
+        return ToolResult(ok=False, error="empty_query")
+
+    defaults = _DEFAULTS.get(channel) or _DEFAULTS["text"]
+
+    st = KbSearch(
+        apply_intent_gate=apply_intent_gate,
+        bot_id=bot_id,
+        channel=channel,
+        customer_text=customer_text,
+        defaults=defaults,
+        gap_sink=gap_sink,
+        intent=intent,
+        interaction_id=interaction_id,
+        kb_snapshot_id=kb_snapshot_id,
+        plan_budget_s=plan_budget_s,
+        prefer_policy=prefer_policy,
+        product_hint=product_hint,
+        product_keys=product_keys,
+        q=q,
+        query=query,
+        recent=recent,
+        record_offer=record_offer,
+        session_intent=session_intent,
+        should_expand_query=should_expand_query,
+        snippet_chars=snippet_chars,
+        top_k=top_k,
+    )
+    for phase in (_kb_plan, _kb_fetch, _kb_judge):
+        early = phase(st)
+        if early is not None:
+            return early
+    return _kb_result(st)

@@ -37,7 +37,6 @@ BASELINE: dict[str, int] = {
     "voice/bot_pipeline.py::build_services": 396,
     "bank_boundary/ingest.py::load": 372,
     "voice/bot_handlers_connect.py::build": 360,
-    "agent_core/tools/kb.py::search_knowledge_base": 349,
     "voice/bot_handlers_connect.py::build.on_client_connected": 325,
 }
 
