@@ -88,6 +88,13 @@ class ConsentAuditEntryResponse(BaseModel):
     action: str
 
 
+class ContactableSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["green", "amber", "red"]
+    reasons: list[str]
+
+
 class ConsentListResponse(BaseModel):
     """Consent & Communication Preferences screen shape — richer than Customer 360."""
 
@@ -110,6 +117,9 @@ class ConsentListResponse(BaseModel):
     outreachToday: int = 0
     dailyCap: int = 3
     lastDecisionReason: str | None = None
+    #: The row's own reading across the four channels (the Gate answers per
+    #: customer through /contact-policy).
+    contactable: ContactableSummaryResponse
 
 
 class ViolationTranscriptTurnResponse(BaseModel):

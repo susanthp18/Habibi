@@ -8380,6 +8380,14 @@
      }
     ],
     "consentExpiresAt": "2027-08-17T13:18:13.046159+00:00",
+    "contactable": {
+     "reasons": [
+      "call: Outside allowed hours (11:00\u201318:00).",
+      "whatsapp: Outside allowed hours (11:00\u201318:00).",
+      "sms: Outside allowed hours (11:00\u201318:00)."
+     ],
+     "status": "red"
+    },
     "customerId": "anita-desai",
     "customerName": "Anita Desai",
     "dailyCap": 3,
@@ -8439,6 +8447,14 @@
      }
     ],
     "consentExpiresAt": "2027-08-17T13:18:13.046159+00:00",
+    "contactable": {
+     "reasons": [
+      "call: Outside allowed hours (10:00\u201319:00).",
+      "whatsapp: Outside allowed hours (10:00\u201319:00).",
+      "sms: Outside allowed hours (10:00\u201319:00)."
+     ],
+     "status": "red"
+    },
     "customerId": "arjun-nair",
     "customerName": "Arjun Nair",
     "dailyCap": 3,
@@ -8507,6 +8523,14 @@
      }
     ],
     "consentExpiresAt": "2027-08-17T13:18:13.046159+00:00",
+    "contactable": {
+     "reasons": [
+      "call: Outside allowed hours (10:00\u201319:00).",
+      "whatsapp: Outside allowed hours (10:00\u201319:00).",
+      "sms: Outside allowed hours (10:00\u201319:00)."
+     ],
+     "status": "red"
+    },
     "customerId": "deepa-iyer",
     "customerName": "Deepa Iyer",
     "dailyCap": 3,
@@ -8972,11 +8996,11 @@
      "suppression_reason": "no_eligible_action"
     }
    ],
-   "digest": "sha256:d66b18c29637b1beb71a468b9f17320c64bcc934584d5fbf6f6966f7b7624893",
+   "digest": "sha256:cb52f0e3550551fdd25c5d0b0d7b20dc94c0450a91f0c4cf10cd1a3bb4a39cfd",
    "enactmentAttempts": [],
    "endpointOwnership": [],
    "externalLedger": [],
-   "generatedAt": "2026-09-12T15:48:58.002365+00:00",
+   "generatedAt": "2026-09-12T16:22:44.557751+00:00",
    "identity": {
     "customerId": "anita-desai",
     "language": "English",
@@ -9447,7 +9471,7 @@
     "verdict": "escalate"
    },
    "customerId": "anita-desai",
-   "generatedAt": "2026-09-12T15:48:58.989486Z",
+   "generatedAt": "2026-09-12T16:22:45.223140Z",
    "metrics": {
     "activePromiseAmount": 0.0,
     "brokenPromiseCount": 2,
@@ -9551,7 +9575,7 @@
     "action": "wait",
     "actionLabel": "hold",
     "alternatives": [],
-    "at": "2026-09-12T15:48:58.526163+00:00",
+    "at": "2026-09-12T16:22:44.934890+00:00",
     "channel": null,
     "decisionId": null,
     "excluded": {
@@ -9566,7 +9590,7 @@
      "whatsapp": "control_arm"
     },
     "expectedValueInr": 0.0,
-    "latencyMs": 355,
+    "latencyMs": 211,
     "mode": "live",
     "policyVersion": 1,
     "propensity": 0.2,
@@ -9591,7 +9615,7 @@
    "policyBinding": [
     {
      "citation": "RBI DOR.ORG.REC.65/21.04.158/2022-23 (outsourcing of recovery)",
-     "evaluated_at": "2026-09-12T15:48:59.014756+00:00",
+     "evaluated_at": "2026-09-12T16:22:45.239815+00:00",
      "kind": "calling_window",
      "rule_id": "calling_window:voice",
      "rule_version": 1,
@@ -9600,7 +9624,7 @@
     },
     {
      "citation": "RBI DOR.ORG.REC.65/21.04.158/2022-23 (outsourcing of recovery)",
-     "evaluated_at": "2026-09-12T15:48:59.014756+00:00",
+     "evaluated_at": "2026-09-12T16:22:45.239815+00:00",
      "kind": "mandate_return_action",
      "rule_id": "mandate_return_action:all",
      "rule_version": 1,
@@ -9608,7 +9632,7 @@
      "verdict": "not_fired"
     }
    ],
-   "policyBindingHash": "sha256:309f235c12ddfa4794af9d5bc6c4fe1c997be4e4e5149d44b421eba818b9d7aa",
+   "policyBindingHash": "sha256:2fdf555f9e0d8106ae54507229d32afdf0e15c1f71881bc4cfdf8f04b0d32bbc",
    "purpose": "outreach",
    "reason": "outside_calling_hours",
    "touchCounted": false
@@ -10062,8 +10086,8 @@
     "resolutionNotes": null,
     "sla": "breach",
     "slaDueAt": "2026-07-24T10:00:00+00:00",
-    "slaLabel": "1205h 48m over",
-    "slaMinutes": -72348,
+    "slaLabel": "1206h 22m over",
+    "slaMinutes": -72382,
     "source": "bot_voice",
     "status": "awaiting_customer",
     "transcriptSnippet": "\"\u2026the EMI got debited twice in October \u2014 please refund the extra one.\"",
@@ -10818,7 +10842,7 @@
   "body": [
    {
     "accountId": "HDFC-PL-2216",
-    "ageHours": 626,
+    "ageHours": 627,
     "amount": null,
     "assigneeUserId": "priya-nair",
     "customer": "Sameer Khan",
@@ -10828,13 +10852,13 @@
     "entityType": "callback",
     "id": "CB-0001",
     "sla": "breach",
-    "slaLabel": "Overdue 1256h 19m",
+    "slaLabel": "Overdue 1256h 52m",
     "status": "missed",
     "type": "Callback \u00b7 7:30 AM IST"
    },
    {
     "accountId": "HDFC-RL-5540",
-    "ageHours": 626,
+    "ageHours": 627,
     "amount": null,
     "assigneeUserId": "priya-nair",
     "customer": "Arjun Nair",
@@ -10844,13 +10868,13 @@
     "entityType": "callback",
     "id": "CB-0002",
     "sla": "breach",
-    "slaLabel": "Overdue 1254h 19m",
+    "slaLabel": "Overdue 1254h 52m",
     "status": "missed",
     "type": "Callback \u00b7 9:30 AM IST"
    },
    {
     "accountId": "AC-88214",
-    "ageHours": 874,
+    "ageHours": 875,
     "amount": 550000.0,
     "assigneeUserId": "priya-nair",
     "customer": "Anita Desai",
@@ -10860,7 +10884,7 @@
     "entityType": "lead",
     "id": "LD-1012",
     "sla": "breach",
-    "slaLabel": "Overdue 1235h 19m",
+    "slaLabel": "Overdue 1235h 52m",
     "status": "qualified",
     "type": "Lead \u00b7 Qualified"
    }
@@ -10888,21 +10912,21 @@
      "id": "CB-0001",
      "label": "Callback \u00b7 Sameer Khan",
      "level": "breach",
-     "remaining": "Overdue 1256h 19m"
+     "remaining": "Overdue 1256h 52m"
     },
     {
      "enactedBy": null,
      "id": "CB-0002",
      "label": "Callback \u00b7 Arjun Nair",
      "level": "breach",
-     "remaining": "Overdue 1254h 19m"
+     "remaining": "Overdue 1254h 52m"
     },
     {
      "enactedBy": null,
      "id": "LD-1008",
      "label": "lead \u00b7 Deepa Iyer",
      "level": "breach",
-     "remaining": "Overdue 1235h 19m"
+     "remaining": "Overdue 1235h 52m"
     }
    ],
    "stats": {
@@ -10998,7 +11022,7 @@
    ],
    "alerts": [
     {
-     "at": "22h ago",
+     "at": "23h ago",
      "callId": "IX-SUSANTH-WA1",
      "id": "ALERT-FEEF121A25",
      "kind": "compliance",
@@ -11059,7 +11083,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1767387,
+     "durationSec": 1769413,
      "flags": [
       "missing-mini-miranda",
       "missing-recording-disclosure",
@@ -11167,7 +11191,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1345089,
+     "durationSec": 1347115,
      "flags": [],
      "handler": {
       "initials": "KV",
@@ -11256,7 +11280,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1344425,
+     "durationSec": 1346451,
      "flags": [],
      "handler": {
       "initials": "KV",
@@ -11320,7 +11344,7 @@
     "botAtRisk": 5,
     "callsInProgress": 13,
     "criticalAlerts": 12,
-    "longestWaitSec": 2067726,
+    "longestWaitSec": 2069751,
     "queueDepth": 4
    }
   },
@@ -13202,20 +13226,20 @@
  },
  {
   "body": {
-   "answerRate": 0.8889,
-   "answered": 8.0,
-   "attempts": 9.0,
-   "attemptsPerConnect": 1.12,
-   "avg_ring_sec": 7.222222222222222,
+   "answerRate": 0.875,
+   "answered": 7.0,
+   "attempts": 8.0,
+   "attemptsPerConnect": 1.14,
+   "avg_ring_sec": 7.375,
    "avg_talk_sec": 80.5,
    "busy": 0.0,
    "invalid_number": 0.0,
    "no_answer": 1.0,
-   "rightPartyRate": 0.25,
+   "rightPartyRate": 0.2857,
    "right_party": 2.0,
    "suppressed": 1.0,
    "talk_sec_total": 483.0,
-   "voicemail": 2.0,
+   "voicemail": 1.0,
    "windowDays": 14
   },
   "key": "GET /outbound/stats",
@@ -15044,7 +15068,7 @@
     "description": "Caller connected to the voice bot.",
     "key": "call.started",
     "sample": {
-     "at": "2026-09-12T15:49:10.343409+00:00",
+     "at": "2026-09-12T16:22:50.844431+00:00",
      "event": "call.started",
      "tenant": "hdfc.retail"
     }
@@ -15054,7 +15078,7 @@
     "description": "Hangup with duration and disposition.",
     "key": "call.completed",
     "sample": {
-     "at": "2026-09-12T15:49:10.343461+00:00",
+     "at": "2026-09-12T16:22:50.844461+00:00",
      "event": "call.completed",
      "tenant": "hdfc.retail"
     }
@@ -15064,7 +15088,7 @@
     "description": "Structured summary ready for CRM writeback.",
     "key": "call.summary.ready",
     "sample": {
-     "at": "2026-09-12T15:49:10.343480+00:00",
+     "at": "2026-09-12T16:22:50.844469+00:00",
      "event": "call.summary.ready",
      "tenant": "hdfc.retail"
     }
@@ -15077,7 +15101,7 @@
   "body": [
    {
     "algo": "hmac-sha256",
-    "createdAt": 1789228150390,
+    "createdAt": 1789230170864,
     "events": [
      "dispute.created",
      "document.sent",
@@ -15110,7 +15134,7 @@
  {
   "body": [
    {
-    "at": 1789228150421,
+    "at": 1789230170878,
     "attempt": 1,
     "endpointId": "wh-crm-events",
     "event": "dispute.created",
@@ -15130,7 +15154,7 @@
     "status": "success"
    },
    {
-    "at": 1789228150421,
+    "at": 1789230170878,
     "attempt": 1,
     "endpointId": "wh-crm-events",
     "event": "interaction.completed",

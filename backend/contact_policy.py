@@ -29,7 +29,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
@@ -259,11 +259,7 @@ def _event_id() -> str:
 
 
 def _zone(name: str | None) -> ZoneInfo:
-    label = (name or "").strip() or DEFAULT_TZ
-    try:
-        return ZoneInfo(label)
-    except (ZoneInfoNotFoundError, ValueError):
-        return ZoneInfo(DEFAULT_TZ)
+    return clock.zone(name)
 
 
 def safe_tz_sql(expr: str = "c.timezone") -> str:

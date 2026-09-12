@@ -688,6 +688,10 @@ export const ConsentAuditEntryResponse = z.object({
   "actor": z.string(),
   "action": z.string(),
 }).passthrough();
+export const ContactableSummaryResponse = z.object({
+  "status": z.enum(["green", "amber", "red"]),
+  "reasons": z.array(z.string()),
+}).passthrough();
 export const ConsentListResponse = z.object({
   "id": z.string(),
   "customerId": z.string(),
@@ -706,6 +710,7 @@ export const ConsentListResponse = z.object({
   "outreachToday": z.number().optional(),
   "dailyCap": z.number().optional(),
   "lastDecisionReason": z.string().nullable().optional(),
+  "contactable": ContactableSummaryResponse,
 }).passthrough();
 export const ContactResponse = z.object({
   "phonePrimary": z.string().optional(),

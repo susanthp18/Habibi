@@ -32,6 +32,15 @@ def timezone_name() -> str:
     return (os.getenv("APP_TIMEZONE") or "").strip() or DEFAULT_TIMEZONE
 
 
+def zone(name: str | None) -> ZoneInfo:
+    """A customer's zone by name, the default when blank or unknown."""
+    label = (name or "").strip() or DEFAULT_TIMEZONE
+    try:
+        return ZoneInfo(label)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
 def tenant_tz() -> ZoneInfo:
     """The tenant's zone, falling back to the default rather than raising.
 

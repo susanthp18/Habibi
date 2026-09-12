@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import contact_window
 from agent_core import clock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from typing import Any
 from agent_core.clock import utc_now
@@ -262,6 +262,61 @@ def _ensure_channels_complete(channels: list[dict[str, Any]], fallback_at: str) 
             )
     return complete
 
+_SCREEN_CHANNELS = ("call", "whatsapp", "sms", "email")
+
+
+def _contactable_refusal(rec: dict[str, Any], channel: str, now: datetime) -> str | None:
+    """Why this channel cannot be used right now, from the row itself; None when it can.
+
+    A reading of the consent row, not the contact Gate: the Gate also knows
+    holds, cooling-off and coalescing, and answers per customer through
+    ``get_contact_policy``. This is what the Consent screen's pill and stats
+    summarise across the whole list without a Gate evaluation per row. It used
+    to live in the browser, where "now" was the operator's clock, not the
+    borrower's.
+    """
+    expires = rec["consentExpiresAt"]
+    try:
+        expires_at = datetime.fromisoformat(str(expires).replace("Z", "+00:00"))
+    except ValueError:
+        expires_at = None
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < now:
+        return "Consent window expired — renew before contacting."
+    if rec["onDndRegistry"] and channel == "call":
+        return "Customer is on national DND registry (calls only)."
+    cc = next((c for c in rec["channels"] if c["channel"] == channel), None)
+    if cc is None:
+        return "Channel not configured."
+    if cc["status"] == "dnd":
+        return f"{channel} marked DND."
+    if cc["status"] == "opted_out":
+        return f"Customer opted out of {channel}."
+    if cc["status"] == "expired":
+        return f"{channel} consent expired."
+    if cc["usedThisWeek"] >= cc["frequencyCapPerWeek"]:
+        return f"Weekly cap reached ({cc['usedThisWeek']}/{cc['frequencyCapPerWeek']})."
+    window = rec["allowedWindow"]
+    local = now.astimezone(clock.zone(rec["timezone"]))
+    day = (local.weekday() + 1) % 7  # Sunday = 0, as the screen and contact_window count
+    if day not in window["days"] or not (window["startHour"] <= local.hour < window["endHour"]):
+        return f"Outside allowed hours ({window['startHour']}:00–{window['endHour']}:00)."
+    return None
+
+
+def contactable_summary(rec: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    """green / amber / red across the four screen channels, with the refusals."""
+    at = now or utc_now()
+    refusals = [(c, _contactable_refusal(rec, c, at)) for c in _SCREEN_CHANNELS]
+    reasons = [f"{c}: {why}" for c, why in refusals if why]
+    if not reasons:
+        return {"status": "green", "reasons": ["All channels available."]}
+    if len(reasons) == len(_SCREEN_CHANNELS):
+        return {"status": "red", "reasons": reasons}
+    return {"status": "amber", "reasons": reasons}
+
+
 def list_consent(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
     """Consent & Communication Preferences feed (richer than Customer 360 consent)."""
     _mod = _db()
@@ -344,8 +399,7 @@ def list_consent(*, limit: int | None = None, offset: int | None = None) -> list
                 db_ch = "voice" if item["channel"] == "call" else item["channel"]
                 if db_ch in by_ch:
                     item["usedThisWeek"] = by_ch[db_ch]
-            result.append(
-                {
+            screen = {
                     "id": r["id"],
                     "customerId": r["customer_id"],
                     "customerName": r["customer_name"],
@@ -368,7 +422,8 @@ def list_consent(*, limit: int | None = None, offset: int | None = None) -> list
                     "dailyCap": int(stats.get("dailyCap") or 3),
                     "lastDecisionReason": stats.get("lastDecisionReason"),
                 }
-            )
+            screen["contactable"] = contactable_summary(screen)
+            result.append(screen)
         return result
 
 def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str = "outreach") -> dict[str, Any]:
