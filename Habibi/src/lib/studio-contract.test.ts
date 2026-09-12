@@ -8,7 +8,6 @@ import {
   sandboxToolKind,
 } from "./studio-contract";
 
-
 describe("studio compiled contract", () => {
   it("labels ext.* as unsupported on voice", () => {
     expect(

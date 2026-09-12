@@ -26,9 +26,19 @@ import type { AgentCard } from "@/api/agent-card";
 // The shape `GET /flow/tools` returns. The tab renders `key` and `description`;
 // there is no `label`.
 const CATALOG = [
-  { key: "get_account_position", description: "Read the balance", kind: "read", channels: ["voice", "text"] },
+  {
+    key: "get_account_position",
+    description: "Read the balance",
+    kind: "read",
+    channels: ["voice", "text"],
+  },
   { key: "capture_lead", description: "Record interest", kind: "write", channels: ["text"] },
-  { key: "begin_negotiate", description: "Move to negotiation", kind: "flow_control", channels: ["voice"] },
+  {
+    key: "begin_negotiate",
+    description: "Move to negotiation",
+    kind: "flow_control",
+    channels: ["voice"],
+  },
 ];
 
 vi.mock("@/api/flow", () => ({

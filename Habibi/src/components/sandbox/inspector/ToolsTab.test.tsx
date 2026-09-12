@@ -39,7 +39,10 @@ describe("rehearsal inspector · ToolsTab", () => {
   it("renders each call's name and duration, newest first", () => {
     render(
       <ToolsTab
-        calls={[call(), call({ id: "tc-2", name: "create_promise_to_pay", startedAt: 2_000, endedAt: 2_100 })]}
+        calls={[
+          call(),
+          call({ id: "tc-2", name: "create_promise_to_pay", startedAt: 2_000, endedAt: 2_100 }),
+        ]}
       />,
     );
 

@@ -75,4 +75,6 @@ if (offenders.length) {
   process.exit(1);
 }
 
-console.log(`check-no-source-grep-tests: clean (${ALLOWED.size} allowed, and that list only shrinks)`);
+console.log(
+  `check-no-source-grep-tests: clean (${ALLOWED.size} allowed, and that list only shrinks)`,
+);

@@ -8,10 +8,22 @@ const VIDEO = "/videos/login-bee.mp4";
 const POSTER = "/videos/login-bee.jpg";
 
 const CLAIMS = [
-  { k: "Next-best treatment", v: "Which account to work, on which channel, this hour — not a dialer." },
-  { k: "Every contact is answerable", v: "Policy version, score, gate results and transcript on the same record." },
-  { k: "On-prem by default", v: "Models, recordings and customer data stay inside the bank perimeter." },
-  { k: "Microsoft Entra SSO", v: "Signed in through Microsoft. No password is stored on this product." },
+  {
+    k: "Next-best treatment",
+    v: "Which account to work, on which channel, this hour — not a dialer.",
+  },
+  {
+    k: "Every contact is answerable",
+    v: "Policy version, score, gate results and transcript on the same record.",
+  },
+  {
+    k: "On-prem by default",
+    v: "Models, recordings and customer data stay inside the bank perimeter.",
+  },
+  {
+    k: "Microsoft Entra SSO",
+    v: "Signed in through Microsoft. No password is stored on this product.",
+  },
 ];
 
 export function LoginScreen() {
@@ -59,10 +71,12 @@ export function LoginScreen() {
             <p className="text-body-small font-medium uppercase tracking-wide text-text-subtle">
               Autonomous Payment Intelligence
             </p>
-            <h1 className="mt-150 heading-xxlarge text-text">The floor is already working the book.</h1>
+            <h1 className="mt-150 heading-xxlarge text-text">
+              The floor is already working the book.
+            </h1>
             <p className="mt-200 text-body-large text-text-subtle">
-              Sign in with Microsoft to open the floor. A.P.I.S decides which
-              account to work next, on which channel, and why.
+              Sign in with Microsoft to open the floor. A.P.I.S decides which account to work next,
+              on which channel, and why.
             </p>
 
             <button
@@ -126,11 +140,7 @@ function BeePlate({ dimmed = false }: { dimmed?: boolean }) {
 
   return (
     <div className="absolute inset-0 bg-[#f7f9fb]">
-      <img
-        src={POSTER}
-        alt=""
-        className="h-full w-full object-cover object-center"
-      />
+      <img src={POSTER} alt="" className="h-full w-full object-cover object-center" />
       {motion && videoOk ? (
         <video
           className="absolute inset-0 h-full w-full object-cover object-center"
