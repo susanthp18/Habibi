@@ -12,6 +12,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from agent_core.cards.defaults import COLLECTIONS_BOT_ID
+
 from db_prompt_studio.common import (
     _bundle_hash_select,
     _column_exists,
@@ -108,7 +110,9 @@ def list_bot_deployments(
 # must equal the single prompt_versions row with status='published'.
 # ---------------------------------------------------------------------------
 
-DEFAULT_BOT_ID = os.getenv("BOT_ID", "kaia-v2-4")
+# The tenant default card: the collections card unless BOT_ID says otherwise.
+# The literal lives in agent_core.cards.defaults, not here.
+DEFAULT_BOT_ID = os.getenv("BOT_ID") or COLLECTIONS_BOT_ID
 
 def _active_deployment_sql(conn: Any) -> str:
     frozen = _frozen_tools_select(conn)

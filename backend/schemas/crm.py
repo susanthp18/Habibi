@@ -261,7 +261,8 @@ class DisputeCreateRequest(BaseModel):
     accountId: str | None = None
     interactionId: str | None = None
     type: str
-    amount: float | None = None
+    #: A disputed amount is money the borrower says is wrong -- positive, or absent.
+    amount: float | None = Field(default=None, gt=0)
     transcriptSnippet: str | None = None
     assigneeUserId: str | None = None
     priority: Literal["low", "normal", "high", "urgent"] = "normal"

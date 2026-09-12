@@ -15,6 +15,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 # shared verbatim by the API, the validator and the voice runtime, so it is
 # defined once in flow_graph and reused here rather than restated.
 from agent_core.fleet.schema import CompiledBundle
+from agent_core.cards.defaults import COLLECTIONS_BOT_ID
 from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 class FlowToolResponse(BaseModel):
@@ -153,7 +154,7 @@ class PromptVersionResponse(BaseModel):
     #: every version of the bot; this is what stops that degradation from being
     #: silent.
     flowUnreadable: bool = False
-    botId: str = "kaia-v2-4"
+    botId: str = COLLECTIONS_BOT_ID
     agentCard: dict[str, Any] = Field(default_factory=dict)
     compiled: CompiledBundle | None = None
     #: Present on a publish response: what every door that merges this card

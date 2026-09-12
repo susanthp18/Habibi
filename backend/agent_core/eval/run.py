@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import text
 
 from agent_core.eval.harness import run_suite_fixtures
+from agent_core.cards.defaults import COLLECTIONS_BOT_ID
 
 _ORIGINS = frozenset({"manual", "scheduled", "canary", "upgrade"})
 
@@ -30,7 +31,7 @@ def bot_id_for_suite(suite_id: str) -> str | None:
     here.
     """
     if suite_id.endswith("-collections") or "collections" in suite_id:
-        return "kaia-v2-4"
+        return COLLECTIONS_BOT_ID
     return None
 
 
