@@ -57,16 +57,12 @@ const FIXTURE_IMPORTERS = [
   // Held by the sandbox stream while this ratchet landed; fixtures only.
   "sandbox.ts",
   "upsell.ts",
-  // In flight with data/agent-tuning.ts when this ratchet landed: still takes
-  // `AgentTuning` / `AgentTuningPreset` as types. Move them to
-  // src/api/types/agent-tuning.ts and delete this line.
-  "voice-sandbox.ts",
   "webhooks.ts",
   "workspace.ts",
 ];
 
-/** The type-import exceptions — each one is also named above with its reason. */
-const TYPE_IMPORTERS = ["voice-sandbox.ts"];
+/** The type-import exceptions. Empty since WP-048 closed; stays empty. */
+const TYPE_IMPORTERS: string[] = [];
 
 function apiModules(): string[] {
   return readdirSync(apiDir)

@@ -1,5 +1,5 @@
 import { apiGet, apiPost, USE_MOCK, mockDelay } from "./config";
-import type { AgentTuning, AgentTuningPreset } from "@/data/agent-tuning";
+import type { AgentTuning, AgentTuningPreset } from "@/api/types/agent-tuning";
 
 export type VoiceStatus = {
   ok: boolean;
