@@ -105,3 +105,22 @@ def test_a_browser_form_post_gets_the_page_back(client, db_tx) -> None:
 def test_an_unknown_link_is_404_on_both_routes(client) -> None:
     assert client.get("/pay/no-such-token", headers=HEADERS).status_code == 404
     assert client.post("/pay/no-such-token/complete", headers=HEADERS).status_code == 404
+
+
+def test_every_response_carries_the_browser_headers_and_the_pay_page_a_csp(client) -> None:
+    """A page a borrower opens from an SMS was framable by anyone and its
+    token leaked through the referrer. Nosniff, frame-deny and no-referrer
+    on every response; the pay page adds a CSP that admits no script (it is
+    one form) and is never cached."""
+    r = client.get("/health")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert r.headers["Referrer-Policy"] == "no-referrer"
+    assert "Content-Security-Policy" not in r.headers
+
+    r = client.get("/pay/not-a-real-token")
+    assert r.status_code in (404, 410)
+    csp = r.headers["Content-Security-Policy"]
+    assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp
+    assert r.headers["Cache-Control"] == "no-store"
+    assert r.headers["X-Frame-Options"] == "DENY"

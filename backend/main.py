@@ -188,6 +188,33 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """The browser-facing headers every response carries.
+
+    The API serves JSON to the console and one borrower-facing HTML page
+    (``/pay/{token}``). Neither should be framed, sniffed or leak the pay
+    token through a referrer, and the pay page needs no script at all -- it
+    is one form -- so its CSP says so. Absent until now: a page a borrower
+    opens from an SMS was framable by anyone.
+    """
+
+    _PAY_CSP = (
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+        "base-uri 'none'; frame-ancestors 'none'"
+    )
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        response = await call_next(request)
+        h = response.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("X-Frame-Options", "DENY")
+        h.setdefault("Referrer-Policy", "no-referrer")
+        if request.url.path.startswith("/pay/"):
+            h.setdefault("Content-Security-Policy", self._PAY_CSP)
+            h.setdefault("Cache-Control", "no-store")
+        return response
+
+
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Count and time every request, labelled by ROUTE TEMPLATE.
 
@@ -429,6 +456,9 @@ class StreamingAwareGZipMiddleware(GZipMiddleware):
 app.add_middleware(StreamingAwareGZipMiddleware, minimum_size=1024)
 app.add_middleware(ApiKeyMiddleware)
 app.add_middleware(MetricsMiddleware)
+# Inside RequestId so a 401/400 still carries the headers, outside ApiKey so
+# an auth failure does too.
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
 #: Response headers a browser client is allowed to read.
