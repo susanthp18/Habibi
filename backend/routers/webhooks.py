@@ -170,9 +170,16 @@ def whatsapp_webhook_verify(
     hub_challenge: str | None = Query(None, alias="hub.challenge"),
 ):
     """Meta webhook verification challenge."""
+    import hmac
+
     cfg = whatsapp.config()
     expected = cfg.get("verify_token")
-    if hub_mode == "subscribe" and expected and hub_verify_token == expected and hub_challenge is not None:
+    if (
+        hub_mode == "subscribe"
+        and expected
+        and hmac.compare_digest(str(hub_verify_token or ""), str(expected))
+        and hub_challenge is not None
+    ):
         return Response(content=hub_challenge, media_type="text/plain")
     raise HTTPException(status_code=403, detail="whatsapp_verify_failed")
 
