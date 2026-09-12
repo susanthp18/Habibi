@@ -33,6 +33,7 @@ from db_core import (
     _PROCESS_ROLE as _PROCESS_ROLE,
     _VIS_PREDICATE as _VIS_PREDICATE,
     _account_tail as _account_tail,
+    assert_transition as assert_transition,
     _activity as _activity,
     _actor_user_id as _actor_user_id,
     _as_dict as _as_dict,
@@ -2224,14 +2225,26 @@ def _create_dispute(
     return response
 
 
+# A dispute's status is a state machine. `resolved` is terminal -- a resolved
+# fee waiver has a ledger row behind it -- and `rejected` reopens only into
+# review (an appeal), never straight back to new.
+_DISPUTE_TRANSITIONS: dict[str, frozenset[str]] = {
+    "new": frozenset({"under_review", "awaiting_customer", "resolved", "rejected"}),
+    "under_review": frozenset({"awaiting_customer", "resolved", "rejected"}),
+    "awaiting_customer": frozenset({"under_review", "resolved", "rejected"}),
+    "rejected": frozenset({"under_review"}),
+}
+
+
 def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write,
     so an explicit None clears the column (used to unassign)."""
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "disputes", dispute_id)
-        row = _one(conn.execute(text("SELECT customer_id, assignee_user_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
+        row = _one(conn.execute(text("SELECT customer_id, assignee_user_id, status FROM disputes WHERE id = :id"), {"id": dispute_id}))
         if row is None:
             raise KeyError("dispute_not_found")
+        assert_transition("dispute", row["status"], payload.get("status"), _DISPUTE_TRANSITIONS)
         if payload.get("assigneeUserId") is not None:
             assignee = payload["assigneeUserId"]
             if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}).fetchone():

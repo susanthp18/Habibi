@@ -11,6 +11,8 @@ from __future__ import annotations
 import contact_window
 from agent_core import clock
 from sqlalchemy import text
+
+import db_core
 from typing import Any
 from agent_core.clock import utc_now
 
@@ -361,6 +363,18 @@ def _create_callback(
     _store_idempotent_response(conn, idempotency_key, endpoint, response)
     return response
 
+# A callback's status is a state machine. `completed` is terminal; a missed or
+# cancelled slot comes back only by being rescheduled.
+_CALLBACK_TRANSITIONS: dict[str, frozenset[str]] = {
+    "scheduled": frozenset({"reminded", "in_progress", "completed", "missed", "rescheduled", "cancelled"}),
+    "reminded": frozenset({"in_progress", "completed", "missed", "rescheduled", "cancelled"}),
+    "rescheduled": frozenset({"scheduled", "reminded", "in_progress", "completed", "missed", "cancelled"}),
+    "in_progress": frozenset({"completed", "missed", "rescheduled"}),
+    "missed": frozenset({"rescheduled", "completed", "cancelled"}),
+    "cancelled": frozenset({"rescheduled"}),
+}
+
+
 def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write,
     so an explicit None clears assignee_user_id (unassign)."""
@@ -376,7 +390,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 text(
                     """
-                    SELECT cb.customer_id, c.dnd AS customer_dnd, c.preferred_window,
+                    SELECT cb.customer_id, cb.status, c.dnd AS customer_dnd, c.preferred_window,
                            COALESCE(cr.dnd_registry, false) AS dnd_registry
                     FROM callbacks cb
                     JOIN customers c ON c.id = cb.customer_id
@@ -389,6 +403,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         )
         if row is None:
             raise KeyError("callback_not_found")
+        db_core.assert_transition("callback", row["status"], payload.get("status"), _CALLBACK_TRANSITIONS)
 
         if payload.get("assigneeUserId") is not None:
             assignee = payload["assigneeUserId"]

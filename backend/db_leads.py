@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from schemas import LeadResponse
 from sqlalchemy import text
+
+import db_core
 from typing import Any
 from agent_core.clock import utc_now
 
@@ -1232,15 +1234,27 @@ def add_lead_followup(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         _activity(conn, "lead", lead_id, "lead_followup_created", "Lead follow-up scheduled", None, row["customer_id"])
         return {"id": followup_id, "status": "open"}
 
+# A follow-up's status is a state machine. Done and cancelled reopen only
+# deliberately, to `open`.
+_FOLLOWUP_TRANSITIONS: dict[str, frozenset[str]] = {
+    "open": frozenset({"in_progress", "snoozed", "done", "cancelled"}),
+    "in_progress": frozenset({"open", "snoozed", "done", "cancelled"}),
+    "snoozed": frozenset({"open", "in_progress", "done", "cancelled"}),
+    "done": frozenset({"open"}),
+    "cancelled": frozenset({"open"}),
+}
+
+
 def patch_followup(followup_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _mod = _db()
     _activity = _mod._activity
     _one = _mod._one
     engine = _mod.engine
     with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id, lead_id, promise_id FROM followups WHERE id = :id"), {"id": followup_id}))
+        row = _one(conn.execute(text("SELECT customer_id, lead_id, promise_id, status FROM followups WHERE id = :id"), {"id": followup_id}))
         if row is None:
             raise KeyError("followup_not_found")
+        db_core.assert_transition("followup", row["status"], payload.get("status"), _FOLLOWUP_TRANSITIONS)
         if payload.get("status"):
             conn.execute(text("UPDATE followups SET status = :status WHERE id = :id"), {"id": followup_id, "status": payload["status"]})
         entity_type = "lead" if row["lead_id"] else "promise"

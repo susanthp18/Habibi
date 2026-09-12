@@ -54,6 +54,7 @@ __all__ = [
     "TENANT_ID",
     "_IST",
     "_account_tail",
+    "assert_transition",
     "_activity",
     "_actor_user_id",
     "_as_dict",
@@ -273,6 +274,20 @@ def _bind_tenant_for_transaction(conn) -> None:
 # safe, an opt-in `limit` up to a hard ceiling, and an `offset` to page.
 DEFAULT_LIST_LIMIT = max(1, _env_int("DEFAULT_LIST_LIMIT", 200))
 MAX_LIST_LIMIT = max(DEFAULT_LIST_LIMIT, _env_int("MAX_LIST_LIMIT", 1000))
+
+
+def assert_transition(kind: str, current: str | None, target: str | None, table: dict[str, frozenset[str]]) -> None:
+    """Refuse a status write the record's state machine does not allow.
+
+    ``table`` maps each status to the statuses it may move to; a status absent
+    from the table is terminal. A write of the same status is a no-op, not a
+    transition. Raises ``ValueError("illegal_transition:<kind>:<from>-><to>")``,
+    which the routers answer 409.
+    """
+    if target is None or target == current:
+        return
+    if target not in table.get(str(current), frozenset()):
+        raise ValueError(f"illegal_transition:{kind}:{current}->{target}")
 
 
 def clamp_list_limit(limit: int | None, default: int = DEFAULT_LIST_LIMIT) -> int:

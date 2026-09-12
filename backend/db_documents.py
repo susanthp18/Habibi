@@ -9,6 +9,8 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 from __future__ import annotations
 
 from sqlalchemy import text
+
+import db_core
 from typing import Any
 
 
@@ -280,6 +282,15 @@ def create_document_request(
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
         return response
 
+# A request's status is a state machine. `sent` is terminal; a failed
+# generation is retried by requesting or generating again.
+_DOCUMENT_TRANSITIONS: dict[str, frozenset[str]] = {
+    "requested": frozenset({"generating", "sent", "failed"}),
+    "generating": frozenset({"sent", "failed"}),
+    "failed": frozenset({"requested", "generating"}),
+}
+
+
 def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is an intentional write."""
     _mod = _db()
@@ -307,6 +318,7 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
         )
         if row is None:
             raise KeyError("document_not_found")
+        db_core.assert_transition("document_request", row["status"], payload.get("status"), _DOCUMENT_TRANSITIONS)
 
         if "assigneeUserId" in payload and payload["assigneeUserId"] is not None:
             if not conn.execute(
