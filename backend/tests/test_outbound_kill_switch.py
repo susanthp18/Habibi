@@ -263,7 +263,6 @@ def test_the_demo_objective_must_be_one_the_card_declares(
     string. An unrecognised value yields no spec and an empty brief — a
     materially worse call that looks identical from the outside.
     """
-    import main
     from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "collections_demo")
@@ -272,7 +271,6 @@ def test_the_demo_objective_must_be_one_the_card_declares(
 
 
 def test_a_declared_objective_is_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
-    import main
     from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "bounce_cure")
@@ -283,7 +281,6 @@ def test_a_declared_objective_is_honoured(monkeypatch: pytest.MonkeyPatch) -> No
 def test_the_default_objective_is_declared_by_the_real_card() -> None:
     """The shipped default has to exist on the card that will run it."""
     import db
-    import main
     from routers import outbound as outbound_routes
     import mission as mission_mod
 
@@ -298,7 +295,6 @@ def test_a_card_with_no_objectives_falls_back_to_the_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Nothing to validate against is not a reason to refuse to dial."""
-    import main
     from routers import outbound as outbound_routes
 
     monkeypatch.setenv("DEMO_OUTBOUND_OBJECTIVE", "dpd_reminder")
@@ -340,7 +336,6 @@ def test_the_override_waives_timing_and_nothing_else() -> None:
     """
     import contact_policy
 
-    import main
     from routers import outbound as outbound_routes
 
     waivable = outbound_routes._DEMO_WAIVABLE_REASONS
@@ -374,7 +369,6 @@ def test_the_override_cannot_reach_any_other_customer() -> None:
     """The endpoint takes no phone number, so there is nobody else to call."""
     import inspect
 
-    import main
     from routers import outbound as outbound_routes
 
     sig = inspect.signature(outbound_routes.demo_outbound_call)
@@ -389,7 +383,6 @@ def test_waiving_the_window_is_recorded(db_tx) -> None:
     import inspect
 
     import db_outbound
-    import main
 
     # The handler's gate runs inside ``db_outbound.reserve_demo_attempt``.
     src = inspect.getsource(db_outbound.reserve_demo_attempt)

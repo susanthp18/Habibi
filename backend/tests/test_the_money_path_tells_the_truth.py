@@ -21,10 +21,9 @@ only path that moves `promised_at` — never re-entered fulfilment at all.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 
-import pytest
 
 import promise_fulfillment as pf
 

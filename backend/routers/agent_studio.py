@@ -29,7 +29,6 @@ from schemas import (
     AgentStudioCardResponse,
     AgentStudioChangeLogResponse,
     AgentStudioGraphResponse,
-    AgentStudioOkResponse,
     AgentStudioScriptNameResponse,
     AgentStudioScriptRunResponse,
     AgentStudioSkillDeleteResponse,

@@ -530,7 +530,6 @@ def test_dial_endpoints_key_the_attempt_not_the_customer() -> None:
     """
     import inspect
 
-    import main
     from routers import telephony as telephony_routes
 
     from routers import outbound as outbound_routes

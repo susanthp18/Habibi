@@ -18,7 +18,6 @@ from __future__ import annotations
 import pytest
 
 import contact_policy
-import main
 from routers import outbound as outbound_routes
 
 

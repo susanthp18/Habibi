@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -15,6 +15,9 @@ from agent_core.connectors import circuit
 from agent_core.connectors.first_party import FIRST_PARTY_TOOLS, dispatch_first_party
 from agent_core.connectors.strip import strip_result
 from agent_core.platform_flags import mcp_client_enabled
+
+if TYPE_CHECKING:
+    import webhooks_dispatch
 
 logger = logging.getLogger(__name__)
 

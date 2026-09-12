@@ -13,7 +13,6 @@ node a transition lands on.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest

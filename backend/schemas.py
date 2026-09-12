@@ -1338,7 +1338,7 @@ class ViolationTranscriptTurnResponse(BaseModel):
     text: str
 
 
-class ViolationNoteResponse(BaseModel):
+class ViolationNoteItemResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     at: str
@@ -1378,7 +1378,7 @@ class ViolationListResponse(BaseModel):
     evidence: ViolationEvidenceResponse
     status: Literal["open", "in_review", "acknowledged", "resolved"]
     assignee: str | None = None
-    notes: list[ViolationNoteResponse] = []
+    notes: list[ViolationNoteItemResponse] = []
 
 
 class ViolationPatchRequest(BaseModel):

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.cards.schema import _RETIRED, AgentCard, parse_card
+from agent_core.cards.schema import _RETIRED, parse_card
 
 # The shape a published card actually has today, retired keys and all.
 _STORED = {

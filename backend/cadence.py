@@ -418,7 +418,6 @@ def process_one(engine: Engine) -> bool:
         return False
 
     import campaigns
-    import contact_policy
     import mission as mission_mod
 
     with engine.begin() as conn:

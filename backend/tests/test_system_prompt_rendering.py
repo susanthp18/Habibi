@@ -150,7 +150,6 @@ def test_the_editor_variable_palette_matches_the_renderer() -> None:
     ordinary variable while the runtime deleted every line it appeared on.
     """
     import re
-    from pathlib import Path
 
     from prompt_render import KNOWN_VARIABLES, SYSTEM_SAFE_VARIABLES
 

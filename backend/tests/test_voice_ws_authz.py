@@ -135,7 +135,6 @@ def test_the_ws_and_twilio_gates_do_not_consult_is_prod() -> None:
     """
     import inspect
 
-    import main as app_main
     from routers import telephony as telephony_routes
 
     ws_src = inspect.getsource(telephony_routes._voice_ws_upgrade_authorized)

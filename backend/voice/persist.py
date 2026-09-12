@@ -22,7 +22,7 @@ import pii_redact
 import db
 from agent_core import estimate_sentiment, evaluate_guardrails, sentiment_label
 from agent_core import lexicon
-from db_core import UNKNOWN_CALLER_ID, is_unknown_caller, unknown_caller_id
+from db_core import is_unknown_caller, unknown_caller_id
 
 logger = logging.getLogger(__name__)
 

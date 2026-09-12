@@ -180,7 +180,6 @@ def test_a_version_with_no_stored_graph_is_never_protected(db_tx) -> None:
 
 def test_the_editor_holds_an_unreadable_flow_at_null() -> None:
     """The other half, and the one that stops the request being sent at all."""
-    from pathlib import Path
 
     route = frontend_file("src", "routes", "prompt-studio.lazy.tsx")
     body = route.read_text(encoding="utf-8")
