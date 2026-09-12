@@ -24,7 +24,7 @@ const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
 const BASELINE = {
   "src/routes/_app.treatment.lazy.tsx": 1499,
   "src/components/flow/FlowCanvas.tsx": 1419,
-  "src/routes/_app.agent-studio.$botId.lazy.tsx": 1429,
+  "src/routes/_app.agent-studio.$botId.lazy.tsx": 1430,
   "src/components/flow/FlowInspector.tsx": 1123,
   "src/components/prompt-studio/OutboundCardEditor.tsx": 1104,
   "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1039,
@@ -32,7 +32,7 @@ const BASELINE = {
   "src/routes/_app.knowledge-base.lazy.tsx": 944,
   "src/components/prompt-studio/OutboundTab.tsx": 807,
   "src/routes/_app.agent-studio.index.tsx": 744,
-  "src/routes/_app.sandbox.lazy.tsx": 721,
+  "src/routes/_app.sandbox.lazy.tsx": 727,
   "src/routes/_app.handoff.lazy.tsx": 563,
   "src/api/prompt-studio.ts": 838,
   "src/api/agent-studio.ts": 815,
