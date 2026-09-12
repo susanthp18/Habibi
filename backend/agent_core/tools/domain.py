@@ -221,6 +221,7 @@ def _check_and_record_eligibility(
     was later switched off must still resolve its name for display.
     """
     import capture
+    import capture_events
     import db
     from sqlalchemy import text
 
@@ -244,7 +245,7 @@ def _check_and_record_eligibility(
             )
             block = capture.eligibility_blocks_capture(flags)
             if record_event:
-                capture.record_eligibility_checked(
+                capture_events.record_eligibility_checked(
                     conn,
                     interaction_id=interaction_id,
                     customer_id=customer_id,
@@ -416,7 +417,7 @@ def capture_lead(
     it in. Without it the lead is scored by the English lexicon, so every lead
     captured from a Hindi caller lands on the rep's queue marked "neutral".
     """
-    import capture
+    import capture_events
     import db
     from agent_core.sentiment import estimate_sentiment, sentiment_label
 
@@ -561,7 +562,7 @@ def capture_lead(
     if interaction_id:
         try:
             with db.engine.begin() as conn:
-                capture.record_offer_presented(
+                capture_events.record_offer_presented(
                     conn,
                     interaction_id=interaction_id,
                     product_id=pid,
@@ -607,11 +608,11 @@ def mark_upsell_presented(
     if not interaction_id:
         return
     try:
-        import capture
+        import capture_events
         import db
 
         with db.engine.begin() as conn:
-            capture.record_offer_presented(
+            capture_events.record_offer_presented(
                 conn,
                 interaction_id=interaction_id,
                 product_id=product_id,

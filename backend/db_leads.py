@@ -732,6 +732,7 @@ def create_lead(
         # Savepoint: a capture failure must not abort the lead write + trailing activity.
         try:
             import capture
+            import capture_events
 
             with conn.begin_nested():
                 flags = payload.get("eligibilityFlags")
@@ -764,10 +765,11 @@ def create_lead(
         # funnel event, and a funnel-event failure must not lose the lead.
         try:
             import capture
+            import capture_events
 
             with conn.begin_nested():
                 bot_id = payload.get("actorBotId")
-                capture.record_lead_captured(
+                capture_events.record_lead_captured(
                     conn,
                     interaction_id=payload.get("interactionId"),
                     lead_id=lead_id,

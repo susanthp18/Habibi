@@ -154,36 +154,36 @@ def test_a_real_note_is_preserved(db_tx) -> None:
 
 
 def test_elapsed_seconds_measures_from_the_interaction_start() -> None:
-    import capture
+    import capture_events
 
     started = datetime(2026, 8, 23, 5, 0, 0, tzinfo=timezone.utc)
     at = started + timedelta(minutes=1, seconds=30, milliseconds=600)
-    assert capture.elapsed_seconds(started, at) == 90
+    assert capture_events.elapsed_seconds(started, at) == 90
 
 
 def test_elapsed_seconds_degrades_to_zero_rather_than_guessing() -> None:
     """A missing start is not an error; it is the pre-existing behaviour."""
-    import capture
+    import capture_events
 
     at = datetime(2026, 8, 23, 5, 0, 0, tzinfo=timezone.utc)
-    assert capture.elapsed_seconds(None, at) == 0
-    assert capture.elapsed_seconds(at, None) == 0
+    assert capture_events.elapsed_seconds(None, at) == 0
+    assert capture_events.elapsed_seconds(at, None) == 0
 
 
 def test_elapsed_seconds_never_goes_backwards() -> None:
     """Clock skew and back-dated seed rows must not produce a negative offset."""
-    import capture
+    import capture_events
 
     started = datetime(2026, 8, 23, 5, 0, 0, tzinfo=timezone.utc)
-    assert capture.elapsed_seconds(started, started - timedelta(minutes=5)) == 0
+    assert capture_events.elapsed_seconds(started, started - timedelta(minutes=5)) == 0
 
 
 def test_elapsed_seconds_reads_naive_timestamps_as_utc() -> None:
-    import capture
+    import capture_events
 
     started = datetime(2026, 8, 23, 5, 0, 0)
     at = datetime(2026, 8, 23, 5, 0, 45, tzinfo=timezone.utc)
-    assert capture.elapsed_seconds(started, at) == 45
+    assert capture_events.elapsed_seconds(started, at) == 45
 
 
 def test_the_whatsapp_bridge_no_longer_hard_codes_at_sec() -> None:

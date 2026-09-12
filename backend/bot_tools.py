@@ -10,7 +10,8 @@ from typing import Any, Callable
 
 from sqlalchemy import text
 
-import capture
+import capture_events
+import capture_identity
 import db
 from agent_core.sentiment import estimate_sentiment
 from agent_core.tools import domain
@@ -530,7 +531,7 @@ def _tool_decline_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
         decisions.record_response(ctx.offer_decision_id, "declined")
     try:
         with db.engine.begin() as conn:
-            capture.record_offer_declined(
+            capture_events.record_offer_declined(
                 conn,
                 interaction_id=ctx.interaction_id,
                 customer_id=ctx.customer_id,
@@ -690,7 +691,6 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     message the bot and enumerate account tails to read another customer's
     balance, EMI schedule and payment history.
     """
-    import capture
     import re
 
     if not ctx.interaction_id:
@@ -718,7 +718,7 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
                 )
         if matched is None and account_tail:
             method = "account_tail"
-            candidate = capture.find_customer_by_account_tail(conn, account_tail)
+            candidate = capture_identity.find_customer_by_account_tail(conn, account_tail)
             candidate_digits = re.sub(r"\D", "", str((candidate or {}).get("phone_primary") or ""))
             if (
                 candidate is not None
@@ -734,7 +734,7 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
                     ctx.conversation_id,
                 )
         if matched is None:
-            capture.record_identity_failed(
+            capture_identity.record_identity_failed(
                 conn,
                 interaction_id=ctx.interaction_id,
                 reason="no_customer_match",
@@ -744,7 +744,7 @@ def _tool_identify_customer(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
             return {"ok": False, "error": "customer_not_found", "method": method}
 
         account_id = matched.get("account_id")
-        result = capture.rebind_interaction_customer(
+        result = capture_identity.rebind_interaction_customer(
             conn,
             interaction_id=ctx.interaction_id,
             customer_id=matched["id"],

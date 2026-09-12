@@ -1534,12 +1534,13 @@ class CrmSink:
             if p.get("intent"):
                 try:
                     import capture
+                    import capture_events
                     import db as _db
 
                     with _db.engine.begin() as conn:
                         capture.touch_primary_intent(conn, ix, str(p["intent"]))
                         if str(p["intent"]) in capture.PRODUCT_INTENTS:
-                            capture.record_product_interest(
+                            capture_events.record_product_interest(
                                 conn,
                                 interaction_id=ix,
                                 intent=str(p["intent"]),

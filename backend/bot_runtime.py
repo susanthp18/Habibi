@@ -1102,6 +1102,7 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
     if conv.get("interaction_id") and intent:
         try:
             import capture
+            import capture_events
 
             with engine.begin() as conn:
                 capture.touch_primary_intent(conn, conv.get("interaction_id"), intent)
@@ -1110,7 +1111,7 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
                         conn, conv.get("interaction_id"), query_resolved=True
                     )
                 if intent in capture.PRODUCT_INTENTS:
-                    capture.record_product_interest(
+                    capture_events.record_product_interest(
                         conn,
                         interaction_id=conv["interaction_id"],
                         intent=intent,
@@ -1702,6 +1703,7 @@ def _persist_turn(engine: Engine, t: Turn) -> None:
     if ix:
         try:
             import capture
+            import capture_events
 
             top_score = float(intent_scores.get(intent) or 0.0) if intent_scores else None
             with engine.begin() as conn:
@@ -1710,13 +1712,13 @@ def _persist_turn(engine: Engine, t: Turn) -> None:
                 # channel read as one instantaneous exchange while looking
                 # perfectly well-formed. Stamp the customer turn from the
                 # message being replied to, and the bot turn from now.
-                started_at = capture.interaction_started_at(conn, ix)
-                customer_turn_index = capture.insert_transcript_turn(
+                started_at = capture_events.interaction_started_at(conn, ix)
+                customer_turn_index = capture_events.insert_transcript_turn(
                     conn,
                     interaction_id=ix,
                     speaker="customer",
                     text_content=customer_text,
-                    at_sec=capture.elapsed_seconds(
+                    at_sec=capture_events.elapsed_seconds(
                         started_at, _message_sent_at(conn, latest_msg_id)
                     ),
                     sentiment_delta=float(sentiment) if sentiment is not None else None,
@@ -1742,12 +1744,12 @@ def _persist_turn(engine: Engine, t: Turn) -> None:
                 # other writer had taken that index; MAX()+1 inside the same
                 # transaction already sees the customer turn above, so ordering
                 # is preserved either way.
-                capture.insert_transcript_turn(
+                capture_events.insert_transcript_turn(
                     conn,
                     interaction_id=ix,
                     speaker="bot",
                     text_content=final_text,
-                    at_sec=capture.elapsed_seconds(started_at, utc_now()),
+                    at_sec=capture_events.elapsed_seconds(started_at, utc_now()),
                 )
                 # Backfill this turn's tool calls and retrievals with the turn
                 # they belong to. Deliberately a backfill rather than a reorder:

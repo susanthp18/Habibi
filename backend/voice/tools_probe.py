@@ -60,7 +60,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         product_id = state.offered_product_id or state.last_product_id
 
         async def _persist() -> None:
-            import capture
+            import capture_events
             import db
 
             if state.offer_decision_id:
@@ -75,7 +75,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
             def _write() -> None:
                 with db.engine.begin() as conn:
-                    capture.record_offer_declined(
+                    capture_events.record_offer_declined(
                         conn,
                         interaction_id=session.interaction_id,
                         customer_id=cid,
@@ -208,11 +208,11 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             return
 
         def _write() -> None:
-            import capture
+            import capture_events
             import db
 
             with db.engine.begin() as conn:
-                capture.record_close_probe(
+                capture_events.record_close_probe(
                     conn,
                     interaction_id=ix,
                     with_offer=with_offer,

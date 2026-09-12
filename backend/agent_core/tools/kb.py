@@ -389,7 +389,7 @@ def _record_product_interest(
     (agent_core/tools/domain.py).
     """
     try:
-        import capture
+        import capture_events
         import db
 
         intent = (
@@ -398,7 +398,7 @@ def _record_product_interest(
             else "product_faq"
         )
         with db.engine.begin() as conn:
-            capture.record_product_interest(
+            capture_events.record_product_interest(
                 conn,
                 interaction_id=interaction_id,
                 intent=intent,

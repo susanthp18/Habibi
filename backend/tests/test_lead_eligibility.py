@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-import capture
+import capture_events
 from capture import _promo_consent_flag, eligibility_blocks_capture
 from db import _LEAD_STAGE_TRANSITIONS, _TEAM_BY_CATEGORY
 
@@ -161,4 +161,4 @@ def test_new_commercial_event_kinds_are_registered():
     # offer_suppressed left the set with its only emitter (the suppression is
     # read from offer_decisions.suppression_reason, not an event).
     for kind in ("offer_declined", "close_probe_presented"):
-        assert kind in capture.COMMERCIAL_KINDS
+        assert kind in capture_events.COMMERCIAL_KINDS

@@ -31,7 +31,7 @@ GATE_IDENTITY = "human_gate_identity"
 # `identify_customer` is offered there (grant.TEXT_ALWAYS), is executable, and
 # does write `identity_verifications`. But the only ceremony a customer can
 # naturally pass in a chat thread — the last four digits of their account —
-# was downgraded to `status='pending'` by `capture.rebind_interaction_customer`,
+# was downgraded to `status='pending'` by `capture_identity.rebind_interaction_customer`,
 # and this module required `'verified'`. The alternative, `phone_match`, asks a
 # customer to type back the number the bot is already messaging. So every gated
 # tool was permanently denied: in the live thread that prompted this, three in a

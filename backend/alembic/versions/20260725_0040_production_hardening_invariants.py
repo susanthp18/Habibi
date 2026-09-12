@@ -114,7 +114,7 @@ def upgrade() -> None:
     )
 
     # --- account tail lookup indexes --------------------------------------
-    # capture.find_customer_by_account_tail runs on the live-call identity path.
+    # capture_identity.find_customer_by_account_tail runs on the live-call identity path.
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_accounts_digit_tail4

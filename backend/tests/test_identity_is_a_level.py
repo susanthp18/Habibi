@@ -12,7 +12,7 @@ three refusals landed in a row:
 and the model responded by offering a callback, which is also gated. It was
 never told what would have worked.
 
-The cause was one line in `capture.rebind_interaction_customer`: an
+The cause was one line in `capture_identity.rebind_interaction_customer`: an
 `account_tail` match was downgraded to `status='pending'`, while the gate
 required `'verified'`. So the only ceremony a customer can perform in a chat
 thread wrote a row that could never open the gate, and `phone_match` — the other
@@ -133,19 +133,19 @@ def test_the_text_channel_no_longer_downgrades_a_tail_to_pending() -> None:
     equal the thread's phone, so an account_tail match there is two factors, not
     one. Recording two factors as "pending" was not caution.
     """
-    import capture
+    import capture_identity
 
     assert 'verification_status = "pending"' not in _live_code(
-        capture.rebind_interaction_customer
+        capture_identity.rebind_interaction_customer
     )
 
 
 def test_voice_and_text_agree_about_what_a_method_means() -> None:
     """They did not: voice wrote account_tail as verified, text as pending."""
-    import capture
+    import capture_identity
     import voice.persist as vp
 
-    for fn in (capture.rebind_interaction_customer, vp.record_identity_verification):
+    for fn in (capture_identity.rebind_interaction_customer, vp.record_identity_verification):
         assert 'if method == "account_tail"' not in _live_code(fn)
 
 
