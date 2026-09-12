@@ -1069,6 +1069,7 @@ def revalidate_open_leads(limit: int = 500) -> dict[str, Any]:
         ]
     checked = 0
     blocked: list[str] = []
+    reasons: dict[str, str] = {}
     for lead_id in ids:
         try:
             result = revalidate_lead_eligibility(lead_id)
@@ -1078,7 +1079,18 @@ def revalidate_open_leads(limit: int = 500) -> dict[str, Any]:
         checked += 1
         if not result["eligible"]:
             blocked.append(lead_id)
-    return {"checked": checked, "blocked": blocked, "blockedCount": len(blocked)}
+            # Carry the reason, not just the id. On a collections book most
+            # cross-sell leads are blocked by delinquency and always were —
+            # "13 of 14 leads no longer eligible" reads like an incident until
+            # you learn the reason is "worst account DPD is 74 (over 30)", at
+            # which point it reads like the policy working.
+            reasons[lead_id] = str(result.get("blockReason") or "unspecified")
+    return {
+        "checked": checked,
+        "blocked": blocked,
+        "blockedCount": len(blocked),
+        "reasons": reasons,
+    }
 
 def sweep_due_followups(limit: int = 500) -> dict[str, Any]:
     """Escalate lead follow-ups whose moment has passed.

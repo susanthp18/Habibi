@@ -33,10 +33,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
+from agent_core.clock import as_utc
+from agent_core import clock
+
 import contact_window
 import policy_rules
 from env_utils import env_int
-from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +82,7 @@ REASON_WINDOW_DEFERRED_STATUTORY = "window_deferred_statutory"
 #: named ``data_purpose`` everywhere it appears.
 DATA_PURPOSES = frozenset({"servicing", "promotional"})
 
-#: The fallback calling window, owned by policy_rules.STATUTORY_VOICE_WINDOW
+#: The fallback calling window, owned by ``policy_rules.STATUTORY_VOICE_WINDOW``
 #: and read here under the names this module has always exported.
 RBI_VOICE_START, RBI_VOICE_END = policy_rules.STATUTORY_VOICE_WINDOW
 DEFAULT_TZ = clock.DEFAULT_TIMEZONE
@@ -169,6 +171,29 @@ def session_window() -> timedelta:
     return timedelta(minutes=max(1, env_int("CONTACT_SESSION_WINDOW_MINUTES", 30)))
 
 
+#: Refusals that are a property of the clock: they stop being true on their own,
+#: at a moment we can name. A caller holding one of these has been told *not
+#: yet*, not *no*.
+#:
+#: This distinction had no representation, and one caller paid for it:
+#: `whatsapp_outbound` handed every refusal to `mark_failed_or_retry`, a
+#: function whose classifiers only understand Meta transport errors. A
+#: `cooling_off` verdict matched none of them, fell through to "attempt >= cap"
+#: and dead-lettered. Cooling-off is 120 *minutes*; that ladder is five attempts
+#: with the backoff capped at 120 *seconds*. It could not survive to the retry
+#: that would have worked, and 18 of 29 outbound messages died this way.
+CLOCK_REFUSALS = frozenset(
+    {
+        REASON_COOLING,
+        REASON_DAILY,
+        REASON_WEEKLY,
+        REASON_HOURS,
+        REASON_WINDOW,
+        REASON_WINDOW_DEFERRED_STATUTORY,
+    }
+)
+
+
 @dataclass(frozen=True)
 class Decision:
     allowed: bool
@@ -179,6 +204,19 @@ class Decision:
     coalesced: bool = False
     policy_binding: tuple[dict[str, Any], ...] = ()
     policy_binding_hash: str | None = None
+    #: When this refusal stops being true, for the clock-shaped reasons. None
+    #: for a refusal that is a property of the customer — a DND flag or a
+    #: withdrawn consent does not expire, and a caller must not retry it.
+    next_allowed_at: datetime | None = None
+
+    @property
+    def deferrable(self) -> bool:
+        """True when the honest response is to reschedule rather than fail."""
+        return (
+            not self.allowed
+            and self.reason in CLOCK_REFUSALS
+            and self.next_allowed_at is not None
+        )
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -189,6 +227,8 @@ class Decision:
             "dailyCap": self.daily_cap,
             "coalesced": self.coalesced,
         }
+        if self.next_allowed_at is not None:
+            payload["nextAllowedAt"] = self.next_allowed_at.isoformat()
         if self.policy_binding_hash:
             payload["policyBindingHash"] = self.policy_binding_hash
             payload["policyBinding"] = list(self.policy_binding)
@@ -265,12 +305,6 @@ def safe_tz_sql(expr: str = "c.timezone") -> str:
 #: Ready-made fragments for callers that bind the label as a parameter.
 SQL_SAFE_TZ = safe_tz_sql(":tz")
 SQL_SAFE_TZ_ALT = safe_tz_sql(":tz2")
-
-
-def _aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 def _parse_hours(raw: str | None) -> tuple[int, int] | None:
@@ -415,7 +449,18 @@ def _consent_overlay_blocks(
             WHERE customer_id = :cid
               AND (channel = :ch OR channel = 'all')
               AND (purpose = :purpose OR purpose = 'all')
-              AND (endpoint IS NULL OR :endpoint IS NULL OR endpoint = :endpoint)
+              -- CAST before the null test, the same trap the model registry
+              -- documents: a bare ``:endpoint IS NULL`` gives the planner
+              -- nothing to infer the parameter's type from, and Postgres
+              -- refuses the whole statement with "could not determine data
+              -- type of parameter $4". It stayed hidden because
+              -- ``consent_events`` did not exist until migration 0108, so the
+              -- ``has_table`` guard above returned before the query ran.
+              AND (
+                endpoint IS NULL
+                OR CAST(:endpoint AS TEXT) IS NULL
+                OR endpoint = CAST(:endpoint AS TEXT)
+              )
             ORDER BY captured_at DESC
             LIMIT 1
             """
@@ -485,7 +530,7 @@ def _veto_extras(
         )
         expires = customer.get("expires_at")
         if expires is not None:
-            expired = _aware(expires) <= instant
+            expired = as_utc(expires) <= instant
     ep_state = (
         _endpoint_state(
             conn,
@@ -689,7 +734,98 @@ def _last_counted_at(conn: Any, customer_id: str) -> datetime | None:
     ).mappings().first()
     if not row or row["occurred_at"] is None:
         return None
-    return _aware(row["occurred_at"])
+    return as_utc(row["occurred_at"])
+
+
+def _statutory_window(rules: Any | None, channel: str) -> tuple[int, int]:
+    """The published calling window, else the platform's conservative bound."""
+    window = rules.calling_window(channel) if rules is not None else None
+    return window if window is not None else (RBI_VOICE_START, RBI_VOICE_END)
+
+
+def _consent_window(customer: dict[str, Any]) -> tuple[tuple[int, int], set[int] | None]:
+    """The borrower's own preferred hours and days."""
+    return (
+        _preferred_hours(customer) or contact_window.window_hours(None),
+        _parse_days(customer.get("allowed_days")),
+    )
+
+
+def _next_window_open(
+    now_local: datetime,
+    *,
+    rules: Any | None,
+    channel: str,
+    customer: dict[str, Any],
+) -> datetime:
+    """The next instant both windows are open, in UTC.
+
+    Shares :func:`_statutory_window` and :func:`_consent_window` with the veto
+    that produced the refusal, so the answer to "why not now" and the answer to
+    "then when" can never come from two different readings of the same rules.
+
+    Walks forward a day at a time rather than solving it: at most eight
+    iterations (seven days plus today), and a closed-form version would have to
+    re-derive the intersection of two hour ranges and a day mask, which is the
+    sort of arithmetic that is wrong for a year before anyone notices.
+    """
+    s_start, s_end = _statutory_window(rules, channel)
+    (c_start, c_end), days = _consent_window(customer)
+    start_h = max(s_start, c_start)
+    end_h = min(s_end, c_end)
+    if start_h >= end_h:
+        # The published window and the borrower's preference do not overlap.
+        # Nothing to schedule; the caller treats None-ish deadlines as "ask
+        # again tomorrow" rather than inventing a slot neither rule allows.
+        start_h, end_h = s_start, s_end
+
+    candidate = now_local
+    if now_local.hour >= start_h:
+        candidate = now_local + timedelta(days=1)
+    for _ in range(8):
+        opens = candidate.replace(hour=start_h, minute=0, second=0, microsecond=0)
+        if opens > now_local and (days is None or (opens.isoweekday() % 7) in days):
+            return opens.astimezone(timezone.utc)
+        candidate = candidate + timedelta(days=1)
+    return (now_local + timedelta(days=1)).astimezone(timezone.utc)
+
+
+def _next_allowed(
+    reason: str | None,
+    *,
+    now_local: datetime,
+    rules: Any | None,
+    channel: str,
+    customer: dict[str, Any] | None,
+    last_counted_at: datetime | None = None,
+) -> datetime | None:
+    """When a clock-shaped refusal stops being true. None if it never does.
+
+    Every fact here is already in the caller's hand at the moment it refuses —
+    which is the point. Nothing in this module computed it before, so a caller
+    holding a refusal had no way to tell "not yet" from "no", and the one caller
+    that guessed dead-lettered 18 messages.
+    """
+    if reason not in CLOCK_REFUSALS or customer is None:
+        return None
+    if reason == REASON_COOLING:
+        if last_counted_at is None:
+            return None
+        return (last_counted_at + cooling_off(rules)).astimezone(timezone.utc)
+    if reason == REASON_DAILY:
+        midnight = (now_local + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        return midnight.astimezone(timezone.utc)
+    if reason == REASON_WEEKLY:
+        # Start of next ISO week, local. Under-estimating here would only cost a
+        # wasted attempt; over-estimating holds a message the caps would allow.
+        days_ahead = 8 - now_local.isoweekday()
+        nxt = (now_local + timedelta(days=days_ahead)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        return nxt.astimezone(timezone.utc)
+    return _next_window_open(now_local, rules=rules, channel=channel, customer=customer)
 
 
 def _veto(
@@ -747,17 +883,13 @@ def _veto(
 
     # Published window, else the conservative 08:00–19:00 platform bound.
     # Messages use that bound until counsel cites a distinct instrument.
-    window = rules.calling_window(channel) if rules is not None else None
-    if window is None:
-        window = (RBI_VOICE_START, RBI_VOICE_END)
-    start_h, end_h = window
+    start_h, end_h = _statutory_window(rules, channel)
     if now_local.hour < start_h or now_local.hour >= end_h:
         if purpose == "statutory":
             return REASON_WINDOW_DEFERRED_STATUTORY
         return REASON_HOURS
 
-    hours = _preferred_hours(customer) or contact_window.window_hours(None)
-    days = _parse_days(customer.get("allowed_days"))
+    hours, days = _consent_window(customer)
     start_h, end_h = hours
     if now_local.hour < start_h or now_local.hour >= end_h:
         if purpose == "statutory":
@@ -796,7 +928,7 @@ def evaluate(
 
     try:
         customer = _load_customer(conn, cid)
-        instant = _aware(now or datetime.now(timezone.utc))
+        instant = as_utc(now or datetime.now(timezone.utc))
         tz = _zone((customer or {}).get("timezone"))
         local = instant.astimezone(tz)
         rules = _rules_for(conn, customer, instant, product_id=product_id)
@@ -837,6 +969,10 @@ def evaluate(
                 daily_cap=cap,
                 policy_binding=binding,
                 policy_binding_hash=digest,
+                next_allowed_at=_next_allowed(
+                    reason, now_local=local, rules=rules, channel=channel,
+                    customer=customer,
+                ),
             )
         coalesced = _session_coalesced(conn, customer_id=cid, session_key=session_key, now=instant)
         if coalesced or purpose == "in_session":
@@ -859,6 +995,10 @@ def evaluate(
                     daily_cap=cap,
                     policy_binding=binding,
                     policy_binding_hash=digest,
+                    next_allowed_at=_next_allowed(
+                        REASON_COOLING, now_local=local, rules=rules,
+                        channel=channel, customer=customer, last_counted_at=last,
+                    ),
                 )
             if today >= cap:
                 return Decision(
@@ -868,6 +1008,10 @@ def evaluate(
                     daily_cap=cap,
                     policy_binding=binding,
                     policy_binding_hash=digest,
+                    next_allowed_at=_next_allowed(
+                        REASON_DAILY, now_local=local, rules=rules, channel=channel,
+                        customer=customer,
+                    ),
                 )
             week_n = _week_counted(conn, cid, channel, now=instant, tz=tz)
             if week_n >= _weekly_cap_for(conn, cid, channel, rules):
@@ -878,6 +1022,10 @@ def evaluate(
                     daily_cap=cap,
                     policy_binding=binding,
                     policy_binding_hash=digest,
+                    next_allowed_at=_next_allowed(
+                        REASON_WEEKLY, now_local=local, rules=rules, channel=channel,
+                        customer=customer,
+                    ),
                 )
         return Decision(
             True,
@@ -1307,7 +1455,9 @@ def admit(
         binding, digest = _binding_for(rules, fired=_fired_ids(rules, reason), at=instant)
         today = _today_count(conn, cid, local.date())
 
-        def _deny(why: str, count: int = today) -> Decision:
+        def _deny(
+            why: str, count: int = today, *, last_counted_at: datetime | None = None
+        ) -> Decision:
             _insert_event(
                 conn,
                 customer=customer,
@@ -1333,6 +1483,14 @@ def admit(
                 daily_cap=cap,
                 policy_binding=binding,
                 policy_binding_hash=digest,
+                next_allowed_at=_next_allowed(
+                    why,
+                    now_local=local,
+                    rules=rules,
+                    channel=channel,
+                    customer=customer,
+                    last_counted_at=last_counted_at,
+                ),
             )
 
         if reason:
@@ -1355,7 +1513,7 @@ def admit(
             last = _last_counted_at(conn, cid)
             cool = cooling_off(rules)
             if cool.total_seconds() > 0 and last is not None and instant - last < cool:
-                return _deny(REASON_COOLING)
+                return _deny(REASON_COOLING, last_counted_at=last)
             week_n = _week_counted(conn, cid, channel, now=instant, tz=tz)
             if week_n >= _weekly_cap_for(conn, cid, channel, rules):
                 return _deny(REASON_WEEKLY)

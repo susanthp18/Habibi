@@ -96,10 +96,20 @@ def _maybe_revalidate_open_leads() -> None:
             report["blockedCount"],
         )
         if report["blocked"]:
-            logger.warning(
-                "leads no longer eligible (consent/DPD moved): %s",
-                ", ".join(report["blocked"][:20]),
-            )
+            reasons = report.get("reasons") or {}
+            # One line per distinct reason rather than a bare id list: an
+            # operator needs to know whether this is consent moving under them
+            # or the book simply being delinquent, and the id list cannot say.
+            by_reason: dict[str, list[str]] = {}
+            for lead_id in report["blocked"]:
+                by_reason.setdefault(reasons.get(lead_id, "unspecified"), []).append(lead_id)
+            for why, ids_ in sorted(by_reason.items(), key=lambda kv: -len(kv[1])):
+                logger.info(
+                    "leads ineligible (%s): %s%s",
+                    why,
+                    ", ".join(ids_[:10]),
+                    "" if len(ids_) <= 10 else f" (+{len(ids_) - 10} more)",
+                )
     except Exception:
         logger.exception("nightly lead eligibility sweep failed")
 

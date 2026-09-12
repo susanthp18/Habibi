@@ -197,6 +197,11 @@ def _warn_if_queue_is_not_draining(conn: Connection) -> None:
                        COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0) AS oldest_s
                   FROM whatsapp_outbound_jobs
                  WHERE status = 'queued'
+                   -- Claimable only. A job deferred by contact policy sits
+                   -- queued with a far-future run_after *by design*, and
+                   -- counting it here would report a stalled worker every time
+                   -- a borrower was inside their cooling-off window.
+                   AND (run_after IS NULL OR run_after <= now())
                 """
             )
         ).fetchone()
@@ -259,7 +264,16 @@ def claim_next_job(conn: Connection) -> dict[str, Any] | None:
             SELECT id, message_id, conversation_id, customer_id,
                    to_phone, body, attempt, post_attempted_at,
                    preview_url, template_name, template_lang, template_params,
-                   purpose, source
+                   purpose, source,
+                   -- `created_at` bounds how long a deferral is worth holding.
+                   created_at,
+                   -- `decision_id` was never selected, so `job.get("decision_id")`
+                   -- was always None: the treatment session key fell through to
+                   -- the conversation id, and `_finalize_treatment_send` — which
+                   -- reads it to attribute a send back to the decision that
+                   -- asked for it — has silently no-opped on every message since
+                   -- the column was added.
+                   decision_id
             FROM whatsapp_outbound_jobs
             WHERE status = 'queued'
               AND (run_after IS NULL OR run_after <= now())
@@ -358,6 +372,101 @@ def _persistable_error(exc: BaseException) -> str:
     if isinstance(exc, ValueError):
         return str(exc)
     return f"whatsapp_send_failed:internal:{type(exc).__name__}"
+
+
+#: How long past its moment a queued message is still worth delivering.
+#:
+#: A promise-to-pay confirmation two hours late is still the confirmation the
+#: borrower is waiting for. A nudge whose window has closed is a message about
+#: something that already happened, and sending it late is worse than not
+#: sending it: it is what "why is this bank messaging me about last Tuesday"
+#: looks like from the other side.
+_PURPOSE_TTL = {
+    "statutory": timedelta(days=2),
+    "in_session": timedelta(hours=4),
+    "outreach": timedelta(days=1),
+}
+_DEFAULT_TTL = timedelta(days=1)
+
+
+def _defer(conn: Connection, job: dict[str, Any], decision: Any) -> str:
+    """Reschedule to the instant the policy next allows, or cancel if too late.
+
+    Rides `status='queued'` with a far-future `run_after` — the column exists,
+    is indexed (ix_whatsapp_outbound_jobs_status_run_after) and is already
+    honoured by `claim_next_job`, so a deferral needs no new status and no
+    migration.
+
+    `attempt` is deliberately left alone. A policy deferral is not an attempt at
+    anything; counting it would walk the job toward the dead-letter cap for
+    waiting, which is the whole bug in miniature.
+    """
+    when = decision.next_allowed_at
+    created = job.get("created_at")
+    ttl = _PURPOSE_TTL.get((job.get("purpose") or "").strip(), _DEFAULT_TTL)
+    if created is not None:
+        if getattr(created, "tzinfo", None) is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if when > created + ttl:
+            logger.info(
+                "whatsapp_outbound job=%s cancelled — %s until %s, past its %s TTL",
+                job["id"],
+                decision.reason,
+                when.isoformat(),
+                ttl,
+            )
+            return cancel(conn, job, f"{decision.reason}:expired_before_window")
+    conn.execute(
+        text(
+            """
+            UPDATE whatsapp_outbound_jobs
+            SET status = 'queued',
+                error = :error,
+                run_after = :run_after,
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": job["id"],
+            "error": f"deferred: {decision.reason}",
+            "run_after": when,
+        },
+    )
+    logger.info(
+        "whatsapp_outbound job=%s deferred to %s (%s)",
+        job["id"],
+        when.isoformat(),
+        decision.reason,
+    )
+    return "queued"
+
+
+def cancel(conn: Connection, job: dict[str, Any], reason: str) -> str:
+    """Stop trying. The refusal will not expire, so retrying is noise.
+
+    Dead-lettered rather than given a status of its own: `dead` already means
+    "a human decides what happens next", which is exactly right for a message we
+    are declining to send on consent grounds, and the check constraint has never
+    carried a `cancelled`.
+    """
+    conn.execute(
+        text(
+            """
+            UPDATE whatsapp_outbound_jobs
+            SET status = 'dead',
+                error = :error,
+                locked_at = NULL,
+                locked_by = NULL,
+                updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": job["id"], "error": reason[:2000]},
+    )
+    return "dead"
 
 
 def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> str:
@@ -547,22 +656,47 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
             endpoint=to_phone,
         )
         if not decision.allowed:
-            status = mark_failed_or_retry(conn, job, decision.reason or "contact_policy")
-            if status == "dead":
-                conn.execute(
-                    text(
-                        """
-                        UPDATE messages
-                        SET delivery_status = 'failed'
-                        WHERE id = :id AND COALESCE(delivery_status, '') = 'sending'
-                        """
-                    ),
-                    {"id": message_id},
+            # A policy verdict is not a transport error, and this is the line
+            # that treated it as one. `mark_failed_or_retry` classifies against
+            # the `whatsapp_send_failed:*` vocabulary Meta produces; a reason
+            # like `cooling_off` matches nothing there, falls through to
+            # "attempt >= cap", and dead-letters. Cooling-off is 120 minutes and
+            # the ladder tops out at 120 seconds, so the job could never survive
+            # to the retry that would have worked. 18 of 29 outbound messages
+            # died this way, none of them for a reason the borrower would
+            # recognise as a failure.
+            #
+            # Every sibling caller of `admit` already routes refusals away from
+            # its retry ladder (written_followup, outbound.gate, treatment.enact,
+            # promise_fulfillment). This was the one that did not.
+            if decision.deferrable and _defer(conn, job, decision) == "queued":
+                logger.info(
+                    "whatsapp_outbound deferred job=%s reason=%s",
+                    job["id"],
+                    decision.reason,
                 )
-                conn.execute(
-                    text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-                    {"id": job["conversation_id"]},
-                )
+                return
+            # Either the refusal is a property of the customer — DND, a
+            # withdrawn consent, a settled account, an unverified endpoint, none
+            # of which expire — or it was deferrable and outlived its purpose's
+            # TTL. Both stop here, and both leave the message row sitting in
+            # `sending` unless it is closed out.
+            if not decision.deferrable:
+                cancel(conn, job, decision.reason or "contact_policy")
+            conn.execute(
+                text(
+                    """
+                    UPDATE messages
+                    SET delivery_status = 'failed'
+                    WHERE id = :id AND COALESCE(delivery_status, '') = 'sending'
+                    """
+                ),
+                {"id": message_id},
+            )
+            conn.execute(
+                text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
+                {"id": job["conversation_id"]},
+            )
             logger.info(
                 "whatsapp_outbound blocked job=%s reason=%s",
                 job["id"],
