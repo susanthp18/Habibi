@@ -2089,7 +2089,7 @@ export const ConversationListResponse = z.object({
   "ragDraftAnswer": z.string().nullable().optional(),
   "handlerBotId": z.string().nullable().optional(),
   "messages": z.array(z.union([InboxMessageResponse, InboxSystemEventResponse])).optional(),
-  "context": InboxThreadContextResponse,
+  "context": InboxThreadContextResponse.nullable().optional(),
 }).passthrough();
 export const CannedResponseItem = z.object({
   "id": z.string(),

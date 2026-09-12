@@ -125,7 +125,8 @@ class ConversationListResponse(BaseModel):
     ragDraftAnswer: str | None = None
     handlerBotId: str | None = None
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
-    context: InboxThreadContextResponse
+    #: On the thread detail and every write's response; the list omits it.
+    context: InboxThreadContextResponse | None = None
 
 
 class CannedResponseItem(BaseModel):

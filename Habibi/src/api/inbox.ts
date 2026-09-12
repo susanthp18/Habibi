@@ -94,6 +94,21 @@ export async function fetchConversations(opts?: {
   return apiGet<Thread[]>(`/conversations${q}`);
 }
 
+export async function fetchConversation(threadId: string): Promise<Thread> {
+  return apiGet<Thread>(`/conversations/${encodeURIComponent(threadId)}`);
+}
+
+/** The one thread on screen, with its customer context. */
+export function useConversation(threadId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["conversation", threadId],
+    queryFn: () => fetchConversation(threadId as string),
+    enabled: Boolean(threadId),
+    staleTime: 15_000,
+    retry: retryUnlessClientError,
+  });
+}
+
 export function useConversations() {
   const queryClient = useQueryClient();
 

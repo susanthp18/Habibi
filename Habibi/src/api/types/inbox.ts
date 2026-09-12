@@ -80,5 +80,6 @@ export interface Thread {
   /** Optional grounded draft from shared kb_retrieve (same as Test Retrieval). */
   ragDraftAnswer?: string | null;
   messages: ThreadItem[];
-  context: ThreadContext;
+  /** Present on GET /conversations/{id} and write responses; the list omits it. */
+  context?: ThreadContext | null;
 }

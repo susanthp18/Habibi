@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import type { Thread } from "@/api/types/inbox";
+import type { Thread, ThreadContext } from "@/api/types/inbox";
 import { Avatar } from "./meta";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";
@@ -28,8 +28,15 @@ const promiseTone = {
   Partial: "warning",
 } as const;
 
-export function ContextRail({ thread, onClose }: { thread: Thread; onClose?: () => void }) {
-  const c = thread.context;
+export function ContextRail({
+  thread,
+  context: c,
+  onClose,
+}: {
+  thread: Thread;
+  context: ThreadContext;
+  onClose?: () => void;
+}) {
   const navigate = useNavigate();
   const customerId = thread.customerId;
   const openDisputes = c.openDisputes.length > 0;

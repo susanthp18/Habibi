@@ -541,6 +541,7 @@ def _serialize_conversation(
     *,
     draft_answer: str | None = None,
     bot_typing: bool = False,
+    with_context: bool = True,
 ) -> dict[str, Any]:
     last_msg = None
     for item in reversed(messages):
@@ -595,6 +596,8 @@ def _serialize_conversation(
         "ragDraftAnswer": draft,
         "handlerBotId": row.get("handler_bot_id"),
         "messages": messages,
+        # The context is four reads and a Gate evaluation per thread; the list
+        # polls every few seconds, so only the thread detail carries it.
         "context": _thread_context(
             conn,
             row["customer_id"],
@@ -604,7 +607,9 @@ def _serialize_conversation(
             row["preferred_window"],
             float(row["outstanding"] or 0),
             row["dpd"],
-        ),
+        )
+        if with_context
+        else None,
     }
 
 
@@ -728,6 +733,7 @@ def list_conversations(*, updated_after: datetime | str | None = None) -> list[d
                     me_id,
                     draft_answer=drafts_by_conv.get(r["id"]),
                     bot_typing=bool(typing_by.get(r["id"])),
+                    with_context=False,
                 )
             )
         return result

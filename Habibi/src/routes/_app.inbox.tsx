@@ -5,12 +5,14 @@ import { ConversationList } from "@/components/inbox/ConversationList";
 import { ChatThread } from "@/components/inbox/ChatThread";
 import { Composer } from "@/components/inbox/Composer";
 import { ContextRail } from "@/components/inbox/ContextRail";
+import { QueryState } from "@/components/ui/query-state";
 import { SplitPanes } from "@/components/inbox/SplitPanes";
 import {
   refreshConversationSuggestions,
   returnConversationToBot,
   sendConversationMessage,
   takeoverConversation,
+  useConversation,
   useConversations,
 } from "@/api/inbox";
 import type { Thread } from "@/api/types/inbox";
@@ -151,6 +153,9 @@ function InboxPage() {
   // no indication anything had been substituted.
   const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
   const deadLink = Boolean(activeId) && active === null && threads.length > 0;
+  // The list carries no customer context (it polls); the open thread's detail does.
+  const detailQuery = useConversation(active?.id);
+  const context = detailQuery.data?.context ?? null;
 
   const displayThread = useMemo(() => {
     if (!active) return null;
@@ -425,13 +430,25 @@ function InboxPage() {
                   />
                   {overlayRail && (
                     <div className="absolute inset-y-0 right-0 z-20 flex w-[20rem] max-w-[85%] flex-col border-l border-border bg-surface shadow-overlay">
-                      <ContextRail thread={displayThread} onClose={closeRail} />
+                      <QueryState query={detailQuery} label="customer context">
+                        {context && (
+                          <ContextRail
+                            thread={displayThread}
+                            context={context}
+                            onClose={closeRail}
+                          />
+                        )}
+                      </QueryState>
                     </div>
                   )}
                 </div>,
                 dockedRail ? (
                   <div key="rail" className="h-full min-h-0 border-l border-border">
-                    <ContextRail thread={displayThread} onClose={closeRail} />
+                    <QueryState query={detailQuery} label="customer context">
+                      {context && (
+                        <ContextRail thread={displayThread} context={context} onClose={closeRail} />
+                      )}
+                    </QueryState>
                   </div>
                 ) : null,
               ]}

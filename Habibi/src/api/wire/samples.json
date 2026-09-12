@@ -8185,13 +8185,13 @@
     {
      "calls": 0,
      "color": "#6366f1",
-     "costInr": 0.005417,
+     "costInr": 0.005455,
      "model": "text-embedding-3-small",
      "serviceId": "llm_embed",
      "serviceName": "Azure OpenAI Embeddings",
      "sourceRef": "azure_openai.embed_texts",
      "unit": "1K tokens",
-     "units": 3.149
+     "units": 3.171
     },
     {
      "calls": 0,
@@ -8240,7 +8240,7 @@
      "hdfc.retail": 11.180198
     },
     "llm_embed": {
-     "hdfc.retail": 0.005417
+     "hdfc.retail": 0.005455
     },
     "stt_az": {
      "hdfc.retail": 0.003388
@@ -8275,9 +8275,9 @@
      "unitCostInr": 1.4333
     }
    ],
-   "spend": 11.189003000000001,
+   "spend": 11.189041000000001,
    "spendByEnv": {
-    "production": 11.189003,
+    "production": 11.189041,
     "sandbox": 0.0
    },
    "spendPrev": 149.02262399999998,
@@ -8290,7 +8290,7 @@
      "id": "hdfc.retail",
      "name": "HDFC Retail",
      "resolvedCalls": 0,
-     "spend": 11.189003,
+     "spend": 11.189041,
      "spendPrev": 149.022624
     }
    ],
@@ -8996,11 +8996,11 @@
      "suppression_reason": "no_eligible_action"
     }
    ],
-   "digest": "sha256:cb52f0e3550551fdd25c5d0b0d7b20dc94c0450a91f0c4cf10cd1a3bb4a39cfd",
+   "digest": "sha256:978d194b90ed867e05bb65bab92bec26cac8067ef323c09a25ae4aa74d405071",
    "enactmentAttempts": [],
    "endpointOwnership": [],
    "externalLedger": [],
-   "generatedAt": "2026-09-12T16:22:44.557751+00:00",
+   "generatedAt": "2026-09-12T17:30:37.079382+00:00",
    "identity": {
     "customerId": "anita-desai",
     "language": "English",
@@ -9453,9 +9453,9 @@
     "approvedAmount": null,
     "askedAmount": null,
     "capAmount": null,
-    "createdAt": "2026-09-05T04:41:19.523445Z",
+    "createdAt": "2026-09-12T17:16:31.759162Z",
     "customerId": "anita-desai",
-    "decisionId": "AD-104CDB5A0BAC",
+    "decisionId": "AD-376A90F1ED78",
     "disputeId": null,
     "enacted": false,
     "feeType": "late_fee",
@@ -9471,7 +9471,7 @@
     "verdict": "escalate"
    },
    "customerId": "anita-desai",
-   "generatedAt": "2026-09-12T16:22:45.223140Z",
+   "generatedAt": "2026-09-12T17:30:38.083488Z",
    "metrics": {
     "activePromiseAmount": 0.0,
     "brokenPromiseCount": 2,
@@ -9575,7 +9575,7 @@
     "action": "wait",
     "actionLabel": "hold",
     "alternatives": [],
-    "at": "2026-09-12T16:22:44.934890+00:00",
+    "at": "2026-09-12T17:30:37.495546+00:00",
     "channel": null,
     "decisionId": null,
     "excluded": {
@@ -9590,7 +9590,7 @@
      "whatsapp": "control_arm"
     },
     "expectedValueInr": 0.0,
-    "latencyMs": 211,
+    "latencyMs": 416,
     "mode": "live",
     "policyVersion": 1,
     "propensity": 0.2,
@@ -9615,7 +9615,7 @@
    "policyBinding": [
     {
      "citation": "RBI DOR.ORG.REC.65/21.04.158/2022-23 (outsourcing of recovery)",
-     "evaluated_at": "2026-09-12T16:22:45.239815+00:00",
+     "evaluated_at": "2026-09-12T17:30:38.103992+00:00",
      "kind": "calling_window",
      "rule_id": "calling_window:voice",
      "rule_version": 1,
@@ -9624,7 +9624,7 @@
     },
     {
      "citation": "RBI DOR.ORG.REC.65/21.04.158/2022-23 (outsourcing of recovery)",
-     "evaluated_at": "2026-09-12T16:22:45.239815+00:00",
+     "evaluated_at": "2026-09-12T17:30:38.103992+00:00",
      "kind": "mandate_return_action",
      "rule_id": "mandate_return_action:all",
      "rule_version": 1,
@@ -9632,7 +9632,7 @@
      "verdict": "not_fired"
     }
    ],
-   "policyBindingHash": "sha256:2fdf555f9e0d8106ae54507229d32afdf0e15c1f71881bc4cfdf8f04b0d32bbc",
+   "policyBindingHash": "sha256:4c963ba8d44f9b4e1e503a2e2defe04d618e63a1eb0cef03f1c06f8c08b60669",
    "purpose": "outreach",
    "reason": "outside_calling_hours",
    "touchCounted": false
@@ -10086,8 +10086,8 @@
     "resolutionNotes": null,
     "sla": "breach",
     "slaDueAt": "2026-07-24T10:00:00+00:00",
-    "slaLabel": "1206h 22m over",
-    "slaMinutes": -72382,
+    "slaLabel": "1207h 30m over",
+    "slaMinutes": -72450,
     "source": "bot_voice",
     "status": "awaiting_customer",
     "transcriptSnippet": "\"\u2026the EMI got debited twice in October \u2014 please refund the extra one.\"",
@@ -10842,7 +10842,7 @@
   "body": [
    {
     "accountId": "HDFC-PL-2216",
-    "ageHours": 627,
+    "ageHours": 628,
     "amount": null,
     "assigneeUserId": "priya-nair",
     "customer": "Sameer Khan",
@@ -10852,13 +10852,13 @@
     "entityType": "callback",
     "id": "CB-0001",
     "sla": "breach",
-    "slaLabel": "Overdue 1256h 52m",
+    "slaLabel": "Overdue 1258h",
     "status": "missed",
     "type": "Callback \u00b7 7:30 AM IST"
    },
    {
     "accountId": "HDFC-RL-5540",
-    "ageHours": 627,
+    "ageHours": 628,
     "amount": null,
     "assigneeUserId": "priya-nair",
     "customer": "Arjun Nair",
@@ -10868,13 +10868,13 @@
     "entityType": "callback",
     "id": "CB-0002",
     "sla": "breach",
-    "slaLabel": "Overdue 1254h 52m",
+    "slaLabel": "Overdue 1256h",
     "status": "missed",
     "type": "Callback \u00b7 9:30 AM IST"
    },
    {
     "accountId": "AC-88214",
-    "ageHours": 875,
+    "ageHours": 876,
     "amount": 550000.0,
     "assigneeUserId": "priya-nair",
     "customer": "Anita Desai",
@@ -10884,7 +10884,7 @@
     "entityType": "lead",
     "id": "LD-1012",
     "sla": "breach",
-    "slaLabel": "Overdue 1235h 52m",
+    "slaLabel": "Overdue 1237h",
     "status": "qualified",
     "type": "Lead \u00b7 Qualified"
    }
@@ -10912,21 +10912,21 @@
      "id": "CB-0001",
      "label": "Callback \u00b7 Sameer Khan",
      "level": "breach",
-     "remaining": "Overdue 1256h 52m"
+     "remaining": "Overdue 1258h"
     },
     {
      "enactedBy": null,
      "id": "CB-0002",
      "label": "Callback \u00b7 Arjun Nair",
      "level": "breach",
-     "remaining": "Overdue 1254h 52m"
+     "remaining": "Overdue 1256h"
     },
     {
      "enactedBy": null,
      "id": "LD-1008",
      "label": "lead \u00b7 Deepa Iyer",
      "level": "breach",
-     "remaining": "Overdue 1235h 52m"
+     "remaining": "Overdue 1237h"
     }
    ],
    "stats": {
@@ -11022,7 +11022,7 @@
    ],
    "alerts": [
     {
-     "at": "23h ago",
+     "at": "1d ago",
      "callId": "IX-SUSANTH-WA1",
      "id": "ALERT-FEEF121A25",
      "kind": "compliance",
@@ -11083,7 +11083,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1769413,
+     "durationSec": 1773486,
      "flags": [
       "missing-mini-miranda",
       "missing-recording-disclosure",
@@ -11191,7 +11191,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1347115,
+     "durationSec": 1351188,
      "flags": [],
      "handler": {
       "initials": "KV",
@@ -11280,7 +11280,7 @@
      "customerId": "cust-susanth",
      "customerRisk": "medium",
      "dnd": false,
-     "durationSec": 1346451,
+     "durationSec": 1350524,
      "flags": [],
      "handler": {
       "initials": "KV",
@@ -11344,7 +11344,7 @@
     "botAtRisk": 5,
     "callsInProgress": 13,
     "criticalAlerts": 12,
-    "longestWaitSec": 2069751,
+    "longestWaitSec": 2073824,
     "queueDepth": 4
    }
   },
@@ -11371,50 +11371,7 @@
     "assignedUserId": null,
     "botTyping": false,
     "channel": "whatsapp",
-    "context": {
-     "contactWindow": "10:00-19:00 IST",
-     "contactableNow": false,
-     "contactableReason": "suppressed",
-     "lastPromise": {
-      "amount": 4800.0,
-      "date": "2026-09-03",
-      "status": "Broken"
-     },
-     "nextEmiAmount": 4800.0,
-     "nextEmiDate": "2026-06-24",
-     "openDisputes": [
-      {
-       "id": "D-SUSANTH-1",
-       "summary": "Can you waive the late fee from last month?"
-      }
-     ],
-     "outstanding": 62400.0,
-     "outstandingAging": "32 days overdue",
-     "recentInteractions": [
-      {
-       "id": "CL-6CC040F8A6",
-       "kind": "call",
-       "sentiment": "neutral",
-       "summary": "voice session | primary=unclassified | customer_turns=1 | ptp=no | upsell=no",
-       "when": "13d ago"
-      },
-      {
-       "id": "CL-A4883A2950",
-       "kind": "call",
-       "sentiment": "neutral",
-       "summary": "voice session | primary=greeting | customer_turns=2 | ptp=no | upsell=no",
-       "when": "13d ago"
-      },
-      {
-       "id": "CL-B71B974865",
-       "kind": "call",
-       "sentiment": "neutral",
-       "summary": "voice session | primary=correction | customer_turns=14 | ptp=yes | upsell=yes",
-       "when": "13d ago"
-      }
-     ],
-     "riskLevel": "Medium"
-    },
+    "context": null,
     "customer": "Susanth",
     "customerId": "cust-susanth",
     "handlerBotId": "collectionsbot-v2-4",
@@ -11463,27 +11420,7 @@
     "assignedUserId": null,
     "botTyping": false,
     "channel": "whatsapp",
-    "context": {
-     "contactWindow": "10:00-19:00 IST",
-     "contactableNow": false,
-     "contactableReason": "outside_calling_hours",
-     "lastPromise": null,
-     "nextEmiAmount": 0.0,
-     "nextEmiDate": "\u2014",
-     "openDisputes": [],
-     "outstanding": 52994.0,
-     "outstandingAging": "62 days overdue",
-     "recentInteractions": [
-      {
-       "id": "IX-2FA4D5011C",
-       "kind": "chat",
-       "sentiment": "neutral",
-       "summary": "whatsapp",
-       "when": "7d ago"
-      }
-     ],
-     "riskLevel": "High"
-    },
+    "context": null,
     "customer": "Manish Agarwal",
     "customerId": "manish-agarwal",
     "handlerBotId": "collectionsbot-v2-4",
@@ -11507,43 +11444,7 @@
     "assignedUserId": null,
     "botTyping": false,
     "channel": "whatsapp",
-    "context": {
-     "contactWindow": "09:00\u201313:00 IST",
-     "contactableNow": false,
-     "contactableReason": "outside_calling_hours",
-     "lastPromise": {
-      "amount": 10000.0,
-      "date": "2026-08-02",
-      "status": "Broken"
-     },
-     "nextEmiAmount": 8500.0,
-     "nextEmiDate": "2026-01-22",
-     "openDisputes": [
-      {
-       "id": "D-4805",
-       "summary": "\"\u2026the EMI got debited twice in October \u2014 please refund the extra one.\""
-      }
-     ],
-     "outstanding": 22100.0,
-     "outstandingAging": "58 days overdue",
-     "recentInteractions": [
-      {
-       "id": "IX-2EC1EF7FA0",
-       "kind": "chat",
-       "sentiment": "neutral",
-       "summary": "whatsapp",
-       "when": "5d ago"
-      },
-      {
-       "id": "james-patel-ji1",
-       "kind": "call",
-       "sentiment": "neutral",
-       "summary": "Customer travelling this week. Will confirm 2-installment plan on return.",
-       "when": "56d ago"
-      }
-     ],
-     "riskLevel": "High"
-    },
+    "context": null,
     "customer": "James Patel",
     "customerId": "james-patel",
     "handlerBotId": "collectionsbot-v2-4",
@@ -12336,7 +12237,7 @@
  {
   "body": {
    "activeDocs": 21,
-   "avgScore": 0.7054,
+   "avgScore": 0.7035,
    "chunks": 489,
    "docs": 21,
    "faqs": 119,
@@ -12437,7 +12338,7 @@
    {
     "docId": "kb-benefits-car",
     "heading": "Car Protect360 \u2014 Benefits",
-    "hits": 26,
+    "hits": 27,
     "id": "kb-benefits-car-c1",
     "index": 1,
     "text": "TABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at an HDFC Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at an HDFC Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available.",
@@ -13226,20 +13127,20 @@
  },
  {
   "body": {
-   "answerRate": 0.875,
-   "answered": 7.0,
-   "attempts": 8.0,
-   "attemptsPerConnect": 1.14,
-   "avg_ring_sec": 7.375,
-   "avg_talk_sec": 80.5,
+   "answerRate": 0.8,
+   "answered": 4.0,
+   "attempts": 5.0,
+   "attemptsPerConnect": 1.25,
+   "avg_ring_sec": 7.2,
+   "avg_talk_sec": 114.0,
    "busy": 0.0,
    "invalid_number": 0.0,
    "no_answer": 1.0,
-   "rightPartyRate": 0.2857,
+   "rightPartyRate": 0.5,
    "right_party": 2.0,
    "suppressed": 1.0,
-   "talk_sec_total": 483.0,
-   "voicemail": 1.0,
+   "talk_sec_total": 456.0,
+   "voicemail": 0.0,
    "windowDays": 14
   },
   "key": "GET /outbound/stats",
@@ -15068,7 +14969,7 @@
     "description": "Caller connected to the voice bot.",
     "key": "call.started",
     "sample": {
-     "at": "2026-09-12T16:22:50.844431+00:00",
+     "at": "2026-09-12T17:30:48.416467+00:00",
      "event": "call.started",
      "tenant": "hdfc.retail"
     }
@@ -15078,7 +14979,7 @@
     "description": "Hangup with duration and disposition.",
     "key": "call.completed",
     "sample": {
-     "at": "2026-09-12T16:22:50.844461+00:00",
+     "at": "2026-09-12T17:30:48.416556+00:00",
      "event": "call.completed",
      "tenant": "hdfc.retail"
     }
@@ -15088,7 +14989,7 @@
     "description": "Structured summary ready for CRM writeback.",
     "key": "call.summary.ready",
     "sample": {
-     "at": "2026-09-12T16:22:50.844469+00:00",
+     "at": "2026-09-12T17:30:48.416574+00:00",
      "event": "call.summary.ready",
      "tenant": "hdfc.retail"
     }
@@ -15101,7 +15002,7 @@
   "body": [
    {
     "algo": "hmac-sha256",
-    "createdAt": 1789230170864,
+    "createdAt": 1789234248466,
     "events": [
      "dispute.created",
      "document.sent",
@@ -15134,7 +15035,7 @@
  {
   "body": [
    {
-    "at": 1789230170878,
+    "at": 1789234248503,
     "attempt": 1,
     "endpointId": "wh-crm-events",
     "event": "dispute.created",
@@ -15154,7 +15055,7 @@
     "status": "success"
    },
    {
-    "at": 1789230170878,
+    "at": 1789234248503,
     "attempt": 1,
     "endpointId": "wh-crm-events",
     "event": "interaction.completed",
