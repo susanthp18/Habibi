@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ import contact_window
 from agent_core import clock
 from agent_core.clock import utc_now
 import visibility
+from env_utils import env_float
 from env_utils import env_int as _env_int
 
 from db_core import (
@@ -1039,8 +1041,15 @@ def _treatment_snapshot(conn: Any, customer_id: str) -> dict[str, Any] | None:
 
     ``recommend_treatment`` is called with persist='preview' so opening a
     customer writes zero decision rows. Event and sweep callers remain the
-    only persistent decision producers.
+    only persistent decision producers. The preview is memoised per customer
+    for ``TREATMENT_PREVIEW_TTL_S`` (60 s): every open of a card ran the whole
+    engine -- features, candidates, veto, score -- and a desk that opens and
+    re-opens the same borrower paid it each time for the same answer.
     """
+    now = time.monotonic()
+    cached = _PREVIEW_CACHE.get(customer_id)
+    if cached and now - cached[0] < _PREVIEW_TTL_S:
+        return cached[1]
     try:
         from agent_core.treatment import Trigger, recommend_treatment
 
@@ -1050,10 +1059,19 @@ def _treatment_snapshot(conn: Any, customer_id: str) -> dict[str, Any] | None:
             conn=conn,
             persist="preview",
         )
-        return result.to_payload()
+        payload = result.to_payload()
     except Exception:
         logger.exception("treatment snapshot failed for customer=%s", customer_id)
         return None
+    if len(_PREVIEW_CACHE) > 512:
+        _PREVIEW_CACHE.clear()
+    _PREVIEW_CACHE[customer_id] = (now, payload)
+    return payload
+
+
+#: customer_id -> (monotonic, payload). Process-local, like authz's grant cache.
+_PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
+_PREVIEW_TTL_S = env_float("TREATMENT_PREVIEW_TTL_S", 60.0)
 
 
 def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
