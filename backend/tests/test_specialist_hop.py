@@ -118,12 +118,9 @@ def test_the_packet_block_is_replaced_not_appended() -> None:
     the skill runtime already does for ``ACTIVE SKILL``. Pinning the constant is
     what stops a rename silently turning replacement into accumulation.
     """
-    import voice.tools as vt
+    from tests.voice_tools_source import source
 
-    source = (vt.__file__ or "").replace(".pyc", ".py")
-    with open(source, encoding="utf-8") as fh:
-        body = fh.read()
-    assert "replace_developer(HANDOFF_PACKET_PREFIX" in body
+    assert "replace_developer(HANDOFF_PACKET_PREFIX" in source()
 
 
 # --- the grant --------------------------------------------------------------

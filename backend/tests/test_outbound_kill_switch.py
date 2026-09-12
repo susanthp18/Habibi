@@ -455,11 +455,9 @@ def test_hardship_still_suppresses_offers_whatever_the_card_says() -> None:
     on an objective that permits offers, and that stop lives in the tool rather
     than the prompt so no phrasing can route around it.
     """
-    import inspect
+    from tests.voice_tools_source import source
 
-    from voice import tools as voice_tools
-
-    src = inspect.getsource(voice_tools)
+    src = source()
     assert 'session.extra["upsell_blocked"] = reason' in src, (
         "the hardship latch must still be set independently of the mission"
     )

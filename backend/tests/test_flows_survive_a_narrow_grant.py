@@ -38,6 +38,14 @@ from voice.tools import ALWAYS_ON  # noqa: E402
 
 GRAPHS = ("legacy", "hub")
 
+#: The narrowest grant a voice mouth can hold: what ToolGrant.for_card gives
+#: a card that grants nothing -- the flow-control floor and only that.
+#: build_tools no longer unions the floor back on its own (ADR-0002, amended:
+#: the grant is the one statement), so "grants nothing" is spelled through it.
+from agent_core.tools.grant import ToolGrant  # noqa: E402
+
+NARROWEST: frozenset[str] = ToolGrant.for_card(None, (), channel="voice").allowed
+
 
 def _flow(*, allowed: frozenset[str] | None, graph: str = "legacy"):
     return build_collections_flow(
@@ -68,7 +76,7 @@ def _names(functions) -> set[str]:
 @pytest.mark.parametrize("graph", GRAPHS)
 def test_a_card_that_grants_nothing_still_builds(graph: str) -> None:
     """The narrowest possible card. Every node still constructs."""
-    state, _tools, _initial, _globals = _flow(allowed=frozenset(), graph=graph)
+    state, _tools, _initial, _globals = _flow(allowed=NARROWEST, graph=graph)
     for key, factory in state.nodes.items():
         node = factory()
         assert None not in (node.get("functions") or []), (
@@ -124,7 +132,7 @@ def test_every_required_exit_is_a_verb_no_card_can_remove() -> None:
 
 @pytest.mark.parametrize("graph", GRAPHS)
 def test_every_node_keeps_an_exit_under_the_narrowest_grant(graph: str) -> None:
-    state, _tools, _initial, _globals = _flow(allowed=frozenset(), graph=graph)
+    state, _tools, _initial, _globals = _flow(allowed=NARROWEST, graph=graph)
     for key, factory in state.nodes.items():
         required = NODE_REQUIRED.get(key)
         if not required:

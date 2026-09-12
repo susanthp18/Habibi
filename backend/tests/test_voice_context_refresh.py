@@ -56,10 +56,11 @@ def test_only_card_affecting_tools_schedule_a_refresh() -> None:
     Each _schedule_context_refresh("<tool>") call names the tool that triggered
     it, so the set of names in the file IS the set of refreshing tools.
     """
-    import inspect
     import re
 
-    src = inspect.getsource(voice_tools.build_tools)
+    from tests.voice_tools_source import source
+
+    src = source()
     scheduled = set(re.findall(r'_schedule_context_refresh\("(\w+)"\)', src))
 
     assert scheduled == CARD_AFFECTING, f"refresh wiring drifted: {scheduled}"
@@ -68,10 +69,11 @@ def test_only_card_affecting_tools_schedule_a_refresh() -> None:
 def test_refreshing_tools_suppress_the_redundant_delta() -> None:
     """The replaced card supersedes the delta; shipping both is a contradiction
     surface as well as wasted tokens."""
-    import inspect
     import re
 
-    src = inspect.getsource(voice_tools.build_tools)
+    from tests.voice_tools_source import source
+
+    src = source()
     for tool in sorted(CARD_AFFECTING):
         pattern = rf'_announce\(result, "{tool}", inject_delta=False\)'
         assert re.search(pattern, src), f"{tool} still injects a delta alongside its refresh"

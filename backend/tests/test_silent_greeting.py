@@ -95,11 +95,9 @@ def test_the_bot_marks_the_call_start_when_the_client_connects() -> None:
 
 def test_disclose_recording_speaks_when_the_model_did_not() -> None:
     """A disclosure record must not outrun the disclosure."""
-    import inspect
+    from tests.voice_tools_source import source
 
-    from voice import tools
-
-    src = inspect.getsource(tools)
+    src = source()
     assert "_FALLBACK_GREETING" in src
     assert "spoke_this_response is not None and not spoke_this_response()" in src
     # Spoken through the same handle pause_for_caller uses; FlowManager has no
@@ -109,12 +107,11 @@ def test_disclose_recording_speaks_when_the_model_did_not() -> None:
 
 def test_the_fallback_greeting_carries_the_disclosure_and_a_question() -> None:
     """It replaces the whole opening turn, so it has to do the whole job."""
-    import inspect
     import re
 
-    from voice import tools
+    from tests.voice_tools_source import source
 
-    src = inspect.getsource(tools)
+    src = source()
     match = re.search(r"_FALLBACK_GREETING = \(\s*(.*?)\s*\)\n", src, re.S)
     assert match, "fallback greeting not found"
     line = " ".join(re.findall(r'"([^"]*)"', match.group(1)))
