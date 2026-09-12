@@ -17,7 +17,7 @@ import {
   fmtLongDate,
   isWithinDndWindow,
   nextAllowedSlot,
-} from "@/data/callbacks-seed";
+} from "@/lib/callbacks";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   assignCallback,

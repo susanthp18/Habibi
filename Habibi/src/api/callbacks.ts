@@ -18,37 +18,19 @@ import type {
   CbPriority,
   CreateInput,
 } from "@/api/types/callbacks";
-import {
-  AGENTS,
-  CURRENT_QUEUE,
-  QUEUES,
-  assign as assignSeed,
-  autoMarkMissed as autoMarkSeedMissed,
-  cancel as cancelSeed,
-  createCallback as createSeedCallback,
-  markCompleted as markSeedCompleted,
-  markMissed as markSeedMissed,
-  reassignQueue as reassignSeedQueue,
-  reschedule as rescheduleSeed,
-  sendReminder as sendSeedReminder,
-  setPriority as setSeedPriority,
-  startCall as startSeedCall,
-  callbacks as seedCallbacks,
-} from "@/data/callbacks-seed";
+import { CURRENT_QUEUE } from "@/lib/callbacks";
 import type { Customer } from "@/api/types/customer360";
-import { apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost } from "./config";
 import { humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team } from "./teams";
 
 export const UNASSIGNED = "Unassigned";
 
 /**
- * Picker roster. Live asks "did /staff return humans?" — an empty live
- * roster falls back to names already on the rows, never a blank dropdown.
- * Mock keeps the seed agent list so filters still match seed assignees.
+ * Picker roster. An empty /staff roster falls back to names already on the
+ * rows, never a blank dropdown.
  */
 export function callbackAssigneeOptions(staff: Staff[], existing: string[]): string[] {
-  if (USE_MOCK) return [...AGENTS];
   const humans = humanNames(staff);
   if (humans.length) return [UNASSIGNED, ...humans];
   const fromRows = [...new Set(existing.filter((name) => name && name !== UNASSIGNED))].sort();
@@ -56,7 +38,6 @@ export function callbackAssigneeOptions(staff: Staff[], existing: string[]): str
 }
 
 export function callbackQueueOptions(teams: Team[]): string[] {
-  if (USE_MOCK) return [...QUEUES];
   return teamNames(teams);
 }
 
@@ -74,9 +55,7 @@ export type CallbackSheetCustomer = {
   timezone: string;
 };
 
-/** Mock sheets fall back to the seed roster; live always picks real customers. */
-export function callbackSheetCustomers(customers: Customer[]): CallbackSheetCustomer[] | undefined {
-  if (USE_MOCK) return undefined;
+export function callbackSheetCustomers(customers: Customer[]): CallbackSheetCustomer[] {
   return customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -88,7 +67,6 @@ export function callbackSheetCustomers(customers: Customer[]): CallbackSheetCust
 }
 
 export async function fetchCallbacks(): Promise<Callback[]> {
-  if (USE_MOCK) return mockDelay(seedCallbacks);
   return apiGet<Callback[]>("/callbacks");
 }
 
@@ -97,11 +75,6 @@ export function useCallbacks() {
 }
 
 export async function createCallback(input: CreateInput): Promise<{ id: string }> {
-  if (USE_MOCK) {
-    const created = createSeedCallback(input);
-    return { id: created.id };
-  }
-
   let assigneeUserId: string | null = null;
   if (input.assignee && input.assignee !== UNASSIGNED) {
     const actor = await resolveActor(input.assignee);
@@ -135,10 +108,6 @@ export async function createCallback(input: CreateInput): Promise<{ id: string }
 }
 
 export async function assignCallback(cb: Callback, assignee: string): Promise<void> {
-  if (USE_MOCK) {
-    assignSeed(cb.id, assignee);
-    return;
-  }
   if (assignee === UNASSIGNED) {
     await apiPatch(`/callbacks/${cb.id}`, { assigneeUserId: null });
     return;
@@ -151,43 +120,23 @@ export async function assignCallback(cb: Callback, assignee: string): Promise<vo
 }
 
 export async function reassignQueue(cb: Callback, queue: string): Promise<void> {
-  if (USE_MOCK) {
-    reassignSeedQueue(cb.id, queue);
-    return;
-  }
   const team = await resolveTeam(queue);
   await apiPatch(`/callbacks/${cb.id}`, { teamId: team.id });
 }
 
 export async function setPriority(cb: Callback, priority: CbPriority): Promise<void> {
-  if (USE_MOCK) {
-    setSeedPriority(cb.id, priority);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, { priority });
 }
 
 export async function rescheduleCallback(cb: Callback, newISO: string): Promise<void> {
-  if (USE_MOCK) {
-    rescheduleSeed(cb.id, newISO);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, { scheduledAt: newISO, status: "scheduled" });
 }
 
 export async function cancelCallback(cb: Callback, _reason: string): Promise<void> {
-  if (USE_MOCK) {
-    cancelSeed(cb.id, _reason);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, { status: "cancelled" });
 }
 
 export async function markMissed(cb: Callback): Promise<void> {
-  if (USE_MOCK) {
-    markSeedMissed(cb.id);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, { status: "missed" });
 }
 
@@ -198,10 +147,6 @@ export async function markMissed(cb: Callback): Promise<void> {
  * the product never made.
  */
 export async function startCall(cb: Callback): Promise<void> {
-  if (USE_MOCK) {
-    startSeedCall(cb.id);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, { status: "in_progress" });
 }
 
@@ -210,10 +155,6 @@ export async function markCompleted(
   disposition: CbDisposition,
   notes: string,
 ): Promise<void> {
-  if (USE_MOCK) {
-    markSeedCompleted(cb.id, disposition, notes);
-    return;
-  }
   await apiPatch(`/callbacks/${cb.id}`, {
     status: "completed",
     disposition,
@@ -222,10 +163,6 @@ export async function markCompleted(
 }
 
 export async function sendReminder(cb: Callback, channel: CbChannel): Promise<void> {
-  if (USE_MOCK) {
-    sendSeedReminder(cb.id, channel);
-    return;
-  }
   await apiPost(`/callbacks/${cb.id}/reminders`, {
     channel,
     scheduledAt: new Date().toISOString(),
@@ -235,7 +172,6 @@ export async function sendReminder(cb: Callback, channel: CbChannel): Promise<vo
 
 /** Bump past-window scheduled/reminded callbacks to missed. Live: real PATCHes. */
 export async function autoMarkMissed(list: Callback[]): Promise<number> {
-  if (USE_MOCK) return autoMarkSeedMissed();
   const now = Date.now();
   const overdue = list.filter((c) => {
     if (c.status !== "scheduled" && c.status !== "reminded") return false;

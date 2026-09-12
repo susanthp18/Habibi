@@ -4,7 +4,7 @@ import { SelectField } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CbChannel, CbReason, CbStatus, Filters } from "@/api/types/callbacks";
-import { CHANNEL_LABELS, REASON_LABELS, STATUS_LABELS } from "@/data/callbacks-seed";
+import { CHANNEL_LABELS, REASON_LABELS, STATUS_LABELS } from "@/lib/callbacks";
 
 interface Props {
   filters: Filters;

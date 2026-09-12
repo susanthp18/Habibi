@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Phone, Send, UserCog, Clock, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Callback, CbStatus } from "@/api/types/callbacks";
-import { fmtLongDate, REASON_LABELS, STATUS_LABELS } from "@/data/callbacks-seed";
+import { fmtLongDate, REASON_LABELS, STATUS_LABELS } from "@/lib/callbacks";
 import {
   FilterTable,
   type FilterChip,

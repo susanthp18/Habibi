@@ -1,7 +1,7 @@
 import { PhoneOff, RefreshCw, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Callback } from "@/api/types/callbacks";
-import { fmtLongDate, REASON_LABELS } from "@/data/callbacks-seed";
+import { fmtLongDate, REASON_LABELS } from "@/lib/callbacks";
 
 interface Props {
   rows: Callback[];

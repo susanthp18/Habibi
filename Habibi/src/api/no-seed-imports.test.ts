@@ -34,7 +34,6 @@ const FIXTURE_IMPORTERS = [
   "authority.ts",
   "billing.ts",
   "bot-analytics.ts",
-  "callbacks.ts",
   "compliance.ts",
   "consent.ts",
   "contact-policy.ts",

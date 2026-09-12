@@ -13,7 +13,7 @@ import { MissedLane } from "@/components/callbacks/MissedLane";
 import { CallbackSheet } from "@/components/callbacks/CallbackSheet";
 import { NewCallbackSheet } from "@/components/callbacks/NewCallbackSheet";
 import type { Filters } from "@/api/types/callbacks";
-import { computeMetrics, defaultFilters, filterCallbacks } from "@/data/callbacks-seed";
+import { computeMetrics, defaultFilters, filterCallbacks } from "@/lib/callbacks";
 import {
   autoMarkMissed,
   callbackAssigneeOptions,

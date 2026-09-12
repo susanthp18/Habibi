@@ -5,13 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { CbChannel, CbPriority, CbReason } from "@/api/types/callbacks";
-import {
-  CHANNEL_LABELS,
-  PRIORITY_LABELS,
-  REASON_LABELS,
-  customerOptions,
-  isWithinDndWindow,
-} from "@/data/callbacks-seed";
+import { CHANNEL_LABELS, PRIORITY_LABELS, REASON_LABELS, isWithinDndWindow } from "@/lib/callbacks";
 import { createCallback } from "@/api/callbacks";
 
 const WINDOW_OPTIONS = [
@@ -51,19 +45,13 @@ function localTomorrowAt(hour = 11, minute = 0) {
 interface Props {
   onClose: () => void;
   onCreated: () => void;
-  /** Live: real customers from GET /customers. Mock: seed pool (pass undefined). */
-  customers?: CustomerOption[];
+  customers: CustomerOption[];
   assignees: string[];
   queues: string[];
 }
 
 export function NewCallbackSheet({ onClose, onCreated, customers, assignees, queues }: Props) {
-  const custs = useMemo(
-    () =>
-      customers ??
-      customerOptions().map((c) => ({ ...c, preferredWindow: undefined, customerDnd: undefined })),
-    [customers],
-  );
+  const custs = customers;
   const [customerId, setCustomerId] = useState(custs[0]?.id ?? "");
   const [reason, setReason] = useState<CbReason>("payment_discussion");
   const [scheduledAt, setScheduledAt] = useState(localTomorrowAt(11, 0));

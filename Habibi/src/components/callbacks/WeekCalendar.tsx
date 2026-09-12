@@ -10,7 +10,7 @@ import {
   minutesFromStart,
   sameDay,
   weekDays,
-} from "@/data/callbacks-seed";
+} from "@/lib/callbacks";
 import { CallbackPill } from "./CallbackPill";
 
 const SLOT_MINUTES = 30;
