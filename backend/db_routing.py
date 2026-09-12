@@ -861,3 +861,289 @@ def list_routing_rule_executions(rule_id: str) -> list[dict[str, Any]]:
         return out
 
 
+# ---------------------------------------------------------------------------
+# Routing writes + audit
+# ---------------------------------------------------------------------------
+
+_AUDIT_ACTIONS = frozenset(
+    {"created", "edited", "reordered", "toggled", "deleted", "duplicated"}
+)
+
+
+def _routing_priority_next(conn: Any) -> int:
+    d = _db()
+    n = conn.execute(
+        text(
+            "SELECT coalesce(max(priority), 0) + 10 FROM routing_rules WHERE tenant_id = :t"
+        ),
+        {"t": d.current_tenant()},
+    ).scalar()
+    return int(n or 10)
+
+
+def create_routing_rule(payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        name = (payload.get("name") or "Untitled rule").strip()
+        category = d._routing_category(payload.get("category"))
+        then = payload.get("then") or {}
+        action_key = d._routing_action_key(
+            then.get("key") if isinstance(then, dict) else None
+        )
+        params = then.get("params") if isinstance(then, dict) else None
+        when = payload.get("when") if isinstance(payload.get("when"), list) else []
+        rule_id = payload.get("id") or d._id("RULE")
+        # If client sent an id that already exists, mint a new one
+        exists = d._one(
+            conn.execute(
+                text("SELECT id FROM routing_rules WHERE id = :id"), {"id": rule_id}
+            )
+        )
+        if exists:
+            rule_id = d._id("RULE")
+        priority = payload.get("priority")
+        if priority is None:
+            priority = _routing_priority_next(conn)
+        enabled = bool(payload.get("enabled", True))
+        conn.execute(
+            text(
+                """
+                INSERT INTO routing_rules (
+                  id, tenant_id, priority, enabled, conditions,
+                  action_key, action_params, name, description, category
+                ) VALUES (
+                  :id, :tenant, :priority, :enabled, CAST(:cond AS jsonb),
+                  :akey, CAST(:aparams AS jsonb), :name, :desc, :cat
+                )
+                """
+            ),
+            {
+                "id": rule_id,
+                "tenant": d.current_tenant(),
+                "priority": int(priority),
+                "enabled": enabled,
+                "cond": json.dumps(when),
+                "akey": action_key,
+                "aparams": json.dumps(params if params else {}),
+                "name": name,
+                "desc": payload.get("description") or "",
+                "cat": category,
+            },
+        )
+        d._activity(
+            conn,
+            "routing_rule",
+            rule_id,
+            "created",
+            "Routing rule created",
+            note=name,
+        )
+        _append_routing_audit(conn, rule_id, name, "created", "Rule created")
+        created_id = rule_id
+    created = d.get_routing_rule(created_id)
+    if created is None:
+        raise KeyError("routing_rule_not_found")
+    return created
+
+
+def patch_routing_rule(rule_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        existing = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name, enabled FROM routing_rules
+                    WHERE id = :id AND tenant_id = :tenant
+                    """
+                ),
+                {"id": rule_id, "tenant": d.current_tenant()},
+            )
+        )
+        if existing is None:
+            raise KeyError("routing_rule_not_found")
+        sets: list[str] = []
+        params: dict[str, Any] = {"id": rule_id}
+        audit_action = "edited"
+        summary_bits: list[str] = []
+        if "name" in payload and payload["name"] is not None:
+            sets.append("name = :name")
+            params["name"] = str(payload["name"]).strip() or existing["name"]
+            summary_bits.append("name")
+        if "description" in payload and payload["description"] is not None:
+            sets.append("description = :description")
+            params["description"] = str(payload["description"])
+        if "category" in payload and payload["category"] is not None:
+            sets.append("category = :category")
+            params["category"] = d._routing_category(payload["category"])
+        if "enabled" in payload and payload["enabled"] is not None:
+            sets.append("enabled = :enabled")
+            params["enabled"] = bool(payload["enabled"])
+            audit_action = "toggled"
+            summary_bits.append(f"enabled={params['enabled']}")
+        if "priority" in payload and payload["priority"] is not None:
+            sets.append("priority = :priority")
+            params["priority"] = int(payload["priority"])
+            audit_action = "reordered"
+            summary_bits.append(f"priority={params['priority']}")
+        if "when" in payload and payload["when"] is not None:
+            if not isinstance(payload["when"], list):
+                raise ValueError("when_must_be_list")
+            sets.append("conditions = CAST(:cond AS jsonb)")
+            params["cond"] = json.dumps(payload["when"])
+            summary_bits.append(f"{len(payload['when'])} conditions")
+        if "then" in payload and payload["then"] is not None:
+            then = payload["then"]
+            if not isinstance(then, dict):
+                raise ValueError("then_must_be_object")
+            sets.append("action_key = :akey")
+            params["akey"] = d._routing_action_key(then.get("key"))
+            aparams = then.get("params")
+            sets.append("action_params = CAST(:aparams AS jsonb)")
+            params["aparams"] = json.dumps(aparams if aparams else {})
+            summary_bits.append(f"action {params['akey']}")
+        if not sets:
+            raise ValueError("no_fields")
+        sets.append("updated_at = now()")
+        conn.execute(
+            text(f"UPDATE routing_rules SET {', '.join(sets)} WHERE id = :id"),
+            params,
+        )
+        name = params.get("name") or existing["name"]
+        _append_routing_audit(
+            conn,
+            rule_id,
+            name,
+            audit_action,
+            " · ".join(summary_bits) or "Updated",
+        )
+        patched_id = rule_id
+    patched = d.get_routing_rule(patched_id)
+    if patched is None:
+        raise KeyError("routing_rule_not_found")
+    return patched
+
+
+def reorder_routing_rules(ordered_ids: list[str]) -> list[dict[str, Any]]:
+    d = _db()
+    with d.engine.begin() as conn:
+        # Count matched rows, not submitted ids: the UPDATE is tenant-scoped, so
+        # an id from another tenant (or a deleted rule) updates nothing. The
+        # audit trail must record what actually changed.
+        updated = 0
+        for i, rid in enumerate(ordered_ids):
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE routing_rules
+                    SET priority = :p, updated_at = now()
+                    WHERE id = :id AND tenant_id = :tenant
+                    """
+                ),
+                {"id": rid, "p": (i + 1) * 10, "tenant": d.current_tenant()},
+            )
+            updated += int(result.rowcount or 0)
+        if updated:
+            _append_routing_audit(
+                conn,
+                ordered_ids[0],
+                "library",
+                "reordered",
+                f"Reordered {updated} rules",
+            )
+    return d.list_routing_rules()
+
+
+def delete_routing_rule(rule_id: str) -> None:
+    d = _db()
+    with d.engine.begin() as conn:
+        existing = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, name FROM routing_rules
+                    WHERE id = :id AND tenant_id = :tenant
+                    """
+                ),
+                {"id": rule_id, "tenant": d.current_tenant()},
+            )
+        )
+        if existing is None:
+            raise KeyError("routing_rule_not_found")
+        _append_routing_audit(
+            conn, rule_id, existing["name"], "deleted", "Rule deleted"
+        )
+        conn.execute(
+            text("DELETE FROM routing_rules WHERE id = :id AND tenant_id = :tenant"),
+            {"id": rule_id, "tenant": d.current_tenant()},
+        )
+
+
+def _append_routing_audit(
+    conn: Any, rule_id: str, rule_name: str, action: str, summary: str
+) -> None:
+    d = _db()
+    # activity_events note stores JSON for the audit feed
+    payload = json.dumps(
+        {
+            "ruleId": rule_id,
+            "ruleName": rule_name,
+            "action": action if action in _AUDIT_ACTIONS else "edited",
+            "summary": summary,
+        }
+    )
+    d._activity(
+        conn,
+        "routing_rule",
+        rule_id,
+        f"rule_{action}",
+        f"Rule {action}",
+        note=payload,
+    )
+
+
+def list_routing_audit(limit: int = 100) -> list[dict[str, Any]]:
+    d = _db()
+    with d.engine.connect() as conn:
+        rows = d._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT ae.id, ae.created_at, ae.note, ae.entity_id,
+                           coalesce(u.name, 'System') AS author
+                    FROM activity_events ae
+                    LEFT JOIN users u ON u.id = ae.actor_user_id
+                    WHERE ae.tenant_id = :tenant
+                      AND ae.entity_type = 'routing_rule'
+                      AND ae.kind LIKE 'rule_%'
+                    ORDER BY ae.created_at DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"tenant": d.current_tenant(), "lim": limit},
+            )
+        )
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            meta: dict[str, Any] = {}
+            note = r.get("note") or ""
+            try:
+                meta = json.loads(note) if note.startswith("{") else {}
+            except json.JSONDecodeError:
+                meta = {}
+            action = meta.get("action") or "edited"
+            if action not in _AUDIT_ACTIONS:
+                action = "edited"
+            at = r["created_at"]
+            out.append(
+                {
+                    "id": r["id"],
+                    "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
+                    "author": r["author"],
+                    "ruleId": meta.get("ruleId") or r["entity_id"],
+                    "ruleName": meta.get("ruleName") or r["entity_id"],
+                    "action": action,
+                    "summary": meta.get("summary") or note,
+                }
+            )
+        return out

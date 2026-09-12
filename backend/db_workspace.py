@@ -16,6 +16,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from db_core import _IST
+
 import money_inr
 
 
@@ -508,3 +510,343 @@ def list_work_items(
             )
         return out
 
+
+# ---------------------------------------------------------------------------
+# Workspace stats + right rail (rolling window anchored to max interaction)
+# ---------------------------------------------------------------------------
+
+
+def _next_lead(conn: Any, assignee_id: str | None) -> dict[str, Any] | None:
+    """Highest-value open lead on this agent's queue, for the workspace rail."""
+    d = _db()
+    params: dict[str, Any] = {
+        "tenant": d.current_tenant(),
+        "stages": list(d.OPEN_LEAD_STAGES),
+    }
+    owner_clause = ""
+    if assignee_id:
+        owner_clause = "AND l.owner_user_id = :uid"
+        params["uid"] = assignee_id
+    row = d._one(
+        conn.execute(
+            text(
+                f"""
+                SELECT
+                  l.id,
+                  c.name AS customer_name,
+                  a.id AS account_id,
+                  COALESCE(p.name, l.product_id, 'Offer') AS product_name,
+                  COALESCE(l.estimated_value, l.offer_amount) AS amount,
+                  l.stage,
+                  c.preferred_window,
+                  l.transcript_snippet
+                FROM leads l
+                JOIN customers c ON c.id = l.customer_id
+                LEFT JOIN products p ON p.id = l.product_id
+                LEFT JOIN LATERAL (
+                  SELECT id FROM accounts
+                  WHERE customer_id = l.customer_id
+                  ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id
+                  LIMIT 1
+                ) a ON true
+                WHERE c.tenant_id = :tenant
+                  AND l.stage = ANY(:stages)
+                  {owner_clause}
+                ORDER BY
+                  CASE l.priority
+                    WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
+                    WHEN 'normal' THEN 2 ELSE 3
+                  END,
+                  COALESCE(l.estimated_value, l.offer_amount, 0) DESC,
+                  l.captured_at ASC NULLS LAST
+                LIMIT 1
+                """
+            ),
+            params,
+        )
+    )
+    if not row:
+        return None
+    product = row["product_name"] or "Offer"
+    window = row.get("preferred_window")
+    amount = row.get("amount")
+    reason = (row.get("transcript_snippet") or "").strip() or f"Open {row['stage']} lead"
+    if window:
+        reason = f"{reason} · {window}"
+    return {
+        "id": row["id"],
+        "customer": row["customer_name"] or "Unknown",
+        "accountId": row["account_id"] or "",
+        "productName": product,
+        "amount": float(amount) if amount is not None else None,
+        "stage": row["stage"],
+        "window": window,
+        "reason": reason[:180],
+    }
+
+
+def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
+    """Honest rolling-window stats + next callback + SLA countdowns for My Workspace."""
+    d = _db()
+    if assignee in (None, "", "all"):
+        assignee_id = None
+    elif assignee == "me":
+        assignee_id = d._actor_user_id()
+    else:
+        assignee_id = assignee
+
+    with d.engine.connect() as conn:
+        anchor = conn.execute(
+            text("SELECT max(started_at) FROM interactions WHERE tenant_id = :t"),
+            {"t": d.current_tenant()},
+        ).scalar()
+        if anchor is None:
+            anchor = datetime.now(timezone.utc)
+
+        # Current 7d vs prior 7d, scoped to handler when assignee set
+        params: dict[str, Any] = {"tenant": d.current_tenant(), "anchor": anchor}
+        handler_clause = ""
+        if assignee_id:
+            handler_clause = "AND i.handler_user_id = :uid"
+            params["uid"] = assignee_id
+
+        cur = d._one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      count(*) AS calls,
+                      coalesce(avg(duration_sec), 0) AS aht_sec,
+                      count(*) FILTER (WHERE query_resolved IS TRUE) AS resolutions
+                    FROM interactions i
+                    WHERE i.tenant_id = :tenant
+                      AND i.started_at > CAST(:anchor AS timestamptz) - interval '7 days'
+                      AND i.started_at <= CAST(:anchor AS timestamptz)
+                      {handler_clause}
+                    """
+                ),
+                params,
+            )
+        )
+        prev = d._one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT
+                      count(*) AS calls,
+                      coalesce(avg(duration_sec), 0) AS aht_sec,
+                      count(*) FILTER (WHERE query_resolved IS TRUE) AS resolutions
+                    FROM interactions i
+                    WHERE i.tenant_id = :tenant
+                      AND i.started_at > CAST(:anchor AS timestamptz) - interval '14 days'
+                      AND i.started_at <= CAST(:anchor AS timestamptz) - interval '7 days'
+                      {handler_clause}
+                    """
+                ),
+                params,
+            )
+        )
+        # Team AHT for delta (all handlers, same window)
+        team = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT coalesce(avg(duration_sec), 0) AS aht_sec
+                    FROM interactions i
+                    WHERE i.tenant_id = :tenant
+                      AND i.started_at > CAST(:anchor AS timestamptz) - interval '7 days'
+                      AND i.started_at <= CAST(:anchor AS timestamptz)
+                    """
+                ),
+                {"tenant": d.current_tenant(), "anchor": anchor},
+            )
+        )
+
+        ptp_params: dict[str, Any] = {"tenant": d.current_tenant(), "anchor": anchor}
+        ptp_clause = ""
+        if assignee_id:
+            ptp_clause = "AND p.owner_user_id = :uid"
+            ptp_params["uid"] = assignee_id
+        ptp = d._one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT count(*) AS n, coalesce(sum(p.amount), 0) AS amt
+                    FROM promises p
+                    JOIN customers c ON c.id = p.customer_id
+                    WHERE c.tenant_id = :tenant
+                      AND p.created_at > CAST(:anchor AS timestamptz) - interval '7 days'
+                      AND p.created_at <= CAST(:anchor AS timestamptz)
+                      {ptp_clause}
+                    """
+                ),
+                ptp_params,
+            )
+        )
+
+        calls = int((cur or {}).get("calls") or 0)
+        prev_calls = int((prev or {}).get("calls") or 0)
+        aht_sec = float((cur or {}).get("aht_sec") or 0)
+        team_aht = float((team or {}).get("aht_sec") or 0)
+        resolutions = int((cur or {}).get("resolutions") or 0)
+        rate = f"{round(100 * resolutions / calls)}%" if calls else "0%"
+        delta_calls = calls - prev_calls
+        aht_vs_team = int(round(aht_sec - team_aht))
+
+        def fmt_aht(sec: float) -> str:
+            s = max(0, int(round(sec)))
+            return f"{s // 60}m {s % 60:02d}s"
+
+        stats = {
+            "callsHandled": calls,
+            "callsHandledDelta": f"{delta_calls:+d} vs prior 7d",
+            "aht": fmt_aht(aht_sec),
+            "ahtDelta": f"{aht_vs_team:+d}s vs team",
+            "resolutions": resolutions,
+            "resolutionRate": rate,
+            "promisesCount": int((ptp or {}).get("n") or 0),
+            "promisesAmount": float((ptp or {}).get("amt") or 0),
+            "windowLabel": "Rolling 7 days",
+        }
+
+        # Next callback
+        cb_params: dict[str, Any] = {}
+        cb_clause = ""
+        if assignee_id:
+            cb_clause = "AND cb.assignee_user_id = :uid"
+            cb_params["uid"] = assignee_id
+        cb = d._one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT cb.id, cb.reason, cb.scheduled_at,
+                           c.name AS customer_name, a.id AS account_id
+                    FROM callbacks cb
+                    JOIN customers c ON c.id = cb.customer_id
+                    LEFT JOIN LATERAL (
+                      SELECT id FROM accounts
+                      WHERE customer_id = cb.customer_id
+                      ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id
+                      LIMIT 1
+                    ) a ON true
+                    WHERE lower(coalesce(cb.status,'')) NOT IN ('completed','cancelled','done','closed')
+                      AND cb.scheduled_at IS NOT NULL
+                      AND cb.scheduled_at >= now() - interval '1 hour'
+                      AND c.tenant_id = :tenant
+                      {cb_clause}
+                    ORDER BY cb.scheduled_at ASC
+                    LIMIT 1
+                    """
+                ),
+                {**cb_params, "tenant": d.current_tenant()},
+            )
+        )
+        next_cb = None
+        if cb and cb.get("scheduled_at"):
+            sched = cb["scheduled_at"]
+            if isinstance(sched, str):
+                try:
+                    sched = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+                except ValueError:
+                    sched = None
+            if sched is not None:
+                now = datetime.now(timezone.utc)
+                if getattr(sched, "tzinfo", None) is None:
+                    sched = sched.replace(tzinfo=timezone.utc)
+                mins = int((sched - now).total_seconds() // 60)
+                # Fixed offset, matching db._IST: India observes no DST, so this
+                # needs no tzdata. The ZoneInfo lookup silently fell back to a
+                # raw ISO timestamp on any image without the tz database.
+                time_label = sched.astimezone(_IST).strftime("%I:%M %p").lstrip("0")
+                next_cb = {
+                    "id": cb["id"],
+                    "customer": cb["customer_name"] or "Unknown",
+                    "accountId": cb["account_id"] or "",
+                    "reason": cb.get("reason") or "Scheduled callback",
+                    "time": time_label,
+                    "timezone": "IST",
+                    "inMinutes": mins,
+                }
+
+        # SLA countdowns from work_items already assigned
+        wi_params: dict[str, Any] = {}
+        wi_clause = ""
+        if assignee_id:
+            wi_clause = "AND w.assignee_user_id = :uid"
+            wi_params["uid"] = assignee_id
+        wi_rows = d._rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT w.entity_type, w.entity_id, w.sla_due_at, w.status,
+                           c.name AS customer_name
+                    FROM work_items w
+                    JOIN customers c ON c.id = w.customer_id
+                    WHERE w.sla_due_at IS NOT NULL
+                      AND c.tenant_id = :tenant
+                      {wi_clause}
+                    ORDER BY w.sla_due_at ASC
+                    LIMIT 8
+                    """
+                ),
+                {**wi_params, "tenant": d.current_tenant()},
+            )
+        )
+        enacted = d._enacted_by_map(conn, [w["entity_id"] for w in wi_rows])
+        sla_countdowns: list[dict[str, Any]] = []
+        for w in wi_rows:
+            sla, label = d._work_item_sla(
+                w["sla_due_at"], entity_type=w["entity_type"], status=w["status"]
+            )
+            kind = {
+                "dispute": "Dispute",
+                "promise": "Broken PTP",
+                "document_request": "Doc",
+                "callback": "Callback",
+                "followup": "Follow-up",
+                "bounce": "Bounce",
+            }.get(w["entity_type"], w["entity_type"])
+            sla_countdowns.append(
+                {
+                    "id": w["entity_id"],
+                    "label": f"{kind} · {w['customer_name']}",
+                    "remaining": label,
+                    "level": sla,
+                    "enactedBy": enacted.get(w["entity_id"]),
+                }
+            )
+
+        # Outside preferred window nudge
+        outside = 0
+        open_cbs = d._rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT cb.scheduled_at, c.preferred_window
+                    FROM callbacks cb
+                    JOIN customers c ON c.id = cb.customer_id
+                    WHERE lower(coalesce(cb.status,'')) NOT IN ('completed','cancelled','done','closed')
+                      AND cb.scheduled_at IS NOT NULL
+                      AND c.tenant_id = :tenant
+                      {cb_clause}
+                    """
+                ),
+                {**cb_params, "tenant": d.current_tenant()},
+            )
+        )
+        for row in open_cbs:
+            sched = row["scheduled_at"]
+            sched_s = sched.isoformat() if hasattr(sched, "isoformat") else str(sched)
+            try:
+                if d._outside_preferred_window(sched_s, row.get("preferred_window")):
+                    outside += 1
+            except Exception:
+                continue
+
+        return {
+            "stats": stats,
+            "nextCallback": next_cb,
+            "nextLead": _next_lead(conn, assignee_id),
+            "slaCountdowns": sla_countdowns,
+            "outsideWindowCount": outside,
+        }

@@ -2456,10 +2456,9 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
 
 # ---------------------------------------------------------------------------
 
-# Phase 3B seed-chip close-out (coaching / calibration / redaction writes /
-# routing writes / workspace rolling stats). Keep call sites as db.*.
-# Redundant aliases are explicit re-exports so F401 does not treat them as dead.
-# get_calibration_session stays in followups_db — only patch uses it.
+# Coaching / calibration, and the writes that live with their readers
+# (redaction, routing, workspace). Keep call sites as db.*.
+# get_calibration_session stays in db_coaching — only patch uses it.
 # ---------------------------------------------------------------------------
 from db_inbox import (  # noqa: E402
     INBOX_RAG_MIN_SCORE as INBOX_RAG_MIN_SCORE,
@@ -2673,24 +2672,30 @@ from db_prompt_studio import (  # noqa: E402
     voice_locale_facts as voice_locale_facts,
 )
 
-from followups_db import (  # noqa: E402
+from db_coaching import (  # noqa: E402
     create_coaching_action as create_coaching_action,
-    create_export_job as create_export_job,
-    create_routing_rule as create_routing_rule,
-    delete_routing_rule as delete_routing_rule,
     list_calibration_sessions as list_calibration_sessions,
     list_coaching_actions as list_coaching_actions,
-    list_export_jobs as list_export_jobs,
-    list_routing_audit as list_routing_audit,
-    patch_audio_segment_mute as patch_audio_segment_mute,
     patch_calibration_session as patch_calibration_session,
     patch_coaching_action as patch_coaching_action,
+)
+from db_redaction import (  # noqa: E402
+    create_export_job as create_export_job,
+    list_export_jobs as list_export_jobs,
+    patch_audio_segment_mute as patch_audio_segment_mute,
     patch_export_job as patch_export_job,
     patch_pii_finding as patch_pii_finding,
     patch_redaction_record as patch_redaction_record,
     patch_redaction_rule as patch_redaction_rule,
+)
+from db_routing import (  # noqa: E402
+    create_routing_rule as create_routing_rule,
+    delete_routing_rule as delete_routing_rule,
+    list_routing_audit as list_routing_audit,
     patch_routing_rule as patch_routing_rule,
     reorder_routing_rules as reorder_routing_rules,
+)
+from db_workspace import (  # noqa: E402
     workspace_summary as workspace_summary,
 )
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import text
+import json
 
 
 def _db():
@@ -434,3 +435,450 @@ def get_redaction_rule(pii_type: str) -> dict[str, Any] | None:
     return _map_redaction_rule(pii_type, row)
 
 
+# ---------------------------------------------------------------------------
+# Redaction writes + export jobs
+# ---------------------------------------------------------------------------
+
+_EXPORT_FORMATS = frozenset({"pdf", "csv", "audio-zip"})
+_EXPORT_SCOPES = frozenset({"transcript", "audio", "metadata"})
+_EXPORT_STATUSES = frozenset({"queued", "ready", "failed"})
+
+
+def patch_pii_finding(finding_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT f.id, f.redaction_id, f.accepted
+                    FROM pii_findings f
+                    JOIN redaction_records r ON r.id = f.redaction_id
+                    JOIN interactions i ON i.id = r.interaction_id
+                    WHERE f.id = :id AND i.tenant_id = :tenant
+                    """
+                ),
+                {"id": finding_id, "tenant": d.current_tenant()},
+            )
+        )
+        if row is None:
+            raise KeyError("finding_not_found")
+        if "accepted" not in payload:
+            raise ValueError("accepted_required")
+        accepted = bool(payload["accepted"])
+        conn.execute(
+            text("UPDATE pii_findings SET accepted = :a WHERE id = :id"),
+            {"id": finding_id, "a": accepted},
+        )
+        d._activity(
+            conn,
+            "redaction_record",
+            row["redaction_id"],
+            "finding_updated",
+            "PII finding updated",
+            note=f"{finding_id}:accepted={accepted}",
+        )
+        return {"id": finding_id, "accepted": accepted, "redactionId": row["redaction_id"]}
+
+
+def patch_audio_segment_mute(
+    redaction_id: str, finding_id: str, muted: bool
+) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT s.id
+                    FROM redaction_audio_segments s
+                    JOIN redaction_records r ON r.id = s.redaction_id
+                    JOIN interactions i ON i.id = r.interaction_id
+                    WHERE s.redaction_id = :rid AND s.finding_id = :fid
+                      AND i.tenant_id = :tenant
+                    LIMIT 1
+                    """
+                ),
+                {"rid": redaction_id, "fid": finding_id, "tenant": d.current_tenant()},
+            )
+        )
+        if row is None:
+            raise KeyError("audio_segment_not_found")
+        conn.execute(
+            text("UPDATE redaction_audio_segments SET muted = :m WHERE id = :id"),
+            {"id": row["id"], "m": bool(muted)},
+        )
+        return {
+            "redactionId": redaction_id,
+            "findingId": finding_id,
+            "muted": bool(muted),
+        }
+
+
+def patch_redaction_record(
+    redaction_id: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        existing = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT r.id
+                    FROM redaction_records r
+                    JOIN interactions i ON i.id = r.interaction_id
+                    WHERE r.id = :id AND i.tenant_id = :tenant
+                    """
+                ),
+                {"id": redaction_id, "tenant": d.current_tenant()},
+            )
+        )
+        if existing is None:
+            raise KeyError("redaction_record_not_found")
+        if "reviewed" in payload and payload["reviewed"] is not None:
+            reviewed = bool(payload["reviewed"])
+            if reviewed:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE redaction_records
+                        SET reviewed = true,
+                            reviewed_by_user_id = :uid,
+                            reviewed_at = now(),
+                            updated_at = now()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": redaction_id, "uid": d._actor_user_id()},
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE redaction_records
+                        SET reviewed = false,
+                            reviewed_by_user_id = NULL,
+                            reviewed_at = NULL,
+                            updated_at = now()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": redaction_id},
+                )
+            d._activity(
+                conn,
+                "redaction_record",
+                redaction_id,
+                "reviewed" if reviewed else "unreviewed",
+                "Redaction review updated",
+            )
+        return d.get_redaction_record(redaction_id)
+
+
+def patch_redaction_rule(pii_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT id, pii_type, enabled, replacement
+                    FROM redaction_rule_configs
+                    WHERE tenant_id = :tenant AND pii_type = :t
+                    LIMIT 1
+                    """
+                ),
+                {"tenant": d.current_tenant(), "t": pii_type},
+            )
+        )
+        if row is None:
+            raise KeyError("redaction_rule_not_found")
+        sets: list[str] = []
+        params: dict[str, Any] = {"id": row["id"]}
+        if "enabled" in payload and payload["enabled"] is not None:
+            sets.append("enabled = :enabled")
+            params["enabled"] = bool(payload["enabled"])
+        if "replacement" in payload and payload["replacement"] is not None:
+            sets.append("replacement = :replacement")
+            params["replacement"] = str(payload["replacement"])
+        if not sets:
+            raise ValueError("no_fields")
+        sets.append("updated_at = now()")
+        conn.execute(
+            text(f"UPDATE redaction_rule_configs SET {', '.join(sets)} WHERE id = :id"),
+            params,
+        )
+    rule = d.get_redaction_rule(pii_type)
+    if rule is None:
+        raise KeyError("redaction_rule_not_found")
+    return rule
+
+
+def _parse_scope_blob(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = {}
+    if not isinstance(raw, dict):
+        return {"parts": [], "actorRole": "", "downloadCount": 0, "entitiesRedacted": 0}
+    parts = raw.get("parts") or raw.get("scope") or []
+    if not isinstance(parts, list):
+        parts = []
+    return {
+        "parts": [p for p in parts if p in _EXPORT_SCOPES],
+        "actorRole": str(raw.get("actorRole") or ""),
+        "downloadCount": int(raw.get("downloadCount") or 0),
+        "entitiesRedacted": int(raw.get("entitiesRedacted") or 0),
+    }
+
+
+def _map_export_job(row: dict[str, Any], record_ids: list[str]) -> dict[str, Any]:
+    meta = _parse_scope_blob(row.get("scope"))
+    status = (row.get("status") or "queued").lower()
+    if status == "completed":
+        status = "ready"
+    if status not in _EXPORT_STATUSES:
+        status = "queued"
+    at = row.get("created_at")
+    return {
+        "id": row["id"],
+        "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
+        "actor": row.get("actor_name") or "Unknown",
+        "actorRole": meta["actorRole"] or "Compliance Officer",
+        "recordIds": record_ids,
+        "format": row["format"] if row.get("format") in _EXPORT_FORMATS else "pdf",
+        "scope": meta["parts"] or ["transcript"],
+        "watermark": row.get("watermark") or "",
+        "status": status,
+        "downloadCount": meta["downloadCount"],
+        "entitiesRedacted": meta["entitiesRedacted"],
+    }
+
+
+def list_export_jobs(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+    d = _db()
+    page, skip = d.clamp_list_limit(limit), d.clamp_offset(offset)
+    with d.engine.connect() as conn:
+        rows = d._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.*, u.name AS actor_name
+                    FROM export_jobs ej
+                    LEFT JOIN users u ON u.id = ej.actor_user_id
+                    WHERE EXISTS (
+                      SELECT 1
+                      FROM export_job_records ejr
+                      JOIN redaction_records r ON r.id = ejr.redaction_id
+                      JOIN interactions i ON i.id = r.interaction_id
+                      WHERE ejr.export_job_id = ej.id
+                        AND i.tenant_id = :tenant
+                    )
+                    ORDER BY ej.created_at DESC, ej.id DESC
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                {"tenant": d.current_tenant(), "limit": page, "offset": skip},
+            )
+        )
+        if not rows:
+            return []
+        ids = [r["id"] for r in rows]
+        links = d._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT export_job_id, redaction_id
+                    FROM export_job_records
+                    WHERE export_job_id = ANY(:ids)
+                    """
+                ),
+                {"ids": ids},
+            )
+        )
+        by_job: dict[str, list[str]] = {i: [] for i in ids}
+        for link in links:
+            by_job.setdefault(link["export_job_id"], []).append(link["redaction_id"])
+        return [_map_export_job(r, by_job.get(r["id"], [])) for r in rows]
+
+
+def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        record_ids = list(payload.get("recordIds") or [])
+        if not record_ids:
+            raise ValueError("record_ids_required")
+        fmt = payload.get("format") or "pdf"
+        if fmt not in _EXPORT_FORMATS:
+            raise ValueError("invalid_format")
+        scope_parts = [s for s in (payload.get("scope") or []) if s in _EXPORT_SCOPES]
+        if not scope_parts:
+            scope_parts = ["transcript"]
+        # Validate records exist + tenant
+        found = d._rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT r.id
+                    FROM redaction_records r
+                    JOIN interactions i ON i.id = r.interaction_id
+                    WHERE r.id = ANY(:ids) AND i.tenant_id = :tenant
+                    """
+                ),
+                {"ids": record_ids, "tenant": d.current_tenant()},
+            )
+        )
+        found_ids = {r["id"] for r in found}
+        missing = [x for x in record_ids if x not in found_ids]
+        if missing:
+            raise KeyError(f"redaction_records_not_found:{','.join(missing)}")
+        entities = conn.execute(
+            text(
+                """
+                SELECT count(*) FROM pii_findings
+                WHERE redaction_id = ANY(:ids) AND accepted = true
+                """
+            ),
+            {"ids": record_ids},
+        ).scalar()
+        job_id = d._id("EX")
+        meta = {
+            "parts": scope_parts,
+            "actorRole": payload.get("actorRole") or "Compliance Officer",
+            "downloadCount": 0,
+            "entitiesRedacted": int(entities or 0),
+        }
+        # Demo: mark ready immediately (no real zip/pdf pipeline yet)
+        conn.execute(
+            text(
+                """
+                INSERT INTO export_jobs (
+                  id, tenant_id, actor_user_id, format, scope, watermark, status,
+                  storage_ref
+                ) VALUES (
+                  :id, :tenant_id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'ready', :ref
+                )
+                """
+            ),
+            {
+                "id": job_id,
+                "tenant_id": d.current_tenant(),
+                "uid": d._actor_user_id(),
+                "fmt": fmt,
+                "scope": json.dumps(meta),
+                "wm": payload.get("watermark") or "",
+                "ref": f"minio://export-bundles/{d.current_tenant()}/{job_id}.{fmt}",
+            },
+        )
+        for rid in record_ids:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO export_job_records (export_job_id, redaction_id)
+                    VALUES (:jid, :rid)
+                    ON CONFLICT DO NOTHING
+                    """
+                ),
+                {"jid": job_id, "rid": rid},
+            )
+        d._activity(
+            conn,
+            "export_job",
+            job_id,
+            "created",
+            "Export job created",
+            note=f"{len(record_ids)} records",
+        )
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.*, u.name AS actor_name
+                    FROM export_jobs ej
+                    LEFT JOIN users u ON u.id = ej.actor_user_id
+                    WHERE ej.id = :id
+                    """
+                ),
+                {"id": job_id},
+            )
+        )
+        assert row is not None
+        return _map_export_job(row, record_ids)
+
+
+def patch_export_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    d = _db()
+    with d.engine.begin() as conn:
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.id, ej.scope, ej.status
+                    FROM export_jobs ej
+                    WHERE ej.id = :id
+                      AND EXISTS (
+                        SELECT 1
+                        FROM export_job_records ejr
+                        JOIN redaction_records r ON r.id = ejr.redaction_id
+                        JOIN interactions i ON i.id = r.interaction_id
+                        WHERE ejr.export_job_id = ej.id
+                          AND i.tenant_id = :tenant
+                      )
+                    FOR UPDATE OF ej
+                    """
+                ),
+                {"id": job_id, "tenant": d.current_tenant()},
+            )
+        )
+        if row is None:
+            raise KeyError("export_job_not_found")
+        meta = _parse_scope_blob(row["scope"])
+        status = row["status"]
+        if payload.get("bumpDownload"):
+            meta["downloadCount"] = int(meta["downloadCount"]) + 1
+        if "status" in payload and payload["status"] is not None:
+            st = str(payload["status"]).lower()
+            if st == "completed":
+                st = "ready"
+            if st not in _EXPORT_STATUSES:
+                raise ValueError("invalid_export_status")
+            status = st
+        conn.execute(
+            text(
+                """
+                UPDATE export_jobs
+                SET scope = CAST(:scope AS jsonb),
+                    status = :status,
+                    updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job_id, "scope": json.dumps(meta), "status": status},
+        )
+        full = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.*, u.name AS actor_name
+                    FROM export_jobs ej
+                    LEFT JOIN users u ON u.id = ej.actor_user_id
+                    WHERE ej.id = :id
+                    """
+                ),
+                {"id": job_id},
+            )
+        )
+        links = [
+            r["redaction_id"]
+            for r in d._rows(
+                conn.execute(
+                    text(
+                        "SELECT redaction_id FROM export_job_records WHERE export_job_id = :id"
+                    ),
+                    {"id": job_id},
+                )
+            )
+        ]
+        assert full is not None
+        return _map_export_job(full, links)

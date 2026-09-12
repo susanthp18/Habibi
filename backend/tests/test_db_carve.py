@@ -26,6 +26,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 _CARVED = (
     "db_billing.py",
     "db_bot_analytics.py",
+    "db_coaching.py",
     "db_dashboard.py",
     "db_evals.py",
     "db_kb.py",
@@ -214,6 +215,10 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.list_eval_reports.__module__ == "db_evals"
     assert db.save_eval_report.__module__ == "db_evals"
     assert db.create_kb_snapshot.__module__ == "db_kb_snapshots"
+    assert db.create_coaching_action.__module__ == "db_coaching"
+    assert db.patch_redaction_rule.__module__ == "db_redaction"
+    assert db.create_routing_rule.__module__ == "db_routing"
+    assert db.workspace_summary.__module__ == "db_workspace"
 
 
 def test_as_utc_lives_in_db_core() -> None:

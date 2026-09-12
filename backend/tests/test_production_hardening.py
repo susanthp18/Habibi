@@ -563,7 +563,7 @@ def test_circuit_breaker_ignores_caller_errors() -> None:
 
 
 def test_coach_status_rejects_unknown() -> None:
-    import followups_db as f
+    import db_coaching as f
 
     with pytest.raises(ValueError, match="invalid_coaching_status"):
         f._require_coach_status("canceled")
