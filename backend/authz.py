@@ -90,7 +90,6 @@ BOT_WRITE = "perm-bot-write"
 AGENT_EDIT = "perm-agent-edit"
 AGENT_PUBLISH = "perm-agent-publish"
 EVAL_RUN = "perm-eval-run"
-CONNECTOR_ATTACH = "perm-connector-attach"
 POLICY_EXPORT = "perm-policy-export"
 POLICY_READ = "perm-policy-read"
 POLICY_PUBLISH = "perm-policy-publish"
@@ -144,7 +143,6 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (AGENT_EDIT, "agent", "edit", "Author agent cards, tools and handoff allowlists"),
     (AGENT_PUBLISH, "agent", "publish", "Compile and publish an agent card to production"),
     (EVAL_RUN, "eval", "run", "Run regression eval suites against a card"),
-    (CONNECTOR_ATTACH, "connector", "attach", "Bind an approved connector to an agent card"),
     (POLICY_EXPORT, "policy", "export", "Download the OPA/Cedar projection of live Python policy"),
     (POLICY_READ, "policy", "read", "Read the versioned policy catalogue"),
     (POLICY_PUBLISH, "policy", "publish", "Submit a policy draft for approval"),
@@ -339,7 +337,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/agent-studio/cards/{bot_id}/restore"): AGENT_EDIT,
     ("POST", "/agent-studio/cards/{bot_id}/compile"): AGENT_EDIT,
     ("GET", "/agent-studio/cards/{bot_id}/effective-contract"): BOT_READ,
-    ("POST", "/agent-studio/cards/{bot_id}/connectors"): CONNECTOR_ATTACH,
     ("POST", "/agent-studio/cards/{bot_id}/publish"): AGENT_PUBLISH,
     ("GET", "/agent-studio/cards/{bot_id}/graph"): BOT_READ,
     ("POST", "/agent-studio/cards/clone"): AGENT_EDIT,

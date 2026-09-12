@@ -245,7 +245,7 @@ def _foreign_tenant(conn, tenant_id: str = "other.bank") -> str:
 
 
 def _payload(slug: str) -> dict:
-    return {"slug": slug, "kind": "first_party", "displayName": "Pay Link"}
+    return {"slug": slug, "kind": "first_party", "displayName": "Pay Link", "dataClass": ["money"]}
 
 
 def _row_count(db_tx, slug: str, tenant_id: str) -> int:
@@ -315,3 +315,16 @@ def test_each_tenant_reads_back_only_its_own_connector(db_tx) -> None:
 
     assert get_connector(slug)["id"] == ours["id"]
     assert get_connector(theirs["id"]) is None
+
+
+def test_a_connector_names_what_it_carries(db_tx) -> None:
+    """CONNECTORS-16: the dialog used to stamp ["pii"] on every connector. The
+    register refuses none, and refuses a class outside the vocabulary."""
+    import pytest
+
+    from agent_core.connectors.persist import upsert_connector
+
+    with pytest.raises(ValueError, match="connector_data_class_required"):
+        upsert_connector({"slug": "bare", "kind": "first_party", "displayName": "x", "dataClass": []})
+    with pytest.raises(ValueError, match="connector_data_class_unknown"):
+        upsert_connector({"slug": "odd", "kind": "first_party", "displayName": "x", "dataClass": ["secret"]})

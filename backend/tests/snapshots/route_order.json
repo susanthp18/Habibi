@@ -28,7 +28,6 @@
  "POST /agent-studio/cards/{bot_id}/compile",
  "GET /agent-studio/cards/{bot_id}/effective-contract",
  "POST /agent-studio/cards/{bot_id}/publish",
- "POST /agent-studio/cards/{bot_id}/connectors",
  "GET /agent-studio/cards/{bot_id}/graph",
  "GET /agent-studio/skills",
  "GET /agent-studio/skills/scripts",

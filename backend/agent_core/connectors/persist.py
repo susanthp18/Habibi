@@ -137,6 +137,11 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: What a connector may carry. The compiler's G10 refuses a connector with no
+#: class; the dialog offers these and the upsert refuses anything else.
+DATA_CLASSES: tuple[str, ...] = ("pii", "money", "internal", "public")
+
+
 def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
     slug = str(payload.get("slug") or "").strip()
     if not slug:
@@ -146,7 +151,11 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
     if kind == "remote_mcp" and not _https_ok(url):
         raise ValueError("connector_url_https_only")
     prefixes = payload.get("allowPrefixes") or payload.get("allow_prefixes") or [f"ext.{slug}."]
-    data_class = payload.get("dataClass") or payload.get("data_class") or ["pii"]
+    data_class = [str(x) for x in (payload.get("dataClass") or payload.get("data_class") or [])]
+    if not data_class:
+        raise ValueError("connector_data_class_required")
+    if any(x not in DATA_CLASSES for x in data_class):
+        raise ValueError("connector_data_class_unknown")
     # The id carries the tenant because it is the PRIMARY KEY while the
     # uniqueness the registry actually wants is (tenant_id, slug). A bare
     # ``conn-{slug}`` default made the second tenant to register "paylink"

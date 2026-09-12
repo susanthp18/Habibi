@@ -154,6 +154,7 @@ _VALUE_ERROR_STATUS: dict[str, int] = {
     "connector_url_unresolvable": 422,
     "connector_slug_required": 422,
     "connector_data_class_required": 422,
+    "connector_data_class_unknown": 422,
     "cimd_issuer_https_only": 422,
     "connector_prefix_must_be_ext": 422,
     "vault_secret_required": 422,

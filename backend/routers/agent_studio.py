@@ -36,7 +36,6 @@ from schemas import (
     AgentStudioSkillSummaryResponse,
     AgentStudioTemplateResponse,
     BotDeploymentResponse,
-    ConnectorAttachRequest,
     DeploymentExperimentResponse,
     DeploymentExperimentRollbackResponse,
     EffectiveContractResponse,
@@ -333,20 +332,6 @@ def publish_agent_studio_card(bot_id: str, payload: PromptVersionPublishRequest)
             ),
         )
     return publish_prompt_version(drafts[0]["id"], payload)
-
-@router.post("/agent-studio/cards/{bot_id}/connectors", response_model=PromptVersionResponse)
-def attach_agent_studio_connector(bot_id: str, payload: ConnectorAttachRequest):
-    from agent_core.cards.clone import attach_connector_to_card
-
-    connector_id = payload.connectorId.strip()
-    if not connector_id:
-        raise HTTPException(status_code=422, detail="connector_id_required")
-    return _handle_write(
-        attach_connector_to_card,
-        bot_id,
-        connector_id=connector_id,
-        allow_prefixes=payload.allowPrefixes or None,
-    )
 
 @router.get("/agent-studio/cards/{bot_id}/graph", response_model=AgentStudioGraphResponse)
 def get_agent_studio_graph(bot_id: str):

@@ -89,38 +89,3 @@ def clone_card(
     if row is None:
         raise RuntimeError("clone_card_missing")
     return row
-
-
-def attach_connector_to_card(
-    bot_id: str,
-    *,
-    connector_id: str,
-    allow_prefixes: list[str] | None = None,
-) -> dict[str, Any]:
-    """Stamp an approved connector onto the latest draft card."""
-    from agent_core.connectors.persist import get_connector
-
-    conn_row = get_connector(connector_id)
-    if conn_row is None:
-        raise KeyError("connector_not_found")
-    # Refused here, where the operator made the choice, rather than at the
-    # publish that G10 would have failed weeks later.
-    if conn_row.get("status") != "approved":
-        raise ValueError("connector_not_approved")
-    prefixes = list(allow_prefixes or conn_row.get("allowPrefixes") or [])
-    if any(not str(p).startswith("ext.") for p in prefixes):
-        raise ValueError("connector_prefix_must_be_ext")
-    versions = db.list_prompt_versions(bot_id=bot_id, limit=20)
-    draft = next((v for v in versions if v["status"] == "draft"), None)
-    if draft is None:
-        published = db.get_published_prompt_version(bot_id)
-        if published is None:
-            raise KeyError("agent_card_not_found")
-        draft = db.restore_prompt_version_as_draft(published["id"])
-    card = dict(draft.get("agentCard") or {})
-    connectors = [c for c in (card.get("connectors") or []) if isinstance(c, dict)]
-    cid = conn_row["id"]
-    connectors = [c for c in connectors if c.get("connector_id") != cid and c.get("connectorId") != cid]
-    connectors.append({"connector_id": cid, "allow_prefixes": prefixes})
-    card["connectors"] = connectors
-    return db.patch_prompt_version(draft["id"], {"agentCard": card})

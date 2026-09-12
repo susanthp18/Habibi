@@ -92,7 +92,6 @@ from schemas.agent_studio import (
     BotDeploymentEnvironment as BotDeploymentEnvironment,
     BotDeploymentResponse as BotDeploymentResponse,
     BotDeploymentStatus as BotDeploymentStatus,
-    ConnectorAttachRequest as ConnectorAttachRequest,
     DeploymentExperimentResponse as DeploymentExperimentResponse,
     DeploymentExperimentRollbackResponse as DeploymentExperimentRollbackResponse,
     EffectiveContractResponse as EffectiveContractResponse,

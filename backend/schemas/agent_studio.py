@@ -611,13 +611,6 @@ class AgentCardCompileRequest(BaseModel):
     persona: dict[str, Any] | None = None
 
 
-class ConnectorAttachRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    connectorId: str = Field(validation_alias=AliasChoices("connectorId", "connector_id"))
-    allowPrefixes: list[str] | None = Field(default=None, validation_alias=AliasChoices("allowPrefixes", "allow_prefixes"))
-
-
 class SkillCreateRequest(BaseModel):
     """`agent_core.skills.persist.create_draft_skill`. Origin is not a client
     choice: every draft created here is a tenant skill."""

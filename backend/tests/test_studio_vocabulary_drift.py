@@ -157,6 +157,16 @@ def test_the_inspector_names_the_globals_the_runtime_strips() -> None:
     assert "STUDIO_VOCABULARY.globalToolsStrippedAtRuntime" in inspector
 
 
+def test_connector_data_classes_are_the_backend_vocabulary() -> None:
+    """The register-connector dialog offers these; a hardcoded ["pii"] stamped
+    every connector as personal data whatever it served."""
+    from agent_core.connectors.persist import DATA_CLASSES
+
+    assert _vocabulary()["connectorDataClasses"] == list(DATA_CLASSES)
+    panel = _src("src", "components", "integrations", "ConnectorsPanel.tsx")
+    assert "STUDIO_VOCABULARY.connectorDataClasses" in panel
+
+
 def test_the_whatsapp_history_check_is_the_same_detector() -> None:
     """bot_runtime kept a fourth copy -- four substrings -- that accepted
     "recorded for quality" and rejected the wording the pattern accepts.
