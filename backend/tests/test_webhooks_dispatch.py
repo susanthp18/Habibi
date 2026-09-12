@@ -612,8 +612,8 @@ def test_a_subscription_names_only_catalogue_events(db_tx) -> None:
     client sent, and that string travelled verbatim into the delivery's
     `X-BigBound-Event` header. Only the catalogue is a subscribable event; a
     header value is never a client's choice."""
-    import ops_screens
+    import db_webhooks
 
     with pytest.raises(ValueError, match="unknown_event_type"):
-        ops_screens._ensure_event_type(db_tx, "call.completed\r\nX-Injected: 1")
-    assert ops_screens._ensure_event_type(db_tx, "call.completed").startswith("evt-")
+        db_webhooks._ensure_event_type(db_tx, "call.completed\r\nX-Injected: 1")
+    assert db_webhooks._ensure_event_type(db_tx, "call.completed").startswith("evt-")

@@ -10,7 +10,7 @@ import logging
 
 import db
 import json
-import ops_screens
+import db_floor
 
 from fastapi import APIRouter
 
@@ -69,7 +69,7 @@ def list_teams():
 
 @router.get("/floor", response_model=FloorSnapshotResponse)
 def get_floor():
-    return ops_screens.get_floor_snapshot()
+    return db_floor.get_floor_snapshot()
 
 @router.get("/floor/copilot/{interaction_id}", response_model=FloorCopilotResponse)
 def get_floor_copilot(interaction_id: str):
@@ -129,14 +129,14 @@ def signal_floor_approval(job_id: str, payload: FloorApprovalSignalRequest):
 @router.post("/supervisor-actions", response_model=SupervisorActionResponse)
 def post_supervisor_action(payload: SupervisorActionRequest):
     try:
-        return ops_screens.create_supervisor_action(payload.model_dump())
+        return db_floor.create_supervisor_action(payload.model_dump())
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.post("/floor/alerts/{alert_id}/ack", response_model=FloorAlertAckResponse)
 def ack_floor_alert(alert_id: str):
     try:
-        return ops_screens.ack_floor_alert(alert_id)
+        return db_floor.ack_floor_alert(alert_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

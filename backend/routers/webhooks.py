@@ -11,7 +11,7 @@ import logging
 import asyncio
 import db
 import json
-import ops_screens
+import db_webhooks
 import whatsapp
 
 from fastapi import APIRouter
@@ -101,23 +101,23 @@ async def payment_events_webhook(request: Request):
 
 @router.get("/event-types", response_model=list[EventTypeResponse])
 def list_event_types():
-    return ops_screens.list_event_types()
+    return db_webhooks.list_event_types()
 
 @router.get("/webhook-endpoints", response_model=list[WebhookEndpointResponse])
 def list_webhook_endpoints():
-    return ops_screens.list_webhook_endpoints()
+    return db_webhooks.list_webhook_endpoints()
 
 @router.post("/webhook-endpoints", response_model=WebhookEndpointResponse)
 def create_webhook_endpoint(payload: WebhookEndpointUpsertRequest):
     try:
-        return ops_screens.create_webhook_endpoint(payload.model_dump(mode="json"))
+        return db_webhooks.create_webhook_endpoint(payload.model_dump(mode="json"))
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @router.patch("/webhook-endpoints/{endpoint_id}", response_model=WebhookEndpointResponse)
 def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchRequest):
     try:
-        return ops_screens.patch_webhook_endpoint(
+        return db_webhooks.patch_webhook_endpoint(
             endpoint_id, payload.model_dump(mode="json", exclude_unset=True)
         )
     except KeyError as exc:
@@ -128,7 +128,7 @@ def patch_webhook_endpoint(endpoint_id: str, payload: WebhookEndpointPatchReques
 @router.delete("/webhook-endpoints/{endpoint_id}", response_model=OkResponse)
 def delete_webhook_endpoint(endpoint_id: str):
     try:
-        ops_screens.delete_webhook_endpoint(endpoint_id)
+        db_webhooks.delete_webhook_endpoint(endpoint_id)
         return {"ok": True}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -136,14 +136,14 @@ def delete_webhook_endpoint(endpoint_id: str):
 @router.post("/webhook-endpoints/{endpoint_id}/rotate-secret", response_model=WebhookEndpointResponse)
 def rotate_webhook_secret(endpoint_id: str):
     try:
-        return ops_screens.rotate_webhook_secret(endpoint_id)
+        return db_webhooks.rotate_webhook_secret(endpoint_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.post("/webhook-endpoints/{endpoint_id}/test", response_model=WebhookDeliveryResponse)
 def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=None)):
     try:
-        return ops_screens.test_fire_webhook(endpoint_id, event)
+        return db_webhooks.test_fire_webhook(endpoint_id, event)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -151,12 +151,12 @@ def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=No
 
 @router.get("/webhook-deliveries", response_model=list[WebhookDeliveryResponse])
 def list_webhook_deliveries(endpointId: str | None = Query(default=None)):
-    return ops_screens.list_webhook_deliveries(endpointId)
+    return db_webhooks.list_webhook_deliveries(endpointId)
 
 @router.post("/webhook-deliveries/{delivery_id}/retry", response_model=WebhookDeliveryResponse)
 def retry_webhook_delivery(delivery_id: str):
     try:
-        return ops_screens.retry_webhook_delivery(delivery_id)
+        return db_webhooks.retry_webhook_delivery(delivery_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

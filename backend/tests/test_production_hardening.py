@@ -398,13 +398,13 @@ def test_interleave_stereo_truncates_odd_bytes() -> None:
 
 
 def test_webhook_url_rejects_private(monkeypatch: pytest.MonkeyPatch) -> None:
-    import ops_screens
+    import db_webhooks
 
     with pytest.raises(ValueError):
-        ops_screens._validate_webhook_url("http://127.0.0.1/hooks")
+        db_webhooks._validate_webhook_url("http://127.0.0.1/hooks")
     with pytest.raises(ValueError):
-        ops_screens._validate_webhook_url("https://192.168.1.1/hooks")
-    ops_screens._validate_webhook_url("https://hooks.example.com/crm")
+        db_webhooks._validate_webhook_url("https://192.168.1.1/hooks")
+    db_webhooks._validate_webhook_url("https://hooks.example.com/crm")
 
 
 def test_storage_requires_minio_keys(monkeypatch: pytest.MonkeyPatch) -> None:

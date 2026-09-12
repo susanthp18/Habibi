@@ -2,8 +2,7 @@
 
 The twin of ``test_function_size`` on files. A 2,500-line module has more than
 one owner -- the floor snapshot, the webhook catalogue and provider health
-shared ``ops_screens.py``; eligibility, the event log and identity outcomes
-shared ``capture.py`` -- and every reader of one pays for the other. What is
+shared one file until pass 6 -- and every reader of one pays for the other. What is
 over the ceiling is listed with its measured length; a split lowers the number
 or removes the name, and nothing may join the list.
 
@@ -25,7 +24,6 @@ SKIP_DIRS = {"tests", "alembic", ".venv", "node_modules", "scripts", "seeds", "s
 BASELINE: dict[str, int] = {
     "db.py": 2592,
     "db_inbox.py": 2526,
-    "ops_screens.py": 1935,
     "sandbox_runtime.py": 1875,
     "bot_runtime.py": 1834,
     "capture.py": 1827,

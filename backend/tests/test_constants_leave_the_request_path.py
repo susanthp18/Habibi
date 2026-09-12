@@ -36,7 +36,9 @@ _REQUEST_PATH = (
     "cadence.py",
     "campaigns.py",
     "outbound.py",
-    "ops_screens.py",
+    "db_floor.py",
+    "db_webhooks.py",
+    "db_provider_health.py",
     "agent_core/tools/handoff_allowlist.py",
     "agent_core/tools/domain.py",
     "agent_core/deployment.py",
@@ -115,10 +117,11 @@ def test_the_shipped_packs_still_activate_on_their_intents() -> None:
 
 def test_rupees_read_the_indian_way_on_every_borrower_facing_line() -> None:
     import mission
-    import promise_fulfillment as pf
+    import money_inr
 
-    assert pf._fmt_inr(1234567) == "12,34,567"
-    assert pf._fmt_inr("1500.50") == "1,500.50"
+    # the WhatsApp template amount (promise_fulfillment reads money_inr.template_amount)
+    assert money_inr.template_amount(1234567) == "12,34,567"
+    assert money_inr.template_amount("1500.50") == "1,500.50"
     assert mission._inr(1234567) == "12,34,567"
 
 

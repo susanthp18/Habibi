@@ -3,7 +3,7 @@
 ``webhook_endpoints``, ``webhook_subscriptions``, ``webhook_retry_policies`` and
 ``webhook_deliveries`` all shipped, the Integrations screen manages them, and the
 delivery log filled up with ``200 OK``. None of it left the process.
-``ops_screens.test_fire_webhook`` derived the latency from a SHA-256 digest of
+``db_webhooks.test_fire_webhook`` derived the latency from a SHA-256 digest of
 the endpoint id and wrote the literal body ``{"ok":true,"mode":"simulated"}``;
 there was no HTTP client anywhere in the outbound webhook path, and no business
 event ever produced a delivery row at all. A tenant who subscribed an endpoint to
@@ -45,7 +45,7 @@ operator fixes it by rotating the secret.
 
 SSRF
 ----
-``ops_screens._validate_webhook_url`` checks the URL at registration time and
+``db_webhooks._validate_webhook_url`` checks the URL at registration time and
 says in as many words that it cannot resolve DNS there — the name can resolve
 differently by the time anything connects. This is the "anything connects", so
 every host is resolved and re-checked immediately before the POST.

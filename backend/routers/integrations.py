@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 import db
-import ops_screens
+import db_provider_health
 import os
 
 from fastapi import APIRouter
@@ -63,14 +63,14 @@ logger = logging.getLogger(__name__)
 
 @router.get("/providers", response_model=list[ProviderResponse])
 def list_providers(env: str = Query(default="sandbox")):
-    return ops_screens.list_providers(env)
+    return db_provider_health.list_providers(env)
 
 @router.patch("/providers/{provider_id}/configs/{environment}", response_model=ProviderResponse)
 def patch_provider_config(
     provider_id: str, environment: str, payload: ProviderEnabledPatchRequest
 ):
     try:
-        return ops_screens.patch_provider_enabled(
+        return db_provider_health.patch_provider_enabled(
             provider_id, environment, payload.enabled
         )
     except KeyError as exc:
@@ -79,13 +79,13 @@ def patch_provider_config(
 @router.post("/providers/{provider_id}/test", response_model=ProviderTestLogResponse)
 def test_provider(provider_id: str, env: str = Query(default="sandbox")):
     try:
-        return ops_screens.test_provider(provider_id, env)
+        return db_provider_health.test_provider(provider_id, env)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.get("/providers/{provider_id}/test-logs", response_model=list[ProviderTestLogResponse])
 def list_provider_test_logs(provider_id: str):
-    return ops_screens.list_provider_test_logs(provider_id)
+    return db_provider_health.list_provider_test_logs(provider_id)
 
 @router.get("/connectors", response_model=list[ConnectorResponse])
 def list_connectors_api():

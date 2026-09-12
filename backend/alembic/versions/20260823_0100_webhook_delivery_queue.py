@@ -8,7 +8,7 @@ Mirrors sql/10_admin.sql.
 
 ``webhook_endpoints``, ``webhook_subscriptions`` and ``webhook_deliveries``
 shipped complete, the Integrations screen lists them, and the delivery log fills
-with ``200 OK`` rows. All of it was a simulation: ``ops_screens.test_fire_webhook``
+with ``200 OK`` rows. All of it was a simulation: ``db_webhooks.test_fire_webhook``
 computed the latency from a SHA-256 digest of the endpoint id and wrote the
 literal body ``{"ok":true,"mode":"simulated"}``. No HTTP client appeared anywhere
 in the outbound webhook path. A tenant who registered an endpoint for

@@ -1,7 +1,7 @@
 """The shape of the four screen readers, pinned before they are taken apart.
 
 ``db_dashboard.get_dashboard``, ``db_billing.billing_overview``,
-``db_bot_analytics.bot_analytics`` and ``ops_screens.get_floor_snapshot`` are
+``db_bot_analytics.bot_analytics`` and ``db_floor.get_floor_snapshot`` are
 each one long function of queries followed by an assembly. Splitting them into
 a reads phase and a shape phase must not drop a section or a key. Values move
 with the dev database, so what is pinned is the key tree with the type at
@@ -38,7 +38,7 @@ def _shape(value: Any) -> Any:
 
 def render() -> dict[str, Any]:
     import db
-    import ops_screens
+    import db_floor
 
     return {
         "dashboard": {
@@ -49,7 +49,7 @@ def render() -> dict[str, Any]:
             for p in ("mtd", "30d")
         },
         "bot_analytics": _shape(db.bot_analytics("30d", "all")),
-        "floor": _shape(ops_screens.get_floor_snapshot()),
+        "floor": _shape(db_floor.get_floor_snapshot()),
     }
 
 

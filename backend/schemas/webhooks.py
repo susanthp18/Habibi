@@ -17,7 +17,7 @@ from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 # Webhook targets carry signed CRM events off-platform — HTTPS is enforced at
 # the schema boundary so a plaintext URL is a 422 with a field-level error
-# rather than a generic 400 from ops_screens._validate_webhook_url.
+# rather than a generic 400 from db_webhooks._validate_webhook_url.
 HttpsUrl = Annotated[AnyHttpUrl, UrlConstraints(allowed_schemes=["https"])]
 
 
@@ -62,7 +62,7 @@ class WebhookEndpointPatchRequest(BaseModel):
     status: Literal["active", "paused", "broken"] | None = None
 
 
-# ── Webhooks (ops_screens) ───────────────────────────────────────────────────
+# ── Webhooks (db_webhooks) ───────────────────────────────────────────────────
 
 
 class EventTypeSampleResponse(BaseModel):

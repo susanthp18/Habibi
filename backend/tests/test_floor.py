@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import actor_context
-import ops_screens
+import db_floor
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def as_actor():
 
 def test_floor_snapshot_shape(db_tx, as_actor) -> None:
     as_actor("priya-nair")
-    snap = ops_screens.get_floor_snapshot()
+    snap = db_floor.get_floor_snapshot()
     assert set(snap) >= {"calls", "alerts", "stats", "agents"}
     stats = snap["stats"]
     for key in (
