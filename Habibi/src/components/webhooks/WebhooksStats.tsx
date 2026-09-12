@@ -1,6 +1,6 @@
 import { Activity, CheckCircle2, AlertTriangle, Radio } from "lucide-react";
 import type { Delivery, Endpoint } from "@/api/types/webhooks";
-import { successRate, within } from "@/data/webhooks-seed";
+import { successRate, within } from "@/lib/webhooks";
 import { cn } from "@/lib/utils";
 
 export function WebhooksStats({

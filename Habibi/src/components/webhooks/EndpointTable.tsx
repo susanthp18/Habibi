@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Lozenge } from "@/components/ui/lozenge";
 import type { Delivery, Endpoint } from "@/api/types/webhooks";
-import { fmtRel } from "@/data/webhooks-seed";
+import { fmtRel } from "@/lib/webhooks";
 import { cn } from "@/lib/utils";
 import {
   RecordsAvatarMark,

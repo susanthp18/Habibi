@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Pause, Play, KeyRound, Trash2 } from "lucide-react";
 import {
-  WEBHOOKS_LIVE_HINT,
   useWebhookDeliveries,
   useWebhookEndpoints,
   useWebhookMutations,
@@ -302,11 +301,6 @@ function WebhooksPage() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
-        {WEBHOOKS_LIVE_HINT && (
-          <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
-            {WEBHOOKS_LIVE_HINT}
-          </div>
-        )}
         <WebhooksHeader
           onNew={openNew}
           onCatalog={() => setCatalogOpen(true)}
@@ -390,9 +384,6 @@ function WebhooksPage() {
         onDelete={(ep) => {
           deleteEndpoint(ep);
           setDrawerOpen(false);
-        }}
-        onAppendDelivery={() => {
-          /* live path invalidates via mutations */
         }}
         onRotate={rotateOne}
         onRetry={retryDelivery}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Delivery, DeliveryStatus, Endpoint, EventKey } from "@/api/types/webhooks";
-import { EVENT_CATALOG } from "@/data/webhooks-seed";
+import { useEventCatalog } from "@/api/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
 import {
   Select,
@@ -19,6 +19,7 @@ export function DeliveryLogPane({
   deliveries: Delivery[];
   onRetry: (d: Delivery) => void;
 }) {
+  const catalog = useEventCatalog().data ?? [];
   const [epId, setEpId] = useState<string>("all");
   const [event, setEvent] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
@@ -60,7 +61,7 @@ export function DeliveryLogPane({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All events</SelectItem>
-              {EVENT_CATALOG.map((e) => (
+              {catalog.map((e) => (
                 <SelectItem key={e.key} value={e.key as EventKey}>
                   {e.key}
                 </SelectItem>

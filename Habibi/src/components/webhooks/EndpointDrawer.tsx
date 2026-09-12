@@ -12,17 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Copy, Eye, EyeOff, KeyRound, Pause, Play, Trash2, Zap } from "lucide-react";
+import { Copy, KeyRound, Pause, Play, Trash2, Zap } from "lucide-react";
 import type { Delivery, Endpoint, EventKey } from "@/api/types/webhooks";
-import {
-  EVENT_CATALOG,
-  EVENT_CATEGORIES,
-  EVENT_INDEX,
-  simulateDelivery,
-  signaturePreview,
-  successRate,
-  within,
-} from "@/data/webhooks-seed";
+import { useEventCatalog } from "@/api/webhooks";
+import { SIGNATURE_HEADER_EXAMPLE, eventCategories, successRate, within } from "@/lib/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +26,6 @@ export function EndpointDrawer({
   deliveries,
   onUpdate,
   onDelete,
-  onAppendDelivery,
   onRotate,
   onRetry,
   onTestFire,
@@ -44,18 +36,13 @@ export function EndpointDrawer({
   deliveries: Delivery[];
   onUpdate: (ep: Endpoint) => void;
   onDelete: (ep: Endpoint) => void;
-  onAppendDelivery: (d: Delivery) => void;
   onRotate: (ep: Endpoint) => void;
   onRetry: (d: Delivery) => void;
-  /** Prefer API test-fire when provided (live mode). */
-  onTestFire?: (ep: Endpoint, event: EventKey) => void | Promise<void>;
+  onTestFire: (ep: Endpoint, event: EventKey) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState("overview");
-  const [revealSecret, setRevealSecret] = useState(false);
   const [testEvent, setTestEvent] = useState<EventKey>("call.completed");
-  const [testJson, setTestJson] = useState<string>(
-    JSON.stringify(EVENT_INDEX["call.completed"].sample, null, 2),
-  );
+  const catalog = useEventCatalog().data ?? [];
   const [testBusy, setTestBusy] = useState(false);
 
   const epDeliveries = useMemo(
@@ -86,30 +73,14 @@ export function EndpointDrawer({
 
   const fireTest = () => {
     void (async () => {
-      if (onTestFire) {
-        setTestBusy(true);
-        try {
-          await onTestFire(endpoint, testEvent);
-        } finally {
-          setTestBusy(false);
-        }
-        return;
-      }
-      let payload: Record<string, unknown>;
+      setTestBusy(true);
       try {
-        payload = JSON.parse(testJson);
-      } catch {
-        toast.error("Invalid JSON payload");
-        return;
+        await onTestFire(endpoint, testEvent);
+      } finally {
+        setTestBusy(false);
       }
-      const d = simulateDelivery(endpoint, testEvent, payload);
-      onAppendDelivery(d);
-      if (d.status === "success") toast.success(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
-      else toast.error(`Test → ${d.httpStatus} in ${d.latencyMs}ms`);
     })();
   };
-
-  const signatureLine = `X-Coll-Signature: ${signaturePreview(endpoint.secret, "{...}")}`;
 
   const nodeSnippet = `import crypto from "node:crypto";
 
@@ -239,30 +210,32 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             value="events"
             className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
           >
-            {EVENT_CATEGORIES.map((cat) => (
+            {eventCategories(catalog).map((cat) => (
               <div key={cat} className="rounded-medium border border-border p-150">
                 <div className="mb-100 text-body-small font-semibold text-text">{cat}</div>
                 <div className="grid grid-cols-1 gap-075">
-                  {EVENT_CATALOG.filter((e) => e.category === cat).map((e) => (
-                    <label
-                      key={e.key}
-                      className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
-                    >
-                      <Checkbox
-                        checked={endpoint.events.includes(e.key)}
-                        onCheckedChange={() => toggleEvent(e.key)}
-                        className="mt-025"
-                      />
-                      <span>
-                        <span className="block font-mono text-body-small text-text-brand">
-                          {e.key}
+                  {catalog
+                    .filter((e) => e.category === cat)
+                    .map((e) => (
+                      <label
+                        key={e.key}
+                        className="flex items-start gap-100 rounded p-075 text-body-small hover:bg-surface-sunken"
+                      >
+                        <Checkbox
+                          checked={endpoint.events.includes(e.key)}
+                          onCheckedChange={() => toggleEvent(e.key)}
+                          className="mt-025"
+                        />
+                        <span>
+                          <span className="block font-mono text-body-small text-text-brand">
+                            {e.key}
+                          </span>
+                          <span className="block text-body-small text-text-subtle">
+                            {e.description}
+                          </span>
                         </span>
-                        <span className="block text-body-small text-text-subtle">
-                          {e.description}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
+                      </label>
+                    ))}
                 </div>
               </div>
             ))}
@@ -296,35 +269,26 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             <div>
               <div className="mb-050 flex items-center justify-between">
                 <span className="text-body-small font-semibold text-text">Signing secret</span>
-                <div className="flex gap-050">
-                  <Button size="sm" variant="ghost" onClick={() => setRevealSecret((v) => !v)}>
-                    {revealSecret ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => copy(endpoint.secret, "Secret")}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => onRotate(endpoint)}>
-                    <KeyRound className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                <Button size="sm" variant="ghost" onClick={() => onRotate(endpoint)}>
+                  <KeyRound className="h-3.5 w-3.5" />
+                </Button>
               </div>
               <code className="block rounded bg-surface-sunken px-100 py-075 font-mono text-body-small">
-                {revealSecret ? endpoint.secret : "•".repeat(endpoint.secret.length)}
+                {endpoint.secretRef}
               </code>
+              <p className="mt-050 text-body-small text-text-subtlest">
+                Shown once, at create and rotate. Rotate to issue a new one.
+              </p>
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text">
                 Sample signature header
               </div>
               <code className="block overflow-x-auto rounded bg-surface-sunken px-100 py-075 font-mono text-body-small">
-                {signatureLine}
+                {SIGNATURE_HEADER_EXAMPLE}
               </code>
               <p className="mt-050 text-body-small text-text-subtlest">
-                Preview only — production HMAC is computed over the raw request body.
+                The HMAC is computed over the raw request body.
               </p>
             </div>
             <div>
@@ -363,7 +327,6 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 onValueChange={(v) => {
                   const k = v as EventKey;
                   setTestEvent(k);
-                  setTestJson(JSON.stringify(EVENT_INDEX[k].sample, null, 2));
                 }}
               >
                 <SelectTrigger>
@@ -378,24 +341,10 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-075">
-              <span className="text-body-small font-semibold text-text">Payload (JSON)</span>
-              {/* Read-only on the live path: POST /webhooks/{id}/test builds the
-                  payload server-side and takes only the event key, so an
-                  editable box here was a decoy — whatever you typed was
-                  discarded and the delivery showed a different body. */}
-              <textarea
-                value={testJson}
-                onChange={(e) => setTestJson(e.target.value)}
-                readOnly={Boolean(onTestFire)}
-                className="h-56 w-full resize-none rounded-large border border-border bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-success focus:outline-none focus:ring-2 focus:ring-border-brand read-only:opacity-70"
-              />
-              {onTestFire && (
-                <p className="text-body-small text-text-subtlest">
-                  Sample only — the server builds the live test payload from the selected event.
-                </p>
-              )}
-            </div>
+            <p className="text-body-small text-text-subtlest">
+              The server builds the payload for the selected event and records the delivery as
+              simulated.
+            </p>
             <Button onClick={fireTest} className="w-full" disabled={testBusy}>
               <Zap className="mr-075 h-3.5 w-3.5" /> {testBusy ? "Sending…" : "Send test delivery"}
             </Button>

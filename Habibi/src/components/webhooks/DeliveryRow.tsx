@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Delivery, Endpoint } from "@/api/types/webhooks";
-import { fmtRel, signaturePreview } from "@/data/webhooks-seed";
+import { fmtRel } from "@/lib/webhooks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -20,7 +20,6 @@ export function DeliveryRow({
 }) {
   const [open, setOpen] = useState(false);
   const bodyStr = JSON.stringify(delivery.payload, null, 2);
-  const sig = endpoint ? signaturePreview(endpoint.secret, bodyStr) : "n/a";
   const failed = delivery.status === "server_err" || delivery.status === "client_err";
 
   return (
@@ -71,19 +70,11 @@ export function DeliveryRow({
       </button>
       {open && (
         <div className="border-t border-border p-150 text-body-small">
-          <div className="mb-100 grid grid-cols-2 gap-100">
-            <div>
-              <div className="text-text-subtlest">Endpoint URL</div>
-              <code className="block truncate rounded bg-surface-sunken px-075 py-025 font-mono">
-                {endpoint?.url ?? "n/a"}
-              </code>
-            </div>
-            <div>
-              <div className="text-text-subtlest">Signature (preview)</div>
-              <code className="block truncate rounded bg-surface-sunken px-075 py-025 font-mono">
-                {sig}
-              </code>
-            </div>
+          <div className="mb-100">
+            <div className="text-text-subtlest">Endpoint URL</div>
+            <code className="block truncate rounded bg-surface-sunken px-075 py-025 font-mono">
+              {endpoint?.url ?? "n/a"}
+            </code>
           </div>
           <div className="mb-050 text-text-subtlest">Request body</div>
           <pre className="mb-150 overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">

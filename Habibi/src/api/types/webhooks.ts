@@ -1,8 +1,8 @@
 /**
  * Domain / wire types for the webhooks surface.
  *
- * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
- * modules do not import their contract from fixtures (WP-048).
+ * `Endpoint` and `Delivery` are the /webhook-endpoints and /webhook-deliveries
+ * rows; `EventDef` is one /event-types entry.
  */
 
 export type SigningAlgo = "HMAC-SHA256" | "Ed25519";
@@ -45,7 +45,9 @@ export type Endpoint = {
   status: EndpointStatus;
   events: EventKey[];
   algo: SigningAlgo;
+  /** Masked on the list; the plaintext is `secretOnce` on create and rotate. */
   secret: string;
+  secretRef: string;
   retry: RetryPolicy;
   headers: { key: string; value: string }[];
   createdAt: number;

@@ -20,9 +20,10 @@ import type {
   SigningAlgo,
   TargetSystem,
 } from "@/api/types/webhooks";
-import { EVENT_CATALOG, EVENT_CATEGORIES, rotateSecret } from "@/data/webhooks-seed";
+import { useEventCatalog } from "@/api/webhooks";
+import { eventCategories } from "@/lib/webhooks";
 
-type Draft = Omit<Endpoint, "id" | "createdAt" | "status"> & {
+type Draft = Omit<Endpoint, "id" | "createdAt" | "status" | "secret" | "secretRef"> & {
   id?: string;
 };
 
@@ -32,7 +33,6 @@ const empty = (): Draft => ({
   target: "Custom",
   events: [],
   algo: "HMAC-SHA256",
-  secret: rotateSecret("HMAC-SHA256"),
   retry: { attempts: 5, backoff: "exponential", maxAgeHours: 24 },
   headers: [],
 });
@@ -50,6 +50,7 @@ export function EndpointSheet({
   onSave: (d: Draft) => void;
   onSaveAndTest: (d: Draft) => void;
 }) {
+  const catalog = useEventCatalog().data ?? [];
   const [draft, setDraft] = useState<Draft>(empty());
 
   useEffect(() => {
@@ -65,7 +66,7 @@ export function EndpointSheet({
     }));
 
   const toggleCategory = (cat: EventCategory) => {
-    const inCat = EVENT_CATALOG.filter((e) => e.category === cat).map((e) => e.key);
+    const inCat = catalog.filter((e) => e.category === cat).map((e) => e.key);
     const allIn = inCat.every((k) => draft.events.includes(k));
     setDraft((d) => ({
       ...d,
@@ -142,7 +143,6 @@ export function EndpointSheet({
                   setDraft({
                     ...draft,
                     algo: v as SigningAlgo,
-                    secret: rotateSecret(v as SigningAlgo),
                   })
                 }
               >
@@ -167,8 +167,8 @@ export function EndpointSheet({
               </span>
             </div>
             <div className="space-y-150">
-              {EVENT_CATEGORIES.map((cat) => {
-                const items = EVENT_CATALOG.filter((e) => e.category === cat);
+              {eventCategories(catalog).map((cat) => {
+                const items = catalog.filter((e) => e.category === cat);
                 const allIn = items.every((e) => draft.events.includes(e.key));
                 return (
                   <div key={cat} className="rounded-medium border border-border p-150">
