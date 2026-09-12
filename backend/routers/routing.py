@@ -45,12 +45,12 @@ def list_routing_rule_executions(rule_id: str):
 
 @router.post("/routing-rules", response_model=RoutingRuleListResponse)
 def create_routing_rule(payload: RoutingRuleCreateRequest):
-    return _handle_write(db.create_routing_rule, payload.model_dump(exclude_unset=True))
+    return _handle_write(db.create_routing_rule, payload.model_dump(exclude_unset=True, by_alias=True))
 
 @router.patch("/routing-rules/{rule_id}", response_model=RoutingRuleListResponse)
 def patch_routing_rule(rule_id: str, payload: RoutingRulePatchRequest):
     return _handle_write(
-        db.patch_routing_rule, rule_id, payload.model_dump(exclude_unset=True)
+        db.patch_routing_rule, rule_id, payload.model_dump(exclude_unset=True, by_alias=True)
     )
 
 @router.post("/routing-rules/reorder", response_model=list[RoutingRuleListResponse])

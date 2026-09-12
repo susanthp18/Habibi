@@ -79,6 +79,29 @@ class RoutingRuleExecutionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class RoutingConditionRequest(BaseModel):
+    """One condition of a rule: ``field op value`` (Habibi ``Condition``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    field: str = Field(min_length=1)
+    op: Literal["=", "!=", ">", "<", ">=", "<=", "in", "contains"] = "="
+    value: str | float | int | bool | list[str] | None = None
+
+
+class RoutingOrGroupRequest(BaseModel):
+    """An OR-group of conditions inside the rule's AND-list (Habibi ``ConditionNode``).
+
+    ``or`` is a keyword, so the field is ``or_`` with the wire name as its alias;
+    the router dumps by alias so the evaluator sees ``{"or": [...]}``."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str | None = None
+    or_: list[RoutingConditionRequest] = Field(alias="or")
+
+
 class RoutingActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -95,7 +118,7 @@ class RoutingRuleCreateRequest(BaseModel):
     category: RoutingRuleCategory = "Routing"
     enabled: bool = True
     priority: int | None = None
-    when: list[Any] = Field(default_factory=list)
+    when: list[RoutingConditionRequest | RoutingOrGroupRequest] = Field(default_factory=list)
     then: RoutingActionRequest
 
 
@@ -107,7 +130,7 @@ class RoutingRulePatchRequest(BaseModel):
     category: RoutingRuleCategory | None = None
     enabled: bool | None = None
     priority: int | None = None
-    when: list[Any] | None = None
+    when: list[RoutingConditionRequest | RoutingOrGroupRequest] | None = None
     then: RoutingActionRequest | None = None
 
 

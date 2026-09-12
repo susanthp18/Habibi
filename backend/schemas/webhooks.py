@@ -21,6 +21,21 @@ from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 HttpsUrl = Annotated[AnyHttpUrl, UrlConstraints(allowed_schemes=["https"])]
 
 
+class WebhookRetryPolicyRequest(BaseModel):
+    """How a failed delivery is retried; the same three fields the response reports."""
+
+    attempts: int = Field(default=3, ge=0, le=20)
+    backoff: Literal["exponential", "linear"] = "exponential"
+    maxAgeHours: int = Field(default=24, ge=1, le=720)
+
+
+class WebhookHeaderRequest(BaseModel):
+    """One header sent with every delivery."""
+
+    key: str = Field(min_length=1)
+    value: str
+
+
 class WebhookEndpointUpsertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -29,8 +44,8 @@ class WebhookEndpointUpsertRequest(BaseModel):
     target: str = "Custom"
     events: list[str] = []
     algo: str = "HMAC-SHA256"
-    retry: dict[str, Any] = Field(default_factory=lambda: {"attempts": 3, "backoff": "exponential", "maxAgeHours": 24})
-    headers: list[dict[str, str]] = []
+    retry: WebhookRetryPolicyRequest = Field(default_factory=WebhookRetryPolicyRequest)
+    headers: list[WebhookHeaderRequest] = []
     status: Literal["active", "paused", "broken"] | None = None
 
 
@@ -42,8 +57,8 @@ class WebhookEndpointPatchRequest(BaseModel):
     target: str | None = None
     events: list[str] | None = None
     algo: str | None = None
-    retry: dict[str, Any] | None = None
-    headers: list[dict[str, str]] | None = None
+    retry: WebhookRetryPolicyRequest | None = None
+    headers: list[WebhookHeaderRequest] | None = None
     status: Literal["active", "paused", "broken"] | None = None
 
 

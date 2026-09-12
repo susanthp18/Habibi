@@ -533,6 +533,14 @@ class ContactPolicyResponse(BaseModel):
     purpose: str
 
 
+class TranscriptTurnCreateRequest(BaseModel):
+    """One turn of a manually logged interaction: who spoke, when, and what."""
+
+    speaker: str = "human"
+    atSec: int = Field(default=0, ge=0)
+    text: str = ""
+
+
 class InteractionCreateRequest(BaseModel):
     customerId: str
     accountId: str | None = None
@@ -543,7 +551,7 @@ class InteractionCreateRequest(BaseModel):
     handlerBotId: str | None = None
     disposition: str | None = None
     summary: str | None = None
-    transcript: list[dict[str, Any]] = []
+    transcript: list[TranscriptTurnCreateRequest] = []
 
 
 class InteractionWrapUpRequest(BaseModel):

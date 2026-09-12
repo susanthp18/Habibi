@@ -6,7 +6,7 @@ router of the same name serves these. ``schemas/__init__`` re-exports every name
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,11 +98,18 @@ class PromisePatchRequest(BaseModel):
     paidAmount: float | None = Field(default=None, ge=0)
 
 
+class InstallmentCreateRequest(BaseModel):
+    """One instalment of a plan as the caller states it: the due date and the amount."""
+
+    dueDate: str
+    amount: float = Field(gt=0)
+
+
 class PaymentPlanCreateRequest(BaseModel):
     customerId: str
     accountId: str | None = None
     totalAmount: float = Field(gt=0)
-    installments: list[dict[str, Any]]
+    installments: list[InstallmentCreateRequest]
 
 
 # ── Payments ─────────────────────────────────────────────────────────────────

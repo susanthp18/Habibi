@@ -45,7 +45,7 @@ def create_policy_rule_draft(body: Any, *, tenant_id: str | None, actor_user_id:
             notes=body.notes,
             tenant_id=tenant_id,
             product_id=body.productId,
-            rules=body.rules,
+            rules=[rule.model_dump() for rule in body.rules],
             actor_user_id=actor_user_id,
         )
     return {"id": set_id}

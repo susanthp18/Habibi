@@ -292,6 +292,19 @@ class RedactionRulePatchRequest(BaseModel):
     replacement: str | None = None
 
 
+class PolicyRuleDraftItemRequest(BaseModel):
+    """One rule in a draft set. ``params`` is shaped by ``kind`` and validated
+    by ``policy_rules.validate_params``; the other fields are what
+    ``policy_rules.create_draft`` reads."""
+
+    kind: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    channel: str | None = None
+    citation: str | None = None
+    rule_id: str | None = None
+    rule_version: int | None = None
+
+
 class PolicyRuleDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -303,7 +316,7 @@ class PolicyRuleDraftRequest(BaseModel):
     notes: str | None = None
     tenantId: str | None = None
     productId: str | None = None
-    rules: list[dict[str, Any]]
+    rules: list[PolicyRuleDraftItemRequest]
 
 
 class SubjectRequestCreateRequest(BaseModel):
