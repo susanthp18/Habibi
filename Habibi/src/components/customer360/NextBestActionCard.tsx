@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { NbaActionKind, NbaItem } from "@/lib/customerInsights";
+import type { NbaActionKind, NbaItem } from "@/api/types/customer-insights";
 import { StatusChip, type ChipTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
 

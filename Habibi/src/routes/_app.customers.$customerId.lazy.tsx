@@ -26,8 +26,8 @@ import {
   fetchCustomerInsights,
   logInteraction,
 } from "@/api/customers";
-import { QueryErrorBanner } from "@/components/ui/query-state";
-import { deriveCustomerInsights, type NbaActionKind } from "@/lib/customerInsights";
+import { QueryState } from "@/components/ui/query-state";
+import type { NbaActionKind } from "@/api/types/customer-insights";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -117,10 +117,8 @@ function CustomerDetail() {
     staleTime: 30_000,
   });
 
-  // Pending renders the client derivation as a placeholder; a failed read
-  // renders as a failure. It used to render as a recommendation.
-  const insights = insightsQuery.data ?? deriveCustomerInsights(customer);
-  const insightsFailed = insightsQuery.isError;
+  // Pending is pending; the browser does not derive a placeholder recommendation.
+  const insights = insightsQuery.data;
 
   const refreshCustomer = async () => {
     await queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -201,7 +199,7 @@ function CustomerDetail() {
     else if (action === "call") setSheet("call");
     else if (action === "offer") {
       const leadId =
-        insights.offerPolicy?.leadId ?? insights.nba.find((i) => i.action === "offer")?.leadId;
+        insights?.offerPolicy?.leadId ?? insights?.nba.find((i) => i.action === "offer")?.leadId;
       // `leadId ? {id} : {}` produced `{id: string} | {}`, and the route's
       // search type is `{id: string | undefined}` — an absent key and an
       // undefined one are different types even though they serialise the same.
@@ -221,7 +219,7 @@ function CustomerDetail() {
       onNbaAction,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [insights.offerPolicy?.leadId],
+    [insights?.offerPolicy?.leadId],
   );
 
   const addNote = (text: string) => {
@@ -279,12 +277,11 @@ function CustomerDetail() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-200 sm:p-300">
-          {tab === "overview" &&
-            (insightsFailed ? (
-              <QueryErrorBanner label="insights" error={insightsQuery.error} />
-            ) : (
-              <OverviewTab insights={insights} onNbaAction={onNbaAction} />
-            ))}
+          {tab === "overview" && (
+            <QueryState query={insightsQuery} label="insights">
+              {insights && <OverviewTab insights={insights} onNbaAction={onNbaAction} />}
+            </QueryState>
+          )}
           {tab === "ledger" && <LedgerTab customer={customer} />}
           {tab === "emi" && <EmiTab customer={customer} />}
           {tab === "interactions" && <InteractionsTab customer={customer} />}
@@ -307,7 +304,7 @@ function CustomerDetail() {
     <QuickActionsRail
       customer={customer}
       handlers={handlers}
-      nba={insightsFailed ? [] : insights.nba}
+      nba={insights?.nba ?? []}
       className="h-full w-full border-l-0"
     />
   );

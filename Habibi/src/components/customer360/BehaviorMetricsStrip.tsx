@@ -1,4 +1,4 @@
-import type { BehaviorMetrics } from "@/lib/customerInsights";
+import type { BehaviorMetrics } from "@/api/types/customer-insights";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

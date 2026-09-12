@@ -1,8 +1,7 @@
 /**
  * Domain / wire types for the disputes surface.
  *
- * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
- * modules do not import their contract from fixtures (WP-048).
+ * The wire shape the api/ module for this surface reads and writes.
  */
 
 import type { DisputeSla } from "./dispute-sla";
@@ -57,7 +56,7 @@ export interface DisputeRecord {
 }
 /**
  * What a screen gets: the record plus the SLA the server computed for it.
- * The board never derives the chip from slaDueAt — see data/dispute-sla.ts.
+ * The board never derives the chip from slaDueAt — see api/types/dispute-sla.ts.
  */
 export type Dispute = DisputeRecord & DisputeSla;
 // ---- Filters ----

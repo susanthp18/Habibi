@@ -9,7 +9,7 @@ import { applyAuthority, authorityPolicyFromNext, useAuthorityNext } from "@/api
 import { captureLeadFromPolicy } from "@/api/upsell";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
-import type { CustomerInsights, NbaActionKind } from "@/lib/customerInsights";
+import type { CustomerInsights, NbaActionKind } from "@/api/types/customer-insights";
 
 export function OverviewTab({
   insights,

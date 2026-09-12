@@ -17,13 +17,11 @@ import type {
   Interaction,
   Promise as PtpPromise,
 } from "@/api/types/customer360";
-import { customers, getCustomer } from "@/data/customer360-seed";
-import { mockDisputeSla } from "@/data/dispute-sla";
 import type { DisputeType } from "@/api/types/disputes";
-import { deriveCustomerInsights, type CustomerInsights } from "@/lib/customerInsights";
+import type { CustomerInsights } from "@/api/types/customer-insights";
 import { offerPolicySchema } from "@/lib/offer-policy";
 import { authorityPolicySchema } from "@/lib/authority-policy";
-import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPost } from "./config";
 
 // -----------------------------------------------------------------------------
 // Wire schemas — field-for-field with backend/schemas.py. None of these routes
@@ -289,12 +287,10 @@ const customerInsightsSchema = z.object({
 });
 
 export async function fetchCustomers(): Promise<Customer[]> {
-  if (USE_MOCK) return mockDelay(customers);
   return apiGet<Customer[]>("/customers", { schema: z.array(customerSchema) });
 }
 
 export async function fetchCustomer(id: string): Promise<Customer | undefined> {
-  if (USE_MOCK) return mockDelay(getCustomer(id));
   return apiGet<Customer | undefined>(`/customers/${id}`, { schema: customerSchema });
 }
 
@@ -302,11 +298,6 @@ export async function fetchCustomerInsights(
   id: string,
   customer?: Customer,
 ): Promise<CustomerInsights> {
-  if (USE_MOCK) {
-    const c = customer ?? getCustomer(id);
-    if (!c) throw new Error("Customer not found");
-    return mockDelay(deriveCustomerInsights(c));
-  }
   // No offline derivation on the API path. The fallback rendered a client-side
   // guess as the engine's next best action, with an Offer chip a human could
   // capture, whenever the server failed -- a 500 looked like a recommendation.
@@ -321,15 +312,6 @@ export async function addCustomerNote(
   text: string,
   pinned = false,
 ): Promise<CustomerNote | null> {
-  if (USE_MOCK) {
-    return mockDelay({
-      id: `n-${Date.now()}`,
-      author: "You",
-      at: new Date().toISOString(),
-      text,
-      pinned,
-    } satisfies CustomerNote);
-  }
   const updated = await apiPost<Customer>(
     `/customers/${customerId}/notes`,
     { text, pinned },
@@ -342,18 +324,6 @@ export async function createPromise(
   customer: Customer,
   input: { amount: number; date: string; channel: string; notes: string },
 ): Promise<PtpPromise> {
-  if (USE_MOCK) {
-    return {
-      id: `p-${Date.now()}`,
-      amount: input.amount,
-      promisedDate: new Date(input.date).toISOString(),
-      createdAt: new Date().toISOString(),
-      channel: input.channel as PtpPromise["channel"],
-      handler: "You",
-      status: "upcoming",
-      reminderStatus: "queued",
-    };
-  }
   return apiPost<PtpPromise>(
     "/promises",
     {
@@ -371,25 +341,6 @@ export async function createDispute(
   customer: Customer,
   input: { type: DisputeType; amount: number; notes: string },
 ): Promise<Dispute> {
-  if (USE_MOCK) {
-    // Same 48h window the server gives a freshly raised dispute, run through
-    // the same rule — so the mock's new row reads like a live one.
-    const filedAt = new Date().toISOString();
-    return {
-      id: `D-${Math.floor(1000 + Math.random() * 9000)}`,
-      type: input.type,
-      amount: input.amount,
-      transcriptSnippet: input.notes ? `"${input.notes}"` : "(no snippet)",
-      status: "new",
-      ...mockDisputeSla({
-        capturedAt: filedAt,
-        slaDueAt: new Date(Date.parse(filedAt) + 48 * 3_600_000).toISOString(),
-        status: "new",
-      }),
-      filedAt,
-      assignee: "You",
-    };
-  }
   return apiPost<Dispute>(
     "/disputes",
     {
@@ -407,16 +358,6 @@ export async function createDocumentRequest(
   customer: Customer,
   input: { docType: string; delivery: "email" | "whatsapp" },
 ): Promise<DocumentRequest> {
-  if (USE_MOCK) {
-    return {
-      id: `doc-${Date.now()}`,
-      type: input.docType,
-      requestedVia: "voice",
-      requestedAt: new Date().toISOString(),
-      deliveryChannel: input.delivery,
-      status: "generating",
-    };
-  }
   return apiPost<DocumentRequest>(
     "/document-requests",
     {
@@ -433,23 +374,6 @@ export async function logInteraction(
   customer: Customer,
   input: { disposition: string; notes: string },
 ): Promise<Interaction> {
-  if (USE_MOCK) {
-    return {
-      id: `i-${Date.now()}`,
-      channel: "voice",
-      handler: { kind: "human", name: "You" },
-      startedAt: new Date().toISOString(),
-      duration: "3m 20s",
-      disposition: input.disposition,
-      sentiment: "neutral",
-      sentimentDelta: "flat",
-      summary: input.notes || "Logged call - no notes.",
-      intents: {
-        queryResolved: input.disposition === "Query resolved",
-        ptpCaptured: input.disposition === "PTP captured",
-      },
-    };
-  }
   // POST /interactions returns CallResponse — startedAt/disposition/summary are str | None.
   const call = await apiPost(
     "/interactions",

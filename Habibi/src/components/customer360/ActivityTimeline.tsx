@@ -1,4 +1,4 @@
-import type { ActivityPreviewItem } from "@/lib/customerInsights";
+import type { ActivityPreviewItem } from "@/api/types/customer-insights";
 import { fmtRelative } from "@/lib/format";
 import { StatusChip, type ChipTone } from "./StatusChip";
 

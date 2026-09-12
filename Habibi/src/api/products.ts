@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // Offer catalog — GET /products.
 //
-// The catalog used to be a hardcoded array in data/upsell-seed.ts: six products
+// The catalog used to be a hardcoded array in the browser: six products
 // with their own ticket bands and ROI strings that nothing reconciled against
 // the `products` table check_product_eligibility actually reads. A picker could
 // therefore offer a product id the server had never heard of, and the ROI shown

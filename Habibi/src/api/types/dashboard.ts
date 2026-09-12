@@ -1,8 +1,7 @@
 /**
  * Domain / wire types for the dashboard surface.
  *
- * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
- * modules do not import their contract from fixtures (WP-048).
+ * The wire shape the api/ module for this surface reads and writes.
  */
 
 export type Trend = { date: string; value: number };

@@ -1,8 +1,7 @@
 /**
  * Domain / wire types for the customer360 surface.
  *
- * Lived in a `data/*-seed.ts` mock factory. Moved here so live `api/`
- * modules do not import their contract from fixtures (WP-048).
+ * The wire shape the api/ module for this surface reads and writes.
  *
  * Nullability follows `backend/schemas.py` (`CustomerResponse` and nested
  * models). A field the server sends as `str | None` is `string | null` here —
@@ -63,7 +62,7 @@ export interface Promise {
 }
 /**
  * The 360 contract for a dispute. `sla`/`slaLabel`/`slaMinutes` are the same
- * server-computed fields the disputes board renders (see data/dispute-sla.ts),
+ * server-computed fields the disputes board renders (see api/types/dispute-sla.ts),
  * which is what keeps the two screens word-for-word identical.
  */
 export interface Dispute extends DisputeSla {

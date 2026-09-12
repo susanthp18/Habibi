@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import type { InsightBullet } from "@/lib/customerInsights";
+import type { InsightBullet } from "@/api/types/customer-insights";
 import { StatusChip, type ChipTone } from "./StatusChip";
 
 const CONF_TONE: Record<InsightBullet["confidence"], ChipTone> = {
