@@ -209,6 +209,26 @@ engine: Engine = create_engine(
     pool_timeout=DB_POOL_TIMEOUT_S,
     connect_args={
         "connect_timeout": DB_CONNECT_TIMEOUT_S,
+        # No server-side prepared statements.
+        #
+        # psycopg3 promotes a statement to a server-side PREPARE after five
+        # executions on a connection. The plan caches the result *types*, so any
+        # DDL that changes a table's columns makes every pooled connection that
+        # has seen a `SELECT *` on it start raising
+        #
+        #   FeatureNotSupported: cached plan must not change result type
+        #
+        # until the connection is recycled. `collections_wk_batch` crash-looped
+        # on exactly this — `SELECT * FROM work_runtime_jobs` in its claim query
+        # — and it is latent everywhere else: 87 `SELECT *` across 38 modules,
+        # any one of which becomes a crashing worker after a migration touching
+        # its table. Naming 87 column lists fixes them one at a time and leaves
+        # the 88th; this closes the class.
+        #
+        # The cost is real and small: we lose plan reuse on hot statements. This
+        # workload is dominated by pgvector ANN scans and single-row lookups, not
+        # by parse time, and a worker that cannot start costs more than a parse.
+        "prepare_threshold": None,
         "options": (
             f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS} "
             f"-c lock_timeout={DB_LOCK_TIMEOUT_MS} "
