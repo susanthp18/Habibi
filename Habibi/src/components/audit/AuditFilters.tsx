@@ -9,10 +9,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AuditFilterState } from "@/api/types/audit";
-import { ALL_DISPOSITIONS, listAgents } from "@/data/audit-seed";
+import type { AuditFilterState, CallRecord } from "@/api/types/audit";
+import { DISPOSITIONS, listAgents } from "@/lib/audit";
 
 interface Props {
+  calls: CallRecord[];
   filters: AuditFilterState;
   onChange: (f: AuditFilterState) => void;
   resultCount: number;
@@ -20,10 +21,17 @@ interface Props {
   onExport: () => void;
 }
 
-export function AuditFilters({ filters, onChange, resultCount, selectedCount, onExport }: Props) {
+export function AuditFilters({
+  calls,
+  filters,
+  onChange,
+  resultCount,
+  selectedCount,
+  onExport,
+}: Props) {
   const set = <K extends keyof AuditFilterState>(k: K, v: AuditFilterState[K]) =>
     onChange({ ...filters, [k]: v });
-  const agents = listAgents();
+  const agents = listAgents(calls);
 
   return (
     <div className="shrink-0 border-b border-border bg-surface">
@@ -106,7 +114,7 @@ export function AuditFilters({ filters, onChange, resultCount, selectedCount, on
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All dispositions</SelectItem>
-            {ALL_DISPOSITIONS.map((d) => (
+            {DISPOSITIONS.map((d) => (
               <SelectItem key={d} value={d}>
                 {d}
               </SelectItem>

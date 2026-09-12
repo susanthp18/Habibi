@@ -25,7 +25,7 @@ import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
 import type { CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
-import { formatDateTime } from "@/data/audit-seed";
+import { fmtDateTime } from "@/lib/format";
 
 interface Props {
   call: CallRecord | null;
@@ -106,7 +106,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 <ChIcon className="h-3.5 w-3.5" />
                 <span className="capitalize">{call.channel}</span>
                 <span>·</span>
-                <span>{formatDateTime(call.startedAt)}</span>
+                <span>{fmtDateTime(call.startedAt)}</span>
                 <span>·</span>
                 <span className="font-mono">{formatDuration(call.duration)}</span>
                 <span>·</span>

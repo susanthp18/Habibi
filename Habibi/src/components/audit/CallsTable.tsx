@@ -20,7 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { CallFlag, CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
-import { formatDateTime, sentimentColor } from "@/data/audit-seed";
+import { sentimentColor } from "@/lib/audit";
+import { fmtDateTime } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
   RecordsAvatarMark,
@@ -173,7 +174,7 @@ export function CallsTable({
         sortable: true,
         sortValue: (c) => (c.startedAt ? new Date(c.startedAt).getTime() : 0),
         cell: (c) => (
-          <span className="whitespace-nowrap text-text-subtle">{formatDateTime(c.startedAt)}</span>
+          <span className="whitespace-nowrap text-text-subtle">{fmtDateTime(c.startedAt)}</span>
         ),
       },
       {

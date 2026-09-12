@@ -1,15 +1,14 @@
 // -----------------------------------------------------------------------------
 // Audit Trail (Call History) — data access seam.
 //   fetchCalls() → every historical call record  (GET /calls)
-// Filtering stays client-side (filterCalls in the seed) for the demo; when the
-// backend is live this can move to query params on /calls.
+// Filtering is client-side (lib/audit.filterCalls); it can move to query params
+// on /calls when the list outgrows one page.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
 
 import type { CallFlag, CallRecord } from "@/api/types/audit";
-import { calls } from "@/data/audit-seed";
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 /** Live GET /calls returns [{flag,severity}]; the table renders CallFlag[]. */
 function normalizeFlags(raw: unknown): CallFlag[] {
@@ -24,7 +23,6 @@ function normalizeFlags(raw: unknown): CallFlag[] {
 }
 
 export async function fetchCalls(): Promise<CallRecord[]> {
-  if (USE_MOCK) return mockDelay(calls);
   const rows = await apiGet<Array<Omit<CallRecord, "flags"> & { flags: unknown }>>("/calls");
   return rows.map((r) => ({ ...r, flags: normalizeFlags(r.flags) }));
 }

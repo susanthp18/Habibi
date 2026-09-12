@@ -6,7 +6,7 @@ import { AuditFilters } from "@/components/audit/AuditFilters";
 import { CallsTable } from "@/components/audit/CallsTable";
 import { CallDetailDrawer } from "@/components/audit/CallDetailDrawer";
 import type { AuditFilterState } from "@/api/types/audit";
-import { defaultFilters, filterCalls } from "@/data/audit-seed";
+import { defaultFilters, filterCalls } from "@/lib/audit";
 import { useCalls } from "@/api/audit";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -57,6 +57,7 @@ function AuditPage() {
         </header>
 
         <AuditFilters
+          calls={calls}
           filters={filters}
           onChange={setFilters}
           resultCount={rows.length}

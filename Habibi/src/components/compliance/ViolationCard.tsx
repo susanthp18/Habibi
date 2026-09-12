@@ -1,8 +1,8 @@
 import { Bot, User, Clock, ExternalLink, CheckCircle2, Eye, UserPlus } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Violation } from "@/api/types/compliance";
-import { severityColor, severityBg, statusLabel, formatWhen } from "@/lib/compliance";
-import { formatDuration } from "@/lib/format";
+import { severityColor, severityBg, statusLabel } from "@/lib/compliance";
+import { fmtDateTime, formatDuration } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 const STATUS_STYLES: Record<Violation["status"], LozengeTone> = {
@@ -56,7 +56,8 @@ export function ViolationCard({
               <span>{v.customerName}</span>
               <span>·</span>
               <span className="inline-flex items-center gap-050">
-                <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @ {formatDuration(v.atSec)}
+                <Clock className="h-3 w-3" /> {fmtDateTime(v.occurredAt)} @{" "}
+                {formatDuration(v.atSec)}
               </span>
               <span>·</span>
               <span className="font-mono">{v.callId}</span>

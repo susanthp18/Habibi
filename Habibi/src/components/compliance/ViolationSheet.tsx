@@ -5,8 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Bot, User, Clock, FileAudio, ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { Violation } from "@/api/types/compliance";
-import { severityColor, severityBg, statusLabel, formatWhen } from "@/lib/compliance";
-import { formatDuration } from "@/lib/format";
+import { severityColor, severityBg, statusLabel } from "@/lib/compliance";
+import { fmtDateTime, formatDuration } from "@/lib/format";
 import { Lozenge } from "@/components/ui/lozenge";
 import { SelectField } from "@/components/ui/select";
 
@@ -93,7 +93,7 @@ export function ViolationSheet({
                 label="Occurred"
                 value={
                   <span className="inline-flex items-center gap-050">
-                    <Clock className="h-3 w-3" /> {formatWhen(v.occurredAt)} @{" "}
+                    <Clock className="h-3 w-3" /> {fmtDateTime(v.occurredAt)} @{" "}
                     {formatDuration(v.atSec)}
                   </span>
                 }
@@ -127,7 +127,7 @@ export function ViolationSheet({
                 {v.notes.map((n, i) => (
                   <li key={i} className="rounded-medium border border-border bg-surface p-100">
                     <div className="text-body-small text-text-subtlest">
-                      {formatWhen(n.at)} · {n.author}
+                      {fmtDateTime(n.at)} · {n.author}
                     </div>
                     <div>{n.text}</div>
                   </li>

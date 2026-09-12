@@ -30,7 +30,6 @@ const TYPE_IMPORT = /^[ \t]*import\s+type\b|^[ \t]*import\s*\{[^}]*\btype\s+\w/;
  * module stops importing from data/; do not add one.
  */
 const FIXTURE_IMPORTERS = [
-  "audit.ts",
   "authority.ts",
   "billing.ts",
   "consent.ts",
@@ -39,11 +38,8 @@ const FIXTURE_IMPORTERS = [
   "products.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.
   "prompt-studio.ts",
-  "qa.ts",
-  "redaction.ts",
   "routing.ts",
   "upsell.ts",
-  "webhooks.ts",
 ];
 
 /** The type-import exceptions. Empty since WP-048 closed; stays empty. */
