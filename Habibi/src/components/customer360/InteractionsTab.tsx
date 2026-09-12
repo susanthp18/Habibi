@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import type { Channel, Customer, Interaction, Sentiment } from "@/api/types/customer360";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
 const CHANNEL_ICON: Record<Channel, React.ComponentType<{ className?: string }>> = {
@@ -233,39 +234,5 @@ function FilterGroup({ label, children }: { label: string; children: React.React
       <span className="text-body-small font-semibold text-text-subtlest">{label}</span>
       <div className="flex gap-050">{children}</div>
     </div>
-  );
-}
-
-function Chip({
-  children,
-  active,
-  onClick,
-  tone = "brand",
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  onClick: () => void;
-  tone?: "brand" | "success" | "warning" | "danger";
-}) {
-  const activeClass =
-    tone === "success"
-      ? "bg-background-success-bold text-white border-border-success"
-      : tone === "warning"
-        ? "bg-background-warning-bold text-text-warning-inverse border-border-warning"
-        : tone === "danger"
-          ? "bg-background-danger-bold text-white border-border-danger"
-          : "bg-background-brand-bold text-white border-border-brand";
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-medium border px-100 py-025 text-body-small font-medium",
-        active
-          ? activeClass
-          : "border-border bg-surface text-text-subtle hover:bg-background-brand-subtlest hover:text-text-brand",
-      )}
-    >
-      {children}
-    </button>
   );
 }

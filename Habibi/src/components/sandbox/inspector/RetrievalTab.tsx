@@ -1,3 +1,4 @@
+import { Empty } from "@/components/ui/empty";
 import { ExternalLink } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { groundedLabel } from "@/api/sandbox";
@@ -60,7 +61,7 @@ export function RetrievalTab({
 
   const lastBot = [...turns].reverse().find((t) => t.role === "bot");
   if (!lastBot) {
-    return <Empty text="Send a message to see what the bot retrieved." />;
+    return <Empty>Send a message to see what the bot retrieved.</Empty>;
   }
 
   const live = lastBot.chunks ?? [];
@@ -95,7 +96,7 @@ export function RetrievalTab({
 
   const ids = lastBot.chunkIds ?? [];
   if (ids.length === 0) {
-    return <Empty text="No chunks retrieved for this turn." />;
+    return <Empty>No chunks retrieved for this turn.</Empty>;
   }
   const chunks = ids.map((id, i) => ({ id, score: 0.92 - i * 0.08, ...chunkTitle(id) }));
   return (
@@ -172,14 +173,6 @@ function LiveRetrieval({ hits }: { hits: LiveRagHit[] }) {
           )}
         </div>
       ))}
-    </div>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">
-      {text}
     </div>
   );
 }

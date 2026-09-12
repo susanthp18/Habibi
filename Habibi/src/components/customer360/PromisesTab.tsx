@@ -1,5 +1,6 @@
 import { Bell, BellOff, HandCoins, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Empty } from "@/components/ui/empty";
 import type { Customer, Promise } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { StatusChip, ptpStatusTone } from "./StatusChip";
@@ -36,7 +37,7 @@ export function PromisesTab({ customer, onCreate }: { customer: Customer; onCrea
       </div>
 
       {customer.promises.length === 0 ? (
-        <Empty onCreate={onCreate} />
+        <NoPromises onCreate={onCreate} />
       ) : (
         <div className="grid gap-150 md:grid-cols-2">
           {customer.promises.map((p) => (
@@ -111,21 +112,23 @@ function Field({ label, value, sub }: { label: string; value: string; sub?: stri
   );
 }
 
-function Empty({ onCreate }: { onCreate: () => void }) {
+function NoPromises({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-150 rounded-large border border-dashed border-border bg-surface p-500 text-center">
-      <HandCoins className="h-400 w-400 text-text-brand" />
-      <div>
-        <div className="text-sm font-semibold text-text">No promise-to-pay yet</div>
-        <div className="text-xs text-text-subtle">Capture a commitment during your next call.</div>
-      </div>
-      <Button
-        size="sm"
-        className="bg-background-brand-bold hover:bg-background-brand-bold-hovered"
-        onClick={onCreate}
-      >
-        Create PTP
-      </Button>
-    </div>
+    <Empty
+      className="bg-surface p-500"
+      icon={<HandCoins className="h-400 w-400 text-text-brand" />}
+      title="No promise-to-pay yet"
+      action={
+        <Button
+          size="sm"
+          className="bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+          onClick={onCreate}
+        >
+          Create PTP
+        </Button>
+      }
+    >
+      Capture a commitment during your next call.
+    </Empty>
   );
 }

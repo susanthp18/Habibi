@@ -1,3 +1,4 @@
+import { Empty } from "@/components/ui/empty";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useTurnTrace, type TraceTurn } from "@/api/trace";
@@ -48,14 +49,6 @@ export function TurnTraceView({ interactionId }: { interactionId: string }) {
       {data.map((t) => (
         <TurnCard key={t.turnId ?? "unattributed"} turn={t} />
       ))}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-medium border border-dashed border-border p-300 text-center text-body-small text-text-subtlest">
-      {children}
     </div>
   );
 }

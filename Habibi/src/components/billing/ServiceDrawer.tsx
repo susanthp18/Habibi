@@ -3,7 +3,7 @@ import type { DayPoint, Service, Tenant } from "@/api/types/billing";
 import { inrCompact } from "@/lib/format";
 import { changePct, sumRange, usageUnits } from "@/lib/billing";
 import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
-import { cn } from "@/lib/utils";
+import { StatTile } from "@/components/ui/stat-tile";
 
 export function ServiceDrawer({
   open,
@@ -62,16 +62,18 @@ export function ServiceDrawer({
 
         <div className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200">
           <div className="grid grid-cols-3 gap-150">
-            <Tile label="Spend" value={inrCompact(cost)} />
-            <Tile
+            <StatTile variant="card" label="Spend" value={inrCompact(cost)} />
+            <StatTile
+              variant="card"
               label="Usage"
               value={`${units >= 1000 ? (units / 1000).toFixed(1) + "k" : units.toFixed(1)} ${service.unit}`}
             />
-            <Tile
+            <StatTile
+              variant="card"
               label="Δ vs prev"
               // Same sentinel as the table: no prior spend means no percentage.
               value={noBase ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`}
-              tone={noBase ? undefined : delta >= 0 ? "bad" : "good"}
+              tone={noBase ? undefined : delta >= 0 ? "danger" : "success"}
             />
           </div>
 
@@ -119,23 +121,5 @@ export function ServiceDrawer({
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-medium border border-border p-150">
-      <div className="text-body-small font-medium text-text-subtlest">{label}</div>
-      <div
-        className={cn(
-          "mt-050 heading-small font-semibold",
-          tone === "good" && "text-text-success",
-          tone === "bad" && "text-text-danger",
-          !tone && "text-text",
-        )}
-      >
-        {value}
-      </div>
-    </div>
   );
 }

@@ -2,7 +2,8 @@ import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SelectField } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, toggleIn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import type { CbChannel, CbReason, CbStatus, Filters } from "@/api/types/callbacks";
 import { CHANNEL_LABELS, REASON_LABELS, STATUS_LABELS } from "@/lib/callbacks";
 
@@ -15,26 +16,6 @@ interface Props {
   /** Live: real DB teams. Mock: seed QUEUES. */
   queues: string[];
   myQueue: string;
-}
-
-function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-100 py-025 text-body-small",
-        on
-          ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
-          : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function toggle<T>(arr: T[], v: T): T[] {
-  return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
 const REASONS: CbReason[] = [
@@ -102,15 +83,15 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
           ]}
         />
         <Chip
-          on={filters.myQueueOnly}
-          label={`My queue · ${myQueue}`}
           onClick={() => onPatch({ myQueueOnly: !filters.myQueueOnly })}
-        />
+          active={filters.myQueueOnly}
+        >{`My queue · ${myQueue}`}</Chip>
         <Chip
-          on={filters.dndSafeOnly}
-          label="DND-safe only"
           onClick={() => onPatch({ dndSafeOnly: !filters.dndSafeOnly })}
-        />
+          active={filters.dndSafeOnly}
+        >
+          DND-safe only
+        </Chip>
         {activeCount > 0 && (
           <Button variant="ghost" size="sm" className="h-400" onClick={onReset}>
             <X className="mr-050 h-3 w-3" /> Reset ({activeCount})
@@ -122,28 +103,31 @@ export function FiltersBar({ filters, onPatch, onReset, assignees, queues, myQue
         {REASONS.map((r) => (
           <Chip
             key={r}
-            on={filters.reasons.includes(r)}
-            label={REASON_LABELS[r]}
-            onClick={() => onPatch({ reasons: toggle(filters.reasons, r) })}
-          />
+            onClick={() => onPatch({ reasons: toggleIn(filters.reasons, r) })}
+            active={filters.reasons.includes(r)}
+          >
+            {REASON_LABELS[r]}
+          </Chip>
         ))}
         <span className="text-body-small text-text-subtlest mx-100">Status</span>
         {STATUSES.map((s) => (
           <Chip
             key={s}
-            on={filters.statuses.includes(s)}
-            label={STATUS_LABELS[s]}
-            onClick={() => onPatch({ statuses: toggle(filters.statuses, s) })}
-          />
+            onClick={() => onPatch({ statuses: toggleIn(filters.statuses, s) })}
+            active={filters.statuses.includes(s)}
+          >
+            {STATUS_LABELS[s]}
+          </Chip>
         ))}
         <span className="text-body-small text-text-subtlest mx-100">Reminder</span>
         {CHANNELS.map((c) => (
           <Chip
             key={c}
-            on={filters.channels.includes(c)}
-            label={CHANNEL_LABELS[c]}
-            onClick={() => onPatch({ channels: toggle(filters.channels, c) })}
-          />
+            onClick={() => onPatch({ channels: toggleIn(filters.channels, c) })}
+            active={filters.channels.includes(c)}
+          >
+            {CHANNEL_LABELS[c]}
+          </Chip>
         ))}
       </div>
     </div>

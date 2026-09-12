@@ -8,7 +8,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, toggleIn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import type { DocChannel, DocType, Filters, RequestedVia } from "@/api/types/documents";
 import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/lib/documents";
 
@@ -17,26 +18,6 @@ interface Props {
   onPatch: (p: Partial<Filters>) => void;
   onReset: () => void;
   assignees: string[];
-}
-
-function Chip({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "rounded-full border px-100 py-025 text-body-small",
-        on
-          ? "border-border-brand bg-background-brand-subtlest text-text-brand font-semibold"
-          : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-function toggle<T>(arr: T[], v: T): T[] {
-  return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
 export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
@@ -68,10 +49,11 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           {(Object.keys(DOC_TYPE_LABELS) as DocType[]).slice(0, 4).map((t) => (
             <Chip
               key={t}
-              label={DOC_TYPE_LABELS[t]}
-              on={filters.docTypes.includes(t)}
-              onClick={() => onPatch({ docTypes: toggle(filters.docTypes, t) })}
-            />
+              onClick={() => onPatch({ docTypes: toggleIn(filters.docTypes, t) })}
+              active={filters.docTypes.includes(t)}
+            >
+              {DOC_TYPE_LABELS[t]}
+            </Chip>
           ))}
           {/* Toggles several values at once, so it is a checkbox menu and never
               was a select — the "✓" it used to paint into option labels was the
@@ -87,7 +69,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
                 <DropdownMenuCheckboxItem
                   key={t}
                   checked={filters.docTypes.includes(t)}
-                  onCheckedChange={() => onPatch({ docTypes: toggle(filters.docTypes, t) })}
+                  onCheckedChange={() => onPatch({ docTypes: toggleIn(filters.docTypes, t) })}
                 >
                   {DOC_TYPE_LABELS[t]}
                 </DropdownMenuCheckboxItem>
@@ -101,10 +83,11 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           {(Object.keys(CHANNEL_LABELS) as DocChannel[]).map((c) => (
             <Chip
               key={c}
-              label={CHANNEL_LABELS[c]}
-              on={filters.channels.includes(c)}
-              onClick={() => onPatch({ channels: toggle(filters.channels, c) })}
-            />
+              onClick={() => onPatch({ channels: toggleIn(filters.channels, c) })}
+              active={filters.channels.includes(c)}
+            >
+              {CHANNEL_LABELS[c]}
+            </Chip>
           ))}
         </div>
 
@@ -113,22 +96,20 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
           {(Object.keys(VIA_LABELS) as RequestedVia[]).map((v) => (
             <Chip
               key={v}
-              label={VIA_LABELS[v]}
-              on={filters.vias.includes(v)}
-              onClick={() => onPatch({ vias: toggle(filters.vias, v) })}
-            />
+              onClick={() => onPatch({ vias: toggleIn(filters.vias, v) })}
+              active={filters.vias.includes(v)}
+            >
+              {VIA_LABELS[v]}
+            </Chip>
           ))}
         </div>
 
         <div className="flex items-center gap-050">
           <span className="text-body-small text-text-subtlest">Range</span>
           {(["today", "7d", "30d", "all"] as const).map((r) => (
-            <Chip
-              key={r}
-              label={r === "all" ? "All" : r}
-              on={filters.range === r}
-              onClick={() => onPatch({ range: r })}
-            />
+            <Chip key={r} onClick={() => onPatch({ range: r })} active={filters.range === r}>
+              {r === "all" ? "All" : r}
+            </Chip>
           ))}
         </div>
 

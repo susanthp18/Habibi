@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, TrendingUp, Wallet, Coins, Gauge } from "lucide-react";
 import type { DayPoint } from "@/api/types/billing";
 import { inrCompact } from "@/lib/format";
 import { LivelineSpark } from "@/components/charts";
+import { MetricsStrip } from "@/components/records/MetricsStrip";
+import type { StatTone } from "@/components/ui/stat-tile";
 import { cn } from "@/lib/utils";
 
 function DeltaChip({ pct }: { pct: number }) {
@@ -22,30 +23,15 @@ function DeltaChip({ pct }: { pct: number }) {
   );
 }
 
-function KpiCard({
-  label,
-  icon,
-  children,
-  footer,
-}: {
-  label: string;
-  icon: ReactNode;
-  children: ReactNode;
-  footer: ReactNode;
-}) {
-  return (
-    <div className="flex min-h-[8.25rem] flex-col rounded-large border border-border bg-surface p-200 shadow-raised">
-      <div className="flex items-center justify-between">
-        <span className="text-body-small font-medium text-text-subtlest">{label}</span>
-        {icon}
-      </div>
-      <div className="mt-050">{children}</div>
-      <div className="mt-auto min-h-[2.25rem] pt-100 text-body-small text-text-subtlest">
-        {footer}
-      </div>
-    </div>
-  );
-}
+const BAR: Record<StatTone, string> = {
+  success: "bg-background-success-bold",
+  warning: "bg-background-warning-bold",
+  danger: "bg-background-danger-bold",
+  brand: "bg-background-brand-bold",
+  info: "bg-background-brand-bold",
+  discovery: "bg-background-brand-bold",
+  neutral: "bg-background-brand-bold",
+};
 
 export function BillingKpiStrip({
   daily,
@@ -80,102 +66,75 @@ export function BillingKpiStrip({
 
   const spark = daily.map((d) => Object.values(d.values).reduce((a, b) => a + b, 0));
 
-  const budgetTone =
-    budgetPct < 70
-      ? "text-text-success"
-      : budgetPct < 90
-        ? "text-text-warning"
-        : "text-text-danger";
-  const forecastTone =
-    forecastPct < 100
-      ? "text-text-success"
-      : forecastPct < 115
-        ? "text-text-warning"
-        : "text-text-danger";
+  const budgetTone: StatTone = budgetPct < 70 ? "success" : budgetPct < 90 ? "warning" : "danger";
+  const forecastTone: StatTone =
+    forecastPct < 100 ? "success" : forecastPct < 115 ? "warning" : "danger";
 
   return (
-    <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
-      <KpiCard
-        label="Spend · this period"
-        icon={<Wallet className="h-4 w-4 text-text-brand" />}
-        footer={<span>vs prior {inrCompact(spendPrev)}</span>}
-      >
-        <div className="flex items-baseline gap-100">
-          <span className="heading-large font-semibold text-text">{inrCompact(spendMtd)}</span>
-          <DeltaChip pct={spendDelta} />
-        </div>
-        <div className="mt-050 overflow-hidden rounded-medium bg-surface-sunken">
-          <LivelineSpark data={spark} color="#1868db" height={28} />
-        </div>
-      </KpiCard>
-
-      {/* Two different numbers wear this label. `attributedCostPerCall` is
-          measured — the mean of usage actually billed to individual calls.
-          `costPerCall` is allocated: all spend (including embeddings and batch
-          work no call incurred) divided by the resolved-call count. Prefer the
-          measured one, and never present the allocated one as if it were it. */}
-      <KpiCard
-        label={measured ? "Cost / call · measured" : "Cost / resolved call"}
-        icon={<Coins className="h-4 w-4 text-text-brand" />}
-        footer={
-          measured ? (
-            <span>
-              Metered across {attributedCalls.toLocaleString("en-IN")} call
-              {attributedCalls === 1 ? "" : "s"} · allocated ₹{costPerCall.toFixed(2)}
+    <MetricsStrip
+      className="gap-150 md:grid-cols-4"
+      tiles={[
+        {
+          variant: "card",
+          label: "Spend · this period",
+          icon: Wallet,
+          value: (
+            <span className="flex items-baseline gap-100">
+              {inrCompact(spendMtd)}
+              <DeltaChip pct={spendDelta} />
             </span>
-          ) : (
-            <span>Allocated — total spend ÷ resolved calls</span>
-          )
-        }
-      >
-        <div className="flex items-baseline gap-100">
-          <span className="heading-large font-semibold text-text">
-            ₹{(measured ? attributedCostPerCall : costPerCall).toFixed(2)}
-          </span>
-          {!measured && <DeltaChip pct={cpcDelta} />}
-        </div>
-      </KpiCard>
-
-      <KpiCard
-        label="Forecast · end of month"
-        icon={<TrendingUp className={cn("h-4 w-4", forecastTone)} />}
-        footer={
-          <span>
-            {forecastPct}% of cap at current burn · cap {inrCompact(budgetCap)}
-          </span>
-        }
-      >
-        <div className="flex items-baseline gap-100">
-          <span className={cn("heading-large font-semibold", forecastTone)}>
-            {inrCompact(forecast)}
-          </span>
-        </div>
-      </KpiCard>
-
-      <KpiCard
-        label="Budget usage"
-        icon={<Gauge className={cn("h-4 w-4", budgetTone)} />}
-        footer={
-          <span>
-            {inrCompact(spendMtd)} / {inrCompact(budgetCap)}
-          </span>
-        }
-      >
-        <div className="flex items-baseline gap-100">
-          <span className={cn("heading-large font-semibold", budgetTone)}>{budgetPct}%</span>
-        </div>
-        <div className="mt-100 h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all",
-              budgetPct < 70 && "bg-background-success-bold",
-              budgetPct >= 70 && budgetPct < 90 && "bg-background-warning-bold",
-              budgetPct >= 90 && "bg-background-danger-bold",
-            )}
-            style={{ width: `${Math.min(100, budgetPct)}%` }}
-          />
-        </div>
-      </KpiCard>
-    </div>
+          ),
+          sub: `vs prior ${inrCompact(spendPrev)}`,
+          footer: (
+            <div className="overflow-hidden rounded-medium bg-surface-sunken">
+              <LivelineSpark data={spark} color="#1868db" height={28} />
+            </div>
+          ),
+        },
+        // Two different numbers wear this label. `attributedCostPerCall` is
+        // measured — the mean of usage actually billed to individual calls.
+        // `costPerCall` is allocated: all spend (including embeddings and batch
+        // work no call incurred) divided by the resolved-call count. Prefer the
+        // measured one, and never present the allocated one as if it were it.
+        {
+          variant: "card",
+          label: measured ? "Cost / call · measured" : "Cost / resolved call",
+          icon: Coins,
+          value: (
+            <span className="flex items-baseline gap-100">
+              ₹{(measured ? attributedCostPerCall : costPerCall).toFixed(2)}
+              {!measured && <DeltaChip pct={cpcDelta} />}
+            </span>
+          ),
+          sub: measured
+            ? `Metered across ${attributedCalls.toLocaleString("en-IN")} call${attributedCalls === 1 ? "" : "s"} · allocated ₹${costPerCall.toFixed(2)}`
+            : "Allocated — total spend ÷ resolved calls",
+        },
+        {
+          variant: "card",
+          label: "Forecast · end of month",
+          icon: TrendingUp,
+          value: inrCompact(forecast),
+          tone: forecastTone,
+          sub: `${forecastPct}% of cap at current burn · cap ${inrCompact(budgetCap)}`,
+        },
+        {
+          variant: "card",
+          label: "Budget usage",
+          icon: Gauge,
+          value: `${budgetPct}%`,
+          tone: budgetTone,
+          sub: `${inrCompact(spendMtd)} / ${inrCompact(budgetCap)}`,
+          footer: (
+            <div className="h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
+              <div
+                className={cn("h-full rounded-full transition-all", BAR[budgetTone])}
+                style={{ width: `${Math.min(100, budgetPct)}%` }}
+              />
+            </div>
+          ),
+        },
+      ]}
+    />
   );
 }

@@ -27,7 +27,6 @@ const BASELINE = {
   "src/components/prompt-studio/OutboundCardEditor.tsx": 1104,
   "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1039,
   "src/components/prompt-studio/VoicePanel.tsx": 1019,
-  "src/components/prompt-studio/OutboundTab.tsx": 807,
   "src/routes/_app.agent-studio.index.tsx": 744,
   "src/routes/_app.handoff.lazy.tsx": 563,
   "src/api/prompt-studio.ts": 838,

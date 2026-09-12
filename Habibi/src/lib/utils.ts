@@ -79,3 +79,8 @@ export function formatKbDateTime(value: string | null | undefined): string {
     minute: "2-digit",
   });
 }
+
+/** The list with `v` added if absent, removed if present. */
+export function toggleIn<T>(arr: T[], v: T): T[] {
+  return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+}

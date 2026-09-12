@@ -1,44 +1,19 @@
 import { useMemo } from "react";
 import { ClipboardCheck, Clock, TrendingUp, Users, Scale } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { Rubric, Scorecard, CoachingAction, CalibrationSession } from "@/api/types/qa";
 import { computeTotal } from "@/lib/qa";
 import { Lozenge } from "@/components/ui/lozenge";
+import { MetricsStrip } from "@/components/records/MetricsStrip";
 
-function Tile({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-  seed,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: string;
-  seed?: boolean;
-}) {
-  return (
-    <div className="flex-1 min-w-[10rem] rounded-large border border-border bg-surface px-150 py-150">
-      <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
-        <Icon className="h-3.5 w-3.5" /> {label}
-        {seed && (
-          <Lozenge
-            title="Seed data — coaching/calibration not yet wired to the live backend"
-            tone="neutral"
-            className="ml-auto tracking-normal"
-          >
-            seed
-          </Lozenge>
-        )}
-      </div>
-      <div className={`mt-025 heading-medium font-semibold ${tone ?? "text-text"}`}>{value}</div>
-      {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
-    </div>
-  );
-}
+const SEED = (
+  <Lozenge
+    title="Seed data — coaching/calibration not yet wired to the live backend"
+    tone="neutral"
+    className="ml-auto tracking-normal"
+  >
+    seed
+  </Lozenge>
+);
 
 export function QaStatsStrip({
   scorecards,
@@ -90,48 +65,53 @@ export function QaStatsStrip({
   }, [scorecards, coaching, calibrations, rubric, coverage]);
 
   return (
-    <div className="shrink-0 border-b border-border bg-surface px-250 py-150">
-      <div className="flex flex-wrap gap-100">
-        <Tile
-          icon={ClipboardCheck}
-          label="Coverage (7d)"
-          value={stats.covPct}
-          hint={
+    <MetricsStrip
+      className="border-b border-border bg-surface px-250 py-150"
+      tiles={[
+        {
+          variant: "card",
+          icon: ClipboardCheck,
+          label: "Coverage (7d)",
+          value: stats.covPct,
+          sub:
             stats.completed != null
               ? `${stats.scored}/${stats.completed} scored`
-              : "Scorecards / completed"
-          }
-          tone="text-text-brand"
-        />
-        <Tile
-          icon={TrendingUp}
-          label="Avg score"
-          value={`${stats.avg.toFixed(1)}`}
-          hint="Weighted, last 30 days"
-        />
-        <Tile
-          icon={Clock}
-          label="Pending review"
-          value={String(stats.pending)}
-          hint="AI draft needing a human"
-          tone={stats.pending > 10 ? "text-text-warning" : undefined}
-        />
-        <Tile
-          icon={Users}
-          label="Coaching open"
-          value={String(stats.open)}
-          hint="Assigned + in progress"
-          seed
-        />
-        <Tile
-          icon={Scale}
-          label="Calibration variance"
-          value={`±${stats.variance.toFixed(1)}`}
-          hint="Reviewer vs target"
-          tone={stats.variance > 8 ? "text-text-danger" : "text-text-success-bolder"}
-          seed
-        />
-      </div>
-    </div>
+              : "Scorecards / completed",
+          tone: "brand",
+        },
+        {
+          variant: "card",
+          icon: TrendingUp,
+          label: "Avg score",
+          value: stats.avg.toFixed(1),
+          sub: "Weighted, last 30 days",
+        },
+        {
+          variant: "card",
+          icon: Clock,
+          label: "Pending review",
+          value: stats.pending,
+          sub: "AI draft needing a human",
+          tone: stats.pending > 10 ? "warning" : "neutral",
+        },
+        {
+          variant: "card",
+          icon: Users,
+          label: "Coaching open",
+          value: stats.open,
+          sub: "Assigned + in progress",
+          badge: SEED,
+        },
+        {
+          variant: "card",
+          icon: Scale,
+          label: "Calibration variance",
+          value: `±${stats.variance.toFixed(1)}`,
+          sub: "Reviewer vs target",
+          tone: stats.variance > 8 ? "danger" : "success",
+          badge: SEED,
+        },
+      ]}
+    />
   );
 }

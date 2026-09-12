@@ -11,128 +11,108 @@ import {
 import type { Kpis } from "@/api/types/bot-analytics";
 import { VOICE_TTFA_SLO_MS } from "@/lib/bot-analytics";
 import { LivelineSpark } from "@/components/charts";
+import { MetricsStrip } from "@/components/records/MetricsStrip";
+import type { StatTone } from "@/components/ui/stat-tile";
 
-function Tile({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  spark,
-  tone,
-  sparkColor,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  hint?: string;
-  spark: number[];
-  tone?: string;
-  sparkColor: string;
-}) {
+const SPARK: Record<StatTone, string> = {
+  success: "#5b7f24",
+  warning: "#e06c00",
+  danger: "#e2483d",
+  brand: "#1868db",
+  info: "#1868db",
+  discovery: "#1868db",
+  neutral: "#1868db",
+};
+
+function spark(data: number[], tone: StatTone) {
   return (
-    <div className="min-w-[11.25rem] flex-1 rounded-large border border-border bg-surface px-150 py-150 shadow-raised">
-      <div className="flex items-center gap-075 text-body-small font-medium text-text-subtlest">
-        <Icon className="h-3.5 w-3.5" /> {label}
-      </div>
-      <div
-        className={`mt-025 heading-large font-semibold tracking-tight tabular-nums ${tone ?? "text-text"}`}
-      >
-        {value}
-      </div>
-      {hint && <div className="text-body-small text-text-subtlest">{hint}</div>}
-      <div className="mt-075 overflow-hidden rounded-medium bg-surface-sunken">
-        <LivelineSpark data={spark} color={sparkColor} height={36} />
-      </div>
+    <div className="overflow-hidden rounded-medium bg-surface-sunken">
+      <LivelineSpark data={data} color={SPARK[tone]} height={36} />
     </div>
   );
 }
 
 export function HeroStrip({ kpis }: { kpis: Kpis }) {
+  const containment: StatTone =
+    kpis.containment >= 80 ? "success" : kpis.containment >= 65 ? "warning" : "danger";
+  const escalation: StatTone = kpis.escalation > 20 ? "danger" : "warning";
+  const ptp: StatTone = kpis.ptpRate >= 15 ? "success" : "warning";
+  const latency: StatTone = kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "warning" : "success";
+  const csat: StatTone = kpis.csatProxy >= 75 ? "success" : "warning";
   return (
-    <div className="shrink-0 border-b border-border bg-surface px-250 py-150">
-      <div className="flex flex-wrap gap-100">
-        <Tile
-          icon={ShieldCheck}
-          label="Containment"
-          value={`${kpis.containment.toFixed(1)}%`}
-          hint={`${kpis.sessions.toLocaleString()} sessions`}
-          spark={kpis.containmentSpark}
-          sparkColor={
-            kpis.containment >= 80 ? "#5b7f24" : kpis.containment >= 65 ? "#e06c00" : "#e2483d"
-          }
-          tone={
-            kpis.containment >= 80
-              ? "text-text-success-bolder"
-              : kpis.containment >= 65
-                ? "text-text-warning-bolder"
-                : "text-text-danger-bolder"
-          }
-        />
-        <Tile
-          icon={Bot}
-          label="Deflection"
-          value={`${kpis.deflection.toFixed(1)}%`}
-          hint="Resolved without human"
-          spark={kpis.sessionsSpark}
-          sparkColor="#1868db"
-        />
-        <Tile
-          icon={AlertTriangle}
-          label="Escalation"
-          value={`${kpis.escalation.toFixed(1)}%`}
-          hint={`Abandon ${kpis.abandonment.toFixed(1)}%`}
-          spark={kpis.escalationSpark}
-          sparkColor={kpis.escalation > 20 ? "#e2483d" : "#e06c00"}
-          tone={kpis.escalation > 20 ? "text-text-danger-bolder" : "text-text-warning-bolder"}
-        />
-        <Tile
-          icon={TrendingUp}
-          label="Upsell presented"
-          value={`${kpis.upsellRate.toFixed(1)}%`}
-          hint="Sessions with offer"
-          spark={kpis.upsellSpark}
-          sparkColor="#1868db"
-        />
-        <Tile
-          icon={HandCoins}
-          label="PTP rate"
-          value={`${kpis.ptpRate.toFixed(1)}%`}
-          hint="Promise-to-pay captured"
-          spark={kpis.ptpSpark}
-          sparkColor={kpis.ptpRate >= 15 ? "#5b7f24" : "#e06c00"}
-          tone={kpis.ptpRate >= 15 ? "text-text-success-bolder" : "text-text-warning-bolder"}
-        />
-        <Tile
-          icon={MessageSquare}
-          label="Avg turns"
-          value={kpis.avgTurns.toFixed(1)}
-          hint="Per resolved session"
-          spark={kpis.turnsSpark}
-          sparkColor="#1868db"
-        />
-        <Tile
-          icon={Timer}
-          label="Latency p90"
-          value={`${(kpis.latencyP90 / 1000).toFixed(2)}s`}
-          hint={`p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s · SLO ${VOICE_TTFA_SLO_MS}ms`}
-          spark={kpis.latencySpark}
-          sparkColor={kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "#e06c00" : "#5b7f24"}
-          tone={
-            kpis.latencyP90 > VOICE_TTFA_SLO_MS
-              ? "text-text-warning-bolder"
-              : "text-text-success-bolder"
-          }
-        />
-        <Tile
-          icon={Smile}
-          label="CSAT proxy"
-          value={`${kpis.csatProxy.toFixed(0)}`}
-          hint={`Sent ${kpis.avgSentiment.toFixed(2)}`}
-          spark={kpis.sentimentSpark}
-          sparkColor={kpis.csatProxy >= 75 ? "#5b7f24" : "#e06c00"}
-          tone={kpis.csatProxy >= 75 ? "text-text-success-bolder" : "text-text-warning-bolder"}
-        />
-      </div>
-    </div>
+    <MetricsStrip
+      className="border-b border-border bg-surface px-250 py-150 md:grid-cols-4 xl:grid-cols-8"
+      tiles={[
+        {
+          variant: "card",
+          icon: ShieldCheck,
+          label: "Containment",
+          value: `${kpis.containment.toFixed(1)}%`,
+          sub: `${kpis.sessions.toLocaleString()} sessions`,
+          tone: containment,
+          footer: spark(kpis.containmentSpark, containment),
+        },
+        {
+          variant: "card",
+          icon: Bot,
+          label: "Deflection",
+          value: `${kpis.deflection.toFixed(1)}%`,
+          sub: "Resolved without human",
+          footer: spark(kpis.sessionsSpark, "brand"),
+        },
+        {
+          variant: "card",
+          icon: AlertTriangle,
+          label: "Escalation",
+          value: `${kpis.escalation.toFixed(1)}%`,
+          sub: `Abandon ${kpis.abandonment.toFixed(1)}%`,
+          tone: escalation,
+          footer: spark(kpis.escalationSpark, escalation),
+        },
+        {
+          variant: "card",
+          icon: TrendingUp,
+          label: "Upsell presented",
+          value: `${kpis.upsellRate.toFixed(1)}%`,
+          sub: "Sessions with offer",
+          footer: spark(kpis.upsellSpark, "brand"),
+        },
+        {
+          variant: "card",
+          icon: HandCoins,
+          label: "PTP rate",
+          value: `${kpis.ptpRate.toFixed(1)}%`,
+          sub: "Promise-to-pay captured",
+          tone: ptp,
+          footer: spark(kpis.ptpSpark, ptp),
+        },
+        {
+          variant: "card",
+          icon: MessageSquare,
+          label: "Avg turns",
+          value: kpis.avgTurns.toFixed(1),
+          sub: "Per resolved session",
+          footer: spark(kpis.turnsSpark, "brand"),
+        },
+        {
+          variant: "card",
+          icon: Timer,
+          label: "Latency p90",
+          value: `${(kpis.latencyP90 / 1000).toFixed(2)}s`,
+          sub: `p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s · SLO ${VOICE_TTFA_SLO_MS}ms`,
+          tone: latency,
+          footer: spark(kpis.latencySpark, latency),
+        },
+        {
+          variant: "card",
+          icon: Smile,
+          label: "CSAT proxy",
+          value: kpis.csatProxy.toFixed(0),
+          sub: `Sent ${kpis.avgSentiment.toFixed(2)}`,
+          tone: csat,
+          footer: spark(kpis.sentimentSpark, csat),
+        },
+      ]}
+    />
   );
 }

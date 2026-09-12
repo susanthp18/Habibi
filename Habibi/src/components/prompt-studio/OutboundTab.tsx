@@ -44,6 +44,7 @@ import { QueryErrorBanner } from "@/components/ui/query-state";
 import { ApiError } from "@/api/config";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
+import { Empty } from "@/components/ui/empty";
 
 type Pane = "missions" | "cadence" | "reach" | "aftercall";
 
@@ -78,15 +79,6 @@ function Stat({
         {value}
       </div>
       {hint ? <div className="mt-025 text-body-tiny text-text-subtle">{hint}</div> : null}
-    </div>
-  );
-}
-
-function Empty({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-medium border border-dashed border-border bg-surface-sunken/40 px-200 py-250 text-center">
-      <div className="text-body font-medium text-text">{title}</div>
-      <p className="mx-auto mt-050 max-w-prose text-body-small text-text-subtle">{body}</p>
     </div>
   );
 }
@@ -503,10 +495,11 @@ export function OutboundTab({
           {vocabQuery.isLoading ? (
             <LoadingState label="Loading the outbound vocabulary" />
           ) : !vocab ? (
-            <Empty
-              title="Vocabulary unavailable"
-              body="The objectives, outcome codes and authority profiles this editor offers come from the API so they cannot drift from what the compiler accepts. Nothing is offered rather than guessed — check the API and reload."
-            />
+            <Empty title="Vocabulary unavailable">
+              The objectives, outcome codes and authority profiles this editor offers come from the
+              API so they cannot drift from what the compiler accepts. Nothing is offered rather
+              than guessed — check the API and reload.
+            </Empty>
           ) : (
             <>
               <DirectionPanel
@@ -550,10 +543,10 @@ export function OutboundTab({
           {cadence.isLoading ? (
             <LoadingState label="Loading retry ladders" />
           ) : (cadence.data ?? []).length === 0 ? (
-            <Empty
-              title="No open ladders"
-              body="A ladder opens when a call ends without resolving the case and the outcome is one worth trying again. A refusal never is: the borrower answered and said no."
-            />
+            <Empty title="No open ladders">
+              A ladder opens when a call ends without resolving the case and the outcome is one
+              worth trying again. A refusal never is: the borrower answered and said no.
+            </Empty>
           ) : (
             <ul className="divide-y divide-border rounded-medium border border-border bg-surface">
               {(cadence.data ?? []).map((c) => (
