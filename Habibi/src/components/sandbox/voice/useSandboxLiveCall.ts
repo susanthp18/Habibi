@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { pushVoiceTune, startVoiceSandbox, stopVoiceSandbox } from "@/api/voice-sandbox";
-import type { AgentTuning } from "@/data/agent-tuning";
+import type { AgentTuning } from "@/api/types/agent-tuning";
 import type { Persona } from "@/api/types/sandbox";
 import type { SandboxTurn } from "@/api/types/sandbox";
 import type { LiveCallChrome } from "@/components/sandbox/ConversationPanel";

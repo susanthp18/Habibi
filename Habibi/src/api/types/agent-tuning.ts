@@ -2,7 +2,7 @@
  * Wire / domain types for agent tuning: one struct for Sandbox Studio,
  * voice.bot and the Promote bundle.
  *
- * Lived in `data/agent-tuning.ts` beside the defaults and the clamp; moved
+ * Lived in `lib/agent-tuning.ts` beside the defaults and the clamp; moved
  * here so `api/voice-sandbox.ts` does not take its contract from a fixture
  * module (WP-048).
  */

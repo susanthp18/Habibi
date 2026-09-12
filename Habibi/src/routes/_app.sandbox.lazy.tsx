@@ -29,7 +29,8 @@ import { useKbSnapshots } from "@/api/kb";
 import type { IntentKey, SandboxTurn } from "@/api/types/sandbox";
 import { mergeSandboxChunkMeta } from "@/lib/sandbox";
 import { LoadingState } from "@/components/ui/loading-state";
-import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig, type AgentTuning } from "@/data/agent-tuning";
+import type { AgentTuning } from "@/api/types/agent-tuning";
+import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig } from "@/lib/agent-tuning";
 
 export const Route = createLazyFileRoute("/_app/sandbox")({
   component: SandboxPage,

@@ -66,7 +66,7 @@ export async function pushVoiceTune(sessionId: string, delta: Partial<AgentTunin
 
 export async function fetchTuningPresets(): Promise<AgentTuningPreset[]> {
   if (USE_MOCK) {
-    const { DEFAULT_AGENT_TUNING } = await import("@/data/agent-tuning");
+    const { DEFAULT_AGENT_TUNING } = await import("@/lib/agent-tuning");
     return mockDelay([
       {
         id: "empathetic-collections",

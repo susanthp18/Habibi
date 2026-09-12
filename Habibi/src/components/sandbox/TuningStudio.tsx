@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
-import {
-  clampAgentTuning,
-  tuningFingerprint,
-  type AgentTuning,
-  type AgentTuningPreset,
-} from "@/data/agent-tuning";
+import type { AgentTuning, AgentTuningPreset } from "@/api/types/agent-tuning";
+import { clampAgentTuning, tuningFingerprint } from "@/lib/agent-tuning";
 import { VoiceCatalogBrowser } from "@/components/prompt-studio/VoiceCatalogBrowser";
 import { VoiceDetailCard } from "@/components/prompt-studio/VoicePanel";
 import { useVoicePreview } from "@/components/prompt-studio/useVoicePreview";

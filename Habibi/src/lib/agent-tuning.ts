@@ -14,20 +14,6 @@ import type {
   AgentTuningPreset,
 } from "@/api/types/agent-tuning";
 
-export type {
-  AgentTuningLlm,
-  AgentTuningTts,
-  AgentTuningStt,
-  AgentTuningVad,
-  AgentTuningTurn,
-  BargeInMode,
-  MuteStrategyId,
-  IdleLadderStep,
-  AgentTuningInteraction,
-  AgentTuning,
-  AgentTuningPreset,
-} from "@/api/types/agent-tuning";
-
 export const DEFAULT_AGENT_TUNING: AgentTuning = {
   llm: {
     temperature: 0.4,
