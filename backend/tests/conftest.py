@@ -180,7 +180,12 @@ def owner_engine():
         url = (os.getenv("MIGRATION_DATABASE_URL") or "").strip()
         if not url:
             return None
-        _OWNER_ENGINE = create_engine(url, pool_pre_ping=True)
+        import pii_key
+
+        option = pii_key.connect_option()
+        _OWNER_ENGINE = create_engine(
+            url, pool_pre_ping=True, connect_args={"options": option} if option else {}
+        )
     return _OWNER_ENGINE
 
 

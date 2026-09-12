@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS leads (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   product_id TEXT REFERENCES products(id),
@@ -99,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_product_campaigns_enabled ON product_campaigns(en
 CREATE TABLE IF NOT EXISTS offer_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   channel TEXT NOT NULL,
   -- shadow rows are scored but never spoken. They are the counterfactual half

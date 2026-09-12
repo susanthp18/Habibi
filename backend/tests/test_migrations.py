@@ -111,7 +111,11 @@ def test_every_mirrored_sql_file_has_exactly_one_migration() -> None:
     backend = Path(__file__).resolve().parents[1]
     refs: dict[str, list[str]] = {}
     for path in sorted((backend / "alembic" / "versions").glob("*.py")):
-        for name in re.findall(r'"sql"\s*/\s*"([^"]+\.sql)"', path.read_text(encoding="utf-8")):
+        # A migration names its mirror as `"sql" / "48_x.sql"` or, when it
+        # applies several files in order (0138), as `_apply("48_x.sql")`.
+        src = path.read_text(encoding="utf-8")
+        names = re.findall(r'"sql"\s*/\s*"([^"]+\.sql)"', src) + re.findall(r'_apply\("([^"]+\.sql)"\)', src)
+        for name in names:
             refs.setdefault(name, []).append(path.name)
     mirrored = sorted(
         p.name for p in (backend / "sql").glob("*.sql") if 24 <= int(p.name.split("_")[0]) < 90

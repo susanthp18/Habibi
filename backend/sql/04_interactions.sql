@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS interactions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   handler_kind TEXT NOT NULL CHECK (handler_kind IN ('human','bot')),
   handler_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -184,7 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_interaction_media_interaction_id ON interaction_m
 CREATE TABLE IF NOT EXISTS identity_verifications (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   method TEXT NOT NULL CHECK (method IN ('phone_match','dob','otp','account_tail','manual')),
   status TEXT NOT NULL CHECK (status IN ('pending','verified','failed')),
   attempt_count INTEGER NOT NULL DEFAULT 1,
@@ -198,7 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_verifications_interaction_id ON identity
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('bot','needs_human','escalated','assigned')),
   channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','chat','voice')),
@@ -293,7 +293,7 @@ CREATE INDEX IF NOT EXISTS idx_supervisor_actions_interaction_id ON supervisor_a
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS customer_memory (
   -- CASCADE: derived PII must die with the customer (sql/08_redaction.sql).
-  customer_id          TEXT PRIMARY KEY REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id          TEXT PRIMARY KEY REFERENCES customers_pii(id) ON DELETE CASCADE,
   summary              TEXT,
   -- NOT NULL DEFAULT so it can never render as the string "null" in a prompt.
   open_commitments     jsonb NOT NULL DEFAULT '[]'::jsonb,

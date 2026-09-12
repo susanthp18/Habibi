@@ -336,11 +336,13 @@ def build_book(
         conn.execute(
             text(
                 """
-                INSERT INTO customers (
-                  id, tenant_id, name, phone_primary, email, language,
+                INSERT INTO customers_pii (
+                  id, tenant_id, name, phone_primary_enc, phone_primary_hmac,
+                  email_enc, email_hmac, language,
                   timezone, segment, risk, risk_score, dnd
                 ) VALUES (
-                  :id, :tenant, :name, :phone, :email, 'en',
+                  :id, :tenant, :name, pii_encrypt(:phone), pii_phone_hmac(:phone),
+                  pii_encrypt(:email), pii_text_hmac(:email), 'en',
                   'Asia/Kolkata', :segment, :risk, :score, false
                 )
                 ON CONFLICT (id) DO NOTHING

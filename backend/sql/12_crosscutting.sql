@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS bot_turn_jobs (
   -- customer erasure with a foreign-key violation part-way through.
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id),
-  customer_id TEXT NOT NULL REFERENCES customers(id),
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id),
   trigger_message_id TEXT REFERENCES messages(id),
   trigger_provider_ref TEXT,
   channel TEXT NOT NULL DEFAULT 'whatsapp',
@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_outbound_jobs (
   id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL REFERENCES messages(id),
   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  customer_id TEXT REFERENCES customers(id),
+  customer_id TEXT REFERENCES customers_pii(id),
   to_phone TEXT NOT NULL,
   body TEXT NOT NULL,
   preview_url boolean NOT NULL DEFAULT false,

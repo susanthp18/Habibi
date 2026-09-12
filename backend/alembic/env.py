@@ -44,10 +44,25 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _connect_args() -> dict[str, str]:
+    """The PII key as a startup parameter, when configured: migration 0138
+    encrypts through the same functions the application uses, and any later
+    migration that touches `customers` reads through the view."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import pii_key
+
+    option = pii_key.connect_option()
+    return {"options": option} if option else {}
+
+
 def run_migrations_online() -> None:
     section = config.get_section(config.config_ini_section, {})
     section["sqlalchemy.url"] = _database_url()
-    connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
+    connectable = engine_from_config(
+        section, prefix="sqlalchemy.", poolclass=pool.NullPool, connect_args=_connect_args()
+    )
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

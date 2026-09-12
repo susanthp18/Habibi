@@ -46,7 +46,9 @@ def ensure_unknown_caller() -> None:
         conn.execute(
             text(
                 """
-                INSERT INTO customers (
+                -- The base table, not the view: ON CONFLICT is unsupported on
+                -- a view with INSTEAD OF triggers. The sentinel carries no PII.
+                INSERT INTO customers_pii (
                   id, tenant_id, name, segment, risk, dnd, created_at, updated_at
                 ) VALUES (
                   :id, :tenant, 'Unknown caller', 'sentinel', 'medium', false, now(), now()

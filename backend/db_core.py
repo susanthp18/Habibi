@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
+import pii_key
 import tenant_context
 import visibility
 from env_utils import env_int as _env_int
@@ -229,12 +230,16 @@ engine: Engine = create_engine(
         # workload is dominated by pgvector ANN scans and single-row lookups, not
         # by parse time, and a worker that cannot start costs more than a parse.
         "prepare_threshold": None,
+        # The PII key rides beside the tenant, for the same reason: a startup
+        # parameter is on the connection before any statement runs, and a
+        # pooled ROLLBACK cannot unset it (pii_key.py).
         "options": (
             f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS} "
             f"-c lock_timeout={DB_LOCK_TIMEOUT_MS} "
             f"-c idle_in_transaction_session_timeout={DB_IDLE_IN_TX_TIMEOUT_MS} "
-            f"-c {tenant_context.GUC}={tenant_context.validate(TENANT_ID)}"
-        ),
+            f"-c {tenant_context.GUC}={tenant_context.validate(TENANT_ID)} "
+            f"{pii_key.connect_option()}"
+        ).strip(),
     },
 )
 

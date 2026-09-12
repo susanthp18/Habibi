@@ -438,7 +438,7 @@ def _seed_corpus(db_tx, tenant_id: str = "hdfc.retail") -> None:
     db_tx.execute(
         _text(
             """
-            INSERT INTO customers (id, tenant_id, name, risk)
+            INSERT INTO customers_pii (id, tenant_id, name, risk)
             SELECT 'w10-seed-' || g, :tenant, 'Seed ' || g, 'low'
               FROM generate_series(1, 550) g
             ON CONFLICT (id) DO NOTHING

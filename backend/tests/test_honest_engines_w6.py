@@ -473,8 +473,8 @@ def _second_tenant_account(conn, first_tenant: str, first_account: str) -> tuple
         conn.execute(
             text(
                 """
-                INSERT INTO customers (id, tenant_id, name, risk, phone_primary)
-                VALUES (:id, :tid, 'W6 borrower', 'medium', '9999999998')
+                INSERT INTO customers_pii (id, tenant_id, name, risk, phone_primary_enc, phone_primary_hmac)
+                VALUES (:id, :tid, 'W6 borrower', 'medium', pii_encrypt('9999999998'), pii_phone_hmac('9999999998'))
                 ON CONFLICT (id) DO NOTHING
                 """
             ),

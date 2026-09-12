@@ -49,12 +49,16 @@ def _owner_engine():
         return db.engine
     from sqlalchemy import create_engine
 
+    import pii_key
     import tenant_context
 
     return create_engine(
         url,
         connect_args={
-            "options": f"-c {tenant_context.GUC}={tenant_context.validate(db.current_tenant())}"
+            "options": (
+                f"-c {tenant_context.GUC}={tenant_context.validate(db.current_tenant())} "
+                f"{pii_key.connect_option()}"
+            ).strip()
         },
     )
 

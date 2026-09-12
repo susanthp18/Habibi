@@ -164,7 +164,7 @@ CREATE INDEX IF NOT EXISTS idx_treatment_decisions_offer_cooldown
 CREATE TABLE IF NOT EXISTS suitability_assessments (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   -- RESTRICT, not CASCADE: deleting a product must not delete the record that
   -- it was once assessed and sold.
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,

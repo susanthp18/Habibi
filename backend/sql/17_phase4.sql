@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS work_runtime_jobs (
     CHECK (status IN (
       'submitted','working','input_required','completed','failed','cancelled'
     )),
-  customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE SET NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   result JSONB NOT NULL DEFAULT '{}'::jsonb,
   error TEXT,

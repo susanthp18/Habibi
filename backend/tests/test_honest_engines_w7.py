@@ -263,7 +263,7 @@ def _synthetic_panel(db_tx, *, borrowers: int, cases_each: int) -> None:
         customer = f"w7-synthetic-{b:04d}"
         db_tx.execute(
             text(
-                "INSERT INTO customers (id, tenant_id, name, risk) "
+                "INSERT INTO customers_pii (id, tenant_id, name, risk) "
                 "VALUES (:id, :t, :n, 'low') ON CONFLICT (id) DO NOTHING"
             ),
             {"id": customer, "t": tenant, "n": f"W7 Synthetic {b}"},

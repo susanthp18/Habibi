@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS payment_plans (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'active'
     CONSTRAINT payment_plans_status_check CHECK (status IN ('active','completed','cancelled')),
@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_plans_customer_id ON payment_plans(custom
 
 CREATE TABLE IF NOT EXISTS promises (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   owner_kind TEXT NOT NULL CHECK (owner_kind IN ('human','bot')),
@@ -62,7 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_promise_reminders_due_drain
 CREATE TABLE IF NOT EXISTS payment_intents (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   promise_id TEXT REFERENCES promises(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_promise_installments_plan_id ON promise_installme
 
 CREATE TABLE IF NOT EXISTS disputes (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -157,7 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_document_templates_tenant_id ON document_template
 
 CREATE TABLE IF NOT EXISTS document_requests (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   template_id TEXT REFERENCES document_templates(id),
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
@@ -212,7 +212,7 @@ CREATE INDEX IF NOT EXISTS idx_document_delivery_attempts_request_id ON document
 
 CREATE TABLE IF NOT EXISTS callbacks (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -249,7 +249,7 @@ CREATE TABLE IF NOT EXISTS followups (
   id TEXT PRIMARY KEY,
   promise_id TEXT REFERENCES promises(id) ON DELETE CASCADE,
   lead_id TEXT,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL CHECK (status IN ('open','in_progress','snoozed','done','cancelled')),
   priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','high','urgent')),
@@ -273,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_followups_promise_id ON followups(promise_id);
 CREATE TABLE IF NOT EXISTS treatment_holds (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   -- NULL means the whole customer. Hardship is a person; a dispute is usually
   -- one account.
   account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
@@ -321,7 +321,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_treatment_holds_active
 CREATE TABLE IF NOT EXISTS treatment_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   trigger_kind TEXT NOT NULL CHECK (trigger_kind IN (
@@ -483,7 +483,7 @@ CREATE INDEX IF NOT EXISTS idx_enactment_attempts_decision
 CREATE TABLE IF NOT EXISTS contact_reservations (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   decision_id TEXT NOT NULL,
   channel TEXT NOT NULL,
   state TEXT NOT NULL,
@@ -520,7 +520,7 @@ CREATE TABLE IF NOT EXISTS treatment_decision_payloads (
 CREATE TABLE IF NOT EXISTS mandates (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   rail TEXT NOT NULL CHECK (rail IN ('nach','enach','upi_autopay','ecs')),
   -- The Unique Mandate Reference Number. Null while registration is pending:
@@ -613,7 +613,7 @@ CREATE INDEX IF NOT EXISTS idx_mandate_presentations_decision
 CREATE TABLE IF NOT EXISTS authority_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   dispute_id TEXT REFERENCES disputes(id) ON DELETE SET NULL,

@@ -3,9 +3,9 @@
 `_DEFERRED_HARDENING_CONTROLS` named "RLS tenant isolation" as deferred after
 RLS was on -- a gate that reads a constant cannot notice the constant is
 stale, and every HABIBI_DEPLOYED=1 process refused to boot for a control that
-was enforced. The gate now asks rls.status() and pg_trigger; PII column
-encryption is the one control with no implementation, so a deployed boot
-still refuses, honestly.
+was enforced. The gate now asks rls.status(), pg_trigger and, for PII column
+encryption, pg_extension plus the shape of `customers` (a view over
+`customers_pii`) plus the key on this process's connections.
 """
 
 from __future__ import annotations
@@ -17,18 +17,37 @@ def test_the_gate_lists_only_what_the_database_does_not_enforce(monkeypatch) -> 
     import main
     import rls
 
+    import pii_key
+
     inactive = main._inactive_hardening_controls()
-    assert inactive[-1] == main._PII_ENCRYPTION_DEFERRED
     with main.db.engine.connect() as conn:
         status = rls.status(conn)
         trigger = conn.execute(
             main.text("SELECT 1 FROM pg_trigger WHERE tgname = 'audit_log_append_only'")
         ).scalar()
+        view = conn.execute(
+            main.text(
+                "SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relname = 'customers' AND c.relkind = 'v'"
+            )
+        ).scalar()
+        keyed = conn.execute(main.text("SELECT current_setting('app.pii_key', true) <> ''")).scalar()
     rls_listed = any(item.startswith("RLS tenant isolation") for item in inactive)
     assert rls_listed == bool(
         status["role_bypasses_rls"] or not status["enforcing"] or status["missing_policy"]
     )
     assert any("append-only" in item for item in inactive) == (not trigger)
+    pii_listed = any(item.startswith("PII column encryption") for item in inactive)
+    assert pii_listed == (not view or not pii_key.configured() or not keyed)
+
+
+def test_the_gate_lists_pii_when_the_key_is_missing(monkeypatch) -> None:
+    import main
+    import pii_key
+
+    monkeypatch.setattr(pii_key, "configured", lambda: False)
+    inactive = main._inactive_hardening_controls()
+    assert any("PII_ENCRYPTION_KEY" in item or "customers_pii" in item for item in inactive)
 
 
 def test_a_deployed_process_refuses_with_the_real_reasons(monkeypatch) -> None:

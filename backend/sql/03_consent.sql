@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS consent_records (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL UNIQUE REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL UNIQUE REFERENCES customers_pii(id) ON DELETE CASCADE,
   dnd_registry boolean NOT NULL DEFAULT false,
   expires_at timestamptz,
   allowed_days TEXT,
@@ -50,7 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_optout_events_consent_id ON optout_events(consent
 CREATE TABLE IF NOT EXISTS contact_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   channel TEXT NOT NULL CHECK (channel IN ('voice','whatsapp','sms','email','chat','field')),
   direction TEXT NOT NULL DEFAULT 'outbound' CHECK (direction IN ('outbound','inbound')),
@@ -79,7 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_contact_events_related
 -- Atomic daily budget. outreach_sessions counts touches that consume the cap
 -- (outreach + statutory). Locked FOR UPDATE inside admit().
 CREATE TABLE IF NOT EXISTS contact_day_counters (
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   local_date DATE NOT NULL,
   outreach_sessions INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (customer_id, local_date)
@@ -223,7 +223,7 @@ CREATE INDEX IF NOT EXISTS idx_policy_rules_set ON policy_rules (rule_set_id);
 CREATE TABLE IF NOT EXISTS contact_delivery_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   channel TEXT NOT NULL CHECK (channel IN ('whatsapp','sms','email','voice')),
   provider TEXT NOT NULL,
   -- A Meta wamid or a Twilio SID. What a replayed webhook is deduplicated on.
@@ -258,7 +258,7 @@ CREATE INDEX IF NOT EXISTS idx_contact_delivery_events_related
 CREATE TABLE IF NOT EXISTS consent_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   endpoint TEXT,
   channel TEXT NOT NULL CHECK (channel IN (
     'voice','whatsapp','sms','email','chat','field','all'
@@ -280,7 +280,7 @@ CREATE INDEX IF NOT EXISTS idx_consent_events_customer
 CREATE TABLE IF NOT EXISTS endpoint_ownership (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   endpoint TEXT NOT NULL,
   channel TEXT NOT NULL CHECK (channel IN (
     'voice','whatsapp','sms','email','chat'
@@ -302,7 +302,7 @@ CREATE INDEX IF NOT EXISTS idx_endpoint_ownership_customer
 CREATE TABLE IF NOT EXISTS window_authorisations (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   channel TEXT NOT NULL CHECK (channel IN (
     'voice','whatsapp','sms','email','chat','field'
   )),
@@ -323,7 +323,7 @@ CREATE INDEX IF NOT EXISTS idx_window_authorisations_customer
 CREATE TABLE IF NOT EXISTS subject_requests (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   kind TEXT NOT NULL CHECK (kind IN ('access','correction','erasure','grievance')),
   state TEXT NOT NULL CHECK (state IN (
     'received','verified','in_progress','fulfilled','refused','escalated'
@@ -361,7 +361,7 @@ CREATE INDEX IF NOT EXISTS idx_subject_request_events_request
 CREATE TABLE IF NOT EXISTS erasure_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   request_id TEXT NOT NULL REFERENCES subject_requests(id) ON DELETE RESTRICT,
   cancelled_plans INTEGER NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now()

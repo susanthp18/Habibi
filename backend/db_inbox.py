@@ -2146,9 +2146,11 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
 
 
 def _digits_phone_exact_sql() -> str:
+    """The exact match runs on the HMAC of the normalised digits, so the index
+    on customers_pii answers it without decrypting the book (sql/01_pii)."""
     return """
-      regexp_replace(COALESCE(c.phone_primary, ''), '[^0-9]', '', 'g') = :phone
-      OR regexp_replace(COALESCE(c.phone_alt, ''), '[^0-9]', '', 'g') = :phone
+      c.phone_primary_hmac = pii_phone_hmac(:phone)
+      OR c.phone_alt_hmac = pii_phone_hmac(:phone)
     """
 
 
@@ -2267,10 +2269,15 @@ def _ensure_whatsapp_customer(
     conn.execute(
         text(
             """
-            INSERT INTO customers
-              (id, tenant_id, assigned_user_id, name, phone_primary, risk, preferred_window, dnd, segment)
+            -- The base table, not the view: ON CONFLICT is unsupported on a
+            -- view with INSTEAD OF triggers, so this writer encrypts itself
+            -- through the same functions the view's trigger uses (sql/01_pii).
+            INSERT INTO customers_pii
+              (id, tenant_id, assigned_user_id, name, phone_primary_enc, phone_primary_hmac,
+               risk, preferred_window, dnd, segment)
             VALUES
-              (:id, :tenant_id, NULL, :name, :phone, 'medium', NULL, false, 'retail')
+              (:id, :tenant_id, NULL, :name, pii_encrypt(:phone), pii_phone_hmac(:phone),
+               'medium', NULL, false, 'retail')
             ON CONFLICT (id) DO NOTHING
             """
         ),

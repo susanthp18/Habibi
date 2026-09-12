@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS subject_keys (
 CREATE TABLE IF NOT EXISTS recording_holds (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE CASCADE,
   reason TEXT NOT NULL CHECK (length(btrim(reason)) > 0),
   basis TEXT,

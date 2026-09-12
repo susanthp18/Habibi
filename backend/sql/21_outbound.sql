@@ -20,7 +20,7 @@
 CREATE TABLE IF NOT EXISTS call_attempts (
   id                TEXT PRIMARY KEY,
   tenant_id         TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id       TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id       TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id        TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   -- Plain TEXT, not FKs: the mission is assembled at dial time and
   -- campaign_runs is a later phase. Adding the constraints later is one ALTER.
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS call_outcomes (
   id                   TEXT PRIMARY KEY,
   attempt_id           TEXT NOT NULL REFERENCES call_attempts(id) ON DELETE CASCADE,
   tenant_id            TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id          TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id          TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   interaction_id       TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   mission_id           TEXT,
   decision_id          TEXT,
@@ -160,7 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_call_outcomes_reason ON call_outcomes (nonpayment
 CREATE TABLE IF NOT EXISTS agent_obligations (
   id             TEXT PRIMARY KEY,
   tenant_id      TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id    TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id    TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   attempt_id     TEXT REFERENCES call_attempts(id) ON DELETE SET NULL,
   kind           TEXT NOT NULL CHECK (kind IN

@@ -310,7 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_bank_mapping_reviews_open
 CREATE TABLE IF NOT EXISTS bank_consent_snapshots (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   endpoint TEXT NOT NULL,
   purpose TEXT NOT NULL CHECK (purpose IN ('servicing','promotional','all')),
   channel TEXT NOT NULL CHECK (channel IN (
@@ -333,7 +333,7 @@ CREATE INDEX IF NOT EXISTS idx_bank_consent_snapshots_customer
 CREATE TABLE IF NOT EXISTS bank_external_contacts (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE RESTRICT,
   external_key TEXT NOT NULL,
   channel TEXT NOT NULL CHECK (channel IN (
     'voice','whatsapp','sms','email','chat','field'
@@ -384,7 +384,7 @@ CREATE INDEX IF NOT EXISTS idx_bank_agency_roster_tenant
 CREATE TABLE IF NOT EXISTS bank_protections (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   account_id TEXT REFERENCES accounts(id) ON DELETE RESTRICT,
   kind TEXT NOT NULL,
   active BOOLEAN NOT NULL DEFAULT true,
@@ -401,7 +401,7 @@ CREATE INDEX IF NOT EXISTS idx_bank_protections_customer
 CREATE TABLE IF NOT EXISTS bank_complaint_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE RESTRICT,
   direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
   kind TEXT NOT NULL,
   clock_due_at timestamptz,

@@ -41,15 +41,22 @@ CREATE TABLE IF NOT EXISTS product_eligibility_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_product_eligibility_rules_product_id ON product_eligibility_rules(product_id);
 
-CREATE TABLE IF NOT EXISTS customers (
+-- The borrower's contact endpoints and address are stored encrypted
+-- (sql/01_pii.sql). This is the base table; the application reads and writes
+-- the `customers` view (sql/02_customers_view.sql). Every foreign key here references
+-- customers_pii(id) -- a view cannot be a foreign-key target.
+CREATE TABLE IF NOT EXISTS customers_pii (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
-  phone_primary TEXT,
-  phone_alt TEXT,
-  email TEXT,
-  address TEXT,
+  phone_primary_enc BYTEA,
+  phone_alt_enc BYTEA,
+  email_enc BYTEA,
+  address_enc BYTEA,
+  phone_primary_hmac BYTEA,
+  phone_alt_hmac BYTEA,
+  email_hmac BYTEA,
   timezone TEXT,
   language TEXT,
   preferred_window TEXT,
@@ -61,13 +68,20 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_customers_tenant_id ON customers(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_customers_assigned_user_id ON customers(assigned_user_id);
-CREATE INDEX IF NOT EXISTS idx_customers_risk ON customers(risk);
+CREATE INDEX IF NOT EXISTS idx_customers_tenant_id ON customers_pii(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_customers_assigned_user_id ON customers_pii(assigned_user_id);
+CREATE INDEX IF NOT EXISTS idx_customers_risk ON customers_pii(risk);
+CREATE INDEX IF NOT EXISTS idx_customers_phone_primary_hmac ON customers_pii(phone_primary_hmac)
+  WHERE phone_primary_hmac IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_phone_alt_hmac ON customers_pii(phone_alt_hmac)
+  WHERE phone_alt_hmac IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_email_hmac ON customers_pii(email_hmac)
+  WHERE email_hmac IS NOT NULL;
+
 
 CREATE TABLE IF NOT EXISTS customer_notes (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   author_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   interaction_id TEXT,
   text TEXT NOT NULL,
@@ -80,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_notes_author_user_id ON customer_notes(a
 
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   product_id TEXT NOT NULL REFERENCES products(id),
   apr numeric(7,3),
   sanctioned_amount numeric(14,2),
@@ -166,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_emi_installments_status ON emi_installments(statu
 CREATE TABLE IF NOT EXISTS payment_events (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   emi_installment_id TEXT REFERENCES emi_installments(id) ON DELETE SET NULL,
   kind TEXT NOT NULL CHECK (kind IN ('bounce')),

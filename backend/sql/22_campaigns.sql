@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_campaign_runs_tenant_status
 CREATE TABLE IF NOT EXISTS campaign_targets (
   id              TEXT PRIMARY KEY,
   run_id          TEXT NOT NULL REFERENCES campaign_runs(id) ON DELETE CASCADE,
-  customer_id     TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id     TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id      TEXT,
   decision_id     TEXT,
   state           TEXT NOT NULL DEFAULT 'pending'
@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_campaign_targets_claim
 CREATE TABLE IF NOT EXISTS call_cadence_state (
   id              TEXT PRIMARY KEY,
   tenant_id       TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id     TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id     TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   objective       TEXT NOT NULL,
   -- Mirrors treatment's case identity so the two loops agree about what "the
   -- same case" means instead of each holding its own opinion.

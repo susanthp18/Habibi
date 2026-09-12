@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_compliance_rules_tenant_id ON compliance_rules(te
 CREATE TABLE IF NOT EXISTS violations (
   id TEXT PRIMARY KEY,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   rule_id TEXT NOT NULL REFERENCES compliance_rules(id),
   actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human','bot')),
   actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS calibration_sessions (
 CREATE TABLE IF NOT EXISTS live_qa_decisions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE SET NULL,
   account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE SET NULL,
   mode TEXT NOT NULL,

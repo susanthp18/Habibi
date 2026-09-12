@@ -16,7 +16,7 @@
 CREATE TABLE IF NOT EXISTS analysis_panel (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   account_id TEXT,
   trigger_kind TEXT NOT NULL,
   -- The case key. For dpd_tick this is the local date of the first tick in the

@@ -34,5 +34,6 @@ Rotation is `POST /vault/refs/{ref_id}/rotate`. No deploy.
 | Redis URL | `REDIS_URL` | mesh bus, optional queues | platform secret store |
 | Vault master (local) | `VAULT_MASTER_KEY` | seal/open `vault_refs.ciphertext` | platform secret store |
 | Azure Key Vault token | `AZURE_KEY_VAULT_TOKEN` | Azure backend | platform secret store |
+| PII column key | `PII_ENCRYPTION_KEY` | `customers` view (pgcrypto, `app.pii_key` startup GUC) | platform secret store; rotate with `scripts/rotate_pii_key.py` |
 
 See `agent_transformation_implementation.md` Phase 3.

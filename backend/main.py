@@ -257,16 +257,15 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 
 # The data-layer controls a deployed process must run under (DATA_MODEL.md,
-# "Scope of this build pass"). Two are read from the database at boot; the
-# third has no implementation yet and is the one honest reason a deployed
-# boot still refuses. This used to be a constant list that named RLS as
-# deferred after RLS was on -- a gate that reads a list cannot notice the
-# list is stale.
-_PII_ENCRYPTION_DEFERRED = "PII column encryption / Vault secret refs"
+# "Scope of this build pass"), every one read from the database at boot.
+# This used to be a constant list that named RLS as deferred after RLS was
+# on, and then named PII encryption as deferred until it was built -- a gate
+# that reads a list cannot notice the list is stale.
 
 
 def _inactive_hardening_controls() -> list[str]:
     """The controls not enforced on the database this process is about to use."""
+    import pii_key
     import rls
 
     inactive: list[str] = []
@@ -287,7 +286,24 @@ def _inactive_hardening_controls() -> list[str]:
         ).scalar()
         if not append_only:
             inactive.append("append-only enforcement on audit_log (trigger absent)")
-    inactive.append(_PII_ENCRYPTION_DEFERRED)
+        # PII column encryption: pgcrypto installed, the base table carries
+        # the ciphertext columns, `customers` is the decrypting view, and this
+        # process's connections carry the key.
+        encrypted = conn.execute(
+            text(
+                "SELECT (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') IS NOT NULL"
+                " AND EXISTS (SELECT 1 FROM information_schema.columns"
+                "             WHERE table_name = 'customers_pii' AND column_name = 'phone_primary_enc')"
+                " AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+                "             WHERE n.nspname = 'public' AND c.relname = 'customers' AND c.relkind = 'v')"
+            )
+        ).scalar()
+        if not encrypted:
+            inactive.append("PII column encryption (customers_pii / customers view absent)")
+        elif not pii_key.configured():
+            inactive.append("PII column encryption (PII_ENCRYPTION_KEY not set for this process)")
+        elif not conn.execute(text(f"SELECT current_setting('{pii_key.GUC}', true) <> ''")).scalar():
+            inactive.append("PII column encryption (app.pii_key not on this connection)")
     return inactive
 
 

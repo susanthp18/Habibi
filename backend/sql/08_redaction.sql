@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_redaction_rule_configs_tenant_id ON redaction_rul
 CREATE TABLE IF NOT EXISTS redaction_records (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL UNIQUE REFERENCES interactions(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers_pii(id) ON DELETE CASCADE,
   reviewed boolean NOT NULL DEFAULT false,
   reviewed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   reviewed_at timestamptz,

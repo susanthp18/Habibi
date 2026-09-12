@@ -40,7 +40,7 @@
 CREATE TABLE IF NOT EXISTS perception_facts (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   id TEXT NOT NULL,
-  customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE CASCADE,
   turn_index INTEGER NOT NULL DEFAULT 0,
 
@@ -144,7 +144,7 @@ CREATE TRIGGER trg_perception_facts_guard
 CREATE TABLE IF NOT EXISTS perception_runs (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   id TEXT NOT NULL,
-  customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE CASCADE,
   interaction_id TEXT REFERENCES interactions(id) ON DELETE CASCADE,
   turn_index INTEGER NOT NULL DEFAULT 0,
 

@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS mcp_tasks (
   kind TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued'
     CHECK (status IN ('queued','running','succeeded','failed')),
-  customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+  customer_id TEXT REFERENCES customers_pii(id) ON DELETE SET NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   result JSONB NOT NULL DEFAULT '{}'::jsonb,
   error TEXT,
