@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Condition, RuleOperator } from "@/api/types/routing";
-import { FIELDS, OPERATORS_BY_TYPE } from "@/data/routing-seed";
+import { FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
 
 type Props = {
   cond: Condition;

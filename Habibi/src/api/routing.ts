@@ -6,9 +6,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import type { ActionKey, AuditEntry, Rule, RuleAction, RuleCategory } from "@/api/types/routing";
-import { AUDIT_SEED, RULES_SEED } from "@/data/routing-seed";
-import { apiDelete, apiGet, apiPatch, apiPost, mockDelay, USE_MOCK } from "./config";
+import type {
+  ActionKey,
+  AuditEntry,
+  Rule,
+  RuleAction,
+  RuleCategory,
+  RuleEval,
+  SimContext,
+} from "@/api/types/routing";
+import { FIELDS } from "@/lib/routing";
+import { apiDelete, apiGet, apiPatch, apiPost } from "./config";
 
 interface RoutingActionApi {
   key: ActionKey;
@@ -46,11 +54,59 @@ function mapRule(row: RoutingRuleApi): Rule {
   };
 }
 
-let _mockRules: Rule[] = [...RULES_SEED];
-const _mockAudit: AuditEntry[] = [...AUDIT_SEED];
+/** RoutingSimulateResponse -- POST /routing-rules/simulate. */
+interface SimulateApi {
+  results: {
+    ruleId: string;
+    matched: boolean;
+    nodes: {
+      nodeId: string;
+      isOr: boolean;
+      matched: boolean;
+      conditions: { id: string; matched: boolean }[];
+    }[];
+  }[];
+  firingRuleId: string | null;
+}
+
+function conditionLabel(rule: Rule, id: string): string {
+  for (const node of rule.when) {
+    const conds = "or" in node ? node.or : [node];
+    const c = conds.find((x) => x.id === id);
+    if (c) {
+      const f = FIELDS.find((x) => x.key === c.field);
+      return `${f?.label ?? c.field} ${c.op} ${String(c.value)}`;
+    }
+  }
+  return id;
+}
+
+/** Dry-run of the rule library on the server's evaluator; writes nothing. */
+export async function simulateRoutingRules(
+  rules: Rule[],
+  context: SimContext,
+): Promise<{ results: RuleEval[]; firing: Rule | undefined }> {
+  const out = await apiPost<SimulateApi>("/routing-rules/simulate", { context });
+  const byId = new Map(rules.map((r) => [r.id, r]));
+  const results: RuleEval[] = [];
+  for (const r of out.results) {
+    const rule = byId.get(r.ruleId);
+    if (!rule) continue;
+    results.push({
+      rule,
+      matched: r.matched,
+      nodes: r.nodes.map((n) => ({
+        nodeId: n.nodeId,
+        isOr: n.isOr,
+        matched: n.matched,
+        conditions: n.conditions.map((c) => ({ ...c, label: conditionLabel(rule, c.id) })),
+      })),
+    });
+  }
+  return { results, firing: out.firingRuleId ? byId.get(out.firingRuleId) : undefined };
+}
 
 export async function fetchRoutingRules(): Promise<Rule[]> {
-  if (USE_MOCK) return mockDelay(_mockRules);
   const rows = await apiGet<RoutingRuleApi[]>("/routing-rules");
   return rows.map(mapRule);
 }
@@ -64,7 +120,6 @@ export function useRoutingRules() {
 }
 
 export async function fetchRoutingAudit(): Promise<AuditEntry[]> {
-  if (USE_MOCK) return mockDelay(_mockAudit);
   return apiGet<AuditEntry[]>("/routing-audit");
 }
 
@@ -77,10 +132,6 @@ export function useRoutingAudit() {
 }
 
 export async function createRoutingRule(rule: Rule): Promise<Rule> {
-  if (USE_MOCK) {
-    _mockRules = [..._mockRules, rule];
-    return mockDelay(rule);
-  }
   const row = await apiPost<RoutingRuleApi>("/routing-rules", {
     id: rule.id,
     name: rule.name,
@@ -94,10 +145,6 @@ export async function createRoutingRule(rule: Rule): Promise<Rule> {
 }
 
 export async function saveRoutingRule(rule: Rule): Promise<Rule> {
-  if (USE_MOCK) {
-    _mockRules = _mockRules.map((x) => (x.id === rule.id ? rule : x));
-    return mockDelay(rule);
-  }
   const row = await apiPatch<RoutingRuleApi>(`/routing-rules/${rule.id}`, {
     name: rule.name,
     description: rule.description,
@@ -110,31 +157,15 @@ export async function saveRoutingRule(rule: Rule): Promise<Rule> {
 }
 
 export async function toggleRoutingRule(id: string, enabled: boolean): Promise<Rule> {
-  if (USE_MOCK) {
-    _mockRules = _mockRules.map((x) => (x.id === id ? { ...x, enabled } : x));
-    const row = _mockRules.find((x) => x.id === id);
-    if (!row) throw new Error("routing_rule_not_found");
-    return mockDelay(row);
-  }
   const row = await apiPatch<RoutingRuleApi>(`/routing-rules/${id}`, { enabled });
   return mapRule(row);
 }
 
 export async function reorderRoutingRules(orderedIds: string[]): Promise<Rule[]> {
-  if (USE_MOCK) {
-    const byId = new Map(_mockRules.map((r) => [r.id, r]));
-    _mockRules = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Rule[];
-    return mockDelay(_mockRules);
-  }
   const rows = await apiPost<RoutingRuleApi[]>("/routing-rules/reorder", { orderedIds });
   return rows.map(mapRule);
 }
 
 export async function deleteRoutingRule(id: string): Promise<void> {
-  if (USE_MOCK) {
-    _mockRules = _mockRules.filter((x) => x.id !== id);
-    await mockDelay(undefined);
-    return;
-  }
   await apiDelete(`/routing-rules/${id}`);
 }

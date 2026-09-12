@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ActionKey, Condition, ConditionNode, Rule, RuleCategory } from "@/api/types/routing";
-import { ACTION_LABEL, FIELDS, OPERATORS_BY_TYPE } from "@/data/routing-seed";
+import { ACTION_LABEL, FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
 import { ConditionRow } from "./ConditionRow";
 
 const CATEGORIES: RuleCategory[] = ["Escalation", "Handoff", "Throttle", "Compliance", "Routing"];

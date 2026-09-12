@@ -78,5 +78,4 @@ export type RuleEval = {
   rule: Rule;
   matched: boolean;
   nodes: NodeEval[];
-  latencyMs: number;
 };

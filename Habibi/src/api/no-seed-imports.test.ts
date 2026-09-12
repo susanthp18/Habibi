@@ -37,7 +37,6 @@ const FIXTURE_IMPORTERS = [
   "products.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.
   "prompt-studio.ts",
-  "routing.ts",
   "upsell.ts",
 ];
 

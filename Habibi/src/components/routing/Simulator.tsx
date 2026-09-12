@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { Play, CheckCircle2, XCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Rule, RuleEval, SimContext } from "@/api/types/routing";
-import {
-  ACTION_LABEL,
-  DEFAULT_CONTEXT,
-  FIELDS,
-  PRESET_CONTEXTS,
-  evaluateRules,
-} from "@/data/routing-seed";
+import { ACTION_LABEL, DEFAULT_CONTEXT, FIELDS, PRESET_CONTEXTS } from "@/lib/routing";
+import { simulateRoutingRules } from "@/api/routing";
 import { cn } from "@/lib/utils";
 
 export function Simulator({ rules }: { rules: Rule[] }) {
@@ -27,11 +23,20 @@ export function Simulator({ rules }: { rules: Rule[] }) {
   const [firing, setFiring] = useState<Rule | undefined>(undefined);
   const [ran, setRan] = useState(false);
 
+  const [busy, setBusy] = useState(false);
+
   const run = () => {
-    const r = evaluateRules(rules, ctx);
-    setResults(r.results);
-    setFiring(r.firing?.rule);
-    setRan(true);
+    setBusy(true);
+    void simulateRoutingRules(rules, ctx)
+      .then((r) => {
+        setResults(r.results);
+        setFiring(r.firing);
+        setRan(true);
+      })
+      .catch((err: unknown) =>
+        toast.error(err instanceof Error ? err.message : "Could not evaluate rules"),
+      )
+      .finally(() => setBusy(false));
   };
 
   const update = (key: keyof SimContext, val: unknown) =>
@@ -60,7 +65,7 @@ export function Simulator({ rules }: { rules: Rule[] }) {
 
         <div className="rounded-large border border-border bg-surface p-150">
           <div className="mb-100 text-body-small font-semibold text-text-subtlest">
-            Mock call context
+            Call context
           </div>
           <div className="grid grid-cols-2 gap-100">
             {FIELDS.map((f) => (
@@ -147,9 +152,6 @@ export function Simulator({ rules }: { rules: Rule[] }) {
                       <XCircle className="h-3.5 w-3.5 text-text-subtlest" />
                     )}
                     <span className="flex-1 font-medium text-text">{r.rule.name}</span>
-                    <span className="font-mono text-body-small text-text-subtlest">
-                      {r.latencyMs} ms
-                    </span>
                   </div>
                   <div className="mt-050 flex flex-wrap gap-050">
                     {r.nodes
@@ -180,6 +182,7 @@ export function Simulator({ rules }: { rules: Rule[] }) {
           size="sm"
           className="gap-075 bg-background-brand-bold hover:bg-background-brand-bold-pressed"
           onClick={run}
+          disabled={busy}
         >
           <Play className="h-3.5 w-3.5" /> Run evaluation
         </Button>
