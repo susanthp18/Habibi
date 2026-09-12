@@ -2414,7 +2414,6 @@ def publish_prompt_version(
     kb_snapshot_id: str | None = None,
     tuning: dict[str, Any] | None = None,
     traffic_pct: int | None = None,
-    shadow: bool = False,
     auto_rollback: list[str] | None = None,
 ) -> dict[str, Any]:
     """Archive current published → promote draft → swap active prod deployment.
@@ -2426,9 +2425,7 @@ def publish_prompt_version(
     engine = _mod.engine
 
     with engine.begin() as conn:
-        frozen = _freeze(
-            conn, version_id, traffic_pct=traffic_pct, auto_rollback=auto_rollback, shadow=shadow
-        )
+        frozen = _freeze(conn, version_id, traffic_pct=traffic_pct, auto_rollback=auto_rollback)
         compiled = _compile(conn, frozen)
         deployed = _deploy(
             conn, frozen, compiled, kb_snapshot_id=kb_snapshot_id, tuning=tuning, summary=summary
@@ -2465,7 +2462,6 @@ class _Frozen:
     attached: list[Any] | None
     pct: int
     triggers: list[str]
-    shadow: bool
     cert_ok: bool | None
     uid: str | None
     has_publish: bool
@@ -2498,7 +2494,6 @@ def _freeze(
     *,
     traffic_pct: int | None,
     auto_rollback: list[str] | None,
-    shadow: bool,
 ) -> _Frozen:
     """Load and lock the draft; refuse a non-draft or an archived bot; read
     the facts the compile needs (known bots, attached skills, experiment,
@@ -2598,7 +2593,6 @@ def _freeze(
         attached=attached,
         pct=pct,
         triggers=triggers,
-        shadow=bool(shadow),
         cert_ok=cert_ok,
         uid=uid,
         has_publish=has_publish,
@@ -2619,7 +2613,7 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
     _latest_twin_gate_report = _mod._latest_twin_gate_report
     get_latest_eval_report = _mod.get_latest_eval_report
     version_id, target, bot_id, card_raw = f.version_id, f.target, f.bot_id, f.card_raw
-    known_bots, attached, pct, triggers, shadow = f.known_bots, f.attached, f.pct, f.triggers, f.shadow
+    known_bots, attached, pct, triggers = f.known_bots, f.attached, f.pct, f.triggers
     candidate_key, cert_ok, has_publish = f.candidate_key, f.cert_ok, f.has_publish
     voice_short, voice_locale, card_locales = f.voice_short, f.voice_locale, f.card_locales
     voice_provider, bound_tts = f.voice_provider, f.bound_tts
@@ -2657,7 +2651,6 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
         card_locales=card_locales,
         voice_provider=voice_provider,
         bound_tts_providers=bound_tts,
-        shadow=bool(shadow),
         prompt=target.get("prompt"),
         prompt_guardrails=(
             target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {}
@@ -2694,7 +2687,6 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
         if _is_authored(card_raw):
             shipped_exp = {
                 "traffic_pct": int(pct),
-                "shadow": bool(shadow),
                 "auto_rollback": [t for t in triggers if t in _ROLLBACK_TRIGGERS],
             }
             if (card_raw.get("experiment") or {}) != shipped_exp:
@@ -2770,7 +2762,7 @@ def _deploy(
     from agent_core.tuning import apply_voice_config_overlay, default_tuning, normalize_tuning
 
     version_id, target, bot_id, card_raw = f.version_id, f.target, f.bot_id, f.card_raw
-    pct, triggers, shadow = f.pct, f.triggers, f.shadow
+    pct, triggers = f.pct, f.triggers
     shipped_card, compiled_dump, bundle_hash = c.shipped_card, c.compiled_dump, c.bundle_hash
 
     note = (summary or "").strip()
@@ -2972,7 +2964,6 @@ def _deploy(
                 canary_deployment_id=dep_id,
                 baseline_deployment_id=prior["id"] if prior else None,
                 traffic_pct=pct,
-                shadow=bool(shadow),
                 auto_rollback=list(triggers or []),
             )
         except Exception:
@@ -2990,7 +2981,7 @@ def _record(conn: Any, f: _Frozen, c: _Compiled, d: _Deployed) -> None:
     from sqlalchemy.exc import IntegrityError
 
     version_id, target, bot_id, uid = f.version_id, f.target, f.bot_id, f.uid
-    pct, triggers, shadow, report = f.pct, f.triggers, f.shadow, c.report
+    pct, triggers, report = f.pct, f.triggers, c.report
     dep_id, note, previously_published = d.dep_id, d.note, d.previously_published
 
     try:
@@ -3011,7 +3002,6 @@ def _record(conn: Any, f: _Frozen, c: _Compiled, d: _Deployed) -> None:
             previous_version=previously_published,
             deployment_id=dep_id,
             traffic_pct=pct,
-            shadow=bool(shadow),
             auto_rollback=list(triggers or []),
             report=report,
         )

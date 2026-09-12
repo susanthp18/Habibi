@@ -1017,7 +1017,6 @@ def compile_card(
     card_locales: list[str] | None = None,
     voice_provider: str | None = None,
     bound_tts_providers: set[str] | frozenset[str] | None = None,
-    shadow: bool | None = None,
     prompt: str | None = None,
     prompt_guardrails: dict[str, Any] | None = None,
     skip_eval_gates: bool = False,
@@ -1046,7 +1045,6 @@ def compile_card(
         st,
         traffic_pct=traffic_pct,
         auto_rollback=auto_rollback,
-        shadow=shadow,
         a2a_cert_ok=a2a_cert_ok,
     )
     _flow_gates(
@@ -1348,7 +1346,6 @@ def _ship_gates(
     *,
     traffic_pct: int | None,
     auto_rollback: list[str] | None,
-    shadow: bool | None,
     a2a_cert_ok: bool | None,
 ) -> None:
     """G9 signed skills, G10 connectors, G12 canary, G13 A2A."""
@@ -1519,20 +1516,9 @@ def _ship_gates(
         triggers = []
     pct = max(0, min(100, int(pct)))
     valid_triggers = [t for t in triggers if t in _ROLLBACK_TRIGGERS]
-    shadow_flag = bool(shadow)  # the card can no longer declare it; a payload still can
     if skip_eval_gates:
         gates.append(
             _gate("G12", "canary", "skipped", "rollback of a previously published version")
-        )
-    elif shadow_flag:
-        gates.append(
-            _gate(
-                "G12",
-                "canary",
-                "fail",
-                "shadow is not a customer-facing execution path",
-                [{"shadow": True, "traffic_pct": pct}],
-            )
         )
     elif pct == 100:
         gates.append(_gate("G12", "canary", "pass", "full ship"))

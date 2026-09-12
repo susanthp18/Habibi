@@ -2512,8 +2512,10 @@ class PromptVersionPublishRequest(BaseModel):
     versionId: str | None = None
     summary: str = ""
     kbSnapshotId: str | None = None
-    trafficPct: int | None = None
-    shadow: bool = False
+    #: 1..100. It used to be an unbounded int -- 0 opened an experiment that
+    #: served nobody, 250 a canary at "250%" -- and `shadow` rode beside it
+    #: for a runtime path that does not exist (the card retired it first).
+    trafficPct: int | None = Field(default=None, ge=1, le=100)
     autoRollback: list[str] | None = None
 
 
@@ -4311,7 +4313,8 @@ class AgentStudioChangeLogRolloutResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     trafficPct: int
-    shadow: bool
+    #: Retired. Entries written before 2026-09-12 carry it; nothing writes it.
+    shadow: bool = False
     autoRollback: list[str]
 
 

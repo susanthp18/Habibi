@@ -85,7 +85,7 @@ def test_publishing_records_who_what_and_the_compiler_verdict(cloned_bot: str) -
     assert entry["actorUserId"]
     assert entry["versionId"] == version_id
     assert entry["summary"] == "first ship"
-    assert entry["rollout"] == {"trafficPct": 100, "shadow": False, "autoRollback": []}
+    assert entry["rollout"] == {"trafficPct": 100, "autoRollback": []}
     # The gate outcomes at the moment of shipping — previously computed on every
     # publish and then discarded, so "was G9 green when this shipped?" had no
     # answer once the report went out of scope.

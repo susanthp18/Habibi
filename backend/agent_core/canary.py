@@ -130,7 +130,6 @@ def record_experiment(
     canary_deployment_id: str,
     baseline_deployment_id: str | None,
     traffic_pct: int,
-    shadow: bool,
     auto_rollback: list[str],
     environment: str = "production",
 ) -> dict[str, Any] | None:
@@ -152,15 +151,6 @@ def record_experiment(
     )
     if pct >= 100:
         return None
-    if shadow:
-        # Shadow is stored on the card for authors who ticked it historically,
-        # but it is not an execution path: there is no non-customer-serving
-        # mouth. Refuse to open an experiment that would pretend otherwise.
-        logger.warning(
-            "refusing shadow experiment for bot=%s — shadow is not a runtime path",
-            bot_id,
-        )
-        return None
     conn.execute(
         text(
             """
@@ -168,7 +158,7 @@ def record_experiment(
               id, tenant_id, bot_id, environment, canary_deployment_id,
               baseline_deployment_id, traffic_pct, shadow, auto_rollback, status
             ) VALUES (
-              :id, :t, :b, :e, :canary, :base, :pct, :shadow,
+              :id, :t, :b, :e, :canary, :base, :pct, false,
               CAST(:ar AS jsonb), 'running'
             )
             """
@@ -181,7 +171,6 @@ def record_experiment(
             "canary": canary_deployment_id,
             "base": baseline_deployment_id,
             "pct": pct,
-            "shadow": bool(shadow),
             "ar": db._jsonb(triggers),
         },
     )

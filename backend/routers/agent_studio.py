@@ -701,7 +701,6 @@ def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest
             # ephemeral and cannot overwrite it during promotion.
             tuning=None,
             traffic_pct=payload.trafficPct,
-            shadow=payload.shadow,
             auto_rollback=payload.autoRollback,
         )
     except flow_graph.FlowInvalidError as exc:

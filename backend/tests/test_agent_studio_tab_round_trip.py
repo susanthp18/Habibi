@@ -67,12 +67,10 @@ def test_publish_folds_the_shipped_experiment_into_the_card(cloned_bot: str) -> 
     version_id = db.get_agent_studio_card(cloned_bot)["draftVersionId"]
     assert _card(cloned_bot)["experiment"]["traffic_pct"] == 100
 
-    db.publish_prompt_version(
-        version_id, "canary", traffic_pct=40, shadow=False, auto_rollback=["slo_miss"]
-    )
+    db.publish_prompt_version(version_id, "canary", traffic_pct=40, auto_rollback=["slo_miss"])
 
     exp = _card(cloned_bot)["experiment"]
-    assert exp == {"traffic_pct": 40, "shadow": False, "auto_rollback": ["slo_miss"]}
+    assert exp == {"traffic_pct": 40, "auto_rollback": ["slo_miss"]}
     assert db.get_agent_studio_card(cloned_bot)["trafficPct"] == 40
 
 

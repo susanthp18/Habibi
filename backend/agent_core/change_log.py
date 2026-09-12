@@ -277,7 +277,6 @@ def record_publish(
     previous_version: Mapping[str, Any] | None,
     deployment_id: str | None,
     traffic_pct: int,
-    shadow: bool,
     auto_rollback: Sequence[str],
     report: Any,
 ) -> dict[str, Any]:
@@ -291,9 +290,10 @@ def record_publish(
         "previousVersionLabel": (previous_version or {}).get("label"),
         "deploymentId": deployment_id,
         "summary": version.get("summary") or "",
+        # No `shadow`: older entries carry `"shadow": false`; the response
+        # model defaults it so they still read.
         "rollout": {
             "trafficPct": int(traffic_pct),
-            "shadow": bool(shadow),
             "autoRollback": list(auto_rollback or []),
         },
         "changed": changed_components(before, after),
