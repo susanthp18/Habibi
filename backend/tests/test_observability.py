@@ -27,12 +27,14 @@ def test_render_returns_prometheus_text() -> None:
     assert "text/plain" in content_type
 
 
-def test_scrape_time_collectors_are_present() -> None:
+def test_scrape_time_collectors_are_present(monkeypatch) -> None:
     body, _ = observability.render()
     text = body.decode()
     # Read from the existing snapshot sources rather than duplicated state.
     assert "db_pool_capacity" in text
-    assert "voice_calls_max_concurrent" in text
+    # The admission gauges belong to the process that admits calls. Published
+    # from the API they read 0 forever and looked like a quiet floor.
+    assert ("voice_calls_max_concurrent" in text) == observability._voice_runs_here()
 
 
 def test_breaker_metrics_are_actually_emitted() -> None:
@@ -72,9 +74,51 @@ def test_job_queue_metrics_cover_every_queue_and_status() -> None:
         for metric, labels, _v in samples
         if metric == "job_queue_depth"
     }
-    for queue in observability._JOB_QUEUES:
-        for status in ("queued", "running", "failed", "dead"):
+    for queue, (_column, pending) in observability._QUEUES.items():
+        for status in (pending, "running", "failed", "dead"):
             assert (queue, status) in depth, f"missing {queue}/{status}"
+
+
+def test_every_queue_table_is_scraped(db_tx) -> None:
+    """Three of twelve were counted before: a stuck campaign, a webhook
+    backlog or a parked MCP task was invisible to the scrape. Every table the
+    workers drain or the sweeps advance is in the map, and the map names a
+    column the table has."""
+    from sqlalchemy import text
+
+    tables = {
+        r[0]
+        for r in db_tx.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' "
+                "AND (table_name LIKE '%\_jobs' OR table_name LIKE '%\_tasks' "
+                "OR table_name IN ('campaign_targets', 'call_attempts', 'webhook_deliveries'))"
+            )
+        )
+    } - {"eval_tasks"}  # a suite's task list, not a queue: no status, nothing drains it
+    assert set(observability._QUEUES) == tables, sorted(tables ^ set(observability._QUEUES))
+    for table, (column, _pending) in observability._QUEUES.items():
+        cols = {
+            r[0]
+            for r in db_tx.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"), {"t": table}
+            )
+        }
+        assert column in cols and "created_at" in cols, (table, column)
+
+
+def test_a_breaker_trip_is_counted_and_a_close_is_logged(caplog) -> None:
+    import logging
+
+    from circuit_breaker import CircuitBreaker
+
+    breaker = CircuitBreaker("obs-trip-breaker", failure_threshold=1, reset_timeout_s=0)
+    before = observability.circuit_breaker_trips.labels(dep="obs-trip-breaker")._value.get()
+    with caplog.at_level(logging.WARNING, logger="circuit_breaker"):
+        breaker._on_failure()
+        breaker._on_success()
+    assert observability.circuit_breaker_trips.labels(dep="obs-trip-breaker")._value.get() == before + 1
+    assert any("circuit CLOSED name=obs-trip-breaker" in r.getMessage() for r in caplog.records)
 
 
 def test_job_queue_backlog_age_is_emitted_per_queue() -> None:

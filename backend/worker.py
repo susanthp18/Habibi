@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
 import time
 
 # Longer statement timeout than the API process (must set before importing db).
@@ -22,7 +21,10 @@ from env_loader import load_env
 
 load_env()
 
+import bot_jobs
 import db
+import observability
+import work_loop
 from kb_ingest import drain_queue, process_one
 from agent_core.clock import utc_now
 
@@ -34,23 +36,32 @@ logger = logging.getLogger("kb_worker")
 
 _TTS_SYNC_HOUR_UTC = 2
 _TTS_SYNC_MINUTE_UTC = 30
-_last_tts_sync_day: str | None = None
+#: job -> the day this process last claimed it. A fast path only; the row in
+#: nightly_runs is the marker, so two replicas cannot both win a day and a
+#: restarted worker does not run the night again.
+_daily_done: dict[str, str] = {}
+
+
+def _daily(job: str, hour: int, minute: int) -> bool:
+    """True for the one caller that gets to run `job` today, once it is past
+    hour:minute UTC. Claimed before the work, so a run that dies halfway does
+    not restart from the top on the next tick."""
+    now = utc_now()
+    day = now.strftime("%Y-%m-%d")
+    if _daily_done.get(job) == day or (now.hour, now.minute) < (hour, minute):
+        return False
+    _daily_done[job] = day
+    return bot_jobs.claim_daily(db.engine, job, day)
 
 
 def _maybe_sync_tts_catalog() -> None:
     """Time-gated daily catalog refresh (02:30 UTC)."""
-    global _last_tts_sync_day
-    now = utc_now()
-    day_key = now.strftime("%Y-%m-%d")
-    if _last_tts_sync_day == day_key:
-        return
-    if (now.hour, now.minute) < (_TTS_SYNC_HOUR_UTC, _TTS_SYNC_MINUTE_UTC):
+    if not _daily("tts_sync", _TTS_SYNC_HOUR_UTC, _TTS_SYNC_MINUTE_UTC):
         return
     try:
         from tts_catalog_sync import run_sync
 
         summary = run_sync(db.engine, source="azure")
-        _last_tts_sync_day = day_key
         if summary.get("error"):
             logger.warning("daily tts catalog sync error: %s", summary["error"])
         else:
@@ -61,12 +72,10 @@ def _maybe_sync_tts_catalog() -> None:
             )
     except Exception:
         logger.exception("daily tts catalog sync failed")
-        _last_tts_sync_day = day_key  # don't hammer on persistent failure
 
 
 _LEAD_REVALIDATE_HOUR_UTC = 1
 _LEAD_REVALIDATE_MINUTE_UTC = 15
-_last_lead_revalidate_day: str | None = None
 
 
 def _maybe_revalidate_open_leads() -> None:
@@ -78,16 +87,8 @@ def _maybe_revalidate_open_leads() -> None:
     does not delete or close anything — it refreshes the flags so the drawer
     tells the truth before a rep dials.
     """
-    global _last_lead_revalidate_day
-    now = utc_now()
-    day_key = now.strftime("%Y-%m-%d")
-    if _last_lead_revalidate_day == day_key:
+    if not _daily("lead_revalidate", _LEAD_REVALIDATE_HOUR_UTC, _LEAD_REVALIDATE_MINUTE_UTC):
         return
-    if (now.hour, now.minute) < (_LEAD_REVALIDATE_HOUR_UTC, _LEAD_REVALIDATE_MINUTE_UTC):
-        return
-    # Stamp before the work, not after: a sweep that dies halfway must not
-    # restart from the top on the next tick and re-walk the whole pipeline.
-    _last_lead_revalidate_day = day_key
     try:
         report = db.revalidate_open_leads()
         logger.info(
@@ -295,20 +296,13 @@ def _maybe_purge_rate_limit_counters() -> None:
 
 _GARDENER_HOUR_UTC = 3
 _GARDENER_MINUTE_UTC = 10
-_last_gardener_day: str | None = None
-
 
 def _maybe_garden_kb_gaps() -> None:
     """Daily unsigned skill drafts from repeated unanswered questions.
 
     Humans still have to sign. This must never call ``sign_skill``.
     """
-    global _last_gardener_day
-    now = utc_now()
-    day_key = now.strftime("%Y-%m-%d")
-    if _last_gardener_day == day_key:
-        return
-    if (now.hour, now.minute) < (_GARDENER_HOUR_UTC, _GARDENER_MINUTE_UTC):
+    if not _daily("kb_gardener", _GARDENER_HOUR_UTC, _GARDENER_MINUTE_UTC):
         return
     try:
         from agent_core.skills.gardener import assert_unsigned, garden_open_gaps
@@ -330,33 +324,24 @@ def _maybe_garden_kb_gaps() -> None:
                 }
             )
             created += 1
-        _last_gardener_day = day_key
         if created:
             logger.info("kb gardener drafted %s unsigned skill(s)", created)
     except Exception:
         logger.exception("kb gardener failed")
-        _last_gardener_day = day_key
 
 
 _EVAL_HOUR_UTC = 4
 _EVAL_MINUTE_UTC = 15
-_last_eval_day: str | None = None
 
 
 def _maybe_run_eval_schedule() -> None:
     """Daily regression + red-team + twin. Never skips red-team. Off the mouth."""
-    global _last_eval_day
-    now = utc_now()
-    day_key = now.strftime("%Y-%m-%d")
-    if _last_eval_day == day_key:
-        return
-    if (now.hour, now.minute) < (_EVAL_HOUR_UTC, _EVAL_MINUTE_UTC):
+    if not _daily("eval_schedule", _EVAL_HOUR_UTC, _EVAL_MINUTE_UTC):
         return
     try:
         from agent_core.eval.schedule import run_continuous
 
         result = run_continuous()
-        _last_eval_day = day_key
         logger.info(
             "eval schedule origin=scheduled ran=%s failed=%s",
             result.get("ran"),
@@ -364,7 +349,6 @@ def _maybe_run_eval_schedule() -> None:
         )
     except Exception:
         logger.exception("eval schedule failed")
-        _last_eval_day = day_key
 
 
 def _maybe_drain_mcp_tasks() -> None:
@@ -425,37 +409,22 @@ def main() -> None:
         return
 
     logger.info("worker started poll=%.1fs", args.poll)
-    stop = False
+    observability.serve_metrics()
 
-    def _stop(*_args: object) -> None:
-        nonlocal stop
-        stop = True
+    def step() -> bool:
+        _maybe_sync_tts_catalog()
+        _maybe_revalidate_open_leads()
+        _maybe_sweep_due_followups()
+        _maybe_scan_for_violations()
+        _maybe_purge_rate_limit_counters()
+        _maybe_autoscore_interactions()
+        _maybe_garden_kb_gaps()
+        _maybe_run_eval_schedule()
+        _maybe_drain_mcp_tasks()
+        _maybe_policy_jobs()
+        return process_one(db.engine)
 
-    try:
-        signal.signal(signal.SIGTERM, _stop)
-        signal.signal(signal.SIGINT, _stop)
-    except (ValueError, OSError):
-        pass
-
-    while not stop:
-        try:
-            _maybe_sync_tts_catalog()
-            _maybe_revalidate_open_leads()
-            _maybe_sweep_due_followups()
-            _maybe_scan_for_violations()
-            _maybe_purge_rate_limit_counters()
-            _maybe_autoscore_interactions()
-            _maybe_garden_kb_gaps()
-            _maybe_run_eval_schedule()
-            _maybe_drain_mcp_tasks()
-            _maybe_policy_jobs()
-            did = process_one(db.engine)
-        except Exception:
-            logger.exception("kb worker iteration crashed — backing off")
-            time.sleep(args.poll)
-            continue
-        if not did:
-            time.sleep(args.poll)
+    work_loop.run(step, poll=args.poll, name="kb worker")
 
 
 if __name__ == "__main__":

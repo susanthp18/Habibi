@@ -113,6 +113,10 @@ class CircuitBreaker:
                 )
                 return
             self._failures = 0
+            if self._opened_at is not None:
+                # The one transition that used to happen in silence: an
+                # operator saw the OPEN line and never a line saying it healed.
+                logger.warning("circuit CLOSED name=%s", self.name)
             self._opened_at = None
             self._half_open = False
             self._probe_admitted = False
@@ -143,6 +147,7 @@ class CircuitBreaker:
                         self._failures,
                         self.reset_timeout_s,
                     )
+                    self._count_trip()
                 self._opened_at = time.monotonic()
 
     def _release_probe(self, probe_id: int | None = None) -> None:
@@ -158,6 +163,14 @@ class CircuitBreaker:
             self._half_open = False
             self._probe_admitted = False
             self._probe_admitted_at = None
+
+    def _count_trip(self) -> None:
+        try:
+            import observability
+
+            observability.circuit_breaker_trips.labels(dep=self.name).inc()
+        except Exception:
+            logger.debug("trip metric failed", exc_info=True)
 
     def _observe(self, started: float, outcome: str) -> None:
         """One histogram for every dependency: the breaker is the seam each

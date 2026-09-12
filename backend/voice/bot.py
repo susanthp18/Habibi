@@ -424,6 +424,11 @@ if __name__ == "__main__":
     import actor_context
 
     actor_context.bind_service_actor("bot")
+    # The admission gauges are this process's; the collector reads the flag.
+    os.environ.setdefault("VOICE_PROCESS", "1")
+    import observability
+
+    observability.serve_metrics()
     _warm_before_serving()
     from pipecat.runner.run import main
 

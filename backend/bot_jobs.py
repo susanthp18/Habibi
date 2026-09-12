@@ -21,6 +21,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
 from env_utils import env_bool
+from tenant_context import current_tenant
 from pg_errors import PG_UNIQUE_VIOLATION, is_unique_violation as _is_unique_violation  # noqa: F401
 from agent_core.clock import utc_now
 
@@ -57,6 +58,25 @@ def stale_running_seconds() -> int:
         return max(60, int((os.getenv("BOT_JOB_STALE_RUNNING_SEC") or "300").strip()))
     except ValueError:
         return 300
+
+
+def claim_daily(engine: Engine, job: str, day: str) -> bool:
+    """True for exactly one caller per (tenant, job, day), across replicas
+    and restarts. A module global was the marker before, so two worker
+    replicas ran every nightly twice and a restarted worker ran it again."""
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                INSERT INTO nightly_runs (tenant_id, job, day, ran_by)
+                VALUES (:t, :job, CAST(:day AS date), :by)
+                ON CONFLICT (tenant_id, job, day) DO NOTHING
+                RETURNING job
+                """
+            ),
+            {"t": current_tenant(), "job": job, "day": day, "by": _worker_id()},
+        ).first()
+    return row is not None
 
 
 def _worker_id() -> str:

@@ -22,8 +22,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
-import time
 
 os.environ.setdefault("DB_PROCESS_ROLE", "bot_worker")
 
@@ -33,6 +31,7 @@ load_env()
 
 import azure_openai
 import bot_jobs
+import work_loop
 import cadence
 import call_closer
 import campaigns
@@ -234,37 +233,18 @@ def main() -> None:
     # customer waits behind all of it. Warm at start, then keep it warm while
     # idle (below).
     azure_openai.prewarm(force=True)
-    stop = False
+    observability.serve_metrics()
 
-    def _stop(*_args: object) -> None:
-        nonlocal stop
-        stop = True
+    def warm_while_idle(_ticks: int) -> None:
+        # prewarm() is a no-op until PREWARM_IDLE_SECONDS have passed, so this
+        # costs one tiny completion every few minutes and keeps the TLS
+        # connection and the deployment hot for whenever the next customer
+        # actually writes in.
+        azure_openai.prewarm()
 
-    try:
-        signal.signal(signal.SIGTERM, _stop)
-        signal.signal(signal.SIGINT, _stop)
-    except (ValueError, OSError):
-        pass
-
-    idle_ticks = 0
-    while not stop:
-        try:
-            did = process_one_any()
-        except Exception:
-            logger.exception("process_one crashed — backing off")
-            time.sleep(args.poll)
-            continue
-        idle_ticks = 0 if did else idle_ticks + 1
-        if not did:
-            # Idle tick. prewarm() is a no-op until PREWARM_IDLE_SECONDS have
-            # passed, so this costs one tiny completion every few minutes and
-            # keeps the TLS connection and the deployment hot for whenever the
-            # next customer actually writes in.
-            try:
-                azure_openai.prewarm()
-            except Exception:
-                logger.debug("idle prewarm failed", exc_info=True)
-            time.sleep(idle_sleep(idle_ticks, args.poll))
+    work_loop.run(
+        process_one_any, poll=args.poll, name="bot_worker", on_idle=warm_while_idle, sleep_for=idle_sleep
+    )
 
 
 if __name__ == "__main__":

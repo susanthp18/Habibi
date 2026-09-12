@@ -110,6 +110,17 @@ dependency_calls = Histogram(
 def observe_dependency_call(*, dependency: str, outcome: str, seconds: float) -> None:
     dependency_calls.labels(dependency=dependency, outcome=outcome).observe(seconds)
 
+
+#: One increment per OPEN transition. The 0/1 state gauge says what is open
+#: now; this says how often a dependency has been failing over a window,
+#: which is what a rate alert reads.
+circuit_breaker_trips = Counter(
+    "circuit_breaker_trips_total",
+    "Times a circuit breaker opened, by dependency.",
+    ["dep"],
+    registry=REGISTRY,
+)
+
 authz_denials = Counter(
     "authz_denials_total",
     "Requests refused by the route permission registry.",
@@ -223,20 +234,35 @@ def _voice_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
     yield ("voice_calls_high_water_mark", {}, float(snap.get("highWaterMark") or 0))
 
 
-#: The three SKIP LOCKED queues, all sharing the same status vocabulary
-#: (queued / running / succeeded / failed / dead). ``dead`` is the dead-letter
-#: state — jobs that exhausted their attempts and that nothing surfaces today.
-_JOB_QUEUES = ("bot_turn_jobs", "whatsapp_outbound_jobs", "kb_index_jobs")
+#: Every table a worker drains or a sweep advances: the SKIP LOCKED queues
+#: (queued / running / succeeded / failed / dead), and the state machines the
+#: dialer, the dispatcher and the runtime walk. table -> (column, the value
+#: that means "waiting"). Three of twelve were counted before; a stuck
+#: campaign or a webhook backlog was invisible to the scrape.
+_QUEUES: dict[str, tuple[str, str]] = {
+    "bot_turn_jobs": ("status", "queued"),
+    "whatsapp_outbound_jobs": ("status", "queued"),
+    "kb_index_jobs": ("status", "queued"),
+    "export_jobs": ("status", "queued"),
+    "mcp_tasks": ("status", "queued"),
+    "work_runtime_jobs": ("status", "queued"),
+    "a2a_tasks": ("status", "submitted"),
+    "webhook_deliveries": ("status", "pending"),
+    "campaign_targets": ("state", "pending"),
+    "call_attempts": ("state", "reserved"),
+}
+#: Kept for the tests and dashboards that read the original three by name.
+_JOB_QUEUES = tuple(_QUEUES)
 
 _JOB_DEPTH_SQL = " UNION ALL ".join(
     f"""
-    SELECT '{table}' AS queue, status,
+    SELECT '{table}' AS queue, {column} AS status,
            count(*) AS n,
            COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0) AS oldest_s
       FROM {table}
-     GROUP BY status
+     GROUP BY {column}
     """
-    for table in _JOB_QUEUES
+    for table, (column, _pending) in _QUEUES.items()
 )
 
 
@@ -271,14 +297,14 @@ def _job_queue_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
         queue, status = str(row["queue"]), str(row["status"])
         seen.add((queue, status))
         yield ("job_queue_depth", {"queue": queue, "status": status}, float(row["n"]))
-        if status == "queued":
+        if status == _QUEUES.get(queue, ("", "queued"))[1]:
             yield ("job_queue_oldest_seconds", {"queue": queue}, float(row["oldest_s"] or 0))
 
-    for queue in _JOB_QUEUES:
-        for status in ("queued", "running", "failed", "dead"):
+    for queue, (_column, pending) in _QUEUES.items():
+        for status in (pending, "running", "failed", "dead"):
             if (queue, status) not in seen:
                 yield ("job_queue_depth", {"queue": queue, "status": status}, 0.0)
-        if (queue, "queued") not in seen:
+        if (queue, pending) not in seen:
             yield ("job_queue_oldest_seconds", {"queue": queue}, 0.0)
 
 
@@ -312,6 +338,21 @@ def _kb_cache_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
 _COLLECTORS_REGISTERED = False
 
 
+def _voice_runs_here() -> bool:
+    """The voice admission gauges belong to the process that admits calls:
+    the voice worker, or the API when it embeds the host. Published from the
+    API otherwise, ``voice_calls_active`` read 0 forever and looked like a
+    quiet floor."""
+    if os.getenv("VOICE_PROCESS") == "1":
+        return True
+    try:
+        from voice.host import embedded_host_enabled
+
+        return embedded_host_enabled()
+    except Exception:
+        return False
+
+
 def register_collectors() -> None:
     """Attach the scrape-time collectors. Idempotent."""
     global _COLLECTORS_REGISTERED
@@ -319,7 +360,8 @@ def register_collectors() -> None:
         return
     REGISTRY.register(_SnapshotCollector("db_pool", "SQLAlchemy connection pool occupancy.", _pool_samples))
     REGISTRY.register(_SnapshotCollector("circuit_breakers", "Circuit breaker state and failure counts.", _breaker_samples))
-    REGISTRY.register(_SnapshotCollector("voice_admission", "Voice concurrency admission control.", _voice_samples))
+    if _voice_runs_here():
+        REGISTRY.register(_SnapshotCollector("voice_admission", "Voice concurrency admission control.", _voice_samples))
     REGISTRY.register(_SnapshotCollector("job_queues", "SKIP LOCKED job queue depth, dead letters and backlog age.", _job_queue_samples))
     REGISTRY.register(_SnapshotCollector("rate_limits", "Rate-limit throttles since process start.", _rate_limit_samples))
     REGISTRY.register(_SnapshotCollector("kb_result_cache", "Shared KB retrieval-result cache hits, misses and size.", _kb_cache_samples))
@@ -330,6 +372,26 @@ def render() -> tuple[bytes, str]:
     """``(body, content_type)`` for the ``/metrics`` response."""
     register_collectors()
     return generate_latest(REGISTRY), CONTENT_TYPE_LATEST
+
+
+def serve_metrics() -> int | None:
+    """Expose this process's registry on ``METRICS_PORT`` (0 or unset: off).
+
+    The API serves ``/metrics`` inside FastAPI; the workers and the voice
+    process have no HTTP surface of their own, so their queues, breakers and
+    admission gauges were published by nobody. Returns the port it bound.
+    """
+    from env_utils import env_int
+
+    port = env_int("METRICS_PORT", 0)
+    if port <= 0:
+        return None
+    from prometheus_client import start_http_server
+
+    register_collectors()
+    start_http_server(port, registry=REGISTRY)
+    logger.info("metrics on :%s/metrics", port)
+    return port
 
 
 # ---------------------------------------------------------------------------
