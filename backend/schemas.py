@@ -2227,13 +2227,17 @@ TtsGender = Literal["Female", "Male"]
 
 
 class PersonaTraits(BaseModel):
+    """Slider positions, 0..100. The sliders are bounded in the browser; the
+    wire was not, so a hand-written PATCH could store 900 and the prompt
+    renderer's "warm" / "direct" thresholds read nonsense."""
+
     model_config = ConfigDict(extra="forbid")
 
-    empathy: int
-    firmness: int
-    formality: int
-    verbosity: int
-    upsell: int
+    empathy: int = Field(ge=0, le=100)
+    firmness: int = Field(ge=0, le=100)
+    formality: int = Field(ge=0, le=100)
+    verbosity: int = Field(ge=0, le=100)
+    upsell: int = Field(ge=0, le=100)
 
 
 class PersonaState(BaseModel):

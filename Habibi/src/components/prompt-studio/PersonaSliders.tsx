@@ -229,12 +229,24 @@ export function PersonaSliders({
         </div>
 
         <div>
-          <div className="mb-075 text-body-small font-semibold text-text-subtlest">
+          <label
+            htmlFor="persona-primary-language"
+            className="mb-075 block text-body-small font-semibold text-text-subtlest"
+          >
             Primary language
-          </div>
+          </label>
           <select
+            id="persona-primary-language"
             value={value.language}
-            onChange={(e) => update({ language: e.target.value })}
+            onChange={(e) =>
+              // The new primary leaves the fallback list: the chips hide it, but
+              // the stored list used to keep it, so a card that moved from
+              // Hindi to English still declared Hindi as its own fallback.
+              update({
+                language: e.target.value,
+                fallbackLanguages: value.fallbackLanguages.filter((l) => l !== e.target.value),
+              })
+            }
             className="w-full rounded-medium border border-border bg-surface px-100 py-075 text-body-small"
           >
             {LANGUAGES.map((l) => (
@@ -259,6 +271,8 @@ export function PersonaSliders({
               return (
                 <button
                   key={l}
+                  type="button"
+                  aria-pressed={on}
                   onClick={() => toggleFallback(l)}
                   className={`rounded-full px-100 py-025 text-body-small ${
                     on
