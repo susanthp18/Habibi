@@ -58,35 +58,20 @@ _CONTEXT_SUMMARY_PROMPT = (
 )
 
 
-def build_services(call) -> None:
-    """Tuning, STT/TTS/LLM, aggregators, KB, turn-state observer, recording."""
-    from pipecat.audio.vad.silero import SileroVADAnalyzer
-    from pipecat.processors.aggregators.llm_context import LLMContext
-    from pipecat.processors.aggregators.llm_response_universal import (
-        LLMAssistantAggregatorParams,
-        LLMContextAggregatorPair,
-        LLMUserAggregatorParams,
-    )
-    from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-    from pipecat.services.azure.stt import AzureSTTService
-    from pipecat.utils.context.llm_context_summarization import (
-        LLMAutoContextSummarizationConfig,
-        LLMContextSummaryConfig,
-    )
-
-    from voice.rtvi_events import RtviEmitter
-    from voice.tts_pool import KeepAliveAzureTTSService
-
-    import db as _db
-
+def _bind_providers(call: Any) -> None:
+    """Tuning, the Azure deployment, the setup trace, STT/TTS/LLM through the provider binder, and usage metering."""
     runner_args = call.runner_args
     session = call.session
     bundle = call.bundle
     bot_id = call.bot_id
     sink = call.sink
     system_instruction = call.system_instruction
-    sandbox_session = call.sandbox_session
-    _spawn_bg = call._spawn_bg
+
+    from pipecat.services.azure.stt import AzureSTTService
+
+    from voice.tts_pool import KeepAliveAzureTTSService
+
+    import db as _db
 
     vparams = voice_params_from_config(
         bundle.get("voiceConfig"),
@@ -233,6 +218,36 @@ def build_services(call) -> None:
         stt_language=(tuning.get("stt") or {}).get("language") or "en-IN",
     )
 
+    call._setup_trace = _setup_trace
+    call.deployment = deployment
+    call.llm = llm
+    call.stt = stt
+    call.tts = tts
+    call.tuning = tuning
+
+
+def _build_context(call: Any) -> None:
+    """The spoke-this-response probe, the idle timeout, the LLM context and its aggregator pair."""
+    runner_args = call.runner_args
+    sink = call.sink
+    _spawn_bg = call._spawn_bg
+    _setup_trace = call._setup_trace
+    tuning = call.tuning
+
+    from pipecat.audio.vad.silero import SileroVADAnalyzer
+    from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.processors.aggregators.llm_response_universal import (
+        LLMAssistantAggregatorParams,
+        LLMContextAggregatorPair,
+        LLMUserAggregatorParams,
+    )
+    from pipecat.utils.context.llm_context_summarization import (
+        LLMAutoContextSummarizationConfig,
+        LLMContextSummaryConfig,
+    )
+
+
+
     # Interlock between the two ways of covering tool latency, and the
     # authoritative bot-turn tap — see voice/turn_probe.py. Constructed here so
     # the filler handler below can close over it.
@@ -316,6 +331,26 @@ def build_services(call) -> None:
     assistant_aggregator = context_aggregator.assistant()
     sink.attach_aggregators(user_aggregator, assistant_aggregator)
     _setup_trace("setup.vad")
+
+    call.context = context
+    call.context_aggregator = context_aggregator
+    call.idle_timeout = idle_timeout
+    call.spoke_probe = spoke_probe
+    call.user_aggregator = user_aggregator
+
+
+def _build_kb_and_recording(call: Any) -> None:
+    """The RTVI emitter, the KB cache and processors, the bot-turn observer, the audio buffer and turn audio."""
+    runner_args = call.runner_args
+    session = call.session
+    bundle = call.bundle
+    sandbox_session = call.sandbox_session
+    _setup_trace = call._setup_trace
+
+    from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+
+    from voice.rtvi_events import RtviEmitter
+
 
     from voice.kb_enrich import KbCache, KbEnrichProcessor, KbSpeculationProcessor
 
@@ -433,27 +468,23 @@ def build_services(call) -> None:
         await audiobuffer.start_recording()
         logger.info("Recording started · session={}", session.session_id)
 
-    call.tuning = tuning
-    call.deployment = deployment
-    call._setup_trace = _setup_trace
-    call.stt = stt
-    call.tts = tts
-    call.llm = llm
-    call.spoke_probe = spoke_probe
-    call.idle_timeout = idle_timeout
-    call.context = context
-    call.context_aggregator = context_aggregator
-    call.user_aggregator = user_aggregator
-    call.emitter = emitter
-    call.kb_snapshot_id = kb_snapshot_id
-    call.sandbox_persona = sandbox_persona
     call._flow_holder = _flow_holder
-    call.kb_cache = kb_cache
-    call.kb_speculator = kb_speculator
-    call.kb_enrich = kb_enrich
-    call.bot_turn_state = bot_turn_state
-    call.audiobuffer = audiobuffer
     call._start_recording = _start_recording
+    call.audiobuffer = audiobuffer
+    call.bot_turn_state = bot_turn_state
+    call.emitter = emitter
+    call.kb_cache = kb_cache
+    call.kb_enrich = kb_enrich
+    call.kb_snapshot_id = kb_snapshot_id
+    call.kb_speculator = kb_speculator
+    call.sandbox_persona = sandbox_persona
+
+
+def build_services(call) -> None:
+    """Tuning, STT/TTS/LLM, aggregators, KB, turn-state observer, recording."""
+    _bind_providers(call)
+    _build_context(call)
+    _build_kb_and_recording(call)
 
 
 async def build_pipeline(call) -> None:

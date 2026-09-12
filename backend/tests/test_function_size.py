@@ -34,7 +34,6 @@ SKIP_DIRS = {
 #: ``path::qualname`` -> measured lines on 2026-09-12. Shrink or delete; never add.
 BASELINE: dict[str, int] = {
     "voice/flows_dynamic.py::build_authored_flow": 399,
-    "voice/bot_pipeline.py::build_services": 396,
     "voice/bot_handlers_connect.py::build": 360,
     "voice/bot_handlers_connect.py::build.on_client_connected": 325,
 }
