@@ -566,26 +566,6 @@ def _tts_sync_run_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "region": row.get("region") or "",
     }
 
-def latest_tts_sync_run() -> dict[str, Any] | None:
-    _mod = _db()
-    engine = _mod.engine
-    _one = _mod._one
-    with engine.connect() as conn:
-        row = _one(
-            conn.execute(
-                text(
-                    """
-                    SELECT id, started_at, finished_at, source, fetched_count, upserted,
-                           soft_removed, unchanged, error, region
-                    FROM tts_voice_sync_runs
-                    ORDER BY started_at DESC
-                    LIMIT 1
-                    """
-                )
-            )
-        )
-    return _tts_sync_run_row(row)
-
 def list_tts_sync_runs(*, limit: int = 20) -> list[dict[str, Any]]:
     _mod = _db()
     engine = _mod.engine

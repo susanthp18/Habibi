@@ -2648,7 +2648,6 @@ from db_prompt_studio import (  # noqa: E402
     get_published_prompt_version as get_published_prompt_version,
     get_tts_voice_catalog_entry as get_tts_voice_catalog_entry,
     get_tts_voice_warning as get_tts_voice_warning,
-    latest_tts_sync_run as latest_tts_sync_run,
     list_agent_studio_cards as list_agent_studio_cards,
     list_entry_bindings as list_entry_bindings,
     policy_engines as policy_engines,

@@ -86,7 +86,7 @@ class Ingest:
     source_ref: str
     tenant_id: str
     adapter: Any = None
-    arrival: datetime = None
+    arrival: datetime | None = None
     payload_hash: str = ""
     validated: list[dict[str, Any]] = field(default_factory=list)
 

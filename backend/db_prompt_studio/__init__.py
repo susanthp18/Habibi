@@ -30,7 +30,6 @@ from db_prompt_studio.voices import (  # noqa: F401
     _tts_sync_run_row as _tts_sync_run_row,
     get_tts_voice_catalog_entry as get_tts_voice_catalog_entry,
     get_tts_voice_warning as get_tts_voice_warning,
-    latest_tts_sync_run as latest_tts_sync_run,
     list_persona_presets as list_persona_presets,
     list_tts_price_tiers as list_tts_price_tiers,
     list_tts_sync_runs as list_tts_sync_runs,
