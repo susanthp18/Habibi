@@ -520,7 +520,24 @@ class CustomerNoteCreateRequest(BaseModel):
     pinned: bool = False
 
 
+class ContactPolicyBindingEntryResponse(BaseModel):
+    """One rule the gate consulted for this decision (policy_binding.pair)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    rule_version: int
+    scope: str
+    verdict: str
+    citation: str | None = None
+    evaluated_at: str
+    kind: str
+
+
 class ContactPolicyResponse(BaseModel):
+    """`contact_policy.Decision.to_payload()`: the verdict, the schedule when it
+    is a refusal (ADR-0007), and the rule set it was judged under."""
+
     model_config = ConfigDict(extra="forbid")
 
     allowed: bool
@@ -531,6 +548,9 @@ class ContactPolicyResponse(BaseModel):
     coalesced: bool = False
     channel: str
     purpose: str
+    nextAllowedAt: str | None = None
+    policyBindingHash: str | None = None
+    policyBinding: list[ContactPolicyBindingEntryResponse] = []
 
 
 class TranscriptTurnCreateRequest(BaseModel):

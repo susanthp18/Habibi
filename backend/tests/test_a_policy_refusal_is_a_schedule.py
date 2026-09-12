@@ -261,3 +261,26 @@ def test_a_deferred_job_does_not_look_like_a_stalled_queue() -> None:
 
     src = inspect.getsource(wo._warn_if_queue_is_not_draining)
     assert "run_after IS NULL OR run_after <= now()" in src
+
+
+def test_the_contact_policy_route_carries_the_schedule_and_the_binding(db_tx) -> None:
+    """`ContactPolicyResponse` forbade extras and named neither `nextAllowedAt`
+    nor the policy binding, so every read of a customer's contact policy was a
+    500 the moment the gate had a rule set to cite. The route answers with the
+    verdict, the schedule when there is one, and the rules it was judged under."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    import main as app_main
+
+    customer_id = db_tx.execute(
+        text("SELECT id FROM customers_pii WHERE id <> 'UNKNOWN-CALLER' ORDER BY id LIMIT 1")
+    ).scalar()
+    assert customer_id
+    res = TestClient(app_main.app).get(f"/customers/{customer_id}/contact-policy")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert {"allowed", "channel", "purpose", "policyBinding"} <= set(body)
+    if body["policyBinding"]:
+        assert body["policyBindingHash"].startswith("sha256:")
+        assert {"rule_id", "kind", "verdict", "scope"} <= set(body["policyBinding"][0])

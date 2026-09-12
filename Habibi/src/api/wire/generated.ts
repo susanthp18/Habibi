@@ -1192,6 +1192,15 @@ export const CustomerInsightsResponse = z.object({
   "authorityPolicy": AuthorityPolicyResponse.nullable().optional(),
   "treatment": TreatmentSnapshotResponse.nullable().optional(),
 }).passthrough();
+export const ContactPolicyBindingEntryResponse = z.object({
+  "rule_id": z.string(),
+  "rule_version": z.number(),
+  "scope": z.string(),
+  "verdict": z.string(),
+  "citation": z.string().nullable().optional(),
+  "evaluated_at": z.string(),
+  "kind": z.string(),
+}).passthrough();
 export const ContactPolicyResponse = z.object({
   "allowed": z.boolean(),
   "reason": z.string().nullable().optional(),
@@ -1201,6 +1210,9 @@ export const ContactPolicyResponse = z.object({
   "coalesced": z.boolean().optional(),
   "channel": z.string(),
   "purpose": z.string(),
+  "nextAllowedAt": z.string().nullable().optional(),
+  "policyBindingHash": z.string().nullable().optional(),
+  "policyBinding": z.array(ContactPolicyBindingEntryResponse).optional(),
 }).passthrough();
 export const InteractionCostLineResponse = z.object({
   "serviceId": z.string(),

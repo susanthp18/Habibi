@@ -228,6 +228,7 @@ from schemas.crm import (
     CallbackListResponse as CallbackListResponse,
     CallbackPatchRequest as CallbackPatchRequest,
     CallbackReminderResponse as CallbackReminderResponse,
+    ContactPolicyBindingEntryResponse as ContactPolicyBindingEntryResponse,
     ContactPolicyResponse as ContactPolicyResponse,
     CustomerInsightsResponse as CustomerInsightsResponse,
     CustomerNoteCreateRequest as CustomerNoteCreateRequest,
