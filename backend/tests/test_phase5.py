@@ -262,6 +262,20 @@ def test_a2a_task_input_required_with_cert(db_tx, monkeypatch) -> None:
         pytest.skip("executable-contract migration not applied")
     monkeypatch.setenv("A2A_ENABLED", "true")
     monkeypatch.setenv("A2A_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
+    # The card this test speaks for is its own: whether the dev database's
+    # published collections card exposes A2A is that card's business.
+    import agent_core.a2a as a2a_mod
+
+    monkeypatch.setattr(
+        a2a_mod,
+        "_published_card",
+        lambda _bot: {
+            "agentCard": {
+                "skills": [{"skill_id": "premium-lapse-chase"}],
+                "a2a": {"expose": True, "skill_ids": ["premium-lapse-chase"]},
+            }
+        },
+    )
     from agent_core.a2a import create_task, require_partner
 
     dn = "CN=bank-fraud.example"

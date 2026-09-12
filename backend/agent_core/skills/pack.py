@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from agent_core.dicts import sub
 
 PACKS_DIR = Path(__file__).resolve().parent / "packs"
 
@@ -142,7 +143,7 @@ def parse_skill_md(text: str, *, slug_hint: str | None = None) -> SkillPack:
     allowed = meta.get("allowed-tools") or meta.get("allowed_tools") or []
     if not isinstance(allowed, list):
         raise ValueError("skill_allowed_tools_not_a_list")
-    metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
+    metadata = sub(meta, "metadata")
     data_class = metadata.get("data_class") or []
     if not isinstance(data_class, list):
         data_class = [str(data_class)]

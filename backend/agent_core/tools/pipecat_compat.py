@@ -34,9 +34,14 @@ from typing import Any, Callable, TypeVar
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 try:  # pragma: no cover - one branch per image; both are exercised in CI
-    from pipecat.flows import NO_RESPONSE, flows_tool_options  # pyright: ignore[reportAssignmentType]
+    from pipecat.flows import NO_RESPONSE as _PIPECAT_NO_RESPONSE
+    from pipecat.flows import flows_tool_options  # pyright: ignore[reportAssignmentType]
 
     PIPECAT = True
+    #: Typed ``Any`` on purpose: a tool handler returns ``(result, next)`` where
+    #: ``next`` is a node dict, ``None`` or this sentinel, and the sentinel's
+    #: own class would make every handler's annotation name pipecat.
+    NO_RESPONSE: Any = _PIPECAT_NO_RESPONSE
 except ModuleNotFoundError:  # pragma: no cover - see above
     PIPECAT = False
 

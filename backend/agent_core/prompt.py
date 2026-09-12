@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from agent_core.dicts import sub
 
 
 def agent_name() -> str:
@@ -144,7 +145,7 @@ def build_system_prompt(
     skill_catalog: str = "",
     channel: str = "text",
 ) -> str:
-    traits = persona.get("traits") if isinstance(persona.get("traits"), dict) else {}
+    traits = sub(persona, "traits")
     # This builder serves the messaging channels; the voice loop has its own
     # (voice/natural.py) and passes channel explicitly. Defaulting to text here
     # rather than voice keeps the call-only rules out of WhatsApp by default.

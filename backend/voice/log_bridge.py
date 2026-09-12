@@ -21,6 +21,7 @@ level.
 
 from __future__ import annotations
 
+from typing import Any
 import inspect
 import logging
 import os
@@ -60,7 +61,7 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=depth).log(level, message)
 
 
-def _scrub_loguru_message(record: dict) -> None:
+def _scrub_loguru_message(record: Any) -> None:
     """Mask PII in every loguru message, including Pipecat's own.
 
     Never raises: a scrubber that takes down the logger is worse than the leak

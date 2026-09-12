@@ -21,6 +21,7 @@ from db_prompt_studio.deployments import (
 from db_prompt_studio.versions import (
     _map_prompt_version,
 )
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +178,8 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
 
             card = scaffold_card(bot_id, name)
             source = "scaffold"
-    identity = card.get("identity") if isinstance(card.get("identity"), dict) else {}
-    tools = card.get("tools") if isinstance(card.get("tools"), dict) else {}
+    identity = sub(card, "identity")
+    tools = sub(card, "tools")
     skill_rows = card.get("skills") if isinstance(card.get("skills"), list) else []
     if not skill_rows:
         try:

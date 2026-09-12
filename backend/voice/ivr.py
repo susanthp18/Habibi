@@ -28,6 +28,7 @@ import asyncio
 import logging
 from functools import partial
 from typing import Any, Awaitable, Callable
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def should_enable_ivr(session_extra: dict[str, Any] | None, *, is_twilio: bool) 
     if not voice_config.voice_ivr_enabled():
         return False
     extra = session_extra or {}
-    params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
+    params = sub(extra, "twilio_params")
     call_type = str(params.get("call_type") or extra.get("call_type") or "").lower()
     if call_type != "outbound":
         return False
@@ -77,7 +78,7 @@ def ivr_budget_sec(session_extra: dict[str, Any] | None) -> int:
     because a phone menu was slow.
     """
     extra = session_extra or {}
-    mission = extra.get("mission") if isinstance(extra.get("mission"), dict) else {}
+    mission = sub(extra, "mission")
     try:
         return max(15, min(300, int(mission.get("ivrMaxSec") or 90)))
     except (TypeError, ValueError):
@@ -112,7 +113,7 @@ def build_dtmf_aggregator() -> Any | None:
 def ivr_goal(session_extra: dict[str, Any] | None) -> str:
     """Per-call override via ``twilio_params.ivr_goal``, else the safe default."""
     extra = session_extra or {}
-    params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
+    params = sub(extra, "twilio_params")
     goal = str(params.get("ivr_goal") or extra.get("ivr_goal") or "").strip()
     return goal or DEFAULT_IVR_GOAL
 

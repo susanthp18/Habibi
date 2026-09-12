@@ -54,6 +54,12 @@ include = [
   "db_treatment_holds.py",
   "db_violations.py",
   "db_workspace.py",
+  "voice",
+  "db_prompt_studio",
+  "webhooks_dispatch.py",
+  "work_loop.py",
+  "observability.py",
+  "circuit_breaker.py",
 ]
 exclude = ["**/__pycache__", ".venv"]
 venvPath = "."

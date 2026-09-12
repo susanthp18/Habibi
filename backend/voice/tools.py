@@ -122,7 +122,7 @@ def build_tools(
     hub_node: str = "state_position",
     upsell_node: str | None = "gated_upsell",
     sink: Any | None = None,
-    allowed_tool_names: set[str] | None = None,
+    allowed_tool_names: frozenset[str] | set[str] | None = None,
     attached_skills: list[Any] | None = None,
     agent_card: dict[str, Any] | None = None,
     #: Namespace -> what that fleet member may execute, from

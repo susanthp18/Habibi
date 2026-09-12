@@ -469,7 +469,7 @@ def warm_transfer_to_supervisor(
             agent_call.sid,
         )
         try:
-            client.calls(agent_call.sid).update(status="completed")
+            client.calls(str(agent_call.sid)).update(status="completed")
         except Exception:
             logger.exception(
                 "Twilio warm transfer: could not cancel supervisor leg %s", agent_call.sid

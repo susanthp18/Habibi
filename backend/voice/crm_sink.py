@@ -15,7 +15,7 @@ import logging
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from agent_core import classify_intent
 from agent_core import turn_critic
@@ -1299,7 +1299,7 @@ class CrmSink:
         try:
             chronological = getattr(breakdown, "chronological_events", None)
             if callable(chronological):
-                events = list(chronological())
+                events = [str(e) for e in cast(Any, chronological)()]
         except Exception:
             logger.debug("chronological_events failed", exc_info=True)
         return {

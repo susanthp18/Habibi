@@ -46,6 +46,7 @@ import re
 import time
 from typing import Any
 from env_utils import as_bool
+from agent_core.dicts import sub
 
 logger = logging.getLogger("voice.trace")
 
@@ -97,7 +98,7 @@ def session_fields(session: Any | None = None, extra: dict[str, Any] | None = No
     extra = extra if extra is not None else (getattr(session, "extra", None) or {})
     if not isinstance(extra, dict):
         extra = {}
-    params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
+    params = sub(extra, "twilio_params")
     demo_raw = params.get("demo") if params.get("demo") is not None else extra.get("demo")
     demo = as_bool(demo_raw)
     return {

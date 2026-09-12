@@ -161,6 +161,8 @@ def build(ctx: ToolBuildContext) -> None:
     def _spec(name: str, handler: Callable[..., Any]) -> Any:
         """Flows schema for a catalog tool, with audit tracing attached."""
         spec = CATALOG.get(name)
+        if spec is None:
+            raise KeyError(f"tool_not_in_catalog:{name}")
         if name == "handoff_to_agent":
             # The card's own handoffs, in the tool the model is offered. Without
             # this the description named two example bot ids and the `when`

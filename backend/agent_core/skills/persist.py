@@ -13,6 +13,7 @@ import db
 from agent_core.skills.lint import assert_pack_lints
 from agent_core.skills.pack import SkillPack, approx_tokens, dumps_skill_md, parse_skill_md
 from agent_core.skills.sign import sign_hash, verify_signature
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,8 @@ def _map_skill(row: dict[str, Any], *, versions: list[dict[str, Any]] | None = N
 
 
 def _map_version(row: dict[str, Any]) -> dict[str, Any]:
-    fm = row.get("frontmatter") if isinstance(row.get("frontmatter"), dict) else {}
-    meta = fm.get("metadata") if isinstance(fm.get("metadata"), dict) else {}
+    fm = sub(row, "frontmatter")
+    meta = sub(fm, "metadata")
     allowed = row.get("allowed_tools") or []
     if hasattr(allowed, "tolist"):
         allowed = list(allowed)
@@ -86,7 +87,7 @@ def _map_version(row: dict[str, Any]) -> dict[str, Any]:
         "contentHash": row.get("content_hash") or "",
         "signature": row.get("signature"),
         "signedBy": row.get("signed_by"),
-        "pack": row.get("pack") if isinstance(row.get("pack"), dict) else {},
+        "pack": sub(row, "pack"),
         "description": str(fm.get("description") or ""),
         "evalSuite": meta.get("eval_suite"),
         "origin": meta.get("origin"),
@@ -896,7 +897,7 @@ def ensure_first_party_skills() -> dict[str, int]:
             row = published.get(bot_id)
             if not row:
                 continue
-            card = row.get("agent_card") if isinstance(row.get("agent_card"), dict) else {}
+            card = sub(row, "agent_card")
             skills = card.get("skills") if isinstance(card.get("skills"), list) else []
             filled: list[str] = []
             if not skills:

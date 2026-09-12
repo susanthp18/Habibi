@@ -46,7 +46,7 @@ import logging
 import re
 import time
 from collections import OrderedDict
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from pipecat.frames.frames import (
     CancelFrame,
@@ -339,7 +339,8 @@ class KbCache:
         ix = None
         if callable(self._interaction_id_getter):
             try:
-                ix = self._interaction_id_getter()
+                got = self._interaction_id_getter()
+                ix = str(got) if got else None
             except Exception:
                 ix = None
 
@@ -639,9 +640,13 @@ class KbEnrichProcessor(FrameProcessor):
         context = getattr(frame, "context", None)
         if context is None:
             return
-        get_messages = getattr(context, "get_messages", None)
-        set_messages = getattr(context, "set_messages", None)
-        if not callable(get_messages) or not callable(set_messages):
+        # Duck-typed: the context is pipecat's, and its message accessors
+        # are what we call, whatever class carries them.
+        get_messages = cast(
+            "Callable[[], list[Any] | None] | None", getattr(context, "get_messages", None)
+        )
+        set_messages = cast("Callable[[list[Any]], None] | None", getattr(context, "set_messages", None))
+        if get_messages is None or set_messages is None:
             return
 
         messages = list(get_messages() or [])

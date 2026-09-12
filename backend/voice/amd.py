@@ -35,6 +35,7 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 from env_utils import as_bool
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ def voicemail_script(
 
 def _twilio_params(session_extra: dict[str, Any] | None) -> dict[str, Any]:
     extra = session_extra or {}
-    params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
+    params = sub(extra, "twilio_params")
     return params
 
 
@@ -179,8 +180,8 @@ def voicemail_policy(session_extra: dict[str, Any] | None) -> dict[str, Any]:
     anything a first one did not, and every one of them spends a contact touch.
     """
     extra = session_extra or {}
-    mission = extra.get("mission") if isinstance(extra.get("mission"), dict) else {}
-    policy = mission.get("voicemail") if isinstance(mission.get("voicemail"), dict) else {}
+    mission = sub(extra, "mission")
+    policy = sub(mission, "voicemail")
     return {
         "leave": str(policy.get("leave") or "first_attempt_only"),
         "maxSec": int(policy.get("maxSec") or 25),
@@ -561,7 +562,7 @@ def build_voicemail_detector(*, llm: Any, session: Any = None, **kwargs: Any) ->
     # One guard per detector, so its "has anyone spoken yet" state belongs to
     # this call alone.
     guard = _ClassifierContextGuard()
-    detector._habibi_guard = guard
+    setattr(detector, "_habibi_guard", guard)  # noqa: B010 -- pipecat's class, our slot
     traced_blocks: set[str] = set()
 
     async def _allow(frame: Any) -> bool:

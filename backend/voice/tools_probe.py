@@ -199,7 +199,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # Kept so `capture_lead` can still tie an inbound "actually, tell me
         # about that" to the decision that scored it, rather than refusing it
         # as un-offered.
-        state.offered_product_id = result.top.product_id
+        state.offered_product_id = result.top.product_id if result.top is not None else None
         state.offered_product_ids.update(o.product_id for o in result.offers)
 
     async def _record_close_probe(with_offer: bool) -> None:

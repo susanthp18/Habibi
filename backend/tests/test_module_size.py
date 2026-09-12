@@ -24,9 +24,9 @@ SKIP_DIRS = {"tests", "alembic", ".venv", "node_modules", "scripts", "seeds", "s
 BASELINE: dict[str, int] = {
     "db.py": 2592,
     "db_inbox.py": 2526,
-    "sandbox_runtime.py": 1875,
+    "sandbox_runtime.py": 1873,
     "bot_runtime.py": 1836,
-    "agent_core/cards/compile.py": 1718,
+    "agent_core/cards/compile.py": 1633,
     "voice/crm_sink.py": 1713,
     "contact_policy.py": 1648,
     "outbound.py": 1627,

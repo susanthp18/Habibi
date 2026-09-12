@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import text
 
@@ -86,6 +86,7 @@ WITH scoped AS (
      AND d.trigger_ref IS NOT NULL
      AND d.created_at >= :since
      AND (CAST(:tenant AS TEXT) IS NULL OR d.tenant_id = :tenant)
+     AND (CAST(:customers AS TEXT[]) IS NULL OR d.customer_id = ANY(:customers))
 ),
 marked AS (
   SELECT *,
@@ -202,12 +203,14 @@ def build(
     since: Any,
     tenant_id: str | None = None,
     horizon_days: int = 90,
+    customer_ids: Sequence[str] | None = None,
 ) -> dict[str, int]:
     """Rebuild the panel for every case with a decision at or after ``since``.
 
     Idempotent: cases are upserted on their key. ``now`` is passed in rather than
     read from the process clock so the caller -- a worker, or a test on a frozen
-    transaction clock -- decides what "today" is.
+    transaction clock -- decides what "today" is. ``customer_ids`` narrows the
+    rebuild to those borrowers; the worker never passes it.
     """
     from datetime import timedelta
 
@@ -218,6 +221,7 @@ def build(
             "since": since,
             "now": now,
             "tenant": tenant_id,
+            "customers": list(customer_ids) if customer_ids is not None else None,
             "spell_trigger": SPELL_TRIGGER,
         },
     ).mappings().all()

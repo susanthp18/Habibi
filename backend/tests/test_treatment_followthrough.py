@@ -35,6 +35,11 @@ from agent_core.treatment.features import SqlFeatureProvider, Trigger
 TENANT = "hdfc.retail"
 
 
+#: The account the current test speaks for; `_attribute` labels only its
+#: decisions. The queue is the tenant's and carries every sweep's rows.
+_SCOPE: list[str] = []
+
+
 @pytest.fixture
 def account(db_tx):
     row = db_tx.execute(
@@ -51,6 +56,7 @@ def account(db_tx):
     ).mappings().first()
     if row is None:
         pytest.skip("seed has no early-bucket account with a phone number")
+    _SCOPE[:] = [row["id"]]
 
     # The ladder tests below assert which rung is chosen. W5's freshness
     # resolver vetoes every contacting action while the bank's inbound feeds
@@ -145,46 +151,17 @@ def bounce(db_tx, account):
 
 
 def _attribute(conn, *, now=None) -> None:
-    """Run the attribution loop to completion, the way ``bot_worker`` does.
+    """Run the attribution loop over this test's account, to completion.
 
-    One call examines at most ``followthrough.BATCH`` rows. A database of any
-    age accumulates decisions that can never be labelled -- an unenacted shadow
-    decision outside a withholding arm was never sent, so there is nothing to
-    call unanswered, and it is not the counterfactual either -- and one batch of
-    those is enough to fill a single pass.
-
-    So "one call attributes my decision" was never the contract; it only held
-    while the queue was shorter than a batch, which is a property of the dev
-    database rather than of the code. The real contract is that repeated calls
-    make progress and never starve a fresh row, which is what the watermark on
-    ``outcome_checked_at`` buys and what this helper exercises.
+    Scoped, because the queue is the tenant's: a dev database of any age
+    carries hundreds of sweep decisions awaiting attribution, and "one pass
+    labels my decision" was only ever true while the queue was shorter than a
+    batch. The watermark on ``outcome_checked_at`` has its own tests below;
+    here the contract is that the test's rows get labelled.
     """
-    pending = conn.execute(
-        text(
-            "SELECT count(*) FROM treatment_decisions"
-            " WHERE outcome IS NULL AND mode <> 'simulated'"
-            "   AND chosen_action IS NOT NULL"
-            "   AND created_at >= now() - interval '30 days'"
-        )
-    ).scalar() or 0
-    # Bounded. Each pass examines BATCH rows and costs a few queries per row,
-    # so an unbounded drain over a large ambient backlog is thousands of round
-    # trips per test -- which is what a dev database carrying 1,833 sweep
-    # decisions against simulated accounts turned this into.
-    #
-    # That backlog is hygiene rather than a property of the code
-    # (``simulate_treatment_corpus.py --purge`` clears it), so the bound is low
-    # and the assertion that follows names the problem instead of timing out.
-    passes = min(int(pending) // followthrough.BATCH + 2, 8)
-    for _ in range(passes):
-        followthrough.attribute_outcomes(conn, now=now)
-    if pending > passes * followthrough.BATCH:
-        pytest.fail(
-            f"{pending} decisions are awaiting attribution, more than {passes} "
-            f"passes of {followthrough.BATCH} can reach. The dev database is "
-            "carrying a backlog -- run scripts/simulate_treatment_corpus.py "
-            "--purge, which also clears sweep decisions against SIM accounts."
-        )
+    for _ in range(4):
+        if not followthrough.attribute_outcomes(conn, now=now, account_ids=list(_SCOPE) or None):
+            break
 
 
 def _decision(
@@ -710,11 +687,22 @@ def test_the_loop_attributes_in_shadow(db_tx, account, bounce, monkeypatch) -> N
     monkeypatch.setenv("TREATMENT_MODE", "shadow")
     decision_id = _decision(db_tx, account, trigger_ref=bounce, enacted_ago_hours=24)
 
-    # Called until it reports work, as the worker does. One pass examines at
-    # most BATCH rows and a queue of never-labelable decisions can fill it, so
-    # "the first call returns True" is a property of a short queue rather than
-    # of the loop. What must hold is that it gets there.
-    assert any(followthrough.process_one(db.engine) for _ in range(4))
+    # Called until the row is reached, as the worker does. One pass examines
+    # at most BATCH rows, never-examined rows go first, and the tenant's queue
+    # carries every sweep's decisions ahead of this one -- so the number of
+    # passes is a property of the queue, and the test walks as many as the
+    # queue needs (bounded) rather than asserting a short queue.
+    pending = db_tx.execute(
+        text(
+            "SELECT count(*) FROM treatment_decisions WHERE outcome IS NULL AND mode <> 'simulated'"
+            " AND chosen_action IS NOT NULL AND created_at >= now() - interval '30 days'"
+        )
+    ).scalar() or 0
+    passes = min(int(pending) // followthrough.BATCH + 2, 60)
+    for _ in range(passes):
+        followthrough.process_one(db.engine)
+        if _outcome(db_tx, decision_id) is not None:
+            break
     assert _outcome(db_tx, decision_id) == "no_answer"
 
 

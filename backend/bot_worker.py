@@ -38,7 +38,7 @@ import campaigns
 import db
 import observability
 import outbound
-from voice import persist
+from voice import reaper
 import payment_events
 from agent_core.treatment import enact as treatment_enact
 from agent_core.treatment import followthrough as treatment_followthrough
@@ -94,7 +94,7 @@ def process_one_any() -> bool:
         _run_stage("outbound_stale", lambda: outbound.sweep_stale(db.engine))
         # Calls whose voice worker stopped heartbeating: the session, its
         # interaction and its attempt all sat live forever.
-        _run_stage("voice_stale", lambda: persist.reap_stale(db.engine, outbound.stale_after()))
+        _run_stage("voice_stale", lambda: reaper.reap_stale(db.engine, outbound.stale_after()))
         # Caller-ID health. Cheap (three UPDATEs over one tenant's numbers) and
         # on the same settle cadence, because a number's answer rate does not
         # move between iterations and rotating on a stale reading is the same

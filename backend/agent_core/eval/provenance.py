@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Iterable
+from agent_core.dicts import sub
 
 #: Bump when a grader's verdict semantics change; every stored pass then
 #: needs a re-run, which is the point.
@@ -67,7 +68,7 @@ def content_key_for_version(version: dict[str, Any]) -> str:
         from agent_core.cards.schema import is_authored, parse_card
         from agent_core.skills.persist import packs_for_skill_refs
 
-        raw = version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {}
+        raw = sub(version, "agentCard")
         if is_authored(raw):
             packs = packs_for_skill_refs(parse_card(raw).skills)
     except Exception:

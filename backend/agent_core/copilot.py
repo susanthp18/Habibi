@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,7 @@ def _card_chip(interaction_id: str) -> dict[str, Any]:
 
             bundle = load_active_bundle(bot_id=bot_id)
             card = bundle.get("agentCard") or {}
-            ident = card.get("identity") if isinstance(card.get("identity"), dict) else {}
+            ident = sub(card, "identity")
             display = str(ident.get("display_name") or ident.get("displayName") or bot_id)
             for item in card.get("skills") or []:
                 if not isinstance(item, dict):

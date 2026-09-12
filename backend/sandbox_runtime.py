@@ -46,6 +46,7 @@ from flow_graph import parse_graph
 from flow_vars import FlowVariables
 from flow_walk import FlowWalker
 from prompt_render import render_prompt
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -1161,11 +1162,8 @@ def _sandbox_contract(st: SandboxTurn) -> None:
     # The merged fleet graph when there is a fleet, the card's own when there
     # is not -- the same line the live mouth reads (deployment.py). Walking the
     # card's own graph rehearsed a hop that landed nowhere.
-    contract_flow = (
-        compiled.get("fleet_flow")
-        if isinstance(compiled.get("fleet_flow"), dict) and compiled["fleet_flow"].get("nodes")
-        else compiled.get("flow") if isinstance(compiled.get("flow"), dict) else {}
-    )
+    fleet_flow = sub(compiled, "fleet_flow")
+    contract_flow = fleet_flow if fleet_flow.get("nodes") else sub(compiled, "flow")
     # The connector tools the publish froze, exactly as bot_runtime passes the
     # deployment's frozenTools. An unfrozen resolve read the live registry, so
     # the rehearsal could offer an ext.* tool production would refuse.
@@ -1338,7 +1336,7 @@ def _sandbox_assemble(st: SandboxTurn) -> None:
     )
 
     kb_snapshot_id = run.get("kb_snapshot_id")
-    tuning = version.get("tuning") if isinstance(version.get("tuning"), dict) else {}
+    tuning = sub(version, "tuning")
     from agent_core.tuning import normalize_tuning
 
     llm_tuning = normalize_tuning(tuning).get("llm") or {}
@@ -1458,7 +1456,7 @@ def _sandbox_model(st: SandboxTurn) -> None:
     # Empty on the prompt-only path: no tool loop ran, so the graph offered
     # nothing. Reported as absent rather than as an empty offer.
     offered_tools: list[str] = []
-    turn_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    turn_context = sub(payload, "context")
     try:
         if _sandbox_tools_enabled(payload, turn_context):
             (

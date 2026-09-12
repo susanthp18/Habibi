@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 from sqlalchemy import text
 
 from agent_core.reco import talk
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ def _from_decision(row: Mapping[str, Any]) -> dict[str, Any]:
     presented = bool(row.get("presented"))
     response = row.get("response")
     amount = row.get("suggested_amount")
-    features = row.get("features") if isinstance(row.get("features"), dict) else {}
+    features = sub(row, "features")
     window = features.get("preferredWindow")
     codes = _reason_codes(row, chosen)
     name = row.get("product_name")

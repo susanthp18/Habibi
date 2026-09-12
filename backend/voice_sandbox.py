@@ -22,6 +22,7 @@ from agent_core import prompt as agent_core_prompt
 from agent_core.tuning import merge_tuning_delta, normalize_tuning
 import sandbox_runtime
 import voice_session_store
+from agent_core.dicts import sub
 from voice_session_store import (  # re-exported: the gateway is the public surface
     SessionStoreUnavailable,
     is_session_id,
@@ -180,7 +181,7 @@ def start_voice_sandbox(payload: dict[str, Any]) -> dict[str, Any]:
     prompt_version_id = payload.get("promptVersionId")
     kb_snapshot_id = payload.get("kbSnapshotId")
     scenario_id = payload.get("scenarioId")
-    persona = payload.get("persona") if isinstance(payload.get("persona"), dict) else {}
+    persona = sub(payload, "persona")
     persona = _bind_persona_to_customer(persona)
 
     sandbox_run_id = None

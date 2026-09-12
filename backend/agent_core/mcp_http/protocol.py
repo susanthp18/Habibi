@@ -15,6 +15,7 @@ from agent_core.mcp_http.auth import resource_allowed, tool_allowed
 from agent_core.platform_flags import mcp_apps_enabled, mcp_tasks_enabled
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP
+from agent_core.dicts import sub
 
 PROTOCOL_VERSION = "2025-11-25"
 
@@ -65,7 +66,7 @@ def handle_rpc(method: str, params: dict[str, Any] | None, principal: dict[str, 
         return tools_list_payload(principal)
     if method == "tools/call":
         name = str(params.get("name") or "")
-        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        arguments = sub(params, "arguments")
         if name in mcp_tools.DENIED:
             raise PermissionError("mutating_tools_denied")
         if not tool_allowed(principal, name):
@@ -120,7 +121,7 @@ def handle_rpc(method: str, params: dict[str, Any] | None, principal: dict[str, 
         return {"prompts": prompts.list_prompts()}
     if method == "prompts/get":
         name = str(params.get("name") or "")
-        arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+        arguments = sub(params, "arguments")
         got = prompts.get_prompt(name, arguments)
         return got
     if method == "tasks/get" and mcp_tasks_enabled():

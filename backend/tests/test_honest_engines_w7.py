@@ -8,6 +8,8 @@ sample size.
 
 from __future__ import annotations
 
+import secrets
+
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -50,6 +52,22 @@ def _identity(db_tx) -> tuple[str, str, str]:
     if row is None:
         pytest.skip("no seeded account")
     return str(row["tenant_id"]), str(row["customer_id"]), str(row["account_id"])
+
+
+def _own_borrower(db_tx) -> tuple[str, str, str]:
+    """A borrower this test alone writes decisions for. The seeded first
+    account already carries the dev stack's own dpd ticks, which formed their
+    own spells inside every window these tests count."""
+    tenant, _, account = _identity(db_tx)
+    customer = f"w7-spell-{secrets.token_hex(3)}"
+    db_tx.execute(
+        text(
+            "INSERT INTO customers_pii (id, tenant_id, name, risk) "
+            "VALUES (:id, :t, :n, 'low') ON CONFLICT (id) DO NOTHING"
+        ),
+        {"id": customer, "t": tenant, "n": "W7 spell probe"},
+    )
+    return tenant, customer, account
 
 
 def _decide(
@@ -113,7 +131,7 @@ def test_a_delinquency_spell_is_one_case_not_one_case_per_day(db_tx) -> None:
     on the number that gates the product (§8.7).
     """
     _require(db_tx)
-    tenant, customer, account = _identity(db_tx)
+    tenant, customer, account = _own_borrower(db_tx)
     start = NOW - timedelta(days=70)
     for day in range(60):
         at = start + timedelta(days=day)
@@ -126,7 +144,7 @@ def test_a_delinquency_spell_is_one_case_not_one_case_per_day(db_tx) -> None:
             at=at,
         )
 
-    built = panel.build(db_tx, now=NOW, since=start - timedelta(days=1))
+    built = panel.build(db_tx, now=NOW, since=start - timedelta(days=1), customer_ids=[customer])
     assert built["cases"] == 1, (
         "sixty consecutive daily ticks are one delinquency spell; "
         f"the panel made {built['cases']}"
@@ -150,7 +168,7 @@ def test_a_delinquency_spell_is_one_case_not_one_case_per_day(db_tx) -> None:
 def test_a_gap_in_the_ticks_opens_a_new_spell(db_tx) -> None:
     """A borrower who cures and re-defaults is two cases, not one."""
     _require(db_tx)
-    tenant, customer, account = _identity(db_tx)
+    tenant, customer, account = _own_borrower(db_tx)
     start = NOW - timedelta(days=60)
     days = [0, 1, 2, 30, 31]  # a 27-day gap in the middle
     for offset in days:
@@ -163,7 +181,7 @@ def test_a_gap_in_the_ticks_opens_a_new_spell(db_tx) -> None:
             ref=at.date().isoformat(),
             at=at,
         )
-    built = panel.build(db_tx, now=NOW, since=start - timedelta(days=1))
+    built = panel.build(db_tx, now=NOW, since=start - timedelta(days=1), customer_ids=[customer])
     assert built["cases"] == 2
 
 
@@ -191,7 +209,7 @@ def test_building_twice_produces_the_same_panel(db_tx) -> None:
 def test_a_case_our_executor_cancelled_is_censored_not_a_failure(db_tx) -> None:
     """§11.5: cancelled is censoring, not failure — and it stays visible."""
     _require(db_tx)
-    tenant, customer, account = _identity(db_tx)
+    tenant, customer, account = _own_borrower(db_tx)
     at = NOW - timedelta(days=10)
     decision_id = _decide(
         db_tx,
@@ -210,7 +228,7 @@ def test_a_case_our_executor_cancelled_is_censored_not_a_failure(db_tx) -> None:
         ),
         {"id": decision_id},
     )
-    panel.build(db_tx, now=NOW, since=at - timedelta(days=1))
+    panel.build(db_tx, now=NOW, since=at - timedelta(days=1), customer_ids=[customer])
     row = db_tx.execute(
         text("SELECT censored, censor_reason FROM analysis_panel WHERE customer_id = :c"),
         {"c": customer},

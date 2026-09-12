@@ -12,6 +12,7 @@ from typing import Any
 
 import db
 from agent_core.tuning import default_tuning, normalize_tuning
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,11 @@ def load_active_bundle(
     if not version:
         raise KeyError(f"prompt_version_not_found: {prompt_version_id}")
 
-    persona = version.get("persona") if isinstance(version.get("persona"), dict) else {}
-    voice = version.get("voice") if isinstance(version.get("voice"), dict) else {}
-    guardrails = version.get("guardrails") if isinstance(version.get("guardrails"), dict) else {}
-    voice_config = deployment.get("voiceConfig") if isinstance(deployment.get("voiceConfig"), dict) else {}
-    raw_tuning = deployment.get("tuning") if isinstance(deployment.get("tuning"), dict) else {}
+    persona = sub(version, "persona")
+    voice = sub(version, "voice")
+    guardrails = sub(version, "guardrails")
+    voice_config = sub(deployment, "voiceConfig")
+    raw_tuning = sub(deployment, "tuning")
     tuning = normalize_tuning(raw_tuning) if raw_tuning else default_tuning()
 
     compiled = version.get("compiled") if isinstance(version.get("compiled"), dict) else None
@@ -118,9 +119,9 @@ def load_active_bundle(
         "guardrails": guardrails,
         # Authored conversation graph. Empty when the version predates flow
         # authoring; voice/bot.py then keeps the built-in flow.
-        "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
+        "flow": sub(version, "flow"),
         "promptVersion": version,
-        "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
+        "agentCard": sub(version, "agentCard"),
         "botId": version.get("botId"),
         # Frozen at publish. None on a sandbox resolve_prompt_bundle; empty list
         # on a production deployment that predates the snapshot (fail closed).
@@ -173,13 +174,13 @@ def _dual_compute_parity(bundle: dict[str, Any]) -> None:
         live_grant = ToolGrant.for_bundle(bundle, channel="voice")
         report = parity_report(
             live_prompt=str(bundle.get("prompt") or ""),
-            live_persona=bundle.get("persona") if isinstance(bundle.get("persona"), dict) else {},
+            live_persona=sub(bundle, "persona"),
             live_guardrails=(
                 bundle.get("guardrails")
                 if isinstance(bundle.get("guardrails"), dict)
                 else {}
             ),
-            live_flow=bundle.get("flow") if isinstance(bundle.get("flow"), dict) else {},
+            live_flow=sub(bundle, "flow"),
             live_tools=live_grant.allowed,
             bundle=parsed,
             channel="voice",
@@ -217,10 +218,10 @@ def resolve_prompt_bundle(
         version = db.get_prompt_version(prompt_version_id)
         if not version:
             raise KeyError(f"prompt_version_not_found: {prompt_version_id}")
-        persona = version.get("persona") if isinstance(version.get("persona"), dict) else {}
-        voice = version.get("voice") if isinstance(version.get("voice"), dict) else {}
-        guardrails = version.get("guardrails") if isinstance(version.get("guardrails"), dict) else {}
-        raw_tuning = version.get("tuning") if isinstance(version.get("tuning"), dict) else {}
+        persona = sub(version, "persona")
+        voice = sub(version, "voice")
+        guardrails = sub(version, "guardrails")
+        raw_tuning = sub(version, "tuning")
         tuning = normalize_tuning(raw_tuning) if raw_tuning else default_tuning()
         return {
             "deployment": None,
@@ -234,12 +235,12 @@ def resolve_prompt_bundle(
             "persona": persona,
             "voice": voice,
             "guardrails": guardrails,
-            "flow": version.get("flow") if isinstance(version.get("flow"), dict) else {},
+            "flow": sub(version, "flow"),
             "promptVersion": version,
             # Without these the sandbox ran a draft with no skills prefix and no
             # card tool-gating, while the live path had both — so "test in
             # sandbox" did not exercise what publish was about to ship.
-            "agentCard": version.get("agentCard") if isinstance(version.get("agentCard"), dict) else {},
+            "agentCard": sub(version, "agentCard"),
             "botId": version.get("botId"),
             "frozenTools": None,
             "compiled": version.get("compiled") if isinstance(version.get("compiled"), dict) else None,

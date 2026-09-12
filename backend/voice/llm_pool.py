@@ -10,6 +10,7 @@ Prewarm and the Pipecat LLM service must share the same client.
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 import os
 import threading
@@ -161,7 +162,8 @@ async def _completion_ping(client: AsyncAzureOpenAI, deployment: str) -> None:
     # left the first real turn cold. 16 is enough to complete "ok".
     # Pick the param by deployment family up front; only fall back on the API's
     # rejection so a wording change can't silently leave prewarm cold.
-    msgs = [{"role": "user", "content": "Reply with: ok"}]
+    # openai types messages as a TypedDict union; a plain dict is what it takes.
+    msgs: Any = [{"role": "user", "content": "Reply with: ok"}]
     kwargs, primary, fallback = build_completion_kwargs(
         deployment, max_output_tokens=16, temperature=0
     )

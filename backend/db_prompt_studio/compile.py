@@ -27,6 +27,7 @@ from db_prompt_studio.versions import (
 from db_prompt_studio.cards import (
     _studio_card_versions,
 )
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ def compile_agent_studio_card(
         voice_provider=voice_provider,
         bound_tts_providers=bound_tts,
         prompt=mouth.get("prompt"),
-        prompt_guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
+        prompt_guardrails=sub(mouth, "guardrails"),
     )
     from agent_core.fleet.compile import compile_bundle, fleet_gates
 
@@ -157,8 +158,8 @@ def compile_agent_studio_card(
     bundle = compile_bundle(
         report=report,
         prompt=str(mouth.get("prompt") or ""),
-        persona=mouth.get("persona") if isinstance(mouth.get("persona"), dict) else {},
-        guardrails=mouth.get("guardrails") if isinstance(mouth.get("guardrails"), dict) else {},
+        persona=sub(mouth, "persona"),
+        guardrails=sub(mouth, "guardrails"),
         flow=graph if isinstance(graph, dict) else {},
         prompt_version_id=version_id,
         attached_skills=attached,
@@ -333,7 +334,7 @@ def _fleet_members(card_raw: Any) -> list[dict[str, Any]]:
                 "bot_id": target,
                 "prompt_version_id": str(published.get("id") or ""),
                 "card": published.get("agentCard") or {},
-                "flow": published.get("flow") if isinstance(published.get("flow"), dict) else {},
+                "flow": sub(published, "flow"),
             }
         )
     return out
@@ -350,7 +351,7 @@ def get_effective_contract(bot_id: str) -> dict[str, Any]:
             "compiled": stored,
         }
     dumped = compile_agent_studio_card(bot_id)
-    compiled = dumped.get("bundle") if isinstance(dumped.get("bundle"), dict) else {}
+    compiled = sub(dumped, "bundle")
     if not compiled.get("bundle_hash"):
         raise KeyError("effective_contract_unavailable")
     return {

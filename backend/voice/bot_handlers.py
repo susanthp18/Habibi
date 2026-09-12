@@ -9,6 +9,7 @@ watchdog tasks) stays where every handler can reach it.
 
 from __future__ import annotations
 
+from typing import Any
 
 from loguru import logger
 
@@ -46,7 +47,7 @@ def make_developer_injectors(call) -> None:
     context = call.context
     user_aggregator = call.user_aggregator
 
-    async def _inject_developer(messages: list[dict]) -> None:
+    async def _inject_developer(messages: list[Any]) -> None:
         """Append developer messages (CRM card, persona, deltas) to the context.
 
         run_llm=False: these are facts for the *next* turn, not a prompt to

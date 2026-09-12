@@ -6,7 +6,7 @@ clock; the borrower's own zone decides the allowed-hours reading now.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import db_consent
 
@@ -26,10 +26,13 @@ def _rec(**over):
     return rec
 
 
-# Wednesday 2026-09-16 05:30 UTC = 11:00 IST, inside a 9-20 window
-INSIDE = datetime(2026, 9, 16, 5, 30, tzinfo=timezone.utc)
-# the same day at 16:00 UTC = 21:30 IST, outside it
-OUTSIDE = datetime(2026, 9, 16, 16, 0, tzinfo=timezone.utc)
+# A weekday next week at 05:30 UTC = 11:00 IST, inside a 9-20 window; the
+# same day at 16:00 UTC = 21:30 IST, outside it. Relative, so the pin does
+# not expire.
+_DAY = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=7)
+_DAY -= timedelta(days=max(0, _DAY.weekday() - 4))  # never a weekend
+INSIDE = _DAY.replace(hour=5, minute=30)
+OUTSIDE = _DAY.replace(hour=16, minute=0)
 
 
 def test_all_channels_open_is_green() -> None:

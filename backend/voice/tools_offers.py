@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 # Not `from pipecat.flows import ...` directly: this module is the trunk the
 # built-in flow export hangs off, and the API image has no pipecat. See
@@ -149,7 +149,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         if sink is None:
             return None
         fn = getattr(sink, "enqueue_kb_gap", None)
-        return fn if callable(fn) else None
+        return cast("Callable[[dict[str, Any]], None] | None", fn if callable(fn) else None)
 
     def _live_signals():
         """Snapshot of what THIS call knows, for the offer engine.
@@ -255,8 +255,8 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # nobody was ever told about is how a campaign reports reach it did not
         # have.
         payload = result.to_tool_payload()
-        if result.offers:
-            top = result.top
+        top = result.top
+        if top is not None:
             state.offered_product_id = top.product_id
             state.offered_product_ids.update(o.product_id for o in result.offers)
 

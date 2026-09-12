@@ -61,7 +61,8 @@ def test_every_agent_studio_route_declares_a_response_shape() -> None:
     # 29 since skills/{id}/attach and /detach were deleted (no caller, and the
     # publish path is how a pack reaches a version). The count is a guard: move
     # it only after checking a new route declares a shape.
-    assert len(routes) == 29
+    # 28 since cards/{bot_id}/connectors went (no caller; the tab binds through the card).
+    assert len(routes) == 28
     for route in routes:
         if route.path.endswith("/export"):
             assert issubclass(route.response_class, StarletteStreamingResponse), route.path

@@ -15,6 +15,7 @@ from starlette.routing import Route
 from agent_core.mcp_http.auth import authenticate
 from agent_core.mcp_http.protocol import handle_rpc
 from agent_core.platform_flags import mcp_http_enabled
+from agent_core.dicts import sub
 
 
 class _AuthMiddleware(BaseHTTPMiddleware):
@@ -44,7 +45,7 @@ async def mcp_endpoint(request: Request) -> Response:
         return JSONResponse({"jsonrpc": "2.0", "error": {"code": -32600, "message": "invalid request"}}, status_code=400)
     rpc_id = body.get("id")
     method = str(body.get("method") or "")
-    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    params = sub(body, "params")
     headers = {
         "Mcp-Method": method,
         "Mcp-Name": "bigbound-collections",

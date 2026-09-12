@@ -19,6 +19,7 @@ from sqlalchemy import text
 
 from env_loader import load_env
 from agent_core.clock import utc_now
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def normalize_azure_voice(raw: dict[str, Any]) -> dict[str, Any] | None:
     short = str(raw.get("ShortName") or "").strip()
     if not short:
         return None
-    tags = raw.get("VoiceTag") if isinstance(raw.get("VoiceTag"), dict) else {}
+    tags = sub(raw, "VoiceTag")
     voice_type = str(raw.get("VoiceType") or "Neural").strip() or "Neural"
     tier = derive_price_tier(short, voice_type)
     styles = _as_list(raw.get("StyleList") or tags.get("StyleList"))

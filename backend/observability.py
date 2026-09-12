@@ -343,7 +343,9 @@ def _voice_runs_here() -> bool:
     the voice worker, or the API when it embeds the host. Published from the
     API otherwise, ``voice_calls_active`` read 0 forever and looked like a
     quiet floor."""
-    if os.getenv("VOICE_PROCESS") == "1":
+    from env_utils import env_bool
+
+    if env_bool("VOICE_PROCESS"):
         return True
     try:
         from voice.host import embedded_host_enabled
@@ -605,7 +607,8 @@ def setup_error_tracking() -> None:
         logger.warning("Sentry init failed — continuing without error tracking", exc_info=True)
 
 
-def _scrub_event(event: dict[str, Any], _hint: Any) -> dict[str, Any]:
+def _scrub_event(event: Any, _hint: Any) -> Any:
+    # sentry's Event is a TypedDict; a plain mapping is what it hands over.
     """Redact PII from the message and exception values before they leave.
 
     ``send_default_pii=False`` stops Sentry attaching request bodies and user

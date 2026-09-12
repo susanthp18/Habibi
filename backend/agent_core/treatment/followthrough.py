@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -88,14 +88,25 @@ BATCH = 25
 # ---------------------------------------------------------------------------
 
 
-def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = BATCH) -> int:
-    """Label decisions whose result is now knowable. Returns how many."""
+def attribute_outcomes(
+    conn: Any,
+    *,
+    now: datetime | None = None,
+    limit: int = BATCH,
+    account_ids: Sequence[str] | None = None,
+) -> int:
+    """Label decisions whose result is now knowable. Returns how many.
+
+    ``account_ids`` narrows the pass to those accounts; the worker never
+    passes it, a caller that wants its own decisions labelled does.
+    """
     if not kill_switch.labels_allowed():
         return 0
     instant = now or utc_now()
+    scope = " AND account_id = ANY(:accounts)" if account_ids is not None else ""
     rows = conn.execute(
         text(
-            """
+            f"""
             SELECT id, customer_id, account_id, trigger_kind, trigger_ref,
                    chosen_action, chosen_channel, enacted, enacted_at, created_at,
                    variant, mode, enacted_ref
@@ -113,7 +124,7 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
               -- control-arm wait is the counterfactual observation, and it is
               -- the row the whole uplift estimate is measured against.
               -- _outcome_for still refuses to label an ordinary shadow wait.
-              AND created_at >= now() - interval '30 days'
+              AND created_at >= now() - interval '30 days'{scope}
             -- Least-recently-examined first, never-examined before that.
             --
             -- Ordering by created_at alone deadlocked the loop. A row that
@@ -128,7 +139,7 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
             LIMIT :limit
             """
         ),
-        {"limit": max(1, limit)},
+        {"limit": max(1, limit), "accounts": list(account_ids or [])},
     ).mappings().all()
 
     labelled = 0

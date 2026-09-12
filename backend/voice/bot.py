@@ -305,6 +305,7 @@ def _warm_before_serving() -> None:
 #: bill arrives. ``test_voice_session_teardown`` reads the AST of ``run_bot``
 #: and its three siblings and fails if this list drifts behind them.
 _RUN_BOT_MODULES: tuple[str, ...] = (
+    "flow_graph",
     "pipecat.audio.vad.silero",
     "pipecat.extensions.voicemail.voicemail_detector",
     "pipecat.flows",

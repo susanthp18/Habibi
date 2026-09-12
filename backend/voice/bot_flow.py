@@ -20,6 +20,7 @@ from prompt_render import render_system_prompt, strip_unrendered_crm_tokens
 from voice.crm_sink import CrmSink
 from voice.natural import build_voice_system_prompt
 from voice.session import VoiceSession
+from agent_core.dicts import sub
 
 
 def _persona_context(bundle: dict) -> dict[str, str]:
@@ -33,7 +34,7 @@ def _persona_context(bundle: dict) -> dict[str, str]:
     tab said. Deriving the context from the bundle removes the opportunity to
     forget rather than adding a caller who must remember.
     """
-    persona = bundle.get("persona") if isinstance(bundle.get("persona"), dict) else {}
+    persona = sub(bundle, "persona")
     name = str(persona.get("language") or "").strip()
     return {"language": name} if name else {}
 

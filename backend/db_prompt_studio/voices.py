@@ -14,6 +14,7 @@ from sqlalchemy import text
 from db_prompt_studio.common import (
     _db,
 )
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def list_persona_presets() -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for r in rows:
             cfg = _as_dict(r.get("config"))
-            traits_in = cfg.get("traits") if isinstance(cfg.get("traits"), dict) else {}
+            traits_in = sub(cfg, "traits")
             traits = {
                 "empathy": int(traits_in.get("empathy", 50)),
                 "firmness": int(traits_in.get("firmness", 50)),

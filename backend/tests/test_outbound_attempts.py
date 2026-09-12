@@ -630,7 +630,7 @@ def test_a_call_whose_worker_stopped_heartbeating_is_reaped(db_tx) -> None:
     """voice_sessions.last_heartbeat_at was written on every turn and read by
     nobody. A voice process killed mid-call left the session live, the
     interaction active and the attempt holding its slot."""
-    from voice import persist
+    from voice import reaper
 
     attempt = _reserve(db_tx)
     _place(db_tx, attempt, "CA-TEST-ZOMBIE")
@@ -655,7 +655,7 @@ def test_a_call_whose_worker_stopped_heartbeating_is_reaped(db_tx) -> None:
 
             return dbmod.engine.begin()
 
-    reaped = {r["sessionId"] for r in persist.reap_stale(_Engine(), timedelta(minutes=30))}
+    reaped = {r["sessionId"] for r in reaper.reap_stale(_Engine(), timedelta(minutes=30))}
     # Membership, not equality: the dev database carries real zombies too.
     assert "vs-zombie" in reaped and "vs-alive" not in reaped
     assert db_tx.execute(text("SELECT status FROM voice_sessions WHERE id = 'vs-alive'")).scalar_one() == "live"

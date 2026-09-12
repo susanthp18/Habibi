@@ -696,6 +696,16 @@ def test_a_lead_with_no_accounts_is_not_settled(db_tx, monkeypatch: pytest.Monke
     import contact_policy
 
     cid = _prep(db_tx, monkeypatch)
+    # A sweep claim from an earlier test (or the dev stack's own treatment
+    # sweep) still references this borrower's accounts; the claim is not what
+    # this test is about, so it goes first, inside the rolled-back transaction.
+    db_tx.execute(
+        text(
+            "DELETE FROM treatment_sweep_claims WHERE account_id IN "
+            "(SELECT id FROM accounts WHERE customer_id = :id)"
+        ),
+        {"id": cid},
+    )
     db_tx.execute(text("DELETE FROM accounts WHERE customer_id = :id"), {"id": cid})
     assert _admit(db_tx, cid, session_key="lead-1", related_id="lead-1").reason != contact_policy.REASON_SETTLED
 

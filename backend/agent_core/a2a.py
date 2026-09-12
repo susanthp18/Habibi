@@ -19,6 +19,7 @@ from sqlalchemy import text
 import db
 from agent_core.platform_flags import a2a_enabled
 from agent_core.skills.pack import pack_for_slug
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -162,14 +163,14 @@ def _published_card(bot_id: str) -> dict[str, Any]:
     published = db.get_published_prompt_version(bot_id)
     if published is None:
         raise KeyError("agent_card_not_found")
-    raw = published.get("agentCard") if isinstance(published.get("agentCard"), dict) else {}
+    raw = sub(published, "agentCard")
     if not raw:
         raise KeyError("agent_card_not_found")
     return published
 
 
 def exposed_skill_ids(raw: dict[str, Any]) -> list[str]:
-    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    a2a = sub(raw, "a2a")
     declared = [str(s) for s in (a2a.get("skill_ids") or []) if s]
     attached = []
     for ref in raw.get("skills") or []:
@@ -188,10 +189,10 @@ def agent_card_document(bot_id: str) -> dict[str, Any]:
     """A2A Agent Card for the *published* mouth. Honours ``a2a.expose`` / ``skill_ids``."""
     published = _published_card(bot_id)
     raw = published.get("agentCard") or {}
-    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    a2a = sub(raw, "a2a")
     if not a2a.get("expose"):
         raise KeyError("a2a_not_exposed")
-    ident = raw.get("identity") if isinstance(raw.get("identity"), dict) else {}
+    ident = sub(raw, "identity")
     skills_out: list[dict[str, Any]] = []
     for slug in exposed_skill_ids(raw):
         desc = slug
@@ -234,7 +235,7 @@ def create_task(
         raise PermissionError("a2a_bot_mismatch")
     published = _published_card(bot_id)
     raw = published.get("agentCard") or {}
-    a2a = raw.get("a2a") if isinstance(raw.get("a2a"), dict) else {}
+    a2a = sub(raw, "a2a")
     if not a2a.get("expose"):
         raise PermissionError("a2a_not_exposed")
     card_skills = set(exposed_skill_ids(raw))
@@ -487,8 +488,8 @@ def _map_task(row: dict[str, Any]) -> dict[str, Any]:
         "botId": row.get("bot_id"),
         "skillId": row.get("skill_id"),
         "status": row.get("status"),
-        "input": row.get("input") if isinstance(row.get("input"), dict) else {},
-        "output": row.get("output") if isinstance(row.get("output"), dict) else {},
+        "input": sub(row, "input"),
+        "output": sub(row, "output"),
         "certDn": row.get("cert_dn"),
         "error": row.get("error"),
         "createdAt": str(row["created_at"]) if row.get("created_at") else None,

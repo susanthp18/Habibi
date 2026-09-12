@@ -120,7 +120,10 @@ def test_tls_surface_is_hashed_in_the_shipped_tree() -> None:
 
 def test_dockerfile_installs_the_lockfiles_with_hashes() -> None:
     src = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
-    installs = [line for line in src.splitlines() if "pip install" in line]
+    # The voice-dev stage is the laptop test image (pytest, ruff); it ships
+    # nowhere, so its unpinned tooling install is not held to the lockfile rule.
+    shipped = src.split("FROM voice AS voice-dev", 1)[0]
+    installs = [line for line in shipped.splitlines() if "pip install" in line]
     base_install = [line for line in installs if "requirements-voice" not in line]
     assert base_install, "base stage must pip install"
     for line in base_install:

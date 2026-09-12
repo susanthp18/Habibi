@@ -292,9 +292,9 @@ def _flow_transition_helpers(st: FlowBuild) -> None:
             # schema objects come from build_tools' single registry dict and are
             # shared by every node that lists the tool — mutating one would give
             # every other node this node's deterministic follow-up.
-            if dataclasses.is_dataclass(tool):
+            if dataclasses.is_dataclass(tool) and not isinstance(tool, type):
                 return dataclasses.replace(tool, handler=wrapped)
-            clone = copy.copy(tool)
+            clone: Any = copy.copy(tool)
             clone.handler = wrapped
             return clone
         if callable(tool):
@@ -520,7 +520,7 @@ def build_authored_flow(
     spoke_this_response: Callable[[], bool] | None = None,
     sink: Any | None = None,
     initial_variables: dict[str, Any] | None = None,
-    allowed_tool_names: set[str] | None = None,
+    allowed_tool_names: frozenset[str] | set[str] | None = None,
     attached_skills: list[Any] | None = None,
     agent_card: dict[str, Any] | None = None,
     objective: str | None = None,

@@ -38,6 +38,7 @@ from db_prompt_studio.compile import (
     compile_agent_studio_card,
     doors_merging,
 )
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +348,7 @@ def _freeze(
             )
         )
     }
-    card_raw = target.get("agent_card") if isinstance(target.get("agent_card"), dict) else {}
+    card_raw = sub(target, "agent_card")
     attached = None
     try:
         from agent_core.cards.schema import is_authored, parse_card
@@ -359,10 +360,10 @@ def _freeze(
             attached = packs_for_skill_refs(parsed.skills)
     except Exception:
         pass
-    exp = card_raw.get("experiment") if isinstance(card_raw.get("experiment"), dict) else {}
+    exp = sub(card_raw, "experiment")
     pct = traffic_pct if traffic_pct is not None else int(exp.get("traffic_pct") or 100)
     triggers = auto_rollback if auto_rollback is not None else list(exp.get("auto_rollback") or [])
-    a2a_raw = card_raw.get("a2a") if isinstance(card_raw.get("a2a"), dict) else {}
+    a2a_raw = sub(card_raw, "a2a")
     cert_ok = None
     if a2a_raw.get("expose"):
         try:
@@ -453,7 +454,7 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
         bound_tts_providers=bound_tts,
         prompt=target.get("prompt"),
         prompt_guardrails=(
-            target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {}
+            sub(target, "guardrails")
         ),
     )
     # The fleet gates run here, before the assert, rather than alongside
@@ -468,7 +469,7 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
         _fleet_gates(
             primary_bot_id=bot_id,
             card_raw=card_raw if isinstance(card_raw, dict) else {},
-            flow=target.get("flow") if isinstance(target.get("flow"), dict) else {},
+            flow=sub(target, "flow"),
             members=_fleet_members(card_raw),
         )
     )
@@ -516,9 +517,9 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
     compiled_bundle = compile_bundle(
         report=shipped_report,
         prompt=str(target.get("prompt") or ""),
-        persona=target.get("persona") if isinstance(target.get("persona"), dict) else {},
-        guardrails=target.get("guardrails") if isinstance(target.get("guardrails"), dict) else {},
-        flow=target.get("flow") if isinstance(target.get("flow"), dict) else {},
+        persona=sub(target, "persona"),
+        guardrails=sub(target, "guardrails"),
+        flow=sub(target, "flow"),
         prompt_version_id=version_id,
         attached_skills=attached,
         source_ids={"bot_id": bot_id, "prompt_version_id": version_id},

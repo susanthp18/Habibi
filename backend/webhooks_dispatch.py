@@ -527,6 +527,7 @@ def process_one(engine: Engine) -> bool:
     started = time.monotonic()
     http_status = 0
     body = ""
+    breaker = _endpoint_breaker(str(job.get("endpoint_id") or ""))
     try:
         secret_hash = (job.get("secret_hash") or "").strip()
         if not secret_hash:
@@ -544,7 +545,6 @@ def process_one(engine: Engine) -> bool:
             TIMESTAMP_HEADER: timestamp,
             SIGNATURE_HEADER: sign(secret_hash, timestamp, raw),
         }
-        breaker = _endpoint_breaker(str(job.get("endpoint_id") or ""))
         try:
             http_status, body = breaker.call(
                 _post_or_raise,

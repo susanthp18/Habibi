@@ -24,6 +24,7 @@ from db_prompt_studio.voices import (
 from db_prompt_studio.deployments import (
     DEFAULT_BOT_ID,
 )
+from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def _prompt_persona(raw: Any) -> dict[str, Any]:
     _mod = _db()
     _as_dict = _mod._as_dict
     data = _as_dict(raw)
-    traits_in = data.get("traits") if isinstance(data.get("traits"), dict) else {}
+    traits_in = sub(data, "traits")
     base = _DEFAULT_PERSONA["traits"]
     traits = {
         "empathy": int(traits_in.get("empathy", base["empathy"])),
@@ -231,12 +232,8 @@ def _map_prompt_version(r: dict[str, Any]) -> dict[str, Any]:
         # that caused it.
         **_prompt_flow(r.get("flow")),
         "botId": r.get("bot_id") or DEFAULT_BOT_ID,
-        "agentCard": r.get("agent_card") if isinstance(r.get("agent_card"), dict) else {},
-        "compiled": (
-            r.get("compiled")
-            if isinstance(r.get("compiled"), dict) and r.get("compiled").get("bundle_hash")
-            else None
-        ),
+        "agentCard": sub(r, "agent_card"),
+        "compiled": sub(r, "compiled") if sub(r, "compiled").get("bundle_hash") else None,
     }
 
 def list_prompt_versions(
@@ -546,7 +543,7 @@ def patch_prompt_version(version_id: str, payload: dict[str, Any]) -> dict[str, 
             params["flow"] = _jsonb(flow_val or {})
         card_val = payload["agentCard"] if "agentCard" in payload else payload.get("agent_card") if "agent_card" in payload else None
         if "agentCard" in payload or "agent_card" in payload:
-            if hasattr(card_val, "model_dump"):
+            if card_val is not None and hasattr(card_val, "model_dump"):
                 card_val = card_val.model_dump()
             sets.append("agent_card = CAST(:agent_card AS jsonb)")
             params["agent_card"] = _jsonb(card_val if isinstance(card_val, dict) else {})

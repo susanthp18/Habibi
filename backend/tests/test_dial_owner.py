@@ -720,12 +720,12 @@ def test_a_pre_send_internal_error_still_retries(db_tx) -> None:
 
 def test_decline_offer_reports_a_failed_write(monkeypatch) -> None:
     import bot_tools
-    import capture
+    import capture_events
 
     def _boom(conn, **kw):
         raise RuntimeError("crm down")
 
-    monkeypatch.setattr(capture, "record_offer_declined", _boom)
+    monkeypatch.setattr(capture_events, "record_offer_declined", _boom)
     ctx = bot_tools.ToolContext(
         job_id="JOB-T",
         conversation_id="CONV-T",
@@ -751,14 +751,14 @@ def test_voice_decline_offer_reports_a_failed_write_too(monkeypatch) -> None:
     in-call latch still holds; the record says what happened."""
     import asyncio
 
-    import capture
+    import capture_events
     from voice import tools as voice_tools
     from voice.session import VoiceSession
 
     def _boom(conn, **kw):
         raise RuntimeError("crm down")
 
-    monkeypatch.setattr(capture, "record_offer_declined", _boom)
+    monkeypatch.setattr(capture_events, "record_offer_declined", _boom)
     session = VoiceSession(session_id=f"VS-{uuid.uuid4().hex[:8].upper()}")
     session.customer_id = "CUST-T"
     session.identity_verified = True

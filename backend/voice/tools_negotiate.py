@@ -62,7 +62,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             return err, None
         args = CATALOG.normalize("create_promise_to_pay", args)
         try:
-            amt = float(args.get("amount"))
+            amt = float(args.get("amount") or "")
         except (TypeError, ValueError):
             return {"error": "invalid_amount"}, None
         # Over-balance stays voice-side — needs session.outstanding. Compare in

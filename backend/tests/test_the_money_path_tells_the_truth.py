@@ -182,7 +182,10 @@ def test_falling_back_to_a_generic_template_is_never_silent(monkeypatch, caplog)
     assert name == "jaspers_market_order_confirmation_v1"
     warned = [r for r in caplog.records if "fallback in use" in (r.message or "")]
     assert warned, "an operator must not have to guess that a fallback was used"
-    assert any("WHATSAPP_PTP_TEMPLATE_NAME" in str(r.args) for r in warned)
+    # getMessage(), not args: once observability's redacting filter is on the
+    # handler (any earlier test that set logging up), it renders the message
+    # and clears args, which is what made this pass alone and fail in a run.
+    assert any("WHATSAPP_PTP_TEMPLATE_NAME" in r.getMessage() for r in warned)
 
 
 def test_a_purpose_template_is_used_without_complaint(monkeypatch, caplog) -> None:
