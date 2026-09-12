@@ -1,18 +1,18 @@
-import type { Channel, HandlerKind } from "@/api/types/floor";
+import type { FloorChannel, HandlerKind } from "@/api/types/floor";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Chip } from "@/components/ui/chip";
 import { FiltersBar, FilterGroup } from "@/components/records/FiltersBar";
 import { toggleIn } from "@/lib/utils";
 
-export type Filters = {
+export type FloorFilters = {
   q: string;
-  channels: Channel[];
+  channels: FloorChannel[];
   handler: HandlerKind | "all";
 };
 
 type Props = {
-  value: Filters;
-  onChange: (next: Filters) => void;
+  value: FloorFilters;
+  onChange: (next: FloorFilters) => void;
   visibleCount: number;
   totalCount: number;
 };
@@ -24,7 +24,7 @@ const HANDLERS: [HandlerKind | "all", string][] = [
 ];
 
 export function FilterBar({ value, onChange, visibleCount, totalCount }: Props) {
-  const patch = (p: Partial<Filters>) => onChange({ ...value, ...p });
+  const patch = (p: Partial<FloorFilters>) => onChange({ ...value, ...p });
   return (
     <FiltersBar
       className="rounded-none border-x-0 border-t-0 px-200"
@@ -33,7 +33,7 @@ export function FilterBar({ value, onChange, visibleCount, totalCount }: Props) 
       placeholder="Search customer, agent, account…"
     >
       <FilterGroup>
-        {(["voice", "whatsapp", "sms"] as Channel[]).map((c) => (
+        {(["voice", "whatsapp", "sms"] as FloorChannel[]).map((c) => (
           <Chip
             key={c}
             className="capitalize"

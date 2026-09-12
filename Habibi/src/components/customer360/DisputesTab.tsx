@@ -1,6 +1,6 @@
 import { Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Customer, Dispute, DisputeStatus } from "@/api/types/customer360";
+import type { Customer, CustomerDispute, DisputeStatus } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import type { SlaTone } from "@/api/types/dispute-sla";
 import type { DisputeType } from "@/api/types/disputes";
@@ -64,7 +64,7 @@ export function DisputesTab({ customer, onCreate }: { customer: Customer; onCrea
   );
 }
 
-function DisputeCard({ d }: { d: Dispute }) {
+function DisputeCard({ d }: { d: CustomerDispute }) {
   return (
     <div className="rounded-large border border-border bg-surface p-200">
       <div className="mb-100 flex items-start justify-between gap-100">

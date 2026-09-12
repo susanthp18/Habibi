@@ -11,7 +11,7 @@ import type {
   PaymentPlan,
   FollowUp,
   ScheduleInput,
-  Filters,
+  PromiseFilters,
 } from "@/api/types/promises";
 
 function cadenceDays(c: PlanCadence) {
@@ -39,7 +39,7 @@ export function buildSchedule({
   });
 }
 
-export const defaultFilters: Filters = {
+export const defaultFilters: PromiseFilters = {
   status: "all",
   source: "all",
   aging: "any",
@@ -48,7 +48,7 @@ export const defaultFilters: Filters = {
   search: "",
 };
 
-export function filterPromises(list: Promise[], f: Filters): Promise[] {
+export function filterPromises(list: Promise[], f: PromiseFilters): Promise[] {
   const today = new Date().setHours(0, 0, 0, 0);
   return list.filter((p) => {
     if (f.status !== "all" && p.status !== f.status) return false;

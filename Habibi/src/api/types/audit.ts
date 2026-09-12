@@ -6,7 +6,7 @@
  * Nullability follows `CallResponse` in `backend/schemas.py`.
  */
 
-export type Channel = "voice" | "whatsapp" | "sms";
+export type AuditChannel = "voice" | "whatsapp" | "sms";
 export type Direction = "inbound" | "outbound";
 export type HandlerKind = "bot" | "human" | "handoff";
 export type Speaker = "bot" | "agent" | "customer" | "system";
@@ -44,7 +44,7 @@ export interface CallRecord {
   id: string;
   startedAt: string | null;
   duration: number; // seconds
-  channel: Channel;
+  channel: AuditChannel;
   direction: Direction | null;
   handledBy: { kind: HandlerKind; agent?: string; bot?: string };
   customerId: string;
@@ -69,7 +69,7 @@ export type DateRange = "today" | "7d" | "30d" | "all";
 export interface AuditFilterState {
   q: string;
   dateRange: DateRange;
-  channel: "all" | Channel;
+  channel: "all" | AuditChannel;
   handler: "all" | HandlerKind;
   agent: "all" | string;
   disposition: "all" | Disposition;

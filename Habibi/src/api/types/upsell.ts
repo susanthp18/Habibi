@@ -88,7 +88,7 @@ export interface Lead {
   wonAmount?: number | null;
   events: LeadEvent[];
 }
-export interface Filters {
+export interface LeadFilters {
   search: string;
   team: "all" | Team;
   owner: string; // "all" or name

@@ -23,6 +23,7 @@ import {
   isNotFound,
   retryUnlessClientError,
 } from "./config";
+import type { AgentCard } from "./agent-card";
 import type { FlowGraph } from "./flow";
 import { stableStringify } from "@/lib/stable-stringify";
 
@@ -62,7 +63,7 @@ export type PromptVersionDraftInput = {
    */
   replaceUnreadable?: boolean;
   botId?: string;
-  agentCard?: Record<string, unknown>;
+  agentCard?: AgentCard;
 };
 
 export type PromptVersionPatchInput = {
@@ -77,7 +78,7 @@ export type PromptVersionPatchInput = {
   /** See `PromptVersionDraftInput.replaceUnreadable`. */
   replaceUnreadable?: boolean;
   /** Omitted leaves the stored card untouched — same key-present rule as flow. */
-  agentCard?: Record<string, unknown>;
+  agentCard?: AgentCard;
   /**
    * Not a field — a compile-time barrier.
    *
@@ -633,21 +634,16 @@ function isDraftPatchFallbackError(err: unknown): boolean {
   );
 }
 
+/** What the editor holds that a draft is made from; `draftId` names the one to patch. */
+type EditorDraftOpts = Pick<
+  PromptVersionDraftInput,
+  "label" | "prompt" | "persona" | "voice" | "guardrails" | "flow" | "agentCard" | "botId"
+> & { draftId?: string | null; label: string };
+
 /** Create-or-patch a draft from editor state, then publish it. */
-export async function publishStudioDraft(opts: {
-  draftId?: string | null;
-  label: string;
-  prompt: string;
-  persona: PersonaState;
-  voice: VoiceConfig;
-  guardrails: Guardrails;
-  summary: string;
-  flow?: FlowGraph;
-  agentCard?: Record<string, unknown>;
-  botId?: string;
-  trafficPct?: number;
-  autoRollback?: string[];
-}): Promise<PromptVersion> {
+export async function publishStudioDraft(
+  opts: EditorDraftOpts & { summary: string; trafficPct?: number; autoRollback?: string[] },
+): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
     label: opts.label,
     prompt: opts.prompt,
@@ -682,19 +678,9 @@ export async function publishStudioDraft(opts: {
 }
 
 /** Ensure a draft exists for Sandbox try-out / autosave of editor state. */
-export async function ensureStudioDraft(opts: {
-  draftId?: string | null;
-  label: string;
-  prompt: string;
-  persona: PersonaState;
-  voice: VoiceConfig;
-  guardrails: Guardrails;
-  flow?: FlowGraph;
-  replaceUnreadable?: boolean;
-  agentCard?: Record<string, unknown>;
-  summary?: string;
-  botId?: string;
-}): Promise<PromptVersion> {
+export async function ensureStudioDraft(
+  opts: EditorDraftOpts & { replaceUnreadable?: boolean; summary?: string },
+): Promise<PromptVersion> {
   const body: PromptVersionDraftInput = {
     label: opts.label,
     prompt: opts.prompt,

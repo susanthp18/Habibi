@@ -9,7 +9,7 @@ import { FiltersBar } from "@/components/disputes/FiltersBar";
 import { DisputeBoard } from "@/components/disputes/DisputeBoard";
 import { DisputeSheet } from "@/components/disputes/DisputeSheet";
 import { NewDisputeSheet } from "@/components/disputes/NewDisputeSheet";
-import type { Dispute, Filters } from "@/api/types/disputes";
+import type { Dispute, DisputeFilters } from "@/api/types/disputes";
 import { computeMetrics, defaultFilters, filterDisputes, STATUS_LABELS } from "@/lib/disputes";
 import { assignDispute, disputeAssigneeOptions, moveDispute, useDisputes } from "@/api/disputes";
 import { useStaff } from "@/api/staff";
@@ -44,7 +44,7 @@ function DisputesPage() {
   const search = Route.useSearch();
   const { data: disputesData = [] } = useDisputes();
   const { data: liveCustomers = [] } = useCustomers();
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<DisputeFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const deepLinkApplied = useRef(false);
@@ -74,7 +74,7 @@ function DisputesPage() {
   // Derive the open sheet from fetched data so it stays fresh after invalidation.
   const openDispute = openId ? (disputesData.find((d) => d.id === openId) ?? null) : null;
 
-  const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
+  const patchFilters = (p: Partial<DisputeFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   const moveMutation = useMutation({
     mutationFn: (v: { d: Dispute; status: Dispute["status"] }) => moveDispute(v.d, v.status),

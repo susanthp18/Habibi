@@ -12,7 +12,7 @@ import { CallbackList } from "@/components/callbacks/CallbackList";
 import { MissedLane } from "@/components/callbacks/MissedLane";
 import { CallbackSheet } from "@/components/callbacks/CallbackSheet";
 import { NewCallbackSheet } from "@/components/callbacks/NewCallbackSheet";
-import type { Filters } from "@/api/types/callbacks";
+import type { CallbackFilters } from "@/api/types/callbacks";
 import { computeMetrics, defaultFilters, filterCallbacks } from "@/lib/callbacks";
 import {
   autoMarkMissed,
@@ -66,7 +66,7 @@ function CallbacksPage() {
   const { data: staff = [] } = useStaff();
   const { data: teams = [] } = useTeams();
 
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<CallbackFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<CbView>("week");
@@ -128,7 +128,7 @@ function CallbacksPage() {
 
   const openCb = openId ? (callbacksData.find((c) => c.id === openId) ?? null) : null;
 
-  const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
+  const patchFilters = (p: Partial<CallbackFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   useEffect(() => {
     if (!search.id && !search.new) return;

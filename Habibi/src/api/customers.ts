@@ -12,10 +12,10 @@ import { z } from "zod";
 import type {
   Customer,
   CustomerNote,
-  Dispute,
+  CustomerDispute,
   DocumentRequest,
   Interaction,
-  Promise as PtpPromise,
+  CustomerPromise as PtpPromise,
 } from "@/api/types/customer360";
 import type { DisputeType } from "@/api/types/disputes";
 import type { CustomerInsights } from "@/api/types/customer-insights";
@@ -340,8 +340,8 @@ export async function createPromise(
 export async function createDispute(
   customer: Customer,
   input: { type: DisputeType; amount: number; notes: string },
-): Promise<Dispute> {
-  return apiPost<Dispute>(
+): Promise<CustomerDispute> {
+  return apiPost<CustomerDispute>(
     "/disputes",
     {
       customerId: customer.id,

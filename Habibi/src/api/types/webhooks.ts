@@ -7,7 +7,7 @@
 
 export type SigningAlgo = "HMAC-SHA256" | "Ed25519";
 export type EndpointStatus = "active" | "paused" | "broken";
-export type DeliveryStatus = "success" | "client_err" | "server_err" | "pending";
+export type WebhookDeliveryStatus = "success" | "client_err" | "server_err" | "pending";
 export type TargetSystem = "Core Banking" | "CRM" | "Data Lake" | "Custom";
 export type EventCategory = "Calls" | "Promises" | "Disputes" | "Payments" | "Consent" | "Bot";
 export type EventKey =
@@ -56,7 +56,7 @@ export type Delivery = {
   id: string;
   endpointId: string;
   event: EventKey;
-  status: DeliveryStatus;
+  status: WebhookDeliveryStatus;
   httpStatus: number;
   latencyMs: number;
   attempt: number;

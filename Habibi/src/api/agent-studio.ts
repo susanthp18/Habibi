@@ -11,6 +11,7 @@ import {
   apiUpload,
   retryUnlessClientError,
 } from "./config";
+import type { AgentCard } from "./agent-card";
 
 export type AgentCardSummary = {
   botId: string;
@@ -51,7 +52,7 @@ export type AgentCardSummary = {
   /** Re-seeded on API boot, so it can never be archived. */
   isFirstParty: boolean;
   /** The editable card (draft when one exists). */
-  agentCard: Record<string, unknown>;
+  agentCard: AgentCard;
   /** What production is actually running. Empty until first publish. */
   publishedCard: Record<string, unknown>;
 };
@@ -219,16 +220,6 @@ export function useEffectiveContract(botId: string, enabled = true) {
       }),
     enabled: enabled && Boolean(botId),
     retry: retryUnlessClientError,
-  });
-}
-
-export function usePatchAgentCard(botId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    meta: { errors: "toast" },
-    mutationFn: async (agentCard: Record<string, unknown>) =>
-      apiPatch(`/agent-studio/cards/${botId}`, { agentCard }),
-    onSuccess: () => invalidateAgentStudio(qc),
   });
 }
 
@@ -601,16 +592,6 @@ export function useCloneSkill() {
     meta: { errors: "caller" },
     mutationFn: async (body: { skillId: string; slug: string }) =>
       apiPost(`/agent-studio/skills/${body.skillId}/clone`, { slug: body.slug }),
-    onSuccess: () => invalidateAgentStudio(qc),
-  });
-}
-
-export function useAttachConnector(botId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    meta: { errors: "toast" },
-    mutationFn: async (body: { connectorId: string; allowPrefixes?: string[] }) =>
-      apiPost(`/agent-studio/cards/${botId}/connectors`, body),
     onSuccess: () => invalidateAgentStudio(qc),
   });
 }

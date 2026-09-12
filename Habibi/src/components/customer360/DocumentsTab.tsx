@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { FileText, Mail, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Channel, Customer, DocStatus, DocumentRequest } from "@/api/types/customer360";
+import type { ContactChannel, Customer, DocStatus, DocumentRequest } from "@/api/types/customer360";
 import { fmtDate } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
@@ -26,7 +26,7 @@ const STATUS_DOT: Record<DocStatus, string> = {
 
 const STATUS_ORDER: DocStatus[] = ["requested", "generating", "sent", "failed"];
 
-const CHANNEL_ICON: Partial<Record<Channel, React.ComponentType<{ className?: string }>>> = {
+const CHANNEL_ICON: Partial<Record<ContactChannel, React.ComponentType<{ className?: string }>>> = {
   voice: PhoneCall,
   whatsapp: MessageCircle,
   chat: MessageCircle,

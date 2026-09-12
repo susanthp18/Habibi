@@ -60,8 +60,8 @@ export interface AgingInfo {
   hours: number;
   label: string;
 }
-// ---- Filters ----
-export interface Filters {
+// ---- DocumentFilters ----
+export interface DocumentFilters {
   search: string;
   docTypes: DocType[]; // empty = all
   channels: DocChannel[];

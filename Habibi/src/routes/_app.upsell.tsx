@@ -12,7 +12,7 @@ import { LeadBoard } from "@/components/upsell/LeadBoard";
 import { LeadTable } from "@/components/upsell/LeadTable";
 import { LeadSheet } from "@/components/upsell/LeadSheet";
 import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
-import type { Filters, LeadStage } from "@/api/types/upsell";
+import type { LeadFilters, LeadStage } from "@/api/types/upsell";
 import { STAGE_LABELS, defaultFilters, moneyValue } from "@/lib/upsell";
 import { useTeams } from "@/api/teams";
 import { leadTeamOptions } from "@/api/upsell";
@@ -53,7 +53,7 @@ export const Route = createFileRoute("/_app/upsell")({
 });
 
 function UpsellPage() {
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<LeadFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<UpsellView>("board");
@@ -99,7 +99,7 @@ function UpsellPage() {
   const teamOptions = useMemo(() => leadTeamOptions(teams), [teams]);
   const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
 
-  const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
+  const patchFilters = (p: Partial<LeadFilters>) => setFilters((f) => ({ ...f, ...p }));
   const refreshLeads = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["leads"] }),

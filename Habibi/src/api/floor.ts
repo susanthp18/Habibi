@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { ActiveCall, FloorAgent, FloorAlert } from "@/api/types/floor";
 import { apiEventStream, apiGet, apiPost } from "./config";
+import { FloorCopilotResponse } from "./wire/generated";
 
 export type FloorStats = {
   callsInProgress: number;
@@ -171,13 +172,14 @@ export function useAckFloorAlert() {
   });
 }
 
+/** The wire's WorkRuntimeJobResponse: the optional fields are optional here too. */
 export type FloorApproval = {
   id: string;
   workflowType: string;
   status: string;
-  customerId: string | null;
-  inputRequiredReason: string | null;
-  payload: { action?: string; triggerRef?: string };
+  customerId?: string | null;
+  inputRequiredReason?: string | null;
+  payload?: { action?: string; triggerRef?: string };
 };
 
 export type FloorCopilot = {
@@ -247,7 +249,8 @@ export function useCopilotStream(interactionId: string | null) {
       (event, data) => {
         const payload = (data ?? {}) as Record<string, unknown>;
         if (event === "pack") {
-          const pack = payload as unknown as FloorCopilot;
+          // The stream's first event is the GET body; the whisper then follows as tokens.
+          const pack = FloorCopilotResponse.parse(payload);
           setState({
             whisper: "",
             engineDraft: pack.engineDraft || "",

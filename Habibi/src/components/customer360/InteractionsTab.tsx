@@ -16,13 +16,13 @@ import {
   User2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Channel, Customer, Interaction, Sentiment } from "@/api/types/customer360";
+import type { ContactChannel, Customer, Interaction, Sentiment } from "@/api/types/customer360";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 
-const CHANNEL_ICON: Record<Channel, React.ComponentType<{ className?: string }>> = {
+const CHANNEL_ICON: Record<ContactChannel, React.ComponentType<{ className?: string }>> = {
   voice: PhoneCall,
   whatsapp: MessageCircle,
   chat: MessageSquare,
@@ -30,7 +30,7 @@ const CHANNEL_ICON: Record<Channel, React.ComponentType<{ className?: string }>>
   sms: MessageSquare,
 };
 
-const CHANNEL_LABEL: Record<Channel, string> = {
+const CHANNEL_LABEL: Record<ContactChannel, string> = {
   voice: "Voice",
   whatsapp: "WhatsApp",
   chat: "Web Chat",
@@ -44,11 +44,11 @@ const SENT_TONE: Record<Sentiment, LozengeTone> = {
   negative: "danger",
 };
 
-const CHANNELS: Channel[] = ["voice", "whatsapp", "chat", "email"];
+const CHANNELS: ContactChannel[] = ["voice", "whatsapp", "chat", "email"];
 
 export function InteractionsTab({ customer }: { customer: Customer }) {
   const [openId, setOpenId] = useState<string | null>(customer.interactions[0]?.id ?? null);
-  const [channel, setChannel] = useState<"all" | Channel>("all");
+  const [channel, setChannel] = useState<"all" | ContactChannel>("all");
   const [handler, setHandler] = useState<"all" | "bot" | "human">("all");
   const [sentiment, setSentiment] = useState<"all" | Sentiment>("all");
 
@@ -65,7 +65,7 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
     <div className="space-y-200">
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-100 rounded-medium border border-border bg-surface p-100 text-xs">
-        <FilterGroup label="Channel">
+        <FilterGroup label="ContactChannel">
           <Chip active={channel === "all"} onClick={() => setChannel("all")}>
             All
           </Chip>

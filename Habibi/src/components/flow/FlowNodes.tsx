@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   AlertTriangle,
   Anchor,
@@ -370,8 +370,7 @@ function DetailRows({ d }: { d: CanvasNodeData }) {
   );
 }
 
-export function ConversationNode({ data, selected }: NodeProps) {
-  const d = data as unknown as CanvasNodeData;
+export function ConversationNode({ data: d, selected }: NodeProps<Node<CanvasNodeData>>) {
   const compact = useCompact();
   const detail = useDetail();
   const hints = localHints(d, "conversation");
@@ -439,8 +438,7 @@ export function ConversationNode({ data, selected }: NodeProps) {
   );
 }
 
-export function EndNode({ data, selected }: NodeProps) {
-  const d = data as unknown as CanvasNodeData;
+export function EndNode({ data: d, selected }: NodeProps<Node<CanvasNodeData>>) {
   // The end node zooms out with everything else.
   //
   // Only ConversationNode had a compact form, so at overview zoom eleven cards

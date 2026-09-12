@@ -15,7 +15,12 @@ import {
   type CreateInput,
 } from "@/components/promises/PromiseSheet";
 import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
-import type { Filters, PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
+import type {
+  PromiseFilters,
+  PaymentPlan,
+  Promise as Ptp,
+  PromiseStatus,
+} from "@/api/types/promises";
 import { computeMetrics, defaultFilters, filterPromises } from "@/lib/promises";
 import {
   createPlan,
@@ -66,7 +71,7 @@ function PromisesPage() {
   } = usePaymentPlans();
   const { data: liveCustomers } = useCustomers();
 
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<PromiseFilters>(defaultFilters);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
@@ -92,7 +97,7 @@ function PromisesPage() {
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
   const totalMetrics = useMemo(() => computeMetrics(promisesData), [promisesData]);
 
-  const patchFilters = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+  const patchFilters = (patch: Partial<PromiseFilters>) => setFilters((f) => ({ ...f, ...patch }));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["promises"] });

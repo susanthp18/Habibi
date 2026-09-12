@@ -10,7 +10,7 @@ import type {
   Template,
   AgingTone,
   AgingInfo,
-  Filters,
+  DocumentFilters,
   NewRequestInput,
 } from "@/api/types/documents";
 
@@ -173,7 +173,7 @@ export function agingInfo(d: DocRequest): AgingInfo {
   return { tone: "stale", hours, label };
 }
 
-export const defaultFilters: Filters = {
+export const defaultFilters: DocumentFilters = {
   search: "",
   docTypes: [],
   channels: [],
@@ -183,7 +183,7 @@ export const defaultFilters: Filters = {
   assignee: "all",
 };
 
-export function filterDocs(list: DocRequest[], f: Filters): DocRequest[] {
+export function filterDocs(list: DocRequest[], f: DocumentFilters): DocRequest[] {
   const now = Date.now();
   const cutoff =
     f.range === "today"

@@ -7,7 +7,7 @@
 import type { AuthorityPolicy } from "@/lib/authority-policy";
 import type { OfferPolicy } from "@/lib/offer-policy";
 
-export type Channel = "voice" | "whatsapp" | "sms";
+export type FloorChannel = "voice" | "whatsapp" | "sms";
 export type HandlerKind = "bot" | "human";
 export type Risk = "low" | "medium" | "high";
 export type FloorAction = "barge" | "whisper" | "listen" | "inbox";
@@ -22,7 +22,7 @@ export type ActiveCall = {
   accountTail: string;
   conversationId?: string | null;
   handlerUserId?: string | null;
-  channel: Channel;
+  channel: FloorChannel;
   topic: string;
   durationSec: number;
   sentiment: number; // -1..1

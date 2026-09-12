@@ -8,7 +8,7 @@ import type {
   Evidence,
   DisputeRecord,
   Dispute,
-  Filters,
+  DisputeFilters,
 } from "@/api/types/disputes";
 
 export const STATUS_ORDER: DisputeStatus[] = [
@@ -53,7 +53,7 @@ export const RESOLUTION_LABELS: Record<ResolutionCode, string> = {
 // ---- helpers ----
 const now = new Date();
 
-export const defaultFilters: Filters = {
+export const defaultFilters: DisputeFilters = {
   search: "",
   types: [],
   sources: [],
@@ -63,7 +63,11 @@ export const defaultFilters: Filters = {
   myQueue: false,
 };
 
-export function filterDisputes(list: Dispute[], f: Filters, me: string | undefined): Dispute[] {
+export function filterDisputes(
+  list: Dispute[],
+  f: DisputeFilters,
+  me: string | undefined,
+): Dispute[] {
   return list.filter((d) => {
     if (f.myQueue && d.assignee !== me) return false;
     if (f.assignee !== "all" && d.assignee !== f.assignee) return false;

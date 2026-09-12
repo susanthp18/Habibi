@@ -9,7 +9,7 @@ import type {
   CbReminder,
   CbEvent,
   Callback,
-  Filters,
+  CallbackFilters,
   CreateInput,
 } from "@/api/types/callbacks";
 
@@ -76,7 +76,7 @@ function pad(n: number) {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-export const defaultFilters: Filters = {
+export const defaultFilters: CallbackFilters = {
   search: "",
   queue: "all",
   assignee: "all",
@@ -89,7 +89,7 @@ export const defaultFilters: Filters = {
 
 export function filterCallbacks(
   list: Callback[],
-  f: Filters,
+  f: CallbackFilters,
   myQueue: string = CURRENT_QUEUE,
 ): Callback[] {
   return list.filter((c) => {

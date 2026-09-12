@@ -35,7 +35,7 @@
 /** `AgentCard.schema_version` — bumped only by a migration. */
 export const CARD_SCHEMA_VERSION = "1";
 
-export type Channel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
+export type CardChannel = "voice" | "whatsapp" | "sms" | "internal" | "mcp" | "a2a";
 export type PinMode = "exact" | "caret";
 export const EVAL_REQUIRES = ["regression", "redteam", "twin", "outbound"] as const;
 export type EvalRequire = (typeof EVAL_REQUIRES)[number];
@@ -118,7 +118,7 @@ export type CardIdentity = {
   slug?: string;
   display_name?: string;
   purpose?: string;
-  channels?: Channel[];
+  channels?: CardChannel[];
 };
 
 export type CardSkillRef = {

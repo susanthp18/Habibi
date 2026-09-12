@@ -9,15 +9,17 @@
  */
 
 import type { DisputeSla } from "./dispute-sla";
+import type { DisputeStatus } from "./disputes";
+import type { DocStatus } from "./documents";
+
+export type { DisputeStatus, DocStatus };
 
 export type RiskLevel = "critical" | "high" | "medium" | "low";
-export type Channel = "voice" | "whatsapp" | "chat" | "email" | "sms";
+export type ContactChannel = "voice" | "whatsapp" | "chat" | "email" | "sms";
 export type Sentiment = "positive" | "neutral" | "negative";
 export type LedgerType = "charge" | "payment" | "fee" | "adjustment" | "waiver" | "reversal";
 export type EmiStatus = "paid" | "upcoming" | "overdue" | "partial";
 export type PtpStatus = "upcoming" | "kept" | "broken" | "partial";
-export type DisputeStatus = "new" | "under_review" | "awaiting_customer" | "resolved" | "rejected";
-export type DocStatus = "requested" | "generating" | "sent" | "failed";
 export interface LedgerEntry {
   id: string;
   date: string; // ISO
@@ -39,7 +41,7 @@ export interface EmiRow {
 /** Mirrors `InteractionResponse` — `startedAt` / `disposition` / `summary` are null on the wire. */
 export interface Interaction {
   id: string;
-  channel: Channel;
+  channel: ContactChannel;
   handler: { kind: "bot" | "human"; name: string };
   startedAt: string | null;
   duration: string;
@@ -50,12 +52,12 @@ export interface Interaction {
   intents: { queryResolved?: boolean; upsellPresented?: boolean; ptpCaptured?: boolean };
   transcript?: string[];
 }
-export interface Promise {
+export interface CustomerPromise {
   id: string;
   amount: number;
   promisedDate: string;
   createdAt: string;
-  channel: Channel;
+  channel: ContactChannel;
   handler: string;
   status: PtpStatus;
   reminderStatus: "queued" | "sent" | "acknowledged" | "off";
@@ -65,7 +67,7 @@ export interface Promise {
  * server-computed fields the disputes board renders (see api/types/dispute-sla.ts),
  * which is what keeps the two screens word-for-word identical.
  */
-export interface Dispute extends DisputeSla {
+export interface CustomerDispute extends DisputeSla {
   id: string;
   type: string;
   amount: number | null;
@@ -77,7 +79,7 @@ export interface Dispute extends DisputeSla {
 export interface DocumentRequest {
   id: string;
   type: string;
-  requestedVia: Channel;
+  requestedVia: ContactChannel;
   requestedAt: string;
   deliveryChannel: "email" | "whatsapp" | "sms";
   status: DocStatus;
@@ -138,8 +140,8 @@ export interface Customer {
   ledger: LedgerEntry[];
   emi: EmiRow[];
   interactions: Interaction[];
-  promises: Promise[];
-  disputes: Dispute[];
+  promises: CustomerPromise[];
+  disputes: CustomerDispute[];
   documents: DocumentRequest[];
   notes: CustomerNote[];
 }

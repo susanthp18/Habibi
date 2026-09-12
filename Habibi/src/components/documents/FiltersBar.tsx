@@ -9,12 +9,12 @@ import {
 import { Chip } from "@/components/ui/chip";
 import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
 import { toggleIn } from "@/lib/utils";
-import type { DocChannel, DocType, Filters, RequestedVia } from "@/api/types/documents";
+import type { DocChannel, DocType, DocumentFilters, RequestedVia } from "@/api/types/documents";
 import { CHANNEL_LABELS, DOC_TYPE_LABELS, VIA_LABELS } from "@/lib/documents";
 
 interface Props {
-  filters: Filters;
-  onPatch: (p: Partial<Filters>) => void;
+  filters: DocumentFilters;
+  onPatch: (p: Partial<DocumentFilters>) => void;
   onReset: () => void;
   assignees: string[];
 }

@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from "./config";
 import type { AgentTuning, AgentTuningPreset } from "@/api/types/agent-tuning";
+import type { Persona } from "@/api/types/sandbox";
 
 export type VoiceStatus = {
   ok: boolean;
@@ -25,7 +26,7 @@ export async function startVoiceSandbox(input: {
   promptVersionId?: string | null;
   kbSnapshotId?: string | null;
   scenarioId?: string | null;
-  persona?: Record<string, unknown> | null;
+  persona?: Persona | null;
   tuning?: AgentTuning | null;
 }): Promise<VoiceSandboxStartResponse> {
   return apiPost<VoiceSandboxStartResponse>("/voice/sandbox/start", {

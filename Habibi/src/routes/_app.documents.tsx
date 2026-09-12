@@ -11,7 +11,7 @@ import { BulkActionBar } from "@/components/documents/BulkActionBar";
 import { RequestsTable } from "@/components/documents/RequestsTable";
 import { RequestSheet } from "@/components/documents/RequestSheet";
 import { NewRequestSheet } from "@/components/documents/NewRequestSheet";
-import type { DocChannel, DocRequest, DocStatus, Filters } from "@/api/types/documents";
+import type { DocChannel, DocRequest, DocStatus, DocumentFilters } from "@/api/types/documents";
 import { computeMetrics, defaultFilters, filterDocs } from "@/lib/documents";
 import {
   documentAssigneeOptions,
@@ -58,7 +58,7 @@ function DocumentsPage() {
   } = useDocuments();
   const { data: staff = [] } = useStaff();
   const { data: liveCustomers = [] } = useCustomers();
-  const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [filters, setFilters] = useState<DocumentFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
@@ -84,7 +84,7 @@ function DocumentsPage() {
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
   const openDoc = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
 
-  const patchFilters = (p: Partial<Filters>) => setFilters((f) => ({ ...f, ...p }));
+  const patchFilters = (p: Partial<DocumentFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   const toggleStatus = (s: DocStatus) => {
     const cur = filters.statuses;

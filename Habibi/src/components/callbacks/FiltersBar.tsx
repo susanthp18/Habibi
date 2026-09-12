@@ -2,12 +2,12 @@ import { SelectField } from "@/components/ui/select";
 import { Chip } from "@/components/ui/chip";
 import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
 import { toggleIn } from "@/lib/utils";
-import type { CbChannel, CbReason, CbStatus, Filters } from "@/api/types/callbacks";
+import type { CbChannel, CbReason, CbStatus, CallbackFilters } from "@/api/types/callbacks";
 import { CHANNEL_LABELS, REASON_LABELS, STATUS_LABELS } from "@/lib/callbacks";
 
 interface Props {
-  filters: Filters;
-  onPatch: (p: Partial<Filters>) => void;
+  filters: CallbackFilters;
+  onPatch: (p: Partial<CallbackFilters>) => void;
   onReset: () => void;
   /** Real DB humans (+ Unassigned). */
   assignees: string[];

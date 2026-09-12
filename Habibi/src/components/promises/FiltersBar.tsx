@@ -1,12 +1,12 @@
 import { SelectField } from "@/components/ui/select";
 import { Chip, type ChipTone } from "@/components/ui/chip";
 import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
-import type { Filters, PromiseStatus } from "@/api/types/promises";
+import type { PromiseFilters, PromiseStatus } from "@/api/types/promises";
 import { STATUS_LABELS, STATUS_ORDER } from "@/lib/promises";
 
 interface Props {
-  filters: Filters;
-  onChange: (patch: Partial<Filters>) => void;
+  filters: PromiseFilters;
+  onChange: (patch: Partial<PromiseFilters>) => void;
   owners: string[];
   counts: Record<PromiseStatus | "all", number>;
 }
@@ -45,7 +45,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       <SelectField
         aria-label="Source"
         value={filters.source}
-        onChange={(v) => onChange({ source: v as Filters["source"] })}
+        onChange={(v) => onChange({ source: v as PromiseFilters["source"] })}
         size="compact"
         className="w-[8.125rem]"
         options={[
@@ -59,7 +59,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       <SelectField
         aria-label="Aging"
         value={filters.aging}
-        onChange={(v) => onChange({ aging: v as Filters["aging"] })}
+        onChange={(v) => onChange({ aging: v as PromiseFilters["aging"] })}
         size="compact"
         className="w-[8.125rem]"
         options={[
@@ -74,7 +74,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
       <SelectField
         aria-label="Amount"
         value={filters.amount}
-        onChange={(v) => onChange({ amount: v as Filters["amount"] })}
+        onChange={(v) => onChange({ amount: v as PromiseFilters["amount"] })}
         size="compact"
         className="w-[8.75rem]"
         options={[

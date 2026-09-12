@@ -1,13 +1,13 @@
 import { SelectField } from "@/components/ui/select";
 import { Chip, type ChipTone } from "@/components/ui/chip";
 import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
-import type { Filters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
+import type { LeadFilters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
 import { SOURCE_LABELS } from "@/lib/upsell";
 import { toggleIn } from "@/lib/utils";
 
 interface Props {
-  filters: Filters;
-  onPatch: (p: Partial<Filters>) => void;
+  filters: LeadFilters;
+  onPatch: (p: Partial<LeadFilters>) => void;
   onReset: () => void;
   owners: string[];
   products: Product[];
@@ -44,7 +44,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products, teams 
       <SelectField
         aria-label="Team"
         value={filters.team}
-        onChange={(v) => onPatch({ team: v as Filters["team"] })}
+        onChange={(v) => onPatch({ team: v as LeadFilters["team"] })}
         size="compact"
         className="w-[8.125rem]"
         options={[
@@ -80,7 +80,7 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products, teams 
       <SelectField
         aria-label="Source"
         value={filters.source}
-        onChange={(v) => onPatch({ source: v as Filters["source"] })}
+        onChange={(v) => onPatch({ source: v as LeadFilters["source"] })}
         size="compact"
         className="w-[8.75rem]"
         options={[

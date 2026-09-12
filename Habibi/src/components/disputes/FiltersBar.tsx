@@ -8,13 +8,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import type { DisputeSource, DisputeType, Filters } from "@/api/types/disputes";
+import type { DisputeSource, DisputeType, DisputeFilters } from "@/api/types/disputes";
 import { SOURCE_LABELS, TYPE_LABELS } from "@/lib/disputes";
 import { toggleIn } from "@/lib/utils";
 
 interface Props {
-  filters: Filters;
-  onPatch: (p: Partial<Filters>) => void;
+  filters: DisputeFilters;
+  onPatch: (p: Partial<DisputeFilters>) => void;
   onReset: () => void;
   assignees: string[];
 }
@@ -26,7 +26,7 @@ const AMOUNT_OPTIONS = [
   { value: "gt25", label: "Over ₹25k" },
 ];
 
-const SLA: { value: Filters["sla"]; label: string; tone: ChipTone }[] = [
+const SLA: { value: DisputeFilters["sla"]; label: string; tone: ChipTone }[] = [
   { value: "all", label: "All", tone: "brand" },
   { value: "at_risk", label: "At risk", tone: "warning" },
   { value: "breached", label: "Breached", tone: "danger" },
@@ -81,7 +81,7 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
       <SelectField
         aria-label="Amount"
         value={filters.amount}
-        onChange={(v) => onPatch({ amount: v as Filters["amount"] })}
+        onChange={(v) => onPatch({ amount: v as DisputeFilters["amount"] })}
         size="compact"
         className="w-[8.75rem]"
         options={AMOUNT_OPTIONS}

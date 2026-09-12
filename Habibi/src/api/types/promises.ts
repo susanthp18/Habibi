@@ -74,7 +74,7 @@ export interface ScheduleInput {
   cadence: PlanCadence;
 }
 // ---- filters + metrics ----
-export interface Filters {
+export interface PromiseFilters {
   status: PromiseStatus | "all";
   source: PromiseSource | "all";
   aging: "any" | "3d" | "7d" | "gt7" | "overdue";

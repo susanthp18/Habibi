@@ -706,7 +706,7 @@ function FlowCanvasInner({
           id: n.id,
           type: n.type,
           position: n.position,
-          data: data as unknown as Record<string, unknown>,
+          data,
           selected: selection.kind === "node" && selection.id === n.id,
         };
       }),

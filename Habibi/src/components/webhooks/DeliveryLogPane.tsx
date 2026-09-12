@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Delivery, DeliveryStatus, Endpoint, EventKey } from "@/api/types/webhooks";
+import type { Delivery, WebhookDeliveryStatus, Endpoint, EventKey } from "@/api/types/webhooks";
 import { useEventCatalog } from "@/api/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
 import {
@@ -33,7 +33,7 @@ export function DeliveryLogPane({
       .filter((d) => d.at >= cutoff)
       .filter((d) => (epId === "all" ? true : d.endpointId === epId))
       .filter((d) => (event === "all" ? true : d.event === event))
-      .filter((d) => (status === "all" ? true : d.status === (status as DeliveryStatus)));
+      .filter((d) => (status === "all" ? true : d.status === (status as WebhookDeliveryStatus)));
   }, [deliveries, epId, event, status, window]);
 
   return (

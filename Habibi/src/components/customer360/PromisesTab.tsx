@@ -1,7 +1,7 @@
 import { Bell, BellOff, HandCoins, MessageCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Empty } from "@/components/ui/empty";
-import type { Customer, Promise } from "@/api/types/customer360";
+import type { Customer, CustomerPromise } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { StatusChip, ptpStatusTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
@@ -49,7 +49,7 @@ export function PromisesTab({ customer, onCreate }: { customer: Customer; onCrea
   );
 }
 
-function PromiseCard({ p }: { p: Promise }) {
+function PromiseCard({ p }: { p: CustomerPromise }) {
   const ChannelIcon = p.channel === "voice" ? PhoneCall : MessageCircle;
   const Reminder = p.reminderStatus === "off" ? BellOff : Bell;
   return (

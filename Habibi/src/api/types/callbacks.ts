@@ -56,8 +56,8 @@ export interface Callback {
   disposition?: CbDisposition;
   outcomeNotes?: string;
 }
-// ---- Filters ----
-export interface Filters {
+// ---- CallbackFilters ----
+export interface CallbackFilters {
   search: string;
   queue: string | "all";
   assignee: string | "all";

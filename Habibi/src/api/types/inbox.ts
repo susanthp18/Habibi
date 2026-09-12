@@ -6,7 +6,7 @@
 
 // Mirrors the conversations.channel CHECK constraint (sql/04_interactions.sql).
 // Narrower than the database, the inbox drops threads it was meant to show.
-export type Channel = "whatsapp" | "sms" | "email" | "chat" | "voice";
+export type InboxChannel = "whatsapp" | "sms" | "email" | "chat" | "voice";
 export type Sender = "customer" | "bot" | "agent" | "system";
 /** Stored conversation status — "mine" is derived (assignedUserId === me). */
 export type ThreadStatus = "bot" | "needs_human" | "escalated" | "assigned";
@@ -15,13 +15,13 @@ export type Sentiment = "positive" | "neutral" | "negative";
 // "pending" = queued by the API, not yet accepted by the provider. It must be
 // distinguishable from a delivered message: rendering both as "no tick" is how
 // an agent spent six minutes replying to a customer who saw nothing.
-export type DeliveryStatus = "pending" | "sent" | "delivered" | "read" | "failed";
+export type MessageDeliveryStatus = "pending" | "sent" | "delivered" | "read" | "failed";
 export interface Message {
   id: string;
   sender: Sender;
   text: string;
   time: string; // "3:41 PM"
-  delivery?: DeliveryStatus; // for bot/agent
+  delivery?: MessageDeliveryStatus; // for bot/agent
 }
 export interface SystemEvent {
   id: string;
@@ -58,7 +58,7 @@ export interface Thread {
   /** CRM customer id for Customer 360 / PTP / dispute deep-links. */
   customerId?: string;
   accountId: string;
-  channel: Channel;
+  channel: InboxChannel;
   status: ThreadStatus;
   /** Owning agent; Mine filter = assignedUserId === current user. */
   assignedUserId: string | null;

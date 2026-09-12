@@ -59,8 +59,8 @@ export interface DisputeRecord {
  * The board never derives the chip from slaDueAt — see api/types/dispute-sla.ts.
  */
 export type Dispute = DisputeRecord & DisputeSla;
-// ---- Filters ----
-export interface Filters {
+// ---- DisputeFilters ----
+export interface DisputeFilters {
   search: string;
   types: DisputeType[]; // empty = all
   sources: DisputeSource[]; // empty = all

@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { StatsStrip, type FloorFocus } from "@/components/floor/StatsStrip";
 import { WorkforceStrip } from "@/components/floor/WorkforceStrip";
-import { FilterBar, type Filters } from "@/components/floor/FilterBar";
+import { FilterBar, type FloorFilters } from "@/components/floor/FilterBar";
 import { PriorityLane } from "@/components/floor/PriorityLane";
 import { LiveTable } from "@/components/floor/LiveTable";
 import { Inspector } from "@/components/floor/Inspector";
@@ -61,7 +61,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   const [listeningId, setListeningId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focus, setFocus] = useState<FloorFocus>("all");
-  const [filters, setFilters] = useState<Filters>({ q: "", channels: [], handler: "all" });
+  const [filters, setFilters] = useState<FloorFilters>({ q: "", channels: [], handler: "all" });
 
   const liveStats = useMemo(() => {
     const avg = calls.reduce((s, c) => s + c.sentiment, 0) / Math.max(calls.length, 1);

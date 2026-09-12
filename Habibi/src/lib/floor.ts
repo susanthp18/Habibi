@@ -1,5 +1,5 @@
 import type {
-  Channel,
+  FloorChannel,
   HandlerKind,
   Risk,
   FloorAction,
@@ -35,7 +35,7 @@ export const actionLabel: Record<FloorAction, string> = {
   inbox: "Open inbox",
 };
 
-export const channelLabel: Record<Channel, string> = {
+export const channelLabel: Record<FloorChannel, string> = {
   voice: "Voice",
   whatsapp: "WhatsApp",
   sms: "SMS",

@@ -1,4 +1,4 @@
-import type { Channel, Sentiment, SlaLevel, Thread, ThreadStatus } from "@/api/types/inbox";
+import type { InboxChannel, Sentiment, SlaLevel, Thread, ThreadStatus } from "@/api/types/inbox";
 import { MessageCircle, Mail, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LozengeProps } from "@/components/ui/lozenge";
@@ -8,19 +8,21 @@ type Tone = NonNullable<LozengeProps["tone"]>;
 type Hue = NonNullable<TagProps["hue"]>;
 
 /*
- * Channel is a decorative classification, not a status, so Design.md puts it on a Tag
+ * InboxChannel is a decorative classification, not a status, so Design.md puts it on a Tag
  * (transparent + accent border) rather than a Lozenge — "Decorative Tag used for status"
  * and "Filled tag pills with semantic-looking backgrounds" are both listed as DON'Ts, and
  * the old filled-green WhatsApp pill was reading as a success state it never meant.
  */
-export const channelMeta: Record<Channel, { label: string; icon: typeof MessageCircle; hue: Hue }> =
-  {
-    whatsapp: { label: "WhatsApp", icon: MessageCircle, hue: "green" },
-    sms: { label: "SMS", icon: MessageSquare, hue: "blue" },
-    email: { label: "Email", icon: Mail, hue: "purple" },
-    chat: { label: "Web chat", icon: MessageCircle, hue: "teal" },
-    voice: { label: "Voice", icon: Phone, hue: "magenta" },
-  };
+export const channelMeta: Record<
+  InboxChannel,
+  { label: string; icon: typeof MessageCircle; hue: Hue }
+> = {
+  whatsapp: { label: "WhatsApp", icon: MessageCircle, hue: "green" },
+  sms: { label: "SMS", icon: MessageSquare, hue: "blue" },
+  email: { label: "Email", icon: Mail, hue: "purple" },
+  chat: { label: "Web chat", icon: MessageCircle, hue: "teal" },
+  voice: { label: "Voice", icon: Phone, hue: "magenta" },
+};
 
 /** Safe lookup — unknown / future channels degrade instead of crashing. */
 export function resolveChannelMeta(channel: string | null | undefined) {
@@ -28,7 +30,7 @@ export function resolveChannelMeta(channel: string | null | undefined) {
   // "toString" walks the prototype chain and returns a function, which then
   // renders as garbage instead of falling back.
   if (channel && Object.prototype.hasOwnProperty.call(channelMeta, channel)) {
-    return channelMeta[channel as Channel];
+    return channelMeta[channel as InboxChannel];
   }
   return channelMeta.whatsapp;
 }

@@ -1,4 +1,10 @@
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  type Edge,
+  type EdgeProps,
+} from "@xyflow/react";
 
 import { OPERATOR_LABELS, UNARY_OPERATORS, type FlowCondition } from "@/api/flow";
 import { cn } from "@/lib/utils";
@@ -94,7 +100,7 @@ export function FlowConditionEdge({
   targetPosition,
   data,
   selected,
-}: EdgeProps) {
+}: EdgeProps<Edge<ConditionEdgeData>>) {
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -104,7 +110,7 @@ export function FlowConditionEdge({
     targetPosition,
     borderRadius: 12,
   });
-  const d = data as unknown as ConditionEdgeData | undefined;
+  const d = data;
   const condition = d?.condition;
   const showLabel = useLabelsVisible();
   // Deterministic edges are evaluated by the runtime, never offered to the
@@ -186,7 +192,7 @@ export function FlowImplicitEdge({
   sourcePosition,
   targetPosition,
   data,
-}: EdgeProps) {
+}: EdgeProps<Edge<ConditionEdgeData>>) {
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,

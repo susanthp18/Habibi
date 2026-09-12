@@ -241,7 +241,7 @@ export function useSandboxLiveCall(args: Args) {
         promptVersionId: a.promptVersionId,
         kbSnapshotId: a.kbSnapshotId,
         scenarioId: a.scenarioId,
-        persona: a.persona as unknown as Record<string, unknown>,
+        persona: a.persona,
         tuning: a.tuning,
       });
       if (gen !== startGenRef.current) {

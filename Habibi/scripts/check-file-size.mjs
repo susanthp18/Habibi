@@ -29,8 +29,7 @@ const BASELINE = {
   "src/components/prompt-studio/VoicePanel.tsx": 1000,
   "src/routes/_app.agent-studio.index.tsx": 744,
   "src/routes/_app.handoff.lazy.tsx": 563,
-  "src/api/prompt-studio.ts": 838,
-  "src/api/agent-studio.ts": 815,
+  "src/api/prompt-studio.ts": 824,
 };
 
 function* walk(dir) {

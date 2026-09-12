@@ -1,4 +1,4 @@
-import type { Filters, Lead, LeadSource, LeadStage } from "@/api/types/upsell";
+import type { LeadFilters, Lead, LeadSource, LeadStage } from "@/api/types/upsell";
 import { inrCompact } from "@/lib/format";
 
 /** Compact rupees; a lead with no indicative value reads as a dash, not a zero. */
@@ -41,7 +41,7 @@ export function fmtRelative(iso: string) {
   return `${sign}${Math.round(abs / 86400)}d${suffix}`;
 }
 
-export const defaultFilters: Filters = {
+export const defaultFilters: LeadFilters = {
   search: "",
   team: "all",
   owner: "all",
