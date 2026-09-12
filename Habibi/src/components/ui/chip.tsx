@@ -2,11 +2,15 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = {
-  brand: "border-border-brand bg-background-brand-subtlest font-semibold text-text-brand",
-  success: "border-border-success bg-background-success-bold text-white",
-  warning: "border-border-warning bg-background-warning-bold text-text-warning-inverse",
-  danger: "border-border-danger bg-background-danger-bold text-white",
+  brand: "border-border-brand bg-background-brand-subtlest text-text-brand",
+  success: "border-border-success bg-background-success-subtler text-text-success-bolder",
+  warning: "border-border-warning bg-background-warning-subtler text-text-warning-bolder",
+  danger: "border-border-danger bg-background-danger-subtler text-text-danger-bolder",
+  neutral:
+    "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
 };
+
+export type ChipTone = keyof typeof ACTIVE;
 
 /** A pressable filter pill; `active` is its pressed state. */
 export function Chip({
@@ -18,7 +22,7 @@ export function Chip({
 }: {
   active?: boolean;
   onClick: () => void;
-  tone?: keyof typeof ACTIVE;
+  tone?: ChipTone;
   className?: string;
   children: ReactNode;
 }) {
@@ -28,8 +32,10 @@ export function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-full border px-100 py-025 text-body-small",
-        active ? ACTIVE[tone] : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
+        "rounded-full border px-100 py-025 text-body-small transition-colors",
+        active
+          ? cn("font-medium", ACTIVE[tone])
+          : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
         className,
       )}
     >

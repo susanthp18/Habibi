@@ -1,10 +1,16 @@
-import { Search, X } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select";
+import { Chip, type ChipTone } from "@/components/ui/chip";
+import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import type { DisputeSource, DisputeType, Filters } from "@/api/types/disputes";
 import { SOURCE_LABELS, TYPE_LABELS } from "@/lib/disputes";
-import { cn } from "@/lib/utils";
+import { toggleIn } from "@/lib/utils";
 
 interface Props {
   filters: Filters;
@@ -20,82 +26,57 @@ const AMOUNT_OPTIONS = [
   { value: "gt25", label: "Over ₹25k" },
 ];
 
+const SLA: { value: Filters["sla"]; label: string; tone: ChipTone }[] = [
+  { value: "all", label: "All", tone: "brand" },
+  { value: "at_risk", label: "At risk", tone: "warning" },
+  { value: "breached", label: "Breached", tone: "danger" },
+];
+
 const TYPES = Object.keys(TYPE_LABELS) as DisputeType[];
 const SOURCES = Object.keys(SOURCE_LABELS) as DisputeSource[];
 
 export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
-  const active =
-    !!filters.search ||
-    filters.types.length > 0 ||
-    filters.sources.length > 0 ||
-    filters.assignee !== "all" ||
-    filters.sla !== "all" ||
-    filters.amount !== "any" ||
-    filters.myQueue;
-
-  const toggleType = (t: DisputeType) => {
-    const next = filters.types.includes(t)
-      ? filters.types.filter((x) => x !== t)
-      : [...filters.types, t];
-    onPatch({ types: next });
-  };
-  const toggleSource = (s: DisputeSource) => {
-    const next = filters.sources.includes(s)
-      ? filters.sources.filter((x) => x !== s)
-      : [...filters.sources, s];
-    onPatch({ sources: next });
-  };
+  const activeCount =
+    (filters.search ? 1 : 0) +
+    filters.types.length +
+    filters.sources.length +
+    (filters.assignee !== "all" ? 1 : 0) +
+    (filters.sla !== "all" ? 1 : 0) +
+    (filters.amount !== "any" ? 1 : 0) +
+    (filters.myQueue ? 1 : 0);
 
   return (
-    <div className="flex flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
-      <div className="relative min-w-[13.75rem] flex-1">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
-        <Input
-          value={filters.search}
-          onChange={(e) => onPatch({ search: e.target.value })}
-          placeholder="Search customer, account, snippet, dispute ID…"
-          size="compact"
-          className="pl-400"
-        />
-      </div>
-
-      <div className="flex items-center gap-050">
+    <Bar
+      search={filters.search}
+      onSearch={(search) => onPatch({ search })}
+      placeholder="Search customer, account, snippet, dispute ID…"
+      activeCount={activeCount}
+      onReset={onReset}
+    >
+      <FilterGroup>
         {SOURCES.map((s) => (
-          <button
+          <Chip
             key={s}
-            onClick={() => toggleSource(s)}
-            className={cn(
-              "rounded-full border px-150 py-050 text-body-small transition-colors",
-              filters.sources.includes(s)
-                ? "border-border-brand bg-background-brand-subtlest text-text-brand"
-                : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-            )}
+            active={filters.sources.includes(s)}
+            onClick={() => onPatch({ sources: toggleIn(filters.sources, s) })}
           >
             {SOURCE_LABELS[s]}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </FilterGroup>
 
-      <div className="flex items-center gap-050">
-        {(["all", "at_risk", "breached"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => onPatch({ sla: s })}
-            className={cn(
-              "rounded-full border px-150 py-050 text-body-small transition-colors",
-              filters.sla === s
-                ? s === "breached"
-                  ? "border-border-danger bg-background-danger-subtler text-text-danger-bolder"
-                  : s === "at_risk"
-                    ? "border-border-warning bg-background-warning-subtler text-text-warning-bolder"
-                    : "border-border-brand bg-background-brand-subtlest text-text-brand"
-                : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-            )}
+      <FilterGroup>
+        {SLA.map((s) => (
+          <Chip
+            key={s.value}
+            active={filters.sla === s.value}
+            tone={s.tone}
+            onClick={() => onPatch({ sla: s.value })}
           >
-            SLA · {s === "all" ? "All" : s === "at_risk" ? "At risk" : "Breached"}
-          </button>
+            SLA · {s.label}
+          </Chip>
         ))}
-      </div>
+      </FilterGroup>
 
       <SelectField
         aria-label="Amount"
@@ -118,44 +99,28 @@ export function FiltersBar({ filters, onPatch, onReset, assignees }: Props) {
         ]}
       />
 
-      <button
-        onClick={() => onPatch({ myQueue: !filters.myQueue })}
-        className={cn(
-          "rounded-full border px-150 py-050 text-body-small transition-colors",
-          filters.myQueue
-            ? "border-border-brand bg-background-brand-bold text-white"
-            : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-        )}
-      >
+      <Chip active={filters.myQueue} onClick={() => onPatch({ myQueue: !filters.myQueue })}>
         My queue
-      </button>
+      </Chip>
 
-      <details className="relative">
-        <summary className="cursor-pointer list-none rounded-medium border border-border bg-surface px-100 py-050 text-body-small text-text-subtle hover:bg-surface-sunken">
-          Type {filters.types.length > 0 && `(${filters.types.length})`}
-        </summary>
-        <div className="absolute right-0 z-20 mt-050 w-56 rounded-medium border border-border bg-surface p-100 shadow-overlay">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" className="h-400">
+            Type {filters.types.length > 0 && `(${filters.types.length})`}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
           {TYPES.map((t) => (
-            <label
+            <DropdownMenuCheckboxItem
               key={t}
-              className="flex cursor-pointer items-center gap-100 rounded px-100 py-050 text-body-small hover:bg-surface-sunken"
+              checked={filters.types.includes(t)}
+              onCheckedChange={() => onPatch({ types: toggleIn(filters.types, t) })}
             >
-              <input
-                type="checkbox"
-                checked={filters.types.includes(t)}
-                onChange={() => toggleType(t)}
-              />
               {TYPE_LABELS[t]}
-            </label>
+            </DropdownMenuCheckboxItem>
           ))}
-        </div>
-      </details>
-
-      {active && (
-        <Button size="sm" variant="ghost" className="h-7 px-100 text-body-small" onClick={onReset}>
-          <X className="mr-050 h-3 w-3" /> Reset
-        </Button>
-      )}
-    </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </Bar>
   );
 }

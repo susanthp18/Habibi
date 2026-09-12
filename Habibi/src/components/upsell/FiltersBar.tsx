@@ -1,10 +1,9 @@
-import { Search, X } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select";
+import { Chip, type ChipTone } from "@/components/ui/chip";
+import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
 import type { Filters, LeadSource, Priority, Product, Sentiment } from "@/api/types/upsell";
 import { SOURCE_LABELS } from "@/lib/upsell";
-import { cn } from "@/lib/utils";
+import { toggleIn } from "@/lib/utils";
 
 interface Props {
   filters: Filters;
@@ -15,60 +14,33 @@ interface Props {
   teams: string[];
 }
 
-const SENTIMENTS: Sentiment[] = ["positive", "neutral", "negative"];
-const PRIORITIES: Priority[] = ["high", "normal", "low"];
+const SENTIMENTS: Record<Sentiment, ChipTone> = {
+  positive: "success",
+  neutral: "neutral",
+  negative: "danger",
+};
+const PRIORITIES: Record<Priority, ChipTone> = { high: "warning", normal: "brand", low: "neutral" };
 const SOURCES = Object.keys(SOURCE_LABELS) as LeadSource[];
 
-const sentimentTone: Record<Sentiment, string> = {
-  positive: "border-border-success bg-background-success-subtler text-text-success-bolder",
-  neutral:
-    "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
-  negative: "border-border-danger bg-background-danger-subtler text-text-danger-bolder",
-};
-
-const priorityTone: Record<Priority, string> = {
-  high: "border-border-warning bg-background-warning-subtler text-text-warning-bolder",
-  normal: "border-border-brand bg-background-brand-subtlest text-text-brand",
-  low: "border-border-accent-gray bg-background-accent-gray-subtlest text-text-accent-gray-bolder",
-};
-
 export function FiltersBar({ filters, onPatch, onReset, owners, products, teams }: Props) {
-  const active =
-    !!filters.search ||
-    filters.team !== "all" ||
-    filters.owner !== "all" ||
-    filters.productId !== "all" ||
-    filters.source !== "all" ||
-    filters.sentiments.length > 0 ||
-    filters.priorities.length > 0 ||
-    filters.myQueue;
-
-  const toggleSentiment = (s: Sentiment) => {
-    const next = filters.sentiments.includes(s)
-      ? filters.sentiments.filter((x) => x !== s)
-      : [...filters.sentiments, s];
-    onPatch({ sentiments: next });
-  };
-  const togglePriority = (p: Priority) => {
-    const next = filters.priorities.includes(p)
-      ? filters.priorities.filter((x) => x !== p)
-      : [...filters.priorities, p];
-    onPatch({ priorities: next });
-  };
+  const activeCount =
+    (filters.search ? 1 : 0) +
+    (filters.team !== "all" ? 1 : 0) +
+    (filters.owner !== "all" ? 1 : 0) +
+    (filters.productId !== "all" ? 1 : 0) +
+    (filters.source !== "all" ? 1 : 0) +
+    filters.sentiments.length +
+    filters.priorities.length +
+    (filters.myQueue ? 1 : 0);
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-100 rounded-large border border-border bg-surface p-100">
-      <div className="relative min-w-[13.75rem] flex-1">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
-        <Input
-          value={filters.search}
-          onChange={(e) => onPatch({ search: e.target.value })}
-          placeholder="Search customer, account, product, snippet, lead ID…"
-          size="compact"
-          className="pl-400"
-        />
-      </div>
-
+    <Bar
+      search={filters.search}
+      onSearch={(search) => onPatch({ search })}
+      placeholder="Search customer, account, product, snippet, lead ID…"
+      activeCount={activeCount}
+      onReset={onReset}
+    >
       <SelectField
         aria-label="Team"
         value={filters.team}
@@ -117,63 +89,37 @@ export function FiltersBar({ filters, onPatch, onReset, owners, products, teams 
         ]}
       />
 
-      <div className="flex items-center gap-050">
-        {SENTIMENTS.map((s) => {
-          const on = filters.sentiments.includes(s);
-          return (
-            <button
-              key={s}
-              onClick={() => toggleSentiment(s)}
-              className={cn(
-                "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
-                on
-                  ? sentimentTone[s]
-                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-              )}
-            >
-              {s}
-            </button>
-          );
-        })}
-      </div>
+      <FilterGroup>
+        {(Object.keys(SENTIMENTS) as Sentiment[]).map((s) => (
+          <Chip
+            key={s}
+            className="capitalize"
+            tone={SENTIMENTS[s]}
+            active={filters.sentiments.includes(s)}
+            onClick={() => onPatch({ sentiments: toggleIn(filters.sentiments, s) })}
+          >
+            {s}
+          </Chip>
+        ))}
+      </FilterGroup>
 
-      <div className="flex items-center gap-050">
-        {PRIORITIES.map((p) => {
-          const on = filters.priorities.includes(p);
-          return (
-            <button
-              key={p}
-              onClick={() => togglePriority(p)}
-              className={cn(
-                "rounded-full border px-150 py-050 text-body-small capitalize transition-colors",
-                on
-                  ? priorityTone[p]
-                  : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-              )}
-            >
-              {p}
-            </button>
-          );
-        })}
-      </div>
+      <FilterGroup>
+        {(Object.keys(PRIORITIES) as Priority[]).map((p) => (
+          <Chip
+            key={p}
+            className="capitalize"
+            tone={PRIORITIES[p]}
+            active={filters.priorities.includes(p)}
+            onClick={() => onPatch({ priorities: toggleIn(filters.priorities, p) })}
+          >
+            {p}
+          </Chip>
+        ))}
+      </FilterGroup>
 
-      <button
-        onClick={() => onPatch({ myQueue: !filters.myQueue })}
-        className={cn(
-          "rounded-full border px-150 py-050 text-body-small transition-colors",
-          filters.myQueue
-            ? "border-border-brand bg-background-brand-bold text-white"
-            : "border-border bg-surface text-text-subtle hover:bg-surface-sunken",
-        )}
-      >
+      <Chip active={filters.myQueue} onClick={() => onPatch({ myQueue: !filters.myQueue })}>
         My leads
-      </button>
-
-      {active && (
-        <Button size="sm" variant="ghost" className="h-400" onClick={onReset}>
-          <X className="mr-050 h-3 w-3" /> Reset
-        </Button>
-      )}
-    </div>
+      </Chip>
+    </Bar>
   );
 }
