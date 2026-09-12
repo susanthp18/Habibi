@@ -10,6 +10,7 @@ import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SelectField } from "@/components/ui/select";
@@ -96,11 +97,13 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay"
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[25rem]"
       >
+        <SheetTitle className="sr-only">New lead</SheetTitle>
         <div className="shrink-0 flex items-center justify-between border-b border-border p-200">
           <div>
             <h2 className="text-body font-semibold text-text">New lead</h2>
@@ -220,7 +223,7 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
             Create lead
           </Button>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

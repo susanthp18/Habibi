@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { Rubric, RubricCriterion, RubricSection } from "@/api/types/qa";
 
 export function RubricBuilderSheet({
@@ -63,11 +64,13 @@ export function RubricBuilderSheet({
     setDraft({ ...draft, sections: draft.sections.filter((s) => s.id !== id) });
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div
-        className="flex h-full w-full max-w-2xl flex-col bg-surface shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl"
       >
+        <SheetTitle className="sr-only">Rubric builder</SheetTitle>
         <div className="flex items-center justify-between border-b border-border px-200 py-150">
           <div>
             <div className="text-body font-semibold text-text">Edit rubric — {draft.name}</div>
@@ -214,7 +217,7 @@ export function RubricBuilderSheet({
             Save rubric
           </button>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

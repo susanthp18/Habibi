@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { bindControlId } from "@/components/ui/bind-control-id";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -134,9 +135,13 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
   const assigneeOptions = [...new Set(["Unassigned", ...assignees])];
 
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[37.5rem] flex-col bg-surface shadow-overlay">
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[37.5rem]"
+      >
+        <SheetTitle className="sr-only">Dispute</SheetTitle>
         {/* Header */}
         <div className="shrink-0 border-b border-border px-200 py-150">
           <div className="flex items-start justify-between gap-100">
@@ -493,8 +498,8 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
             </div>
           </div>
         )}
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

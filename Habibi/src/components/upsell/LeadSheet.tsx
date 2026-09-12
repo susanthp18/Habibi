@@ -18,6 +18,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { FollowUpChannel, Lead, LeadStage, Priority, Team } from "@/api/types/upsell";
 import {
   STAGE_LABELS,
@@ -222,11 +223,13 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-[37.5rem] flex-col bg-surface shadow-overlay"
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[37.5rem]"
       >
+        <SheetTitle className="sr-only">Lead</SheetTitle>
         {/* Header */}
         <div className="shrink-0 border-b border-border p-200">
           <div className="flex items-start justify-between gap-100">
@@ -689,7 +692,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

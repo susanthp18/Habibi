@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { bindControlId } from "@/components/ui/bind-control-id";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,9 +65,13 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[25rem]"
+      >
+        <SheetTitle className="sr-only">New document request</SheetTitle>
         <div className="shrink-0 flex items-center justify-between border-b border-border px-200 py-150">
           <div>
             <h2 className="text-body font-semibold text-text">New document request</h2>
@@ -159,8 +164,8 @@ export function NewRequestSheet({ onClose, onCreated, customers }: Props) {
             <Send className="mr-050 h-3.5 w-3.5" /> Create request
           </Button>
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

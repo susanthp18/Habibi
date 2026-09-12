@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { X, Send, Phone, ExternalLink, AlertTriangle, Bot, User, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Callback, CbChannel, CbDisposition, CbPriority } from "@/api/types/callbacks";
@@ -136,9 +137,13 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
   const queueOptions = [...new Set(queues.includes(cb.queue) ? queues : [cb.queue, ...queues])];
 
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[37.5rem] flex-col bg-surface shadow-overlay">
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[37.5rem]"
+      >
+        <SheetTitle className="sr-only">Callback</SheetTitle>
         <div className="shrink-0 border-b border-border px-200 py-150">
           <div className="flex items-start justify-between gap-100">
             <div className="min-w-0">
@@ -478,7 +483,7 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
             </div>
           )}
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

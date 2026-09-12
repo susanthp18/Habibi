@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { CoachingAction } from "@/api/types/qa";
 import { SelectField } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 const CATEGORIES = ["Empathy", "Resolution", "Compliance", "Script adherence", "Upsell"];
 
@@ -32,11 +33,13 @@ export function NewCoachingSheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={onClose}>
-      <div
-        className="flex h-full w-full max-w-md flex-col bg-surface shadow-overlay"
-        onClick={(e) => e.stopPropagation()}
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
       >
+        <SheetTitle className="sr-only">New coaching action</SheetTitle>
         <div className="flex items-center justify-between border-b border-border px-200 py-150">
           <div>
             <div className="text-body font-semibold text-text">New coaching action</div>
@@ -118,7 +121,7 @@ export function NewCoachingSheet({
             Create action
           </button>
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SelectField } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { CbChannel, CbPriority, CbReason } from "@/api/types/callbacks";
@@ -105,9 +106,13 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <button aria-label="Close overlay" onClick={onClose} className="flex-1 bg-black/30" />
-      <aside className="flex h-full w-full max-w-[37.5rem] flex-col bg-surface shadow-overlay">
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[37.5rem]"
+      >
+        <SheetTitle className="sr-only">New callback</SheetTitle>
         <div className="flex shrink-0 items-center justify-between border-b border-border px-200 py-150">
           <div>
             <div className="text-body font-semibold text-text">New callback</div>
@@ -290,7 +295,7 @@ export function NewCallbackSheet({ onClose, onCreated, customers, assignees, que
             Schedule callback
           </Button>
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { SelectField } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,14 +68,13 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex">
-      <button
-        aria-label="Close overlay"
-        type="button"
-        onClick={onClose}
-        className="flex-1 bg-black/30"
-      />
-      <aside className="flex h-full w-full max-w-[25rem] flex-col bg-surface shadow-overlay">
+    <Sheet open onOpenChange={(next) => !next && onClose()}>
+      <SheetContent
+        hideClose
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[25rem]"
+      >
+        <SheetTitle className="sr-only">New dispute</SheetTitle>
         <div className="flex shrink-0 items-center justify-between border-b border-border px-200 py-150">
           <div>
             <h2 className="text-body font-semibold text-text">Raise dispute</h2>
@@ -141,7 +141,7 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
             {busy ? "Saving…" : "Raise dispute"}
           </Button>
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
