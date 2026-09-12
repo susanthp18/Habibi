@@ -39,6 +39,7 @@ from agent_core import clock
 import contact_window
 import policy_rules
 from env_utils import env_int
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -928,7 +929,7 @@ def evaluate(
 
     try:
         customer = _load_customer(conn, cid)
-        instant = as_utc(now or datetime.now(timezone.utc))
+        instant = as_utc(now or utc_now())
         tz = _zone((customer or {}).get("timezone"))
         local = instant.astimezone(tz)
         rules = _rules_for(conn, customer, instant, product_id=product_id)
@@ -1123,7 +1124,7 @@ def narrow_window(
             result["reason"] = REASON_NO_CUSTOMER
             return result
 
-        rules = _rules_for(conn, customer, datetime.now(timezone.utc))
+        rules = _rules_for(conn, customer, utc_now())
         statutory = (rules.calling_window("voice") if rules is not None else None) or (
             RBI_VOICE_START,
             RBI_VOICE_END,
@@ -1408,7 +1409,7 @@ def admit(
     data_purpose = data_purpose if data_purpose in DATA_PURPOSES else "servicing"
     channel = normalize_channel(channel)
     cid = (customer_id or "").strip()
-    instant = as_utc(now or datetime.now(timezone.utc))
+    instant = as_utc(now or utc_now())
 
     if not cid:
         if purpose == "outreach":

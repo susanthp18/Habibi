@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 import contact_window
 from agent_core import clock
+from agent_core.clock import utc_now
 import visibility
 from env_utils import env_int as _env_int
 
@@ -715,7 +716,7 @@ def _dispute_sla(
     due = _as_utc(sla_due_at)
     if due is None:
         return "ok", "Open", 0
-    remaining = (due - datetime.now(timezone.utc)).total_seconds()
+    remaining = (due - utc_now()).total_seconds()
     label = _dispute_sla_countdown(remaining)
     minutes = int(remaining / 60)
     if remaining < 0:
@@ -1683,7 +1684,7 @@ def list_payment_plans(*, limit: int | None = None, offset: int | None = None) -
         for r in inst_rows:
             by_plan.setdefault(r["plan_id"], []).append(r)
 
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         result = []
         for p in plans:
             installments = by_plan.get(p["id"], [])
@@ -2375,7 +2376,7 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
         response = _dump(
             CallResponse(
                 id=interaction_id,
-                startedAt=datetime.now(timezone.utc).isoformat(),
+                startedAt=utc_now().isoformat(),
                 duration=0,
                 channel=payload.get("channel") or "voice",
                 direction=payload.get("direction") or "outbound",

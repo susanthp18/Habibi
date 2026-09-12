@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Protocol
 
 from sqlalchemy import text
 
 from agent_core.clock import as_utc
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +289,7 @@ class PostgresFeatureProvider:
         if opened:
             earliest = min(opened)
             if isinstance(earliest, datetime):
-                delta = datetime.now(timezone.utc) - as_utc(earliest)
+                delta = utc_now() - as_utc(earliest)
                 relationship_months = max(0, int(delta.days / 30.44))
 
         categories = set()
@@ -415,7 +416,7 @@ class PostgresFeatureProvider:
         declined: set[str] = set()
         last_offer_at: datetime | None = None
         offers_30d = 0
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff = utc_now() - timedelta(days=30)
 
         try:
             rows = conn.execute(
@@ -519,7 +520,7 @@ class PostgresFeatureProvider:
         months_since = None
         last = row.get("last_payment_at")
         if isinstance(last, datetime):
-            months_since = max(0, int((datetime.now(timezone.utc) - as_utc(last)).days / 30.44))
+            months_since = max(0, int((utc_now() - as_utc(last)).days / 30.44))
         return ratio, months_since
 
     def _call_signals(

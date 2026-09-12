@@ -12,7 +12,6 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -21,6 +20,7 @@ import azure_openai
 import db
 from db_core import _vector_literal
 import pii_redact
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -1150,7 +1150,7 @@ def _retrieve_assemble(rt: Retrieval) -> dict[str, Any]:
             "selected_answer_source": f"{source}:{selected_source}",
             # Stamped now, not by now() at flush time: the row records when the
             # retrieval happened, not when the buffer happened to drain.
-            "created_at": datetime.now(timezone.utc),
+            "created_at": utc_now(),
         },
         defer=source in _DEFERRED_LOG_SOURCES,
     )
@@ -1265,7 +1265,7 @@ def retrieve(
                 ),
                 "latency_ms": payload["latencyMs"],
                 "selected_answer_source": f"{source}:cached",
-                "created_at": datetime.now(timezone.utc),
+                "created_at": utc_now(),
             },
             defer=source in _DEFERRED_LOG_SOURCES,
         )

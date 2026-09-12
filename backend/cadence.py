@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -52,6 +52,7 @@ from sqlalchemy.engine import Engine
 import flow_graph as fg
 import outbound
 from env_utils import env_int
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +83,6 @@ def max_backoff_hours() -> int:
     """
     return max(1, env_int("CADENCE_MAX_BACKOFF_HOURS", 168))
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _sid() -> str:

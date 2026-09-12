@@ -33,10 +33,11 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,6 @@ _CALL_RE = re.compile(r"^\s*([a-z_]+)\s*(?:\(\s*([^)]*)\s*\))?\s*$")
 
 _DURATION_RE = re.compile(r"^(\d+)\s*([dhm])$")
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _parse(action: str) -> tuple[str, str | None]:

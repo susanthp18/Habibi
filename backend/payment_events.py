@@ -27,6 +27,7 @@ from contact_policy import BLOCKING_CONSENT
 from env_loader import env_str, load_env
 from env_utils import env_bool
 from agent_core import clock
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ def ingest(conn: Any, payload: dict[str, Any], *, now: datetime | None = None) -
     if not source_ref:
         raise ValueError("source_ref_required")
 
-    instant = as_utc(now or datetime.now(timezone.utc))
+    instant = as_utc(now or utc_now())
     occurred = _parse_dt(parsed.get("occurred_at"), instant)
 
     account = conn.execute(
@@ -829,7 +830,7 @@ def deliver(engine: Engine, deferred: list[dict[str, Any]]) -> None:
 def _deliver_sms(engine: Engine, item: dict[str, Any]) -> None:
     import twilio_sms
 
-    now = _parse_dt(item.get("now"), datetime.now(timezone.utc))
+    now = _parse_dt(item.get("now"), utc_now())
     try:
         twilio_sms.send(
             to_phone=item["to_phone"],
@@ -879,7 +880,7 @@ def _deliver_sms(engine: Engine, item: dict[str, Any]) -> None:
 def _deliver_voice(engine: Engine, item: dict[str, Any]) -> None:
     import outbound
 
-    now = _parse_dt(item.get("now"), datetime.now(timezone.utc))
+    now = _parse_dt(item.get("now"), utc_now())
     placed = outbound.place(engine, item["attempt"], to_phone=item["to_phone"])
     with engine.begin() as conn:
         event = conn.execute(
@@ -1143,7 +1144,7 @@ def process_one_voice(engine: Engine, *, now: datetime | None = None) -> bool:
             "phone_alt": row["phone_alt"],
             "timezone": row["timezone"],
         }
-        when = now or datetime.now(timezone.utc)
+        when = now or utc_now()
         deferred: list[dict[str, Any]] = []
         if not _try_voice_now(conn, event, account=account, now=when, deferred=deferred):
             conn.execute(
@@ -1182,7 +1183,7 @@ def cure_for_account(
         {"aid": account_id, "preferred": preferred_emi_id},
     ).mappings().all()
     cured: list[str] = []
-    posted = datetime.now(timezone.utc)
+    posted = utc_now()
     for row in rows:
         if remaining <= 0:
             break

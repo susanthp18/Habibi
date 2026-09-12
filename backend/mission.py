@@ -36,10 +36,11 @@ Mission's own words are: *you are authorised to perform this intervention*.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +103,6 @@ NEVER_OFFER: frozenset[str] = frozenset(
     {"hardship_intake", "mandate_reregistration", "broken_ptp_chase"}
 )
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

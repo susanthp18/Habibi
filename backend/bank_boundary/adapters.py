@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from sqlalchemy import text
 
 from bank_boundary import mappings, outbox
+from agent_core.clock import utc_now
 
 
 class BankAdapter(Protocol):
@@ -46,7 +47,7 @@ class ReferenceAdapter:
             "provider_ref": f"ref:{self.code}:{key}",
             "status": "acked",
             "submitted": False,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": utc_now().isoformat(),
         }
         if self.code == "O2":
             ack["submitted"] = False
@@ -159,7 +160,7 @@ def send_with_outbox(
             age_hours = 0.0
             if isinstance(created, datetime):
                 aware = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
-                age_hours = (datetime.now(timezone.utc) - aware).total_seconds() / 3600
+                age_hours = (utc_now() - aware).total_seconds() / 3600
             reason = (
                 "provider_idempotency_expired"
                 if age_hours > adapter.idempotency_horizon_hours

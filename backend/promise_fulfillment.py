@@ -24,6 +24,7 @@ import webhooks_dispatch
 from contact_policy import BLOCKING_CONSENT
 from env_loader import env_str
 from agent_core import clock
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ def _promised_date_ist(promised_at: datetime) -> datetime.date:
 
 
 def _intent_expiry(promised_at: datetime, *, now: datetime | None = None) -> datetime:
-    now = now or datetime.now(timezone.utc)
+    now = now or utc_now()
     promised_day = _promised_date_ist(promised_at)
     today = now.astimezone(IST).date()
     if promised_day <= today:
@@ -272,7 +273,7 @@ def _inside_service_window(conn: Any, conversation_id: str, *, now: datetime | N
     last = _last_customer_inbound_at(conn, conversation_id)
     if last is None:
         return False
-    now = now or datetime.now(timezone.utc)
+    now = now or utc_now()
     return (now - last) <= timedelta(hours=24)
 
 
@@ -455,7 +456,7 @@ def _schedule_due_reminder(conn: Any, promise: dict[str, Any], channel: str) -> 
     import db as dbmod
 
     promised_day = _promised_date_ist(promise["promised_at"])
-    today = datetime.now(timezone.utc).astimezone(IST).date()
+    today = utc_now().astimezone(IST).date()
     if promised_day <= today:
         return
     exists = conn.execute(
@@ -926,7 +927,7 @@ def _next_action(conn: Any, promise: dict[str, Any]) -> dict[str, Any]:
         result = recommend_treatment(
             customer_id=promise["customer_id"],
             account_id=promise.get("account_id"),
-            trigger=Trigger(kind="broken_ptp", at=datetime.now(timezone.utc), ref=promise["id"]),
+            trigger=Trigger(kind="broken_ptp", at=utc_now(), ref=promise["id"]),
             conn=conn,
         )
         from agent_core.clerk import enqueue_from_treatment

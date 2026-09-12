@@ -55,7 +55,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -63,6 +63,7 @@ from sqlalchemy import text
 import circuit_breaker
 from env_utils import env_bool, env_int
 from agent_core import clock
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -221,9 +222,6 @@ def amd_enabled() -> bool:
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _attempt_id() -> str:

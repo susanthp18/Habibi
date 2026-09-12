@@ -34,6 +34,7 @@ from prompt_render import (
     render_system_prompt,
     strip_unrendered_crm_tokens,
 )
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def _within_24h(last_customer_at: Any) -> bool:
         last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
     if getattr(last_customer_at, "tzinfo", None) is None:
         last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-    age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
+    age = utc_now() - last_customer_at.astimezone(timezone.utc)
     return age <= timedelta(hours=24)
 
 
@@ -551,7 +552,7 @@ def _persist_outbound_sending(
     body: str,
 ) -> str:
     msg_id = f"MSG-{uuid.uuid4().hex[:10].upper()}"
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -1051,7 +1052,7 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
     # of the turn uses it to claim only the retrieval_logs rows this turn
     # produced — those rows carry interaction_id but not job_id, so without a
     # time bound the backfill would also claim the previous turn's retrievals.
-    turn_started_at = datetime.now(timezone.utc)
+    turn_started_at = utc_now()
 
     # The thread, fetched once, before anything judges this turn.
     #
@@ -1759,7 +1760,7 @@ def _persist_turn(engine: Engine, t: Turn) -> None:
                     interaction_id=ix,
                     speaker="bot",
                     text_content=final_text,
-                    at_sec=capture.elapsed_seconds(started_at, datetime.now(timezone.utc)),
+                    at_sec=capture.elapsed_seconds(started_at, utc_now()),
                 )
                 # Backfill this turn's tool calls and retrievals with the turn
                 # they belong to. Deliberately a backfill rather than a reorder:

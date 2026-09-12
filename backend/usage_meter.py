@@ -24,6 +24,7 @@ from sqlalchemy import text
 
 from env_loader import load_env
 from env_utils import NON_PROD_ENVS, env_float, env_int
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,7 @@ def record_usage(
         return
     tid = tenant_id or _tenant_id()
     env = environment or _billing_env()
-    when = occurred_at or datetime.now(timezone.utc)
+    when = occurred_at or utc_now()
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
 

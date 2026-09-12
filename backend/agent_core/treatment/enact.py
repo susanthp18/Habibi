@@ -35,6 +35,7 @@ from sqlalchemy.engine import Engine
 
 from agent_core.clock import as_utc
 from agent_core.treatment import actions as A, attempts, cancel, config, decisions, reservations
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def enact_one(
     scheduled = decision.get("scheduled_at")
     if isinstance(scheduled, datetime):
         at = scheduled if scheduled.tzinfo else scheduled.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - at > MAX_PLAN_AGE:
+        if utc_now() - at > MAX_PLAN_AGE:
             decisions.record_outcome(
                 decision_id, "cancelled", conn=conn, cancel_reason=cancel.PLAN_EXPIRED
             )
@@ -595,7 +596,7 @@ def _queue_human(
     import db as dbmod
 
     followup_id = dbmod._id("FUP")
-    at = decision.get("scheduled_at") or datetime.now(timezone.utc)
+    at = decision.get("scheduled_at") or utc_now()
     conn.execute(
         text(
             """
@@ -798,7 +799,7 @@ def _represent_mandate(
 
     executor = config.mandate_executor()
     presentation_id = dbmod._id("MP")
-    scheduled = decision.get("scheduled_at") or datetime.now(timezone.utc)
+    scheduled = decision.get("scheduled_at") or utc_now()
 
     conn.execute(
         text(
@@ -994,7 +995,7 @@ def _change_emi_date(
     if row is None:
         raise NoExecutor("no_salary_credit_signal")
 
-    credit_day = (as_utc(row["next_credit_at"]) or datetime.now(timezone.utc)).day
+    credit_day = (as_utc(row["next_credit_at"]) or utc_now()).day
     proposed = min(28, credit_day + EMI_DATE_BUFFER_DAYS)
 
     outbound = _outbox_send(conn, customer, decision, contract, "O6")

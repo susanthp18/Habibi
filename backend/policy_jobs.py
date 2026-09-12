@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 from agent_core.treatment import schema_ready
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def _finish(conn: Any, run_id: str | None, state: str, result: dict[str, Any]) -
 
 def horizon_scan(conn: Any, *, now: datetime | None = None, report_only: bool = True) -> dict[str, Any]:
     """Replay unenacted plans against rules that become effective within 14 days."""
-    instant = now or datetime.now(timezone.utc)
+    instant = now or utc_now()
     day_key = instant.strftime("%Y-%m-%d")
     if not schema_ready.w4_ready(conn):
         return {"skipped": True, "reason": "schema_not_ready"}
@@ -142,7 +143,7 @@ def horizon_scan(conn: Any, *, now: datetime | None = None, report_only: bool = 
 
 def cutover_cancel(conn: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """Cancel unenacted plans whose rules change tomorrow. Never sends."""
-    instant = now or datetime.now(timezone.utc)
+    instant = now or utc_now()
     day_key = instant.strftime("%Y-%m-%d")
     if not schema_ready.w4_ready(conn):
         return {"skipped": True, "reason": "schema_not_ready"}

@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def allow(connector: dict[str, Any]) -> bool:
         opened_dt = opened
     if opened_dt.tzinfo is None:
         opened_dt = opened_dt.replace(tzinfo=timezone.utc)
-    elapsed = (datetime.now(timezone.utc) - opened_dt).total_seconds()
+    elapsed = (utc_now() - opened_dt).total_seconds()
     return elapsed >= COOLDOWN_S
 
 

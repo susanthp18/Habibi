@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -46,6 +46,7 @@ from sqlalchemy.engine import Engine
 import flow_graph as fg
 import outbound
 from agent_core import clock
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,6 @@ def enabled() -> bool:
 
     return campaign_runtime_enabled()
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _rid() -> str:

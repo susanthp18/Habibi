@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -58,6 +58,7 @@ from agent_core.treatment import config
 from agent_core.treatment.features import zone
 from env_utils import env_bool
 from agent_core import clock
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +545,7 @@ def _claim(
 
 def _decide_account(conn: Any, account: dict[str, Any]) -> bool:
     """One account, inside its own savepoint. Returns True if a row was written."""
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     local_day = _local_day(now, account.get("timezone"))
     return (
         _decide_account_id(
@@ -581,7 +582,7 @@ def _decide_account_id(
 
     savepoint = conn.begin_nested()
     try:
-        instant = now or datetime.now(timezone.utc)
+        instant = now or utc_now()
         result = recommend_treatment(
             customer_id=account["customer_id"],
             account_id=account["id"],

@@ -48,6 +48,7 @@ from agent_core.reco.candidates import Candidate
 from agent_core.reco.config import Weights
 from agent_core.reco.features import CallSignals, CustomerFeatures, SCHEMA_VERSION
 from agent_core.reco.scoring import RuleScorer, ScoredOffer
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class ModelArtifact:
     def age_days(self) -> float | None:
         if self.trained_at is None:
             return None
-        return (datetime.now(timezone.utc) - self.trained_at).total_seconds() / 86400.0
+        return (utc_now() - self.trained_at).total_seconds() / 86400.0
 
     def predict(self, vec: dict[str, float | None]) -> float:
         """Calibrated conversion probability from a feature vector.

@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from contact_policy import BLOCKING_CONSENT
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -541,7 +542,7 @@ def _relationship_months(accounts: list[Any]) -> int | None:
     earliest = min(dates)
     if isinstance(earliest, datetime):
         earliest = (earliest if earliest.tzinfo else earliest.replace(tzinfo=timezone.utc)).date()
-    return max(0, int((datetime.now(timezone.utc).date() - earliest).days / 30.44))
+    return max(0, int((utc_now().date() - earliest).days / 30.44))
 
 
 def _sum_or_none(accounts: list[Any], column: str) -> float | None:

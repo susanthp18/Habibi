@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
 from sqlalchemy import text
 
 from agent_core.clock import as_utc
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ class SqlFeatureProvider:
         opened = as_utc(account["opened_on"]) if account else None
         tenure = None
         if opened is not None:
-            tenure = max(0, int((datetime.now(timezone.utc) - opened).days // 30))
+            tenure = max(0, int((utc_now() - opened).days // 30))
 
         holds: tuple[str, ...] = ()
         posted_fee = None
@@ -142,7 +143,7 @@ class SqlFeatureProvider:
             ).mappings().all()
             holds = tuple(sorted({str(r["kind"]) for r in hold_rows if r.get("kind")}))
 
-            since = datetime.now(timezone.utc) - timedelta(days=365)
+            since = utc_now() - timedelta(days=365)
             fee_row = conn.execute(
                 text(
                     """

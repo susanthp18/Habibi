@@ -28,13 +28,13 @@ import logging
 import math
 import shutil
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from sqlalchemy import text
 
 from agent_core.treatment import evaluation_seal, models, prereg
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +111,6 @@ class PromotionRefused(Exception):
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def register(

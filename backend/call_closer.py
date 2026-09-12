@@ -54,6 +54,7 @@ from sqlalchemy.engine import Engine
 
 import outbound
 from env_utils import env_bool, env_int
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +174,6 @@ def llm_enabled() -> bool:
     """
     return env_bool("CLOSER_LLM_ENABLED", True)
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _oid() -> str:

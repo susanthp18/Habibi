@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -663,7 +663,7 @@ def escalate_voice_interaction(
                 {"ix": ix},
             )
         )
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         if existing:
             conversation_id = existing["id"]
         else:

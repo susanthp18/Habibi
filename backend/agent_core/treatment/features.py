@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -41,6 +41,7 @@ from agent_core.treatment import schema_ready
 import contact_policy
 import policy_rules
 from agent_core import clock
+from agent_core.clock import utc_now
 
 _SAFE_TZ = contact_policy.safe_tz_sql("c.timezone")
 
@@ -654,7 +655,7 @@ class SqlFeatureProvider:
         due = as_utc(row["due_date"])
         days = None
         if due is not None:
-            days = int((datetime.now(timezone.utc) - due).total_seconds() // 86400)
+            days = int((utc_now() - due).total_seconds() // 86400)
         return {
             "amount": None if amount is None else max(0.0, amount - paid),
             "days_overdue": days,
@@ -799,7 +800,7 @@ class SqlFeatureProvider:
         age = (
             None
             if occurred is None
-            else max(0.0, (datetime.now(timezone.utc) - occurred).total_seconds() / 3600.0)
+            else max(0.0, (utc_now() - occurred).total_seconds() / 3600.0)
         )
         return {
             "open_bounce_id": row["id"],

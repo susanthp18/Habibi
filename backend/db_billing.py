@@ -16,6 +16,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -48,7 +49,7 @@ def _fnum(v: Any) -> float:
 
 def _billing_as_of() -> date:
     """Billing day boundary is always UTC — not the API host's local calendar."""
-    return datetime.now(timezone.utc).date()
+    return utc_now().date()
 
 
 def _billing_window(period: str, as_of: date) -> tuple[date, date]:

@@ -40,6 +40,7 @@ from db_core import (
     clamp_list_limit,
 )
 from pg_errors import is_unique_violation as _is_unique_violation
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def _inbox_relative(value: Any) -> str:
         return str(value)
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    delta = datetime.now(timezone.utc) - value.astimezone(timezone.utc)
+    delta = utc_now() - value.astimezone(timezone.utc)
     mins = int(delta.total_seconds() // 60)
     if mins < 1:
         return "just now"
@@ -118,7 +119,7 @@ def _inbox_sla(last_customer_at: Any, status: str) -> str:
         return "ok"
     if last_customer_at.tzinfo is None:
         last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-    age_h = (datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)).total_seconds() / 3600
+    age_h = (utc_now() - last_customer_at.astimezone(timezone.utc)).total_seconds() / 3600
     if age_h < 4:
         return "ok"
     if age_h < 24:
@@ -1317,7 +1318,7 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
                 state = {}
         state.pop("last_intent", None)
         state.pop("last_trigger_message_id", None)
-        state["dialog_reset_at"] = datetime.now(timezone.utc).isoformat()
+        state["dialog_reset_at"] = utc_now().isoformat()
 
         conn.execute(
             text(
@@ -1635,7 +1636,7 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
     provider_ref: str | None = None
     delivery_status = "sent"
     msg_id = _id("MSG")
-    now = datetime.now(timezone.utc)
+    now = utc_now()
 
     _LOCK_SQL = """
         SELECT cv.id, cv.customer_id, cv.status, cv.assigned_user_id, cv.channel,
@@ -1670,7 +1671,7 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                 raise ValueError("whatsapp_window_closed")
             if getattr(last_customer_at, "tzinfo", None) is None:
                 last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-            age = datetime.now(timezone.utc) - last_customer_at.astimezone(timezone.utc)
+            age = utc_now() - last_customer_at.astimezone(timezone.utc)
             if age > timedelta(hours=24):
                 raise ValueError("whatsapp_window_closed")
         return channel, is_mine
@@ -1721,7 +1722,7 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                 at = last_customer_at
                 if getattr(at, "tzinfo", None) is None:
                     at = at.replace(tzinfo=timezone.utc)
-                in_window = datetime.now(timezone.utc) - at.astimezone(timezone.utc) <= timedelta(hours=24)
+                in_window = utc_now() - at.astimezone(timezone.utc) <= timedelta(hours=24)
             purpose = "in_session" if in_window else "outreach"
             actor = None
             try:
@@ -2067,7 +2068,7 @@ def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
 
     interaction_id = _id("IX")
     conversation_id = _id("CV")
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     conn.execute(
         text(
             """
@@ -2460,9 +2461,9 @@ def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                         body = f"[{msg_type} message]"
                     ts_raw = msg.get("timestamp")
                     try:
-                        sent_at = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else datetime.now(timezone.utc)
+                        sent_at = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else utc_now()
                     except (TypeError, ValueError, OSError):
-                        sent_at = datetime.now(timezone.utc)
+                        sent_at = utc_now()
                     contact = contacts.get(from_phone) or contacts.get(msg.get("from")) or {}
                     profile_name = ((contact.get("profile") or {}).get("name")) if isinstance(contact, dict) else None
                     # Savepoint per message: Meta batches several messages into

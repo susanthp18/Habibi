@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from agent_core import logging_contract
@@ -50,6 +50,7 @@ from agent_core.treatment.features import (
     build_features,
 )
 from agent_core.treatment.scoring import Candidate, ScoredAction, build_scorer, vector
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def recommend_treatment(
     exists.
     """
     started = time.perf_counter()
-    instant = as_utc(now) or datetime.now(timezone.utc)
+    instant = as_utc(now) or utc_now()
     trig = (
         trigger if isinstance(trigger, Trigger) else Trigger(kind=str(trigger))
     ).normalised()

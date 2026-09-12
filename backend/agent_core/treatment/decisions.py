@@ -26,10 +26,11 @@ import contextlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterator, Mapping, Sequence
 
 from sqlalchemy import text
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def record(
                     active,
                     tenant_id=tenant_id,
                     record_kind="treatment_decision",
-                    anchor_at=datetime.now(timezone.utc),
+                    anchor_at=utc_now(),
                 )
                 if stamp is not None:
                     extra_cols += ", retention_class, retain_until"

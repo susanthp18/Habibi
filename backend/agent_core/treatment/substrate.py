@@ -22,6 +22,7 @@ from agent_core.treatment.features import (
 from agent_core.treatment.policy import STALE_SNAPSHOT as _STALE_SNAPSHOT
 from env_utils import NON_PROD_ENVS, env_int, env_name
 from agent_core import clock
+from agent_core.clock import utc_now
 
 #: Re-exported, not restated. ``policy.py`` is the one place that decides what a
 #: stale input *does*, so the string it vetoes on and the string this module
@@ -260,7 +261,7 @@ def build_daily_snapshot(
         raise RuntimeError(f"reporting_replica_lag:{lag_bytes}")
 
     build_id = f"FSB-{uuid.uuid4().hex[:16].upper()}"
-    started = datetime.now(timezone.utc)
+    started = utc_now()
     sink_conn.execute(
         text(
             """

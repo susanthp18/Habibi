@@ -46,6 +46,15 @@ def tenant_tz() -> ZoneInfo:
         return ZoneInfo(DEFAULT_TIMEZONE)
 
 
+def utc_now() -> datetime:
+    """The instant, in UTC: the one clock every row and every deadline reads.
+
+    Twelve modules used to carry a private ``_now()`` with this body and forty
+    more called ``datetime.now(timezone.utc)`` inline; a test that needs to
+    move time patches this one name."""
+    return datetime.now(timezone.utc)
+
+
 def now_local() -> datetime:
     return datetime.now(tenant_tz())
 

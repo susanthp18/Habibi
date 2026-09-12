@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class FlowVariables:
         return dict(self._values)
 
     def _resolved(self) -> dict[str, str]:
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         out: dict[str, str] = {
             "date": now.strftime("%d %B %Y"),
             "time": now.strftime("%H:%M UTC"),

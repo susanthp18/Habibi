@@ -46,6 +46,7 @@ from agent_core.context import (
     CLOSED_DOCUMENT_STATUSES,
     CLOSED_PROMISE_STATUSES,
 )
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -348,7 +349,7 @@ def memory_message(mem: dict[str, Any] | None, *, max_age_days: int = 90) -> dic
     updated_at = mem.get("updated_at")
     if isinstance(updated_at, datetime):
         when = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
-        age_days = (datetime.now(timezone.utc) - when).days
+        age_days = (utc_now() - when).days
         if age_days > max_age_days:
             return None
 

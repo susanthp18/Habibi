@@ -45,12 +45,13 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 
 from agent_core.clock import as_utc
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -598,7 +599,7 @@ def resolve(
     before this module existed, which is a known-good state rather than an
     outage.
     """
-    instant = as_utc(at) or datetime.now(timezone.utc)
+    instant = as_utc(at) or utc_now()
     key = (
         str(tenant_id or ""),
         str(product_id or ""),

@@ -22,6 +22,7 @@ from sqlalchemy import text
 
 import db
 import request_context
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ def _rel_age(ts: datetime | str | None) -> str:
         return "—"
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
-    secs = max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
+    secs = max(0, int((utc_now() - ts).total_seconds()))
     if secs < 60:
         return f"{secs}s ago"
     if secs < 3600:
@@ -1028,7 +1029,7 @@ def list_event_types() -> list[dict[str, Any]]:
             "key": e["key"],
             "category": e["category"],
             "description": e["description"],
-            "sample": {"event": e["key"], "tenant": _tenant(), "at": datetime.now(timezone.utc).isoformat()},
+            "sample": {"event": e["key"], "tenant": _tenant(), "at": utc_now().isoformat()},
         }
         for e in EVENT_CATALOG
     ]
@@ -1445,7 +1446,7 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
             "endpointId": endpoint_id,
             "tenant": _tenant(),
             "test": True,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": utc_now().isoformat(),
         }
         conn.execute(
             text(
@@ -1484,7 +1485,7 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
             "latency_ms": latency,
             "status": status,
             "delivery_mode": "simulated",
-            "created_at": datetime.now(timezone.utc),
+            "created_at": utc_now(),
         }
     return _delivery_contract(row, ep["retry"]["attempts"])
 
@@ -1800,7 +1801,7 @@ def test_provider(provider_id: str, environment: str = "sandbox") -> dict[str, A
     message = "Connection config present" if ok else f"Missing env: {', '.join(missing)}"
     entry = {
         "id": _sid("itest"),
-        "at": datetime.now(timezone.utc).isoformat(),
+        "at": utc_now().isoformat(),
         "providerId": provider_id,
         "env": env,
         "ok": ok,

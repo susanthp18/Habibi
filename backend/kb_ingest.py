@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -49,9 +49,6 @@ def _max_attempts() -> int:
     except ValueError:
         return 5
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def content_sha256(data: bytes) -> str:

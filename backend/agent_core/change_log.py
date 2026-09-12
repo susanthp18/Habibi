@@ -36,8 +36,8 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ def _write(
 ) -> dict[str, Any]:
     from sqlalchemy import text as _text
 
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     at = now.isoformat()
     try:
         conn.execute(

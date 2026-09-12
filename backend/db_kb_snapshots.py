@@ -7,7 +7,6 @@ The engine is reached through ``db`` at call time so the test savepoint proxy ap
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -19,6 +18,7 @@ from db_core import (
     clamp_list_limit,
     clamp_offset,
 )
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,8 @@ def create_kb_snapshot(*, label: str | None = None) -> dict[str, Any]:
     """Freeze currently enabled indexed docs + enabled FAQs for sandbox readiness."""
     import json
 
-    snap_id = f"kb-snapshot-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    label_text = (label or "").strip() or f"KB snapshot {datetime.now(timezone.utc).date().isoformat()}"
+    snap_id = f"kb-snapshot-{utc_now().strftime('%Y%m%d-%H%M%S')}"
+    label_text = (label or "").strip() or f"KB snapshot {utc_now().date().isoformat()}"
     with _engine().begin() as conn:
         docs = _rows(
             conn.execute(

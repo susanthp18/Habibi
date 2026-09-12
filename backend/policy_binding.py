@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterable, Mapping, Sequence
 
 import policy_rules
 from agent_core.clock import as_utc
+from agent_core.clock import utc_now
 
 VERDICT_FIRED = "fired"
 VERDICT_NOT_FIRED = "not_fired"
@@ -36,7 +37,7 @@ def entry(
         "scope": str(scope),
         "verdict": str(verdict),
         "citation": str(citation or ""),
-        "evaluated_at": (as_utc(evaluated_at) or datetime.now(timezone.utc)).isoformat(),
+        "evaluated_at": (as_utc(evaluated_at) or utc_now()).isoformat(),
     }
     if kind:
         row["kind"] = str(kind)
@@ -50,7 +51,7 @@ def from_ruleset(
     evaluated_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """One binding row per consulted catalogue rule."""
-    instant = as_utc(evaluated_at) or datetime.now(timezone.utc)
+    instant = as_utc(evaluated_at) or utc_now()
     fired = {str(x) for x in (fired_rule_ids or ())}
     if rules is None or not getattr(rules, "consulted", ()):
         return []

@@ -14,7 +14,6 @@ import logging
 import os
 import signal
 import time
-from datetime import datetime, timezone
 
 # Longer statement timeout than the API process (must set before importing db).
 os.environ.setdefault("DB_PROCESS_ROLE", "worker")
@@ -25,6 +24,7 @@ load_env()
 
 import db
 from kb_ingest import drain_queue, process_one
+from agent_core.clock import utc_now
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +40,7 @@ _last_tts_sync_day: str | None = None
 def _maybe_sync_tts_catalog() -> None:
     """Time-gated daily catalog refresh (02:30 UTC)."""
     global _last_tts_sync_day
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     day_key = now.strftime("%Y-%m-%d")
     if _last_tts_sync_day == day_key:
         return
@@ -79,7 +79,7 @@ def _maybe_revalidate_open_leads() -> None:
     tells the truth before a rep dials.
     """
     global _last_lead_revalidate_day
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     day_key = now.strftime("%Y-%m-%d")
     if _last_lead_revalidate_day == day_key:
         return
@@ -304,7 +304,7 @@ def _maybe_garden_kb_gaps() -> None:
     Humans still have to sign. This must never call ``sign_skill``.
     """
     global _last_gardener_day
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     day_key = now.strftime("%Y-%m-%d")
     if _last_gardener_day == day_key:
         return
@@ -346,7 +346,7 @@ _last_eval_day: str | None = None
 def _maybe_run_eval_schedule() -> None:
     """Daily regression + red-team + twin. Never skips red-team. Off the mouth."""
     global _last_eval_day
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     day_key = now.strftime("%Y-%m-%d")
     if _last_eval_day == day_key:
         return
@@ -391,7 +391,7 @@ _POLICY_CUTOVER_HOUR_UTC = 23
 
 def _maybe_policy_jobs() -> None:
     """Horizon scan from 22:00 UTC, cutover from 23:00. Jobs are daily-idempotent."""
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     if now.hour < _POLICY_SCAN_HOUR_UTC:
         return
     try:

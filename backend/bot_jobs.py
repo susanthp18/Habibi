@@ -10,7 +10,7 @@ import logging
 import os
 import socket
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from env_utils import env_bool
 from pg_errors import PG_UNIQUE_VIOLATION, is_unique_violation as _is_unique_violation  # noqa: F401
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def reclaim_stuck_jobs(conn: Connection) -> list[dict[str, str]]:
     simply never got a reply and nothing surfaced in the Inbox — the
     mark_failed_or_retry path escalates, this one used to go silent.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_running_seconds())
+    cutoff = utc_now() - timedelta(seconds=stale_running_seconds())
     result = conn.execute(
         text(
             """
@@ -370,7 +371,7 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
         return mark_dead(conn, job, error)
 
     delay_sec = min(300, 2 ** min(attempt, 6))
-    run_after = datetime.now(timezone.utc) + timedelta(seconds=delay_sec)
+    run_after = utc_now() + timedelta(seconds=delay_sec)
     conn.execute(
         text(
             """

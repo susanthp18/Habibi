@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,7 @@ def record(
                 "related_id": related_id,
                 "state": state,
                 "reason": (reason or None) and str(reason)[:500],
-                "occurred_at": occurred_at or datetime.now(timezone.utc),
+                "occurred_at": occurred_at or utc_now(),
             },
         ).scalar()
         return str(row) if row else None

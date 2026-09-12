@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from schemas import LeadResponse
 from sqlalchemy import text
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -1174,11 +1175,11 @@ def _parse_followup_due(scheduled_at: Any) -> datetime:
     else:
         raw = str(scheduled_at or "").strip()
         if not raw:
-            return datetime.now(timezone.utc)
+            return utc_now()
         try:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
-            return datetime.now(timezone.utc)
+            return utc_now()
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 def add_lead_followup(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:

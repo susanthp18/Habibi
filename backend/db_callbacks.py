@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import contact_window
 from agent_core import clock
-from datetime import datetime, timezone
 from sqlalchemy import text
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -470,7 +470,7 @@ def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str
             raise ValueError(f"invalid_reminder_status: {status}")
         # DB also allows 'scheduled'; treat UI 'queued' as queued.
         db_status = "scheduled" if status == "queued" else status
-        sent_at = datetime.now(timezone.utc).isoformat() if db_status == "sent" else None
+        sent_at = utc_now().isoformat() if db_status == "sent" else None
 
         reminder_id = _id("CBR")
         conn.execute(
@@ -486,7 +486,7 @@ def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str
                 "id": reminder_id,
                 "callback_id": callback_id,
                 "channel": payload["channel"],
-                "scheduled_at": payload.get("scheduledAt") or datetime.now(timezone.utc).isoformat(),
+                "scheduled_at": payload.get("scheduledAt") or utc_now().isoformat(),
                 "sent_at": sent_at,
                 "status": db_status,
             },

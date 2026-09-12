@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 from schemas import HandoffQueueItem, HandoffQueueResponse, HandoffSessionResponse
 from sqlalchemy import text
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -42,14 +43,14 @@ _HANDOFF_DISCLOSURE_RULES = (
 
 def _epoch_ms(value: Any) -> int:
     if value is None:
-        return int(datetime.now(timezone.utc).timestamp() * 1000)
+        return int(utc_now().timestamp() * 1000)
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return int(value.timestamp() * 1000)
     if isinstance(value, (int, float)):
         return int(value)
-    return int(datetime.now(timezone.utc).timestamp() * 1000)
+    return int(utc_now().timestamp() * 1000)
 
 def _iso_ts(value: Any) -> str | None:
     if value is None:

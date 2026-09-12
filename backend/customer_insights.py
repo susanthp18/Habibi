@@ -6,14 +6,12 @@ Mirrors Habibi/src/lib/customerInsights.ts so mock and live stay aligned.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 import money_inr
+from agent_core.clock import utc_now as _now
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _parse_iso(value: str | None) -> datetime | None:

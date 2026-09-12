@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -20,6 +20,7 @@ from bank_boundary import (
     SHADOW_STREAK_DAYS,
     schema_ready,
 )
+from agent_core.clock import utc_now
 
 WAIT_ONLY = "freshness:wait_only"
 NON_CONTACTING = "freshness:non_contacting"
@@ -63,7 +64,7 @@ def lag_hours(conn: Any, *, tenant_id: str, portfolio_id: str, code: str) -> flo
     if row is None:
         return None
     at = row if getattr(row, "tzinfo", None) else row.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - at).total_seconds() / 3600.0
+    return (utc_now() - at).total_seconds() / 3600.0
 
 
 def streak(conn: Any, *, tenant_id: str, portfolio_id: str, code: str) -> int:
@@ -323,7 +324,7 @@ def _endpoint_stale(
         return True
     at = row["known_from"]
     at = at if getattr(at, "tzinfo", None) else at.replace(tzinfo=timezone.utc)
-    hours = (datetime.now(timezone.utc) - at).total_seconds() / 3600.0
+    hours = (utc_now() - at).total_seconds() / 3600.0
     return hours > C8_ENDPOINT_HOURS
 
 

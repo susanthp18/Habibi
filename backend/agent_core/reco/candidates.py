@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
 
 from agent_core.reco.features import CustomerFeatures
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def generate(
 
     relations = _relations(conn)
     campaigns, campaigned_products = _live_campaigns(conn)
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     cooldown_cutoff = now - timedelta(days=decline_cooldown_days)
     family_cutoff = now - timedelta(days=family_cooldown_days) if family_cooldown_days else None
     # Families the customer refused recently. Resolved from the declined ids so

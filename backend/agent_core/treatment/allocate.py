@@ -70,13 +70,14 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 
 from agent_core.treatment import actions as A
 from env_utils import env_bool
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -565,7 +566,7 @@ def solve(
     caller that cannot solve still has a report to file, and §8.12 makes an
     unevaluable gate a refusal rather than an exception.
     """
-    day = plan_date or datetime.now(timezone.utc).date()
+    day = plan_date or utc_now().date()
     resolved = _normalise(capacity)
     sources = {r: resolved[r].source if r in resolved else "unset" for r in RESOURCES}
     reported_capacity: dict[str, float | None] = {

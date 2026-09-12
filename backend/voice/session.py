@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def to_money(value: Any) -> Decimal:
@@ -52,7 +53,7 @@ class VoiceSession:
     # ``interaction_id`` is unset should say so rather than degrade quietly.
     crm_degraded: bool = False
     outstanding: Decimal = Decimal("0.00")
-    call_started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    call_started_at: datetime = field(default_factory=lambda: utc_now())
     turn_index: int = 0
     rag_hits: int = 0
 
@@ -102,7 +103,7 @@ class VoiceSession:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def at_sec(self, when: datetime | None = None) -> float:
-        ts = when or datetime.now(timezone.utc)
+        ts = when or utc_now()
         if ts.tzinfo is None:
             # call_started_at is always aware; subtracting a naive timestamp
             # would raise TypeError mid-call. Callers that read a naive

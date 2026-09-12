@@ -8,7 +8,6 @@ escalation *is* the review.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -17,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 import money_inr
 from agent_core.authority import config, decisions
 from agent_core.authority.matrix import VERDICT_ESCALATE
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,7 @@ def _post(
     import db
 
     ledger_id = db._id("LED")
-    posted_at = datetime.now(timezone.utc)
+    posted_at = utc_now()
     desc = description or (
         f"Goodwill {fee_type} waiver {decision_id or dispute_id or ''}".strip()
     )

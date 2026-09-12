@@ -8,9 +8,9 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from sqlalchemy import text
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -640,7 +640,7 @@ def create_scorecard(payload: dict[str, Any]) -> dict[str, Any]:
                 "status": status,
                 "total_score": total,
                 "band": band,
-                "scored_at": datetime.now(timezone.utc) if status == "final" else None,
+                "scored_at": utc_now() if status == "final" else None,
             },
         )
         if entries_payload:

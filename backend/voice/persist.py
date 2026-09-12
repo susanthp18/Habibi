@@ -23,12 +23,10 @@ import db
 from agent_core import estimate_sentiment, evaluate_guardrails, sentiment_label
 from agent_core import lexicon
 from db_core import is_unknown_caller, unknown_caller_id
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _sid(prefix: str) -> str:

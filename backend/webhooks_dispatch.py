@@ -62,7 +62,7 @@ import os
 import socket
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any, NamedTuple
 from urllib.parse import urlparse, urlunparse
 
@@ -70,6 +70,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
 import request_context
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ def dispatch(
         body = {
             "event": event_key,
             "tenant": tenant,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": utc_now().isoformat(),
             "data": payload,
         }
         ids: list[str] = []
@@ -325,7 +326,7 @@ def reclaim_stuck(conn: Connection) -> int:
     ambiguity worth preserving. A webhook receiver is expected to deduplicate on
     the delivery id, which is why it travels in a header.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_CLAIM_SECONDS)
+    cutoff = utc_now() - timedelta(seconds=STALE_CLAIM_SECONDS)
     result = conn.execute(
         text(
             """
@@ -427,7 +428,7 @@ def settle(
     if retryable:
         # Same ladder as whatsapp_outbound: cap the delay, not the exponent.
         delay = min(120, 2 ** min(attempt, 12))
-        next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        next_retry = utc_now() + timedelta(seconds=delay)
     conn.execute(
         text(
             """

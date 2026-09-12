@@ -22,12 +22,12 @@ reason string names the file.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from sqlalchemy import text
 
 from agent_core.clock import as_utc
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,6 @@ def objection(
             # A column we cannot read is not a window we can say has not closed.
             logger.warning("unreadable expires_at on assessment %s", row.get("id"))
             return REASON_UNREADABLE
-        if at <= datetime.now(timezone.utc):
+        if at <= utc_now():
             return REASON_EXPIRED
     return None

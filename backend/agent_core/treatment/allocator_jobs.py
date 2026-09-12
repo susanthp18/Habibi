@@ -34,12 +34,13 @@ measurements that are not the solve:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 
 from agent_core.treatment import allocate, config
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ def solve_book(
     persist: bool = True,
 ) -> dict[str, Any]:
     """Price tomorrow's book, and write the answer only if it can be believed."""
-    day = plan_date or (datetime.now(timezone.utc) + timedelta(days=1)).date()
+    day = plan_date or (utc_now() + timedelta(days=1)).date()
     book, census = demands(
         conn, since_hours=since_hours, modes=modes, tenant_id=tenant_id
     )
@@ -257,7 +258,7 @@ def regret(
         # it on trust: these are what §8.10 rung 1 measures the corpus against.
         "corpusObjections": objections,
         "labels": _label_counts(conn, tenant_id=tenant_id),
-        "measuredAt": datetime.now(timezone.utc).isoformat(),
+        "measuredAt": utc_now().isoformat(),
     }
 
 

@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import text
 
 from bank_boundary import auditor, evaluation, freshness, ingest, registry, schema_ready
+from agent_core.clock import utc_now
 
 
 def contract_status(conn: Any, *, tenant_id: str, portfolio_id: str = "") -> dict[str, Any]:
@@ -112,7 +113,7 @@ def outbox_state(conn: Any, *, tenant_id: str, limit: int = 50) -> list[dict[str
 
 
 def breach_coverage(conn: Any, *, tenant_id: str) -> dict[str, Any]:
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return auditor.audit(conn, tenant_id=tenant_id, window_start=start, window_end=now)
 
@@ -132,7 +133,7 @@ def file_complaint(
     from bank_boundary import adapters
     from datetime import date as _date
 
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     row = {
         "customer_external_id": customer_id,
         "external_id": f"F8-{customer_id}-{int(now.timestamp())}",

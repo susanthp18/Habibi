@@ -19,6 +19,7 @@ from sqlalchemy import text
 from db_core import _IST
 
 import money_inr
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -72,7 +73,7 @@ def _work_item_age_hours(created_at: Any) -> int:
     created = _as_utc(created_at)
     if created is None:
         return 0
-    return max(0, int((datetime.now(timezone.utc) - created).total_seconds() // 3600))
+    return max(0, int((utc_now() - created).total_seconds() // 3600))
 
 
 def _work_item_sla(
@@ -84,7 +85,7 @@ def _work_item_sla(
     """Compute (sla, slaLabel) server-side — seed strings like '1h 12m left' are not stored."""
     _as_utc = _db()._as_utc
     due = _as_utc(sla_due_at)
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     if entity_type == "bounce" and status == "in_progress":
         return "ok", "Awaiting pay"
     if due is None:
@@ -601,7 +602,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
             {"t": d.current_tenant()},
         ).scalar()
         if anchor is None:
-            anchor = datetime.now(timezone.utc)
+            anchor = utc_now()
 
         # Current 7d vs prior 7d, scoped to handler when assignee set
         params: dict[str, Any] = {"tenant": d.current_tenant(), "anchor": anchor}
@@ -750,7 +751,7 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
                 except ValueError:
                     sched = None
             if sched is not None:
-                now = datetime.now(timezone.utc)
+                now = utc_now()
                 if getattr(sched, "tzinfo", None) is None:
                     sched = sched.replace(tzinfo=timezone.utc)
                 mins = int((sched - now).total_seconds() // 60)

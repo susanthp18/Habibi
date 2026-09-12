@@ -11,9 +11,10 @@ from __future__ import annotations
 import contact_window
 import re
 from agent_core import clock
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from sqlalchemy import text
 from typing import Any
+from agent_core.clock import utc_now
 
 
 def _db():
@@ -329,7 +330,7 @@ def list_consent(*, limit: int | None = None, offset: int | None = None) -> list
                 try:
                     base = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
                 except ValueError:
-                    base = datetime.now(timezone.utc)
+                    base = utc_now()
                 expires = (base + timedelta(days=365)).isoformat()
             audit = audits.get(r["customer_id"]) or [
                 {

@@ -49,6 +49,7 @@ from schemas import (
 )
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
+from agent_core.clock import utc_now
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -212,7 +213,7 @@ def run_policy_replay(payload: PolicyReplayRequest | None = None):
 
     body = payload or PolicyReplayRequest()
     start = body.windowStart or datetime(1970, 1, 1, tzinfo=timezone.utc)
-    end = body.windowEnd or datetime.now(timezone.utc)
+    end = body.windowEnd or utc_now()
     return db_compliance.run_policy_replay(
         window_start=start,
         window_end=end,

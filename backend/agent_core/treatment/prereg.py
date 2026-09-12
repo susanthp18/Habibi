@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from sqlalchemy import text
+from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,6 @@ COMPUTED_AT_FIELD = "computed_at"
 class PreRegistrationRefused(Exception):
     """Raised with the reason. The reason is the useful part."""
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _as_datetime(value: Any) -> datetime | None:

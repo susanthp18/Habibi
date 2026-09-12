@@ -60,6 +60,7 @@ from agent_core.treatment.segments import (
     key_for as segment_key_for,
 )
 from env_utils import env_bool
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,7 @@ class ModelArtifact:
     def age_days(self) -> float | None:
         if self.trained_at is None:
             return None
-        return (datetime.now(timezone.utc) - self.trained_at).total_seconds() / 86400.0
+        return (utc_now() - self.trained_at).total_seconds() / 86400.0
 
     def non_finite(self) -> list[str]:
         """Every field holding a NaN or an Inf, named. Empty means clean.

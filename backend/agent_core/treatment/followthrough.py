@@ -30,7 +30,7 @@ than for a sixth dial.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -39,6 +39,7 @@ from sqlalchemy.engine import Engine
 from agent_core.clock import as_utc
 from agent_core.treatment import actions as A, config, decisions, kill_switch
 from agent_core.treatment.features import CONNECT_MIN_SECONDS, Trigger
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def attribute_outcomes(conn: Any, *, now: datetime | None = None, limit: int = B
     """Label decisions whose result is now knowable. Returns how many."""
     if not kill_switch.labels_allowed():
         return 0
-    instant = now or datetime.now(timezone.utc)
+    instant = now or utc_now()
     rows = conn.execute(
         text(
             """

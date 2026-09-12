@@ -12,7 +12,7 @@ import logging
 import os
 import socket
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -20,6 +20,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
 import bot_jobs
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,7 @@ def _warn_if_queue_is_not_draining(conn: Connection) -> None:
 
 
 def reclaim_stuck_jobs(conn: Connection) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_running_seconds())
+    cutoff = utc_now() - timedelta(seconds=stale_running_seconds())
     # POST already attempted — do not requeue (duplicate-send risk); dead-letter instead.
     dead = conn.execute(
         text(
@@ -566,7 +567,7 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
     # exponent is still bounded (at a value well past the cap) so a runaway
     # attempt counter cannot compute an enormous power.
     delay_sec = min(120, 2 ** min(attempt, 12))
-    run_after = datetime.now(timezone.utc) + timedelta(seconds=delay_sec)
+    run_after = utc_now() + timedelta(seconds=delay_sec)
     conn.execute(
         text(
             """

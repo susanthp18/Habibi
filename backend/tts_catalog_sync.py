@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ import httpx
 from sqlalchemy import text
 
 from env_loader import load_env
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def run_sync(
     load_env()
     speech_region = (region or os.getenv("AZURE_SPEECH_REGION") or "").strip()
     run_id = f"tvsync-{uuid.uuid4().hex[:12]}"
-    started = datetime.now(timezone.utc)
+    started = utc_now()
 
     with engine.begin() as conn:
         conn.execute(

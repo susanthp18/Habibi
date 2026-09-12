@@ -50,6 +50,37 @@ def test_the_tenant_zone_is_spelled_once() -> None:
     assert not offenders, offenders
 
 
+def test_the_utc_clock_is_read_once() -> None:
+    """``agent_core.clock.utc_now`` is the one UTC clock.
+
+    Twelve modules carried a private ``_now()`` with the same body and forty
+    more called ``datetime.now(timezone.utc)`` inline, so a test that needed
+    to move time had nowhere to hold. Production modules now read the owner;
+    the alias ``from agent_core.clock import utc_now as _now`` is allowed
+    because it is the same object.
+    """
+    offenders = []
+    for path in _production_modules():
+        rel = str(path.relative_to(BACKEND)).replace("\\", "/")
+        if rel == "agent_core/clock.py" or path.name.startswith("seed_"):
+            continue  # seeds are data, and the owner itself
+        tree = ast.parse(path.read_bytes())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_now":
+                offenders.append(f"{rel}:{node.lineno} def _now")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "now"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "datetime"
+                and node.args
+                and ast.unparse(node.args[0]) == "timezone.utc"
+            ):
+                offenders.append(f"{rel}:{node.lineno} datetime.now(timezone.utc)")
+    assert not offenders, offenders
+
+
 def test_the_zone_follows_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent_core import clock
     import contact_policy

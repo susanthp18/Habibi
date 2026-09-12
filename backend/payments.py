@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 import webhooks_dispatch
 from env_loader import env_str
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ def record_payment(
     expires = intent.get("expires_at")
     if expires is not None:
         exp = expires if getattr(expires, "tzinfo", None) else expires.replace(tzinfo=timezone.utc)
-        if exp < datetime.now(timezone.utc):
+        if exp < utc_now():
             conn.execute(
                 text("UPDATE payment_intents SET status = 'expired' WHERE id = :id AND status <> 'paid'"),
                 {"id": intent["id"]},
@@ -176,7 +177,7 @@ def record_payment(
     import db as dbmod
 
     ledger_id = dbmod._id("LED")
-    posted = datetime.now(timezone.utc)
+    posted = utc_now()
     ledger_row = {
         "id": ledger_id,
         "account_id": intent["account_id"],
@@ -528,7 +529,7 @@ def load_intent_by_token(conn: Any, token: str) -> dict[str, Any] | None:
     expires = intent.get("expires_at")
     if expires is not None and intent.get("status") not in {"paid", "expired", "cancelled"}:
         exp = expires if getattr(expires, "tzinfo", None) else expires.replace(tzinfo=timezone.utc)
-        if exp < datetime.now(timezone.utc):
+        if exp < utc_now():
             conn.execute(
                 text("UPDATE payment_intents SET status = 'expired' WHERE id = :id AND status <> 'paid'"),
                 {"id": intent["id"]},

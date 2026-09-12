@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 from agent_core.treatment import schema_ready
+from agent_core.clock import utc_now
 
 REQUIRED_SECTIONS = (
     "identity",
@@ -46,7 +47,7 @@ def compose(
     window_end: datetime | None = None,
 ) -> dict[str, Any]:
     start = window_start or datetime(1970, 1, 1, tzinfo=timezone.utc)
-    end = window_end or datetime.now(timezone.utc)
+    end = window_end or utc_now()
     identity = conn.execute(
         text(
             """
@@ -292,7 +293,7 @@ def compose(
             if schema_ready.has_table(conn, "bank_outbound_acks")
             else []
         ),
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "generatedAt": utc_now().isoformat(),
         "recordingRetentionMonths": _retention(conn, tenant_id),
     }
     missing = [key for key in REQUIRED_SECTIONS if key not in pack or pack[key] in (None,)]

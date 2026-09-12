@@ -12,6 +12,7 @@ from typing import Any, Mapping, Protocol, Sequence
 from sqlalchemy import text
 
 from bank_boundary import ALL_CODES, INBOUND, facts, identifiers, mappings, schema_ready
+from agent_core.clock import utc_now as _now
 
 
 class IngestRejected(ValueError):
@@ -42,9 +43,6 @@ class ContractAdapter(Protocol):
         """Return (observed_count, observed_sum_paise)."""
         ...
 
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _id(prefix: str) -> str:

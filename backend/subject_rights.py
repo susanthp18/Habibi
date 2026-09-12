@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 
 from agent_core.treatment import schema_ready
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def create_request(
         raise ValueError(f"invalid_kind:{kind}")
     if not schema_ready.has_table(conn, "subject_requests"):
         raise RuntimeError("schema_not_ready")
-    instant = now or datetime.now(timezone.utc)
+    instant = now or utc_now()
     due = instant + timedelta(days=SLO_DAYS)
     request_id = _id("SRQ")
     conn.execute(

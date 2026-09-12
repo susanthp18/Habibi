@@ -27,10 +27,11 @@ observation window a function of the outcome.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
+from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def sweep(conn: Any, *, now: datetime | None = None, limit: int = 500) -> dict[s
     Idempotent by predicate: the UPDATE matches only rows whose response is
     still NULL, so running it twice writes the second time nothing.
     """
-    at = now or datetime.now(timezone.utc)
+    at = now or utc_now()
     cutoff = at - timedelta(days=GRACE_DAYS)
     counts = {DEFERRED: 0, NOT_REACHED: 0}
     for response, delivered in ((DEFERRED, True), (NOT_REACHED, False)):
