@@ -54,10 +54,16 @@ from voice.tool_state import (  # noqa: F401  -- re-exported: callers import fro
     ToolBuildContext,
 )
 from voice import tools_identity
+from voice import tools_verify
+from voice import tools_refusal
 from voice import tools_scope
 from voice import tools_offers
+from voice import tools_probe
+from voice import tools_leads
 from voice import tools_position
 from voice import tools_negotiate
+from voice import tools_authority
+from voice import tools_preferences
 from voice import tools_knowledge
 from voice import tools_closing
 from voice import tools_handoff
@@ -171,9 +177,15 @@ def build_tools(
     tools_scope.build(ctx)
     built: dict[str, Any] = {}
     built.update(tools_identity.build(ctx))
+    built.update(tools_verify.build(ctx))
+    built.update(tools_refusal.build(ctx))
     built.update(tools_offers.build(ctx))
+    built.update(tools_probe.build(ctx))
+    built.update(tools_leads.build(ctx))
     built.update(tools_position.build(ctx))
     built.update(tools_negotiate.build(ctx))
+    built.update(tools_authority.build(ctx))
+    built.update(tools_preferences.build(ctx))
     built.update(tools_knowledge.build(ctx))
     built.update(tools_closing.build(ctx))
     built.update(tools_handoff.build(ctx))
