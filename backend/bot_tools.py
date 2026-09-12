@@ -447,6 +447,9 @@ def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     # `_tool_evaluate_authority` papers over by passing True), and a field that
     # is always False would read as "identity was checked and failed". An absent
     # fact is left absent.
+    from agent_core.cards.routing import handoff_edge
+
+    edge = handoff_edge(ctx.agent_card or {}, target)
     result = domain.handoff_to_agent(
         interaction_id=ctx.interaction_id,
         from_bot_id=ctx.bot_id,
@@ -456,6 +459,7 @@ def _tool_handoff_to_agent(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
         allowlist=allowlist,
         packet=handoff_packet(ctx, {"identity_verified": _identity_ok(ctx)}),
         carry="brief",
+        payload_schema=edge.get("payload_schema") or edge.get("payloadSchema") or None,
     )
     soft = _domain_soft_fail(result)
     if soft is not None:

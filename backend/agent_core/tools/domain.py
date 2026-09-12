@@ -14,6 +14,7 @@ Every handler returns a :class:`ToolResult` so the caller can uniformly derive:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from collections.abc import Mapping
@@ -1007,6 +1008,35 @@ def request_callback(
     )
 
 
+def _payload_against_schema(
+    payload: str | None, schema: Mapping[str, Any] | None
+) -> ToolResult | None:
+    """The refusal for a handoff payload that does not fit the edge, or None."""
+    if not schema or payload is None or not str(payload).strip():
+        return None
+    fields = sorted(str(k) for k in schema)
+    try:
+        parsed = json.loads(payload)
+    except (TypeError, ValueError):
+        parsed = None
+    if not isinstance(parsed, dict):
+        return ToolResult(
+            ok=False,
+            error="handoff_payload_not_an_object",
+            data={"fields": fields},
+            spoken_summary="stay on this topic; do not say you are transferring",
+        )
+    unknown = sorted(str(k) for k in parsed if str(k) not in schema)
+    if unknown:
+        return ToolResult(
+            ok=False,
+            error="handoff_payload_field_unknown",
+            data={"unknown": unknown, "fields": fields},
+            spoken_summary="stay on this topic; do not say you are transferring",
+        )
+    return None
+
+
 def handoff_to_agent(
     *,
     interaction_id: str | None,
@@ -1021,6 +1051,7 @@ def handoff_to_agent(
     deployment_id: str | None = None,
     route_reason: str = "specialist_route",
     max_hops: int | None = None,
+    payload_schema: Mapping[str, Any] | None = None,
 ) -> ToolResult:
     """Typed agent-to-agent transfer. Prose cannot activate this.
 
@@ -1031,6 +1062,13 @@ def handoff_to_agent(
     recorded on the hop row. It is written, never interpreted here: what the
     receiving specialist is *told* is rendered by the mouth, from the same dict,
     so the ledger and the context cannot disagree about what crossed.
+
+    ``payload_schema`` is the edge's authored field list
+    (``CardHandoff.payload_schema``: field -> description). It was gated at
+    publish (G-F7) and read by no runtime, so the model's ``payload`` crossed
+    unvalidated. With a schema on the edge the payload must be a JSON object
+    whose keys the author declared; a field the author did not name is
+    refused before any row moves, and the refusal names it.
     """
     target = (target_bot_id or "").strip()
     reason_n = (reason or "").strip() or "specialist_needed"
@@ -1043,6 +1081,9 @@ def handoff_to_agent(
             data={"targetBotId": target},
             spoken_summary="stay on this topic; do not say you are transferring",
         )
+    refused = _payload_against_schema(payload, payload_schema)
+    if refused is not None:
+        return refused
     if not interaction_id:
         return ToolResult(
             ok=False,

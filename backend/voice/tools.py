@@ -2841,6 +2841,7 @@ def build_tools(
             turn_index=getattr(session, "turn_index", None),
             deployment_id=session.deployment_id,
             max_hops=_max_hops(),
+            payload_schema=edge.get("payload_schema") or edge.get("payloadSchema") or None,
         )
         if not result.ok:
             out = result.to_llm()

@@ -83,3 +83,55 @@ def test_allowlist_rejects_legal(db_tx) -> None:
     )
     assert result.ok is False
     assert result.error == "handoff_not_allowlisted"
+
+
+def test_a_payload_the_edge_did_not_declare_is_refused_before_any_row_moves(db_tx) -> None:
+    """``CardHandoff.payload_schema`` was gated at publish (G-F7) and read by
+    no runtime, so the model's payload crossed unvalidated. With a schema on
+    the edge the payload must be a JSON object of declared fields; a field the
+    author did not name is refused, and the refusal names it."""
+    customers = db.list_customers(limit=1)
+    cid = customers[0]["id"]
+    with db.engine.begin() as conn:
+        ix = _interaction(conn, cid)
+    schema = {"policy_number": "the policy being discussed", "lapse_date": "ISO date"}
+    common = dict(
+        interaction_id=ix,
+        from_bot_id=COLLECTIONS_BOT_ID,
+        target_bot_id=INSURANCE_BOT_ID,
+        reason="lapse",
+        allowlist={INSURANCE_BOT_ID},
+        payload_schema=schema,
+    )
+
+    bad = domain.handoff_to_agent(payload='{"waiver_amount": 500}', **common)
+    assert not bad.ok
+    assert bad.error == "handoff_payload_field_unknown"
+    assert bad.data["unknown"] == ["waiver_amount"]
+    assert bad.data["fields"] == ["lapse_date", "policy_number"]
+
+    prose = domain.handoff_to_agent(payload="please take over", **common)
+    assert not prose.ok
+    assert prose.error == "handoff_payload_not_an_object"
+
+    with db.engine.connect() as conn:
+        row = db._one(
+            conn.execute(text("SELECT handler_bot_id FROM interactions WHERE id = :id"), {"id": ix})
+        )
+    assert row["handler_bot_id"] == COLLECTIONS_BOT_ID, "a refused payload moves nothing"
+
+    good = domain.handoff_to_agent(payload='{"policy_number": "PL-1"}', **common)
+    assert good.ok
+
+    # No schema on the edge is the old behaviour: free text crosses.
+    with db.engine.begin() as conn:
+        ix2 = _interaction(conn, cid)
+    free = domain.handoff_to_agent(
+        interaction_id=ix2,
+        from_bot_id=COLLECTIONS_BOT_ID,
+        target_bot_id=INSURANCE_BOT_ID,
+        reason="lapse",
+        allowlist={INSURANCE_BOT_ID},
+        payload="please take over",
+    )
+    assert free.ok
