@@ -131,10 +131,6 @@ def voice_filter_incomplete_turns() -> bool:
     return _flag("VOICE_FILTER_INCOMPLETE_TURNS")
 
 
-def voice_multi_agent_enabled() -> bool:
-    return _flag("VOICE_MULTI_AGENT_ENABLED")
-
-
 def voice_latency_observer() -> bool:
     """Attach Pipecat's UserBotLatencyObserver (needs enable_metrics=True).
 

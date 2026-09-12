@@ -66,12 +66,6 @@ def tenant_contacts(tenant_id: str | None = None) -> dict[str, Any]:
     return compliance_copy.tenant_contacts(tenant_id)
 
 
-def _spoken_number(raw: str | None) -> str:
-    import compliance_copy
-
-    return compliance_copy.spoken_number(raw)
-
-
 def voicemail_script(
     persona: dict[str, Any] | None = None,
     tuning: dict[str, Any] | None = None,

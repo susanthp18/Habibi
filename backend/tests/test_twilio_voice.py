@@ -127,27 +127,3 @@ def test_handoff_mode_defaults_callback(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("VOICE_HANDOFF_MODE", "warm")
 
     assert twilio_ops.handoff_mode() == "warm"
-
-
-
-
-
-def test_mesh_status_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-
-    from voice import mesh
-
-
-
-    monkeypatch.setenv("VOICE_MULTI_AGENT_ENABLED", "true")
-
-    monkeypatch.delenv("REDIS_URL", raising=False)
-
-    st = mesh.status()
-
-    assert st["enabled"] is True
-
-    assert st["backend"] == "local"
-
-    assert "insurance" in st["roles"]
-
-

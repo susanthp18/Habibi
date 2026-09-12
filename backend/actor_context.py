@@ -148,15 +148,6 @@ _user_exists_cache: dict[str, tuple[float, bool]] = {}
 _user_exists_lock = threading.Lock()
 
 
-def invalidate_user_exists_cache(user_id: str | None = None) -> None:
-    """Drop cached existence for one user (or all) — call after user writes."""
-    with _user_exists_lock:
-        if user_id is None:
-            _user_exists_cache.clear()
-        else:
-            _user_exists_cache.pop(user_id, None)
-
-
 def _user_exists(user_id: str) -> bool:
     """Lazy import to avoid circular import at module load."""
     if not user_id:

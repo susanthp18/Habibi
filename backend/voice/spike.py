@@ -38,7 +38,7 @@ if str(_BACKEND) not in sys.path:
 from loguru import logger
 
 from voice import config as voice_config
-from voice.latency import KeepAliveAzureLLMService, measure_bottlenecks, prewarm_llm_connection
+from voice.llm_pool import KeepAliveAzureLLMService, measure_bottlenecks, prewarm_shared_client
 from voice.llm_pool import build_completion_kwargs, get_shared_client
 
 # Strong refs for fire-and-forget prewarm tasks (the loop keeps only weak ones).
@@ -56,7 +56,7 @@ def _log_prewarm_result(task: asyncio.Task) -> None:
 async def probe_llm_ttfb(*, rounds: int = 5) -> None:
     """Measure first-token latency against the shared keep-alive voice client."""
     client = await get_shared_client()
-    await prewarm_llm_connection(force=True)
+    await prewarm_shared_client(force=True)
     deployment = voice_config.azure_openai_voice_deployment()
     chat_fallback = voice_config.azure_openai_chat_deployment()
     logger.info(
@@ -203,7 +203,7 @@ async def run_bot(transport, runner_args) -> None:
     # Keep a strong reference: the event loop only holds a weak one, so a bare
     # create_task() can be garbage-collected mid-flight (the prewarm silently
     # never happens) and any exception is never retrieved.
-    _prewarm_task = asyncio.create_task(prewarm_llm_connection())
+    _prewarm_task = asyncio.create_task(prewarm_shared_client())
     _PREWARM_TASKS.add(_prewarm_task)
     _prewarm_task.add_done_callback(_PREWARM_TASKS.discard)
     _prewarm_task.add_done_callback(_log_prewarm_result)

@@ -4,10 +4,10 @@
 
 .DESCRIPTION
   Restarting by hand went wrong in a way worth encoding here. The obvious way to
-  stop a service is to find whoever holds its port, but `bot_worker`, `worker`
-  and `voice.workers.insurance` do not listen on anything. Three restarts later
-  the machine was running three KB workers, three insurance workers and six
-  bot_worker processes, all sweeping the same tables on the same timers.
+  stop a service is to find whoever holds its port, but `bot_worker` and
+  `worker` do not listen on anything. Three restarts later the machine was
+  running three KB workers and six bot_worker processes, all sweeping the same
+  tables on the same timers.
 
   Nothing crashes when that happens, which is the problem: duplicate workers
   double the nightly sweeps, double the eval schedule, and quietly contend on
@@ -44,7 +44,6 @@ $Services = @(
     @{ Name = 'bot_worker';      Args = @('-m', 'bot_worker');                                                   Match = '-m bot_worker';   Log = 'botworker' }
     @{ Name = 'kb_worker';       Args = @('-m', 'worker');                                                       Match = '-m worker';       Log = 'worker' }
     @{ Name = 'voice';           Args = @('-m', 'voice.bot', '--host', '127.0.0.1', '--port', '7860');            Match = '-m voice.bot';    Log = 'voice' }
-    @{ Name = 'voice_insurance'; Args = @('-m', 'voice.workers.insurance');                                      Match = 'voice.workers.insurance'; Log = 'voice_insurance' }
 )
 
 function Get-StackProcesses {

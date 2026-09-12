@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
-from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS, card_dump
+from agent_core.cards.defaults import card_dump
 from agent_core.cards.templates import template_card, templates
 
 
@@ -89,10 +89,6 @@ def clone_card(
     if row is None:
         raise RuntimeError("clone_card_missing")
     return row
-
-
-def is_first_party(bot_id: str) -> bool:
-    return bot_id in FIRST_PARTY_BOT_IDS
 
 
 def attach_connector_to_card(

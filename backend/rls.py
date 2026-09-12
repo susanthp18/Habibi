@@ -362,16 +362,6 @@ def unscoped_tables(conn: Any) -> list[str]:
     return sorted(tables - covered)
 
 
-def weak_policies(conn_or_plan: Any) -> list[TablePolicy]:
-    """Policies whose link to the tenant is nullable.
-
-    Worth reviewing individually: each is a table where a row with no parent is
-    visible to every tenant.
-    """
-    policies = conn_or_plan if isinstance(conn_or_plan, list) else plan(conn_or_plan)
-    return [p for p in policies if p.weak]
-
-
 # ---------------------------------------------------------------------------
 # Role capability
 # ---------------------------------------------------------------------------

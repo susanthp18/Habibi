@@ -46,16 +46,6 @@ TOKEN_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 _TOKEN_RE = TOKEN_RE  # backwards-compatible alias
 
 
-def find_variables(template: str) -> list[str]:
-    """Variable names referenced by a template, in order of first appearance."""
-    seen: list[str] = []
-    for match in TOKEN_RE.finditer(template or ""):
-        name = match.group(1)
-        if name not in seen:
-            seen.append(name)
-    return seen
-
-
 # Sentinels that delimit the untrusted CRM card. A customer-controlled value
 # containing either would let the value close the block early and have the rest
 # read as trusted context. Neutralised by inserting a zero-width space, which

@@ -23,8 +23,8 @@ Scope, stated plainly
 The counter is **per process**. Each voice worker caps itself; there is no
 deployment-wide total. For the single-worker compose stack that is the same
 number, and for a multi-worker rollout it is ``workers x cap``. A true fleet
-limit needs a shared counter (Redis is already a dependency for
-:mod:`voice.mesh_bus`) and is deliberately not attempted here — a distributed
+limit needs a shared counter (Redis is already a dependency of the stack)
+and is deliberately not attempted here — a distributed
 limiter that is subtly wrong is worse than a local one that is exactly right.
 
 Thread safety

@@ -15,13 +15,12 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-
-import request_context
 from urllib.parse import urlparse
 
 from sqlalchemy import text
 
 import db
+import request_context
 
 logger = logging.getLogger(__name__)
 
@@ -267,15 +266,6 @@ def _severity_num(raw: str | None) -> int:
     if v in {"medium", "warn", "2"}:
         return 2
     return 1
-
-
-def _risk_from_sentiment(avg: float | None) -> str:
-    s = float(avg or 0)
-    if s <= -0.35:
-        return "high"
-    if s <= -0.1:
-        return "medium"
-    return "low"
 
 
 _THREAT_MARKERS = (

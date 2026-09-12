@@ -4,7 +4,7 @@ Two failures that compounded each other.
 
 ``setup_logging()`` returned immediately unless ``LOG_FORMAT=json``, and that
 variable appeared nowhere in a 656-line ``.env.example``. Nothing else
-configured the root logger in ``api`` or ``voice_insurance``, so every
+configured the root logger in ``api``, so every
 ``logger.info`` was discarded and WARNING+ fell to ``logging.lastResort``
 unformatted. A shadow run you cannot read is not a shadow run.
 
@@ -204,14 +204,15 @@ def test_loguru_messages_are_scrubbed_including_pipecats_own() -> None:
     assert out.count("••") >= 2, "both halves of the stream must be scrubbed"
 
 
-def test_the_insurance_worker_installs_the_bridge() -> None:
+def test_the_voice_entrypoint_installs_the_bridge() -> None:
     """Source pin: it is an entrypoint, so nothing else can assert it ran.
 
-    This worker was the one process that configured no logging at all — neither
-    setup_logging nor log_bridge.install — so everything it logged below
-    WARNING was discarded.
+    This pinned ``voice/workers/insurance.py`` until the mesh was deleted — that
+    sidecar's job is an in-process specialist hop now, so the pin moved to the
+    voice entrypoint that survived it. ``worker``, ``bot_worker`` and ``main``
+    still install no bridge; that is a real gap and a separate one.
     """
-    src = (BACKEND / "voice" / "workers" / "insurance.py").read_text(encoding="utf-8")
+    src = (BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
     assert "log_bridge.install()" in src
 
 

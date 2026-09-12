@@ -12,7 +12,7 @@ snapshot had no effect at all.
 
 Postgres is the primary backend. It is the one dependency every voice-carrying
 process already has (``DATABASE_URL`` + a health-gated ``depends_on`` on all of
-api / voice / voice_insurance / worker), it survives a restart, and
+api / voice / worker), it survives a restart, and
 ``SELECT … FOR UPDATE`` gives read-modify-write atomicity across processes and
 hosts — replacing the hand-rolled ``O_EXCL`` lock-file protocol that only ever
 worked within one filesystem. This mirrors the choice already made in
@@ -138,13 +138,6 @@ def backend() -> str:
             _backend = "file"
         logger.info("voice session store backend: %s", _backend)
         return _backend
-
-
-def reset_backend_cache() -> None:
-    """Forget the resolved backend. For tests and post-migration re-probe."""
-    global _backend
-    with _backend_guard:
-        _backend = None
 
 
 # --------------------------------------------------------------------------

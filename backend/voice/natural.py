@@ -198,61 +198,6 @@ def build_voice_system_prompt(
     return "\n\n".join(p for p in parts if p)
 
 
-def azure_tts_style_from_warmth(warmth: int, voice_name: str) -> dict[str, str | None]:
-    """Map Prompt Studio warmth → Azure express-as for live Pipecat TTS.
-
-    Prefer live catalog StyleList; fall back to a small known-capable set.
-    Voices without styles (e.g. en-IN-AartiNeural) skip express-as entirely.
-    """
-    name = (voice_name or "").strip()
-    capable_styles: set[str] | None = None
-    try:
-        from azure_speech import catalog_styles_for_voice
-
-        listed = catalog_styles_for_voice(name)
-        if listed is not None:
-            capable_styles = {s.lower() for s in listed}
-    except Exception:
-        capable_styles = None
-
-    if capable_styles is not None:
-        if not capable_styles:
-            return {"style": None, "style_degree": None, "role": None}
-    else:
-        # Voices known to accept mstts:express-as when catalog is unavailable.
-        style_capable = {
-            "en-IN-NeerjaNeural",
-            "en-IN-PrabhatNeural",
-            "en-US-JennyNeural",
-            "en-US-AriaNeural",
-            "en-US-SaraNeural",
-            "en-US-GuyNeural",
-            "en-US-DavisNeural",
-            "en-US-JaneNeural",
-        }
-        if name not in style_capable:
-            return {"style": None, "style_degree": None, "role": None}
-        capable_styles = {"empathetic", "friendly", "serious", "cheerful", "calm"}
-
-    # warmth reaches here from persisted Studio config, so it can be a string
-    # or None; int() raised during TTS construction rather than falling back.
-    try:
-        w = max(0, min(100, int(float(warmth))))
-    except (TypeError, ValueError):
-        w = 60
-    if w >= 70 and "friendly" in capable_styles:
-        return {"style": "friendly", "style_degree": "1.6", "role": None}
-    if w >= 70 and "cheerful" in capable_styles:
-        return {"style": "cheerful", "style_degree": "1.6", "role": None}
-    if w <= 35 and "empathetic" in capable_styles:
-        return {"style": "empathetic", "style_degree": "1.15", "role": None}
-    if "empathetic" in capable_styles:
-        return {"style": "empathetic", "style_degree": "1.4", "role": None}
-    if "friendly" in capable_styles:
-        return {"style": "friendly", "style_degree": "1.3", "role": None}
-    return {"style": None, "style_degree": None, "role": None}
-
-
 # Warm, varied acknowledgements — never the robotic "One moment.". Picked at
 # random so repeated tool calls don't sound like a stuck recording.
 _FILLERS: dict[str, tuple[str, ...]] = {

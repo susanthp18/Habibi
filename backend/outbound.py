@@ -234,10 +234,6 @@ def _attempt_id() -> str:
     return f"CA-{uuid.uuid4().hex[:12].upper()}"
 
 
-def _outcome_id() -> str:
-    return f"CO-{uuid.uuid4().hex[:12].upper()}"
-
-
 def digits(phone: str | None) -> str:
     return re.sub(r"\D+", "", phone or "")
 
@@ -1362,16 +1358,6 @@ def pick_number(conn: Any, *, tenant_id: str, pool_name: str | None) -> dict[str
 def get(conn: Any, attempt_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         text("SELECT * FROM call_attempts WHERE id = :id"), {"id": attempt_id}
-    ).mappings().first()
-    return dict(row) if row else None
-
-
-def by_provider_call(conn: Any, provider_call_id: str, provider: str = "twilio") -> dict[str, Any] | None:
-    row = conn.execute(
-        text(
-            "SELECT * FROM call_attempts WHERE provider = :p AND provider_call_id = :sid"
-        ),
-        {"p": provider, "sid": provider_call_id},
     ).mappings().first()
     return dict(row) if row else None
 
