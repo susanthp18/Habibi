@@ -1,10 +1,10 @@
 """Does the compiled bundle match what the live mouth would run, on every card?
 
 ``deployment._dual_compute_parity`` compares the persisted artefact against
-the live path on each call and only logs -- ``FLEET_ENABLED`` is the cutover
-that makes the bundle authoritative. Flip it after this says every active
-deployment is ``ok``, not before: a mismatch here is a call that would change
-the moment the flag turned.
+the live row on each call and installs the compiled fields; a mismatch is
+logged per call. This reports the same comparison across every active
+deployment at once: a mismatch here is a published row that drifted from
+what its own publish compiled.
 
 Read-only. Exit 0 when every active deployment agrees, 1 otherwise.
 
@@ -62,9 +62,9 @@ def main() -> int:
             bad += 1
             continue
         live_grant = ToolGrant.for_bundle(bundle, channel="voice")
-        # With FLEET_ENABLED on, load_active_bundle has already swapped the
-        # bundle's fields for the compiled ones; the live side of the
-        # comparison is the published row itself.
+        # load_active_bundle has already swapped the bundle's fields for the
+        # compiled ones; the live side of the comparison is the published
+        # row itself.
         version = bundle.get("promptVersion") if isinstance(bundle.get("promptVersion"), dict) else {}
         report = parity_report(
             live_prompt=str(version.get("prompt") or ""),

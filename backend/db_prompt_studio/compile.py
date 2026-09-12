@@ -210,9 +210,8 @@ def recompile_published_bundle(bot_id: str) -> dict[str, Any]:
     `compiled` is NULL on every published row, because the column landed after
     they were published and only `publish_prompt_version` writes it. While it is
     NULL, `deployment._dual_compute_parity` returns at its first guard: no parity
-    is logged, and `fleet_enabled()` is never even reached. So the compiled
-    artefact cannot be trusted before it is switched on, because nothing has
-    ever compared it to the live path.
+    is logged and the call runs the live row, which nothing has compared to
+    what a publish would have compiled.
 
     **This is not a republish, and the difference matters.**
     `publish_prompt_version` archives the live row, inserts a new

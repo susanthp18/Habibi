@@ -138,10 +138,12 @@ def load_active_bundle(
 
 
 def _dual_compute_parity(bundle: dict[str, Any]) -> None:
-    """Compare the live mouth against the persisted artefact. Log, don't switch.
+    """The persisted compiled artefact is the mouth; the live row is checked against it.
 
-    ``FLEET_ENABLED`` on is the later cutover. Until then production keeps the
-    live grant; mismatches are observable rather than silent.
+    A mismatch is logged (``scripts/fleet_parity.py`` reports the same thing
+    across every active deployment) and the compiled fields are installed on
+    the bundle either way -- a call runs what publish compiled, never a live
+    row that drifted from it.
     """
     compiled = bundle.get("compiled")
     if not isinstance(compiled, dict) or not compiled.get("bundle_hash"):
@@ -158,7 +160,6 @@ def _dual_compute_parity(bundle: dict[str, Any]) -> None:
     try:
         from agent_core.fleet.compile import bundle_hash_valid, parity_report
         from agent_core.fleet.schema import CompiledBundle
-        from agent_core.platform_flags import fleet_enabled
         from agent_core.tools.grant import ToolGrant
 
         parsed = CompiledBundle.model_validate(compiled)
@@ -192,15 +193,13 @@ def _dual_compute_parity(bundle: dict[str, Any]) -> None:
                 parsed.bundle_hash,
                 report.get("mismatches"),
             )
-        if fleet_enabled():
-            bundle["prompt"] = parsed.prompt
-            bundle["persona"] = parsed.persona
-            bundle["guardrails"] = parsed.guardrails
-            # The merged graph when there is a fleet, the authored one when
-            # there is not. `fleet_flow` is empty for every card today, so this
-            # is the same line it has always been until a second member exists.
-            bundle["flow"] = parsed.fleet_flow or parsed.flow
-            bundle["agentCard"] = parsed.agent_card
+        bundle["prompt"] = parsed.prompt
+        bundle["persona"] = parsed.persona
+        bundle["guardrails"] = parsed.guardrails
+        # The merged graph when there is a fleet, the authored one when
+        # there is not.
+        bundle["flow"] = parsed.fleet_flow or parsed.flow
+        bundle["agentCard"] = parsed.agent_card
     except Exception:
         logger.exception("compiled-bundle parity check failed")
 

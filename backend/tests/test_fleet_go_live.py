@@ -32,7 +32,6 @@ def _door_bundle():
 def test_the_template_ships_the_fleet_on() -> None:
     example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
     lines = {ln.split("=", 1)[0]: ln.split("=", 1)[1] for ln in example.splitlines() if "=" in ln and not ln.startswith("#")}
-    assert lines["FLEET_ENABLED"] == "true"
     assert lines["DOOR_ENABLED"] == "true"
 
 
@@ -67,8 +66,7 @@ def test_the_voice_channel_default_is_the_door(monkeypatch: pytest.MonkeyPatch) 
     assert resolve_entry("voice", "+10000000000") == DOOR
 
 
-def test_the_door_serves_the_merged_fleet_graph(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FLEET_ENABLED", "1")
+def test_the_door_serves_the_merged_fleet_graph() -> None:
     bundle = _door_bundle()
     flow = bundle["flow"]
     namespaces = flow_graph.graph_namespaces(flow)
@@ -77,10 +75,9 @@ def test_the_door_serves_the_merged_fleet_graph(monkeypatch: pytest.MonkeyPatch)
     assert set(compiled["grant_by_specialist"]) == namespaces
 
 
-def test_a_text_rehearsal_walks_the_door_into_collections(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_text_rehearsal_walks_the_door_into_collections() -> None:
     """greet -> discover -> verify -> route -> kaia-v2-4/state_position: the
     hop lands on collections' business node, verified, with collections' grant."""
-    monkeypatch.setenv("FLEET_ENABLED", "1")
     bundle = _door_bundle()
     graph = flow_graph.parse_graph(bundle["flow"])
     compiled = bundle["compiled"]

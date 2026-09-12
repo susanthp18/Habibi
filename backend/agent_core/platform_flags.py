@@ -29,16 +29,6 @@ def a2a_enabled() -> bool:
     return _flag("A2A_ENABLED")
 
 
-def fleet_enabled() -> bool:
-    """Phase-1 compiled bundle is loaded and compared either way.
-
-    Off (default): production still uses the live grant/prompt path; mismatches
-    are logged. On: the persisted artefact is the mouth. Do not turn this on
-    until one-member parity is measured green.
-    """
-    return _flag("FLEET_ENABLED")
-
-
 def door_enabled() -> bool:
     """Whether authored ``entry_bindings`` decide which card answers.
 
@@ -48,8 +38,7 @@ def door_enabled() -> bool:
     a complete rollback with no restart and no data to undo.
 
     ``agent_core.cards.routing.door_enabled`` is the caller-facing name and
-    delegates here; this module is where the flag is *declared*, alongside
-    ``FLEET_ENABLED`` which it is meaningless without.
+    delegates here; this module is where the flag is *declared*.
     """
     return _flag("DOOR_ENABLED")
 

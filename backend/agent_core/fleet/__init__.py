@@ -1,8 +1,7 @@
 """Compiled Fleet Phase 1 — one card, one persisted executable contract.
 
-Runtime traffic still follows the live grant until ``FLEET_ENABLED`` is on.
-The bundle is compiled and compared on every load so a later cutover has a
-measured parity record rather than a hope.
+The compiled bundle is what a call runs; it is compared against the live
+row on every load so drift is logged, never silently served.
 
 Re-exports are resolved lazily (PEP 562), for the same reason
 ``agent_core.cards.__init__`` defers its own — and importing *any* submodule

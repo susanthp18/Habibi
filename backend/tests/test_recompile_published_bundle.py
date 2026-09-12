@@ -3,7 +3,7 @@
 `prompt_versions.compiled` was NULL on every published row, because the column
 landed after they were published and only `publish_prompt_version` writes it.
 While it is NULL, `deployment._dual_compute_parity` returns at its first guard --
-no parity is logged and `fleet_enabled()` is never reached -- so the compiled
+no parity is logged and the live row is served -- so the compiled
 artefact could not be trusted before switching it on, because nothing had ever
 compared it against the live path.
 

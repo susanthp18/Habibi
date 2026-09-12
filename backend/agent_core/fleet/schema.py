@@ -1,8 +1,7 @@
 """Persisted compiled-contract shape. One member, one artefact.
 
-The live grant still owns traffic while ``FLEET_ENABLED`` is off. This
-document is what publish stores, what the sandbox rehearses against, and
-what the Effective-contract inspector reads.
+This document is what publish stores, what a call runs, what the sandbox
+rehearses against, and what the Effective-contract inspector reads.
 """
 
 from __future__ import annotations
