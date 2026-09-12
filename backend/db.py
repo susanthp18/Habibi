@@ -2352,7 +2352,8 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
         _ensure_customer(conn, customer_id)
         interaction_id = _id("CL")
         handler_kind = payload.get("handlerKind") or "human"
-        handler_user_id = payload.get("handlerUserId") or (_actor_user_id() if handler_kind == "human" else None)
+        # Attribution is the acting user, never a value the client chose.
+        handler_user_id = _actor_user_id() if handler_kind == "human" else None
         handler_bot_id = payload.get("handlerBotId") or ("kaia-v2-4" if handler_kind == "bot" else None)
         conn.execute(
             text(

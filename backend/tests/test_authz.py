@@ -705,3 +705,16 @@ def test_every_gated_route_refuses_a_roleless_actor(
     res = gated_client.request(method, concrete, headers=_hdr("anita-rao"))
     assert res.status_code == 403, f"{method} {path}: {res.status_code} {res.text[:200]}"
     assert authz.ROUTE_PERMISSIONS[(method, path)] in res.text
+
+
+def test_a_logged_interaction_is_attributed_to_the_actor_not_the_body(gated_client) -> None:
+    """`POST /interactions` accepted `handlerUserId` from the body, so any
+    caller could log an interaction as somebody else. The handler is the
+    acting user; a body that names one is refused as an unknown field."""
+    res = gated_client.post(
+        "/interactions",
+        json={"customerId": "CL-100023", "handlerUserId": "arjun-mehta", "summary": "x"},
+        headers=_hdr("priya-nair"),
+    )
+    assert res.status_code == 422, res.text
+    assert "handlerUserId" in res.text

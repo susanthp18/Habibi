@@ -562,12 +562,17 @@ class TranscriptTurnCreateRequest(BaseModel):
 
 
 class InteractionCreateRequest(BaseModel):
+    """A manually logged interaction. The human handler is the acting user --
+    it is attribution, so the body cannot name somebody else -- and an unknown
+    field is a 422, not a silently dropped one."""
+
+    model_config = ConfigDict(extra="forbid")
+
     customerId: str
     accountId: str | None = None
     channel: Channel = "voice"
     direction: Literal["inbound", "outbound"] = "outbound"
     handlerKind: Literal["human", "bot"] = "human"
-    handlerUserId: str | None = None
     handlerBotId: str | None = None
     disposition: str | None = None
     summary: str | None = None
