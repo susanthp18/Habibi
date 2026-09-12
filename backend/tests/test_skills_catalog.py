@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+import db
 from agent_core.skills.pack import iter_first_party_packs
 from agent_core.skills.persist import (
     clone_skill,
@@ -37,7 +38,7 @@ def test_ensure_first_party_does_not_disable_catalog(skills_ready) -> None:
     stats = ensure_first_party_skills()
     expected = {p.slug for p in iter_first_party_packs()}
     assert stats["created"] + stats["refreshed"] >= len(expected)
-    listed = list_skills(_synced=True)
+    listed = list_skills()
     slugs = {s["slug"] for s in listed}
     assert slugs >= expected
     assert all(s["hasSignedVersion"] for s in listed if s["origin"] == "first_party")
@@ -120,3 +121,59 @@ def test_first_party_cards_pin_the_pack_the_platform_ships(skills_ready) -> None
         pytest.skip("no published collections prompt")
     pins = {s["skill_id"]: s["version"] for s in published["agentCard"]["skills"]}
     assert pins["ptp-negotiate"] == pack_for_slug("ptp-negotiate").version
+
+
+def test_listing_the_catalog_writes_nothing(skills_ready, monkeypatch) -> None:
+    """``GET /agent-studio/skills`` used to call the boot sync when the list
+    came back empty -- and the boot sync rewrites published first-party cards.
+    A read is a read; the sync runs at boot and nowhere else."""
+    from agent_core.skills import persist
+
+    def _boom(*a, **k):
+        raise AssertionError("list_skills must not sync")
+
+    monkeypatch.setattr(persist, "ensure_first_party_skills", _boom)
+    persist.list_skills()
+
+
+def test_the_boot_sync_records_a_card_it_rewrites(skills_ready) -> None:
+    """A published first-party card whose skill list the sync fills or whose
+    pins it moves gets an ``agent.platform_sync`` change-log entry: a rewrite
+    of a published card is a rewrite of a published card, whoever the actor.
+    The same statement is tenant-scoped -- it used to select ``WHERE bot_id``
+    across every tenant."""
+    from sqlalchemy import text
+
+    from agent_core import change_log
+
+    row = skills_ready.execute(
+        text(
+            "SELECT id, agent_card FROM prompt_versions "
+            "WHERE bot_id = 'kaia-v2-4' AND status = 'published' AND tenant_id = :t LIMIT 1"
+        ),
+        {"t": db.current_tenant()},
+    ).mappings().first()
+    if row is None:
+        pytest.skip("no published kaia-v2-4 on this database")
+    card = dict(row["agent_card"] or {})
+    card["skills"] = []
+    skills_ready.execute(
+        text("UPDATE prompt_versions SET agent_card = CAST(:c AS jsonb) WHERE id = :id"),
+        {"c": db._jsonb(card), "id": row["id"]},
+    )
+    before = skills_ready.execute(
+        text("SELECT count(*) FROM audit_log WHERE entity_type = 'bot' AND entity_id = 'kaia-v2-4' AND action = :a"),
+        {"a": change_log.PLATFORM_SYNC},
+    ).scalar()
+
+    ensure_first_party_skills()
+
+    after = skills_ready.execute(
+        text("SELECT count(*) FROM audit_log WHERE entity_type = 'bot' AND entity_id = 'kaia-v2-4' AND action = :a"),
+        {"a": change_log.PLATFORM_SYNC},
+    ).scalar()
+    assert after == before + 1
+    refilled = skills_ready.execute(
+        text("SELECT agent_card -> 'skills' FROM prompt_versions WHERE id = :id"), {"id": row["id"]}
+    ).scalar()
+    assert refilled

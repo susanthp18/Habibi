@@ -105,7 +105,7 @@ def pack_from_version_row(row: dict[str, Any], *, origin: str, signed: bool) -> 
     return pack
 
 
-def list_skills(*, _synced: bool = False) -> list[dict[str, Any]]:
+def list_skills() -> list[dict[str, Any]]:
     with db.engine.connect() as conn:
         skills = db._rows(
             conn.execute(
@@ -206,13 +206,10 @@ def list_skills(*, _synced: bool = False) -> list[dict[str, Any]]:
             item["contentHash"] = mapped_latest["contentHash"]
             item["evalSuite"] = mapped_latest["evalSuite"]
         out.append(item)
-    if not out and not _synced:
-        try:
-            ensure_first_party_skills()
-        except Exception:
-            logger.exception("skill catalog boot-sync from empty list failed")
-            return out
-        return list_skills(_synced=True)
+    # An empty catalog is an empty catalog. This used to call the boot sync
+    # -- which seeds the platform packs *and rewrites published cards* --
+    # from a GET, so a read-only listing was a writer of prompt_versions.
+    # The sync runs at boot (main.py) and nowhere else.
     return out
 
 
@@ -868,6 +865,7 @@ def ensure_first_party_skills() -> dict[str, int]:
         "insurance-v1": None,
         "supervisor-brief": None,
     }
+    tenant_id = db.current_tenant()
     with db.engine.connect() as conn:
         for bot_id in list(published):
             row = db._one(
@@ -877,10 +875,11 @@ def ensure_first_party_skills() -> dict[str, int]:
                         SELECT id, agent_card
                           FROM prompt_versions
                          WHERE bot_id = :bot AND status = 'published'
+                           AND tenant_id = :tid
                          LIMIT 1
                         """
                     ),
-                    {"bot": bot_id},
+                    {"bot": bot_id, "tid": tenant_id},
                 )
             )
             published[bot_id] = row
@@ -899,6 +898,7 @@ def ensure_first_party_skills() -> dict[str, int]:
                 continue
             card = row.get("agent_card") if isinstance(row.get("agent_card"), dict) else {}
             skills = card.get("skills") if isinstance(card.get("skills"), list) else []
+            filled: list[str] = []
             if not skills:
                 card = {
                     **card,
@@ -918,6 +918,7 @@ def ensure_first_party_skills() -> dict[str, int]:
                 )
                 cards_filled += 1
                 skills = card["skills"]
+                filled = list(slugs)
             # A first-party card follows the platform pack: its exact pins
             # move to the version on disk. Pinned to "1" forever, every card
             # kept running the pack from the first deploy while the boot sync
@@ -944,6 +945,18 @@ def ensure_first_party_skills() -> dict[str, int]:
                     {"card": db._jsonb({**card, "skills": skills}), "id": row["id"]},
                 )
                 logger.info("first-party card %s follows the platform pack for %s", bot_id, ", ".join(moved))
+            if filled or moved:
+                from agent_core import change_log
+
+                change_log.record_platform_sync(
+                    conn,
+                    tenant_id=tenant_id,
+                    entry_id=db._id("AUD"),
+                    bot_id=bot_id,
+                    prompt_version_id=str(row["id"]),
+                    filled=filled,
+                    moved=moved,
+                )
             want = {
                 str(s.get("skill_id"))
                 for s in skills

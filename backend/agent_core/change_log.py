@@ -48,6 +48,11 @@ RESTORE = "agent.restore"
 ROLE_GRANTS = "agent.role_grants"
 EXPERIMENT_ROLLBACK = "agent.experiment_rollback"
 ENTRY_BINDING = "agent.entry_binding"
+#: The boot sync moved a first-party card: filled an empty skill list from
+#: CARD_SKILLS, or moved its exact pins to the pack version on disk. A
+#: rewrite of a published card is a rewrite of a published card, whoever
+#: the actor is; it used to happen with no entry and no tenant predicate.
+PLATFORM_SYNC = "agent.platform_sync"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -154,7 +159,7 @@ def _write(
     conn: Any,
     *,
     tenant_id: str,
-    actor_user_id: str,
+    actor_user_id: str | None,
     action: str,
     bot_id: str,
     payload: dict[str, Any],
@@ -441,6 +446,32 @@ def record_entry_binding(
         action=ENTRY_BINDING,
         bot_id=bot_id,
         payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_platform_sync(
+    conn: Any,
+    *,
+    tenant_id: str,
+    entry_id: str,
+    bot_id: str,
+    prompt_version_id: str,
+    filled: list[str],
+    moved: list[str],
+) -> dict[str, Any]:
+    """The platform (not a person) rewrote a published first-party card's
+    skill references. ``filled`` names the packs an empty list was seeded
+    with; ``moved`` names the pins that now follow the version on disk."""
+    # No person did this. audit_log.actor_user_id is a nullable FK on users;
+    # NULL is "the platform", and the action name says which part of it.
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=None,
+        action=PLATFORM_SYNC,
+        bot_id=bot_id,
+        payload={"promptVersionId": prompt_version_id, "filled": filled, "moved": moved},
         entry_id=entry_id,
     )
 

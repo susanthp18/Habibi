@@ -192,6 +192,7 @@ def test_every_lifecycle_action_has_a_verb_the_log_can_render(cloned_bot: str) -
         "agent.role_grants",
         "agent.experiment_rollback",
         "agent.entry_binding",
+        "agent.platform_sync",
     }
 
     db.archive_agent_studio_card(cloned_bot)
