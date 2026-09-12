@@ -2239,10 +2239,23 @@ def find_customer_by_phone(phone: str) -> dict[str, Any] | None:
         return _find_customer_by_phone(conn, digits)
 
 
-def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -> dict[str, Any]:
+def _ensure_whatsapp_customer(
+    conn: Any, phone: str, profile_name: str | None
+) -> tuple[dict[str, Any], bool]:
+    """The customer behind this number, and whether we *recognised* them.
+
+    The flag matters. Matching an inbound number to a borrower already on the
+    books means Meta has verified that the sender controls that number and we
+    have matched it to a CRM row — that is a proof of endpoint, and it is what
+    lets a WhatsApp thread do anything at all without first asking the customer
+    to recite a number we are already messaging them on.
+
+    Inventing a ``cust-wa-`` stub for an unknown number proves nothing, and must
+    not be confused with it.
+    """
     existing = _find_customer_by_phone(conn, phone)
     if existing:
-        return existing
+        return existing, True
     # Derive the ids from the FULL normalized number. Keying on the last 10 (or
     # 6) digits collided across country codes — +91 98765 43210 and +1 987 654
     # 3210 both produced cust-wa-9876543210 — and the DO UPDATE below then
@@ -2282,7 +2295,55 @@ def _ensure_whatsapp_customer(conn: Any, phone: str, profile_name: str | None) -
     found = _find_customer_by_phone(conn, phone)
     if found is None:
         raise ValueError("customer_create_failed")
-    return found
+    return found, False
+
+
+def _record_endpoint_assurance(conn: Any, conversation_id: str, customer_id: str) -> None:
+    """Record that this thread reached a number the borrower is known at.
+
+    One row per interaction, written the first time we recognise the sender.
+    ``phone_match`` reads as the ``endpoint`` assurance level in
+    ``agent_core.tools.gates`` — enough for reads, a note or a callback; not
+    enough for a promise to pay, which still needs the customer to tell us
+    something only they know.
+
+    Before this, ``identity_verifications`` had never received a single row from
+    the text channel: every row in the live table came from a voice call. Two
+    things followed. Every gated tool was refused on WhatsApp forever, and the
+    containment funnel in ``db_bot_analytics`` — whose ``verified`` stage every
+    later stage is a subset of — reported 0% for every WhatsApp interaction and
+    collapsed everything below it.
+
+    Analytics and gating both read this table, so it is written inside the
+    ingest transaction rather than deferred: a turn must never be able to run
+    against an assurance row that has not committed.
+    """
+    ix = _one(
+        conn.execute(
+            text("SELECT interaction_id FROM conversations WHERE id = :id"),
+            {"id": conversation_id},
+        )
+    )
+    interaction_id = (ix or {}).get("interaction_id")
+    if not interaction_id:
+        return
+    conn.execute(
+        text(
+            """
+            INSERT INTO identity_verifications (
+              id, interaction_id, customer_id, method, status,
+              attempt_count, verified_at, created_at, updated_at
+            )
+            SELECT :id, :iid, :cid, 'phone_match', 'verified', 1, now(), now(), now()
+            WHERE NOT EXISTS (
+              SELECT 1 FROM identity_verifications
+               WHERE interaction_id = :iid AND customer_id = :cid
+                 AND method = 'phone_match' AND status = 'verified'
+            )
+            """
+        ),
+        {"id": _id("IDV"), "iid": interaction_id, "cid": customer_id},
+    )
 
 
 def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
@@ -2448,8 +2509,10 @@ def _ingest_inbound_whatsapp_message(
     profile_name: str | None,
     sent_at: datetime,
 ) -> dict[str, Any]:
-    customer = _ensure_whatsapp_customer(conn, from_phone, profile_name)
+    customer, recognised = _ensure_whatsapp_customer(conn, from_phone, profile_name)
     conversation_id = _open_whatsapp_conversation(conn, customer["id"])
+    if recognised:
+        _record_endpoint_assurance(conn, conversation_id, customer["id"])
     msg_id = _id("MSG")
     try:
         with conn.begin_nested():
@@ -2671,7 +2734,21 @@ def _apply_whatsapp_status(
             text(
                 """
                 UPDATE whatsapp_outbound_jobs
-                SET error = :error, updated_at = now()
+                SET error = :error,
+                    -- The job said `succeeded` because the POST to Meta was
+                    -- accepted, and then Meta rejected the message itself in a
+                    -- status callback. This wrote the reason onto the row and
+                    -- left the status alone, so WAO-14F8282BF6AC reads
+                    -- `succeeded` while carrying "code=131047 Message failed to
+                    -- send" and its message row reads `failed`. Anything
+                    -- counting job status over-reported delivery.
+                    --
+                    -- `failed` has been legal in the check constraint since the
+                    -- table was created and written by nothing. This is what it
+                    -- is for. Only `succeeded` moves: a job already dead or
+                    -- still queued is not made worse by a late callback.
+                    status = CASE WHEN status = 'succeeded' THEN 'failed' ELSE status END,
+                    updated_at = now()
                 WHERE message_id = :message_id
                 """
             ),

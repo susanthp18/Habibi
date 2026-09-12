@@ -94,21 +94,6 @@ def mark_interaction_flags(
     )
 
 
-def force_primary_intent(conn: Connection, interaction_id: str | None, intent: str | None) -> None:
-    if not interaction_id or not intent or intent in IGNORE_INTENTS:
-        return
-    conn.execute(
-        text(
-            """
-            UPDATE interactions
-            SET primary_intent = :intent, updated_at = now()
-            WHERE id = :id
-            """
-        ),
-        {"id": interaction_id, "intent": intent[:120]},
-    )
-
-
 def mark_ptp_captured(conn: Connection, interaction_id: str | None) -> None:
     mark_interaction_flags(conn, interaction_id, ptp_captured=True, query_resolved=True)
 
@@ -1261,20 +1246,6 @@ def emit_commercial_event(
     return event_id
 
 
-def next_transcript_turn_index(conn: Connection, interaction_id: str) -> int:
-    row = conn.execute(
-        text(
-            """
-            SELECT COALESCE(MAX(turn_index), -1)::int AS m
-            FROM interaction_transcript
-            WHERE interaction_id = :id
-            """
-        ),
-        {"id": interaction_id},
-    ).mappings().first()
-    return int(row["m"] if row else -1) + 1
-
-
 # Retries for the auto-allocated turn_index. Contention is between the two
 # writers on one interaction (the pipeline and a CRM sink flush), so a handful
 # of attempts is far more than the observed depth.
@@ -1631,31 +1602,6 @@ def record_offer_declined(
     )
 
 
-def record_offer_suppressed(
-    conn: Connection,
-    *,
-    interaction_id: str | None,
-    customer_id: str,
-    reason: str,
-    actor_bot_id: str | None = None,
-) -> None:
-    """The engine had something to say and policy stopped it.
-
-    Logged because a silent suppression is indistinguishable from an engine
-    that found nothing, and the two need very different fixes.
-    """
-    emit_commercial_event(
-        conn,
-        entity_type="interaction" if interaction_id else "customer",
-        entity_id=interaction_id or customer_id,
-        kind="offer_suppressed",
-        label=f"Offer suppressed | {reason}",
-        note=reason[:240],
-        payload={"customerId": customer_id, "reason": reason},
-        actor_bot_id=actor_bot_id,
-    )
-
-
 def record_close_probe(
     conn: Connection,
     *,
@@ -1751,9 +1697,29 @@ def rebind_interaction_customer(
         ).mappings().first()
         account_id = acct["id"] if acct else None
 
-    # Tail-only matches are never treated as full verification (schema: pending).
-    if method == "account_tail" and verification_status == "verified":
-        verification_status = "pending"
+    # This used to read:
+    #
+    #   # Tail-only matches are never treated as full verification (pending).
+    #   if method == "account_tail" and verification_status == "verified":
+    #       verification_status = "pending"
+    #
+    # and it is why no WhatsApp conversation has ever passed a gate. The gate
+    # required `status='verified'`; the only ceremony a customer can naturally
+    # perform in a chat thread writes `account_tail`; so the ceremony wrote a row
+    # that could never open the gate, and nothing anywhere said so.
+    #
+    # The instinct behind it was right and the mechanism was wrong. A tail on its
+    # own IS weak. But `_tool_identify_customer` does not accept a tail on its
+    # own: it requires the matched customer's phone to equal the thread's phone
+    # (bot_tools.py), so by the time this is reached the caller has proved the
+    # endpoint AND supplied a secret. Recording two factors as "pending" is not
+    # caution, it is a wrong answer.
+    #
+    # Strength is now carried by `method`, which this row already stores, and
+    # read as an assurance level by `agent_core.tools.gates`. `phone_match`
+    # earns `endpoint`; `account_tail` / `dob` / `otp` earn `challenge`. Voice's
+    # writer never had this downgrade, so the two channels also stop disagreeing
+    # about what one method means.
 
     conn.execute(
         text(

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from voice.flow_vars import FlowVariables, evaluate_clause
+from flow_vars import FlowVariables, evaluate_clause
 from voice.flows_dynamic import session_variables
 from voice.session import VoiceSession
 

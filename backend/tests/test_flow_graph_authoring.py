@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 import flow_graph as fg
-from voice.flow_vars import FlowVariables, evaluate_condition
+from flow_vars import FlowVariables, evaluate_condition
 
 
 def _codes(validation: fg.FlowValidation, severity: str) -> set[str]:

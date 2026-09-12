@@ -44,6 +44,24 @@ def body_developer_message(pack: SkillPack, *, include_references: bool = False)
     return {"role": "developer", "content": "\n\n".join(parts)}
 
 
+def packs_on_card_channels(packs: list[SkillPack], channels: Iterable[str]) -> list[SkillPack]:
+    """Drop packs whose declared ``mouth:`` shares no channel with the card.
+
+    A pack's frontmatter names the mouths it belongs on, in the same vocabulary
+    ``card.channels`` uses — ``voice`` / ``whatsapp`` / ``internal``. Every
+    first-party pack declares one and nothing read it, so ``floor-coach``
+    (``mouth: [internal]``) was named in the skill prefix of every customer
+    facing collections call, with its body one ``load_skill`` away.
+
+    A pack that declares no mouth is unscoped and rides anywhere — that is
+    every tenant-authored pack today, so this cannot silently disable one.
+    """
+    on = {str(c) for c in channels or ()}
+    if not on:
+        return list(packs)
+    return [p for p in packs if not p.mouth or (set(p.mouth) & on)]
+
+
 def packs_from_card(card_raw: Any) -> list[SkillPack]:
     """Signed DB packs when present; on-disk first-party packs otherwise.
 
@@ -72,7 +90,7 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
 
         db_packs = packs_for_skill_refs(refs)
         if db_packs:
-            return db_packs
+            return packs_on_card_channels(db_packs, card.identity.channels)
     except Exception:
         # Fail closed. The on-disk packs below are the *unsigned* platform
         # defaults, so falling through to them on a DB fault silently reinstates
@@ -96,7 +114,7 @@ def packs_from_card(card_raw: Any) -> list[SkillPack]:
             packs.append(pack_for_slug(ref.skill_id))
         except KeyError:
             continue
-    return packs
+    return packs_on_card_channels(packs, card.identity.channels)
 
 
 def resolve_intent_skill(intent: str | None, attached: list[SkillPack]) -> SkillPack | None:
@@ -311,11 +329,22 @@ def load_skill(
     attached: list[SkillPack],
     *,
     include_references: bool = False,
+    allowed: Iterable[str] | None = None,
 ) -> dict[str, Any]:
+    """Load one attached pack's body and the tools it actually unlocks.
+
+    ``allowed`` is this turn's grant. Without it the reply announced the pack's
+    whole ``allowed-tools`` list, including names the card never included and
+    names that render on no handler for this channel — so the model was told to
+    call tools ``execute_tool`` would refuse. Omitted, the un-intersected list
+    is returned, which is the pre-grant behaviour the Studio preview relies on.
+    """
     pack = next((s for s in attached if s.slug == slug), None)
     if pack is None:
         return {"ok": False, "error": "skill_not_attached", "slug": slug}
     effective = tools_after_references(pack.allowed_tools, pack.references if include_references else {})
+    if allowed is not None:
+        effective = set(effective) & set(allowed)
     return {
         "ok": True,
         "slug": pack.slug,

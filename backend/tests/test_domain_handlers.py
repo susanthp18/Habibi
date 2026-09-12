@@ -128,7 +128,12 @@ def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
         intent="dispute",
     )
     ctx.allowed_tools = frozenset({"flag_dispute"})
-    monkeypatch.setattr(gates, "interaction_identity_verified", lambda **_kwargs: True)
+    # Identity is a level now, not a flag: `flag_dispute` is a regulated act and
+    # asks for `challenge`. This test is about the domain rejection underneath,
+    # so grant the strongest level and let the handler do the refusing.
+    monkeypatch.setattr(
+        gates, "interaction_assurance", lambda **_kwargs: gates.LEVEL_CHALLENGE
+    )
     with caplog.at_level(logging.WARNING):
         ok, payload, _latency = bot_tools.execute_tool(
             ctx, "flag_dispute", '{"type":"bogus"}'

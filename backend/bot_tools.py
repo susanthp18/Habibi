@@ -142,6 +142,11 @@ class ToolContext:
         # Where this turn runs. Connectors are bound to an environment and
         # `dispatch` refuses one that is not allowed here.
         self.environment: str = "production"
+        # The thread behind this turn, oldest first, excluding the turn itself:
+        # ``[(speaker, text), ...]`` as built by ``compaction.to_recent``. Tools
+        # that have to resolve what the customer *meant* read this — retrieval
+        # cannot plan "tell me the benefits" without knowing benefits of what.
+        self.recent: list[tuple[str, str]] = []
 
 
 def _identity_ok(ctx: "ToolContext") -> bool:
@@ -213,6 +218,10 @@ def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[
         intent=ctx.intent,
         session_intent=ctx.session_intent,
         product_hint=ctx.product_hint,
+        # Without this the planner reads one sentence and has to guess what a
+        # follow-up refers to. It guessed "the product catalog" three turns
+        # running on a customer who had already named travel insurance.
+        recent=ctx.recent or None,
         interaction_id=ctx.interaction_id,
         bot_id=ctx.bot_id,
     )
@@ -223,31 +232,11 @@ def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[
     data = result.data
     if not data.get("available"):
         return data
-    # Chunk plumbing stays voice-only (the Inspector consumes it), but the
-    # confidence verdict must not be dropped: the shared handler scores every
-    # retrieval against KB_CONFIDENCE_THRESHOLD and voice already refuses to
-    # answer below it. Text was handed the same weak snippets with no directive
-    # at all, so a 0.3-score passage read as ground truth on WhatsApp.
-    confident = bool(data.get("confident"))
-    return {
-        "available": True,
-        "intent": data["intent"],
-        "queryUsed": data["queryUsed"],
-        "results": data["results"],
-        "confident": confident,
-        "answer_policy": (
-            "Answer ONLY from these snippets. If they do not actually answer "
-            "what the customer asked, say so and offer request_callback rather "
-            "than stretching a related passage into an answer."
-            if confident
-            else (
-                "Retrieval was weak — do NOT answer from these snippets. Tell "
-                "the customer a specialist will follow up and offer "
-                "request_callback."
-            )
-        ),
-        "logId": data.get("logId"),
-    }
+    # Shaping lives in the shared handler, not here — see `kb.llm_payload`. This
+    # adapter hand-built its own dict and voice hand-built another, and the two
+    # had drifted apart on six keys including `mode`, which is the one that says
+    # whether a search actually ran.
+    return kb_tool.llm_payload(data, channel="text")
 
 
 def _tool_create_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -845,24 +834,28 @@ def execute_tool(ctx: ToolContext, name: str, arguments_json: str) -> tuple[bool
         return False, {"error": "tool_not_on_card_or_skill", "tool": name}, latency
 
     from agent_core.tools.gates import (
-        enforce_human_gate,
         floor_approved,
-        interaction_identity_verified,
+        gate_failure,
+        interaction_assurance,
     )
 
-    identity_ok = interaction_identity_verified(
+    assurance = interaction_assurance(
         interaction_id=ctx.interaction_id,
         customer_id=ctx.customer_id,
     )
-    blocked = enforce_human_gate(
+    blocked = gate_failure(
         name,
         card=ctx.agent_card,
-        identity_verified=identity_ok,
+        assurance=assurance,
         floor_ok=floor_approved(interaction_id=ctx.interaction_id, tool_name=name),
     )
     if blocked:
+        # The refusal now carries `hint`, and the model needs it: given only a
+        # code it tried two more gated tools and then offered a callback, which
+        # is gated too. Voice has returned hints on its verification failures
+        # since it was written; text returned a bare code.
         latency = int((time.perf_counter() - t0) * 1000)
-        return False, {"ok": False, "error": blocked, "tool": name}, latency
+        return False, {"ok": False, **blocked}, latency
 
     if name.startswith("ext."):
         from agent_core.connectors.persist import dispatch
