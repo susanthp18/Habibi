@@ -167,6 +167,10 @@ def reclaim_stuck_jobs(conn: Connection) -> list[dict[str, str]]:
             SET status = CASE WHEN attempt >= :cap THEN 'dead' ELSE 'queued' END,
                 locked_at = NULL,
                 locked_by = NULL,
+                -- The same backoff a failed attempt gets: a job whose worker
+                -- died mid-turn was instantly claimable again, so one that
+                -- crashes its worker every time was re-run back to back.
+                run_after = now() + make_interval(secs => LEAST(300, power(2, LEAST(attempt, 12)))),
                 error = left(
                   COALESCE(error, '') || CASE
                     WHEN attempt >= :cap THEN ' [dead: stuck running, attempts exhausted]'
@@ -370,7 +374,8 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
     if attempt >= cap:
         return mark_dead(conn, job, error)
 
-    delay_sec = min(300, 2 ** min(attempt, 6))
+    # Capped at 300 s; the exponent cap is 12 like the siblings' (6 plateaued at 64 s, so the 300 was unreachable).
+    delay_sec = min(300, 2 ** min(attempt, 12))
     run_after = utc_now() + timedelta(seconds=delay_sec)
     conn.execute(
         text(
