@@ -29,7 +29,6 @@ import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppIntegrationsRouteImport } from './routes/_app.integrations'
 import { Route as AppKnowledgeBaseRouteImport } from './routes/_app.knowledge-base'
 import { Route as AppPromisesRouteImport } from './routes/_app.promises'
-import { Route as AppPromptStudioRouteImport } from './routes/_app.prompt-studio'
 import { Route as AppQaRouteImport } from './routes/_app.qa'
 import { Route as AppRedactionRouteImport } from './routes/_app.redaction'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
@@ -148,13 +147,6 @@ const AppPromisesRoute = AppPromisesRouteImport.update({
   path: '/promises',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPromptStudioRoute = AppPromptStudioRouteImport.update({
-  id: '/prompt-studio',
-  path: '/prompt-studio',
-  getParentRoute: () => AppRoute,
-} as any).lazy(() =>
-  import('./routes/_app.prompt-studio.lazy').then((d) => d.Route),
-)
 const AppQaRoute = AppQaRouteImport.update({
   id: '/qa',
   path: '/qa',
@@ -254,7 +246,6 @@ export interface FileRoutesByFullPath {
   '/integrations': typeof AppIntegrationsRoute
   '/knowledge-base': typeof AppKnowledgeBaseRoute
   '/promises': typeof AppPromisesRoute
-  '/prompt-studio': typeof AppPromptStudioRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
@@ -287,7 +278,6 @@ export interface FileRoutesByTo {
   '/integrations': typeof AppIntegrationsRoute
   '/knowledge-base': typeof AppKnowledgeBaseRoute
   '/promises': typeof AppPromisesRoute
-  '/prompt-studio': typeof AppPromptStudioRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
@@ -325,7 +315,6 @@ export interface FileRoutesById {
   '/_app/integrations': typeof AppIntegrationsRoute
   '/_app/knowledge-base': typeof AppKnowledgeBaseRoute
   '/_app/promises': typeof AppPromisesRoute
-  '/_app/prompt-studio': typeof AppPromptStudioRoute
   '/_app/qa': typeof AppQaRoute
   '/_app/redaction': typeof AppRedactionRoute
   '/_app/roles': typeof AppRolesRoute
@@ -364,7 +353,6 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/knowledge-base'
     | '/promises'
-    | '/prompt-studio'
     | '/qa'
     | '/redaction'
     | '/roles'
@@ -397,7 +385,6 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/knowledge-base'
     | '/promises'
-    | '/prompt-studio'
     | '/qa'
     | '/redaction'
     | '/roles'
@@ -434,7 +421,6 @@ export interface FileRouteTypes {
     | '/_app/integrations'
     | '/_app/knowledge-base'
     | '/_app/promises'
-    | '/_app/prompt-studio'
     | '/_app/qa'
     | '/_app/redaction'
     | '/_app/roles'
@@ -599,13 +585,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPromisesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/prompt-studio': {
-      id: '/_app/prompt-studio'
-      path: '/prompt-studio'
-      fullPath: '/prompt-studio'
-      preLoaderRoute: typeof AppPromptStudioRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/qa': {
       id: '/_app/qa'
       path: '/qa'
@@ -757,7 +736,6 @@ interface AppRouteChildren {
   AppIntegrationsRoute: typeof AppIntegrationsRoute
   AppKnowledgeBaseRoute: typeof AppKnowledgeBaseRoute
   AppPromisesRoute: typeof AppPromisesRoute
-  AppPromptStudioRoute: typeof AppPromptStudioRoute
   AppQaRoute: typeof AppQaRoute
   AppRedactionRoute: typeof AppRedactionRoute
   AppRolesRoute: typeof AppRolesRoute
@@ -787,7 +765,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppIntegrationsRoute: AppIntegrationsRoute,
   AppKnowledgeBaseRoute: AppKnowledgeBaseRoute,
   AppPromisesRoute: AppPromisesRoute,
-  AppPromptStudioRoute: AppPromptStudioRoute,
   AppQaRoute: AppQaRoute,
   AppRedactionRoute: AppRedactionRoute,
   AppRolesRoute: AppRolesRoute,

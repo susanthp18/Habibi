@@ -48,7 +48,7 @@ function SandboxPage() {
   } = Route.useSearch();
   const cardsQuery = useAgentStudioCards();
   const skillsQuery = useAgentStudioSkills();
-  const [botId, setBotId] = useState(searchBotId || "kaia-v2-4");
+  const [botId, setBotId] = useState(searchBotId || "");
   // useState seeds once. Navigating to /sandbox?botId=X from an already-mounted
   // sandbox — which is what the fleet index's Sandbox button does when the tab
   // is open — left the previous card selected and silently rehearsed the wrong
@@ -57,6 +57,12 @@ function SandboxPage() {
   useEffect(() => {
     if (searchBotId) setBotId(searchBotId);
   }, [searchBotId]);
+  // Without a card in the URL, rehearse the fleet's door -- the card inbound
+  // traffic resolves to -- once the roster is in.
+  const entryBotId = cardsQuery.data?.[0]?.entryBotId;
+  useEffect(() => {
+    if (!botId && entryBotId) setBotId(entryBotId);
+  }, [botId, entryBotId]);
   const [skillSlug, setSkillSlug] = useState(searchSkillSlug || "");
   const versionsQuery = usePromptVersions(botId);
   const scenariosQuery = useSandboxScenarios();

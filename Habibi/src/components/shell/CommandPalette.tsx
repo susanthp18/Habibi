@@ -38,6 +38,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useCustomers } from "@/api/customers";
+import { useAgentStudioCards } from "@/api/agent-studio";
 import { useWorkItems } from "@/api/workspace";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { toggleTheme } from "@/lib/theme";
@@ -69,13 +70,6 @@ const PAGES: {
   { label: "Knowledge Base", to: "/knowledge-base", icon: BookOpen },
   { label: "Agent studio", to: "/agent-studio", icon: Bot, keywords: "prompt card fleet" },
   { label: "Skills library", to: "/agent-studio/skills", icon: Bot, keywords: "skill pack ptp" },
-  {
-    label: "Open Collections card",
-    to: "/agent-studio/$botId",
-    params: { botId: "kaia-v2-4" },
-    icon: Bot,
-    keywords: "prompt studio active card",
-  },
   { label: "Call Sandbox", to: "/sandbox", icon: Beaker },
   {
     label: "Pending approvals",
@@ -104,6 +98,25 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { data: customers = [] } = useCustomers();
   const { data: workItems = [] } = useWorkItems("me");
+  const { data: cards = [] } = useAgentStudioCards();
+  // The card inbound traffic resolves to -- the fleet's door, not a literal.
+  const entryBotId = cards[0]?.entryBotId;
+  const pages = useMemo(
+    () =>
+      entryBotId
+        ? [
+            ...PAGES,
+            {
+              label: "Open the entry card",
+              to: "/agent-studio/$botId",
+              params: { botId: entryBotId },
+              icon: Bot,
+              keywords: "prompt studio active card door",
+            },
+          ]
+        : PAGES,
+    [entryBotId],
+  );
 
   const customerHits = useMemo(() => customers.slice(0, 40), [customers]);
   const queueHits = useMemo(() => workItems.slice(0, 30), [workItems]);
@@ -146,7 +159,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="Pages">
-          {PAGES.map((p) => {
+          {pages.map((p) => {
             const Icon = p.icon;
             return (
               <CommandItem
