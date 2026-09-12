@@ -53,7 +53,10 @@ def replay(
                        engine_image_digest
                 FROM treatment_decisions
                 WHERE created_at >= :start AND created_at < :end
-                  AND (:tid IS NULL OR tenant_id = :tid)
+                  -- CAST before the null test; a bare ``:tid IS NULL`` leaves
+                  -- the planner no type to infer when the replay is run across
+                  -- every tenant, which is the call nobody makes until later.
+                  AND (CAST(:tid AS TEXT) IS NULL OR tenant_id = CAST(:tid AS TEXT))
                 """
             ),
             {"start": window_start, "end": window_end, "tid": tenant_id},

@@ -15,6 +15,8 @@ from typing import Any, Protocol
 
 from sqlalchemy import text
 
+from agent_core.clock import as_utc
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "v1"
@@ -30,14 +32,6 @@ FEE_TYPES = frozenset({FEE_LATE, FEE_BOUNCE, FEE_SETTLEMENT, FEE_RESTRUCTURE})
 #: waiver *is* often the open dispute, and treating it as a veto would make
 #: in-policy close-on-the-call impossible.
 SILENCING_HOLDS = frozenset({"hardship", "complaint", "bereavement", "legal"})
-
-
-def _aware(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 def _float(value: Any) -> float | None:
@@ -124,7 +118,7 @@ class SqlFeatureProvider:
         ).mappings().first()
 
         aid = (account["id"] if account else None) or account_id
-        opened = _aware(account["opened_on"]) if account else None
+        opened = as_utc(account["opened_on"]) if account else None
         tenure = None
         if opened is not None:
             tenure = max(0, int((datetime.now(timezone.utc) - opened).days // 30))

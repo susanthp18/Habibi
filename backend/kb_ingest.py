@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
 import azure_openai
+from db_core import _vector_literal
 from kb_chunking import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,6 @@ def _max_attempts() -> int:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _vector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
 
 def content_sha256(data: bytes) -> str:

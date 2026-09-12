@@ -932,10 +932,6 @@ def backfill_kb_sources_to_minio(*, limit: int | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _vector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
-
-
 def _embed_faq_pair(question: str, answer: str) -> str | None:
     """Best-effort FAQ embedding for hybrid retrieve. Returns vector literal or None."""
     try:
@@ -943,7 +939,7 @@ def _embed_faq_pair(question: str, answer: str) -> str | None:
 
         blob = f"Q: {question.strip()}\nA: {answer.strip()}"
         vec = azure_openai.embed_texts([blob])[0]
-        return _vector_literal(vec)
+        return _db()._vector_literal(vec)
     except Exception:
         return None
 

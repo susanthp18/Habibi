@@ -26,6 +26,8 @@ from typing import Any, Mapping, Protocol
 
 from sqlalchemy import text
 
+from agent_core.clock import as_utc
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "v1"
@@ -286,7 +288,7 @@ class PostgresFeatureProvider:
         if opened:
             earliest = min(opened)
             if isinstance(earliest, datetime):
-                delta = datetime.now(timezone.utc) - _aware(earliest)
+                delta = datetime.now(timezone.utc) - as_utc(earliest)
                 relationship_months = max(0, int(delta.days / 30.44))
 
         categories = set()
@@ -440,7 +442,7 @@ class PostgresFeatureProvider:
             if r.get("presented"):
                 at = r.get("created_at")
                 if isinstance(at, datetime):
-                    at = _aware(at)
+                    at = as_utc(at)
                     last_offer_at = max(last_offer_at or at, at)
                     if at > cutoff:
                         offers_30d += 1
@@ -468,7 +470,7 @@ class PostgresFeatureProvider:
             elif e["kind"] == "offer_presented":
                 at = e.get("at")
                 if isinstance(at, datetime):
-                    at = _aware(at)
+                    at = as_utc(at)
                     last_offer_at = max(last_offer_at or at, at)
                     if at > cutoff:
                         offers_30d += 1
@@ -517,7 +519,7 @@ class PostgresFeatureProvider:
         months_since = None
         last = row.get("last_payment_at")
         if isinstance(last, datetime):
-            months_since = max(0, int((datetime.now(timezone.utc) - _aware(last)).days / 30.44))
+            months_since = max(0, int((datetime.now(timezone.utc) - as_utc(last)).days / 30.44))
         return ratio, months_since
 
     def _call_signals(
@@ -616,12 +618,6 @@ class PostgresFeatureProvider:
             offers_presented_this_call=live.offers_presented_this_call,
             customer_turns=max(live.customer_turns, merged.customer_turns),
         )
-
-
-def _aware(value: datetime) -> datetime:
-    """Treat a naive timestamp as UTC. Comparing naive and aware datetimes
-    raises, and one stray naive row would take the whole recommendation down."""
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def _product_mentions(conn: Any, rows: list[Mapping[str, Any]]) -> tuple[str, ...]:

@@ -8,25 +8,19 @@ utility template is configured, or when WhatsApp is opted out.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
-from env_loader import load_env
+from env_loader import env_str
 
 logger = logging.getLogger(__name__)
 
 
-def _env(name: str, default: str = "") -> str:
-    load_env()
-    return (os.getenv(name) or default).strip()
-
-
 def from_number() -> str:
-    return _env("TWILIO_SMS_FROM") or _env("TWILIO_PHONE_NUMBER")
+    return env_str("TWILIO_SMS_FROM") or env_str("TWILIO_PHONE_NUMBER")
 
 
 def configured() -> bool:
-    return bool(_env("TWILIO_ACCOUNT_SID") and _env("TWILIO_AUTH_TOKEN") and from_number())
+    return bool(env_str("TWILIO_ACCOUNT_SID") and env_str("TWILIO_AUTH_TOKEN") and from_number())
 
 
 def status_callback_url() -> str:
@@ -37,7 +31,7 @@ def status_callback_url() -> str:
     itself as "no receipts" is better than one that announces itself as
     "borrowers on this channel are unreachable".
     """
-    base = _env("PUBLIC_BASE_URL").rstrip("/")
+    base = env_str("PUBLIC_BASE_URL").rstrip("/")
     return f"{base}/twilio/sms/status" if base.startswith("http") else ""
 
 
@@ -77,8 +71,8 @@ def send(
     from twilio.rest import Client
 
     client = Client(
-        _env("TWILIO_ACCOUNT_SID"),
-        _env("TWILIO_AUTH_TOKEN"),
+        env_str("TWILIO_ACCOUNT_SID"),
+        env_str("TWILIO_AUTH_TOKEN"),
         http_client=TwilioHttpClient(timeout=10),
     )
     kwargs: dict[str, Any] = {"to": to, "from_": from_number(), "body": body}

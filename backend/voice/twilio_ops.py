@@ -15,12 +15,11 @@ Verified Caller ID on trial, and geo permissions that allow the dial.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import Any
 from xml.sax.saxutils import escape, quoteattr
 
-from env_loader import load_env
+from env_loader import env_str
 
 logger = logging.getLogger(__name__)
 
@@ -37,25 +36,20 @@ class OutboundDisabled(RuntimeError):
     """
 
 
-def _env(name: str, default: str = "") -> str:
-    load_env()
-    return (os.getenv(name) or default).strip()
-
-
 def account_sid() -> str:
-    return _env("TWILIO_ACCOUNT_SID")
+    return env_str("TWILIO_ACCOUNT_SID")
 
 
 def auth_token() -> str:
-    return _env("TWILIO_AUTH_TOKEN")
+    return env_str("TWILIO_AUTH_TOKEN")
 
 
 def twilio_phone() -> str:
-    return _env("TWILIO_PHONE_NUMBER")
+    return env_str("TWILIO_PHONE_NUMBER")
 
 
 def supervisor_phone() -> str:
-    return _env("SUPERVISOR_CALLBACK_PHONE")
+    return env_str("SUPERVISOR_CALLBACK_PHONE")
 
 
 def handoff_mode() -> str:
@@ -93,9 +87,9 @@ def voice_public_base_url() -> str:
     from voice.ws_proxy import ws_proxy_enabled
 
     if ws_proxy_enabled():
-        via_api = _env("PUBLIC_BASE_URL") or _env("VOICE_PUBLIC_BASE_URL")
+        via_api = env_str("PUBLIC_BASE_URL") or env_str("VOICE_PUBLIC_BASE_URL")
         return via_api.rstrip("/")
-    return _env("VOICE_PUBLIC_BASE_URL").rstrip("/")
+    return env_str("VOICE_PUBLIC_BASE_URL").rstrip("/")
 
 
 def voice_https_public_base_url() -> str:
@@ -149,7 +143,7 @@ def media_stream_wss_url() -> str:
     else:
         url = f"wss://{base}/ws"
 
-    secret = _env("VOICE_WS_PROXY_SECRET")
+    secret = env_str("VOICE_WS_PROXY_SECRET")
     if secret:
         from urllib.parse import quote
 
@@ -306,18 +300,6 @@ def _client():
     if not sid or not token:
         raise RuntimeError("TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing")
     return Client(sid, token, http_client=TwilioHttpClient(timeout=10))
-
-
-def fetch_call(call_sid: str) -> dict[str, Any]:
-    call = _client().calls(call_sid).fetch()
-    from_num = getattr(call, "from_", None) or getattr(call, "_from", None)
-    return {
-        "callSid": call.sid,
-        "from": from_num,
-        "to": call.to,
-        "status": call.status,
-        "direction": call.direction,
-    }
 
 
 def start_outbound_call(

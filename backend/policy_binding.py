@@ -13,18 +13,11 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 import policy_rules
+from agent_core.clock import as_utc
 
 VERDICT_FIRED = "fired"
 VERDICT_NOT_FIRED = "not_fired"
 VERDICT_CONSULTED = "consulted"
-
-
-def _aware(value: datetime | None) -> datetime:
-    if value is None:
-        return datetime.now(timezone.utc)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def entry(
@@ -43,7 +36,7 @@ def entry(
         "scope": str(scope),
         "verdict": str(verdict),
         "citation": str(citation or ""),
-        "evaluated_at": _aware(evaluated_at).isoformat(),
+        "evaluated_at": (as_utc(evaluated_at) or datetime.now(timezone.utc)).isoformat(),
     }
     if kind:
         row["kind"] = str(kind)
@@ -57,7 +50,7 @@ def from_ruleset(
     evaluated_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """One binding row per consulted catalogue rule."""
-    instant = _aware(evaluated_at)
+    instant = as_utc(evaluated_at) or datetime.now(timezone.utc)
     fired = {str(x) for x in (fired_rule_ids or ())}
     if rules is None or not getattr(rules, "consulted", ()):
         return []

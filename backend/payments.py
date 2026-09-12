@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -18,16 +17,11 @@ from typing import Any
 from sqlalchemy import text
 
 import webhooks_dispatch
-from env_loader import load_env
+from env_loader import env_str
 
 logger = logging.getLogger(__name__)
 
 OPEN_PROMISE_STATUSES = ("upcoming", "due_today", "partial")
-
-
-def _env(name: str, default: str = "") -> str:
-    load_env()
-    return (os.getenv(name) or default).strip()
 
 
 def _chain_ledger(conn: Any, entry: dict[str, Any], *, tenant_id: str | None) -> None:
@@ -44,12 +38,12 @@ def _chain_ledger(conn: Any, entry: dict[str, Any], *, tenant_id: str | None) ->
 
 
 def provider() -> str:
-    raw = _env("PAYMENT_PROVIDER", "hosted").lower()
+    raw = env_str("PAYMENT_PROVIDER", "hosted").lower()
     return raw if raw in {"hosted", "razorpay"} else "hosted"
 
 
 def app_env() -> str:
-    return _env("APP_ENV", "dev").lower()
+    return env_str("APP_ENV", "dev").lower()
 
 
 def is_production() -> bool:
@@ -57,13 +51,13 @@ def is_production() -> bool:
 
 
 def public_base_url() -> str:
-    base = _env("PUBLIC_BASE_URL") or "http://127.0.0.1:8000"
+    base = env_str("PUBLIC_BASE_URL") or "http://127.0.0.1:8000"
     return base.rstrip("/")
 
 
 def checkout_url(public_token: str) -> str:
     """Hosted pay page, or a Razorpay checkout URL when keys exist."""
-    if provider() == "razorpay" and _env("RAZORPAY_KEY_ID") and _env("RAZORPAY_KEY_SECRET"):
+    if provider() == "razorpay" and env_str("RAZORPAY_KEY_ID") and env_str("RAZORPAY_KEY_SECRET"):
         # Keys present but link creation is not wired — fall back to hosted
         # until the live Razorpay order API is configured. The intent still
         # records provider='razorpay' so webhooks can match.
@@ -74,8 +68,8 @@ def checkout_url(public_token: str) -> str:
 def webhook_secret(provider_name: str | None = None) -> str:
     name = (provider_name or provider()).lower()
     if name == "razorpay":
-        return _env("RAZORPAY_WEBHOOK_SECRET") or _env("PAYMENT_WEBHOOK_SECRET")
-    return _env("PAYMENT_WEBHOOK_SECRET")
+        return env_str("RAZORPAY_WEBHOOK_SECRET") or env_str("PAYMENT_WEBHOOK_SECRET")
+    return env_str("PAYMENT_WEBHOOK_SECRET")
 
 
 def verify_webhook_signature(
@@ -612,116 +606,3 @@ def render_pay_page(intent: dict[str, Any]) -> str:
 """
 
 
-def reverse_allocation(
-    conn: Any,
-    *,
-    payment_ledger_id: str,
-    account_id: str,
-) -> dict[str, Any]:
-    """Undo a payment's promise allocations and restore open state.
-
-    A ₹1 payment against a ₹50,000 promise is ``partial``; reversing it must
-    return the promise to upcoming/due_today, never leave it ``kept``.
-    """
-    import db as dbmod
-
-    payment = conn.execute(
-        text(
-            "SELECT id, amount FROM ledger_entries WHERE id = :id AND type = 'payment'"
-        ),
-        {"id": payment_ledger_id},
-    ).mappings().first()
-    if payment is None:
-        return {"ok": False, "reason": "payment_not_found"}
-    rid = dbmod._id("LE")
-    try:
-        conn.execute(
-            text(
-                """
-                INSERT INTO ledger_entries (
-                  id, account_id, type, description, amount, posted_at, reverses_id
-                ) VALUES (
-                  :id, :aid, 'reversal', :desc, :amount, now(), :rev
-                )
-                """
-            ),
-            {
-                "id": rid,
-                "aid": account_id,
-                "desc": f"Reversal of {payment_ledger_id}",
-                "amount": -abs(float(payment["amount"])),
-                "rev": payment_ledger_id,
-            },
-        )
-    except Exception:
-        conn.execute(
-            text(
-                """
-                INSERT INTO ledger_entries (
-                  id, account_id, type, description, amount, posted_at
-                ) VALUES (
-                  :id, :aid, 'adjustment', :desc, :amount, now()
-                )
-                """
-            ),
-            {
-                "id": rid,
-                "aid": account_id,
-                "desc": f"Reversal of {payment_ledger_id}",
-                "amount": -abs(float(payment["amount"])),
-            },
-        )
-    remaining = _money(payment["amount"])
-    rows = conn.execute(
-        text(
-            """
-            SELECT id, amount, paid_amount, status, promised_at
-            FROM promises
-            WHERE account_id = :aid
-              AND paid_amount > 0
-              AND status IN ('kept','partial','upcoming','due_today')
-            ORDER BY promised_at DESC, created_at DESC
-            FOR UPDATE
-            """
-        ),
-        {"aid": account_id},
-    ).mappings().all()
-    restored = []
-    for row in rows:
-        if remaining <= 0:
-            break
-        paid = _money(row["paid_amount"])
-        take = min(paid, remaining)
-        new_paid = paid - take
-        promised = _money(row["amount"])
-        promised_day = row["promised_at"]
-        today = datetime.now(timezone.utc).date()
-        if hasattr(promised_day, "date"):
-            promised_day = promised_day.date()
-        if new_paid <= 0:
-            if promised_day and promised_day < today:
-                next_status = "broken"
-            elif promised_day == today:
-                next_status = "due_today"
-            else:
-                next_status = "upcoming"
-            new_paid = Decimal("0")
-        elif new_paid < promised:
-            next_status = "partial"
-        else:
-            next_status = row["status"]
-        conn.execute(
-            text(
-                """
-                UPDATE promises
-                SET paid_amount = :paid, status = :status
-                WHERE id = :id
-                """
-            ),
-            {"id": row["id"], "paid": float(new_paid), "status": next_status},
-        )
-        restored.append(
-            {"promiseId": row["id"], "status": next_status, "paidAmount": float(new_paid)}
-        )
-        remaining -= take
-    return {"ok": True, "reversalId": rid, "promises": restored}

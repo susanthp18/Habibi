@@ -33,6 +33,7 @@ from sqlalchemy import text  # noqa: E402
 
 import azure_openai  # noqa: E402
 import db  # noqa: E402
+from db_core import _vector_literal  # noqa: E402
 from kb_chunking import faq_id, faq_intent, parse_faq_qa  # noqa: E402
 from kb_corpus_manifest import (  # noqa: E402
     CORPUS_MANIFEST,
@@ -51,10 +52,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("ingest_source_db")
-
-
-def _vector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
 
 def _upsert_faqs(
