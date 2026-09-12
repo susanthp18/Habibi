@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Search, Bot, User, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Rubric, Scorecard } from "@/api/types/qa";
-import { computeTotal } from "@/data/qa-seed";
+import { computeTotal } from "@/lib/qa";
 import { ScoreBand } from "./ScoreBand";
 import { Lozenge } from "@/components/ui/lozenge";
 

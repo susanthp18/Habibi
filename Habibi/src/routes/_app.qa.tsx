@@ -36,7 +36,8 @@ import type {
   CoachingStatus,
   Rubric,
 } from "@/api/types/qa";
-import { defaultRubric, agentStats } from "@/data/qa-seed";
+import { agentStats } from "@/lib/qa";
+import { QueryState } from "@/components/ui/query-state";
 
 type Tab = "queue" | "trends" | "calibration" | "disagreements" | "coaching";
 
@@ -64,9 +65,17 @@ export const Route = createFileRoute("/_app/qa")({
 });
 
 function QaPage() {
+  const rubricQuery = useRubric();
+  return (
+    <QueryState query={rubricQuery} label="the rubric">
+      {rubricQuery.data && <QaWorkspace remoteRubric={rubricQuery.data} />}
+    </QueryState>
+  );
+}
+
+function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
   const { callId } = Route.useSearch();
   const queryClient = useQueryClient();
-  const { data: remoteRubric } = useRubric();
   const {
     data: remoteScorecards,
     isPending: scorecardsPending,
@@ -85,7 +94,7 @@ function QaPage() {
 
   // Local rubric edits (builder sheet) — live GET /rubric is the base.
   const [rubricOverride, setRubricOverride] = useState<Rubric | null>(null);
-  const rubric = rubricOverride ?? remoteRubric ?? defaultRubric;
+  const rubric = rubricOverride ?? remoteRubric;
   const canvasRubric = rubricOverride ?? channelRubric ?? rubric;
 
   // In-progress criterion edits until Save draft / Publish.
@@ -376,7 +385,7 @@ function QaPage() {
 
           {tab === "calibration" && (
             <div className="h-full min-h-0 overflow-y-auto p-250">
-              <CalibrationView sessions={calibrations} onClose={closeCalibration} />
+              <CalibrationView sessions={calibrations} rubric={rubric} onClose={closeCalibration} />
             </div>
           )}
 
@@ -412,6 +421,7 @@ function QaPage() {
         open={coachOpen}
         onClose={() => setCoachOpen(false)}
         onSubmit={addCoaching}
+        agents={stats.map((s) => s.agentId)}
         presetAgent={coachPreset.agent}
         presetScorecardId={coachPreset.scorecardId}
         presetCallId={coachPreset.callId}

@@ -3,9 +3,9 @@ import { Send, Save, UserPlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCalls } from "@/api/audit";
 import type { Rubric, Scorecard, ScorecardEntry } from "@/api/types/qa";
-import { allCriteria, computeTotal } from "@/data/qa-seed";
+import { allCriteria, computeTotal } from "@/lib/qa";
 import { formatDuration } from "@/lib/format";
-import { formatDateTime } from "@/data/audit-seed";
+import { fmtDateTime } from "@/lib/format";
 import { ScoreBand } from "./ScoreBand";
 import { RubricScorer } from "./RubricScorer";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -64,7 +64,7 @@ export function ScoringCanvas({
             </div>
             <div className="text-body-small text-text-subtle">
               {call
-                ? `${formatDateTime(call.startedAt)} · ${formatDuration(call.duration)} · ${call.channel}`
+                ? `${fmtDateTime(call.startedAt)} · ${formatDuration(call.duration)} · ${call.channel}`
                 : "—"}
               {" · "}
               <span className="capitalize">{scorecard.handledBy.kind}</span> ·{" "}

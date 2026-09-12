@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import type { CoachingAction } from "@/api/types/qa";
-import { AGENT_POOL } from "@/data/qa-seed";
 import { SelectField } from "@/components/ui/select";
 
 const CATEGORIES = ["Empathy", "Resolution", "Compliance", "Script adherence", "Upsell"];
@@ -10,6 +9,7 @@ export function NewCoachingSheet({
   open,
   onClose,
   onSubmit,
+  agents,
   presetAgent,
   presetScorecardId,
   presetCallId,
@@ -17,11 +17,12 @@ export function NewCoachingSheet({
   open: boolean;
   onClose: () => void;
   onSubmit: (a: Omit<CoachingAction, "id" | "createdAt" | "notes" | "status">) => void;
+  agents: string[];
   presetAgent?: string;
   presetScorecardId?: string;
   presetCallId?: string;
 }) {
-  const [agent, setAgent] = useState(presetAgent ?? AGENT_POOL[0]!);
+  const [agent, setAgent] = useState(presetAgent ?? agents[0] ?? "");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]!);
   const [due, setDue] = useState(() =>
@@ -55,7 +56,7 @@ export function NewCoachingSheet({
               value={agent}
               onChange={setAgent}
               size="compact"
-              options={AGENT_POOL.map((a) => ({ value: a, label: a }))}
+              options={agents.map((a) => ({ value: a, label: a }))}
             />
           </label>
           <label className="block">

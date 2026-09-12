@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { ClipboardCheck, Clock, TrendingUp, Users, Scale } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Rubric, Scorecard, CoachingAction, CalibrationSession } from "@/api/types/qa";
-import { computeTotal } from "@/data/qa-seed";
+import { computeTotal } from "@/lib/qa";
 import { Lozenge } from "@/components/ui/lozenge";
 
 function Tile({

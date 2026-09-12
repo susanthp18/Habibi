@@ -1,4 +1,4 @@
-import { bandColor, bandFor } from "@/data/qa-seed";
+import { bandColor, bandFor } from "@/lib/qa";
 import { cn } from "@/lib/utils";
 
 export function ScoreBand({ total, size = "md" }: { total: number; size?: "sm" | "md" | "lg" }) {

@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { CalibrationSession } from "@/api/types/qa";
-import { computeTotal, defaultRubric } from "@/data/qa-seed";
+import type { CalibrationSession, Rubric } from "@/api/types/qa";
+import { computeTotal } from "@/lib/qa";
 import { ScoreBand } from "./ScoreBand";
 
 export function CalibrationView({
   sessions,
+  rubric,
   onClose,
 }: {
   sessions: CalibrationSession[];
+  rubric: Rubric;
   onClose: (id: string) => void;
 }) {
   const [activeId, setActiveId] = useState<string>(sessions[0]?.id ?? "");
@@ -23,7 +25,7 @@ export function CalibrationView({
     );
   }
 
-  const targetTotal = computeTotal({ entries: active.target }, defaultRubric);
+  const targetTotal = computeTotal({ entries: active.target }, rubric);
 
   return (
     <div className="grid gap-150 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -76,7 +78,7 @@ export function CalibrationView({
             <thead className="bg-surface-sunken text-body-small text-text-subtlest">
               <tr>
                 <th className="px-150 py-100 text-left font-medium">Reviewer</th>
-                {defaultRubric.sections.map((s) => (
+                {rubric.sections.map((s) => (
                   <th key={s.id} className="px-150 py-100 text-left font-medium">
                     {s.label}
                   </th>
@@ -88,14 +90,14 @@ export function CalibrationView({
             <tbody className="divide-y divide-border">
               <tr className="bg-background-brand-subtlest/40">
                 <td className="px-150 py-100 font-semibold text-text">Target</td>
-                {defaultRubric.sections.map((s) => {
+                {rubric.sections.map((s) => {
                   const sub = computeTotal(
                     {
                       entries: active.target.filter((e) =>
                         s.criteria.some((c) => c.id === e.criterionId),
                       ),
                     },
-                    { ...defaultRubric, sections: [s] },
+                    { ...rubric, sections: [s] },
                   );
                   return (
                     <td key={s.id} className="px-150 py-100 text-text">
@@ -109,20 +111,20 @@ export function CalibrationView({
                 <td className="px-150 py-100 text-right text-text-subtlest">—</td>
               </tr>
               {active.reviewers.map((r) => {
-                const total = computeTotal({ entries: r.entries }, defaultRubric);
+                const total = computeTotal({ entries: r.entries }, rubric);
                 const delta = total - targetTotal;
                 const bad = Math.abs(delta) > 8;
                 return (
                   <tr key={r.reviewer}>
                     <td className="px-150 py-100 font-medium text-text">{r.reviewer}</td>
-                    {defaultRubric.sections.map((s) => {
+                    {rubric.sections.map((s) => {
                       const sub = computeTotal(
                         {
                           entries: r.entries.filter((e) =>
                             s.criteria.some((c) => c.id === e.criterionId),
                           ),
                         },
-                        { ...defaultRubric, sections: [s] },
+                        { ...rubric, sections: [s] },
                       );
                       return (
                         <td key={s.id} className="px-150 py-100 text-text">
