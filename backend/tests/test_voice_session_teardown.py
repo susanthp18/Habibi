@@ -140,11 +140,11 @@ def test_the_finalize_budget_is_finite_and_generous() -> None:
 
 def test_finalize_bounds_its_bookkeeping_and_always_tears_down() -> None:
     """Read the source: the guarantee is structural, not incidental."""
-    import inspect
 
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers.register_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     assert "async def _bookkeeping()" in src
     assert "asyncio.wait_for(_bookkeeping()" in src
     finally_at = src.index("        finally:\n", src.index("async def _bookkeeping()"))
@@ -222,11 +222,11 @@ def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
     never consulted it.
     """
     import ast
-    import inspect
 
-    from voice import bot_handlers
 
-    tree = ast.parse(inspect.getsource(bot_handlers.register_handlers))
+    from tests.voice_tools_source import handlers_source
+
+    tree = ast.parse(handlers_source())
     handler = next(
         (
             n
@@ -242,7 +242,8 @@ def test_the_idle_watchdog_is_disarmed_once_the_call_is_finalized() -> None:
     guards = [
         n
         for n in ast.walk(handler)
-        if isinstance(n, ast.Name) and n.id == "finalized"
+        if (isinstance(n, ast.Name) and n.id == "finalized")
+        or (isinstance(n, ast.Attribute) and n.attr == "finalized")
     ]
     assert guards, (
         "on_user_turn_idle never reads `finalized`, so a caller who hangs up "
@@ -356,11 +357,11 @@ def test_the_crm_bind_runs_beside_the_greeting_not_in_front_of_it() -> None:
     None of it is needed to speak. The row is bookkeeping; the greeting is the
     product.
     """
-    import inspect
 
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers.register_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     assert "async def _bind_crm_session()" in src
     assert "asyncio.create_task(_bind_crm_session())" in src
     # The handler must not await the bind — that is the whole point.
@@ -370,11 +371,11 @@ def test_the_crm_bind_runs_beside_the_greeting_not_in_front_of_it() -> None:
 
 def test_session_bound_is_emitted_only_once_the_ids_are_real() -> None:
     """Firing it on the connect path would deep-link the studio to nothing."""
-    import inspect
 
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers.register_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     body = src[src.index("async def _bind_crm_session()") : src.index("crm_bind_task =")]
     assert "emitter.session_bound(" in body, (
         "session_bound belongs inside the bind, after interaction_id is set"
@@ -388,11 +389,11 @@ def test_teardown_waits_for_the_bind_it_might_have_overtaken() -> None:
     that does not exist yet and `crm_sink` drops it — the "interaction_id unset"
     line that has been in these logs all along.
     """
-    import inspect
 
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers.register_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     book = src[src.index("async def _bookkeeping()") :]
     assert "_crm_bind_task" in book
     assert "wait_for" in book, "bounded, like every other step in teardown"

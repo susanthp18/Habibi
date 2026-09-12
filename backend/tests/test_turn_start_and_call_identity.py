@@ -131,18 +131,20 @@ def test_bind_session_start_forwards_direction() -> None:
 
 def test_the_bot_actually_supplies_both() -> None:
     """The plumbing existed end to end; only this last hop was missing."""
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     assert "provider_call_id=provider_call_id" in src
     assert "direction=direction" in src
 
 
 def test_a_sandbox_call_with_no_carrier_id_passes_none_not_empty_string() -> None:
     """The unique index is partial on NOT NULL — '' would collide across calls."""
-    from voice import bot_handlers
 
-    src = inspect.getsource(bot_handlers)
+    from tests.voice_tools_source import handlers_source
+
+    src = handlers_source()
     assert 'str(session.extra.get("call_sid") or "").strip() or None' in src
 
 
