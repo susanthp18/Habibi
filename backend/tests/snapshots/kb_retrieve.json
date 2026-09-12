@@ -1,0 +1,293 @@
+{
+  "draft": {
+    "log": {
+      "interaction_id": null,
+      "query": "how do i pay my dues online",
+      "sandbox_run_id": null,
+      "selected_answer_source": "inbox:draft+snippets",
+      "top_chunks": [
+        {
+          "chunkId": "faq-faq-car-006",
+          "docId": "kb-policy-car",
+          "kind": "faq",
+          "margin": 0.009,
+          "score": 0.0626
+        },
+        {
+          "chunkId": "kb-policy-fraud-c29",
+          "docId": "kb-policy-fraud",
+          "kind": "chunk",
+          "score": 0.0536
+        },
+        {
+          "chunkId": "kb-policy-travel-c29",
+          "docId": "kb-policy-travel",
+          "kind": "chunk",
+          "score": 0.0525
+        },
+        {
+          "chunkId": "kb-policy-fraud-c24",
+          "docId": "kb-policy-fraud",
+          "kind": "chunk",
+          "score": 0.0524
+        }
+      ]
+    },
+    "payload": {
+      "cached": false,
+      "chatModel": "gpt-5.4-nano",
+      "draftAnswer": "You can pay through the app or net banking.",
+      "margin": 0.009,
+      "reranked": false,
+      "results": [
+        {
+          "chunkId": "faq-faq-car-006",
+          "docId": "kb-policy-car",
+          "docTitle": "FAQ \u00b7 car.14ec1c9ec3ae",
+          "docType": "faq",
+          "heading": "What is the No Claim Discount (NCD) Protector? How does it work?",
+          "matchedTerms": [],
+          "score": 0.0626,
+          "snippet": "The NCD protector is an optional benefit and applies only to policyholders of 50% NCD at an additional premium. It will protect your NCD in the event of a first claim during your policy period. If a second claim is made, the normal NCD rules apply and your NCD will be reduced to 20% on your next policy renewal. The protected NCD is not transferable to another insurer. You will need to renew your policy with HDFC Assurance in order to enjoy this benefit."
+        },
+        {
+          "chunkId": "kb-policy-fraud-c29",
+          "docId": "kb-policy-fraud",
+          "docTitle": "Fraud Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Section 10. Emergency Medical Transportation",
+          "matchedTerms": [],
+          "score": 0.0536,
+          "snippet": "We will reimburse You up to the Benefit Limit for Ambulance charges incurred to transport You to a Hospital up to $200 per Injury."
+        },
+        {
+          "chunkId": "kb-policy-travel-c29",
+          "docId": "kb-policy-travel",
+          "docTitle": "Travel Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Section 17. Emergency Phone Charges",
+          "matchedTerms": [
+            "pay"
+          ],
+          "score": 0.0525,
+          "snippet": "We shall pay up to the Benefit Limit of the telephone charges incurred on Your personal mobile phone used for the sole purpose of engaging the services of Our appointed assistance company during a medical emergency and for which a medical claim has been submitted under Section 1.\n\nThe telephone charges incurred must be supported by an itemized bill from Your telecommunication company."
+        },
+        {
+          "chunkId": "kb-policy-fraud-c24",
+          "docId": "kb-policy-fraud",
+          "docTitle": "Fraud Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Scale of Compensation \u00b7 \u00a73",
+          "matchedTerms": [
+            "pay"
+          ],
+          "score": 0.0524,
+          "snippet": "- Loss by physical severance or Permanent Disablement of great toe two phalanges: 5% compensation of the Benefit Limit\n- Loss by physical severance or Permanent Disablement of great toe one phalanx: 3% compensation of the Benefit Limit\n- Loss by physical severance or Permanent Disablement of any other toe: 3% compensation of the Benefit Limit\n\nWe will not pay for any Permanent Disablement that is not listed in the scale of compensation above."
+        }
+      ],
+      "stageMs": [
+        "ann_ms",
+        "draft_ms",
+        "embed_ms",
+        "rank_ms",
+        "rate_ms",
+        "rerank_ms"
+      ]
+    }
+  },
+  "exclusions": {
+    "log": {
+      "interaction_id": null,
+      "query": "does travel protect360 cover a cancelled flight",
+      "sandbox_run_id": null,
+      "selected_answer_source": "bot:snippets",
+      "top_chunks": [
+        {
+          "chunkId": "kb-policy-travel-c29",
+          "docId": "kb-policy-travel",
+          "kind": "chunk",
+          "margin": 0.0124,
+          "score": 0.1325
+        },
+        {
+          "chunkId": "kb-policy-travel-c23",
+          "docId": "kb-policy-travel",
+          "kind": "chunk",
+          "score": 0.1202
+        },
+        {
+          "chunkId": "kb-policy-travel-c40",
+          "docId": "kb-policy-travel",
+          "kind": "chunk",
+          "score": 0.12
+        },
+        {
+          "chunkId": "kb-benefits-travel-c7",
+          "docId": "kb-benefits-travel",
+          "kind": "chunk",
+          "score": 0.0515
+        }
+      ]
+    },
+    "payload": {
+      "cached": false,
+      "chatModel": null,
+      "draftAnswer": null,
+      "margin": 0.0124,
+      "reranked": false,
+      "results": [
+        {
+          "chunkId": "kb-policy-travel-c29",
+          "docId": "kb-policy-travel",
+          "docTitle": "Travel Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Section 17. Emergency Phone Charges",
+          "matchedTerms": [],
+          "score": 0.1325,
+          "snippet": "We shall pay up to the Benefit Limit of the telephone charges incurred on Your personal mobile phone used for the sole purpose of engaging the services of Our appointed assistance company during a medical emergency and for which a medical claim has been submitted under Section 1.\n\nThe telephone charges incurred must be supported by an itemized bill from Your telecommunication company."
+        },
+        {
+          "chunkId": "kb-policy-travel-c23",
+          "docId": "kb-policy-travel",
+          "docTitle": "Travel Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Section 12. Cash Relief for Death Due to Accident",
+          "matchedTerms": [],
+          "score": 0.1202,
+          "snippet": "We will pay the Benefit Limit in the event that You suffer death due to Bodily Injury or Sickness sustained while Overseas during the Trip."
+        },
+        {
+          "chunkId": "kb-policy-travel-c40",
+          "docId": "kb-policy-travel",
+          "docTitle": "Travel Protect360 \u2014 Policy",
+          "docType": "policy",
+          "heading": "Section 25. Flight Overbooked",
+          "matchedTerms": [
+            "travel",
+            "flight"
+          ],
+          "score": 0.12,
+          "snippet": "In the event that You are denied from boarding a confirmed scheduled Flight as indicated on the travel ticket due to over-booking and no alternative transportation is made available to You for at least six (6) consecutive hours of the boarding time indicated on the travel ticket, We shall pay You $100 for each continuous six (6) hour period, up to the Benefit Limit.\n\nYou must obtain and provide to Us a written verification from the operator(s) of the Common Carrier or their handling agent(s), stating that You were denied from boarding a confirmed scheduled Flight due to over-booking."
+        },
+        {
+          "chunkId": "kb-benefits-travel-c7",
+          "docId": "kb-benefits-travel",
+          "docTitle": "Travel Protect360 \u2014 Benefits",
+          "docType": "benefits",
+          "heading": "Travel Protect360 \u2014 Benefits \u00b7 \u00a77",
+          "matchedTerms": [
+            "travel",
+            "protect360",
+            "flight"
+          ],
+          "score": 0.0515,
+          "snippet": ",500 for the Platinum plan.\nUnder Enhanced Travel Inconvenience for COVID-19, the Trip Postponement benefit is not available for the Basic plan, but is $750 for the Silver plan, $1,500 for the Gold plan, and $2,000 for the Platinum plan.\nUnder Enhanced Travel Inconvenience for COVID-19, the Total Limit for Family for Trip Postponement is not available for the Basic plan, but is $1,875 for the Silver plan, $3,750 for the Gold plan, and $5,000 for the Platinum plan.\nUnder Enhanced Travel Inconvenience for COVID-19, the Trip Curtailment benefit is not available for the Basic plan, but is $1,000 for the Silver plan, $2,000 for the Gold plan, and $3,000 for the Platinum plan.\nUnder Enhanced Travel Inconvenience for COVID-19, the Total Limit for Family for Trip Curtailment is not available for the Basic plan, but is $2,500 for the Silver plan, $5,000 for the Gold plan, and $7,500 for the Platinum plan.\nUnder Add-On Coverages for Pre-Existing Medical Conditions, the Overseas Medical Expenses for an Adult (age 70 years and below) is $25,000 for the Basic plan, $50,000 for the Silver plan, $75,000 for the Gold plan, and $100,000 for the Platinum plan.\nUnder Add-On Coverages for Pre-Existing Medical Conditions, the Overseas Medical Expenses for a Child is $10,000 for the Basic plan, $20,000 for the Silver plan, $30,000 for the Gold plan, and $40,000 for the Platinum plan.\nUnder Add-On Coverages for Pre-Existing Medical Conditions, the Emergency Medical Evacuation benefit for an Adult (age 70 years and below) is $10,000 for the Basic plan, $20,000 for the Silver plan, $30,000 for the Gold plan, and $50,000 for the Platinum plan.\nUnder Add-On Coverages for Pre-Existing Medical Conditions, the Emergency Medical Evacuation benefit for a Child is $10,000 for the Basic plan, $20,000 for the Silver plan, $30,000 for the Gold plan, and $50,000 for the Platinum plan.\nUnder Add-On Coverages, the Flight Delay benefit provides $100 for every 3 hours of delay, up to a total of $"
+        }
+      ],
+      "stageMs": [
+        "ann_ms",
+        "draft_ms",
+        "embed_ms",
+        "rank_ms",
+        "rate_ms",
+        "rerank_ms"
+      ]
+    }
+  },
+  "snippets": {
+    "log": {
+      "interaction_id": null,
+      "query": "what happens if i miss an emi payment",
+      "sandbox_run_id": null,
+      "selected_answer_source": "test:snippets",
+      "top_chunks": [
+        {
+          "chunkId": "kb-benefits-collections-c1",
+          "docId": "kb-benefits-collections",
+          "kind": "chunk",
+          "margin": 0.0068,
+          "score": 0.0342
+        },
+        {
+          "chunkId": "faq-faq-collections-004",
+          "docId": "kb-policy-collections",
+          "kind": "faq",
+          "score": 0.0274
+        },
+        {
+          "chunkId": "kb-policy-collections-c5",
+          "docId": "kb-policy-collections",
+          "kind": "chunk",
+          "score": 0.0224
+        },
+        {
+          "chunkId": "faq-faq-collections-007",
+          "docId": "kb-policy-collections",
+          "kind": "faq",
+          "score": 0.02
+        }
+      ]
+    },
+    "payload": {
+      "cached": false,
+      "chatModel": null,
+      "draftAnswer": null,
+      "margin": 0.0068,
+      "reranked": false,
+      "results": [
+        {
+          "chunkId": "kb-benefits-collections-c1",
+          "docId": "kb-benefits-collections",
+          "docTitle": "HDFC Retail Collections \u2014 Benefits",
+          "docType": "benefits",
+          "heading": "HDFC Retail Collections \u2014 Benefits",
+          "matchedTerms": [
+            "emi"
+          ],
+          "score": 0.0342,
+          "snippet": "HDFC Retail Collections \u2014 caller benefits summary (agent reference)\n\n- Clear dues by the statement due date to avoid late fees where applicable.\n- Set a promise-to-pay with a concrete date when you need a few more days.\n- Request a hardship-review callback if you face job loss or medical emergency.\n- Update auto-debit mandates after an EMI bounce to reduce repeat failures.\n- After full clearance, request NOC / account-closure documentation through\n  the normal fulfilment process (not same-day guaranteed on the call).\n- Speak only to the verified account holder; third parties cannot receive\n  balance details."
+        },
+        {
+          "chunkId": "faq-faq-collections-004",
+          "docId": "kb-policy-collections",
+          "docTitle": "FAQ \u00b7 collections.22cb7ec6fe89",
+          "docType": "faq",
+          "heading": "Can you waive the late fee?",
+          "matchedTerms": [],
+          "score": 0.0274,
+          "snippet": "Late-fee waivers need supervisor review. I can log your request and arrange a specialist callback \u2014 I cannot approve a waiver on this call."
+        },
+        {
+          "chunkId": "kb-policy-collections-c5",
+          "docId": "kb-policy-collections",
+          "docTitle": "HDFC Retail Collections \u2014 Policy",
+          "docType": "policy",
+          "heading": "Hardship",
+          "matchedTerms": [
+            "payment"
+          ],
+          "score": 0.0224,
+          "snippet": "If the customer discloses financial hardship (job loss, medical emergency),\nacknowledge empathetically, offer a callback for hardship review, and escalate\nwhen distress is severe. Do not pressure for immediate full payment."
+        },
+        {
+          "chunkId": "faq-faq-collections-007",
+          "docId": "kb-policy-collections",
+          "docTitle": "FAQ \u00b7 collections.5801db748849",
+          "docType": "faq",
+          "heading": "When will I get an NOC after clearing my dues?",
+          "matchedTerms": [],
+          "score": 0.02,
+          "snippet": "An NOC or account-closure letter is issued only after the outstanding balance is cleared and internal checks finish. Same-day issuance is not guaranteed."
+        }
+      ],
+      "stageMs": [
+        "ann_ms",
+        "draft_ms",
+        "embed_ms",
+        "rank_ms",
+        "rate_ms",
+        "rerank_ms"
+      ]
+    }
+  }
+}
