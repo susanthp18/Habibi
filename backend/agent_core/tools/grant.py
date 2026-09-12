@@ -253,14 +253,22 @@ class ToolGrant:
         frozen = tuple(frozen_connector_tools) if frozen_connector_tools is not None else None
         renderable = frozenset(channel_tools) if channel_tools is not None else None
         if card is None:
+            # ADR-0002: a cardless mouth is granted nothing that a card could
+            # have granted. On voice the flow-control floor stays -- greet,
+            # disclose, verify, hang up -- because a call that cannot end is
+            # a worse failure than one that cannot act, and none of those
+            # names moves money. This is the one place that says so; the
+            # voice runtime reads it rather than unioning its own copy back.
+            floor_only = frozenset(VOICE_ALWAYS) if channel == VOICE else frozenset()
             return cls(
                 channel=channel,
-                allowed=frozenset(),
+                allowed=floor_only,
                 card=None,
                 packs=(),
                 catalog=names,
                 frozen_connector_tools=frozen,
                 channel_tools=renderable,
+                floor=floor_only,
             )
 
         from agent_core.skills.intersect import effective_tools

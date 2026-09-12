@@ -2994,15 +2994,21 @@ def build_tools(
         "run_skill_script": run_skill_script,
         "end_call": end_call,
     }
-    # ADR-0002: a missing grant is deny-all. ALWAYS_ON is unioned back so a
-    # cardless mouth can still greet, disclose, verify and hang up.
+    # ADR-0002: a missing grant is deny-all. What a cardless voice mouth keeps
+    # (the flow-control floor: greet, disclose, verify, hang up) is decided by
+    # ToolGrant.for_card(None) -- one statement -- and a carded grant already
+    # carries its floor, so nothing is unioned back here.
     #
     # With a fleet this is the *union* over members, and the narrowing to the
     # speaking one happens per node in `flows_dynamic` through
     # `state.may_offer`. Building one dict is what keeps a hop a pointer swap
     # rather than a rebuild of every tool schema mid-call; with no fleet the
     # union is empty and this is the same one-shot filter it always was.
-    keep = set(allowed_tool_names or ()) | ALWAYS_ON
+    if allowed_tool_names is None:
+        from agent_core.tools.grant import ToolGrant
+
+        allowed_tool_names = ToolGrant.for_card(None, (), channel="voice").allowed
+    keep = set(allowed_tool_names)
     for grant in state.specialist_grants.values():
         keep |= set(grant)
     tools = {k: v for k, v in tools.items() if k in keep}

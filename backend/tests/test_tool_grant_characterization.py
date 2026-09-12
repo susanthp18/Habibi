@@ -207,4 +207,9 @@ def test_the_cardless_fallbacks_are_gone() -> None:
     assert tools.offered == ()
 
     for channel in CHANNELS:
-        assert ToolGrant.for_card(None, (), channel=channel).allowed == frozenset()
+        # A cardless mouth is granted nothing a card could grant. On voice that
+        # leaves the flow-control floor (ADR-0002, amended); on text nothing at
+        # all. One statement, in for_card.
+        grant = ToolGrant.for_card(None, (), channel=channel)
+        assert grant.allowed == (VOICE_ALWAYS if channel == VOICE else frozenset())
+        assert not grant.may_execute("create_promise_to_pay")

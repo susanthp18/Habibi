@@ -226,11 +226,6 @@ class MouthTurn:
         how ``identify_customer`` came to be named in every WhatsApp system
         prompt and callable on no WhatsApp turn.
         """
-        if self.card is None:
-            # ADR-0002: a cardless mouth is granted nothing. Empty, not None —
-            # None was read as "do not filter" by every runtime.
-            return ToolState(allowed=frozenset(), offered=())
-
         # One formula: `ToolGrant.for_card` is the grant and the offer. This
         # method used to be a second copy of it that drifted (the ext.* rule
         # landed here and not there).
@@ -239,6 +234,12 @@ class MouthTurn:
         # Text unless told otherwise: connectors have a text renderer only, and
         # the voice mouth is the one caller that says "voice".
         channel = channel or TEXT
+        if self.card is None:
+            # ADR-0002: a cardless mouth is granted nothing a card could have
+            # granted. What that leaves per channel (the voice flow floor,
+            # nothing on text) is the grant's one statement, not restated here.
+            # Empty, not None: None was read as "do not filter" by every runtime.
+            return ToolState(allowed=ToolGrant.for_card(None, (), channel=channel).allowed, offered=())
         grant = ToolGrant.for_card(
             self.card,
             self.packs,

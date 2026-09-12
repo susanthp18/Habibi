@@ -99,13 +99,22 @@ def test_locked_engines_survive_losing_every_pack(bot_id, card_and_packs) -> Non
 
 
 @pytest.mark.parametrize("channel", CHANNELS)
-def test_a_cardless_mouth_is_granted_nothing(channel) -> None:
+def test_a_cardless_mouth_is_granted_nothing_a_card_could_grant(channel) -> None:
+    """On text, nothing. On voice, the flow-control floor and only that: a
+    call that cannot end is a worse failure than one that cannot act. The
+    voice runtime used to union ALWAYS_ON back on its own -- two statements of
+    the same rule -- and this grant said the opposite of what ran."""
     grant = ToolGrant.for_card(None, (), channel=channel)
     assert grant.is_cardless
-    assert grant.allowed == frozenset()
-    assert grant.offer() == ()
     assert not grant.may_execute("create_promise_to_pay")
-    assert not grant.may_execute("end_call")
+    assert not grant.may_execute("apply_goodwill")
+    if channel == "voice":
+        assert grant.allowed == VOICE_ALWAYS
+        assert grant.may_execute("end_call")
+    else:
+        assert grant.allowed == frozenset()
+        assert grant.offer() == ()
+        assert not grant.may_execute("end_call")
 
 
 def test_for_bundle_reads_the_card_off_a_deployment_bundle() -> None:

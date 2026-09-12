@@ -121,8 +121,11 @@ def test_voice_cardless_keeps_the_floor_and_drops_writes() -> None:
     from voice.session import VoiceSession
     from voice.tools import ALWAYS_ON, build_tools
 
-    grant = _cardless_state().allowed
-    assert grant == frozenset()
+    # The floor a cardless voice mouth keeps is the grant's statement, read
+    # through the same MouthTurn the voice runtime uses; build_tools no longer
+    # unions ALWAYS_ON back on its own.
+    grant = resolve_mouth({}).tools(channel="voice").allowed
+    assert grant == ALWAYS_ON
     _state, tools = build_tools(
         VoiceSession(session_id="VS-CARDLESS"),
         bot_id=None,

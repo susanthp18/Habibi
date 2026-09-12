@@ -19,3 +19,5 @@ The old behaviour existed to keep an unmigrated mouth working, and it is why the
 Fail-open becomes structurally unreachable rather than defended by a fix: there is no branch in which an absent card grants a tool. The hand-maintained fallback tool list is deleted along with its only consumer.
 
 An agent created outside the scaffolding path will speak but call nothing, which is a visible failure. That is intended — the alternative is an agent that quietly has more authority than its author granted it.
+
+**Amended 2026-09-12.** On voice the flow-control floor (`grant.VOICE_ALWAYS`: the transitions, `disclose_recording`, `verify_identity`, `capture_call_goal`, `end_call`) stays granted to a cardless mouth, because a call that cannot end is a worse failure than one that cannot act, and none of those names moves money. This is stated once, in `ToolGrant.for_card(None, …)`; the voice runtime and `MouthTurn.tools` read it rather than unioning their own copy back. On text a cardless mouth is still granted nothing.
