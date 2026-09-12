@@ -22,7 +22,9 @@ type Override = (call: WireCall) => unknown;
 
 function templateToRegExp(key: string): RegExp {
   const [, template] = key.split(" ", 2);
-  const source = template.replace(/[.*+?^${}()|[\]\\]/g, (c) => (c === "{" || c === "}" ? c : `\\${c}`));
+  const source = template.replace(/[.*+?^${}()|[\]\\]/g, (c) =>
+    c === "{" || c === "}" ? c : `\\${c}`,
+  );
   return new RegExp("^" + source.replace(/\{[^}]+\}/g, "[^/]+") + "$");
 }
 
@@ -56,7 +58,9 @@ export function installWireFetch(overrides: Record<string, Override | unknown> =
   }));
   const original = globalThis.fetch;
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+    );
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
     const call: WireCall = { method, path: url.pathname, search: url.search, body };
