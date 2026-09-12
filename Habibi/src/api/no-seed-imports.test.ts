@@ -31,7 +31,6 @@ const TYPE_IMPORT = /^[ \t]*import\s+type\b|^[ \t]*import\s*\{[^}]*\btype\s+\w/;
  */
 const FIXTURE_IMPORTERS = [
   "authority.ts",
-  "billing.ts",
   "contact-policy.ts",
   "customers.ts",
   // Held by the Studio stream while this ratchet landed; fixtures only.

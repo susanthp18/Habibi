@@ -1,6 +1,6 @@
 import type { DayPoint, Service, ServiceCategory } from "@/api/types/billing";
 import { inrCompact } from "@/lib/format";
-import { CATEGORY_COLORS, sumRange } from "@/data/billing-seed";
+import { CATEGORY_COLORS, sumRange } from "@/lib/billing";
 import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
 
 export function ServiceDonut({ data, services }: { data: DayPoint[]; services: Service[] }) {

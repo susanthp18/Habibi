@@ -143,5 +143,3 @@ export function billingExportUrl(period: Period, tenantId: string, env: Env): st
   const qs = new URLSearchParams({ period, tenantId, env });
   return `${API_BASE_URL}/billing/export.csv?${qs.toString()}`;
 }
-
-export { changePct, sumRange, usageUnits } from "@/data/billing-seed";

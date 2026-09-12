@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { inrCompact } from "./billing-seed";
+import { inrCompact } from "./format";
 
 const LADDER: Array<[number, string]> = [
   [0, "₹0"],

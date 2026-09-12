@@ -1,15 +1,5 @@
-import type {
-  Env,
-  Period,
-  ServiceCategory,
-  Service,
-  DayPoint,
-  Tenant,
-  Invoice,
-  BudgetRule,
-  Budget,
-  AlertEvent,
-} from "@/api/types/billing";
+import type { DayPoint, ServiceCategory } from "@/api/types/billing";
+
 export const CATEGORY_COLORS: Record<ServiceCategory, string> = {
   LLM: "#357DE8",
   Voice: "#F68909",
@@ -28,8 +18,6 @@ export function changePct(current: number, previous: number): number {
   if (previous === 0) return current === 0 ? 0 : 100;
   return ((current - previous) / previous) * 100;
 }
-
-export { inr, inrCompact } from "@/lib/format";
 
 export function usageUnits(spend: number, unitCost: number): number {
   if (unitCost <= 0) return 0;

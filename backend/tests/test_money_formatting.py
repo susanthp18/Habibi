@@ -211,7 +211,7 @@ def test_the_scoring_explanation_carries_one_money_format():
 
 # ---------------------------------------------------------------------------
 # The compact ladder. This table is mirrored byte-for-byte in
-# Habibi/src/data/billing-seed.test.ts — change one, change both.
+# Habibi/src/lib/format.test.ts — change one, change both.
 # ---------------------------------------------------------------------------
 
 COMPACT_CASES = [

@@ -1,7 +1,7 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { DayPoint, Service, Tenant } from "@/api/types/billing";
 import { inrCompact } from "@/lib/format";
-import { changePct, sumRange, usageUnits } from "@/data/billing-seed";
+import { changePct, sumRange, usageUnits } from "@/lib/billing";
 import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
 import { cn } from "@/lib/utils";
 
