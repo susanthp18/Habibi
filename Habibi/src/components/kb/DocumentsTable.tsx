@@ -45,7 +45,7 @@ export function DocumentsTable({
   onToggle: (id: string, enabled: boolean) => void;
   onReindex: (id: string) => void;
   onDelete?: (id: string) => void;
-  reindexing: Set<string>;
+  reindexing: ReadonlySet<string>;
   deletingId?: string | null;
   loading?: boolean;
   isError?: boolean;

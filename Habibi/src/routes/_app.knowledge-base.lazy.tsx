@@ -1,63 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { SelectField } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { KbStatsStrip, type KbTab } from "@/components/kb/KbStatsStrip";
-import { KbSnapshotsStrip } from "@/components/kb/KbSnapshotsStrip";
-import { KbToolbar } from "@/components/kb/KbToolbar";
-import { DocumentsTable } from "@/components/kb/DocumentsTable";
-import { Lozenge } from "@/components/ui/lozenge";
-import { DocumentInspector } from "@/components/kb/DocumentInspector";
-import { ChunkModal } from "@/components/kb/ChunkModal";
-import { FaqTable } from "@/components/kb/FaqTable";
-import { FaqEditorSheet } from "@/components/kb/FaqEditorSheet";
-import { AnalyticsGapsTable } from "@/components/kb/AnalyticsGapsTable";
-import { TestRetrievalPanel } from "@/components/kb/TestRetrievalPanel";
-import { UploadWizard } from "@/components/kb/UploadWizard";
-import {
-  createKbFaq,
-  deleteKbDocument,
-  deleteKbFaq,
-  ingestSourceDb,
-  linkKbGap,
-  patchKbDocument,
-  patchKbFaq,
-  pollKbIndexJob,
-  pollKbIndexJobs,
-  purgeKbDocuments,
-  reindexAllKbDocuments,
-  reindexKbDocument,
-  uploadKbDocument,
-  uploadKbDocumentVersion,
-  useKbChunks,
-  useKbDocuments,
-  useKbFaqs,
-  useKbGaps,
-  useKbSnapshots,
-  useKbStats,
-  type FaqPair,
-  type KbChunk,
-  type KbGap,
-  type KbPurgeScope,
-  type KbUploadInput,
-} from "@/api/kb";
-import type { KbDocumentMetaPatch } from "@/components/kb/DocumentInspector";
 import { Database, MoreHorizontal, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Lozenge } from "@/components/ui/lozenge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,93 +13,86 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { KbDocType } from "@/api/types/kb";
+import { KbStatsStrip, type KbTab } from "@/components/kb/KbStatsStrip";
+import { KbSnapshotsStrip } from "@/components/kb/KbSnapshotsStrip";
+import { KbToolbar } from "@/components/kb/KbToolbar";
+import { DocumentsTable } from "@/components/kb/DocumentsTable";
+import { DocumentInspector } from "@/components/kb/DocumentInspector";
+import { ChunkModal } from "@/components/kb/ChunkModal";
+import { FaqTable } from "@/components/kb/FaqTable";
+import { FaqEditorSheet } from "@/components/kb/FaqEditorSheet";
+import { AnalyticsGapsTable } from "@/components/kb/AnalyticsGapsTable";
+import { TestRetrievalPanel } from "@/components/kb/TestRetrievalPanel";
+import { UploadWizard } from "@/components/kb/UploadWizard";
+import { KbConfirmDialogs } from "@/components/kb/KbConfirmDialogs";
+import { INITIAL_KB_STATE, kbReducer } from "@/components/kb/kbState";
+import { useKbActions } from "@/components/kb/useKbActions";
+import {
+  useKbChunks,
+  useKbDocuments,
+  useKbFaqs,
+  useKbGaps,
+  useKbSnapshots,
+  useKbStats,
+} from "@/api/kb";
+import type { KnowledgeBaseSearch } from "./_app.knowledge-base";
 
 export const Route = createLazyFileRoute("/_app/knowledge-base")({
-  component: KnowledgeBasePage,
+  component: KnowledgeBaseRoute,
 });
 
-function KnowledgeBasePage() {
-  const qc = useQueryClient();
+function KnowledgeBaseRoute() {
+  return <KnowledgeBasePage search={Route.useSearch()} />;
+}
+
+export function KnowledgeBasePage({ search: params }: { search: KnowledgeBaseSearch }) {
+  const { gapId: searchGapId, q: searchQ, tab: searchTab } = params;
   const navigate = useNavigate({ from: "/knowledge-base" });
-  const { gapId: searchGapId, q: searchQ, tab: searchTab } = Route.useSearch();
-  const {
-    data: docs = [],
-    isLoading: docsLoading,
-    isError: docsError,
-    error: docsErr,
-  } = useKbDocuments();
-  const {
-    data: faqs = [],
-    isLoading: faqsLoading,
-    isError: faqsError,
-    error: faqsErr,
-  } = useKbFaqs();
-  const {
-    data: gaps = [],
-    isLoading: gapsLoading,
-    isError: gapsError,
-    error: gapsErr,
-  } = useKbGaps();
+  const docsQuery = useKbDocuments();
+  const faqsQuery = useKbFaqs();
+  const gapsQuery = useKbGaps();
   const { data: stats } = useKbStats();
   const { data: snapshots = [] } = useKbSnapshots();
-  const [reindexing, setReindexing] = useState<Set<string>>(new Set());
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [openChunk, setOpenChunk] = useState<KbChunk | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
-  const [editingFaq, setEditingFaq] = useState<FaqPair | null>(null);
-  const [faqOpen, setFaqOpen] = useState(false);
-  const [pendingGapId, setPendingGapId] = useState<string | null>(null);
-  const [uploadGapId, setUploadGapId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [savingMeta, setSavingMeta] = useState(false);
-  const [reindexAllBusy, setReindexAllBusy] = useState(false);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [purgeBusy, setPurgeBusy] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
-  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
-  const [purgeScope, setPurgeScope] = useState<KbPurgeScope>("uploads");
-  const [purgeTyped, setPurgeTyped] = useState("");
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [pendingDeleteFaqId, setPendingDeleteFaqId] = useState<string | null>(null);
-  const [typeFilter, setTypeFilter] = useState<"all" | KbDocType>("all");
-  const [enabledFilter, setEnabledFilter] = useState<"all" | "enabled" | "disabled">("all");
-  const [showResolved, setShowResolved] = useState(false);
+  const docs = useMemo(() => docsQuery.data ?? [], [docsQuery.data]);
+  const faqs = useMemo(() => faqsQuery.data ?? [], [faqsQuery.data]);
+  const gaps = useMemo(() => gapsQuery.data ?? [], [gapsQuery.data]);
+
+  const [state, dispatch] = useReducer(kbReducer, INITIAL_KB_STATE);
+  const { selectedDocId, filters, busy } = state;
+  const { search } = filters;
   const versionInputRef = useRef<HTMLInputElement>(null);
   const deepLinkApplied = useRef(false);
 
   const tab: KbTab = searchTab ?? (searchGapId ? "gaps" : "documents");
   const setTab = (next: KbTab) => {
-    void navigate({
-      search: (prev) => ({ ...prev, tab: next }),
-      replace: true,
-    });
+    void navigate({ search: (prev) => ({ ...prev, tab: next }), replace: true });
   };
+
+  const actions = useKbActions({ state, dispatch, docs, setTab });
+  const { globalBusy } = actions;
 
   const { data: selectedChunks = [] } = useKbChunks(selectedDocId);
 
+  // A selection the list no longer holds is no selection.
   useEffect(() => {
-    if (!selectedDocId) return;
-    if (docs.length === 0 || !docs.some((d) => d.id === selectedDocId)) {
-      setSelectedDocId(null);
+    if (selectedDocId && !docs.some((d) => d.id === selectedDocId)) {
+      dispatch({ type: "select", id: null });
     }
   }, [docs, selectedDocId]);
 
+  // The deep link from Bot Analytics: the question it asked, once.
   useEffect(() => {
-    if (deepLinkApplied.current) return;
-    if (!searchGapId && !searchQ) return;
+    if (deepLinkApplied.current || (!searchGapId && !searchQ)) return;
     deepLinkApplied.current = true;
-    if (searchGapId) setPendingGapId(searchGapId);
-    if (searchQ) setSearch(searchQ);
+    if (searchQ) dispatch({ type: "filters", patch: { search: searchQ } });
   }, [searchGapId, searchQ]);
 
   const filteredDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return docs.filter((d) => {
-      if (typeFilter !== "all" && d.type !== typeFilter) return false;
-      if (enabledFilter === "enabled" && !d.enabled) return false;
-      if (enabledFilter === "disabled" && d.enabled) return false;
+      if (filters.type !== "all" && d.type !== filters.type) return false;
+      if (filters.enabled === "enabled" && !d.enabled) return false;
+      if (filters.enabled === "disabled" && d.enabled) return false;
       if (!q) return true;
       return (
         d.title.toLowerCase().includes(q) ||
@@ -161,7 +101,7 @@ function KnowledgeBasePage() {
         d.id.toLowerCase().includes(q)
       );
     });
-  }, [docs, search, typeFilter, enabledFilter]);
+  }, [docs, search, filters.type, filters.enabled]);
 
   const selectedHiddenByFilter = Boolean(
     selectedDocId &&
@@ -200,7 +140,6 @@ function KnowledgeBasePage() {
 
   const selectedDoc = docs.find((d) => d.id === selectedDocId) ?? null;
   const openGaps = gaps.filter((g) => !g.resolved).length;
-  const globalBusy = reindexAllBusy || syncBusy || purgeBusy;
 
   const stripStats = stats ?? {
     docs: docs.length,
@@ -212,328 +151,10 @@ function KnowledgeBasePage() {
     avgScore: 0,
   };
 
-  const invalidateKb = async () => {
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["kb", "documents"] }),
-      qc.invalidateQueries({ queryKey: ["kb", "stats"] }),
-      qc.invalidateQueries({ queryKey: ["kb", "chunks"] }),
-      qc.invalidateQueries({ queryKey: ["kb", "faqs"] }),
-      qc.invalidateQueries({ queryKey: ["kb", "gaps"] }),
-      qc.invalidateQueries({ queryKey: ["kb", "snapshots"] }),
-    ]);
-  };
-
-  const watchJob = async (jobId: string | null | undefined, docId: string, label: string) => {
-    if (!jobId) {
-      await invalidateKb();
-      return;
-    }
-    setReindexing((s) => new Set(s).add(docId));
-    try {
-      const job = await pollKbIndexJob(jobId);
-      if (job.status === "succeeded") toast.success(label);
-      else toast.error(job.error || `${label} failed`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setReindexing((s) => {
-        const next = new Set(s);
-        next.delete(docId);
-        return next;
-      });
-      await invalidateKb();
-    }
-  };
-
-  const toggleDoc = async (id: string, enabled: boolean) => {
-    try {
-      const result = await patchKbDocument(id, { enabled });
-      toast.success(
-        `${enabled ? "Enabled" : "Disabled"} — bot will ${enabled ? "start" : "stop"} using this source.`,
-      );
-      await invalidateKb();
-      if (enabled && result.jobId) {
-        void watchJob(result.jobId, id, "Re-indexed after enable");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const saveDocMeta = async (id: string, patch: KbDocumentMetaPatch) => {
-    const doc = docs.find((d) => d.id === id);
-    if (!doc) return;
-    const chunkChanged = patch.chunkSize !== doc.chunkSize || patch.overlap !== doc.overlap;
-    setSavingMeta(true);
-    try {
-      await patchKbDocument(id, {
-        title: patch.title,
-        tags: patch.tags,
-        chunkSize: patch.chunkSize,
-        overlap: patch.overlap,
-      });
-      toast.success("Document metadata saved");
-      await invalidateKb();
-      if (chunkChanged && doc.enabled) {
-        const result = await reindexKbDocument(id);
-        toast.info("Chunk settings changed — re-index queued…");
-        void watchJob(result.jobId, id, "Re-indexed with new chunk settings");
-      } else if (chunkChanged) {
-        toast.info("Chunk settings saved — enable & re-index to apply to retrieval.");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-      throw err;
-    } finally {
-      setSavingMeta(false);
-    }
-  };
-
-  const reindexDoc = async (id: string) => {
-    try {
-      const result = await reindexKbDocument(id);
-      toast.info("Re-index queued…");
-      void watchJob(result.jobId, id, "Re-indexed");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const removeDoc = async (id: string) => {
-    setDeletingId(id);
-    try {
-      const result = await deleteKbDocument(id);
-      toast.success(
-        `Deleted document${result.faqsDeleted ? ` (+${result.faqsDeleted} FAQs)` : ""}`,
-      );
-      if (selectedDocId === id) setSelectedDocId(null);
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-      throw err;
-    } finally {
-      setDeletingId(null);
-      setPendingDeleteId(null);
-    }
-  };
-
-  const reindexAll = async () => {
-    if (globalBusy) return;
-    setReindexAllBusy(true);
-    try {
-      const result = await reindexAllKbDocuments();
-      toast.info(`Full re-index queued for ${result.count} enabled document(s)…`);
-      const ids = new Set(docs.filter((d) => d.enabled).map((d) => d.id));
-      setReindexing(ids);
-
-      const settled = result.jobIds.length
-        ? await pollKbIndexJobs(result.jobIds, { timeoutMs: 300_000 })
-        : { succeeded: 0, failed: 0, timedOut: 0, jobs: [] };
-
-      setReindexing(new Set());
-      await invalidateKb();
-
-      if (result.snapshot) {
-        toast.success(
-          `Snapshot saved: ${result.snapshot.label} (${result.snapshot.documentCount} docs · ${result.snapshot.faqCount} FAQs)`,
-        );
-      }
-
-      if (!result.jobIds.length) {
-        toast.success("No enabled documents to re-index");
-        return;
-      }
-
-      if (settled.failed === 0 && settled.timedOut === 0) {
-        toast.success(
-          `Full re-index complete — ${settled.succeeded}/${result.jobIds.length} succeeded`,
-        );
-      } else {
-        toast.error(
-          `Re-index finished with issues — ${settled.succeeded} ok, ${settled.failed} failed, ${settled.timedOut} timed out`,
-        );
-      }
-    } catch (err) {
-      setReindexing(new Set());
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setReindexAllBusy(false);
-    }
-  };
-
-  const runSyncFromSourceDb = async () => {
-    setSyncBusy(true);
-    setSyncConfirmOpen(false);
-    const toastId = toast.loading(
-      "Syncing HDFC corpus from source_db… this may take a few minutes",
-    );
-    try {
-      const result = await ingestSourceDb();
-      toast.success(
-        `Synced ${result.products.length} products — ${result.docs} docs, ${result.chunks} chunks, ${result.faqs} FAQs`,
-        { id: toastId },
-      );
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), { id: toastId });
-    } finally {
-      setSyncBusy(false);
-    }
-  };
-
-  const runPurge = async () => {
-    if (purgeTyped.trim().toUpperCase() !== "DELETE") return;
-    setPurgeBusy(true);
-    setPurgeConfirmOpen(false);
-    try {
-      const result = await purgeKbDocuments(purgeScope);
-      toast.success(
-        `Purged ${result.documentsDeleted} document(s)` +
-          (result.faqsDeleted ? `, ${result.faqsDeleted} FAQ(s)` : ""),
-      );
-      setSelectedDocId(null);
-      setPurgeTyped("");
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPurgeBusy(false);
-    }
-  };
-
-  const addDoc = async (input: KbUploadInput) => {
-    try {
-      const result = await uploadKbDocument(input);
-      setSelectedDocId(result.document.id);
-      setTab("documents");
-      toast.success(
-        input.indexNow
-          ? `Upload queued for indexing: "${result.document.title}"`
-          : `Saved draft "${result.document.title}"`,
-      );
-      if (uploadGapId) {
-        try {
-          await linkKbGap(uploadGapId, { kbDocumentId: result.document.id });
-          toast.success("Gap linked to uploaded document");
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : String(err));
-        } finally {
-          setUploadGapId(null);
-        }
-      }
-      await invalidateKb();
-      if (result.jobId) {
-        void watchJob(result.jobId, result.document.id, `Indexed "${result.document.title}"`);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-  };
-
-  const onNewVersion = () => {
-    versionInputRef.current?.click();
-  };
-
-  const onVersionFile = async (file: File | null) => {
-    if (!file || !selectedDocId) return;
-    try {
-      const result = await uploadKbDocumentVersion(selectedDocId, file);
-      toast.info(`New version ${result.document.version} queued…`);
-      void watchJob(result.jobId, selectedDocId, `Indexed ${result.document.version}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const saveFaq = async (draft: Omit<FaqPair, "id" | "updatedAt"> & { id?: string }) => {
-    try {
-      if (draft.id) {
-        await patchKbFaq(draft.id, {
-          question: draft.question,
-          answer: draft.answer,
-          intent: draft.intent,
-          enabled: draft.enabled,
-          linkedDocId: draft.linkedDocId ?? null,
-        });
-        toast.success("FAQ saved");
-      } else {
-        await createKbFaq({
-          question: draft.question,
-          answer: draft.answer,
-          intent: draft.intent,
-          enabled: draft.enabled,
-          linkedDocId: draft.linkedDocId,
-          gapId: pendingGapId ?? undefined,
-        });
-        toast.success(pendingGapId ? "FAQ created and gap linked" : "FAQ created");
-      }
-      setFaqOpen(false);
-      setEditingFaq(null);
-      setPendingGapId(null);
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-  };
-
-  const removeFaq = async (id: string) => {
-    try {
-      await deleteKbFaq(id);
-      toast.success("FAQ deleted");
-      setFaqOpen(false);
-      setEditingFaq(null);
-      setPendingGapId(null);
-      setPendingDeleteFaqId(null);
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-      throw err;
-    }
-  };
-
-  const toggleFaq = async (id: string, enabled: boolean) => {
-    try {
-      await patchKbFaq(id, { enabled });
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const openCreateFaqFromGap = (gap: KbGap) => {
-    setPendingGapId(gap.id);
-    setEditingFaq({
-      id: "",
-      question: gap.text,
-      answer: "",
-      intent: gap.topIntent || "other",
-      enabled: true,
-      updatedAt: new Date().toISOString(),
-    });
-    setFaqOpen(true);
-    setTab("faqs");
-  };
-
-  const attachDocToGap = async (gapId: string, documentId: string) => {
-    try {
-      await linkKbGap(gapId, { kbDocumentId: documentId });
-      toast.success("Document linked to gap");
-      await invalidateKb();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const pendingDeleteDoc = pendingDeleteId ? docs.find((d) => d.id === pendingDeleteId) : null;
-  const pendingDeleteFaq = pendingDeleteFaqId
-    ? faqs.find((f) => f.id === pendingDeleteFaqId)
-    : null;
-  const visibleGaps = showResolved ? filteredGaps : filteredGaps.filter((g) => !g.resolved);
+  const visibleGaps = filters.showResolved ? filteredGaps : filteredGaps.filter((g) => !g.resolved);
   const searchActive =
     Boolean(search.trim()) ||
-    (tab === "documents" && (typeFilter !== "all" || enabledFilter !== "all"));
+    (tab === "documents" && (filters.type !== "all" || filters.enabled !== "all"));
   const toolbarVisible =
     tab === "documents"
       ? filteredDocs.length
@@ -542,10 +163,7 @@ function KnowledgeBasePage() {
         : visibleGaps.length;
   const toolbarTotal =
     tab === "documents" ? docs.length : tab === "faqs" ? faqs.length : gaps.length;
-  const docTypeOptions = useMemo(() => {
-    const types = new Set(docs.map((d) => d.type));
-    return Array.from(types).sort();
-  }, [docs]);
+  const docTypeOptions = useMemo(() => Array.from(new Set(docs.map((d) => d.type))).sort(), [docs]);
 
   return (
     <>
@@ -559,19 +177,15 @@ function KnowledgeBasePage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-100">
-              {(syncBusy || reindexAllBusy) && (
-                <Lozenge tone="selected">{syncBusy ? "Syncing corpus…" : "Re-indexing…"}</Lozenge>
+              {(busy.sync || busy.reindexAll) && (
+                <Lozenge tone="selected">{busy.sync ? "Syncing corpus…" : "Re-indexing…"}</Lozenge>
               )}
               {tab === "faqs" && (
                 <Button
                   variant="primary"
                   size="sm"
                   disabled={globalBusy}
-                  onClick={() => {
-                    setPendingGapId(null);
-                    setEditingFaq(null);
-                    setFaqOpen(true);
-                  }}
+                  onClick={() => dispatch({ type: "faq", open: true })}
                 >
                   <Plus className="mr-050 h-3.5 w-3.5" /> Add FAQ
                 </Button>
@@ -582,8 +196,7 @@ function KnowledgeBasePage() {
                   size="sm"
                   disabled={globalBusy}
                   onClick={() => {
-                    setUploadGapId(null);
-                    setShowUpload(true);
+                    dispatch({ type: "upload", open: true });
                     setTab("documents");
                   }}
                 >
@@ -603,11 +216,14 @@ function KnowledgeBasePage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>Corpus</DropdownMenuLabel>
-                  <DropdownMenuItem disabled={globalBusy} onClick={() => setSyncConfirmOpen(true)}>
+                  <DropdownMenuItem
+                    disabled={globalBusy}
+                    onClick={() => dispatch({ type: "confirm", confirm: { kind: "sync" } })}
+                  >
                     <Database className="mr-100 h-3.5 w-3.5" />
                     Sync from source_db
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={globalBusy} onClick={() => void reindexAll()}>
+                  <DropdownMenuItem disabled={globalBusy} onClick={() => void actions.reindexAll()}>
                     <RefreshCw className="mr-100 h-3.5 w-3.5" />
                     Re-index all
                   </DropdownMenuItem>
@@ -615,11 +231,12 @@ function KnowledgeBasePage() {
                   <DropdownMenuLabel>Danger zone</DropdownMenuLabel>
                   <DropdownMenuItem
                     className="text-text-danger-bolder focus:text-text-danger-bolder"
-                    onClick={() => {
-                      setPurgeScope("uploads");
-                      setPurgeTyped("");
-                      setPurgeConfirmOpen(true);
-                    }}
+                    onClick={() =>
+                      dispatch({
+                        type: "confirm",
+                        confirm: { kind: "purge", scope: "uploads", typed: "" },
+                      })
+                    }
                   >
                     <Trash2 className="mr-100 h-3.5 w-3.5" />
                     Delete documents…
@@ -642,19 +259,19 @@ function KnowledgeBasePage() {
             <TabsTrigger value="documents">
               Documents
               <span className="ml-075 tabular text-text-subtlest">
-                {docsLoading ? "…" : docs.length}
+                {docsQuery.isLoading ? "…" : docs.length}
               </span>
             </TabsTrigger>
             <TabsTrigger value="faqs">
               FAQs
               <span className="ml-075 tabular text-text-subtlest">
-                {faqsLoading ? "…" : faqs.length}
+                {faqsQuery.isLoading ? "…" : faqs.length}
               </span>
             </TabsTrigger>
             <TabsTrigger value="gaps">
               Gaps
               <span className="ml-075 tabular text-text-subtlest">
-                {gapsLoading ? "…" : openGaps}
+                {gapsQuery.isLoading ? "…" : openGaps}
               </span>
             </TabsTrigger>
             <TabsTrigger value="test">Test retrieval</TabsTrigger>
@@ -663,23 +280,18 @@ function KnowledgeBasePage() {
           <KbToolbar
             tab={tab}
             search={search}
-            onSearch={setSearch}
+            onSearch={(v) => dispatch({ type: "filters", patch: { search: v } })}
             visibleCount={toolbarVisible}
             totalCount={toolbarTotal}
             searchActive={searchActive}
-            onClear={() => {
-              setSearch("");
-              setTypeFilter("all");
-              setEnabledFilter("all");
-            }}
+            onClear={() =>
+              dispatch({ type: "filters", patch: { search: "", type: "all", enabled: "all" } })
+            }
             docTypeOptions={docTypeOptions}
-            filters={{ type: typeFilter, enabled: enabledFilter }}
-            onFilters={(next) => {
-              setTypeFilter(next.type);
-              setEnabledFilter(next.enabled);
-            }}
-            showResolved={showResolved}
-            onShowResolved={setShowResolved}
+            filters={{ type: filters.type, enabled: filters.enabled }}
+            onFilters={(next) => dispatch({ type: "filters", patch: next })}
+            showResolved={filters.showResolved}
+            onShowResolved={(v) => dispatch({ type: "filters", patch: { showResolved: v } })}
           />
 
           <TabsContent
@@ -691,15 +303,17 @@ function KnowledgeBasePage() {
                 <DocumentsTable
                   docs={filteredDocs}
                   selectedId={selectedDocId}
-                  onSelect={(id) => setSelectedDocId(id)}
-                  onToggle={(id, enabled) => void toggleDoc(id, enabled)}
-                  onReindex={(id) => void reindexDoc(id)}
-                  onDelete={(id) => setPendingDeleteId(id)}
-                  reindexing={reindexing}
-                  deletingId={deletingId}
-                  loading={docsLoading}
-                  isError={docsError}
-                  error={docsErr}
+                  onSelect={(id) => dispatch({ type: "select", id })}
+                  onToggle={(id, enabled) => void actions.toggleDoc(id, enabled)}
+                  onReindex={(id) => void actions.reindexDoc(id)}
+                  onDelete={(id) =>
+                    dispatch({ type: "confirm", confirm: { kind: "deleteDoc", id } })
+                  }
+                  reindexing={busy.reindexing}
+                  deletingId={busy.deletingId}
+                  loading={docsQuery.isLoading}
+                  isError={docsQuery.isError}
+                  error={docsQuery.error}
                   filteredOutSelected={selectedHiddenByFilter}
                   emptyFromFilter={searchActive && filteredDocs.length === 0 && docs.length > 0}
                 />
@@ -709,16 +323,16 @@ function KnowledgeBasePage() {
                   <DocumentInspector
                     doc={selectedDoc}
                     chunks={selectedChunks}
-                    onClose={() => setSelectedDocId(null)}
-                    onReindex={() => void reindexDoc(selectedDoc.id)}
-                    onToggle={() => void toggleDoc(selectedDoc.id, !selectedDoc.enabled)}
-                    onNewVersion={onNewVersion}
-                    onDelete={() => removeDoc(selectedDoc.id)}
-                    onOpenChunk={setOpenChunk}
-                    onSaveMeta={(patch) => saveDocMeta(selectedDoc.id, patch)}
-                    reindexing={reindexing.has(selectedDoc.id)}
-                    savingMeta={savingMeta}
-                    deleting={deletingId === selectedDoc.id}
+                    onClose={() => dispatch({ type: "select", id: null })}
+                    onReindex={() => void actions.reindexDoc(selectedDoc.id)}
+                    onToggle={() => void actions.toggleDoc(selectedDoc.id, !selectedDoc.enabled)}
+                    onNewVersion={() => versionInputRef.current?.click()}
+                    onDelete={() => actions.removeDoc(selectedDoc.id)}
+                    onOpenChunk={(chunk) => dispatch({ type: "openChunk", chunk })}
+                    onSaveMeta={(patch) => actions.saveDocMeta(selectedDoc.id, patch)}
+                    reindexing={busy.reindexing.has(selectedDoc.id)}
+                    savingMeta={busy.savingMeta}
+                    deleting={busy.deletingId === selectedDoc.id}
                   />
                 </div>
               )}
@@ -728,17 +342,13 @@ function KnowledgeBasePage() {
           <TabsContent value="faqs" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
             <FaqTable
               faqs={filteredFaqs}
-              onSelect={(f) => {
-                setPendingGapId(null);
-                setEditingFaq(f);
-                setFaqOpen(true);
-              }}
-              onToggle={(id, enabled) => void toggleFaq(id, enabled)}
-              onDelete={(id) => setPendingDeleteFaqId(id)}
-              selectedId={editingFaq?.id || null}
-              loading={faqsLoading}
-              isError={faqsError}
-              error={faqsErr}
+              onSelect={(f) => dispatch({ type: "faq", open: true, editing: f })}
+              onToggle={(id, enabled) => void actions.toggleFaq(id, enabled)}
+              onDelete={(id) => dispatch({ type: "confirm", confirm: { kind: "deleteFaq", id } })}
+              selectedId={state.faq.editing?.id || null}
+              loading={faqsQuery.isLoading}
+              isError={faqsQuery.isError}
+              error={faqsQuery.error}
               emptyFromFilter={
                 Boolean(search.trim()) && filteredFaqs.length === 0 && faqs.length > 0
               }
@@ -750,15 +360,14 @@ function KnowledgeBasePage() {
               gaps={filteredGaps}
               documents={docs}
               faqs={faqs}
-              showResolved={showResolved}
-              loading={gapsLoading}
-              isError={gapsError}
-              error={gapsErr}
-              onCreateFaq={openCreateFaqFromGap}
-              onAttachDoc={attachDocToGap}
+              showResolved={filters.showResolved}
+              loading={gapsQuery.isLoading}
+              isError={gapsQuery.isError}
+              error={gapsQuery.error}
+              onCreateFaq={actions.openCreateFaqFromGap}
+              onAttachDoc={actions.attachDocToGap}
               onUploadForGap={(gap) => {
-                setUploadGapId(gap.id);
-                setShowUpload(true);
+                dispatch({ type: "upload", open: true, gapId: gap.id });
                 setTab("documents");
                 toast.info("Upload a document — it will be linked to this gap.");
               }}
@@ -779,165 +388,37 @@ function KnowledgeBasePage() {
         onChange={(e) => {
           const file = e.target.files?.[0] ?? null;
           e.target.value = "";
-          void onVersionFile(file);
+          void actions.onVersionFile(file);
         }}
       />
 
-      <ChunkModal chunk={openChunk} onClose={() => setOpenChunk(null)} />
+      <ChunkModal
+        chunk={state.openChunk}
+        onClose={() => dispatch({ type: "openChunk", chunk: null })}
+      />
       <FaqEditorSheet
-        open={faqOpen}
-        faq={editingFaq}
+        open={state.faq.open}
+        faq={state.faq.editing}
         documents={docs}
-        onClose={() => {
-          setFaqOpen(false);
-          setEditingFaq(null);
-          setPendingGapId(null);
-        }}
-        onSave={saveFaq}
-        onDelete={removeFaq}
+        onClose={() => dispatch({ type: "faq", open: false })}
+        onSave={actions.saveFaq}
+        onDelete={actions.removeFaq}
       />
       <UploadWizard
-        open={showUpload}
-        onClose={() => {
-          setShowUpload(false);
-          setUploadGapId(null);
-        }}
-        onCreate={addDoc}
+        open={state.upload.open}
+        onClose={() => dispatch({ type: "upload", open: false })}
+        onCreate={actions.addDoc}
       />
-
-      <AlertDialog open={syncConfirmOpen} onOpenChange={setSyncConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sync from source_db?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Re-reads policy, benefits and FAQ files from disk, re-embeds changed content, and
-              replaces product FAQ pairs. Uploaded-only documents are left untouched. Azure
-              embedding calls may take several minutes.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runSyncFromSourceDb()}>
-              Sync corpus
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={purgeConfirmOpen}
-        onOpenChange={(open) => {
-          setPurgeConfirmOpen(open);
-          if (!open) setPurgeTyped("");
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete documents</AlertDialogTitle>
-            <AlertDialogDescription>
-              Hard-deletes matching documents and related chunks. Type DELETE to confirm.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-150">
-            <div>
-              <Label className="text-body-small text-text-subtlest">Scope</Label>
-              <SelectField
-                aria-label="Scope"
-                className="mt-050"
-                value={purgeScope}
-                onChange={(v) => setPurgeScope(v as KbPurgeScope)}
-                options={[
-                  { value: "uploads", label: "Uploaded docs only (safe default)" },
-                  { value: "corpus", label: "Corpus docs from source_db" },
-                  { value: "all", label: "Entire knowledge base" },
-                ]}
-              />
-            </div>
-            <div>
-              <Label className="text-body-small text-text-subtlest">Type DELETE</Label>
-              <Input
-                className="mt-050"
-                value={purgeTyped}
-                onChange={(e) => setPurgeTyped(e.target.value)}
-                placeholder="DELETE"
-                autoComplete="off"
-              />
-            </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
-              disabled={purgeTyped.trim().toUpperCase() !== "DELETE" || purgeBusy}
-              onClick={(e) => {
-                e.preventDefault();
-                void runPurge();
-              }}
-            >
-              {purgeBusy ? "Deleting…" : "Delete permanently"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={Boolean(pendingDeleteId)}
-        onOpenChange={(open) => {
-          if (!open) setPendingDeleteId(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{pendingDeleteDoc?.title ?? "document"}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Permanently removes this document and its chunks. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
-              disabled={!pendingDeleteId || deletingId === pendingDeleteId}
-              onClick={(e) => {
-                e.preventDefault();
-                if (pendingDeleteId) void removeDoc(pendingDeleteId);
-              }}
-            >
-              Delete permanently
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={Boolean(pendingDeleteFaqId)}
-        onOpenChange={(open) => {
-          if (!open) setPendingDeleteFaqId(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{pendingDeleteFaq?.question ?? "FAQ"}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Permanently removes this FAQ pair. Linked analytics gaps keep their question but lose
-              the FAQ link.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
-              disabled={!pendingDeleteFaqId}
-              onClick={(e) => {
-                e.preventDefault();
-                if (pendingDeleteFaqId) void removeFaq(pendingDeleteFaqId);
-              }}
-            >
-              Delete permanently
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <KbConfirmDialogs
+        state={state}
+        dispatch={dispatch}
+        docs={docs}
+        faqs={faqs}
+        onSync={() => void actions.runSyncFromSourceDb()}
+        onPurge={() => void actions.runPurge()}
+        onDeleteDoc={(id) => void actions.removeDoc(id)}
+        onDeleteFaq={(id) => void actions.removeFaq(id)}
+      />
     </>
   );
 }
