@@ -328,6 +328,8 @@ class McpStatusResponse(BaseModel):
 
 class GatewayProfileResponse(BaseModel):
     capInr: float
+    #: Today's spend through this profile, tenant-wide -- what the cap is measured against.
+    spentTodayInr: float = 0.0
     model: str | None = None
     envModel: str | None = None
     canaryModel: str | None = None

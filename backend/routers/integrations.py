@@ -220,7 +220,7 @@ def mcp_status_api():
 def gateway_status_api():
     from agent_core.platform_flags import llm_gateway_enabled
     from llm_gateway import canary as gw_canary
-    from llm_gateway.client import PROFILES, base_url, cap_inr
+    from llm_gateway.client import PROFILES, base_url, cap_inr, spent_today_inr
 
     profiles = {}
     for p in PROFILES:
@@ -232,6 +232,7 @@ def gateway_status_api():
             override = None
         profiles[p] = {
             "capInr": cap_inr(p),
+            "spentTodayInr": spent_today_inr(p),
             "model": override or env_model,
             "envModel": env_model,
             "canaryModel": override,

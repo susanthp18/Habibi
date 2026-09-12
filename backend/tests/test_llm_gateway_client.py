@@ -65,3 +65,32 @@ def test_the_gateway_has_a_breaker(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="CircuitOpenError"):
         _chat()
     assert calls == [], "an open circuit posts nothing"
+
+
+def test_the_spend_cap_is_one_number_across_processes(db_tx, monkeypatch) -> None:
+    """The cap was a dict in each process -- reset on restart, never shared --
+    so the api and every worker each had the whole cap. It reads the same
+    usage_events rows the meter writes, so a turn metered anywhere counts
+    everywhere; and a ledger that cannot be read is a cap that is spent."""
+    from sqlalchemy import text
+
+    import db
+    from llm_gateway import client as gw
+
+    monkeypatch.setenv("LLM_GATEWAY_CAP_TEXT_INR", "5")
+    assert gw._over_cap("text") is False
+    db_tx.execute(
+        text(
+            "INSERT INTO usage_events (id, tenant_id, environment, service_id, units, cost_inr, source_ref) "
+            "SELECT 'UE-CAP-PROBE', :t, 'production', id, 1, 6.5, 'llm_gateway.text' FROM billing_services LIMIT 1"
+        ),
+        {"t": db.current_tenant()},
+    )
+    assert gw.spent_today_inr("text") >= 6.5
+    assert gw._over_cap("text") is True
+
+    def _boom(_profile):
+        raise RuntimeError("ledger unreachable")
+
+    monkeypatch.setattr(gw, "spent_today_inr", _boom)
+    assert gw._over_cap("text") is True

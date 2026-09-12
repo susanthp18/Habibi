@@ -2227,6 +2227,7 @@ export const McpStatusResponse = z.object({
 }).passthrough();
 export const GatewayProfileResponse = z.object({
   "capInr": z.number(),
+  "spentTodayInr": z.number().optional(),
   "model": z.string().nullable().optional(),
   "envModel": z.string().nullable().optional(),
   "canaryModel": z.string().nullable().optional(),

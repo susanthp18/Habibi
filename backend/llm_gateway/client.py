@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
 #: runtime talks to Azure directly (voice/llm_pool) and never enters here.
 PROFILES = ("text", "analysis")
 
-_spend_inr: dict[str, float] = {p: 0.0 for p in PROFILES}
-
 
 def cap_inr(profile: str) -> float:
     raw = os.getenv(f"LLM_GATEWAY_CAP_{profile.upper()}_INR") or os.getenv("LLM_GATEWAY_CAP_INR") or "0"
@@ -33,9 +31,44 @@ def cap_inr(profile: str) -> float:
         return 0.0
 
 
+def spent_today_inr(profile: str) -> float:
+    """What the tenant has spent through this profile since local midnight.
+
+    Read from `usage_events` -- the same rows `usage_meter.record_chat_usage`
+    writes for every gateway turn -- so the cap is one number across the api,
+    the workers and every replica. It used to be a dict in each process,
+    reset on restart and never shared, so N processes had N caps.
+    """
+    import db
+    from sqlalchemy import text
+
+    with db.engine.connect() as conn:
+        value = conn.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(cost_inr), 0)
+                FROM usage_events
+                WHERE tenant_id = :tenant
+                  AND source_ref = :ref
+                  AND occurred_at >= date_trunc('day', now())
+                """
+            ),
+            {"tenant": db.current_tenant(), "ref": f"llm_gateway.{profile}"},
+        ).scalar()
+    return float(value or 0)
+
+
 def _over_cap(profile: str) -> bool:
     cap = cap_inr(profile)
-    return cap > 0 and _spend_inr.get(profile, 0.0) >= cap
+    if cap <= 0:
+        return False
+    try:
+        return spent_today_inr(profile) >= cap
+    except Exception:
+        # A cap that cannot be read is a cap that is spent: the caller must not
+        # fall through to uncapped spend because the ledger was unreachable.
+        logger.exception("gateway spend cap unreadable for profile=%s -- refusing", profile)
+        return True
 
 
 def base_url() -> str:
@@ -203,13 +236,6 @@ def _meter(result: dict[str, Any], *, profile: str) -> None:
             model=str(result.get("model") or profile),
             source_ref=f"llm_gateway.{profile}",
         )
-        # Approximate INR from the same meter internals if present.
-        cost = 0.0
-        try:
-            cost = float(usage_meter.chat_cost_inr(prompt_tokens=pt, completion_tokens=ct))
-        except Exception:
-            cost = 0.0
-        _spend_inr[profile] = _spend_inr.get(profile, 0.0) + cost
     except Exception:
         logger.exception("gateway usage meter failed")
 
