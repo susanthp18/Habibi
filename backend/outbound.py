@@ -178,10 +178,6 @@ _ANSWERED_BY: dict[str, str] = {
 }
 
 
-class DialRefused(RuntimeError):
-    """The attempt was recorded but no call was placed. Never a bug."""
-
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------

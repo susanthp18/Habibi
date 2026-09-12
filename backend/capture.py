@@ -1152,7 +1152,6 @@ COMMERCIAL_KINDS = frozenset(
         "product_interest",
         "offer_presented",
         "offer_declined",
-        "offer_suppressed",
         "eligibility_checked",
         "lead_captured",
         # The close probe is its own funnel stage. Without it the analytics

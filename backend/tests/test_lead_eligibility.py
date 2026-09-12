@@ -158,5 +158,7 @@ def test_leads_route_to_a_sales_team_by_product_category():
 def test_new_commercial_event_kinds_are_registered():
     """emit_commercial_event raises on an unregistered kind, so a helper that
     emits one nobody added to the set fails at runtime, not at import."""
-    for kind in ("offer_declined", "offer_suppressed", "close_probe_presented"):
+    # offer_suppressed left the set with its only emitter (the suppression is
+    # read from offer_decisions.suppression_reason, not an event).
+    for kind in ("offer_declined", "close_probe_presented"):
         assert kind in capture.COMMERCIAL_KINDS
