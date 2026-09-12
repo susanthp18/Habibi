@@ -18,6 +18,7 @@ import psycopg
 from psycopg.types.json import Json
 
 import authz
+import pii_key
 
 
 BASE = Path(__file__).parent
@@ -57,7 +58,9 @@ def main() -> None:
     ctx = build_context(customers_export, calls_export, leads_export)
     dsn = app_dsn_to_psycopg(os.getenv("DATABASE_URL") or read_env("DATABASE_URL") or DEFAULT_DSN)
 
-    with psycopg.connect(dsn) as conn:
+    # The PII functions refuse to run without the key on the connection, and
+    # the customers view encrypts through them on insert.
+    with psycopg.connect(dsn, options=pii_key.connect_option() or None) as conn:
         with conn.transaction():
             seed_reference_data(conn, ctx)
             seed_customers_accounts(conn, ctx)
@@ -486,6 +489,14 @@ def upsert(conn: psycopg.Connection, table: str, row: dict[str, Any], pk: str = 
     conflict = f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
     arrays = ARRAY_COLUMNS.get(table, frozenset())
     params = {k: (v if k in arrays else jsonable(v)) for k, v in row.items()}
+    if table == "customers":
+        # A view over customers_pii (the INSTEAD OF triggers encrypt), and
+        # Postgres has no ON CONFLICT on a view: update, insert what was not there.
+        assignments = ", ".join(f"{k}=%({k})s" for k in keys if k != pk)
+        updated = conn.execute(f"UPDATE {table} SET {assignments} WHERE {pk}=%({pk})s", params).rowcount
+        if not updated:
+            conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({vals})", params)
+        return
     conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({pk}) {conflict}", params)
 
 
@@ -676,7 +687,16 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     for permission_id, module, action, description in authz.PERMISSION_CATALOG:
         upsert(conn, "permissions", {"id": permission_id, "module": module, "action": action, "description": description})
 
-    roles = [("role-agent", "Agent"), ("role-supervisor", "Supervisor"), ("role-admin", "Admin"), ("role-qa", "QA Reviewer")]
+    # Every role authz.ROLE_DEFAULTS knows: the two regulated oversight roles
+    # had defaults and no row, so nobody could ever be one.
+    roles = [
+        ("role-agent", "Agent"),
+        ("role-supervisor", "Supervisor"),
+        ("role-admin", "Admin"),
+        ("role-qa", "QA Reviewer"),
+        ("role-compliance-officer", "Compliance Officer"),
+        ("role-dpo", "DPO"),
+    ]
     for role_id, name in roles:
         upsert(conn, "roles", {"id": role_id, "tenant_id": TENANT_ID, "name": name})
 
@@ -795,7 +815,6 @@ def seed_customers_accounts(conn: psycopg.Connection, ctx: dict[str, Any]) -> No
                     "type": entry.get("type") if entry.get("type") in {"charge", "payment", "fee", "adjustment", "waiver"} else "adjustment",
                     "description": entry.get("description"),
                     "amount": entry.get("amount") or 0,
-                    "balance": entry.get("balance"),
                     "invoice_id": entry.get("invoiceId"),
                     "posted_at": entry.get("date"),
                 },
