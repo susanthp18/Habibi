@@ -100,7 +100,7 @@ function tagEnd(text, i) {
  * Comments quote class names constantly here, and none of them renders.
  *
  * This walks the source instead of running two regexes over it, because the
- * regex version eats `https://bank.example/mcp` in McpConsole's placeholder —
+ * regex version eats `https://bank.example/mcp` in ConnectorsPanel's placeholder —
  * and once half a string literal is gone, every tag boundary after it is wrong.
  * The check reported a `border` class on an `<Input>` that has no className.
  */

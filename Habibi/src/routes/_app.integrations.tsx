@@ -7,13 +7,11 @@ import { PipelineBanner } from "@/components/integrations/PipelineBanner";
 import { ProviderCard } from "@/components/integrations/ProviderCard";
 import { ProviderDrawer } from "@/components/integrations/ProviderDrawer";
 import { PoolHealthStrip } from "@/components/integrations/PoolHealthStrip";
-import {
-  ConnectorsPanel,
-  GatewayPanel,
-  OurMcpPanel,
-  VaultPanel,
-  A2aPartnersPanel,
-} from "@/components/integrations/McpConsole";
+import { ConnectorsPanel } from "@/components/integrations/ConnectorsPanel";
+import { GatewayPanel } from "@/components/integrations/GatewayPanel";
+import { OurMcpPanel } from "@/components/integrations/OurMcpPanel";
+import { VaultPanel } from "@/components/integrations/VaultPanel";
+import { A2aPartnersPanel } from "@/components/integrations/A2aPartnersPanel";
 import { LoadingState } from "@/components/ui/loading-state";
 import type { Category, Env, Provider, TestLogEntry } from "@/api/types/integrations";
 import {
