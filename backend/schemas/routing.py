@@ -140,12 +140,29 @@ class RoutingReorderRequest(BaseModel):
     orderedIds: list[str] = Field(min_length=1)
 
 
-class RoutingSimulateRequest(BaseModel):
-    """The simulator's hand-built context: the fields the rule editor offers."""
+class RoutingSimulateContext(BaseModel):
+    """The fields the rule editor offers a condition (Habibi lib/routing FIELDS)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    context: dict[str, Any]
+    sentiment: str
+    intent: str
+    overdue_amount: float
+    dpd: int
+    verification_status: str
+    consent_dnd: bool
+    channel: str
+    product: str
+    turn_count: int
+    guardrail_flag: str
+
+
+class RoutingSimulateRequest(BaseModel):
+    """The simulator's hand-built context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    context: RoutingSimulateContext
 
 
 class RoutingSimulateConditionResponse(BaseModel):

@@ -288,6 +288,7 @@
  "GET /routing-rules/{rule_id}/executions",
  "POST /routing-rules",
  "PATCH /routing-rules/{rule_id}",
+ "POST /routing-rules/simulate",
  "POST /routing-rules/reorder",
  "DELETE /routing-rules/{rule_id}",
  "GET /routing-audit",

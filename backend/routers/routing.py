@@ -58,7 +58,7 @@ def patch_routing_rule(rule_id: str, payload: RoutingRulePatchRequest):
 @router.post("/routing-rules/simulate", response_model=RoutingSimulateResponse)
 def simulate_routing_rules(payload: RoutingSimulateRequest):
     """Dry-run of the rule library against a hand-built context; writes nothing."""
-    return db.simulate_routing_rules(payload.context)
+    return db.simulate_routing_rules(payload.context.model_dump())
 
 @router.post("/routing-rules/reorder", response_model=list[RoutingRuleListResponse])
 def reorder_routing_rules(payload: RoutingReorderRequest):

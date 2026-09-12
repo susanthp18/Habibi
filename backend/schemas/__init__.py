@@ -532,6 +532,7 @@ from schemas.routing import (
     RoutingRuleListResponse as RoutingRuleListResponse,
     RoutingRulePatchRequest as RoutingRulePatchRequest,
     RoutingSimulateConditionResponse as RoutingSimulateConditionResponse,
+    RoutingSimulateContext as RoutingSimulateContext,
     RoutingSimulateNodeResponse as RoutingSimulateNodeResponse,
     RoutingSimulateRequest as RoutingSimulateRequest,
     RoutingSimulateResponse as RoutingSimulateResponse,
