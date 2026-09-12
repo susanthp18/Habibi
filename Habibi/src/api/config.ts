@@ -9,6 +9,8 @@
 // rather than branching on the flag. Enforced by eslint + config.boundary.test.ts.
 // -----------------------------------------------------------------------------
 
+import { parseWire } from "./wire";
+
 const rawMock = import.meta.env.VITE_USE_MOCK;
 const isProd = import.meta.env.PROD;
 
@@ -193,7 +195,7 @@ export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
   const text = await res.text();
   if (!text) return undefined as T;
   const payload: unknown = JSON.parse(text);
-  return init?.schema ? init.schema.parse(payload) : (payload as T);
+  return init?.schema ? init.schema.parse(payload) : parseWire<T>("GET", path, payload);
 }
 
 async function apiSend<T>(
@@ -222,7 +224,7 @@ async function apiSend<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   const payload: unknown = JSON.parse(text);
-  return init?.schema ? init.schema.parse(payload) : (payload as T);
+  return init?.schema ? init.schema.parse(payload) : parseWire<T>(method, path, payload);
 }
 
 export function apiPost<T>(path: string, body: unknown, init?: ApiInit<T>): Promise<T> {
