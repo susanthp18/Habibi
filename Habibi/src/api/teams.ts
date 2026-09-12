@@ -5,25 +5,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export interface Team {
   id: string;
   name: string;
 }
 
-/** Mirrors the seeded DB teams so mock mode resolves the same names. */
-const MOCK_TEAMS: Team[] = [
-  { id: "card-collections", name: "Card Collections" },
-  { id: "cards-sales", name: "Cards Sales" },
-  { id: "insurance", name: "Insurance" },
-  { id: "retail-collections", name: "Retail Collections" },
-  { id: "retail-sales", name: "Retail Sales" },
-  { id: "supervisors", name: "Supervisors" },
-];
-
 export async function fetchTeams(): Promise<Team[]> {
-  if (USE_MOCK) return mockDelay(MOCK_TEAMS);
   return apiGet<Team[]>("/teams");
 }
 

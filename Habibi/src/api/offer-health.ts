@@ -13,7 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export type OfferHealthWindow = "24h" | "7d" | "30d" | "90d";
 
@@ -126,84 +126,10 @@ export interface OfferHealth {
   alerts: OfferHealthAlert[];
 }
 
-/** Mock shape for USE_MOCK — deliberately unremarkable numbers, no alerts. */
-const mockOfferHealth: OfferHealth = {
-  window: "30d",
-  includesSimulated: false,
-  engine: { mode: "live", scorer: "rule", abSplit: [], lastDecisionAt: "2026-08-17T09:00:00Z" },
-  volume: { decisions: 1240, approved: 806, presented: 677, customers: 412, interactions: 1180 },
-  funnel: {
-    coverage: 0.65,
-    coveragePrevious: 0.63,
-    coverageChange: 0.02,
-    presentationRate: 0.84,
-    interestRate: 0.163,
-    declineRate: 0.79,
-    responseRate: 0.95,
-  },
-  latency: {
-    p50: 15,
-    p95: 30,
-    p99: 50,
-    max: 148,
-    samples: 1240,
-    budgetMs: 150,
-    withinBudget: true,
-  },
-  suppressionByReason: [
-    { reason: "no_commitment_yet", n: 210, share: 0.48 },
-    { reason: "sentiment_below_floor", n: 120, share: 0.28 },
-    { reason: "no_eligible_candidates", n: 104, share: 0.24 },
-  ],
-  exclusionByReason: [
-    { reason: "eligibility", n: 3120 },
-    { reason: "already_held", n: 1180 },
-    { reason: "open_lead_exists", n: 640 },
-  ],
-  byProduct: [
-    {
-      product_id: "topup-loan",
-      product_name: "Top-up Loan",
-      presented: 302,
-      interested: 61,
-      won: 18,
-      lost: 24,
-      interestRate: 0.202,
-      winRate: 0.429,
-    },
-  ],
-  byRecommender: [
-    {
-      recommender: "rule",
-      version: "1.0.0",
-      presented: 677,
-      interested: 110,
-      won: 31,
-      lost: 44,
-      interestRate: 0.163,
-      winRate: 0.413,
-    },
-  ],
-  byVariant: [],
-  eligibility: { flags: 4820, unknown: 1446, failed: 212, unknownRate: 0.3 },
-  closeProbe: { asked: 402, declined: 318, captured: 44, conversion: 0.109 },
-  guardrails: {
-    avgDurationSecWithOffer: 214.5,
-    avgDurationSecWithoutOffer: 198.2,
-    ahtDeltaSec: 16.3,
-    avgSentimentWithOffer: 0.121,
-    avgSentimentWithoutOffer: 0.104,
-    escalationRateWithOffer: 0.031,
-    escalationRateWithoutOffer: 0.034,
-  },
-  alerts: [],
-};
-
 export async function fetchOfferHealth(
   window: OfferHealthWindow = "30d",
   includeSimulated = false,
 ): Promise<OfferHealth> {
-  if (USE_MOCK) return mockDelay({ ...mockOfferHealth, window });
   const query = `?window=${encodeURIComponent(window)}&includeSimulated=${includeSimulated}`;
   return apiGet<OfferHealth>(`/offers/health${query}`);
 }

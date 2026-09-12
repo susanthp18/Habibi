@@ -7,7 +7,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiDelete, apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiDelete, apiGet, apiPost } from "./config";
 
 export type ProviderSlot = "stt" | "tts" | "llm";
 
@@ -136,77 +136,7 @@ export function useProviderModels(kind?: ProviderSlot) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Bindings and key pools
-//
-// Mock fixtures are deliberately unremarkable. A mock pool showing every key
-// healthy would make the strip look like it was reporting something it is not,
-// so the fixture carries one exhausted key — the state the strip exists to
-// catch — alongside a healthy pool.
-// ---------------------------------------------------------------------------
-
-const MOCK_POOLS: ProviderPool[] = [
-  {
-    provider: "azure",
-    total: 2,
-    available: 2,
-    retired: 0,
-    sessionsBound: 1,
-    keys: [
-      { tail: "9f2a", uses: 118, retired: false, lastError: "" },
-      { tail: "c410", uses: 96, retired: false, lastError: "" },
-    ],
-  },
-  {
-    provider: "fish",
-    total: 2,
-    available: 1,
-    retired: 1,
-    sessionsBound: 0,
-    keys: [
-      { tail: "1b77", uses: 240, retired: true, lastError: "402 free tier exhausted" },
-      { tail: "8de3", uses: 12, retired: false, lastError: "" },
-    ],
-  },
-];
-
-const MOCK_BINDINGS: ProviderBinding[] = [
-  {
-    id: "APB-mock-tts",
-    botId: null,
-    slot: "tts",
-    locale: "en-IN",
-    providerModelId: "PM-azure-neural",
-    providerId: "azure",
-    providerName: "Azure",
-    modelId: "azure-neural",
-    displayName: "Azure neural",
-    voiceRef: "en-IN-NeerjaNeural",
-    priority: 100,
-    settings: {},
-    enabled: true,
-  },
-  {
-    id: "APB-mock-stt",
-    botId: "kaia-v2-4",
-    slot: "stt",
-    locale: null,
-    providerModelId: "PM-deepgram-nova",
-    providerId: "deepgram",
-    providerName: "Deepgram",
-    modelId: "nova-3",
-    displayName: "Nova 3",
-    voiceRef: null,
-    priority: 50,
-    settings: {},
-    enabled: true,
-  },
-];
-
 export async function fetchProviderBindings(botId?: string | null): Promise<ProviderBinding[]> {
-  if (USE_MOCK) {
-    return mockDelay(botId ? MOCK_BINDINGS : MOCK_BINDINGS.filter((b) => b.botId === null));
-  }
   return apiGet<ProviderBinding[]>(
     `/providers/bindings${botId ? `?botId=${encodeURIComponent(botId)}` : ""}`,
   );
@@ -226,7 +156,6 @@ export function useProviderBindings(botId?: string | null) {
 }
 
 export async function fetchProviderPools(): Promise<ProviderPool[]> {
-  if (USE_MOCK) return mockDelay(MOCK_POOLS);
   return apiGet<ProviderPool[]>("/providers/pools");
 }
 
@@ -242,23 +171,6 @@ export function useProviderPools(enabled = true) {
 }
 
 export async function upsertBinding(input: ProviderBindingInput): Promise<ProviderBinding> {
-  if (USE_MOCK) {
-    return mockDelay({
-      id: `APB-mock-${input.slot}-${input.priority ?? 100}`,
-      botId: input.botId ?? null,
-      slot: input.slot,
-      locale: input.locale ?? null,
-      providerModelId: input.providerModelId,
-      providerId: "mock",
-      providerName: "Mock provider",
-      modelId: input.providerModelId,
-      displayName: input.providerModelId,
-      voiceRef: input.voiceRef ?? null,
-      priority: input.priority ?? 100,
-      settings: input.settings ?? {},
-      enabled: input.enabled ?? true,
-    });
-  }
   return apiPost<ProviderBinding>("/providers/bindings", input);
 }
 
@@ -274,10 +186,6 @@ export function useUpsertBinding(botId?: string | null) {
 }
 
 export async function deleteBinding(bindingId: string): Promise<void> {
-  if (USE_MOCK) {
-    await mockDelay(undefined);
-    return;
-  }
   await apiDelete(`/providers/bindings/${encodeURIComponent(bindingId)}`);
 }
 

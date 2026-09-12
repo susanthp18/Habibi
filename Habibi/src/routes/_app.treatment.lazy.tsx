@@ -53,7 +53,6 @@ import {
   humanise,
   HOLD_KINDS,
   HOLD_SOURCES,
-  TREATMENT_SOURCE_HINT,
   useCreateTreatmentHold,
   useReleaseTreatmentHold,
   useTreatmentCases,
@@ -267,10 +266,6 @@ function TreatmentPage() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="shrink-0 border-b border-border bg-background-brand-subtlest/40 px-300 py-075 text-body-small text-text-brand">
-          {TREATMENT_SOURCE_HINT}
-        </div>
-
         <div className="flex shrink-0 items-center justify-between gap-200 border-b border-border bg-surface px-300 py-150">
           <div className="min-w-0">
             <h1 className="text-body font-semibold text-text">Decision intelligence</h1>

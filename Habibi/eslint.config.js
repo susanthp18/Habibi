@@ -96,8 +96,6 @@ export default tseslint.config(
             {
               name: "@/api/config",
               importNames: [
-                "USE_MOCK",
-                "mockDelay",
                 "apiGet",
                 "apiPost",
                 "apiPatch",
@@ -107,7 +105,7 @@ export default tseslint.config(
                 "apiEventStream",
               ],
               message:
-                "USE_MOCK lives in api/config.ts. Screens consume a named capability from the domain api/ module (WP-049).",
+                "Screens do not talk to the transport. Consume the domain api/ module's hooks and functions instead.",
             },
           ],
         },

@@ -1,34 +1,15 @@
 // -----------------------------------------------------------------------------
-// Data-layer configuration — the single switch between mock and live backend.
+// Data-layer configuration -- where the API is and how a request is made.
 //
-// Dev default: mock ON unless VITE_USE_MOCK=false.
-// Production builds: mock OFF unless explicitly forced (and that throws).
-//
-// USE_MOCK stays in this file and in api/* modules. Screens ask the domain
-// module for a capability (did /staff return rows? do skill writes persist?)
-// rather than branching on the flag. Enforced by eslint + config.boundary.test.ts.
+// Screens never import this module; they consume the domain api/ module's
+// hooks and functions (enforced by eslint's no-restricted-imports).
 // -----------------------------------------------------------------------------
 
 import { parseWire } from "./wire";
 
-const rawMock = import.meta.env.VITE_USE_MOCK;
 const isProd = import.meta.env.PROD;
 
-export const USE_MOCK = (() => {
-  if (isProd) {
-    // Production must talk to the live API. Explicit mock is a hard error.
-    if (rawMock === "true") {
-      throw new Error(
-        "VITE_USE_MOCK=true is not allowed in production builds. Unset it or set false.",
-      );
-    }
-    return false;
-  }
-  // Dev: default mock=true for offline UI; set VITE_USE_MOCK=false to hit API.
-  return (rawMock ?? "true") !== "false";
-})();
-
-/** Base URL for the CRM backend API (used once USE_MOCK is false). */
+/** Base URL for the CRM backend API. */
 export const API_BASE_URL = (() => {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
   if (raw) return raw.replace(/\/$/, "");
@@ -77,13 +58,6 @@ function requestSignal(caller?: AbortSignal, ms = DEFAULT_TIMEOUT_MS): AbortSign
   // AbortSignal.any is baseline in every browser this app targets; fall back to
   // the caller's signal if an older runtime lacks it.
   return typeof AbortSignal.any === "function" ? AbortSignal.any([caller, timeout]) : caller;
-}
-
-/** Simulate network latency so loading/skeleton states are exercised in mock mode. */
-export function mockDelay<T>(value: T, ms = 250): Promise<T> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(value), ms);
-  });
 }
 
 /**

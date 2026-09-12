@@ -10,7 +10,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export interface Me {
   id: string;
@@ -21,18 +21,7 @@ export interface Me {
   tenantId: string;
 }
 
-/** Mock identity mirrors the seeds' CURRENT_AGENT so both modes agree. */
-const MOCK_ME: Me = {
-  id: "priya-nair",
-  name: "Priya Nair",
-  kind: "human",
-  team: "Supervisors",
-  status: "active",
-  tenantId: "hdfc.retail",
-};
-
 export async function fetchMe(): Promise<Me> {
-  if (USE_MOCK) return mockDelay(MOCK_ME);
   return apiGet<Me>("/me");
 }
 

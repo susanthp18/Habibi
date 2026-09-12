@@ -8,7 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
+import { apiGet, apiPost } from "./config";
 
 // -----------------------------------------------------------------------------
 // Wire schemas — field-for-field with backend/schemas.py. A `datetime` is an
@@ -20,6 +20,7 @@ import { apiGet, apiPost, mockDelay, USE_MOCK } from "./config";
 // -----------------------------------------------------------------------------
 
 const isoDate = z.string();
+
 const isoDateOrNull = z.string().nullable();
 
 /** ReachStatsResponse — every count is a float on the wire (`12.0`). */
@@ -255,6 +256,7 @@ const placedCallSchema = z.object({
   status: z.string().nullable().optional(),
   from: z.string().nullable().optional(),
 });
+
 import { OBJECTIVES } from "./agent-card";
 
 export type ReachStats = {
@@ -405,48 +407,11 @@ export type AgentObligation = {
   verbatim: string | null;
 };
 
-// Mock shapes exist so the Studio tab renders without a backend. They are
-// deliberately unremarkable numbers: a mock answer rate of 92% would make the
-// tab look like it was reporting something it is not.
-const MOCK_STATS: ReachStats = {
-  attempts: 0,
-  suppressed: 0,
-  answered: 0,
-  right_party: 0,
-  voicemail: 0,
-  invalid_number: 0,
-  no_answer: 0,
-  busy: 0,
-  avg_ring_sec: null,
-  avg_talk_sec: null,
-  talk_sec_total: null,
-  answerRate: null,
-  rightPartyRate: null,
-  attemptsPerConnect: null,
-  windowDays: 14,
-};
-
-const MOCK_MISSIONS: MissionConfig = {
-  botId: "kaia-v2-4",
-  direction: "inbound",
-  poolKind: "general",
-  numberPool: null,
-  objectives: [],
-  graphEntries: {},
-  available: [...OBJECTIVES],
-};
-
 export async function fetchReachStats(days = 14): Promise<ReachStats> {
-  if (USE_MOCK) {
-    return mockDelay(MOCK_STATS);
-  }
   return apiGet<ReachStats>(`/outbound/stats?days=${days}`, { schema: reachStatsSchema });
 }
 
 export async function fetchAttempts(params: { customerId?: string; limit?: number } = {}) {
-  if (USE_MOCK) {
-    return mockDelay([] as CallAttempt[]);
-  }
   const q = new URLSearchParams();
   if (params.customerId) q.set("customerId", params.customerId);
   q.set("limit", String(params.limit ?? 50));
@@ -456,9 +421,6 @@ export async function fetchAttempts(params: { customerId?: string; limit?: numbe
 }
 
 export async function fetchMissions(botId?: string): Promise<MissionConfig> {
-  if (USE_MOCK) {
-    return mockDelay(MOCK_MISSIONS);
-  }
   // Scoped to the card being edited. Without the bot the endpoint answers for
   // the default one, and the Outbound tab renders that under whatever card you
   // happen to have open.
@@ -513,7 +475,6 @@ const EMPTY_VOCABULARY: OutboundVocabulary = {
 };
 
 export async function fetchOutboundVocabulary(): Promise<OutboundVocabulary> {
-  if (USE_MOCK) return mockDelay(EMPTY_VOCABULARY);
   return apiGet<OutboundVocabulary>("/outbound/card-vocabulary", {
     schema: outboundVocabularySchema,
   });
@@ -529,9 +490,6 @@ export function useOutboundVocabulary() {
 }
 
 export async function fetchCampaigns(): Promise<CampaignRun[]> {
-  if (USE_MOCK) {
-    return mockDelay([]);
-  }
   return apiGet<CampaignRun[]>("/outbound/campaigns", { schema: z.array(campaignRunSchema) });
 }
 
@@ -565,62 +523,7 @@ export type NumberPool = {
   numbers: PoolNumber[];
 };
 
-const MOCK_NUMBER_POOLS: NumberPool[] = [
-  {
-    id: "NP-mock-service",
-    tenant_id: "mock",
-    name: "Service 1600",
-    kind: "service_1600",
-    enabled: true,
-    created_at: "2026-08-01T00:00:00Z",
-    updated_at: "2026-08-01T00:00:00Z",
-    numbers: [
-      {
-        id: "PN-mock-1",
-        pool_id: "NP-mock-service",
-        e164: "+911600100001",
-        state: "active",
-        last_used_at: "2026-08-22T09:10:00Z",
-        attempts_7d: 214,
-        answer_rate_7d: 0.3178,
-        state_changed_at: "2026-08-01T00:00:00Z",
-        health_checked_at: "2026-08-23T03:00:00Z",
-        note: null,
-      },
-      {
-        id: "PN-mock-2",
-        pool_id: "NP-mock-service",
-        e164: "+911600100002",
-        state: "cooling",
-        last_used_at: "2026-08-20T14:02:00Z",
-        attempts_7d: 96,
-        answer_rate_7d: 0.0521,
-        state_changed_at: "2026-08-21T06:00:00Z",
-        health_checked_at: "2026-08-23T03:00:00Z",
-        note: "answer rate collapsed",
-      },
-      {
-        id: "PN-mock-3",
-        pool_id: "NP-mock-service",
-        e164: "+911600100003",
-        state: "active",
-        last_used_at: null,
-        attempts_7d: 0,
-        // Not enough volume to judge. A rate over four dials is noise, so the
-        // sweep declines to invent one.
-        answer_rate_7d: null,
-        state_changed_at: "2026-08-01T00:00:00Z",
-        health_checked_at: "2026-08-23T03:00:00Z",
-        note: null,
-      },
-    ],
-  },
-];
-
 export async function fetchNumberPools(): Promise<NumberPool[]> {
-  if (USE_MOCK) {
-    return mockDelay(MOCK_NUMBER_POOLS);
-  }
   return apiGet<NumberPool[]>("/outbound/number-pools", { schema: z.array(numberPoolSchema) });
 }
 
@@ -639,27 +542,18 @@ export function useNumberPools() {
 }
 
 export async function fetchCadenceCases(): Promise<CadenceCase[]> {
-  if (USE_MOCK) {
-    return mockDelay([]);
-  }
   return apiGet<CadenceCase[]>("/outbound/cadence?limit=50", {
     schema: z.array(cadenceCaseSchema),
   });
 }
 
 export async function fetchReasons(days = 30): Promise<ReasonCount[]> {
-  if (USE_MOCK) {
-    return mockDelay([]);
-  }
   return apiGet<ReasonCount[]>(`/outbound/reasons?days=${days}`, {
     schema: z.array(reasonCountSchema),
   });
 }
 
 export async function fetchObligations(): Promise<AgentObligation[]> {
-  if (USE_MOCK) {
-    return mockDelay([]);
-  }
   return apiGet<AgentObligation[]>("/outbound/obligations?state=open", {
     schema: z.array(agentObligationSchema),
   });

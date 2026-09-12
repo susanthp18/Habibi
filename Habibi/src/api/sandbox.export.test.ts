@@ -22,9 +22,7 @@ vi.mock("./config", () => ({
   apiPatch: vi.fn(),
   apiDelete: vi.fn(),
   apiUpload: vi.fn(),
-  mockDelay: vi.fn(),
   retryUnlessClientError: () => false,
-  USE_MOCK: false,
 }));
 
 const { exportInteraction } = await import("./sandbox");

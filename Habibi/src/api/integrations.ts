@@ -183,63 +183,6 @@ export type GatewayStatus = {
   voiceSloMs?: number;
 };
 
-const MOCK_CONNECTORS: Connector[] = [
-  {
-    id: "conn-paylink",
-    slug: "paylink",
-    displayName: "Pay-link status",
-    kind: "first_party",
-    allowPrefixes: ["ext.paylink."],
-    dataClass: ["money", "pii"],
-    status: "approved",
-    health: "healthy",
-    timeoutMs: 2500,
-    allowedEnv: "both",
-  },
-  {
-    id: "conn-lms",
-    slug: "lms",
-    displayName: "LMS balance",
-    kind: "first_party",
-    allowPrefixes: ["ext.lms."],
-    dataClass: ["money", "pii"],
-    status: "approved",
-    health: "healthy",
-    timeoutMs: 2500,
-    allowedEnv: "both",
-  },
-];
-
-const MOCK_MCP_STATUS: McpStatus = {
-  stdioCommand: "python -m mcp_server",
-  httpEnabled: false,
-  httpUrl: "http://127.0.0.1:8081/mcp",
-  tasksEnabled: false,
-  appsEnabled: false,
-  mtls: false,
-  resources: [
-    "customer://{id}",
-    "account://{id}/ledger",
-    "kb://snapshot/{id}",
-    "interaction://{id}/trace",
-    "policy://authority-matrix",
-  ],
-};
-
-const MOCK_GATEWAY: GatewayStatus = {
-  enabled: false,
-  baseUrl: null,
-  profiles: {
-    voice: { capInr: 0, model: null },
-    text: { capInr: 0, model: null },
-    analysis: { capInr: 0, model: null },
-    internal: { capInr: 0, model: null },
-  },
-  killSwitch: "azure_openai",
-  canary: null,
-  voiceSloMs: 800,
-};
-
 export function useConnectors() {
   return useQuery({
     queryKey: ["connectors"],
@@ -323,10 +266,6 @@ export function useMcpKeyMutations() {
     }),
     rotate: useMutation({
       meta: { errors: "toast" },
-      // The mock returned a bare `{key}` while the real call returns the whole
-      // row, so the caller had to `as McpKey` its way past the union to read
-      // the one field it wanted. Returning the same shape from both arms is
-      // what lets that cast go.
       mutationFn: (id: string) => apiPost<McpKey>(`/mcp/keys/${id}/rotate`, {}),
       onSuccess: invalidate,
     }),

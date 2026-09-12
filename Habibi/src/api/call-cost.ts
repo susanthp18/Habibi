@@ -8,7 +8,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export type CallCostLine = {
   serviceId: string;
@@ -47,7 +47,7 @@ export function useCallCost(interactionId: string | null | undefined) {
   return useQuery({
     queryKey: ["call-cost", interactionId],
     queryFn: () => fetchCallCost(interactionId as string),
-    enabled: Boolean(interactionId) && !USE_MOCK,
+    enabled: Boolean(interactionId),
     staleTime: 30_000,
   });
 }

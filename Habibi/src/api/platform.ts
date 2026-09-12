@@ -10,7 +10,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPatch, apiPost, mockDelay, retryUnlessClientError, USE_MOCK } from "./config";
+import { apiGet, apiPatch, apiPost, retryUnlessClientError } from "./config";
 
 export type PlatformSwitch = {
   key: string;
@@ -68,21 +68,7 @@ export const DEMO_IGNORES_WINDOW = "outbound.demo_ignores_window";
 export function usePlatformSwitches() {
   return useQuery({
     queryKey: ["platform-switches"],
-    queryFn: async () =>
-      USE_MOCK
-        ? mockDelay({
-            switches: [
-              {
-                key: OUTBOUND_ENABLED,
-                description: "Master switch for outbound calling.",
-                enabled: false,
-                updatedAt: null,
-                updatedByUserId: null,
-                note: null,
-              },
-            ] as PlatformSwitch[],
-          })
-        : apiGet<{ switches: PlatformSwitch[] }>("/platform/switches"),
+    queryFn: async () => apiGet<{ switches: PlatformSwitch[] }>("/platform/switches"),
     // A switch whose state we could not read must not be rendered as "off" —
     // the screen shows the error instead. Retrying a 403 would not help.
     retry: retryUnlessClientError,
@@ -112,20 +98,7 @@ export function usePatchPlatformSwitch() {
 export function useDemoOutboundTarget() {
   return useQuery({
     queryKey: ["demo-outbound"],
-    queryFn: async () =>
-      USE_MOCK
-        ? mockDelay({
-            phone: "919655282324",
-            customer: { id: "cust-susanth", name: "Susanth", phone: "919655282324", dnd: false },
-            objective: "dpd_reminder",
-            offersAllowed: false,
-            outboundEnabled: false,
-            demoIgnoresWindow: false,
-            policyReason: null,
-            policyWaived: null,
-            twilioConfigured: true,
-          } as DemoOutboundTarget)
-        : apiGet<DemoOutboundTarget>("/demo/outbound-call"),
+    queryFn: async () => apiGet<DemoOutboundTarget>("/demo/outbound-call"),
     retry: retryUnlessClientError,
     staleTime: 5_000,
   });

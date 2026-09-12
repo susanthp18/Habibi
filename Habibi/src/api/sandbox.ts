@@ -6,7 +6,6 @@
 //   appendSandboxTurn     → POST /sandbox/runs/{id}/turns  (retrieve + Azure chat)
 //   exportInteraction     → GET /interactions/{id}/export
 //
-// Mock mode keeps local SCENARIOS + generateBotReply so demos work offline.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";

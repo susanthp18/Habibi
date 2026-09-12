@@ -2,13 +2,12 @@
 // Assignable actors (humans + bots) — the single source for owner/assignee pickers.
 //
 // Replaces per-screen hardcoded name→id maps, which silently drift from the DB
-// (a seed-only name like "Rohan Sethi" would 404 on assignment). Live mode reads
-// GET /staff; mock mirrors the seeded roster so both modes stay coherent.
+// (a name the roster does not hold would 404 on assignment). GET /staff.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, mockDelay, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export interface Staff {
   id: string;
@@ -18,58 +17,7 @@ export interface Staff {
   status: string | null;
 }
 
-/** Mirrors the seeded DB roster so mock mode resolves the same names.
- *
- * Live mode already reads GET /staff. This list stays for USE_MOCK only —
- * historical seed rows still name the two archived scaffolds, so they remain
- * here for name resolution, but they are not `active`. `seed_postgres.py`
- * archives them on purpose: they hold no prompt version and no deployment.
- */
-export const MOCK_STAFF: Staff[] = [
-  {
-    id: "arjun-mehta",
-    name: "Arjun Mehta",
-    kind: "human",
-    team: "Card Collections",
-    status: "active",
-  },
-  { id: "david-chen", name: "David Chen", kind: "human", team: "Supervisors", status: "active" },
-  {
-    id: "meera-iyer",
-    name: "Meera Iyer",
-    kind: "human",
-    team: "Card Collections",
-    status: "active",
-  },
-  { id: "priya-nair", name: "Priya Nair", kind: "human", team: "Supervisors", status: "active" },
-  {
-    id: "rahul-verma",
-    name: "Rahul Verma",
-    kind: "human",
-    team: "Card Collections",
-    status: "active",
-  },
-  {
-    id: "rohan-verma",
-    name: "Rohan Verma",
-    kind: "human",
-    team: "Card Collections",
-    status: "active",
-  },
-  { id: "sara-khan", name: "Sara Khan", kind: "human", team: "Card Collections", status: "active" },
-  {
-    id: "collectionsbot-v2-4",
-    name: "CollectionsBot v2.4",
-    kind: "bot",
-    team: null,
-    status: "archived",
-  },
-  { id: "kaia-v2-4", name: "BigBound v2.4", kind: "bot", team: null, status: "active" },
-  { id: "webchatbot", name: "WebChatBot", kind: "bot", team: null, status: "archived" },
-];
-
 export async function fetchStaff(): Promise<Staff[]> {
-  if (USE_MOCK) return mockDelay(MOCK_STAFF);
   return apiGet<Staff[]>("/staff");
 }
 

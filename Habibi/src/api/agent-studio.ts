@@ -5,13 +5,11 @@ import { compileReportSchema, effectiveContractSchema } from "@/lib/studio-contr
 import {
   apiDelete,
   apiGet,
-  retryUnlessClientError,
   apiGetBlob,
   apiPatch,
   apiPost,
   apiUpload,
-  mockDelay,
-  USE_MOCK,
+  retryUnlessClientError,
 } from "./config";
 
 export type AgentCardSummary = {
@@ -99,118 +97,6 @@ export type CompileReport = {
   mission_entries?: Record<string, string>;
 };
 
-const MOCK_CARDS: AgentCardSummary[] = [
-  {
-    botId: "intake-v1",
-    name: "Intake",
-    version: "1.0",
-    slug: "intake",
-    purpose: "Identify the caller and route.",
-    channels: ["voice", "whatsapp"],
-    skills: ["verify-and-disclose"],
-    toolCount: 6,
-    evalStatus: "skipped",
-    trafficPct: 100,
-    deploymentStatus: "live",
-    draftVersionId: null,
-    hasDraft: false,
-    cardSource: "published",
-    entryBotId: "kaia-v2-4",
-    entryBindings: [],
-    reachability: "handoff",
-    archivedAt: null,
-    isFirstParty: true,
-    lastPublish: null,
-    promptVersionId: "pv-intake-1",
-    agentCard: {},
-    publishedCard: {},
-  },
-  {
-    botId: "kaia-v2-4",
-    name: "Collections",
-    version: "2.4",
-    slug: "collections",
-    purpose: "Recover overdue balances.",
-    channels: ["voice", "whatsapp"],
-    skills: [
-      "verify-and-disclose",
-      "ptp-negotiate",
-      "hardship-intake",
-      "dispute-capture",
-      "doc-fulfil",
-      "broken-ptp-chase",
-      "upsell-pitch",
-      "floor-coach",
-    ],
-    toolCount: 16,
-    evalStatus: "skipped",
-    trafficPct: 100,
-    deploymentStatus: "live",
-    draftVersionId: null,
-    hasDraft: false,
-    cardSource: "published",
-    entryBotId: "kaia-v2-4",
-    entryBindings: [],
-    reachability: "handoff",
-    archivedAt: null,
-    isFirstParty: true,
-    lastPublish: null,
-    promptVersionId: "v1_4",
-    agentCard: {},
-    publishedCard: {},
-  },
-  {
-    botId: "insurance-v1",
-    name: "Insurance",
-    version: "1.0",
-    slug: "insurance",
-    purpose: "Eligibility and lead capture.",
-    channels: ["voice", "whatsapp"],
-    skills: ["verify-and-disclose", "insurance-lapse", "doc-fulfil"],
-    toolCount: 8,
-    evalStatus: "skipped",
-    trafficPct: 100,
-    deploymentStatus: "live",
-    draftVersionId: null,
-    hasDraft: false,
-    cardSource: "published",
-    entryBotId: "kaia-v2-4",
-    entryBindings: [],
-    reachability: "handoff",
-    archivedAt: null,
-    isFirstParty: true,
-    lastPublish: null,
-    promptVersionId: "pv-insurance-1",
-    agentCard: {},
-    publishedCard: {},
-  },
-  {
-    botId: "supervisor-brief",
-    name: "Supervisor brief",
-    version: "1.0",
-    slug: "supervisor_brief",
-    purpose: "Warm-transfer brief.",
-    channels: ["internal"],
-    skills: ["supervisor-brief", "qa-examiner"],
-    toolCount: 0,
-    evalStatus: "skipped",
-    trafficPct: 100,
-    deploymentStatus: "live",
-    draftVersionId: null,
-    hasDraft: false,
-    cardSource: "published",
-    entryBotId: "kaia-v2-4",
-    entryBindings: [],
-    reachability: "handoff",
-    archivedAt: null,
-    isFirstParty: true,
-    lastPublish: null,
-    promptVersionId: "pv-supervisor-1",
-    agentCard: {},
-    publishedCard: {},
-  },
-];
-
 /**
  * Everything an Agent Studio write can invalidate, in one place.
  *
@@ -249,11 +135,9 @@ export function useAgentStudioCards(includeArchived = false) {
   return useQuery({
     queryKey: ["agent-studio", "cards", includeArchived],
     queryFn: async () =>
-      USE_MOCK
-        ? MOCK_CARDS
-        : apiGet<AgentCardSummary[]>(
-            `/agent-studio/cards${includeArchived ? "?includeArchived=true" : ""}`,
-          ),
+      apiGet<AgentCardSummary[]>(
+        `/agent-studio/cards${includeArchived ? "?includeArchived=true" : ""}`,
+      ),
   });
 }
 
@@ -351,10 +235,7 @@ export function usePatchAgentCard(botId: string) {
 export function useAgentStudioCard(botId: string) {
   return useQuery({
     queryKey: ["agent-studio", "card", botId],
-    queryFn: async () =>
-      USE_MOCK
-        ? (MOCK_CARDS.find((c) => c.botId === botId) ?? null)
-        : apiGet<AgentCardSummary>(`/agent-studio/cards/${botId}`),
+    queryFn: async () => apiGet<AgentCardSummary>(`/agent-studio/cards/${botId}`),
     enabled: Boolean(botId),
     // `agent_card_not_found` is a settled answer about this id, and retrying it
     // three times is not free here: the studio decides whether to render an
@@ -382,19 +263,7 @@ export type AgentGraph = {
 export function useAgentGraph(botId: string) {
   return useQuery({
     queryKey: ["agent-studio", "graph", botId],
-    queryFn: async () =>
-      USE_MOCK
-        ? {
-            botId,
-            nodes: MOCK_CARDS.map((c) => ({
-              id: c.botId,
-              label: c.name,
-              reachability: c.reachability,
-              deploymentStatus: c.deploymentStatus,
-            })),
-            edges: [{ from: botId, to: "insurance-v1" }],
-          }
-        : apiGet<AgentGraph>(`/agent-studio/cards/${botId}/graph`),
+    queryFn: async () => apiGet<AgentGraph>(`/agent-studio/cards/${botId}/graph`),
     enabled: Boolean(botId),
   });
 }
@@ -415,18 +284,6 @@ export function usePolicyEngines() {
   return useQuery({
     queryKey: ["agent-studio", "policy-engines"],
     queryFn: async () => {
-      if (USE_MOCK) {
-        return [
-          {
-            key: "reco",
-            label: "Recommend next offer",
-            tool: "recommend_next_offer",
-            mode: "shadow",
-            source: "RECO_MODE",
-          },
-          { key: "dnd", label: "DND / calling hours", tool: null, mode: "always", source: null },
-        ] satisfies PolicyEngine[];
-      }
       return apiGet<PolicyEngine[]>("/agent-studio/policy-engines");
     },
     staleTime: 60_000,
@@ -436,17 +293,7 @@ export function usePolicyEngines() {
 export function useEvalSuites() {
   return useQuery({
     queryKey: ["eval-suites"],
-    queryFn: async () =>
-      USE_MOCK
-        ? [
-            {
-              id: "eval-regression-collections",
-              kind: "regression",
-              name: "Collections regression",
-              description: "code graders",
-            },
-          ]
-        : apiGet<EvalSuite[]>("/eval/suites"),
+    queryFn: async () => apiGet<EvalSuite[]>("/eval/suites"),
   });
 }
 
@@ -499,20 +346,6 @@ export function useEvalReports(kind?: string, botId?: string) {
   return useQuery({
     queryKey: ["eval-reports", kind ?? "all", botId ?? "all"],
     queryFn: async () => {
-      if (USE_MOCK) {
-        return [
-          {
-            id: "EVR-mock",
-            suiteId: "eval-regression-collections",
-            suiteName: "Collections regression",
-            kind: "regression",
-            status: "pass",
-            summary: { failed: 0, total: 6 },
-            origin: "scheduled",
-            createdAt: new Date().toISOString(),
-          },
-        ] satisfies EvalReport[];
-      }
       const q = new URLSearchParams();
       if (kind) q.set("kind", kind);
       if (botId) q.set("botId", botId);
@@ -612,167 +445,10 @@ export type SkillDetail = SkillSummary & {
   lintWarnings?: Record<string, unknown>[] | null;
 };
 
-const MOCK_SKILLS: SkillSummary[] = [
-  {
-    id: "skill-verify-and-disclose",
-    slug: "verify-and-disclose",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Verify the caller and disclose recording before any account fact.",
-    allowedTools: ["verify_identity", "get_customer_context", "add_customer_note"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4", "intake-v1", "insurance-v1"],
-    signed: true,
-    bodyTokens: 180,
-  },
-  {
-    id: "skill-ptp-negotiate",
-    slug: "ptp-negotiate",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description:
-      "Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window.",
-    allowedTools: ["create_promise_to_pay", "evaluate_authority", "run_skill_script"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 220,
-  },
-  {
-    id: "skill-hardship-intake",
-    slug: "hardship-intake",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Capture hardship. Write a note, hold treatment, do not pitch a product.",
-    allowedTools: ["add_customer_note", "escalate_to_human", "request_callback"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 160,
-  },
-  {
-    id: "skill-dispute-capture",
-    slug: "dispute-capture",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Record a dispute. Call flag_dispute. Do not negotiate PTP on a live dispute.",
-    allowedTools: ["flag_dispute", "add_customer_note", "escalate_to_human"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 140,
-  },
-  {
-    id: "skill-doc-fulfil",
-    slug: "doc-fulfil",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Raise a document request for a verified customer.",
-    allowedTools: ["request_documents", "get_customer_context"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4", "insurance-v1"],
-    signed: true,
-    bodyTokens: 90,
-  },
-  {
-    id: "skill-broken-ptp-chase",
-    slug: "broken-ptp-chase",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Follow up a broken promise. Respect attempt caps. Do not write a new PTP.",
-    allowedTools: ["request_callback", "add_customer_note", "get_customer_context"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 110,
-  },
-  {
-    id: "skill-upsell-pitch",
-    slug: "upsell-pitch",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Speak one reco-engine product after the primary query is resolved.",
-    allowedTools: [
-      "recommend_next_offer",
-      "check_product_eligibility",
-      "capture_lead",
-      "decline_offer",
-    ],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 130,
-  },
-  {
-    id: "skill-insurance-lapse",
-    slug: "insurance-lapse",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Handle insurance lapse. Reco picks the product. Capture a lead after consent.",
-    allowedTools: [
-      "recommend_next_offer",
-      "check_product_eligibility",
-      "capture_lead",
-      "request_documents",
-    ],
-    version: "1",
-    status: "signed",
-    attachedCards: ["insurance-v1"],
-    signed: true,
-    bodyTokens: 120,
-  },
-  {
-    id: "skill-qa-examiner",
-    slug: "qa-examiner",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Internal live-QA examiner. Never speak to the customer.",
-    allowedTools: ["add_customer_note"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["supervisor-brief"],
-    signed: true,
-    bodyTokens: 70,
-  },
-  {
-    id: "skill-floor-coach",
-    slug: "floor-coach",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Internal floor coach. Whisper or barge. Never take over money writes.",
-    allowedTools: ["add_customer_note"],
-    version: "1",
-    status: "signed",
-    attachedCards: ["kaia-v2-4"],
-    signed: true,
-    bodyTokens: 80,
-  },
-  {
-    id: "skill-supervisor-brief",
-    slug: "supervisor-brief",
-    origin: "first_party",
-    signatureStatus: "signed",
-    description: "Compact warm-transfer brief. No CRM writes.",
-    allowedTools: [],
-    version: "1",
-    status: "signed",
-    attachedCards: ["supervisor-brief"],
-    signed: true,
-    bodyTokens: 60,
-  },
-];
-
 export function useAgentStudioSkills() {
   return useQuery({
     queryKey: ["agent-studio", "skills"],
-    queryFn: async () => (USE_MOCK ? MOCK_SKILLS : apiGet<SkillSummary[]>("/agent-studio/skills")),
+    queryFn: async () => apiGet<SkillSummary[]>("/agent-studio/skills"),
   });
 }
 
@@ -780,9 +456,7 @@ export function useAgentStudioSkill(skillId: string) {
   return useQuery({
     queryKey: ["agent-studio", "skill", skillId],
     queryFn: async (): Promise<SkillDetail | null> =>
-      USE_MOCK
-        ? (MOCK_SKILLS.find((s) => s.id === skillId || s.slug === skillId) ?? null)
-        : apiGet<SkillDetail>(`/agent-studio/skills/${skillId}`),
+      apiGet<SkillDetail>(`/agent-studio/skills/${skillId}`),
     enabled: Boolean(skillId),
     // A 404 is the server's final answer about this id. RQ's default of three
     // tries turned a mistyped URL into roughly seven seconds of spinner before
@@ -790,11 +464,6 @@ export function useAgentStudioSkill(skillId: string) {
     retry: retryUnlessClientError,
   });
 }
-
-/** Import / create hit write endpoints that have no mock branch. */
-export const SKILL_MUTATIONS_AVAILABLE = !USE_MOCK;
-
-export const EVAL_SCHEDULE_AVAILABLE = !USE_MOCK;
 
 export function useCreateSkill() {
   const qc = useQueryClient();
@@ -823,10 +492,7 @@ export function useDeleteSkill() {
 export function useSkillScripts() {
   return useQuery({
     queryKey: ["agent-studio", "skill-scripts"],
-    queryFn: async () =>
-      USE_MOCK
-        ? [{ name: "emi_remaining" }, { name: "promise_date_in_window" }]
-        : apiGet<{ name: string }[]>("/agent-studio/skills/scripts"),
+    queryFn: async () => apiGet<{ name: string }[]>("/agent-studio/skills/scripts"),
     staleTime: 5 * 60_000,
   });
 }
@@ -898,22 +564,7 @@ export async function importSkillZip(file: File): Promise<SkillSummary> {
 export function useRolesCatalog() {
   return useQuery({
     queryKey: ["roles"],
-    queryFn: async () =>
-      USE_MOCK
-        ? {
-            permissions: [
-              {
-                id: "perm-agent-publish",
-                module: "agent",
-                action: "publish",
-                description: "Compile and publish",
-              },
-            ],
-            agentPublishRoles: ["Admin"],
-            grants: [],
-            roles: [{ id: "role-admin", name: "Admin", permissionIds: ["perm-agent-publish"] }],
-          }
-        : apiGet<RolesCatalog>("/roles"),
+    queryFn: async () => apiGet<RolesCatalog>("/roles"),
   });
 }
 
@@ -930,35 +581,7 @@ export function usePatchRolePermissions() {
 export function useAgentStudioTemplates() {
   return useQuery({
     queryKey: ["agent-studio", "templates"],
-    queryFn: async () =>
-      USE_MOCK
-        ? ([
-            {
-              id: "collections",
-              label: "Collections",
-              sourceBotId: "kaia-v2-4",
-              purpose: "Recover overdue balances.",
-            },
-            {
-              id: "lapse",
-              label: "Lapse Specialist",
-              sourceBotId: "insurance-v1",
-              purpose: "Premium lapse.",
-            },
-            {
-              id: "hardship",
-              label: "Hardship",
-              sourceBotId: "kaia-v2-4",
-              purpose: "Hold treatment.",
-            },
-            {
-              id: "clerk",
-              label: "Clerk",
-              sourceBotId: "supervisor-brief",
-              purpose: "Internal chase.",
-            },
-          ] satisfies CloneTemplate[])
-        : apiGet<CloneTemplate[]>("/agent-studio/templates"),
+    queryFn: async () => apiGet<CloneTemplate[]>("/agent-studio/templates"),
   });
 }
 
@@ -996,11 +619,9 @@ export function useDeploymentExperiments(botId: string) {
   return useQuery({
     queryKey: ["deployments", "experiments", botId],
     queryFn: async () =>
-      USE_MOCK
-        ? []
-        : apiGet<DeploymentExperiment[]>(
-            `/bot-deployments/experiments?botId=${encodeURIComponent(botId)}`,
-          ),
+      apiGet<DeploymentExperiment[]>(
+        `/bot-deployments/experiments?botId=${encodeURIComponent(botId)}`,
+      ),
   });
 }
 
@@ -1087,42 +708,7 @@ export type ChangeLog = {
   total?: number;
 };
 
-const MOCK_CHANGE_LOG: ChangeLog = {
-  entries: [
-    {
-      id: "AUD-mock-2",
-      actorUserId: "priya-nair",
-      action: "agent.publish",
-      botId: "kaia-v2-4",
-      at: "2026-08-20T06:46:59Z",
-      seq: 2,
-      versionLabel: "v1.1",
-      previousVersionLabel: "v1.0",
-      summary: "voice changed",
-      changed: ["voice", "flow"],
-      rollout: { trafficPct: 100, shadow: false, autoRollback: [] },
-      gates: { G0: "pass", G7: "skipped", G14: "pass" },
-    },
-    {
-      id: "AUD-mock-1",
-      actorUserId: "priya-nair",
-      action: "agent.publish",
-      botId: "kaia-v2-4",
-      at: "2026-08-19T17:21:59Z",
-      seq: 1,
-      versionLabel: "v1.0",
-      previousVersionLabel: null,
-      summary: "first publish",
-      changed: ["prompt", "persona", "guardrails"],
-      rollout: { trafficPct: 100, shadow: false, autoRollback: [] },
-      gates: { G0: "pass" },
-    },
-  ],
-  chain: { ok: true, checked: 2, brokenAt: null, reason: null },
-};
-
 export async function fetchChangeLog(botId?: string, limit = 50): Promise<ChangeLog> {
-  if (USE_MOCK) return mockDelay(MOCK_CHANGE_LOG);
   const q = new URLSearchParams({ limit: String(limit) });
   if (botId) q.set("botId", botId);
   return apiGet<ChangeLog>(`/agent-studio/change-log?${q.toString()}`);
@@ -1166,26 +752,7 @@ export type SkillCritique = {
   createdAt: string | null;
 };
 
-const MOCK_CRITIQUES: SkillCritique[] = [
-  {
-    id: "SCR-mock-1",
-    skillSlug: "ptp-negotiate",
-    reportId: "EVR-mock",
-    suggestedDiff: {
-      path: "SKILL.md",
-      op: "suggest_objection_line",
-      add: "I need to verify your identity before we can set a promise to pay.",
-      grader: "verify_before_ptp",
-      writesProduction: false,
-    },
-    status: "draft",
-    writesProduction: false,
-    createdAt: "2026-08-22T11:00:00Z",
-  },
-];
-
 export async function fetchSkillCritiques(limit = 50): Promise<SkillCritique[]> {
-  if (USE_MOCK) return mockDelay(MOCK_CRITIQUES);
   return apiGet<SkillCritique[]>(`/eval/critiques?limit=${limit}`);
 }
 
@@ -1202,7 +769,6 @@ export function useCritiqueReport() {
   return useMutation({
     meta: { errors: "caller" },
     mutationFn: async (reportId: string) => {
-      if (USE_MOCK) return mockDelay(MOCK_CRITIQUES);
       return apiPost<SkillCritique[]>(`/eval/reports/${encodeURIComponent(reportId)}/critique`, {});
     },
     onSuccess: () => {
@@ -1235,23 +801,7 @@ export type QaDisagreements = {
   items: QaDisagreement[];
 };
 
-const MOCK_DISAGREEMENTS: QaDisagreements = {
-  applied: false,
-  count: 1,
-  items: [
-    {
-      interactionId: "CL-100005",
-      liveVerdict: "pass",
-      humanBand: "red",
-      humanScore: 41,
-      suggestedRubricTweak: "Tighten the live-QA pass bar — humans scored this call red.",
-      applied: false,
-    },
-  ],
-};
-
 export async function fetchQaDisagreements(limit = 50): Promise<QaDisagreements> {
-  if (USE_MOCK) return mockDelay(MOCK_DISAGREEMENTS);
   return apiGet<QaDisagreements>(`/eval/disagreements?limit=${limit}`);
 }
 

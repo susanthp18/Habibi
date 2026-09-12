@@ -3,7 +3,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   importSkillZip,
   invalidateAgentStudio,
-  SKILL_MUTATIONS_AVAILABLE,
   useAgentStudioSkills,
   useCloneSkill,
   useCreateSkill,
@@ -183,21 +182,12 @@ function SkillsIndex() {
             <Button
               type="button"
               variant="outline"
-              disabled={!SKILL_MUTATIONS_AVAILABLE}
-              title={
-                SKILL_MUTATIONS_AVAILABLE
-                  ? "Unsigned zip becomes a draft"
-                  : "Connect the API to import a pack"
-              }
+              title="Unsigned zip becomes a draft"
               onClick={() => fileRef.current?.click()}
             >
               Import zip
             </Button>
-            <Button
-              type="button"
-              disabled={!SKILL_MUTATIONS_AVAILABLE}
-              onClick={() => setNewOpen((v) => !v)}
-            >
+            <Button type="button" onClick={() => setNewOpen((v) => !v)}>
               New skill
             </Button>
             <Button

@@ -8,7 +8,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet, USE_MOCK } from "./config";
+import { apiGet } from "./config";
 
 export type TraceToolCall = {
   tool: string;
@@ -65,17 +65,11 @@ export function fetchTurnTrace(interactionId: string): Promise<TraceTurn[]> {
   return apiGet<TraceTurn[]>(`/interactions/${encodeURIComponent(interactionId)}/trace`);
 }
 
-/**
- * Disabled without an interaction id, and in mock mode — there is no seeded
- * trace to serve, and the tab falls back to its client-derived view.
- */
-export const TRACE_UNAVAILABLE = "Traces are served by the API — switch off mock mode to view one.";
-
 export function useTurnTrace(interactionId: string | null | undefined) {
   return useQuery({
     queryKey: ["turn-trace", interactionId],
     queryFn: () => fetchTurnTrace(interactionId as string),
-    enabled: Boolean(interactionId) && !USE_MOCK,
+    enabled: Boolean(interactionId),
     staleTime: 5_000,
   });
 }
