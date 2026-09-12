@@ -199,7 +199,8 @@ _PROVIDER_META: dict[str, dict[str, Any]] = {
         "brandColor": "bg-rose-100 text-rose-700",
         "capabilities": ["media streams", "PSTN"],
         "fields": [
-            {"key": "accountSid", "label": "Account SID", "secret": False},
+            # The SID is half of Twilio basic auth: never served in clear.
+            {"key": "accountSid", "label": "Account SID", "secret": True},
             {"key": "authToken", "label": "Auth token", "secret": True},
         ],
         "env_map": {

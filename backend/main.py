@@ -14,7 +14,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Callable
 
-from env_loader import load_env
+from env_loader import env_str, load_env
 from env_utils import env_bool
 
 load_env()
@@ -304,6 +304,11 @@ def _inactive_hardening_controls() -> list[str]:
             inactive.append("PII column encryption (PII_ENCRYPTION_KEY not set for this process)")
         elif not conn.execute(text(f"SELECT current_setting('{pii_key.GUC}', true) <> ''")).scalar():
             inactive.append("PII column encryption (app.pii_key not on this connection)")
+    # The public origin the borrower's pay link and the carrier's callbacks are
+    # built on. Unset, `payments.public_base_url` fell back to loopback, so a
+    # deployed process minted "pay here" links that pointed at itself.
+    if not env_str("PUBLIC_BASE_URL"):
+        inactive.append("public origin (PUBLIC_BASE_URL not set -- pay links would point at loopback)")
     return inactive
 
 

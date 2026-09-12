@@ -78,3 +78,15 @@ def test_the_application_role_cannot_rewrite_the_audit_log(db_tx) -> None:
     with pytest.raises(DBAPIError, match="append-only"):
         db_tx.execute(text("DELETE FROM audit_log WHERE id = :id"), {"id": entry})
     nested.rollback()
+
+
+def test_the_gate_lists_the_public_origin_when_it_is_unset(monkeypatch) -> None:
+    """`payments.public_base_url` fell back to `http://127.0.0.1:8000`, so a
+    deployed process with PUBLIC_BASE_URL unset minted pay links that pointed
+    at itself. The gate names it, like the other controls."""
+    import main
+
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    assert any(item.startswith("public origin") for item in main._inactive_hardening_controls())
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://collections.example.bank")
+    assert not any(item.startswith("public origin") for item in main._inactive_hardening_controls())
