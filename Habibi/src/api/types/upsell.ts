@@ -77,7 +77,7 @@ export interface Lead {
   eligibilityFlags: EligibilityFlag[];
   /** Display name, or null when the lead is unassigned (bot-captured leads are). */
   owner: string | null;
-  team: Team | string | null;
+  team: Team | (string & {}) | null;
   nextFollowUpAt?: string | null;
   followUps: FollowUp[];
   priority: Priority;
@@ -92,7 +92,7 @@ export interface LeadFilters {
   search: string;
   team: "all" | Team;
   owner: string; // "all" or name
-  productId: "all" | string;
+  productId: "all" | (string & {});
   source: "all" | LeadSource;
   sentiments: Sentiment[];
   priorities: Priority[];

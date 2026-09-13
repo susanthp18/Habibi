@@ -68,7 +68,7 @@ export interface DocumentFilters {
   vias: RequestedVia[];
   statuses: DocStatus[];
   range: "today" | "7d" | "30d" | "all";
-  assignee: string | "all";
+  assignee: "all" | (string & {});
 }
 export interface NewRequestInput {
   customerId: string;

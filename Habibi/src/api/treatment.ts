@@ -202,7 +202,7 @@ export type TreatmentMetrics = {
 export type SegmentLadderRung = {
   segment: string;
   label?: string;
-  verdict: "promoted" | "rejected" | "skipped" | string;
+  verdict: "promoted" | "rejected" | "skipped" | (string & {});
   reason?: string;
   ate?: number;
   ateStderr?: number;
@@ -219,7 +219,7 @@ export type TreatmentModelRecord = {
   id: string;
   target: string;
   version: string;
-  status: "champion" | "challenger" | "retired" | string;
+  status: "champion" | "challenger" | "retired" | (string & {});
   corpus: string;
   n_samples: number;
   control_n: number;
@@ -250,7 +250,7 @@ export type TreatmentModelRecord = {
  */
 export type TreatmentServingCheck = {
   target: string;
-  state: "ok" | "unregistered" | "stale" | "missing" | string;
+  state: "ok" | "unregistered" | "stale" | "missing" | (string & {});
   detail: string;
 };
 
@@ -277,9 +277,9 @@ export type TreatmentHold = {
   /** Present on the list read (joined); absent on the create/release response. */
   customerName?: string | null;
   accountId: string | null;
-  kind: HoldKind | string;
+  kind: HoldKind | (string & {});
   reason: string | null;
-  source: HoldSource | string;
+  source: HoldSource | (string & {});
   interactionId: string | null;
   slaDueAt: string | null;
   startsAt: string;

@@ -44,7 +44,7 @@ export type DashboardData = {
  * PHASE 2: delete the mock branch — the live branch below is the real call.
  */
 export async function fetchDashboard(params: DashboardParams): Promise<DashboardData> {
-  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  const qs = new URLSearchParams(params).toString();
   return apiGet<DashboardData>(`/dashboard?${qs}`);
 }
 

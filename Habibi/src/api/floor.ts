@@ -249,6 +249,7 @@ export function useCopilotStream(interactionId: string | null) {
       `/floor/copilot/${interactionId}/stream`,
       (event, data) => {
         const payload = (data ?? {}) as Record<string, unknown>;
+        const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
         if (event === "pack") {
           // The stream's first event is the GET body; the whisper then follows as tokens.
           const pack = FloorCopilotResponse.parse(payload);
@@ -265,7 +266,7 @@ export function useCopilotStream(interactionId: string | null) {
           return;
         }
         if (event === "token") {
-          const chunk = String(payload.text ?? "");
+          const chunk = str(payload.text) ?? "";
           setState((prev) => ({
             ...prev,
             whisper: prev.whisper + chunk,
@@ -276,8 +277,8 @@ export function useCopilotStream(interactionId: string | null) {
         if (event === "done") {
           setState((prev) => ({
             ...prev,
-            whisper: String(payload.whisperDraft ?? prev.whisper),
-            engineDraft: String(payload.engineDraft ?? prev.engineDraft),
+            whisper: str(payload.whisperDraft) ?? prev.whisper,
+            engineDraft: str(payload.engineDraft) ?? prev.engineDraft,
             vetoes: Array.isArray(payload.vetoes) ? (payload.vetoes as string[]) : prev.vetoes,
             streaming: false,
             done: true,
@@ -291,7 +292,7 @@ export function useCopilotStream(interactionId: string | null) {
             ...prev,
             streaming: false,
             done: true,
-            error: String(payload.detail ?? "copilot_failed"),
+            error: str(payload.detail) ?? "copilot_failed",
           }));
         }
       },

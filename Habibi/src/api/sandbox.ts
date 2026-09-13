@@ -148,10 +148,10 @@ export async function fetchSandboxScenarios(): Promise<Scenario[]> {
   const rows = await apiGet<Scenario[]>("/sandbox/scenarios");
   return rows.map((s) => ({
     ...s,
-    intents: (s.intents ?? []) as IntentKey[],
+    intents: s.intents ?? [],
     turns: (s.turns ?? []).map((t) => ({
       customer: t.customer,
-      expectedIntent: (t.expectedIntent ?? "out_of_scope") as IntentKey,
+      expectedIntent: t.expectedIntent ?? "out_of_scope",
       expectedSentiment: t.expectedSentiment ?? 0,
       botTemplate: "",
     })),

@@ -144,38 +144,6 @@ export function useOfferHealth(window: OfferHealthWindow = "30d", includeSimulat
   });
 }
 
-export type TunerCopyItem = { name: string; value: number; current: number };
-
-export type TunerSuggestions = {
-  mode: string;
-  applied: boolean;
-  note: string;
-  copyToEnv: TunerCopyItem[];
-  evidence?: { presented?: number; declined?: number; days?: number };
-  treatment?: {
-    mode: string;
-    applied: boolean;
-    note: string;
-    copyToEnv: TunerCopyItem[];
-    evidence?: { actionable?: number; fieldVisits?: number; days?: number };
-  };
-};
-
-export function useTunerSuggestions(days = 14) {
-  return useQuery({
-    queryKey: ["tuner-suggestions", days],
-    queryFn: async () =>
-      ({
-        mode: "retired",
-        applied: false,
-        note: "tuner_removed",
-        copyToEnv: [],
-        treatment: { mode: "retired", applied: false, note: "tuner_removed", copyToEnv: [] },
-      }) satisfies TunerSuggestions,
-    staleTime: 60_000,
-  });
-}
-
 /** `0.163` → `"16.3%"`, and null → "—" rather than a misleading "0%". */
 export function fmtRate(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";

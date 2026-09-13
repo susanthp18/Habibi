@@ -263,9 +263,10 @@ export const AnimatedThemeToggler = ({
       finish();
     }
 
-    const ready = transition?.ready;
-    if (ready && typeof ready.then === "function") {
-      ready
+    // `ready` is a Promise on browsers with view transitions; the guard is on
+    // the transition object, which is undefined where the API is absent.
+    if (transition) {
+      transition.ready
         .then(() => {
           const anim = document.documentElement.animate(
             { clipPath },

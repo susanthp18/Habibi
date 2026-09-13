@@ -41,10 +41,10 @@ export function LoginScreen() {
     };
   }, []);
 
-  const onSignIn = async () => {
+  const onSignIn = () => {
     setBusy(true);
     setNotice(null);
-    const result = await signInWithMicrosoft();
+    const result = signInWithMicrosoft();
     setBusy(false);
     if (!result.ok) setNotice(result.reason);
   };

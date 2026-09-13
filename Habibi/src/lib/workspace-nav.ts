@@ -3,7 +3,7 @@ import type { WorkItem, WorkItemEntityType } from "@/api/workspace";
 
 /** Route + search for opening a work-item entity in its domain page. */
 export function workItemDestination(
-  entityType: WorkItemEntityType | string,
+  entityType: WorkItemEntityType | (string & {}),
   id: string,
   customerId?: string | null,
 ) {

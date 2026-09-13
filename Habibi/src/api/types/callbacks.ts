@@ -59,8 +59,8 @@ export interface Callback {
 // ---- CallbackFilters ----
 export interface CallbackFilters {
   search: string;
-  queue: string | "all";
-  assignee: string | "all";
+  queue: "all" | (string & {});
+  assignee: "all" | (string & {});
   reasons: CbReason[];
   statuses: CbStatus[];
   channels: CbChannel[];

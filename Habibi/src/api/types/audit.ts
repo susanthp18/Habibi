@@ -71,7 +71,7 @@ export interface AuditFilterState {
   dateRange: DateRange;
   channel: "all" | AuditChannel;
   handler: "all" | HandlerKind;
-  agent: "all" | string;
+  agent: "all" | (string & {});
   disposition: "all" | Disposition;
   sentiment: "all" | SentimentBucket;
   flaggedOnly: boolean;

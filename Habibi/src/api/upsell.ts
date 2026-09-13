@@ -36,14 +36,16 @@ async function ownerUserId(owner: string | undefined): Promise<string | undefine
 }
 
 /** Channel used for consent re-check — from how the lead was captured, not always voice. */
-export function leadContactChannel(source: LeadSource | string | undefined): FollowUpChannel {
+export function leadContactChannel(
+  source: LeadSource | (string & {}) | undefined,
+): FollowUpChannel {
   if (source === "bot_chat") return "whatsapp";
   return "voice";
 }
 
 export function followUpChannelFromPolicy(
   channel: string | null | undefined,
-  source?: LeadSource | string,
+  source?: LeadSource | (string & {}),
 ): FollowUpChannel {
   if (channel === "whatsapp" || channel === "sms" || channel === "email") return channel;
   if (channel === "chat") return "whatsapp";

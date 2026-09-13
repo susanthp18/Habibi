@@ -64,7 +64,7 @@ export interface DisputeFilters {
   search: string;
   types: DisputeType[]; // empty = all
   sources: DisputeSource[]; // empty = all
-  assignee: string | "all";
+  assignee: "all" | (string & {});
   sla: "all" | "at_risk" | "breached";
   amount: "any" | "lt5" | "5to25" | "gt25";
   myQueue: boolean;

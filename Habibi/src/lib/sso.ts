@@ -10,7 +10,7 @@ export function entraConfigured(): boolean {
   return Boolean(id && tenant);
 }
 
-export async function signInWithMicrosoft(): Promise<{ ok: true } | { ok: false; reason: string }> {
+export function signInWithMicrosoft(): { ok: true } | { ok: false; reason: string } {
   if (!entraConfigured()) {
     return {
       ok: false,

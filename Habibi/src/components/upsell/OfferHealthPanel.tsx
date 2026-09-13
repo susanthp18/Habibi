@@ -1,14 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
-import {
-  fmtDelta,
-  fmtRate,
-  useOfferHealth,
-  useTunerSuggestions,
-  type OfferHealthWindow,
-  type TunerSuggestions,
-} from "@/api/offer-health";
+import { fmtDelta, fmtRate, useOfferHealth, type OfferHealthWindow } from "@/api/offer-health";
 import { cn } from "@/lib/utils";
 
 function Rate({ value }: { value: number | null }) {
@@ -17,7 +10,6 @@ function Rate({ value }: { value: number | null }) {
 
 export function OfferHealthPanel({ window = "30d" }: { window?: OfferHealthWindow }) {
   const { data, isError, isLoading } = useOfferHealth(window);
-  const tuner = useTunerSuggestions(14);
   // Collapsed by default. This is a diagnostic panel sitting on top of an
   // operational board; expanded it costs ~270px of the pipeline's height and
   // most visits to this page are not about the recommender.
@@ -164,7 +156,6 @@ export function OfferHealthPanel({ window = "30d" }: { window?: OfferHealthWindo
               ))}
             </ul>
           ) : null}
-          <TunerStrip tuner={tuner.data} />
         </>
       )}
     </div>
@@ -177,34 +168,6 @@ function Metric({ label, value, hint }: { label: string; value: ReactNode; hint?
       <div className="text-body-small font-semibold text-text-subtlest">{label}</div>
       <div className="mt-025 heading-small font-semibold leading-tight text-text">{value}</div>
       {hint ? <div className="truncate text-body-small text-text-subtlest">{hint}</div> : null}
-    </div>
-  );
-}
-
-function TunerStrip({ tuner }: { tuner?: TunerSuggestions }) {
-  const reco = tuner?.copyToEnv ?? [];
-  const treatment = tuner?.treatment?.copyToEnv ?? [];
-  const items = [...reco, ...treatment];
-  return (
-    <div className="border-t border-border px-200 py-100">
-      <div className="flex flex-wrap items-center gap-075">
-        <div className="text-body-small font-semibold text-text">Shadow tuner</div>
-        <Lozenge tone="neutral">not auto-applied</Lozenge>
-        <span className="text-body-tiny text-text-subtle">{tuner?.note ?? "loading"}</span>
-      </div>
-      {items.length === 0 ? (
-        <p className="mt-050 text-body-tiny text-text-subtlest">
-          No weight changes suggested. Copy to env is a human step — this never writes live knobs.
-        </p>
-      ) : (
-        <ul className="mt-075 space-y-025 font-mono text-body-tiny text-text">
-          {items.map((k) => (
-            <li key={k.name}>
-              {k.name}={k.value} <span className="text-text-subtle">(now {k.current})</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

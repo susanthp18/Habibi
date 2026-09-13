@@ -158,6 +158,6 @@ export interface PromiseFilters {
   source: PromiseSource | "all";
   aging: "any" | "3d" | "7d" | "gt7" | "overdue";
   amount: "any" | "lt5" | "5to25" | "gt25";
-  owner: string | "all";
+  owner: "all" | (string & {});
   search: string;
 }

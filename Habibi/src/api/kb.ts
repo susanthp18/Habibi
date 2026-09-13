@@ -246,7 +246,7 @@ export async function pollKbIndexJobs(
   opts: { intervalMs?: number; timeoutMs?: number; concurrency?: number } = {},
 ): Promise<{ succeeded: number; failed: number; timedOut: number; jobs: KbIndexJob[] }> {
   const concurrency = Math.max(1, Math.min(opts.concurrency ?? 4, jobIds.length || 1));
-  const jobs: KbIndexJob[] = new Array(jobIds.length);
+  const jobs: KbIndexJob[] = new Array<KbIndexJob>(jobIds.length);
   let cursor = 0;
 
   async function worker() {

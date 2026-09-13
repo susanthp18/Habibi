@@ -42,8 +42,8 @@ export interface ComplianceFilterState {
   q: string;
   dateRange: CompDateRange;
   severities: Set<Severity>;
-  ruleId: "all" | string;
+  ruleId: "all" | (string & {});
   actor: "all" | ActorKind;
-  agent: "all" | string;
+  agent: "all" | (string & {});
   status: "all" | ViolationStatus;
 }

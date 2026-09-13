@@ -489,7 +489,7 @@ export type ChangedComponent =
 export type ChangeLogEntry = {
   id: string;
   actorUserId: string | null;
-  action: "agent.publish" | "agent.rollback" | "agent.archive" | "agent.restore" | string;
+  action: "agent.publish" | "agent.rollback" | "agent.archive" | "agent.restore" | (string & {});
   botId: string | null;
   at: string | null;
   seq?: number;

@@ -28,8 +28,8 @@ export type SkillVersion = {
   signedBy: string | null;
   pack: Record<string, unknown>;
   description: string;
-  evalSuite: unknown | null;
-  origin: unknown | null;
+  evalSuite: unknown;
+  origin: unknown;
 };
 
 /** Library row. Mirrors `AgentStudioSkillSummaryResponse`. */
@@ -48,7 +48,7 @@ export type SkillSummary = {
   rehearsalCards?: string[];
   /** Lint findings the save returned (a create or import); the author is told. */
   lintWarnings?: Record<string, unknown>[] | null;
-  evalSuite?: unknown | null;
+  evalSuite?: unknown;
   contentHash?: string;
   signed: boolean;
   hasSignedVersion?: boolean;

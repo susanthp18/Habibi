@@ -47,7 +47,7 @@ function mapWorkItem(row: WorkItemApi): WorkItem {
     accountId: row.accountId ?? "",
     type: row.type ?? "",
     detail: row.detail ?? "",
-    amount: Number.isFinite(amount as number) ? amount : undefined,
+    amount: amount !== undefined && Number.isFinite(amount) ? amount : undefined,
     ageHours: Number(row.ageHours) || 0,
     sla: row.sla,
     slaLabel: row.slaLabel ?? "",

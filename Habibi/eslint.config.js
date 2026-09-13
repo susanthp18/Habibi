@@ -145,5 +145,39 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Type-aware rules where the code parses the wire and shapes the domain
+    // (src/api, src/lib): an awaited-but-not promise, an `any` spread through
+    // a response, a template literal on an object -- errors there. Screens
+    // are checked the same way and report warnings; check-lint-warnings.mjs
+    // holds that count so it only falls.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.test.{ts,tsx}", "src/test/**"],
+    extends: [...tseslint.configs.recommendedTypeCheckedOnly],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
+    files: ["src/components/**/*.{ts,tsx}", "src/routes/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.test.{ts,tsx}"],
+    rules: Object.fromEntries(
+      Object.entries(
+        tseslint.configs.recommendedTypeCheckedOnly.reduce(
+          (acc, c) => ({ ...acc, ...c.rules }),
+          {},
+        ),
+      )
+        .filter(([, level]) => level !== "off")
+        .map(([rule]) => [rule, "warn"]),
+    ),
+  },
+  {
+    // Held at warn while the other stream has this file open uncommitted
+    // (provider runtime, 2026-09-13); `"a" | (string & {})` is the fix and
+    // this block goes with it.
+    files: ["src/lib/studio-trust.ts"],
+    rules: { "@typescript-eslint/no-redundant-type-constituents": "warn" },
+  },
   eslintPluginPrettier,
 );
