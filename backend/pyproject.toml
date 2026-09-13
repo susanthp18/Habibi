@@ -30,6 +30,7 @@ include = [
   "flow_graph.py",
   "policy_rules.py",
   "contact_policy.py",
+  "contact_ledger.py",
   "routers",
   "db_billing.py",
   "db_bot_analytics.py",

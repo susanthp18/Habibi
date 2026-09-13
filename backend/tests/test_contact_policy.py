@@ -312,12 +312,24 @@ def test_due_reminder_blocked_when_capped(db_tx, monkeypatch: pytest.MonkeyPatch
     )
     for i in range(3):
         assert _admit(db_tx, cid, session_key=f"d{i}", related_id=f"d{i}").allowed
+    # One open promise per account: an account that already carries one
+    # refuses a second (promise_already_open), which is not what this tests.
     acct = db_tx.execute(
-        text("SELECT id FROM accounts WHERE customer_id = :id LIMIT 1"),
+        text(
+            """
+            SELECT a.id FROM accounts a
+             WHERE a.customer_id = :id
+               AND NOT EXISTS (
+                 SELECT 1 FROM promises p
+                  WHERE p.account_id = a.id AND p.status IN ('upcoming', 'due_today')
+               )
+             LIMIT 1
+            """
+        ),
         {"id": cid},
     ).scalar()
     if not acct:
-        pytest.skip("no account")
+        pytest.skip("no account without an open promise")
     row = db_tx.execute(text("SELECT to_regclass('public.payment_intents') AS t")).mappings().first()
     if not row or not row["t"]:
         pytest.skip("payment_intents missing")
@@ -720,7 +732,11 @@ def test_the_weekly_cap_is_read_under_the_day_lock(db_tx, monkeypatch: pytest.Mo
     import contact_policy
 
     src = inspect.getsource(contact_policy.admit)
-    assert src.index("_lock_day(") < src.index("_week_counted(") < src.index("_increment_day(")
+    assert (
+        src.index("contact_ledger.lock_day(")
+        < src.index("_week_counted(")
+        < src.index("contact_ledger.increment_day(")
+    )
 
 
 def test_the_ledger_counts_the_week_the_gate_counts(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:

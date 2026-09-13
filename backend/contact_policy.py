@@ -23,7 +23,6 @@ concurrent dials cannot both take slot 3. Session coalescing: one
 from __future__ import annotations
 
 import logging
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -35,6 +34,7 @@ from sqlalchemy import text
 from agent_core.clock import as_utc
 from agent_core import clock
 
+import contact_ledger
 import contact_window
 import policy_rules
 from env_utils import env_int
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 BLOCKING_CONSENT = frozenset({"opted_out", "dnd", "expired"})
 PURPOSES = frozenset({"outreach", "statutory", "in_session"})
 CHANNELS = frozenset({"voice", "whatsapp", "sms", "email", "chat", "field"})
-ACTORS = frozenset({"human", "bot", "system", "agency"})
+ACTORS = contact_ledger.ACTORS
 
 REASON_NO_CUSTOMER = "no_customer"
 REASON_UNREADABLE = "consent_unreadable"
@@ -251,10 +251,6 @@ def normalize_channel(raw: str | None) -> str:
     if ch in CHANNELS:
         return ch
     return ch or "voice"
-
-
-def _event_id() -> str:
-    return f"CE-{uuid.uuid4().hex[:10].upper()}"
 
 
 def _zone(name: str | None) -> ZoneInfo:
@@ -1200,183 +1196,6 @@ def blocks_scheduling(
     return reason if reason in SCHEDULING_VETOES else None
 
 
-def _insert_event(
-    conn: Any,
-    *,
-    customer: dict[str, Any],
-    channel: str,
-    purpose: str,
-    actor_kind: str,
-    actor_user_id: str | None,
-    outcome: str,
-    reason: str | None,
-    session_key: str | None,
-    source: str | None,
-    related_id: str | None,
-    touch_counted: bool,
-    account_id: str | None,
-    occurred_at: datetime,
-    policy_binding: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
-    policy_binding_hash: str | None = None,
-) -> None:
-    extra_cols = ""
-    extra_vals = ""
-    params: dict[str, Any] = {
-        "id": _event_id(),
-        "tenant_id": customer["tenant_id"],
-        "customer_id": customer["id"],
-        "account_id": account_id,
-        "channel": channel,
-        "purpose": purpose,
-        "actor_kind": actor_kind if actor_kind in ACTORS else "system",
-        "actor_user_id": actor_user_id,
-        "outcome": outcome,
-        "reason": reason,
-        "session_key": session_key,
-        "source": source,
-        "related_id": related_id,
-        "touch_counted": touch_counted,
-        "occurred_at": occurred_at,
-    }
-    from agent_core.treatment import schema_ready
-
-    if schema_ready.has_column(conn, "contact_events", "policy_binding"):
-        extra_cols = ", policy_binding, policy_binding_hash"
-        extra_vals = ", CAST(:policy_binding AS jsonb), :policy_binding_hash"
-        params["policy_binding"] = json.dumps(list(policy_binding))
-        params["policy_binding_hash"] = policy_binding_hash
-    conn.execute(
-        text(
-            f"""
-            INSERT INTO contact_events (
-              id, tenant_id, customer_id, account_id, channel, direction,
-              purpose, actor_kind, actor_user_id, outcome, reason,
-              session_key, source, related_id, touch_counted, occurred_at
-              {extra_cols}
-            ) VALUES (
-              :id, :tenant_id, :customer_id, :account_id, :channel, 'outbound',
-              :purpose, :actor_kind, :actor_user_id, :outcome, :reason,
-              :session_key, :source, :related_id, :touch_counted, :occurred_at
-              {extra_vals}
-            )
-            """
-        ),
-        params,
-    )
-
-
-def _lock_day(conn: Any, customer_id: str, local_date: Any) -> int:
-    """Take the borrower's day row lock; returns today's count so far."""
-    conn.execute(
-        text(
-            """
-            INSERT INTO contact_day_counters (customer_id, local_date, outreach_sessions)
-            VALUES (:cid, :d, 0)
-            ON CONFLICT (customer_id, local_date) DO NOTHING
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    )
-    row = conn.execute(
-        text(
-            """
-            SELECT outreach_sessions FROM contact_day_counters
-            WHERE customer_id = :cid AND local_date = :d
-            FOR UPDATE
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    ).mappings().first()
-    return int(row["outreach_sessions"] or 0) if row else 0
-
-
-def _increment_day(conn: Any, customer_id: str, local_date: Any) -> int:
-    """Count one outreach session on a row `_lock_day` already holds."""
-    row = conn.execute(
-        text(
-            """
-            UPDATE contact_day_counters
-               SET outreach_sessions = outreach_sessions + 1
-             WHERE customer_id = :cid AND local_date = :d
-            RETURNING outreach_sessions
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    ).mappings().first()
-    return int(row["outreach_sessions"] or 0) if row else 0
-
-
-def _reserve_day(conn: Any, customer_id: str, local_date: Any, cap: int) -> tuple[bool, int]:
-    """Lock the day row and increment if under cap. Returns (ok, count_after)."""
-    conn.execute(
-        text(
-            """
-            INSERT INTO contact_day_counters (customer_id, local_date, outreach_sessions)
-            VALUES (:cid, :d, 0)
-            ON CONFLICT (customer_id, local_date) DO NOTHING
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    )
-    row = conn.execute(
-        text(
-            """
-            SELECT outreach_sessions
-            FROM contact_day_counters
-            WHERE customer_id = :cid AND local_date = :d
-            FOR UPDATE
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    ).mappings().first()
-    current = int(row["outreach_sessions"] or 0) if row else 0
-    if current >= cap:
-        return False, current
-    conn.execute(
-        text(
-            """
-            UPDATE contact_day_counters
-            SET outreach_sessions = outreach_sessions + 1
-            WHERE customer_id = :cid AND local_date = :d
-            """
-        ),
-        {"cid": customer_id, "d": local_date},
-    )
-    return True, current + 1
-
-
-def _refresh_used_this_week(conn: Any, customer_id: str, channel: str, tz: ZoneInfo) -> None:
-    local = datetime.now(tz)
-    start = local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=6)
-    n = conn.execute(
-        text(
-            """
-            SELECT count(*)::int AS n
-            FROM contact_events
-            WHERE customer_id = :cid
-              AND channel = :ch
-              AND outcome = 'allowed'
-              AND touch_counted
-              AND occurred_at >= :start
-            """
-        ),
-        {"cid": customer_id, "ch": channel, "start": start.astimezone(timezone.utc)},
-    ).scalar()
-    conn.execute(
-        text(
-            """
-            UPDATE channel_consents cc
-            SET used_this_week = :n
-            FROM consent_records cr
-            WHERE cc.consent_id = cr.id
-              AND cr.customer_id = :cid
-              AND cc.channel = :ch
-            """
-        ),
-        {"cid": customer_id, "ch": channel, "n": int(n or 0)},
-    )
-
-
 def admit(
     conn: Any,
     *,
@@ -1451,7 +1270,7 @@ def admit(
         def _deny(
             why: str, count: int = today, *, last_counted_at: datetime | None = None
         ) -> Decision:
-            _insert_event(
+            contact_ledger.insert_event(
                 conn,
                 customer=customer,
                 channel=channel,
@@ -1500,7 +1319,7 @@ def admit(
             # the cooling-off and weekly reads below cannot race a sibling
             # admit -- two concurrent dials at the weekly cap both read
             # `cap - 1` when these ran before the lock, and both were admitted.
-            current = _lock_day(conn, cid, local.date())
+            current = contact_ledger.lock_day(conn, cid, local.date())
             if current >= cap:
                 return _deny(REASON_DAILY, current)
             last = _last_counted_at(conn, cid)
@@ -1510,14 +1329,14 @@ def admit(
             week_n = _week_counted(conn, cid, channel, now=instant, tz=tz)
             if week_n >= _weekly_cap_for(conn, cid, channel, rules):
                 return _deny(REASON_WEEKLY)
-            today = _increment_day(conn, cid, local.date())
+            today = contact_ledger.increment_day(conn, cid, local.date())
         elif purpose == "statutory" and counts:
             # Statutory is never blocked by the cap, but it consumes a slot so
             # later outreach the same day is.
-            _, after = _reserve_day(conn, cid, local.date(), cap + 10_000)
+            _, after = contact_ledger.reserve_day(conn, cid, local.date(), cap + 10_000)
             today = after
 
-        _insert_event(
+        contact_ledger.insert_event(
             conn,
             customer=customer,
             channel=channel,
@@ -1538,7 +1357,7 @@ def admit(
         if counts:
             nested = conn.begin_nested()
             try:
-                _refresh_used_this_week(conn, cid, channel, tz)
+                contact_ledger.refresh_used_this_week(conn, cid, channel, tz)
                 nested.commit()
             except Exception:
                 nested.rollback()
