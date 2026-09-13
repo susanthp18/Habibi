@@ -259,7 +259,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                   setConfirmBarge(false);
                   onAction("barge", call);
                 }}
-                className="rounded bg-background-danger-bold px-100 py-050 font-semibold text-white"
+                className="rounded bg-background-danger-bold px-100 py-050 font-semibold text-text-inverse"
               >
                 Take over
               </button>
@@ -285,7 +285,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                 />
                 <button
                   type="submit"
-                  className="rounded-medium bg-background-brand-bold px-100 text-body-small font-semibold text-white"
+                  className="rounded-medium bg-background-brand-bold px-100 text-body-small font-semibold text-text-inverse"
                 >
                   Send
                 </button>
@@ -299,7 +299,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                   className={cn(
                     "flex flex-1 items-center justify-center gap-050 rounded-medium px-100 py-075 text-body-small font-medium",
                     listening
-                      ? "bg-background-brand-bold text-white"
+                      ? "bg-background-brand-bold text-text-inverse"
                       : "border border-border text-text-subtle hover:bg-surface-sunken",
                   )}
                 >
@@ -311,7 +311,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                 <button
                   type="button"
                   onClick={() => onAction("inbox", call)}
-                  className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-brand-bold px-100 py-075 text-body-small font-semibold text-white"
+                  className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-brand-bold px-100 py-075 text-body-small font-semibold text-text-inverse"
                 >
                   <LayoutGrid className="h-3 w-3" />
                   {actionLabel.inbox}
@@ -324,7 +324,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                       ? onAction("whisper", call)
                       : setConfirmBarge(true)
                   }
-                  className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-075 text-body-small font-semibold text-white hover:bg-background-danger-bold-hovered"
+                  className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-075 text-body-small font-semibold text-text-inverse hover:bg-background-danger-bold-hovered"
                 >
                   {primary === "whisper" && isHuman ? (
                     <MessageSquare className="h-3 w-3" />

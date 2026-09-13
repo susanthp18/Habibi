@@ -76,7 +76,7 @@ export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Pr
         <button
           type="button"
           onClick={jumpToBottom}
-          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-white shadow-overlay hover:bg-background-brand-bold-hovered"
+          className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse shadow-overlay hover:bg-background-brand-bold-hovered"
         >
           <ArrowDownCircle className="h-3.5 w-3.5" />
           Jump to live
@@ -192,7 +192,7 @@ function TranscriptBubble({
         <div
           className={cn(
             "inline-block rounded-large px-150 py-100 text-body leading-relaxed",
-            meta.tone === "brand" && "rounded-tr-sm bg-background-brand-bold text-white",
+            meta.tone === "brand" && "rounded-tr-sm bg-background-brand-bold text-text-inverse",
             meta.tone === "warn" && "rounded-tl-sm bg-background-warning text-text",
             meta.tone === "neutral" && "rounded-tl-sm bg-surface text-text",
           )}

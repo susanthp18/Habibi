@@ -29,7 +29,7 @@ export function IntegrationsHeader({ env, onEnv, onTestAll, testing, showTestAll
               className={cn(
                 "rounded px-150 py-050 font-medium capitalize transition-colors",
                 env === e
-                  ? "bg-background-brand-bold text-white"
+                  ? "bg-background-brand-bold text-text-inverse"
                   : "text-text-subtle hover:text-text-brand",
               )}
             >

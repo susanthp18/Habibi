@@ -87,7 +87,7 @@ export function RuleCard({
       <div className="flex items-start gap-100">
         <div className="flex flex-col items-center gap-050 pt-025">
           <GripVertical className="h-4 w-4 cursor-grab text-text-subtlest" />
-          <span className="rounded-medium bg-background-brand-boldest px-075 py-025 text-body-small font-semibold text-white">
+          <span className="rounded-medium bg-background-brand-boldest px-075 py-025 text-body-small font-semibold text-text-inverse">
             #{priority}
           </span>
         </div>

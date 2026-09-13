@@ -98,7 +98,7 @@ export function HandoffQueueList({
             type="button"
             disabled={claimingId === item.interactionId}
             onClick={() => onClaim(item.interactionId)}
-            className="shrink-0 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered disabled:opacity-60"
+            className="shrink-0 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
           >
             {claimingId === item.interactionId ? "Claiming…" : "Claim"}
           </button>

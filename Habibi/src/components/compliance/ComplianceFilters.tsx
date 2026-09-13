@@ -31,9 +31,9 @@ const STATUS_OPTIONS = [
 
 const SEVERITIES: Severity[] = ["critical", "high", "medium", "low"];
 const SEV_COLORS: Record<Severity, string> = {
-  critical: "bg-[color:var(--danger)] text-white border-transparent",
-  high: "bg-[color:var(--warning)] text-white border-transparent",
-  medium: "bg-[color:var(--sentiment-neutral)] text-white border-transparent",
+  critical: "bg-[color:var(--danger)] text-text-inverse border-transparent",
+  high: "bg-[color:var(--warning)] text-text-inverse border-transparent",
+  medium: "bg-[color:var(--sentiment-neutral)] text-text-inverse border-transparent",
   low: "bg-surface-sunken text-text border-border",
 };
 

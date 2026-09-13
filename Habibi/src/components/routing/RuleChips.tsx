@@ -47,7 +47,7 @@ export function RuleChips({ rule }: { rule: Rule }) {
           )}
         </span>
       ))}
-      <span className="ml-050 rounded bg-background-brand-bold px-075 py-025 font-semibold text-white">
+      <span className="ml-050 rounded bg-background-brand-bold px-075 py-025 font-semibold text-text-inverse">
         THEN
       </span>
       <span className="rounded-medium border border-border bg-surface px-100 py-025 font-medium text-text">

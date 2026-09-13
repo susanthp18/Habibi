@@ -248,7 +248,7 @@ export function VersionHistory({
               {rows.map((v) => (
                 <li key={v.id} className="mb-200 pl-200">
                   <span
-                    className={`absolute -left-100 mt-075 grid h-3.5 w-3.5 place-items-center rounded-full text-white ${
+                    className={`absolute -left-100 mt-075 grid h-3.5 w-3.5 place-items-center rounded-full text-text-inverse ${
                       v.status === "archived" ? "bg-border-bold" : "bg-background-brand-bold"
                     }`}
                   >

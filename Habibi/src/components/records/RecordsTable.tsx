@@ -271,8 +271,11 @@ export function RecordsTable<T>({
                     key={id}
                     data-row-id={id}
                     className={cn(
-                      "group/row bg-surface transition-colors hover:bg-background-brand-subtlest",
-                      isSelected && "bg-background-selected",
+                      // Hover and selected used to be the same colour, so a
+                      // pointer resting on a row was indistinguishable from
+                      // the row that is open.
+                      "group/row bg-surface transition-colors hover:bg-background-neutral-subtle-hovered",
+                      isSelected && "bg-background-selected hover:bg-background-selected-hovered",
                       onRowClick && "cursor-pointer",
                       rowClassName?.(row),
                     )}

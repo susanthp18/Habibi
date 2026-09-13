@@ -46,7 +46,7 @@ export function AISuggestedResponses({ items, onInsert, canned = [] }: Props) {
                 <button
                   type="button"
                   onClick={() => onInsert(s)}
-                  className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered"
+                  className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered"
                 >
                   <Send className="h-3 w-3" />
                   Speak this

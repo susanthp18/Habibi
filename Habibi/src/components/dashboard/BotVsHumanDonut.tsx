@@ -2,26 +2,19 @@ import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
 
 type Slice = { name: string; value: number; color: string };
 
-const COLOR_ALIASES: Record<string, string> = {
-  "var(--brand-primary)": "#1868db",
-  "var(--brand-navy)": "#505258",
-  "var(--success)": "#5b7f24",
-  "var(--warning)": "#e06c00",
-  "var(--chart-brand)": "#1868db",
-  "var(--chart-success)": "#5b7f24",
-  "var(--chart-warning)": "#e06c00",
-  "var(--background-brand-bold)": "#1868db",
-  "var(--background-brand-boldest)": "#505258",
-  "var(--chart-success-bold)": "#5b7f24",
-  "var(--chart-warning-bold)": "#e06c00",
-  "var(--chart-gray-bold)": "#505258",
-};
-
-const FALLBACKS = ["#1868db", "#e06c00", "#505258"];
+// The API names its slice colours as tokens (`var(--background-brand-bold)`),
+// and the donut is a CSS gradient, so they resolve in the theme they are
+// drawn in. A map of token -> light-mode hex used to sit here and painted the
+// light palette in dark mode. Anything that is not a token or a hex literal
+// falls back to the categorical ramp.
+const FALLBACKS = [
+  "var(--chart-categorical-1)",
+  "var(--chart-categorical-4)",
+  "var(--chart-neutral)",
+];
 
 function resolveColor(color: string, index: number) {
-  if (COLOR_ALIASES[color]) return COLOR_ALIASES[color];
-  if (color.startsWith("#")) return color;
+  if (color.startsWith("var(--") || color.startsWith("#")) return color;
   return FALLBACKS[index % FALLBACKS.length];
 }
 

@@ -80,7 +80,7 @@ export function SandboxHeader(p: Props) {
             className={cn(
               "rounded px-150 py-050 font-medium",
               p.mode === "text"
-                ? "bg-background-brand-bold text-white"
+                ? "bg-background-brand-bold text-text-inverse"
                 : "text-text-subtle hover:bg-surface-sunken",
             )}
             // Was "without writing CRM rows", which is not true: when a
@@ -106,7 +106,7 @@ export function SandboxHeader(p: Props) {
             className={cn(
               "rounded px-150 py-050 font-medium",
               p.mode === "live"
-                ? "bg-background-brand-bold text-white"
+                ? "bg-background-brand-bold text-text-inverse"
                 : "text-text-subtle hover:bg-surface-sunken",
               !p.liveEnabled && "cursor-not-allowed opacity-50",
             )}
@@ -221,7 +221,7 @@ export function SandboxHeader(p: Props) {
           <button
             type="button"
             onClick={p.onPromote}
-            className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
+            className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed"
           >
             <Rocket className="h-3.5 w-3.5" /> Promote to Production
           </button>

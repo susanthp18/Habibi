@@ -212,7 +212,7 @@ export function VoiceCatalogGrid({
                         className={cn(
                           "grid h-9 w-9 shrink-0 place-items-center rounded-full text-body-small font-semibold",
                           selected
-                            ? "bg-background-brand-bold text-white"
+                            ? "bg-background-brand-bold text-text-inverse"
                             : "bg-background-brand-bold/10 text-text-brand",
                         )}
                       >

@@ -589,7 +589,7 @@ export function LeadSheet({ lead, onClose }: Props) {
               </div>
               <Button
                 size="sm"
-                className="h-400 bg-background-success-bold text-white hover:bg-background-success-bold-pressed"
+                className="h-400 bg-background-success-bold text-text-inverse hover:bg-background-success-bold-pressed"
                 onClick={submitWon}
               >
                 Confirm won
@@ -648,7 +648,7 @@ export function LeadSheet({ lead, onClose }: Props) {
                 <>
                   <Button
                     size="sm"
-                    className="h-400 bg-background-success-bold text-white text-body-small hover:bg-background-success-bold-pressed"
+                    className="h-400 bg-background-success-bold text-text-inverse text-body-small hover:bg-background-success-bold-pressed"
                     onClick={() => setWonOpen(true)}
                   >
                     <Trophy className="mr-050 h-3.5 w-3.5" /> Won

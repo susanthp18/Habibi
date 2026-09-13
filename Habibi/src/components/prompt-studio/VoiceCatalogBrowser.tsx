@@ -420,7 +420,7 @@ export function VoiceCatalogBrowser({
               <SlidersHorizontal aria-hidden className="h-3.5 w-3.5" />
               Filters
               {activeFilterCount > 0 ? (
-                <span className="rounded-full bg-background-brand-bold px-075 text-body-micro font-semibold text-white tabular-nums">
+                <span className="rounded-full bg-background-brand-bold px-075 text-body-micro font-semibold text-text-inverse tabular-nums">
                   {activeFilterCount}
                 </span>
               ) : null}

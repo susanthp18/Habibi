@@ -275,7 +275,7 @@ export function PersonaSliders({
                   onClick={() => toggleFallback(l)}
                   className={`rounded-full px-100 py-025 text-body-small ${
                     on
-                      ? "bg-background-brand-bold text-white"
+                      ? "bg-background-brand-bold text-text-inverse"
                       : "border border-border bg-surface text-text-subtle hover:border-border-brand"
                   }`}
                 >

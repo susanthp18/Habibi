@@ -91,7 +91,7 @@ export function VoiceDetailCard({
         <button
           type="button"
           onClick={onUse}
-          className="inline-flex flex-1 items-center justify-center rounded-medium bg-background-brand-bold px-100 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
+          className="inline-flex flex-1 items-center justify-center rounded-medium bg-background-brand-bold px-100 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed"
         >
           Use this voice
         </button>

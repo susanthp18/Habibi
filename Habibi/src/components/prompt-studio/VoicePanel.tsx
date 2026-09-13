@@ -701,7 +701,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
                     }
                     void runPreview();
                   }}
-                  className="inline-flex items-center gap-075 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-075 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {playing || loading ? (
                     <Square className="h-3.5 w-3.5" />

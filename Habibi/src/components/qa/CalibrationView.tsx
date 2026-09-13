@@ -66,7 +66,7 @@ export function CalibrationView({
                 onClose(active.id);
                 toast.success("Calibration closed", { description: active.name });
               }}
-              className="rounded-medium bg-background-brand-bold px-150 py-050 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
+              className="rounded-medium bg-background-brand-bold px-150 py-050 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed"
             >
               Close variance
             </button>

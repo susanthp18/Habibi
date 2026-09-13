@@ -59,7 +59,7 @@ export function DisputeCard({ dispute: d, onOpen, onAssignMe }: Props) {
       )}
     >
       {d.sla === "breach" && d.status !== "resolved" && d.status !== "rejected" && (
-        <div className="mb-100 -mx-150 -mt-150 rounded-t-md bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-white">
+        <div className="mb-100 -mx-150 -mt-150 rounded-t-md bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-text-inverse">
           SLA breached
         </div>
       )}

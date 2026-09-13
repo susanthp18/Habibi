@@ -45,7 +45,7 @@ export function ViewToggle<V extends string>({
           <Icon className="h-3.5 w-3.5" />
           {label}
           {count != null && count > 0 && (
-            <span className="rounded-full bg-background-danger-bold px-075 text-body-micro font-semibold text-white">
+            <span className="rounded-full bg-background-danger-bold px-075 text-body-micro font-semibold text-text-inverse">
               {count}
             </span>
           )}

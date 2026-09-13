@@ -108,7 +108,7 @@ function BillingPage() {
             </p>
             <button
               type="button"
-              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white"
+              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse"
               onClick={() => void refetch()}
             >
               Retry

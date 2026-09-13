@@ -61,7 +61,7 @@ function renderWithMarks(
         title={`${rules[f.type].label} · ${f.source} · click to ${f.accepted ? "unmask" : "re-mask"}`}
         className={cn(
           "mx-025 inline-flex items-baseline gap-050 rounded px-050 py-0 font-mono text-body-small transition-opacity",
-          f.accepted ? "text-white" : "text-text line-through opacity-70",
+          f.accepted ? "text-text-inverse" : "text-text line-through opacity-70",
         )}
         style={{
           backgroundColor: f.accepted ? ENTITY_COLORS[f.type] : "transparent",

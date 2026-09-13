@@ -154,7 +154,7 @@ export function WrapUpBar({
                 ptpDate: ptp ? ptpDate : undefined,
               })
             }
-            className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered disabled:opacity-60"
+            className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
           >
             <Save className="h-3.5 w-3.5" />
             {saving ? "Saving…" : "Save & writeback"}

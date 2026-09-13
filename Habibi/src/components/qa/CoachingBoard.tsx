@@ -41,7 +41,7 @@ export function CoachingBoard({
         </div>
         <button
           onClick={onNew}
-          className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-050 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
+          className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-050 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed"
         >
           <Plus className="h-3.5 w-3.5" /> New coaching action
         </button>

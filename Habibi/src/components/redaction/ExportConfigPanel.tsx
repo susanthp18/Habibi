@@ -122,7 +122,7 @@ export function ExportConfigPanel(p: Props) {
         onClick={p.onGenerate}
         disabled={!canExport}
         className={cn(
-          "flex w-full items-center justify-center gap-100 rounded-medium py-100 text-body font-semibold text-white transition-colors",
+          "flex w-full items-center justify-center gap-100 rounded-medium py-100 text-body font-semibold text-text-inverse transition-colors",
           canExport
             ? "bg-background-brand-bold hover:bg-background-brand-bold-hovered"
             : "cursor-not-allowed bg-text-subtlest",

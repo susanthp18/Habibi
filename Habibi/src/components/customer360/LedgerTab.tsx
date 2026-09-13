@@ -145,7 +145,7 @@ export function LedgerTab({
                 className={cn(
                   "rounded-medium px-100 py-025 text-body-small font-medium",
                   range === r
-                    ? "bg-background-brand-boldest text-white"
+                    ? "bg-background-brand-boldest text-text-inverse"
                     : "text-text-subtle hover:bg-surface-sunken",
                 )}
               >

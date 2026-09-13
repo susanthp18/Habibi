@@ -85,7 +85,7 @@ function HandoffPage() {
           <button
             type="button"
             onClick={() => void queue.refetch()}
-            className="mt-150 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-white"
+            className="mt-150 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse"
           >
             Retry
           </button>
@@ -145,7 +145,7 @@ function HandoffSessionGate({
           type="button"
           onClick={() => void refetch()}
           disabled={isFetching}
-          className="rounded-medium bg-background-brand-bold px-150 py-100 text-body font-semibold text-white transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-medium bg-background-brand-bold px-150 py-100 text-body font-semibold text-text-inverse transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isFetching ? "Retrying…" : "Retry"}
         </button>
@@ -173,7 +173,7 @@ function HandoffSessionGate({
           type="button"
           disabled={claiming}
           onClick={() => onClaim(interactionId)}
-          className="rounded-medium bg-background-brand-bold px-200 py-100 text-body font-semibold text-white hover:bg-background-brand-bold-hovered disabled:opacity-60"
+          className="rounded-medium bg-background-brand-bold px-200 py-100 text-body font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
         >
           {claiming ? "Claiming…" : "Claim this call"}
         </button>
@@ -352,7 +352,7 @@ function HandoffLive({
                 })
                 .catch((e) => toast.error(e instanceof Error ? e.message : "Take over failed"));
             }}
-            className="rounded-medium bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-white hover:bg-background-danger-bold-hovered"
+            className="rounded-medium bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-danger-bold-hovered"
           >
             Take over
           </button>

@@ -65,7 +65,7 @@ export function PromiseCard({ promise: p, onOpen, onMark, onResend }: Props) {
       )}
     >
       {p.status === "broken" && (
-        <div className="mb-100 -mx-150 -mt-150 rounded-t-md bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-white">
+        <div className="mb-100 -mx-150 -mt-150 rounded-t-md bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-text-inverse">
           Auto-routed to follow-up
         </div>
       )}

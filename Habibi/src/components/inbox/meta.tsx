@@ -125,7 +125,7 @@ export function Avatar({
   return (
     <div
       className={cn(
-        "grid shrink-0 place-items-center rounded-full font-semibold text-white",
+        "grid shrink-0 place-items-center rounded-full font-semibold text-text-inverse",
         avatarColor(name),
         className,
       )}

@@ -85,7 +85,7 @@ export function PriorityLane({ alerts, calls, onFocus, onAction, onAck }: Props)
                   <button
                     type="button"
                     onClick={() => onAction(a.callId, action)}
-                    className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-050 text-body-small font-semibold text-white hover:bg-background-danger-bold-hovered"
+                    className="flex flex-1 items-center justify-center gap-050 rounded-medium bg-background-danger-bold px-100 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-danger-bold-hovered"
                   >
                     <ActionIcon action={action} />
                     {actionLabel[action]}

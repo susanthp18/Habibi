@@ -114,7 +114,7 @@ export function CallHeader({
                 type="button"
                 onClick={onEnd}
                 disabled={ended}
-                className="ml-050 flex items-center gap-075 rounded-medium bg-background-danger-bold px-150 py-075 text-body-small font-semibold text-white transition-colors hover:bg-background-danger-bold-hovered disabled:cursor-not-allowed disabled:opacity-50"
+                className="ml-050 flex items-center gap-075 rounded-medium bg-background-danger-bold px-150 py-075 text-body-small font-semibold text-text-inverse transition-colors hover:bg-background-danger-bold-hovered disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <PhoneOff className="h-3.5 w-3.5" />
                 End call

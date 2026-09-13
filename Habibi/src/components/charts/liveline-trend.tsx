@@ -16,6 +16,8 @@ type SeriesInput = {
   label: string;
   values: number[];
   color: string;
+  /** SVG dash pattern, so two series are told apart without colour. */
+  dash?: string;
 };
 
 type Props = {
@@ -186,6 +188,7 @@ export function LivelineTrend({
             d={s.line}
             fill="none"
             stroke={s.color}
+            strokeDasharray={s.dash}
             strokeWidth={2.25}
             strokeLinecap="round"
             strokeLinejoin="round"

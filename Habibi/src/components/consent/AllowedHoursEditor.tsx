@@ -45,7 +45,7 @@ export function AllowedHoursEditor({
                 onClick={() => toggle(d.d)}
                 className={`h-7 w-7 rounded-medium border text-body-small font-semibold transition-colors ${
                   on
-                    ? "border-border-brand bg-background-brand-bold text-white"
+                    ? "border-border-brand bg-background-brand-bold text-text-inverse"
                     : "border-border bg-surface text-text-subtle hover:bg-surface-sunken"
                 }`}
               >

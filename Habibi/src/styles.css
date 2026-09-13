@@ -1836,3 +1836,33 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Windows High Contrast / forced colours: every custom background is
+   replaced by the system palette, so anything that relied on a fill to be
+   seen -- a selected row, a focused control, a lozenge -- needs an outline
+   the system will keep. */
+@media (forced-colors: active) {
+  [data-state="selected"],
+  [aria-selected="true"],
+  [aria-current] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .focus-ring:focus-visible,
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  button,
+  [role="button"],
+  input,
+  select,
+  textarea {
+    border: 1px solid ButtonText;
+  }
+  [aria-disabled="true"],
+  :disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+}

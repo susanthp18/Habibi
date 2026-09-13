@@ -291,7 +291,7 @@ export function ProviderDrawer({
                   Copy
                 </Button>
               </div>
-              <pre className="rounded-medium border border-border bg-background-brand-boldest/95 p-150 font-mono text-body-small leading-relaxed text-white/90">
+              <pre className="rounded-medium border border-border bg-background-brand-boldest/95 p-150 font-mono text-body-small leading-relaxed text-text-inverse/90">
                 {snippet}
               </pre>
               <p className="mt-100 text-body-small text-text-subtlest">

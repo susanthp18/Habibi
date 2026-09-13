@@ -477,7 +477,7 @@ export function PromptStudioPage({
       />
 
       {busy && (
-        <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-white shadow-overlay">
+        <div className="pointer-events-none fixed bottom-4 right-4 rounded-medium bg-background-brand-boldest/90 px-150 py-075 text-body-small text-text-inverse shadow-overlay">
           Saving…
         </div>
       )}

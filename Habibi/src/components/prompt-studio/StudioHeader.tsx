@@ -182,7 +182,7 @@ export function StudioHeader({
               onClick={onPublish}
               disabled={publishDisabled}
               title={mayPublish ? undefined : "Publishing needs perm-agent-publish"}
-              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UploadCloud className="h-3.5 w-3.5" /> Publish {nextVersion}
             </button>

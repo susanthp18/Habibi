@@ -83,7 +83,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
                 showAfter: 0,
               })
             }
-            className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-white hover:bg-background-brand-bold-hovered disabled:opacity-50"
+            className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-50"
           >
             <Send className="h-3 w-3" />
             Speak this

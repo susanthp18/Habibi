@@ -323,7 +323,7 @@ export function ConversationPanel({
                 <button
                   type="button"
                   onClick={live.onStart}
-                  className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed"
+                  className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed"
                 >
                   <Phone className="h-3.5 w-3.5" /> Start call
                 </button>
@@ -474,7 +474,7 @@ export function ConversationPanel({
               type="button"
               onClick={send}
               disabled={!draft.trim() || micBusy}
-              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-100 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-100 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="h-3.5 w-3.5" /> Send
             </button>
@@ -576,7 +576,7 @@ function TurnBubble({ turn, voice }: { turn: SandboxTurn; voice?: VoiceConfig | 
           "max-w-[80%] rounded-xxlarge px-150 py-100 text-body leading-relaxed",
           isBot
             ? "rounded-bl-sm bg-surface text-text"
-            : "rounded-br-sm bg-background-brand-bold text-white",
+            : "rounded-br-sm bg-background-brand-bold text-text-inverse",
         )}
       >
         <div>{turn.text}</div>

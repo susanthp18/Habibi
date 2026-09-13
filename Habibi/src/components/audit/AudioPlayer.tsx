@@ -156,7 +156,9 @@ export function AudioPlayer({
               onClick={() => onSpeedChange(s)}
               className={cn(
                 "rounded px-075 py-025 font-medium",
-                speed === s ? "bg-background-brand-bold text-white" : "hover:bg-surface-sunken",
+                speed === s
+                  ? "bg-background-brand-bold text-text-inverse"
+                  : "hover:bg-surface-sunken",
               )}
             >
               {s}×

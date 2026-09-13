@@ -165,7 +165,7 @@ export function ScoringCanvas({
               disabled={!allScored}
               title={allScored ? undefined : "Score every criterion before publishing"}
               className={cn(
-                "inline-flex items-center gap-050 rounded-medium px-150 py-075 text-body-small font-medium text-white",
+                "inline-flex items-center gap-050 rounded-medium px-150 py-075 text-body-small font-medium text-text-inverse",
                 allScored
                   ? "bg-background-brand-bold hover:bg-background-brand-bold-pressed"
                   : "cursor-not-allowed bg-background-brand-bold/40",

@@ -116,7 +116,7 @@ export function NewCoachingSheet({
                 callId: presetCallId,
               });
             }}
-            className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:opacity-40"
+            className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed disabled:opacity-40"
           >
             Create action
           </button>

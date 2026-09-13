@@ -185,7 +185,7 @@ function ActionBtn({
       disabled={disabled}
       className={`inline-flex items-center gap-050 rounded-medium border px-100 py-050 text-body-small transition-colors ${
         primary
-          ? "border-border-brand bg-background-brand-bold text-white hover:bg-background-brand-bold-hovered disabled:opacity-40"
+          ? "border-border-brand bg-background-brand-bold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-40"
           : "border-border bg-surface text-text-subtle hover:bg-surface-sunken disabled:opacity-40"
       } disabled:cursor-not-allowed`}
     >

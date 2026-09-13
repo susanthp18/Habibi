@@ -367,7 +367,7 @@ export function PromiseDetailSheet({
                         ? "Kept requires a recorded payment"
                         : undefined
                     }
-                    className="bg-background-success-bold hover:bg-background-success-bold-pressed text-white disabled:opacity-40"
+                    className="bg-background-success-bold hover:bg-background-success-bold-pressed text-text-inverse disabled:opacity-40"
                   >
                     Mark kept · {fmtMoney(promise.amount)}
                   </Button>
