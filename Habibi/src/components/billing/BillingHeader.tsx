@@ -1,8 +1,7 @@
 import { Download, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Env, Period, Tenant } from "@/api/types/billing";
+import type { Env, Period } from "@/api/types/billing";
 import { Lozenge } from "@/components/ui/lozenge";
-import { SelectField } from "@/components/ui/select";
 
 const PERIODS: Array<{ key: Period; label: string }> = [
   { key: "mtd", label: "MTD" },
@@ -14,9 +13,6 @@ const PERIODS: Array<{ key: Period; label: string }> = [
 export function BillingHeader({
   period,
   onPeriod,
-  tenantId,
-  onTenant,
-  tenants,
   env,
   onEnv,
   onExportCsv,
@@ -24,9 +20,6 @@ export function BillingHeader({
 }: {
   period: Period;
   onPeriod: (p: Period) => void;
-  tenantId: string;
-  onTenant: (id: string) => void;
-  tenants: Tenant[];
   env: Env;
   onEnv: (e: Env) => void;
   onExportCsv: () => void;
@@ -78,17 +71,6 @@ export function BillingHeader({
               </button>
             ))}
           </div>
-          <SelectField
-            value={tenantId}
-            onChange={onTenant}
-            aria-label="Filter billing by tenant"
-            size="compact"
-            className="w-[12.5rem]"
-            options={[
-              { value: "all", label: "All tenants" },
-              ...tenants.map((t) => ({ value: t.id, label: t.name })),
-            ]}
-          />
           <button
             type="button"
             onClick={onExportCsv}

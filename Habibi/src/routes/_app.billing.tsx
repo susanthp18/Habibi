@@ -41,15 +41,10 @@ export const Route = createFileRoute("/_app/billing")({
 
 function BillingPage() {
   const [period, setPeriod] = useState<Period>("mtd");
-  const [tenantId, setTenantId] = useState<string>("all");
   const [env, setEnv] = useState<Env>("production");
   const [drawerService, setDrawerService] = useState<Service | null>(null);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(
-    period,
-    tenantId,
-    env,
-  );
+  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(period, env);
   const { save, remove } = useBudgetRuleMutations();
 
   const services = data?.services ?? [];
@@ -91,14 +86,11 @@ function BillingPage() {
         <BillingHeader
           period={period}
           onPeriod={setPeriod}
-          tenantId={tenantId}
-          onTenant={setTenantId}
-          tenants={tenants}
           env={env}
           onEnv={setEnv}
           onExportCsv={() => {
             if (!data) return;
-            window.open(billingExportUrl(period, tenantId, env), "_blank");
+            window.open(billingExportUrl(period, env), "_blank");
             toast.success("CSV export started");
           }}
           refreshing={isFetching}

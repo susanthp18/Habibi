@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // Billing & Usage Analytics — live API only (no mock branch).
-//   useBilling(period, tenantId, env) → GET /billing
+//   useBilling(period, env) → GET /billing (always the caller's tenant)
 //   Budget rule mutations → POST/PATCH/DELETE /billing/budgets/.../rules
 // -----------------------------------------------------------------------------
 
@@ -83,19 +83,15 @@ export type BillingOverview = {
   modelSpend: BillingModelSpend[];
 };
 
-export async function fetchBilling(
-  period: Period,
-  tenantId: string,
-  env: Env,
-): Promise<BillingOverview> {
-  const qs = new URLSearchParams({ period, tenantId, env });
+export async function fetchBilling(period: Period, env: Env): Promise<BillingOverview> {
+  const qs = new URLSearchParams({ period, env });
   return apiGet<BillingOverview>(`/billing?${qs.toString()}`);
 }
 
-export function useBilling(period: Period, tenantId: string, env: Env) {
+export function useBilling(period: Period, env: Env) {
   return useQuery({
-    queryKey: ["billing", period, tenantId, env],
-    queryFn: () => fetchBilling(period, tenantId, env),
+    queryKey: ["billing", period, env],
+    queryFn: () => fetchBilling(period, env),
     placeholderData: keepPreviousData,
   });
 }
@@ -138,7 +134,7 @@ export function useBudgetRuleMutations() {
   return { save, remove };
 }
 
-export function billingExportUrl(period: Period, tenantId: string, env: Env): string {
-  const qs = new URLSearchParams({ period, tenantId, env });
+export function billingExportUrl(period: Period, env: Env): string {
+  const qs = new URLSearchParams({ period, env });
   return `${API_BASE_URL}/billing/export.csv?${qs.toString()}`;
 }
