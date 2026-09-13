@@ -772,10 +772,28 @@ def create_promise_to_pay(
             with db.engine.begin() as conn:
                 capture.mark_ptp_captured(conn, interaction_id)
         except Exception:
-            logger.exception("mark_ptp_captured failed")
+            # The promise row is committed; what failed is the call's own
+            # "a PTP was captured here" mark, which the closer and the
+            # scorecard read. Saying ok would have the model confirm a
+            # capture the interaction record denies.
+            logger.exception("mark_ptp_captured failed promise=%s", promise_id)
+            return ToolResult(
+                ok=False,
+                error="crm_write_failed",
+                data={"promiseId": promise_id, "detail": "ptp_capture_mark_failed"},
+                spoken_summary="the promise is recorded; apologise and offer a callback to confirm it",
+            )
 
     fulfillment = (row or {}).get("_fulfillment") or {}
-    spoken = (row or {}).get("_spoken") or "confirm the amount and date back to them"
+    # The fulfiller (confirmation message, pay link) runs under its own
+    # savepoint and reports its failure on the row. The promise stands; the
+    # model must not confirm a message that was never sent.
+    fulfillment_error = fulfillment.get("error")
+    spoken = (row or {}).get("_spoken") or (
+        "the promise is recorded but the confirmation could not be sent; say so and offer to resend"
+        if fulfillment_error
+        else "confirm the amount and date back to them"
+    )
     return ToolResult(
         ok=True,
         data={
@@ -787,6 +805,7 @@ def create_promise_to_pay(
             "phoneLast4": fulfillment.get("phoneLast4"),
             "payLinkSent": bool(fulfillment.get("payLinkSent")),
             "suppressed": bool(fulfillment.get("suppressed")),
+            "fulfillmentError": fulfillment_error,
         },
         spoken_summary=spoken,
         entity=_entity("create_promise_to_pay"),

@@ -326,6 +326,56 @@ def test_a_raising_fulfiller_leaves_the_promise_committed(db_tx, monkeypatch) ->
     ).mappings().first()
     assert row is not None and row["status"] == "upcoming"
 
+    # The tool must not have the model confirm a message that never went.
+    out = _create(customer_id, account_id, amount=500, days=3)
+    assert out.ok is True
+    assert out.data["fulfillmentError"].startswith("ProgrammingError")
+    assert out.data["payLinkSent"] is False
+    assert "could not be sent" in out.spoken_summary
+
+
+def test_a_failed_capture_mark_is_not_reported_ok(db_tx, monkeypatch) -> None:
+    """The promise row stands; the interaction's PTP mark is what the closer
+    and the scorecard read, so a failure there is the tool's failure."""
+    import uuid
+
+    import capture
+    import db
+    from agent_core.tools import create_promise_to_pay
+
+    _require_intents(db_tx)
+    customer_id, account_id = _customer(db_tx)
+    ix = f"IX-PTP-{uuid.uuid4().hex[:8].upper()}"
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO interactions (id, tenant_id, customer_id, handler_kind, handler_bot_id,
+                                      channel, status, started_at)
+            VALUES (:id, :t, :c, 'bot', (SELECT id FROM bots LIMIT 1), 'voice', 'active', now())
+            """
+        ),
+        {"id": ix, "t": db.TENANT_ID, "c": customer_id},
+    )
+
+    def _boom(conn, interaction_id):
+        raise RuntimeError("interactions row locked")
+
+    monkeypatch.setattr(capture, "mark_ptp_captured", _boom)
+    out = create_promise_to_pay(
+        customer_id=customer_id,
+        amount=300,
+        promised_date=(clock.today_local() + timedelta(days=4)).isoformat(),
+        account_id=account_id,
+        channel="voice",
+        interaction_id=ix,
+        idempotency_key=f"ptp-mark-{uuid.uuid4().hex}",
+    )
+    assert out.ok is False and out.error == "crm_write_failed"
+    assert out.data["promiseId"]
+    assert db_tx.execute(
+        text("SELECT 1 FROM promises WHERE id = :id"), {"id": out.data["promiseId"]}
+    ).scalar() == 1
+
 
 def test_a_promise_is_stored_at_local_midnight_of_the_named_day(db_tx) -> None:
     """The borrower names a day; the row must not depend on the session zone.
