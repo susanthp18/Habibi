@@ -45,6 +45,7 @@ DECLARE
     'document_templates',
     'document_requests',
     'callbacks',
+    'followups',
     'treatment_holds',
     'mandates',
     'mandate_presentations',
