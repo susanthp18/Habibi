@@ -11,17 +11,15 @@ import { SplitPanes } from "@/components/shared/SplitPanes";
 import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
 import { EMPTY_INSIGHTS } from "@/components/sandbox/voice/liveEvents";
-import { exportInteraction, useSandboxScenarios } from "@/api/sandbox";
+import { exportInteraction } from "@/api/sandbox";
 import { completeSandboxRun } from "@/api/sandbox";
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
-import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
-import { useAgentStudioCards } from "@/api/agent-studio";
-import { useAgentStudioSkills } from "@/api/skills";
-import { useKbSnapshots } from "@/api/kb";
+import { publishPromptVersion } from "@/api/prompt-studio";
 import type { IntentKey } from "@/api/types/sandbox";
 import { EMPTY_SESSION, sandboxSessionReducer } from "@/components/sandbox/sandboxSession";
 import { downloadJson, openingTurns } from "@/components/sandbox/sessionOpening";
 import { useTextRehearsal } from "@/components/sandbox/useTextRehearsal";
+import { useSandboxSelection, type SandboxSearch } from "@/components/sandbox/useSandboxSelection";
 import { LoadingState } from "@/components/ui/loading-state";
 import type { AgentTuning } from "@/api/types/agent-tuning";
 import { DEFAULT_AGENT_TUNING, tuningFromVoiceConfig } from "@/lib/agent-tuning";
@@ -34,51 +32,27 @@ function SandboxRoute() {
   return <SandboxPage search={Route.useSearch()} />;
 }
 
-export type SandboxSearch = { promptVersionId?: string; skillSlug?: string; botId?: string };
-
 export function SandboxPage({ search }: { search: SandboxSearch }) {
   const {
-    promptVersionId: searchPromptId,
-    skillSlug: searchSkillSlug,
-    botId: searchBotId,
-  } = search;
-  const cardsQuery = useAgentStudioCards();
-  const skillsQuery = useAgentStudioSkills();
-  const [botId, setBotId] = useState(searchBotId || "");
-  // useState seeds once. Navigating to /sandbox?botId=X from an already-mounted
-  // sandbox — which is what the fleet index's Sandbox button does when the tab
-  // is open — left the previous card selected and silently rehearsed the wrong
-  // agent. Only follows the URL when it names a card, so clearing the param
-  // does not yank a selection made here.
-  useEffect(() => {
-    if (searchBotId) setBotId(searchBotId);
-  }, [searchBotId]);
-  // Without a card in the URL, rehearse the fleet's door -- the card inbound
-  // traffic resolves to -- once the roster is in.
-  const entryBotId = cardsQuery.data?.[0]?.entryBotId;
-  useEffect(() => {
-    if (!botId && entryBotId) setBotId(entryBotId);
-  }, [botId, entryBotId]);
-  const [skillSlug, setSkillSlug] = useState(searchSkillSlug || "");
-  const versionsQuery = usePromptVersions(botId);
-  const scenariosQuery = useSandboxScenarios();
-  const snapshotsQuery = useKbSnapshots();
-
-  const versions = versionsQuery.data ?? [];
-  const scenarios = scenariosQuery.data ?? [];
-  const kbOptions = useMemo(() => {
-    const rows = snapshotsQuery.data ?? [];
-    return [
-      { id: "current", label: "Current (live index)" },
-      ...rows.map((s) => ({ id: s.id, label: s.label || s.id })),
-    ];
-  }, [snapshotsQuery.data]);
-
-  const publishedPrompt = versions.find((v) => v.status === "published") ?? versions[0] ?? null;
-
-  const [promptVersionId, setPromptVersionId] = useState<string>("");
-  const [kbSnapshotId, setKbSnapshotId] = useState("current");
-  const [scenarioId, setScenarioId] = useState<string>("");
+    cards,
+    botId,
+    setBotId,
+    skillSlug,
+    setSkillSlug,
+    versions,
+    scenarios,
+    kbOptions,
+    promptVersionId,
+    setPromptVersionId,
+    kbSnapshotId,
+    setKbSnapshotId,
+    setScenarioId,
+    scenario,
+    activePrompt,
+    attachedSkills,
+    activeKb,
+    loading,
+  } = useSandboxSelection(search);
   const [session, dispatch] = useReducer(sandboxSessionReducer, EMPTY_SESSION);
   const { turns, scriptIndex, run, halted, flowNode, textToolCalls, liveMetrics } = session;
   const [promoteOpen, setPromoteOpen] = useState(false);
@@ -94,48 +68,6 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
   const [nextCallDirty, setNextCallDirty] = useState(false);
   const bootstrapped = useRef(false);
   const tuningBaseline = useRef(DEFAULT_AGENT_TUNING);
-
-  // A requested version that belongs to a different card used to fall through
-  // to this bot's published one without a word, so "Try in sandbox" on any
-  // non-default card rehearsed the wrong agent and looked fine doing it.
-  const warnedMissingVersion = useRef(false);
-  useEffect(() => {
-    if (!versions.length) return;
-    if (searchPromptId) {
-      if (versions.some((v) => v.id === searchPromptId)) {
-        setPromptVersionId(searchPromptId);
-        return;
-      }
-      if (!warnedMissingVersion.current) {
-        warnedMissingVersion.current = true;
-        toast.error(`Version ${searchPromptId} is not on ${botId}`, {
-          description: "Pick the right agent above — this run would test a different card.",
-        });
-      }
-    }
-    if (!promptVersionId) {
-      setPromptVersionId(publishedPrompt?.id ?? versions[0]!.id);
-    }
-  }, [versions, searchPromptId, publishedPrompt, promptVersionId, botId]);
-
-  useEffect(() => {
-    if (!scenarios.length) return;
-    if (!scenarioId) setScenarioId(scenarios[0]!.id);
-  }, [scenarios, scenarioId]);
-
-  const scenario = scenarios.find((s) => s.id === scenarioId) ?? scenarios[0];
-  const activePrompt =
-    versions.find((v) => v.id === promptVersionId) ?? publishedPrompt ?? versions[0];
-  const attachedSkills = useMemo(() => {
-    const card = activePrompt?.agentCard as { skills?: { skill_id?: string }[] } | undefined;
-    const attached = new Set(
-      (card?.skills ?? []).map((s) => String(s.skill_id ?? "")).filter(Boolean),
-    );
-    return (skillsQuery.data ?? [])
-      .filter((s) => attached.has(s.slug))
-      .map((s) => ({ slug: s.slug, label: s.slug }));
-  }, [activePrompt, skillsQuery.data]);
-  const activeKb = kbOptions.find((k) => k.id === kbSnapshotId) ?? kbOptions[0]!;
 
   useEffect(() => {
     if (!scenario) return;
@@ -311,8 +243,6 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
     return scenario.turns[scriptIndex - 1]?.expectedIntent ?? null;
   }, [scenario, scriptIndex]);
 
-  const loading = scenariosQuery.isLoading || versionsQuery.isLoading;
-
   if (loading && !scenario) {
     return (
       <>
@@ -438,7 +368,7 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
           liveEnabled={liveEnabled}
           cardId={botId}
           editBotId={botId}
-          cards={(cardsQuery.data ?? []).map((c) => ({ id: c.botId, label: c.name }))}
+          cards={cards}
           onCard={(id) => {
             setBotId(id);
             setPromptVersionId("");
