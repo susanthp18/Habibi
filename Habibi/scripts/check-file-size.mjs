@@ -22,7 +22,6 @@ const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
 
 /** Measured on 2026-09-12. Shrink or delete; never add. */
 const BASELINE = {
-  "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1026,
   "src/components/prompt-studio/VoicePanel.tsx": 882,
   "src/routes/_app.agent-studio.index.tsx": 698,
   "src/routes/_app.handoff.lazy.tsx": 563,
