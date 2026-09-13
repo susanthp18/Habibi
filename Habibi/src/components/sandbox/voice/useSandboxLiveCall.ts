@@ -6,6 +6,7 @@ import type { Persona } from "@/api/types/sandbox";
 import type { SandboxTurn } from "@/api/types/sandbox";
 import type { LiveCallChrome } from "@/components/sandbox/ConversationPanel";
 import type { TurnMetric } from "@/components/sandbox/inspector/MetricsTab";
+import type { PipecatClient } from "@pipecat-ai/client-js";
 import {
   asServerMessage,
   EMPTY_INSIGHTS,
@@ -118,11 +119,7 @@ export function useSandboxLiveCall(args: Args) {
   const startGenRef = useRef(0);
   const startingRef = useRef(false);
   const [voiceLabel, setVoiceLabel] = useState<string | undefined>(undefined);
-  const clientRef = useRef<{
-    disconnect: () => Promise<void>;
-    enableMic: (v: boolean) => void;
-    sendClientMessage?: (type: string, data: unknown) => void;
-  } | null>(null);
+  const clientRef = useRef<PipecatClient | null>(null);
   const botAudioRef = useRef<HTMLAudioElement | null>(null);
   const startedAt = useRef<number | null>(null);
   const argsRef = useRef(args);
@@ -264,10 +261,9 @@ export function useSandboxLiveCall(args: Args) {
         enableCam: false,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const c = client as any;
+      const c = client;
       // Assign before connect so end/unmount can disconnect a hung handshake.
-      clientRef.current = c as typeof clientRef.current;
+      clientRef.current = c;
 
       // Handlers read argsRef.current, not the start-time `a` snapshot: the
       // parent passes inline callbacks, so every re-render gives new closures
@@ -344,22 +340,13 @@ export function useSandboxLiveCall(args: Args) {
         setInsights((p) => ({ ...p, userSpeaking: false })),
       );
 
-      // Device / transport errors — surface instead of failing silently.
-      const onDeviceOrError = (err: unknown) => {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : typeof err === "string"
-              ? err
-              : (err as { message?: string })?.message || "Voice device error";
+      // Device / transport errors — surface instead of failing silently. The
+      // client's `error` carries an RTVIMessage whose data is the detail.
+      c.on(RTVIEvent.Error, (message) => {
+        const data = message?.data as { message?: string } | string | undefined;
+        const msg = typeof data === "string" ? data : data?.message || "Voice device error";
         toast.error(msg, { description: "Check mic permissions and try Restart." });
-      };
-      try {
-        // Optional events — older clients may not emit them.
-        c.on(RTVIEvent.Error as never, onDeviceOrError);
-      } catch {
-        /* ignore */
-      }
+      });
 
       // --- Tool calls ---------------------------------------------------------
       // InProgress carries tool_call_id + arguments; Stopped closes the same id.

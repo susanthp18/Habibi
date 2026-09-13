@@ -45,8 +45,8 @@ export type AgentCardSummary = {
   isFirstParty: boolean;
   /** The editable card (draft when one exists). */
   agentCard: AgentCard;
-  /** What production is actually running. Empty until first publish. */
-  publishedCard: Record<string, unknown>;
+  /** What production is actually running. `{}` until first publish (every field is optional). */
+  publishedCard: AgentCard;
 };
 
 export type EntryBinding = {
@@ -82,7 +82,8 @@ export type CompileReport = {
   idle_voice_tools: number;
   voice_tool_cap: number;
   skill_description_tokens: number;
-  card: Record<string, unknown>;
+  /** The card as compiled: defaults applied, the grant resolved. */
+  card: AgentCard;
   bundle?: Record<string, unknown>;
   /** Published doors whose bundle merges this card; publishing refreshes each. */
   doors_merging?: string[];

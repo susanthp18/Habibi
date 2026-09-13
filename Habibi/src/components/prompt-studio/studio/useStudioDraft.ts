@@ -42,7 +42,7 @@ export function useStudioDraft({
   /** The version list, newest first; the page keeps no mirror of it. */
   history: PromptVersion[];
   /** The card read: its resolved (draft-aware) card and the published one. */
-  card: { agentCard?: unknown; publishedCard?: unknown } | null | undefined;
+  card: { agentCard?: AgentCard; publishedCard?: AgentCard } | null | undefined;
   cardPending: boolean;
   cardRefused: boolean;
   /** `/prompt-versions/published`, when it answered. */

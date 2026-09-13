@@ -2,7 +2,7 @@
  * The text rehearsal loop: create the run on first use, post a customer line
  * with the history so far, fold the exchange into the session.
  */
-import { useCallback, useMemo, useState, type Dispatch } from "react";
+import { useCallback, useMemo, useRef, useState, type Dispatch } from "react";
 import { toast } from "sonner";
 
 import {
@@ -41,17 +41,30 @@ export function useTextRehearsal({
   const { turns, scriptIndex, run, halted, flowNode } = session;
   const [awaiting, setAwaiting] = useState(false);
 
+  // The run being created, so two turns sent before the first `dispatch`
+  // lands share one row instead of each creating a run.
+  const runInFlight = useRef<Promise<SandboxRun> | null>(null);
+  // The turns as of now, for a send that runs after the closure was made:
+  // Skip-to-end sends three turns from one closure, and the history it
+  // attached used to be the one from before the first of them.
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
+
   const ensureRun = useCallback(async (): Promise<SandboxRun> => {
     if (run && run.status === "running") return run;
+    if (runInFlight.current) return runInFlight.current;
     if (!scenario || !activePrompt) throw new Error("Scenario / prompt not ready");
-    const created = await createSandboxRun({
+    runInFlight.current = createSandboxRun({
       promptVersionId: activePrompt.id,
       scenarioId: scenario.id,
       scenarioTitle: scenario.title,
       kbSnapshotId: kbSnapshotId === "current" ? null : kbSnapshotId,
       openingTemplate: scenario.openingBot,
       persona: scenario.persona,
+    }).finally(() => {
+      runInFlight.current = null;
     });
+    const created = await runInFlight.current;
     dispatch({ type: "run", run: created });
     if (created.openingMessage) {
       dispatch({
@@ -89,7 +102,7 @@ export function useTextRehearsal({
       setAwaiting(true);
       try {
         const activeRun = await ensureRun();
-        const history: SandboxHistoryItem[] = turns
+        const history: SandboxHistoryItem[] = turnsRef.current
           .filter((t) => t.role === "bot" || t.role === "customer")
           .map((t) => ({ role: t.role as "bot" | "customer", text: t.text }));
 

@@ -148,6 +148,9 @@ export function ConversationPanel({
 
   const holdStart = async () => {
     if (awaiting || transcribing || recording || mode === "live") return;
+    // A second press while getUserMedia is still pending (mouse and touch both
+    // fire, or a double-click) used to acquire a second stream nobody stopped.
+    if (wantRecordingRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       toast.error("Microphone not available in this browser");
       return;

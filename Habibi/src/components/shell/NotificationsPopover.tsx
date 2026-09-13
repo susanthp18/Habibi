@@ -116,18 +116,10 @@ export function NotificationsPopover() {
     setOpen(false);
     if (!n.href) return;
     if ("to" in n.href) {
-      void (navigate as (opts: { to: string; search?: Record<string, unknown> }) => unknown)(
-        n.href.search ? { to: n.href.to, search: n.href.search } : { to: n.href.to },
-      );
+      void navigate(n.href);
       return;
     }
-    navigateWorkItem(
-      navigate as (opts: { to: string; search?: Record<string, unknown> }) => unknown,
-      {
-        id: n.href.id,
-        entityType: n.href.entityType,
-      },
-    );
+    navigateWorkItem(navigate, { id: n.href.id, entityType: n.href.entityType });
   };
 
   return (

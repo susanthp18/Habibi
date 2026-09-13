@@ -103,6 +103,7 @@ export function VoiceCatalogTable({
   const fill = height == null;
   const [widths, setWidths] = useState(DEFAULT_WIDTHS);
   const [resizing, setResizing] = useState<ColumnKey | null>(null);
+  const endDragRef = useRef<(() => void) | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
 
   const sorted = useMemo(() => {
@@ -163,14 +164,19 @@ export function VoiceCatalogTable({
         window.removeEventListener("pointercancel", done);
         document.body.style.cursor = prevCursor;
         document.body.style.userSelect = prevSelect;
+        endDragRef.current = null;
         setResizing(null);
       };
+      endDragRef.current = done;
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", done);
       window.addEventListener("pointercancel", done);
     },
     [widths],
   );
+  // An unmount mid-drag (the browser closes over the table) used to leave the
+  // window listeners and the body cursor behind.
+  useEffect(() => () => endDragRef.current?.(), []);
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s?.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: 1 }));
