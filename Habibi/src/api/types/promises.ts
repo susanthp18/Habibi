@@ -18,6 +18,34 @@ export const REMINDER_STATUSES = [
   "failed",
 ] as const;
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
+/** What the create sheet (or the 360) submits. The owner defaults to the acting user. */
+export interface CreateInput {
+  customerId: string;
+  accountId?: string;
+  amount: number;
+  promisedDate: string;
+  channel: PromiseChannel;
+  owner?: string;
+  reminder: ReminderStatus;
+  notes?: string;
+}
+
+export interface CustomerOption {
+  id: string;
+  name: string;
+  accountId: string;
+  outstanding: number;
+}
+
+export interface PlanInput {
+  customerId: string;
+  total: number;
+  installments: number;
+  startDate: string;
+  cadence: PlanCadence;
+  owner: string;
+}
+
 export interface PtpEvent {
   at: string;
   label: string;

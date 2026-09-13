@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { DisputeType } from "@/api/types/disputes";
 import { TYPE_LABELS } from "@/lib/disputes";
 import { createDispute } from "@/api/disputes";
+import { idempotencyKey } from "@/lib/utils";
 
 export interface DisputeCustomerOption {
   id: string;
@@ -31,6 +32,8 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
   const [amount, setAmount] = useState("0");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  // One key for the life of the sheet: it closes on success.
+  const submitKey = useRef(idempotencyKey("dispute"));
 
   useEffect(() => {
     setCustomerId((cur) => {
@@ -49,14 +52,16 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await createDispute({
-        customerId: selected.id,
-        customerName: selected.name,
-        accountId: selected.accountId,
-        type,
-        amount: Number(amount) || 0,
-        notes: notes.trim() || undefined,
-      });
+      const res = await createDispute(
+        {
+          customerId: selected.id,
+          accountId: selected.accountId,
+          type,
+          amount: Number(amount) || 0,
+          notes: notes.trim() || undefined,
+        },
+        submitKey.current,
+      );
       toast.success(`Dispute raised · ${res.id}`);
       onCreated();
       onClose();

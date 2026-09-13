@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { idempotencyKey } from "@/lib/utils";
 import { HandCoins, Plus, CalendarClock, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MetricsStrip } from "@/components/promises/MetricsStrip";
@@ -9,13 +10,11 @@ import { FiltersBar } from "@/components/promises/FiltersBar";
 import { PromisePipeline } from "@/components/promises/PromisePipeline";
 import { PaymentPlansTable } from "@/components/promises/PaymentPlansTable";
 import { PlanDetailDrawer } from "@/components/promises/PlanDetailDrawer";
-import {
-  CreatePromiseSheet,
-  PromiseDetailSheet,
-  type CreateInput,
-} from "@/components/promises/PromiseSheet";
-import { PlanBuilderSheet, type PlanInput } from "@/components/promises/PlanBuilderSheet";
+import { CreatePromiseSheet, PromiseDetailSheet } from "@/components/promises/PromiseSheet";
+import { PlanBuilderSheet } from "@/components/promises/PlanBuilderSheet";
 import type {
+  CreateInput,
+  PlanInput,
   PromiseFilters,
   PaymentPlan,
   Promise as Ptp,
@@ -128,9 +127,11 @@ function PromisesPage() {
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Reschedule failed"),
   });
 
+  const createKey = useRef(idempotencyKey("ptp"));
   const createMutation = useMutation({
-    mutationFn: (input: CreateInput) => createPromise(input),
+    mutationFn: (input: CreateInput) => createPromise(input, createKey.current),
     onSuccess: (res) => {
+      createKey.current = idempotencyKey("ptp");
       invalidate();
       toast.success(`Promise captured · ${res.id}`);
     },

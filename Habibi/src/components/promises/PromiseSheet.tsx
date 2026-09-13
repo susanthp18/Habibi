@@ -22,32 +22,14 @@ import { Badge } from "@/components/ui/badge";
 import type {
   Promise,
   PromiseChannel,
-  PromiseSource,
   PromiseStatus,
   ReminderStatus,
+  CreateInput,
+  CustomerOption,
 } from "@/api/types/promises";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
 // --- Create sheet ---
-export interface CreateInput {
-  customerId: string;
-  customerName: string;
-  accountTail: string;
-  amount: number;
-  promisedDate: string;
-  channel: PromiseChannel;
-  source: PromiseSource;
-  owner: string;
-  reminder: ReminderStatus;
-  notes?: string;
-}
-
-export interface CustomerOption {
-  id: string;
-  name: string;
-  accountId: string;
-  outstanding: number;
-}
 
 interface CreateProps {
   open: boolean;
@@ -74,7 +56,6 @@ export function CreatePromiseSheet({
   const [amount, setAmount] = useState("5000");
   const [date, setDate] = useState(todayISO());
   const [channel, setChannel] = useState<PromiseChannel>("whatsapp");
-  const [source, setSource] = useState<PromiseSource>("agent");
   const [owner, setOwner] = useState(owners[0] ?? "AI Bot");
   // A new promise's reminder is off or queued; "scheduled" and "sent" are what
   // the reminder worker writes back, not what an operator declares.
@@ -87,7 +68,6 @@ export function CreatePromiseSheet({
       setAmount("5000");
       setDate(todayISO());
       setChannel("whatsapp");
-      setSource("agent");
       setOwner(owners[0] ?? "");
       setReminder("queued");
       setNotes("");
@@ -102,12 +82,10 @@ export function CreatePromiseSheet({
     const iso = new Date(`${date}T10:00:00`).toISOString();
     onSubmit({
       customerId: cust.id,
-      customerName: cust.name,
-      accountTail: cust.accountId.slice(-4),
+      accountId: cust.accountId,
       amount: amt,
       promisedDate: iso,
       channel,
-      source,
       owner,
       reminder,
       notes: notes || undefined,
@@ -159,18 +137,6 @@ export function CreatePromiseSheet({
                   <SelectItem value="sms">SMS</SelectItem>
                   <SelectItem value="chat">Chat</SelectItem>
                   <SelectItem value="email">Email</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Source">
-              <Select value={source} onValueChange={(v) => setSource(v as PromiseSource)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="bot">Bot-captured</SelectItem>
-                  <SelectItem value="agent">Agent-captured</SelectItem>
-                  <SelectItem value="self">Self-serve</SelectItem>
                 </SelectContent>
               </Select>
             </Field>

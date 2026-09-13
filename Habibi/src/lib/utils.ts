@@ -81,6 +81,15 @@ export function formatKbDateTime(value: string | null | undefined): string {
 }
 
 /** The list with `v` added if absent, removed if present. */
+/**
+ * One write intent, one key. Held in a ref for the life of a form and rotated
+ * on success, so a double-click or a retried request lands one row and a
+ * second deliberate submit lands a second.
+ */
+export function idempotencyKey(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
 export function toggleIn<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }

@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Copy, Headphones, PhoneCall } from "lucide-react";
 import { useRef } from "react";
 import { toast } from "sonner";
+import { idempotencyKey } from "@/lib/utils";
 import { usePlaceCall } from "@/api/outbound";
 import { Button } from "@/components/ui/button";
 import { RiskBadge } from "./RiskBadge";
@@ -37,7 +38,7 @@ export function CustomerHeader({
   const placeCall = usePlaceCall();
   // One key per intended call: a retried click (network blip, double tap)
   // lands on the same call_attempts row instead of dialing twice.
-  const dialKey = useRef(newDialKey(customer.id));
+  const dialKey = useRef(idempotencyKey(`crm-dial-${customer.id}`));
   const dpdTone =
     customer.account.dpd > 60 ? "danger" : customer.account.dpd > 30 ? "warning" : "success";
 
@@ -134,7 +135,7 @@ export function CustomerHeader({
                 },
                 {
                   onSuccess: (r) => {
-                    dialKey.current = newDialKey(customer.id);
+                    dialKey.current = idempotencyKey(`crm-dial-${customer.id}`);
                     toast.success(`Dialing ${customer.contact.phonePrimary}…`, {
                       description: r.attemptId ? `attempt ${r.attemptId}` : undefined,
                     });
@@ -154,8 +155,4 @@ export function CustomerHeader({
       </div>
     </div>
   );
-}
-
-function newDialKey(customerId: string): string {
-  return `crm-dial-${customerId}-${crypto.randomUUID()}`;
 }

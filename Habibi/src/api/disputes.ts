@@ -32,9 +32,7 @@ export function disputeAssigneeOptions(staff: Staff[], existing: string[]): stri
 
 export type CreateDisputeInput = {
   customerId: string;
-  /** Display name — required for mock seed rows; live API resolves it server-side. */
-  customerName?: string;
-  accountId: string;
+  accountId?: string;
   type: DisputeType;
   amount: number;
   notes?: string;
@@ -46,15 +44,22 @@ export async function fetchDisputes(): Promise<Dispute[]> {
   return apiGet<Dispute[]>("/disputes");
 }
 
-/** Raise a dispute from the Disputes desk (or workspace quick action). */
-export async function createDispute(input: CreateDisputeInput): Promise<{ id: string }> {
-  const created = await apiPost<{ id: string }>("/disputes", {
-    customerId: input.customerId,
-    accountId: input.accountId,
-    type: input.type,
-    amount: input.amount,
-    transcriptSnippet: input.notes?.trim() || undefined,
-  });
+/** The one dispute writer: the desk and the 360 both post through here. */
+export async function createDispute(
+  input: CreateDisputeInput,
+  idempotencyKey: string,
+): Promise<{ id: string }> {
+  const created = await apiPost<{ id: string }>(
+    "/disputes",
+    {
+      customerId: input.customerId,
+      accountId: input.accountId,
+      type: input.type,
+      amount: input.amount,
+      transcriptSnippet: input.notes?.trim() || undefined,
+    },
+    { headers: { "Idempotency-Key": idempotencyKey } },
+  );
   return { id: created.id };
 }
 

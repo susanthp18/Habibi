@@ -12,9 +12,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 
-import type { CreateInput, CustomerOption } from "@/components/promises/PromiseSheet";
-import type { PlanInput } from "@/components/promises/PlanBuilderSheet";
-import type { PaymentPlan, Promise as Ptp, PromiseStatus } from "@/api/types/promises";
+import type {
+  CreateInput,
+  CustomerOption,
+  PaymentPlan,
+  PlanInput,
+  Promise as Ptp,
+  PromiseStatus,
+} from "@/api/types/promises";
 import { buildSchedule } from "@/lib/promises";
 import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost } from "./config";
@@ -131,22 +136,32 @@ export function promiseOwnerOptions(staff: Staff[], existing: string[]): string[
   return Array.from(set).sort();
 }
 
-export async function createPromise(input: CreateInput): Promise<{ id: string }> {
+/**
+ * The one PTP writer: the board and the 360 both post through here. The key
+ * is the caller's (one per form, rotated on success) so a double-click lands
+ * one promise -- the backend honours it and this used to send none.
+ */
+export async function createPromise(
+  input: CreateInput,
+  idempotencyKey: string,
+): Promise<{ id: string }> {
   // The owner triplet is authoritative (see DATA_MODEL.md): `source` is derived
-  // from owner_kind on read, so resolving the chosen owner sets both.
-  const actor = await resolveActor(input.owner);
+  // from owner_kind on read, so resolving the chosen owner sets both. No owner
+  // means the acting user, which the server fills in.
+  const actor = input.owner ? await resolveActor(input.owner) : null;
   return apiPost<{ id: string }>(
     "/promises",
     {
       customerId: input.customerId,
+      accountId: input.accountId,
       amount: input.amount,
       promisedDate: input.promisedDate,
       channel: input.channel,
       reminderStatus: input.reminder,
-      ownerUserId: actor.kind === "human" ? actor.id : undefined,
-      ownerBotId: actor.kind === "bot" ? actor.id : undefined,
+      ownerUserId: actor?.kind === "human" ? actor.id : undefined,
+      ownerBotId: actor?.kind === "bot" ? actor.id : undefined,
     },
-    { schema: ptpPromiseSchema },
+    { schema: ptpPromiseSchema, headers: { "Idempotency-Key": idempotencyKey } },
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -20,16 +20,17 @@ import type { Customer } from "@/api/types/customer360";
 import type { DisputeType } from "@/api/types/disputes";
 import {
   addCustomerNote,
-  createDispute,
   createDocumentRequest,
-  createPromise,
   fetchCustomer,
   fetchCustomerInsights,
   logInteraction,
 } from "@/api/customers";
 import { QueryState } from "@/components/ui/query-state";
 import type { NbaActionKind } from "@/api/types/customer-insights";
-import { cn } from "@/lib/utils";
+import { cn, idempotencyKey } from "@/lib/utils";
+import { createPromise } from "@/api/promises";
+import { createDispute } from "@/api/disputes";
+import type { PromiseChannel } from "@/api/types/promises";
 
 const TABS = [
   "overview",
@@ -113,10 +114,23 @@ function CustomerDetail() {
     await queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
   };
 
+  const ptpKey = useRef(idempotencyKey(`ptp-${customer.id}`));
   const ptpMutation = useMutation({
     mutationFn: (payload: { amount: number; date: string; channel: string; notes: string }) =>
-      createPromise(customer, payload),
+      createPromise(
+        {
+          customerId: customer.id,
+          accountId: customer.accountId,
+          amount: payload.amount,
+          promisedDate: new Date(payload.date).toISOString(),
+          channel: payload.channel as PromiseChannel,
+          reminder: "queued",
+          notes: payload.notes,
+        },
+        ptpKey.current,
+      ),
     onSuccess: async () => {
+      ptpKey.current = idempotencyKey(`ptp-${customer.id}`);
       await refreshCustomer();
       toast.success("PTP captured");
       setTab("promises");
@@ -125,10 +139,21 @@ function CustomerDetail() {
       toast.error(error instanceof Error ? error.message : "Failed to capture PTP"),
   });
 
+  const disputeKey = useRef(idempotencyKey(`dispute-${customer.id}`));
   const disputeMutation = useMutation({
     mutationFn: (payload: { type: DisputeType; amount: number; notes: string }) =>
-      createDispute(customer, payload),
+      createDispute(
+        {
+          customerId: customer.id,
+          accountId: customer.accountId,
+          type: payload.type,
+          amount: payload.amount,
+          notes: payload.notes,
+        },
+        disputeKey.current,
+      ),
     onSuccess: async () => {
+      disputeKey.current = idempotencyKey(`dispute-${customer.id}`);
       await refreshCustomer();
       toast.success("Dispute filed");
       setTab("disputes");

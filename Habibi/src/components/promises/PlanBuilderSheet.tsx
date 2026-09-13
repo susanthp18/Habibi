@@ -21,18 +21,7 @@ import {
 import type { PlanCadence } from "@/api/types/promises";
 import { buildSchedule } from "@/lib/promises";
 import { fmtDate, fmtMoney } from "@/lib/format";
-import type { CustomerOption } from "./PromiseSheet";
-
-export interface PlanInput {
-  customerId: string;
-  customerName: string;
-  accountTail: string;
-  total: number;
-  installments: number;
-  startDate: string;
-  cadence: PlanCadence;
-  owner: string;
-}
+import type { CustomerOption, PlanInput } from "@/api/types/promises";
 
 interface Props {
   open: boolean;
@@ -95,8 +84,6 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
     if (!cust || totalN <= 0) return;
     onSubmit({
       customerId: cust.id,
-      customerName: cust.name,
-      accountTail: cust.accountId.slice(-4),
       total: totalN,
       installments,
       startDate: new Date(`${startDate}T10:00:00`).toISOString(),

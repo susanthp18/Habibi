@@ -320,40 +320,6 @@ export async function addCustomerNote(
   return updated.notes?.[0] ?? null;
 }
 
-export async function createPromise(
-  customer: Customer,
-  input: { amount: number; date: string; channel: string; notes: string },
-): Promise<PtpPromise> {
-  return apiPost<PtpPromise>(
-    "/promises",
-    {
-      customerId: customer.id,
-      accountId: customer.accountId,
-      amount: input.amount,
-      promisedDate: new Date(input.date).toISOString(),
-      channel: input.channel,
-    },
-    { schema: ptpPromiseSchema },
-  );
-}
-
-export async function createDispute(
-  customer: Customer,
-  input: { type: DisputeType; amount: number; notes: string },
-): Promise<CustomerDispute> {
-  return apiPost<CustomerDispute>(
-    "/disputes",
-    {
-      customerId: customer.id,
-      accountId: customer.accountId,
-      type: input.type,
-      amount: input.amount,
-      transcriptSnippet: input.notes,
-    },
-    { schema: disputeSchema },
-  );
-}
-
 export async function createDocumentRequest(
   customer: Customer,
   input: { docType: string; delivery: "email" | "whatsapp" },
