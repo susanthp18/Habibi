@@ -264,3 +264,47 @@ export function diffStudioVersions(
   ].join("\n");
   return diffPrompts(a, b);
 }
+
+/**
+ * Which vendor owns this id, from the id alone.
+ *
+ * The multi-provider sync namespaces every non-Azure short_name as
+ * `{provider}:{ref}`; rows written before the registry have no prefix and are
+ * Azure by construction. Same rule `provider_tts.voice_row` applies server-side,
+ * so the two cannot disagree about who is about to speak.
+ */
+export function providerFromShortName(shortName: string): string {
+  const idx = shortName.indexOf(":");
+  return idx > 0 ? shortName.slice(0, idx) : "azure";
+}
+
+/**
+ * Does this id name a catalog voice, rather than a legacy `tts_voices` row?
+ *
+ * The two patterns below describe Azure short names — `en-IN-AartiNeural` and
+ * the model-suffix families. Every non-Azure voice the multi-provider sync
+ * writes is namespaced `{provider}:{ref}` (`fish:s2.1-pro`), which matches
+ * neither — so a row whose `azureVoiceName` was empty and whose `voiceId` held
+ * a perfectly good Fish id was judged "not a short name" and silently resolved
+ * to the hardcoded `en-IN-AartiNeural`: a different vendor, a different
+ * language, with nothing on screen saying so.
+ *
+ * `providerFromShortName` above already knows this shape. Both rules
+ * now agree about what an id looks like.
+ */
+export function looksLikeShortName(value?: string | null): boolean {
+  const v = (value || "").trim();
+  if (!v || /\s/.test(v)) return false;
+  if (/^[a-z0-9_]+:.+/.test(v)) return true;
+  return /^[a-z]{2,3}-[A-Z]{2}-.+/.test(v) || /Neural|DragonHD|HDFlash|Turbo|MAI-Voice/.test(v);
+}
+
+/** The catalogue id the config names, falling back to the default voice. */
+export function selectedShortName(cfg: VoiceConfig): string {
+  return (
+    (cfg.azureVoiceName || "").trim() ||
+    (looksLikeShortName(cfg.voiceId) ? cfg.voiceId : "") ||
+    DEFAULT_VOICE.azureVoiceName ||
+    "en-IN-AartiNeural"
+  );
+}

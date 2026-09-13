@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type TtsCatalogVoice } from "@/api/prompt-studio";
-import { previewTts, type TtsPreviewInput } from "@/api/tts-preview";
+import { previewTts, type TtsPreviewInput, type TtsPreviewResult } from "@/api/tts-preview";
 
 /** The line every voice speaks when you audition it from a list. */
 export const VOICE_DEMO_LINE = "Hello, this is a sample of how I sound on a collections call.";
@@ -17,6 +17,12 @@ type PlayOptions = {
    */
   tag?: string | null;
   onEnded?: () => void;
+  /**
+   * The footer line for this take. Default names the cache state, the voice
+   * and the latency; null clears the footer (a catalogue demo is not the
+   * selected voice, so a line about it would credit the wrong voice).
+   */
+  label?: (result: TtsPreviewResult) => string | null;
 };
 
 /**
@@ -28,9 +34,8 @@ type PlayOptions = {
  * a superseded request must never start playing (hence `genRef`) and that the
  * object URL is revoked, since each audition holds a whole audio clip.
  *
- * VoicePanel deliberately still owns its own player: it also drives a debounced
- * preview of the *current tuning* (speed/pitch/warmth/style), which this hook
- * does not model. The two never appear on the same screen.
+ * VoicePanel plays through it too; its debounced preview of the current
+ * tuning is a caller that decides when to call `play`, not a second player.
  */
 export function useVoicePreview() {
   const [playing, setPlaying] = useState(false);
@@ -73,8 +78,9 @@ export function useVoicePreview() {
   // audio clips, and a picker the user scrolls through leaks one per audition.
   useEffect(() => () => stop(), [stop]);
 
+  /** Resolves true once the audio is playing, false if the request was superseded or failed. */
   const play = useCallback(
-    async (input: TtsPreviewInput, opts: PlayOptions = {}) => {
+    async (input: TtsPreviewInput, opts: PlayOptions = {}): Promise<boolean> => {
       const gen = ++genRef.current;
       stopPlayback();
       setPreviewing(opts.tag ?? null);
@@ -83,7 +89,7 @@ export function useVoicePreview() {
       endedRef.current = opts.onEnded;
       try {
         const result = await previewTts(input);
-        if (gen !== genRef.current) return;
+        if (gen !== genRef.current) return false;
 
         const url = URL.createObjectURL(result.blob);
         urlRef.current = url;
@@ -102,19 +108,23 @@ export function useVoicePreview() {
         await audio.play();
         setPlaying(true);
         setMeta(
-          [
-            result.cacheHit ? "cache hit" : "live synthesize",
-            result.voiceName,
-            result.latencyMs != null ? `${result.latencyMs}ms` : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          opts.label
+            ? opts.label(result)
+            : [
+                result.cacheHit ? "cache hit" : "live synthesize",
+                result.voiceName,
+                result.latencyMs != null ? `${result.latencyMs}ms` : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
         );
+        return true;
       } catch (err) {
-        if (gen !== genRef.current) return;
+        if (gen !== genRef.current) return false;
         setPreviewing(null);
         opts.onEnded?.();
         toast.error(err instanceof Error ? err.message : "TTS preview failed");
+        return false;
       } finally {
         if (gen === genRef.current) setLoading(false);
       }
@@ -142,5 +152,8 @@ export function useVoicePreview() {
     [loading, play, playing, previewing, stop],
   );
 
-  return { playing, loading, previewing, meta, play, stop, toggleVoice };
+  /** The footer describes a take of one voice; a caller clears it when the voice changes. */
+  const clearMeta = useCallback(() => setMeta(null), []);
+
+  return { playing, loading, previewing, meta, play, stop, toggleVoice, clearMeta };
 }

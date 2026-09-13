@@ -22,9 +22,15 @@ import {
 } from "@/api/prompt-studio";
 import { previewTts } from "@/api/tts-preview";
 import type { VoiceConfig, VoiceParamValue } from "@/api/types/prompt-studio";
-import { DEFAULT_VOICE } from "@/lib/prompt-studio";
+import {
+  DEFAULT_VOICE,
+  looksLikeShortName,
+  providerFromShortName,
+  selectedShortName,
+} from "@/lib/prompt-studio";
 import { useProviderModels, type ProviderModel } from "@/api/providers";
 import { VoiceCatalogBrowser, useSelectedCatalogVoice } from "./VoiceCatalogBrowser";
+import { VOICE_DEMO_LINE, useVoicePreview } from "./useVoicePreview";
 import { VoiceParamsPanel } from "./VoiceParamsPanel";
 import { VoiceDetailCard } from "./VoiceDetailCard";
 
@@ -42,7 +48,6 @@ type Props = {
 };
 
 const DEBOUNCE_MS = 450;
-const DEMO_LINE = "Hello, this is a sample of how I sound on a collections call.";
 
 /** Stable identity for the un-authored case: a fresh `{}` each render would
  *  invalidate `effectiveParams` on every render, which is what it exists to
@@ -110,28 +115,6 @@ function readLayout(): Record<string, number> | undefined {
   }
 }
 
-function selectedShortName(cfg: VoiceConfig): string {
-  return (
-    (cfg.azureVoiceName || "").trim() ||
-    (looksLikeShortName(cfg.voiceId) ? cfg.voiceId : "") ||
-    DEFAULT_VOICE.azureVoiceName ||
-    "en-IN-AartiNeural"
-  );
-}
-
-/**
- * Which vendor owns this id, from the id alone.
- *
- * The multi-provider sync namespaces every non-Azure short_name as
- * `{provider}:{ref}`; rows written before the registry have no prefix and are
- * Azure by construction. Same rule `provider_tts.voice_row` applies server-side,
- * so the two cannot disagree about who is about to speak.
- */
-function providerFromShortName(shortName: string): string {
-  const idx = shortName.indexOf(":");
-  return idx > 0 ? shortName.slice(0, idx) : "azure";
-}
-
 /**
  * Model params that also have a dedicated `VoiceConfig` column.
  *
@@ -149,34 +132,11 @@ const PARAM_PITCH = "pitch";
 const PARAM_WARMTH = "warmth";
 const PARAM_PAUSE_MS = "pause_ms";
 
-/**
- * Does this id name a catalog voice, rather than a legacy `tts_voices` row?
- *
- * The two patterns below describe Azure short names — `en-IN-AartiNeural` and
- * the model-suffix families. Every non-Azure voice the multi-provider sync
- * writes is namespaced `{provider}:{ref}` (`fish:s2.1-pro`), which matches
- * neither — so a row whose `azureVoiceName` was empty and whose `voiceId` held
- * a perfectly good Fish id was judged "not a short name" and silently resolved
- * to the hardcoded `en-IN-AartiNeural`: a different vendor, a different
- * language, with nothing on screen saying so.
- *
- * `providerFromShortName` directly above already knows this shape. Both rules
- * now agree about what an id looks like.
- */
-function looksLikeShortName(value?: string | null): boolean {
-  const v = (value || "").trim();
-  if (!v || /\s/.test(v)) return false;
-  if (/^[a-z0-9_]+:.+/.test(v)) return true;
-  return /^[a-z]{2,3}-[A-Z]{2}-.+/.test(v) || /Neural|DragonHD|HDFlash|Turbo|MAI-Voice/.test(v);
-}
-
 export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Props) {
   const [detailVoice, setDetailVoice] = useState<TtsCatalogVoice | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [cardPreviewing, setCardPreviewing] = useState<string | null>(null);
-  const [meta, setMeta] = useState<string | null>(null);
+  const player = useVoicePreview();
+  const { playing, loading, previewing: cardPreviewing, meta, clearMeta } = player;
   const [loadedItems, setLoadedItems] = useState<TtsCatalogVoice[]>([]);
 
   // Read once on mount: re-reading on every render would fight the drag.
@@ -194,10 +154,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
     }
   };
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const urlRef = useRef<string | null>(null);
   const debounceRef = useRef<number | null>(null);
-  const requestGen = useRef(0);
   const valueRef = useRef(value);
   valueRef.current = value;
   // runPreview is called from a debounced timer, so it must read the latest
@@ -332,7 +289,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
     // "Azure Neural TTS · same take" for a voice that had never been played —
     // an accurate provider next to a stale verdict, which is worse than either
     // alone because the sentence looks whole.
-    setMeta(null);
+    clearMeta();
     let cancelled = false;
     void (async () => {
       try {
@@ -347,38 +304,18 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
     return () => {
       cancelled = true;
     };
-  }, [shortName]);
-
-  const stopPlayback = () => {
-    const a = audioRef.current;
-    if (a) {
-      a.onended = null;
-      a.onerror = null;
-      a.pause();
-      a.removeAttribute("src");
-      a.load();
-      audioRef.current = null;
-    }
-    if (urlRef.current) {
-      URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
-    }
-    setPlaying(false);
-    setCardPreviewing(null);
-  };
+  }, [shortName, clearMeta]);
 
   const stopAll = () => {
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    requestGen.current += 1;
-    stopPlayback();
-    setLoading(false);
+    player.stop();
     livePreviewRef.current = false;
   };
-
-  useEffect(() => () => stopAll(), []);
+  // The player stops itself on unmount; the debounce timer is this panel's.
+  useEffect(() => () => window.clearTimeout(debounceRef.current ?? undefined), []);
 
   const update = (patch: Partial<VoiceConfig>) => {
     const next = { ...valueRef.current, ...patch };
@@ -399,31 +336,6 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
     if (livePreviewRef.current) scheduleLivePreview();
   };
 
-  /** @param label Footer provenance, or null when what played is not the
-   *  selected voice and the footer would therefore be describing something
-   *  other than what it names. */
-  const playBlob = async (blob: Blob, label: string | null) => {
-    stopPlayback();
-    const url = URL.createObjectURL(blob);
-    urlRef.current = url;
-    const audio = new Audio(url);
-    audioRef.current = audio;
-    audio.onended = () => {
-      setPlaying(false);
-      setCardPreviewing(null);
-      livePreviewRef.current = false;
-    };
-    audio.onerror = () => {
-      toast.error("Couldn’t play synthesized audio");
-      setPlaying(false);
-      setCardPreviewing(null);
-      livePreviewRef.current = false;
-    };
-    await audio.play();
-    setPlaying(true);
-    setMeta(label);
-  };
-
   /**
    * @param fresh Take a new sample rather than replaying the stored one.
    *
@@ -434,17 +346,15 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
    * comparison rather than two unrelated samples.
    */
   const runPreview = async (fresh = false) => {
-    const gen = ++requestGen.current;
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    stopPlayback();
-    setLoading(true);
-    setMeta(null);
     const cfg = valueRef.current;
-    try {
-      const result = await previewTts({
+    // Live preview -- sliders re-synthesise as they move -- lasts from a
+    // manual preview until the take ends or is stopped.
+    livePreviewRef.current = await player.play(
+      {
         text: cfg.sampleText,
         shortName: selectedShortName(cfg),
         azureVoiceName: selectedShortName(cfg),
@@ -456,64 +366,43 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
         style: cfg.style,
         params: modelParamsRef.current,
         fresh,
-      });
-      if (gen !== requestGen.current) return;
-      const bits = [
+      },
+      {
+        tag: null,
+        onEnded: () => {
+          livePreviewRef.current = false;
+        },
         // Named for what it means to the operator, not for the mechanism: the
         // question this answers is "am I hearing the same performance as last
-        // time?", and "cache hit" does not answer it.
-        //
-        // The voice id used to be in here too and is not any more — the panel
-        // header two bands up already shows it, and in a pinned one-line footer
-        // the repeat pushed the latency off the end.
-        result.cacheHit ? "same take" : fresh ? "new take" : "synthesized",
-        result.latencyMs ? `${result.latencyMs}ms` : null,
-      ].filter(Boolean);
-      livePreviewRef.current = true;
-      await playBlob(result.blob, bits.join(" · "));
-    } catch (err) {
-      if (gen !== requestGen.current) return;
-      livePreviewRef.current = false;
-      toast.error(err instanceof Error ? err.message : "TTS preview failed");
-    } finally {
-      if (gen === requestGen.current) setLoading(false);
-    }
+        // time?", and "cache hit" does not answer it. The voice id is not in
+        // here -- the panel header already shows it.
+        label: (result) =>
+          [
+            result.cacheHit ? "same take" : fresh ? "new take" : "synthesized",
+            result.latencyMs ? `${result.latencyMs}ms` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+      },
+    );
   };
 
-  const previewCard = async (voice: TtsCatalogVoice) => {
-    const gen = ++requestGen.current;
-    stopPlayback();
-    setCardPreviewing(voice.shortName);
-    setLoading(true);
-    try {
-      const result = await previewTts({
-        text: DEMO_LINE,
+  // A catalogue demo is some other voice at neutral settings on a different
+  // line, so the footer -- provenance for the *selected* voice -- is cleared
+  // rather than credited with it. The row's own stop button is its feedback.
+  const previewCard = (voice: TtsCatalogVoice) =>
+    player.play(
+      {
+        text: VOICE_DEMO_LINE,
         shortName: voice.shortName,
         azureVoiceName: voice.shortName,
         speed: 1,
         pitch: 0,
         warmth: 55,
         pauseMs: 280,
-      });
-      if (gen !== requestGen.current) return;
-      // The inspector footer is provenance for the *selected* voice, and a
-      // catalog demo is some other voice at neutral settings on a different
-      // line. Writing the demo there produced "Fish Audio · Fish S2.1 Pro ·
-      // Adri · 2569ms" — Adri being an Azure voice, credited to Fish, next to
-      // a latency for audio the selected voice never produced.
-      //
-      // Cleared rather than left alone: once you have listened to something
-      // else, the previous note no longer describes what you last heard. The
-      // row's own stop button is the feedback a demo needs.
-      await playBlob(result.blob, null);
-    } catch (err) {
-      if (gen !== requestGen.current) return;
-      setCardPreviewing(null);
-      toast.error(err instanceof Error ? err.message : "Preview failed");
-    } finally {
-      if (gen === requestGen.current) setLoading(false);
-    }
-  };
+      },
+      { tag: voice.shortName, label: () => null },
+    );
 
   const scheduleLivePreview = () => {
     if (!livePreviewRef.current) return;
