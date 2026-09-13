@@ -1013,7 +1013,7 @@ def _overdue_batch(conn: Any) -> list[dict[str, Any]]:
 def _break_promise(conn: Any, row: dict[str, Any], dbmod: Any) -> None:
     """One overdue promise: status, the planned follow-up, the record, the event."""
     conn.execute(
-        text("UPDATE promises SET status = 'broken' WHERE id = :id AND status <> 'kept'"),
+        text("UPDATE promises SET status = 'broken' WHERE id = :id AND status IN ('upcoming','due_today')"),
         {"id": row["id"]},
     )
     # Ask the treatment engine what should happen now, rather than

@@ -61,8 +61,9 @@ _PRODUCT_NODES = frozenset({"gated_upsell"})
 # is a legal status — so the filter matched nothing and every fulfilled document
 # request stayed on the CRM card as "open work" for the life of the account.
 # `partial` and `missed` are deliberately NOT closed: a part-paid promise and a
-# missed callback both still need chasing.
-CLOSED_PROMISE_STATUSES = frozenset({"kept", "broken"})
+# missed callback both still need chasing. A cancelled promise is closed: the
+# commitment was withdrawn, and the account is free for a new one.
+CLOSED_PROMISE_STATUSES = frozenset({"kept", "broken", "cancelled"})
 CLOSED_DISPUTE_STATUSES = frozenset({"resolved", "rejected"})
 CLOSED_DOCUMENT_STATUSES = frozenset({"sent"})
 CLOSED_CALLBACK_STATUSES = frozenset({"completed", "cancelled"})
