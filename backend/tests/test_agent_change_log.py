@@ -401,3 +401,55 @@ def test_mcp_key_rotation_is_chained_without_the_secret(db_tx) -> None:
     blob = json.dumps(old + new)
     assert minted["key"] not in blob and rotated["key"] not in blob
     assert auth.hash_key(minted["key"]) not in blob
+
+
+# ---------------------------------------------------------------------------
+# Concurrency. Two publishes of the same tenant's chain at once must serialise
+# on the advisory lock in `_write`, or both read the same head and the chain
+# forks: two entries with one `seq`, one of them chaining onto a hash the other
+# replaced. Untestable under db_tx (one connection, the lock held for the whole
+# test), so db_real.
+# ---------------------------------------------------------------------------
+
+
+def test_two_concurrent_writes_serialise_on_the_chain(db_real) -> None:
+    import threading
+
+    bot_id = f"chain-race-{uuid.uuid4().hex[:8]}"
+    db_real.track("audit_log", entity_id=bot_id)
+    tenant, actor = db.current_tenant(), db._actor_user_id()
+    both_in = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def writer(idx: int) -> None:
+        try:
+            with db.engine.begin() as conn:
+                # inside the transaction, so both are open before either locks
+                both_in.wait(timeout=5)
+                change_log.record_archive(
+                    conn,
+                    tenant_id=tenant,
+                    actor_user_id=actor,
+                    entry_id=db._id("AUD"),
+                    bot_id=bot_id,
+                    retired_deployment_id=None,
+                )
+        except BaseException as exc:  # noqa: BLE001 — surface in the main thread
+            errors.append(exc)
+            try:
+                both_in.abort()
+            except RuntimeError:
+                pass
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert not [t for t in threads if t.is_alive()], "a writer did not finish"
+    assert not errors, errors
+
+    log = db.agent_change_log(bot_id)
+    seqs = sorted(int(e["seq"]) for e in log["entries"])
+    assert len(seqs) == 2 and seqs[0] + 1 == seqs[1], seqs
+    assert log["chain"]["ok"] is True, log["chain"]
