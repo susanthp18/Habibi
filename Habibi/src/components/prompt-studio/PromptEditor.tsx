@@ -78,6 +78,7 @@ export function PromptEditor({
   const INLINE_CODES = new Set([
     "crm_variable_in_system_prompt",
     "flow_syntax_in_prompt",
+    "unknown_variable",
     "llm_checklist",
   ]);
   // Collapsed by (code, message), which is the invariant the comment above

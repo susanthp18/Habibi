@@ -125,10 +125,15 @@ export function StudioHeader({
               {/* A draft you forgot about is the one thing in that drawer worth
                   interrupting for, so it is the only thing that gets a dot. */}
               {draftCount > 0 && (
-                <span
-                  aria-label={`${draftCount} draft${draftCount === 1 ? "" : "s"}`}
-                  className="h-1.5 w-1.5 rounded-full bg-background-warning-bold"
-                />
+                <>
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 rounded-full bg-background-warning-bold"
+                  />
+                  <span className="sr-only">
+                    {draftCount} unpublished draft{draftCount === 1 ? "" : "s"}
+                  </span>
+                </>
               )}
             </button>
           )}

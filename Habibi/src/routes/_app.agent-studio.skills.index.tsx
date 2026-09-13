@@ -34,6 +34,20 @@ function toSlug(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * A pack saves with its lint findings (a description over budget, a tool not
+ * in the catalog); the wire carried them and nothing read them, so an author
+ * learned at publish, from G9, what the save could have said.
+ */
+function warnLint(warnings: Record<string, unknown>[] | null | undefined) {
+  for (const w of warnings ?? []) {
+    const code = String(w.code ?? "lint");
+    const msg = String(w.msg ?? "");
+    const tools = Array.isArray(w.tools) ? ` (${(w.tools as string[]).join(", ")})` : "";
+    toast.warning(`Skill lint: ${code}`, { description: `${msg}${tools}` });
+  }
+}
+
 export const Route = createFileRoute("/_app/agent-studio/skills/")({
   component: SkillsIndex,
   head: () => ({
@@ -86,6 +100,7 @@ function SkillsIndex() {
         allowedTools: [],
       });
       toast.success(`Created unsigned draft ${created.slug}`);
+      warnLint(created.lintWarnings);
       setNewOpen(false);
       setNewName("");
       setNewDescription("");
@@ -149,6 +164,7 @@ function SkillsIndex() {
     try {
       const created = await importSkillZip(file);
       toast.success("Imported as unsigned draft");
+      warnLint(created.lintWarnings);
       invalidateAgentStudio(qc);
       void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
     } catch (err) {

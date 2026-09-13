@@ -168,6 +168,11 @@ export async function fetchSandboxRun(runId: string): Promise<SandboxRunDetail> 
   return apiGet<SandboxRunDetail>(`/sandbox/runs/${runId}`);
 }
 
+/** The session ended: the run stops being `running` and its aggregates settle. */
+export async function completeSandboxRun(runId: string): Promise<void> {
+  await apiPost(`/sandbox/runs/${encodeURIComponent(runId)}/complete`, {});
+}
+
 export function useSandboxRun(runId: string | null | undefined) {
   return useQuery({
     queryKey: ["sandbox-run", runId],

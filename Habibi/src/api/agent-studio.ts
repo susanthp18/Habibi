@@ -443,6 +443,8 @@ export type SkillSummary = {
   attachedCards: string[];
   /** `attachedCards` plus draft versions — which card can rehearse this skill. */
   rehearsalCards?: string[];
+  /** Lint findings the save returned (a create or import); the author is told. */
+  lintWarnings?: Record<string, unknown>[] | null;
   evalSuite?: unknown | null;
   contentHash?: string;
   signed: boolean;
@@ -458,7 +460,6 @@ export type SkillDetail = SkillSummary & {
   body?: string | null;
   pack?: { references?: Record<string, string> } | null;
   markdown?: string | null;
-  lintWarnings?: Record<string, unknown>[] | null;
 };
 
 export function useAgentStudioSkills() {

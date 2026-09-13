@@ -68,6 +68,8 @@ export type PromptVersion = {
   persona: PersonaState;
   voice: VoiceConfig;
   guardrails: Guardrails;
+  /** Voice/LLM tuning the version was authored with (server shape, see agent_core.tuning). */
+  tuning?: Record<string, unknown> | null;
   /** Authored conversation graph; absent on versions predating flow authoring. */
   flow?: FlowGraph;
   /**

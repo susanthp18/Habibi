@@ -135,6 +135,22 @@ export function NodeInspector({
         </label>
       </Section>
 
+      {isEnd && (
+        <Section label="Farewell line">
+          <Textarea
+            className="min-h-[5rem] resize-y leading-relaxed"
+            value={node.data.instructions}
+            disabled={readOnly}
+            onChange={(e) => setData({ instructions: e.target.value })}
+            placeholder="Thank you for your time today. Goodbye."
+          />
+          <p className="text-body-tiny text-text-subtle">
+            Spoken word for word when the call reaches this end. Empty means the call ends on the
+            previous turn&apos;s last words.
+          </p>
+        </Section>
+      )}
+
       {!isEnd && (
         <>
           <Section label="What the bot does here">

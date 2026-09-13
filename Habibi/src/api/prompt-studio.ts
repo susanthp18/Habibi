@@ -154,9 +154,13 @@ function invalidatePromptStudio(qc: ReturnType<typeof useQueryClient>) {
 
 // ---------- reads ----------
 
+/** One page of history. When a card has more, the drawer says the list is cut. */
+export const VERSION_HISTORY_PAGE = 200;
+
 export async function fetchPromptVersions(botId?: string): Promise<PromptVersion[]> {
-  const q = botId ? `?botId=${encodeURIComponent(botId)}` : "";
-  return apiGet<PromptVersion[]>(`/prompt-versions${q}`);
+  const q = new URLSearchParams({ limit: String(VERSION_HISTORY_PAGE) });
+  if (botId) q.set("botId", botId);
+  return apiGet<PromptVersion[]>(`/prompt-versions?${q.toString()}`);
 }
 
 export async function fetchPublishedPromptVersion(botId?: string): Promise<PromptVersion | null> {

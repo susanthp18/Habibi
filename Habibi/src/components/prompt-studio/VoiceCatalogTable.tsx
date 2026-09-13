@@ -198,6 +198,7 @@ export function VoiceCatalogTable({
         <button
           type="button"
           onClick={() => toggleSort(sortKey)}
+          title="Sorts the rows loaded so far; the catalogue pages in as you scroll"
           className="inline-flex items-center gap-1 hover:text-text-subtle"
         >
           {label}

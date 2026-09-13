@@ -1,8 +1,25 @@
+import { Link } from "@tanstack/react-router";
+import { ExternalLink } from "lucide-react";
 import { usePolicyEngines } from "@/api/agent-studio";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { Button } from "@/components/ui/button";
 import { Lozenge } from "@/components/ui/lozenge";
 import { QueryState } from "@/components/ui/query-state";
+
+/**
+ * Where each engine's own screen is. The tab listed six engines and linked to
+ * none of the places an operator would go to see what they decide; the mode
+ * is env-driven, but the rules, holds and windows each engine reads are
+ * authored on these screens.
+ */
+const ENGINE_SCREENS: Record<string, { to: string; label: string }> = {
+  reco: { to: "/upsell", label: "Offer policy on Upsell & leads" },
+  treatment: { to: "/treatment", label: "Decision intelligence" },
+  authority: { to: "/customers", label: "Authority profile on a customer's 360" },
+  live_qa: { to: "/qa", label: "QA scorecards" },
+  routing: { to: "/routing", label: "Routing rules" },
+  dnd: { to: "/consent", label: "Consent / DND and calling hours" },
+};
 
 export function PolicyTab({
   card,
@@ -39,6 +56,14 @@ export function PolicyTab({
                   <div className="text-body font-medium">{engine.label}</div>
                   {engine.tool ? (
                     <div className="font-mono text-body-tiny text-text-subtle">{engine.tool}</div>
+                  ) : null}
+                  {ENGINE_SCREENS[engine.key] ? (
+                    <Link
+                      to={ENGINE_SCREENS[engine.key]!.to}
+                      className="inline-flex items-center gap-050 text-body-tiny text-text-brand hover:underline"
+                    >
+                      {ENGINE_SCREENS[engine.key]!.label} <ExternalLink className="h-3 w-3" />
+                    </Link>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-075">

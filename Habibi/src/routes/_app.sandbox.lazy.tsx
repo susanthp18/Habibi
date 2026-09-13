@@ -12,6 +12,7 @@ import { useMinWidth } from "@/hooks/use-min-width";
 import { useSandboxLiveCall } from "@/components/sandbox/voice/useSandboxLiveCall";
 import { EMPTY_INSIGHTS } from "@/components/sandbox/voice/liveEvents";
 import { exportInteraction, useSandboxScenarios } from "@/api/sandbox";
+import { completeSandboxRun } from "@/api/sandbox";
 import { fetchVoiceStatus } from "@/api/voice-sandbox";
 import { usePromptVersions, publishPromptVersion } from "@/api/prompt-studio";
 import { useAgentStudioCards, useAgentStudioSkills } from "@/api/agent-studio";
@@ -192,20 +193,33 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
     dispatch,
   });
 
+  // A run that was started is completed when the session it belonged to
+  // ends -- a reset or a scenario change. It used to stay `running` forever,
+  // and the row was written for nothing.
+  const closeRun = useCallback(() => {
+    if (run && run.status === "running") {
+      completeSandboxRun(run.id).catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Could not close the sandbox run"),
+      );
+    }
+  }, [run]);
+
   const changeScenario = useCallback(
     (id: string) => {
+      closeRun();
       setScenarioId(id);
       const next = scenarios.find((x) => x.id === id);
       if (next) dispatch({ type: "start", turns: openingTurns(next) });
     },
-    [scenarios],
+    [scenarios, closeRun],
   );
 
   const reset = useCallback(() => {
     if (!scenario) return;
+    closeRun();
     dispatch({ type: "start", turns: openingTurns(scenario), clearMetrics: true });
     toast.info("Conversation reset");
-  }, [scenario]);
+  }, [scenario, closeRun]);
 
   const exportTranscript = useCallback(() => {
     if (!scenario || !activePrompt) return;
@@ -380,6 +394,7 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
       // Without this the Trace tab silently fell back to its client-derived
       // sketch on every live call, reporting "0 chunks · 0ms · 0t".
       interactionId={live.insights.interactionId}
+      runId={run?.id ?? null}
     />
   );
 

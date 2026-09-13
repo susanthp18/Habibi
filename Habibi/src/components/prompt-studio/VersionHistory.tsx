@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { GitCommit, RotateCcw, Undo2 } from "lucide-react";
 import type { PromptVersion } from "@/api/types/prompt-studio";
+import { VERSION_HISTORY_PAGE } from "@/api/prompt-studio";
 import type { BotDeployment } from "@/api/prompt-studio";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
@@ -298,6 +299,11 @@ export function VersionHistory({
             </ol>
           </section>
         ))}
+        {versions.length >= VERSION_HISTORY_PAGE && (
+          <p className="text-body-tiny text-text-subtlest">
+            Showing the newest {VERSION_HISTORY_PAGE} versions; older ones are not listed here.
+          </p>
+        )}
       </div>
       {/* Replaces a window.confirm. Discarding a draft cannot be undone, so it
           is worth asking — but asked in the product's own surface: themed,

@@ -308,8 +308,8 @@ export function PersonaSliders({
         </div>
         <p className="mt-100 flex items-start gap-075 text-body-small text-text-subtlest">
           <Volume2 className="mt-025 h-3.5 w-3.5 shrink-0" />
-          Spoken with the Voice tab’s TTS settings (warmth/pitch/speed). Adjust sliders, then Hear
-          tone.
+          Spoken with the Voice tab’s TTS settings (warmth/pitch/speed), in English regardless of
+          the primary language — the preview text is fixed. Adjust sliders, then Hear tone.
         </p>
       </div>
     </div>

@@ -196,7 +196,7 @@ export function MissionEntries({
   const claimed = node.data.entryFor ?? [];
   // "inbound" is `isStart`'s job and is deliberately not offered twice: a graph
   // has exactly one inbound door, and two ways to set it is two ways to
-  // disagree. The endpoint already excludes it; this is belt and braces.
+  // disagree. The vocabulary endpoint lists every objective, this one included.
   const missions = (vocab.data?.objectives ?? []).filter((m) => m !== "inbound");
 
   return (

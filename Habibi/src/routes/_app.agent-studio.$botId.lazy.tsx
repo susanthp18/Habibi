@@ -417,8 +417,14 @@ export function PromptStudioPage({
   // is the staleness guard: advice is dropped the moment the prompt or the
   // guardrails move away from what was actually critiqued.
   const freshLint = useMemo(() => {
+    // The two failure codes ride along: a review that could not run must
+    // stay visible beside the editor, not only in a toast that fades.
     const advisory =
-      lintedFp === lintFp ? lintFindings.filter((f) => f.code === "llm_checklist") : [];
+      lintedFp === lintFp
+        ? lintFindings.filter((f) =>
+            ["llm_checklist", "llm_lint_failed", "llm_lint_unavailable"].includes(f.code),
+          )
+        : [];
     return [...(autoLint.data ?? []), ...advisory];
   }, [autoLint.data, lintFindings, lintedFp, lintFp]);
 
@@ -1070,7 +1076,10 @@ export function PromptStudioPage({
               setDiffOpen(true);
               setHistoryOpen(false);
             }}
-            onRestore={(v) => void restore(v)}
+            onRestore={(v) => {
+              void restore(v);
+              setHistoryOpen(false);
+            }}
             onLoadDraft={(v) => {
               void loadDraft(v);
               setHistoryOpen(false);

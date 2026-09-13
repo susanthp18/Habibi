@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { usePublishedPromptVersion } from "@/api/prompt-studio";
 import type { CardHandoff, HandoffCarry } from "@/api/agent-card";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,11 @@ export function HandoffEdgeEditor({
   const published = usePublishedPromptVersion(targetId);
   const nodes = (published.data?.flow?.nodes ?? []).filter((n) => n.type !== "end");
   const set = (patch: Partial<CardHandoff>) => onChange({ ...edge, ...patch });
+  // Edited as text and parsed on blur, so a half-typed line is not a schema.
+  const [payloadText, setPayloadText] = useState(() => payloadFieldsText(edge.payload_schema));
+  useEffect(() => {
+    setPayloadText(payloadFieldsText(edge.payload_schema));
+  }, [edge.to_bot_id, edge.payload_schema]);
   const entryOptions = [
     { value: "", label: "the target's start node" },
     ...nodes.map((n) => ({ value: n.key, label: `${n.data.name} (${n.key})` })),
@@ -105,6 +111,45 @@ export function HandoffEdgeEditor({
           onChange={(e) => set({ refusal_line: e.target.value })}
         />
       </label>
+      <label className="space-y-025">
+        <Label className="text-body-tiny">
+          Payload fields — what the model may hand across, one per line as{" "}
+          <span className="font-mono">field: what it holds</span>
+        </Label>
+        <Textarea
+          rows={3}
+          placeholder={
+            "policy_number: the policy the caller asked about\nlapse_reason: their words for why it lapsed"
+          }
+          value={payloadText}
+          onChange={(e) => setPayloadText(e.target.value)}
+          onBlur={() => set({ payload_schema: parsePayloadFields(payloadText) })}
+        />
+        <p className="text-body-tiny text-text-subtle">
+          The runtime refuses a payload with a field not named here (G-F7 gates the list at
+          publish). Empty means the hop carries only the packet.
+        </p>
+      </label>
     </div>
   );
+}
+
+/** `field: description` lines → the schema map the edge stores; blank lines ignored. */
+export function parsePayloadFields(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const i = line.indexOf(":");
+    const key = (i === -1 ? line : line.slice(0, i)).trim();
+    if (!key) continue;
+    out[key] = i === -1 ? "" : line.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function payloadFieldsText(schema: Record<string, unknown> | undefined): string {
+  return Object.entries(schema ?? {})
+    .map(([k, v]) => (v ? `${k}: ${String(v)}` : k))
+    .join("\n");
 }

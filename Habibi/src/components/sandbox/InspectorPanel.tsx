@@ -22,6 +22,7 @@ import { EvalCockpit } from "@/components/shared/EvalCockpit";
 import { EMPTY_INSIGHTS, type LiveCallInsights } from "./voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
+import { useSandboxRun } from "@/api/sandbox";
 
 type Tab =
   | "retrieval"
@@ -47,6 +48,8 @@ type Props = {
    * in-memory state. Absent for a text sandbox run, which has no interaction.
    */
   interactionId?: string | null;
+  /** The sandbox run backing this session, read back from the server. */
+  runId?: string | null;
   /** Layout override — SplitPanes supplies the width, so the fixed one goes. */
   className?: string;
 };
@@ -57,6 +60,7 @@ export function InspectorPanel({
   insights = EMPTY_INSIGHTS,
   showContextDebug = false,
   interactionId = null,
+  runId = null,
   className,
 }: Props) {
   const [tab, setTab] = useState<Tab>("retrieval");
@@ -110,6 +114,7 @@ export function InspectorPanel({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-150">
+        {runId ? <RunLine runId={runId} /> : null}
         {tab === "retrieval" && <RetrievalTab turns={turns} ragHits={insights.ragHits} />}
         {tab === "tools" && <ToolsTab calls={insights.toolCalls} />}
         {tab === "intent" && <IntentTab turns={turns} analysis={insights.turnAnalysis} />}
@@ -144,5 +149,22 @@ export function InspectorPanel({
         )}
       </div>
     </aside>
+  );
+}
+
+/**
+ * The persisted run behind the session: its status and the aggregates the
+ * server settled when it closed. Read back from the API rather than the
+ * in-memory session, so what the inspector says is what the row says.
+ */
+function RunLine({ runId }: { runId: string }) {
+  const run = useSandboxRun(runId);
+  if (!run.data) return null;
+  return (
+    <p className="mb-100 font-mono text-body-tiny text-text-subtle">
+      run {run.data.id} · {run.data.status}
+      {run.data.aggregateLatencyMs != null ? ` · ${run.data.aggregateLatencyMs} ms` : ""}
+      {run.data.aggregateTokens != null ? ` · ${run.data.aggregateTokens} tokens` : ""}
+    </p>
   );
 }

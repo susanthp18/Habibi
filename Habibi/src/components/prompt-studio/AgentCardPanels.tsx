@@ -1,6 +1,6 @@
 import { Lozenge } from "@/components/ui/lozenge";
 import { gateTone } from "@/lib/gate-status";
-import { useCompileCard, type CompileReport } from "@/api/agent-studio";
+import type { CompileReport } from "@/api/agent-studio";
 
 // The six Agent Card tabs, one file each under ./panels. Re-exported here so
 // every existing import path keeps working.
@@ -26,8 +26,4 @@ export function CompileReportList({ report }: { report: CompileReport | null }) 
       ))}
     </ul>
   );
-}
-
-export function useStudioCompile(botId: string) {
-  return useCompileCard(botId);
 }

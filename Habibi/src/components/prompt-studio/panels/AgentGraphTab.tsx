@@ -161,6 +161,37 @@ export function AgentGraphTab({
                   </li>
                 );
               })}
+            {/* A handoff to a card the fleet no longer lists (archived, or
+                another tenant's) rendered no row at all, so it could not be
+                removed and G5 failed the publish with nothing to click. */}
+            {(card?.handoffs ?? [])
+              .filter(
+                (h): h is typeof h & { to_bot_id: string } =>
+                  Boolean(h.to_bot_id) && !nodes.some((n) => n.id === h.to_bot_id),
+              )
+              .map((h) => (
+                <li key={`orphan-${h.to_bot_id}`} className="flex items-center gap-100 py-100">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-100">
+                      <span className="font-mono text-body-small">{h.to_bot_id}</span>
+                      <Lozenge
+                        tone="danger"
+                        title="G5 fails publish while the card names a target the fleet does not list"
+                      >
+                        not in the fleet
+                      </Lozenge>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setHandoff(h.to_bot_id, null)}
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
           </ul>
           <label className="flex items-center gap-100 text-body-small">
             <span>Hops one call may make</span>
