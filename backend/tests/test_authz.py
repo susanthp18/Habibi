@@ -718,3 +718,31 @@ def test_a_logged_interaction_is_attributed_to_the_actor_not_the_body(gated_clie
     )
     assert res.status_code == 422, res.text
     assert "handlerUserId" in res.text
+
+
+def test_provider_bindings_are_read_by_bot_read_and_written_by_admin(
+    gated_client: TestClient, db_tx
+) -> None:
+    """The three /providers/bindings routes had no HTTP test at all (BINDINGS-13):
+    an agent is refused the list (BOT_READ), a supervisor may read it, only an
+    admin may write, and a write round-trips."""
+    from sqlalchemy import text
+
+    assert gated_client.get("/providers/bindings", headers=_hdr("arjun-mehta")).status_code == 403
+    res = gated_client.get("/providers/bindings", headers=_hdr("david-chen"))
+    assert res.status_code == 200, res.text
+    model = db_tx.execute(text("SELECT id FROM provider_models WHERE kind = 'stt' LIMIT 1")).scalar()
+    if model is None:
+        pytest.skip("no provider model seeded")
+    body = {"slot": "stt", "providerModelId": model, "locale": "hi-IN", "priority": 900}
+    denied = gated_client.post("/providers/bindings", json=body, headers=_hdr("david-chen"))
+    assert denied.status_code == 403, denied.text
+    created = gated_client.post("/providers/bindings", json=body, headers=_hdr("priya-nair"))
+    assert created.status_code == 200, created.text
+    binding_id = created.json()["id"]
+    try:
+        listed = gated_client.get("/providers/bindings", headers=_hdr("david-chen")).json()
+        assert any(b["id"] == binding_id for b in listed)
+    finally:
+        gone = gated_client.delete(f"/providers/bindings/{binding_id}", headers=_hdr("priya-nair"))
+        assert gone.status_code == 200, gone.text
