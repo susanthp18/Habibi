@@ -46,6 +46,7 @@ include = [
   "db_kb_snapshots.py",
   "db_leads.py",
   "db_outbound.py",
+  "db_promises.py",
   "db_qa.py",
   "db_redaction.py",
   "db_routing.py",
