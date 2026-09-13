@@ -213,7 +213,7 @@ def test_the_dial_itself_carries_host_and_sni(monkeypatch: pytest.MonkeyPatch) -
     def _handler(request: httpx.Request) -> httpx.Response:
         seen["host"] = request.headers["Host"]
         seen["sni"] = request.extensions.get("sni_hostname")
-        seen["body"] = request.read()
+        seen["body"] = request.content
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})
 
     real_client = httpx.Client
