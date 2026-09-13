@@ -8,7 +8,7 @@ from agent_core.cards.compile import CompileReport, GateResult
 from agent_core.fleet.compile import compile_bundle, digest, parity_report
 from agent_core.tools.gates import GATE_IDENTITY, enforce_human_gate
 from agent_core.tools.grant import TEXT, VOICE, ToolGrant
-from sandbox_runtime import simulate_sandbox_tool
+from sandbox_tools import simulate_sandbox_tool
 
 
 def _report() -> CompileReport:
@@ -128,9 +128,10 @@ def test_sandbox_never_dispatches_writes_or_connectors() -> None:
     assert connector["error"] == "sandbox_connector_blocked"
 
     import inspect
-    import sandbox_runtime
 
-    source = inspect.getsource(sandbox_runtime._run_sandbox_tool_loop)
+    import sandbox_tools
+
+    source = inspect.getsource(sandbox_tools.run_tool_loop)
     assert "execute_tool(" not in source
     assert "record_tool_call(" not in source
 
