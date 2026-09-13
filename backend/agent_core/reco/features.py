@@ -166,7 +166,6 @@ class CallSignals:
     dispute_opened: bool = False
     hardship_mentioned: bool = False
     offer_declined_this_call: bool = False
-    offers_presented_this_call: int = 0
     customer_turns: int = 0
 
     @property
@@ -188,7 +187,6 @@ class CallSignals:
             "disputeOpened": self.dispute_opened,
             "hardshipMentioned": self.hardship_mentioned,
             "offerDeclinedThisCall": self.offer_declined_this_call,
-            "offersPresentedThisCall": self.offers_presented_this_call,
             "customerTurns": self.customer_turns,
         }
 
@@ -616,7 +614,6 @@ class PostgresFeatureProvider:
             dispute_opened=live.dispute_opened,
             hardship_mentioned=live.hardship_mentioned or merged.hardship_mentioned,
             offer_declined_this_call=live.offer_declined_this_call,
-            offers_presented_this_call=live.offers_presented_this_call,
             customer_turns=max(live.customer_turns, merged.customer_turns),
         )
 

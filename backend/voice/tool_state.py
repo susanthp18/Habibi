@@ -249,7 +249,6 @@ class ToolState:
         # guard checks against this set, so the model cannot pitch or capture an
         # id it invented — a prompt line alone never stopped that.
         self.offered_product_ids: set[str] = set()
-        self.offers_presented = 0
         self.offer_declined = False
         self.escalated = False
         self.dispute_opened = False

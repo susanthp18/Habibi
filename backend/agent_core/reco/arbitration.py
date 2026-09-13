@@ -32,7 +32,6 @@ SUPPRESS_ESCALATED = "escalated"
 SUPPRESS_DISPUTE = "dispute_open_this_call"
 SUPPRESS_HARDSHIP = "hardship_stated"
 SUPPRESS_ALREADY_DECLINED = "declined_this_call"
-SUPPRESS_CALL_CAP = "per_call_cap_reached"
 SUPPRESS_CUSTOMER_CAP = "per_customer_cap_reached"
 SUPPRESS_NO_CANDIDATES = "no_eligible_candidates"
 SUPPRESS_BELOW_THRESHOLD = "below_score_threshold"
@@ -99,8 +98,6 @@ def arbitrate(
         return _no(SUPPRESS_NO_COMMITMENT)
 
     # --- frequency ---------------------------------------------------------
-    if signals.offers_presented_this_call >= policy.max_offers_per_call:
-        return _no(SUPPRESS_CALL_CAP)
     if features.offers_last_30d >= policy.max_offers_per_customer_30d:
         return _no(SUPPRESS_CUSTOMER_CAP)
 

@@ -44,12 +44,11 @@ def test_env_name_is_public_on_the_leaf_module() -> None:
     assert "env_name" in env_utils.__all__
     assert "env_bool" in env_utils.__all__
     assert "NON_PROD_ENVS" in env_utils.__all__
-    assert "env_allows_dev_key" in env_utils.__all__
 
 
 def test_an_unset_environment_is_a_laptop() -> None:
     assert env_utils.env_name() == "dev"
-    assert env_utils.env_allows_dev_key() is True
+    assert env_utils.is_prod() is False
 
 
 @pytest.mark.parametrize(
@@ -66,7 +65,7 @@ def test_it_lower_cases_and_strips(
 def test_env_is_the_fallback_for_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENV", "production")
     assert env_utils.env_name() == "production"
-    assert env_utils.env_allows_dev_key() is False
+    assert env_utils.is_prod() is True
 
 
 def test_app_env_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,14 +81,14 @@ def test_declared_non_prod_names_allow_a_dev_key(
     monkeypatch: pytest.MonkeyPatch, env: str
 ) -> None:
     monkeypatch.setenv("APP_ENV", env)
-    assert env_utils.env_allows_dev_key() is True
+    assert env_utils.is_prod() is False
 
 
 @pytest.mark.parametrize("env", ["production", "prod", "staging", "dvelopment", "uat"])
 def test_anything_else_does_not(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
     """``staging`` is not on the allow-list, and a typo must not open a gate."""
     monkeypatch.setenv("APP_ENV", env)
-    assert env_utils.env_allows_dev_key() is False
+    assert env_utils.is_prod() is True
 
 
 # --- one implementation, two callers ----------------------------------------

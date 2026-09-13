@@ -284,7 +284,6 @@ class Policy:
 
     min_score: float
     max_offers_returned: int
-    max_offers_per_call: int
     max_offers_per_customer_30d: int
     decline_cooldown_days: int
     family_cooldown_days: int
@@ -299,7 +298,6 @@ def policy() -> Policy:
         # lead is worth.
         min_score=_env_float("RECO_MIN_SCORE", 0.35),
         max_offers_returned=_env_int("RECO_MAX_OFFERS", 2),
-        max_offers_per_call=_env_int("RECO_MAX_PER_CALL", 1),
         max_offers_per_customer_30d=_env_int("RECO_MAX_PER_CUSTOMER_30D", 3),
         decline_cooldown_days=_env_int("RECO_DECLINE_COOLDOWN_DAYS", 90),
         family_cooldown_days=_env_int("RECO_FAMILY_COOLDOWN_DAYS", 30),

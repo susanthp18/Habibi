@@ -63,7 +63,6 @@ restart.
 | `RECO_SCORER` | `rule` | which `Recommender` implementation |
 | `RECO_MIN_SCORE` | `0.35` | below this, say nothing |
 | `RECO_MAX_OFFERS` | `2` | shortlist length |
-| `RECO_MAX_PER_CALL` | `1` | offers presented per conversation |
 | `RECO_MAX_PER_CUSTOMER_30D` | `3` | frequency cap |
 | `RECO_DECLINE_COOLDOWN_DAYS` | `90` | re-pitch cool-down after a refusal |
 | `RECO_SENTIMENT_FLOOR` | `-0.15` | below this, never pitch |
@@ -88,7 +87,8 @@ must not silently stop collecting the data the engine learns from.
 
 1. **Shadow (2 weeks).** `RECO_MODE=shadow`. Watch coverage (% calls with ≥1
    approved offer), the score distribution, and the suppression breakdown.
-2. **Live, capped.** `RECO_MODE=live`, `RECO_MAX_PER_CALL=1`. Guardrails:
+2. **Live.** `RECO_MODE=live`. Offers are scored on the call and never spoken
+   on it (§9.7), so there is no per-call presentation cap. Guardrails:
    complaint rate, average handle time, sentiment delta, escalation rate. Any
    regression reverts.
 3. **Learn.** Once ~2–3k labelled leads exist in `offer_decisions`, train a

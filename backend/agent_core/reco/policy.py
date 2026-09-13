@@ -42,7 +42,6 @@ _SUPPRESSION_LABELS: dict[str, str] = {
     "dispute_open_this_call": "Dispute opened this call — do not pitch",
     "hardship_stated": "Hardship stated — do not pitch",
     "declined_this_call": "Already declined this call",
-    "per_call_cap_reached": "Per-call offer cap reached",
     "per_customer_cap_reached": "30-day offer cap reached",
     "no_eligible_candidates": "Nothing eligible in the catalog",
     "below_score_threshold": "Best candidate below the score floor",

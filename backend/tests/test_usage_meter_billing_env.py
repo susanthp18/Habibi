@@ -77,11 +77,11 @@ def test_a_test_runner_still_bills_as_production(
 ) -> None:
     """The three names the two allow-lists disagree about.
 
-    ``env_allows_dev_key()`` says yes for all three — a CI box may sign with the
-    committed key. Its Azure bill is still real.
+    ``is_prod()`` says no for all three — a CI box may sign with the committed
+    key. Its Azure bill is still real.
     """
     monkeypatch.setenv("APP_ENV", env)
-    assert env_utils.env_allows_dev_key() is True
+    assert env_utils.is_prod() is False
     assert usage_meter._billing_env() == "production"
 
 

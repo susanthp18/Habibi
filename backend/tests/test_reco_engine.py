@@ -176,7 +176,6 @@ def _offers(score: float = 0.9):
         ({}, {"sentiment_current": -0.8}, arbitration.SUPPRESS_SENTIMENT),
         ({}, {"commitment_secured": False}, arbitration.SUPPRESS_NO_COMMITMENT),
         ({"offers_last_30d": 9}, {}, arbitration.SUPPRESS_CUSTOMER_CAP),
-        ({}, {"offers_presented_this_call": 5}, arbitration.SUPPRESS_CALL_CAP),
     ],
 )
 def test_every_gate_suppresses_with_its_own_reason(features_kw, signals_kw, expected):

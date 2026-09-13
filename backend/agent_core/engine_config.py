@@ -189,7 +189,6 @@ SPEC: dict[str, Spec] = {
     "RECO_LOG_VECTORS": Spec("bool"),
     "RECO_MIN_SCORE": Spec("float", minimum=0.0, maximum=1.0),
     "RECO_MAX_OFFERS": Spec("int", minimum=0, maximum=20),
-    "RECO_MAX_PER_CALL": Spec("int", minimum=0, maximum=20),
     "RECO_MAX_PER_CUSTOMER_30D": Spec("int", minimum=0, maximum=100),
     "RECO_DECLINE_COOLDOWN_DAYS": Spec("int", minimum=0, maximum=3_650),
     "RECO_FAMILY_COOLDOWN_DAYS": Spec("int", minimum=0, maximum=3_650),

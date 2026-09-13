@@ -182,7 +182,6 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             escalation_flagged=state.escalated,
             dispute_opened=state.dispute_opened,
             offer_declined_this_call=state.offer_declined,
-            offers_presented_this_call=state.offers_presented,
         )
 
     async def _recommend_next_offer_handler(

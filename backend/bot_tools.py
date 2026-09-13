@@ -128,7 +128,6 @@ class ToolContext:
         self.offered_product_id: str | None = None
         self.offered_product_ids: set[str] = set()
         self.offer_declined = False
-        self.offers_presented = 0
         # The grant for this turn. None = no grant derived = deny (ADR-0002).
         # Frozen on purpose: the grant arrives from one owner and a caller that
         # could union onto it is how six competing tool formulas happened.
@@ -516,7 +515,6 @@ def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[s
                 commitment_secured=True,
                 escalation_flagged=ctx.escalated,
                 offer_declined_this_call=ctx.offer_declined,
-                offers_presented_this_call=ctx.offers_presented,
             ),
         )
     ctx.offer_decision_id = result.decision_id

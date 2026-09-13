@@ -24,7 +24,6 @@ __all__ = [
     "as_bool",
     "NON_PROD_ENVS",
     "env_name",
-    "env_allows_dev_key",
 ]
 
 # The same allow-list shape ``main.py`` uses to decide it is not production,
@@ -52,11 +51,6 @@ def is_prod() -> bool:
     allowed the dev MinIO credentials and the demo seeder.
     """
     return env_name() not in NON_PROD_ENVS
-
-
-def env_allows_dev_key() -> bool:
-    """Whether the environment has *said* it is not production (``not is_prod()``)."""
-    return not is_prod()
 
 
 # One truth set for every flag. ``"on"`` belongs here: ``MINIO_SECURE=on`` used

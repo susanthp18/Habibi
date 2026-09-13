@@ -159,9 +159,9 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         cid = session.customer_id
         if not cid:
             return
-        # Already pitched or already refused something on this call — asking
-        # again is pressure, not service.
-        if state.offer_declined or state.offers_presented > 0:
+        # Already refused something on this call — asking again is pressure,
+        # not service. (Nothing is ever pitched: §9.7, scored not spoken.)
+        if state.offer_declined:
             return
 
         try:

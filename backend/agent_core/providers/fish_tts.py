@@ -17,7 +17,7 @@ S2 takes ``[square brackets]``; legacy S1 took ``(parentheses)``. Tags are
 directions, not speech — they never appear in the audio. Placement is meaning:
 a sentence-level emotion belongs at the start, while tone and effect markers
 apply from wherever they sit onward. The vendor accepts free-form descriptions
-(``[laughing nervously]``), so :data:`EMOTION_TAGS` is a starting palette, not a
+(``[laughing nervously]``), so the tag tuples in :mod:`fish_emotions` are a starting palette, not a
 closed enum — the UI must let an operator type their own.
 
 One caution worth keeping next to the feature: on a regulated collections line,
@@ -64,33 +64,6 @@ _TIMEOUT = 90.0
 
 #: Grouped for the picker. Sourced from Fish's emotion-control reference; the
 #: API also accepts arbitrary descriptions, so treat this as the common set.
-EMOTION_TAGS: dict[str, tuple[str, ...]] = {
-    "emotion": (
-        "happy", "sad", "angry", "excited", "calm", "nervous", "confident",
-        "surprised", "satisfied", "delighted", "scared", "worried", "upset",
-        "frustrated", "depressed", "empathetic", "embarrassed", "disgusted",
-        "moved", "proud", "relaxed", "grateful", "curious", "sarcastic",
-    ),
-    "advanced": (
-        "disdainful", "unhappy", "anxious", "hysterical", "indifferent",
-        "uncertain", "doubtful", "confused", "disappointed", "regretful",
-        "guilty", "ashamed", "jealous", "envious", "hopeful", "optimistic",
-        "pessimistic", "nostalgic", "lonely", "bored", "contemptuous",
-        "sympathetic", "compassionate", "determined", "resigned",
-    ),
-    "tone": (
-        "in a hurry tone", "shouting", "screaming", "whispering", "soft tone",
-        "emphasis",
-    ),
-    "effect": (
-        "laughing", "chuckling", "sobbing", "crying loudly", "sighing",
-        "groaning", "panting", "gasping", "yawning", "snoring", "clear throat",
-    ),
-    "scene": (
-        "audience laughing", "background laughter", "crowd laughing", "break",
-        "long-break",
-    ),
-}
 
 #: Vendor guidance: more than three stacked emotions on one sentence degrades
 #: rather than compounds.
