@@ -1,128 +1,252 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-} from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useBlocker } from "@tanstack/react-router";
 import type { useEnsureStudioDraft } from "@/api/prompt-studio";
 import type { FlowGraph } from "@/api/flow";
-import type {
-  Guardrails,
-  PersonaState,
-  PromptVersion,
-  VoiceConfig,
-} from "@/api/types/prompt-studio";
+import type { PromptVersion } from "@/api/types/prompt-studio";
 import type { AgentCard } from "@/api/agent-card";
-import { asCard, fingerprintOf } from "./studioDraft";
+import { nextVersionLabel } from "@/lib/prompt-studio";
+import {
+  EMPTY_FIELDS,
+  INITIAL_STATE,
+  adopted,
+  asCard,
+  fingerprintOf,
+  studioDraftReducer,
+  type EditorFields,
+} from "./studioDraft";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 /**
- * The draft-save machinery: `runSave`, `flushDraft`, the route blocker and the
- * debounced autosave. The refs it writes are owned by the page, because the
- * hydration effect declared before this hook reads them too.
+ * The editor: what is on screen, what was last saved, and the one way a draft
+ * is written.
+ *
+ * Owns the reducer, hydration from the version list, the saved baseline and
+ * everything derived from it (`dirty`, `unsaved`, the labels), the debounced
+ * autosave, `flushDraft` and the route blocker. The page keeps queries, UI
+ * state and actions; every save -- autosave, Publish, Test in Sandbox,
+ * Load/Restore -- comes through `flushDraft` here, so a click inside the
+ * debounce window can never fork a second draft.
  */
 export function useStudioDraft({
   botId,
   ensureDraft,
-  prompt,
-  persona,
-  voice,
-  guardrails,
-  flow,
-  effectiveCard,
-  draftId,
-  draftLabel,
-  replaceUnreadable,
-  hydrated,
+  history,
+  card: cardRow,
+  cardPending,
   cardRefused,
-  dirty,
-  autosaveNonce,
-  lastSavedFp,
-  autosaveTimer,
-  skipAutosave,
-  savingRef,
-  resaveRef,
-  unsavedRef,
-  saveInFlight,
-  saveFailures,
-  draftSummary,
-  markSaved,
-  setSaveStatus,
-  setAutosaveNonce,
-  setDraftId,
-  setReplaceUnreadable,
+  publishedRow: publishedFromQuery,
 }: {
   botId: string;
   ensureDraft: ReturnType<typeof useEnsureStudioDraft>["mutateAsync"];
-  prompt: string;
-  persona: PersonaState;
-  voice: VoiceConfig;
-  guardrails: Guardrails;
-  flow: FlowGraph | null;
-  effectiveCard: AgentCard;
-  draftId: string | null;
-  draftLabel: string;
-  replaceUnreadable: boolean;
-  hydrated: boolean;
+  /** The version list, newest first; the page keeps no mirror of it. */
+  history: PromptVersion[];
+  /** The card read: its resolved (draft-aware) card and the published one. */
+  card: { agentCard?: unknown; publishedCard?: unknown } | null | undefined;
+  cardPending: boolean;
   cardRefused: boolean;
-  dirty: boolean;
-  autosaveNonce: number;
-  lastSavedFp: RefObject<string>;
-  autosaveTimer: RefObject<number | null>;
-  skipAutosave: RefObject<boolean>;
-  savingRef: RefObject<boolean>;
-  resaveRef: RefObject<boolean>;
-  unsavedRef: RefObject<boolean>;
-  saveInFlight: RefObject<Promise<PromptVersion | null> | null>;
-  saveFailures: RefObject<number>;
-  draftSummary: RefObject<string>;
-  markSaved: (fp: string) => void;
-  setSaveStatus: Dispatch<SetStateAction<SaveStatus>>;
-  setAutosaveNonce: Dispatch<SetStateAction<number>>;
-  setDraftId: (value: string | null) => void;
-  setReplaceUnreadable: (value: boolean) => void;
+  /** `/prompt-versions/published`, when it answered. */
+  publishedRow: PromptVersion | null | undefined;
 }) {
+  const [draft, dispatch] = useReducer(studioDraftReducer, INITIAL_STATE);
+  const { hydrated, draftId, prompt, persona, voice, guardrails, flow, card, replaceUnreadable } =
+    draft;
+  const set = useMemo(
+    () => ({
+      prompt: (value: string) => dispatch({ type: "prompt", value }),
+      persona: (
+        value: EditorFields["persona"] | ((p: EditorFields["persona"]) => EditorFields["persona"]),
+      ) => dispatch({ type: "persona", value }),
+      voice: (value: EditorFields["voice"]) => dispatch({ type: "voice", value }),
+      guardrails: (value: EditorFields["guardrails"]) => dispatch({ type: "guardrails", value }),
+      flow: (value: FlowGraph | null | ((p: FlowGraph | null) => FlowGraph | null)) =>
+        dispatch({ type: "flow", value }),
+      card: (value: AgentCard | null) => dispatch({ type: "card", value }),
+      replaceUnreadable: (value: boolean) => dispatch({ type: "replaceUnreadable", value }),
+    }),
+    [],
+  );
+
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const lastSavedFp = useRef<string>("");
+  const autosaveTimer = useRef<number | null>(null);
+  const skipAutosave = useRef(false);
+  // A save already in flight, and a request to run one more when it lands.
+  // Without these the 1200ms debounce can fire again while the first
+  // `ensureDraft` is still creating the draft — `draftId` is still null, so the
+  // second call creates a *second* draft and the version rail grows a duplicate
+  // for a single edit.
+  const savingRef = useRef(false);
+  const resaveRef = useRef(false);
+  /** `unsaved`, readable from the route blocker. */
+  const unsavedRef = useRef(false);
+  /** The save in flight, so anything that must not race it can await it. */
+  const saveInFlight = useRef<Promise<PromptVersion | null> | null>(null);
+  /** Consecutive failed autosaves; the retry backs off and gives up at three. */
+  const saveFailures = useRef(0);
   /**
-   * What a save would send, read at call time rather than captured.
-   *
-   * `runSave` and `flushDraft` are stable callbacks; the editor state they
-   * write is whatever is on screen when they run, which is the property that
-   * lets Publish, Test-in-Sandbox and route changes flush the same draft the
-   * debounce would have.
+   * The summary autosave writes onto the open draft. A ref because nothing
+   * renders it and changing it must not re-run the autosave effect. It exists
+   * so that a draft created by restore-as-draft keeps its "restored from vX"
+   * note: autosave used to send a literal "draft autosave" on every write.
    */
-  const editorRef = useRef({
-    prompt,
-    persona,
-    voice,
-    guardrails,
-    flow,
-    card: asCard(effectiveCard),
-    draftId,
-    draftLabel,
-    replaceUnreadable,
-  });
-  editorRef.current = {
-    prompt,
-    persona,
-    voice,
-    guardrails,
-    flow,
-    card: asCard(effectiveCard),
-    draftId,
-    draftLabel,
-    replaceUnreadable,
-  };
+  const draftSummary = useRef("draft autosave");
+  const [autosaveNonce, setAutosaveNonce] = useState(0);
+  // Bumped whenever the saved baseline moves, so `unsaved` below — which reads
+  // a ref — is recomputed on the render that follows a save.
+  const [savedTick, setSavedTick] = useState(0);
+  const markSaved = useCallback((fp: string) => {
+    lastSavedFp.current = fp;
+    setSavedTick((t) => t + 1);
+  }, []);
 
   /**
-   * The one way a draft is written. Autosave, Publish, Test in Sandbox and
-   * Load/Restore all come through here; three of them used to call
-   * `ensureDraft` on their own, outside the in-flight guard, and a click inside
-   * the debounce window forked a second draft.
+   * Put a version on screen as the saved baseline: hydration, load draft,
+   * discard, publish and rollback all come through here. Autosave is held off
+   * until after paint so the adoption itself is never written back.
    */
+  const adoptVersion = useCallback(
+    (
+      fields: EditorFields,
+      opts: { draftId: string | null; summary?: string; status?: SaveStatus },
+    ) => {
+      skipAutosave.current = true;
+      dispatch({ type: "adopt", fields, draftId: opts.draftId });
+      draftSummary.current = opts.summary || "draft autosave";
+      markSaved(fingerprintOf(fields));
+      if (opts.status) setSaveStatus(opts.status);
+      window.setTimeout(() => {
+        skipAutosave.current = false;
+      }, 0);
+    },
+    [markSaved],
+  );
+
+  const cardFromRow = cardRow?.agentCard;
+  const publishedCardFromRow = cardRow?.publishedCard;
+
+  // Hydrate the editor once the version list AND the card read have settled.
+  // `/prompt-versions` answers `200 []` for any id at all, so hydrating before
+  // the card read would produce a fully editable studio for a dead URL, with
+  // autosave pointed at it.
+  useEffect(() => {
+    if (cardPending || hydrated) return;
+    if (!history.length) {
+      // A bot row with no prompt version at all. Seed the defaults so the
+      // first version can be authored; an empty editor is the baseline, not a
+      // saved state.
+      adoptVersion({ ...EMPTY_FIELDS, card: asCard(cardFromRow) }, { draftId: null });
+      markSaved("");
+      return;
+    }
+    const live = history.find((v) => v.status === "published") ?? history[0];
+    // Prefer the newest draft if present (resume work after refresh).
+    const newestDraft = history.find((v) => v.status === "draft");
+    const start = newestDraft ?? live;
+    adoptVersion(adopted(start), {
+      draftId: newestDraft?.id ?? null,
+      summary: newestDraft?.summary,
+    });
+  }, [history, hydrated, cardFromRow, cardPending, adoptVersion, markSaved]);
+
+  // Baseline for `dirty`: the live row if there is one, else the newest version
+  // of any status — for a clone with only a draft, that draft is the right
+  // thing to diff against.
+  const published = useMemo(
+    () => history.find((v) => v.status === "published") ?? history[0],
+    [history],
+  );
+
+  // The actually-published row, or nothing. The header used `published` and so
+  // called a never-published clone's draft "published".
+  const publishedRow = useMemo(
+    () => publishedFromQuery ?? history.find((v) => v.status === "published") ?? null,
+    [publishedFromQuery, history],
+  );
+
+  // What the tabs render and what every save sends. Local edits win; otherwise
+  // the server's resolved card (draft-aware), then the version's own card.
+  // A plain `??` chain was wrong here — the server returns `{}` for a card-less
+  // bot, and `{} ?? x` is `{}`, so every cloned agent showed empty tabs.
+  const effectiveCard = useMemo<AgentCard>(
+    () => card ?? asCard(cardFromRow) ?? asCard(published?.agentCard) ?? {},
+    [card, cardFromRow, published],
+  );
+
+  const fields = useMemo(
+    () => ({ prompt, persona, voice, guardrails, flow, card: asCard(effectiveCard) }),
+    [prompt, persona, voice, guardrails, flow, effectiveCard],
+  );
+
+  const dirty = useMemo(() => {
+    // No version to compare against: anything authored is a change. Returning
+    // false here is what silently disabled autosave on a brand-new bot.
+    if (!published) return hydrated && Boolean(prompt.trim());
+    // `flow` and the card belong in the fingerprint: without them a canvas edit
+    // or a Skills/Tools toggle never recomputed `dirty`, so the debounced
+    // autosave never fired and the edit was lost on navigate.
+    return (
+      fingerprintOf(fields) !==
+      fingerprintOf({
+        ...adopted(published, asCard(publishedCardFromRow) ?? asCard(published.agentCard)),
+        flow: published.flow ?? null,
+      })
+    );
+  }, [fields, prompt, published, hydrated, publishedCardFromRow]);
+
+  // "Unsaved" is not "differs from what is live". On a card that has already
+  // shipped, a saved draft differs from the published row for as long as it
+  // exists — so the header's chip read "unsaved · draft v1.1" for the whole
+  // session, including the instant after an autosave landed, and "Draft saved"
+  // could never appear. This compares against what was last written instead.
+  // savedTick is the dependency that makes reading the ref safe: it changes
+  // whenever markSaved moves the baseline.
+  const unsaved = useMemo(
+    () => hydrated && fingerprintOf(fields) !== lastSavedFp.current,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- savedTick stands in for the ref
+    [fields, hydrated, savedTick],
+  );
+  unsavedRef.current = unsaved;
+
+  // Derived from the live row, not `published` — for a clone that fell through
+  // to the draft's own label, and `nextVersionLabel("Collections-clone v1")`
+  // does not match /^v\d+\.\d+$/, so it silently produced "v1.0".
+  //
+  // A card that has never published mints v1.0, not v1.1 -- the seed label is
+  // the first version, not the predecessor of one. And a live label that is
+  // not `v<major>.<minor>` (a restored row once carried its id) bumps from the
+  // newest matching label in history rather than resetting to v1.0.
+  const nextLabel = useMemo(() => {
+    if (!publishedRow) return "v1.0";
+    if (/^v\d+\.\d+$/.test(publishedRow.label ?? "")) return nextVersionLabel(publishedRow.label);
+    const newest = history
+      .map((v) => v.label ?? "")
+      .filter((l) => /^v\d+\.\d+$/.test(l))
+      .sort((a, b) => {
+        const [am, an] = a.slice(1).split(".").map(Number);
+        const [bm, bn] = b.slice(1).split(".").map(Number);
+        return bm - am || bn - an;
+      })[0];
+    return newest ? nextVersionLabel(newest) : "v1.0";
+  }, [publishedRow, history]);
+
+  // A draft keeps the name it was created with; `nextLabel` only names a new
+  // one. Autosave used to PATCH `label: nextLabel` onto the existing draft, so
+  // the first keystroke renamed "Collections-clone v1" to "v1.0".
+  const draftLabel = useMemo(
+    () => history.find((v) => v.id === draftId)?.label || nextLabel,
+    [history, draftId, nextLabel],
+  );
+
+  /**
+   * What a save would send, read at call time rather than captured, so
+   * `runSave` and `flushDraft` are stable and write whatever is on screen when
+   * they run.
+   */
+  const editorRef = useRef({ ...fields, draftId, draftLabel, replaceUnreadable });
+  editorRef.current = { ...fields, draftId, draftLabel, replaceUnreadable };
+
+  /** The one way a draft is written. */
   const runSave = useCallback(async (): Promise<PromptVersion | null> => {
     if (savingRef.current) {
       // Queue behind the save already running rather than racing it.
@@ -130,19 +254,12 @@ export function useStudioDraft({
       return saveInFlight.current;
     }
     const e = editorRef.current;
-    const fpSent = fingerprintOf({
-      prompt: e.prompt,
-      persona: e.persona,
-      voice: e.voice,
-      guardrails: e.guardrails,
-      flow: e.flow,
-      card: e.card,
-    });
+    const fpSent = fingerprintOf(e);
     savingRef.current = true;
     setSaveStatus("saving");
     const work = (async () => {
       try {
-        const draft = await ensureDraft({
+        const row = await ensureDraft({
           draftId: e.draftId,
           label: e.draftLabel,
           prompt: e.prompt,
@@ -155,11 +272,11 @@ export function useStudioDraft({
           summary: draftSummary.current,
           botId,
         });
-        setDraftId(draft.id);
+        dispatch({ type: "draftId", value: row.id });
         // The replacement is stored, so the next autosave is an ordinary one
         // again. Left set, a later accidental sentinel would sail through the
         // guard this flag exists to open.
-        if (e.replaceUnreadable) setReplaceUnreadable(false);
+        if (e.replaceUnreadable) dispatch({ type: "replaceUnreadable", value: false });
         // The baseline is what was *sent*, not the echoed row. The server
         // normalises structured fields (`entryFor: []`, `style: null`), so
         // fingerprinting the echo left the chip on "unsaved" forever after
@@ -167,7 +284,7 @@ export function useStudioDraft({
         markSaved(fpSent);
         saveFailures.current = 0;
         setSaveStatus("saved");
-        return draft;
+        return row;
       } catch {
         setSaveStatus("error");
         // Retry with backoff, three times; an edit lost to one failed PATCH
@@ -192,22 +309,7 @@ export function useStudioDraft({
     })();
     saveInFlight.current = work;
     return work;
-    // The refs and state setters are stable; they are listed only because the
-    // linter cannot see that through a prop.
-  }, [
-    ensureDraft,
-    markSaved,
-    botId,
-    draftSummary,
-    resaveRef,
-    saveFailures,
-    saveInFlight,
-    savingRef,
-    setAutosaveNonce,
-    setDraftId,
-    setReplaceUnreadable,
-    setSaveStatus,
-  ]);
+  }, [ensureDraft, markSaved, botId]);
 
   /**
    * Write whatever is unsaved, now, and return the draft it landed in.
@@ -224,19 +326,11 @@ export function useStudioDraft({
     let last: PromptVersion | null = null;
     if (saveInFlight.current) last = await saveInFlight.current;
     const e = editorRef.current;
-    const fp = fingerprintOf({
-      prompt: e.prompt,
-      persona: e.persona,
-      voice: e.voice,
-      guardrails: e.guardrails,
-      flow: e.flow,
-      card: e.card,
-    });
-    if (fp !== lastSavedFp.current && (e.draftId || e.prompt.trim())) {
+    if (fingerprintOf(e) !== lastSavedFp.current && (e.draftId || e.prompt.trim())) {
       last = await runSave();
     }
     return last;
-  }, [runSave, autosaveTimer, lastSavedFp, saveInFlight]);
+  }, [runSave]);
 
   // SHELL-9: a route change flushes the draft first, and a tab close asks.
   useBlocker({
@@ -259,21 +353,12 @@ export function useStudioDraft({
       // "saved" survives here. The refetch that follows an autosave makes the
       // draft the newest version, so `dirty` goes false on the very next render
       // and this line reset the status to "idle" — wiping the "Draft saved"
-      // confirmation before it could paint. The only feedback a successful save
-      // gave was the *disappearance* of the unsaved chip. It clears on the next
-      // edit, when the unsaved chip takes over.
+      // confirmation before it could paint. It clears on the next edit, when
+      // the unsaved chip takes over.
       setSaveStatus((s) => (s === "saving" || s === "saved" ? s : "idle"));
       return;
     }
-    const fp = fingerprintOf({
-      prompt,
-      persona,
-      voice,
-      guardrails,
-      flow,
-      card: asCard(effectiveCard),
-    });
-    if (fp === lastSavedFp.current) return;
+    if (fingerprintOf(fields) === lastSavedFp.current) return;
 
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = window.setTimeout(() => {
@@ -283,23 +368,21 @@ export function useStudioDraft({
     return () => {
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     };
-  }, [
-    prompt,
-    persona,
-    voice,
-    guardrails,
-    flow,
-    effectiveCard,
-    dirty,
-    hydrated,
-    autosaveNonce,
-    runSave,
-    cardRefused,
-    autosaveTimer,
-    lastSavedFp,
-    setSaveStatus,
-    skipAutosave,
-  ]);
+  }, [fields, dirty, hydrated, autosaveNonce, runSave, cardRefused]);
 
-  return { runSave, flushDraft };
+  return {
+    draft,
+    set,
+    effectiveCard,
+    published,
+    publishedRow,
+    nextLabel,
+    draftLabel,
+    dirty,
+    unsaved,
+    saveStatus,
+    adoptVersion,
+    markSaved,
+    flushDraft,
+  };
 }
