@@ -19,6 +19,13 @@ export interface Me {
   team: string | null;
   status: string | null;
   tenantId: string;
+  /** Effective permission ids (authz catalog), from the actor's roles. */
+  permissions: string[];
+}
+
+/** Whether the acting user holds a permission; unknown (not loaded) reads as false. */
+export function can(me: Me | undefined, permission: string): boolean {
+  return Boolean(me?.permissions?.includes(permission));
 }
 
 export async function fetchMe(): Promise<Me> {

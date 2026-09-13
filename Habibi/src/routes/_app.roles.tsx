@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { usePatchRolePermissions, useRolesCatalog } from "@/api/agent-studio";
+import { can, useMe } from "@/api/me";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { OutboundControlPanel } from "@/components/platform/OutboundControlPanel";
@@ -21,6 +22,10 @@ export const Route = createFileRoute("/_app/roles")({
 function RolesPage() {
   const { data, isLoading, isError, error } = useRolesCatalog();
   const patch = usePatchRolePermissions();
+  const me = useMe();
+  // The route needs perm-admin-write; a checkbox that flips and then toasts
+  // a 403 is a control that lies. Disabled with the reason instead.
+  const canEdit = can(me.data, "perm-admin-write");
 
   const toggle = (roleId: string, permissionId: string, current: string[]) => {
     const next = current.includes(permissionId)
@@ -85,6 +90,8 @@ function RolesPage() {
                         <input
                           type="checkbox"
                           checked={role.permissionIds.includes(p.id)}
+                          disabled={!canEdit}
+                          title={canEdit ? undefined : "Changing grants needs perm-admin-write"}
                           onChange={() => toggle(role.id, p.id, role.permissionIds)}
                         />
                         <span>

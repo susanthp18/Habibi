@@ -1,5 +1,6 @@
 import { Beaker, History, Sparkles, UploadCloud } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
+import { can, useMe } from "@/api/me";
 
 type Props = {
   currentVersion: string;
@@ -67,7 +68,9 @@ export function StudioHeader({
   // baseline for `dirty` is the draft itself, so it goes false the moment
   // autosave settles — and gating Publish on it left a cloned card with no way
   // to ever publish its first version. A saved draft is publishable.
-  const publishDisabled = !(canPublish ?? dirty) || publishBlocked;
+  const me = useMe();
+  const mayPublish = can(me.data, "perm-agent-publish");
+  const publishDisabled = !(canPublish ?? dirty) || publishBlocked || !mayPublish;
   return (
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
@@ -173,6 +176,7 @@ export function StudioHeader({
             <button
               onClick={onPublish}
               disabled={publishDisabled}
+              title={mayPublish ? undefined : "Publishing needs perm-agent-publish"}
               className="inline-flex items-center gap-050 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-white hover:bg-background-brand-bold-pressed disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UploadCloud className="h-3.5 w-3.5" /> Publish {nextVersion}
@@ -185,7 +189,9 @@ export function StudioHeader({
         publishing is a compiler.
         {publishBlocked
           ? " An invalid conversation graph cannot publish — the API rejects it even if this button were forced."
-          : null}
+          : !mayPublish && me.data
+            ? " Your role cannot publish; the API refuses it with 403."
+            : null}
       </p>
     </header>
   );
