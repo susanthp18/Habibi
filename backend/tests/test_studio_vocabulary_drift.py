@@ -183,3 +183,20 @@ def test_the_whatsapp_history_check_is_the_same_detector() -> None:
     assert not bot_runtime._history_already_disclosed_recording(
         [{"role": "user", "content": said}, {"role": "assistant", "content": "I'll record that in the CRM."}]
     )
+
+
+# 7. eval suite kinds --------------------------------------------------------
+
+def test_eval_suite_kinds_are_one_vocabulary() -> None:
+    """The eval_suites.kind CHECK, the scheduler's kind tuple and the card's
+    EvalRequire are one list -- with `capability` deliberately absent from
+    the card (a requirement nobody could satisfy: EVALS-3)."""
+    from agent_core.cards.schema import EvalRequire
+    from agent_core.eval import schedule
+
+    sql = (BACKEND / "sql" / "14_agent_factory.sql").read_text(encoding="utf-8")
+    m = re.search(r"kind TEXT NOT NULL CHECK \(kind IN \(([^)]*)\)\)", sql)
+    assert m, "eval_suites.kind CHECK not found in sql/14"
+    check = set(re.findall(r"'([^']+)'", m.group(1)))
+    assert set(schedule.SUITE_KINDS) == check
+    assert set(get_args(EvalRequire)) == check - {"capability"}

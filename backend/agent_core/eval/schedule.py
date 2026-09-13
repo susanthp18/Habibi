@@ -8,6 +8,11 @@ from sqlalchemy import text
 
 from agent_core.eval.run import run_named_suite
 
+#: Every suite kind the scheduler runs -- the eval_suites.kind CHECK, one
+#: list (a drift test holds the pair; the card's EvalRequire is this minus
+#: `capability`).
+SUITE_KINDS: tuple[str, ...] = ("regression", "redteam", "twin", "capability", "outbound")
+
 
 def run_continuous(*, kinds: tuple[str, ...] | None = None) -> dict[str, Any]:
     """Run every first-party suite of the requested kinds. Red-team is never skipped."""
@@ -15,7 +20,7 @@ def run_continuous(*, kinds: tuple[str, ...] | None = None) -> dict[str, Any]:
 
     # `outbound` too: the suite G-OB9 gates on was never run by the
     # scheduler, so its report was always the one filed by hand or never.
-    wanted = set(kinds or ("regression", "redteam", "twin", "capability", "outbound"))
+    wanted = set(kinds or SUITE_KINDS)
     if "redteam" not in wanted:
         raise ValueError("redteam_required")
     reports: list[dict[str, Any]] = []
