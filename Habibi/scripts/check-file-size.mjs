@@ -8,10 +8,9 @@
  * same rule for functions (tests/test_function_size.py); this is the frontend
  * twin, on files, because a React file is the unit that gets split.
  *
- * BASELINE lists what was over the ceiling on 2026-09-12 with its measured
- * length. A split lowers the number or removes the entry; nothing may join,
- * and a listed file may not grow. Test files and the generated wire schemas
- * are not measured.
+ * BASELINE listed what was over the ceiling on 2026-09-12; the last entry
+ * left on 2026-09-13 and it stays empty: nothing may join. Test files and the
+ * generated wire schemas are not measured.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -20,10 +19,8 @@ import { join, relative } from "node:path";
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
 
-/** Measured on 2026-09-12. Shrink or delete; never add. */
-const BASELINE = {
-  "src/routes/_app.handoff.lazy.tsx": 563,
-};
+/** Empty since 2026-09-13; never add. */
+const BASELINE = {};
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
