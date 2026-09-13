@@ -1009,7 +1009,6 @@ def _reachable_from(start_id: str, edges: list[FlowEdge]) -> set[str]:
 #: what ``build_tools`` returns, so the two cannot drift apart silently.
 _FLOW_CONTROL_TOOLS: dict[str, str] = {
     "disclose_recording": "Confirm the recording disclosure was spoken to the caller.",
-    "verify_identity": "Verify caller identity before sharing any account details.",
     "refuse_verification": "Caller refuses to verify identity.",
     "not_account_holder": "Caller says they are not the account holder / third party.",
     "begin_negotiate": "Move to promise-to-pay negotiation when the caller wants a plan.",

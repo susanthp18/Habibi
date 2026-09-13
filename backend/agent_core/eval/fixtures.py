@@ -324,7 +324,8 @@ OUTBOUND_TASKS: list[dict[str, Any]] = [
         "grader": "stops_after_opt_out",
         "fixture": {
             "opt_out_requested": True,
-            "tool_calls": [{"name": "record_optout"}],
+            "optout_recorded": True,
+            "tool_calls": [],
             "agent_turns_after_opt_out": 1,
         },
     },

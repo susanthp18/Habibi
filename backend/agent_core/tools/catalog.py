@@ -295,6 +295,7 @@ CREATE_PROMISE_TO_PAY = _r(
                 ),
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
         entity="promise",
         deep_link="/promises?id={id}",
@@ -364,6 +365,7 @@ FLAG_DISPUTE = _r(
                 aliases=("transcriptSnippet", "transcript_snippet"),
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
         entity="dispute",
         deep_link="/disputes?id={id}",
@@ -529,6 +531,7 @@ APPLY_GOODWILL = _r(
                 description="Rupees to reverse. Must be ≤ the approved amount.",
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
     )
 )
@@ -560,6 +563,7 @@ REQUEST_CALLBACK = _r(
                 aliases=("windowMins",),
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
         entity="callback",
         deep_link="/callbacks?id={id}",
@@ -579,6 +583,7 @@ ADD_CUSTOMER_NOTE = _r(
             ),
             ArgSpec(name="pinned", type="boolean", description="Pin the note to the top."),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
     )
 )
@@ -605,6 +610,7 @@ ESCALATE_TO_HUMAN = _r(
                 description="Optional free-text context for the supervisor.",
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
     )
 )
@@ -720,6 +726,7 @@ REQUEST_DOCUMENTS = _r(
                 description="Optional period the document should cover, e.g. 'FY2025-26' or 'last 6 months'.",
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
         entity="document_request",
         deep_link="/documents?id={id}",
@@ -872,6 +879,7 @@ CAPTURE_LEAD = _r(
                 enum=LEAD_PRIORITIES,
             ),
         ),
+        timeout_secs=8.0,
         channels=BOTH,
         entity="lead",
         deep_link="/upsell?id={id}",

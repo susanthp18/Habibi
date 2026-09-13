@@ -218,7 +218,7 @@
       "required": [
         "text"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "apply_goodwill": {
       "cancel_on_interruption": false,
@@ -238,7 +238,7 @@
       "required": [
         "decision_id"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "begin_dispute": {
       "kind": "direct",
@@ -308,7 +308,7 @@
       "required": [
         "product_id"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "capture_nonpayment_reason": {
       "cancel_on_interruption": false,
@@ -398,7 +398,7 @@
         "amount",
         "promise_date"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "decline_offer": {
       "cancel_on_interruption": false,
@@ -451,7 +451,7 @@
       "required": [
         "reason"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "evaluate_authority": {
       "cancel_on_interruption": false,
@@ -507,7 +507,7 @@
       "required": [
         "dispute_type"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "get_account_position": {
       "cancel_on_interruption": true,
@@ -662,7 +662,7 @@
       "required": [
         "scheduled_at"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "request_documents": {
       "cancel_on_interruption": false,
@@ -700,7 +700,7 @@
       "required": [
         "document_type"
       ],
-      "timeout_secs": null
+      "timeout_secs": 8.0
     },
     "return_to_position": {
       "kind": "direct",

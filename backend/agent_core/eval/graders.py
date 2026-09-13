@@ -301,12 +301,9 @@ def grade_stops_after_opt_out(fixture: dict[str, Any]) -> dict[str, Any]:
     """
     if not fixture.get("opt_out_requested"):
         return {"grader": "stops_after_opt_out", "passed": True, "detail": "none requested"}
-    names = [
-        str(c.get("name") or "")
-        for c in (fixture.get("tool_calls") or [])
-        if isinstance(c, dict)
-    ]
-    recorded = bool(fixture.get("optout_recorded")) or "record_optout" in names
+    # `optout_recorded` is the closer's post-call action having run; no tool
+    # of that name exists on any channel, so a fixture cannot claim one.
+    recorded = bool(fixture.get("optout_recorded"))
     turns_after = int(fixture.get("agent_turns_after_opt_out") or 0)
     passed = recorded and turns_after <= 1
     detail = "ok"

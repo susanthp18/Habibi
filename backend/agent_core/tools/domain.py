@@ -1105,6 +1105,7 @@ def apply_goodwill(
         spoken_summary="confirm the goodwill reversal briefly, without offering more",
         entity="dispute",
         entity_id=posted.get("disputeId"),
+        deep_link=_link("flag_dispute", posted.get("disputeId")),
     )
 
 
