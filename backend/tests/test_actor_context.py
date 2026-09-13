@@ -172,3 +172,41 @@ def test_actor_header_is_off_unless_set_even_in_dev(monkeypatch: pytest.MonkeyPa
     )
     assert ok and err is None
     assert actor == "priya-nair"
+
+
+def test_an_ignored_actor_header_is_said_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The console always sends X-Actor-User-Id. When the flag is off the
+    server drops it and every action attributes to ACTOR_USER_ID -- once per
+    process that is said out loud; with the flag on, dev and the console agree
+    on who acted."""
+    import actor_context
+    import db
+
+    if not db.user_exists("priya-nair"):
+        pytest.skip("priya-nair not seeded")
+    other = next((u["id"] for u in db.list_staff() if u["id"] != "priya-nair"), None)
+    if other is None:
+        pytest.skip("needs a second seeded user")
+
+    monkeypatch.setenv("API_KEY", "shared-dev-key")
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("ACTOR_USER_ID", "priya-nair")
+    monkeypatch.delenv("ALLOW_ACTOR_HEADER", raising=False)
+    monkeypatch.setattr(actor_context, "_ignored_header_warned", False)
+    actor_context.reload_api_key_map()
+
+    with caplog.at_level("WARNING", logger="actor_context"):
+        ok, actor, _ = actor_context.resolve_authenticated_actor(
+            provided_key="shared-dev-key", actor_header=other
+        )
+        actor_context.resolve_authenticated_actor(provided_key="shared-dev-key", actor_header=other)
+    assert ok and actor == "priya-nair"
+    assert sum("X-Actor-User-Id ignored" in r.message for r in caplog.records) == 1
+
+    monkeypatch.setenv("ALLOW_ACTOR_HEADER", "true")
+    ok, actor, _ = actor_context.resolve_authenticated_actor(
+        provided_key="shared-dev-key", actor_header=other
+    )
+    assert ok and actor == other

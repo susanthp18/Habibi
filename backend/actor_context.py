@@ -239,6 +239,8 @@ def resolve_authenticated_actor(
             if not _user_exists(header):
                 return False, None, "actor_not_found"
             return True, header, None
+        if actor_header:
+            _warn_header_ignored()
         default = default_actor_user_id()
         if not _user_exists(default):
             return False, None, "actor_not_found"
@@ -249,12 +251,33 @@ def resolve_authenticated_actor(
     return _resolve_shared_key_actor(actor_header)
 
 
+_ignored_header_warned = False
+
+
+def _warn_header_ignored() -> None:
+    """Once per process: the console sent an actor and the server dropped it.
+
+    Every action then attributes to ``ACTOR_USER_ID`` instead of the operator
+    who took it, which is the wrong direction for an audit trail even on a
+    laptop -- so say so, once, rather than silently.
+    """
+    global _ignored_header_warned
+    if _ignored_header_warned:
+        return
+    _ignored_header_warned = True
+    logger.warning(
+        "X-Actor-User-Id ignored: ALLOW_ACTOR_HEADER is off; actions attribute to ACTOR_USER_ID"
+    )
+
+
 def _resolve_shared_key_actor(actor_header: str | None) -> tuple[bool, str | None, str | None]:
     header = (actor_header or "").strip()
     if header and _allow_actor_header():
         if not _user_exists(header):
             return False, None, "actor_not_found"
         return True, header, None
+    if header:
+        _warn_header_ignored()
     default = default_actor_user_id()
     if not _user_exists(default):
         return False, None, "actor_not_found"
