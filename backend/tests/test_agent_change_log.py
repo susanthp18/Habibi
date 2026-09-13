@@ -194,6 +194,8 @@ def test_every_lifecycle_action_has_a_verb_the_log_can_render(cloned_bot: str) -
         "agent.entry_binding",
         "agent.platform_sync",
         "agent.fleet_rebuild",
+        "agent.connector",
+        "agent.mcp_key",
     }
 
     db.archive_agent_studio_card(cloned_bot)
@@ -348,3 +350,54 @@ def test_a_failed_publish_leaves_no_entry(cloned_bot: str) -> None:
         db.publish_prompt_version(version_id, "bad", traffic_pct=40, auto_rollback=[])
 
     assert len(_entries(cloned_bot)) == before
+
+
+# ---------------------------------------------------------------------------
+# The three evidence writes that left no chain entry
+# ---------------------------------------------------------------------------
+
+
+def test_connector_registration_and_approval_are_chained(db_tx) -> None:
+    """A connector's URL, prefixes and data class bound what a published card
+    may call; registering and approving one wrote a timeline row and no
+    chain entry."""
+    from agent_core.connectors import persist as cp
+
+    _reset_chain_head()
+    slug = f"chain-{uuid.uuid4().hex[:6]}"
+    row = cp.upsert_connector(
+        {
+            "slug": slug,
+            "kind": "remote_mcp",
+            "url": "https://mcp.example.test/rpc",
+            "allowPrefixes": [f"ext.{slug}."],
+            "dataClass": ["money"],
+        }
+    )
+    cp.approve(row["id"])
+    entries = _entries(row["id"])
+    actions = [e["action"] for e in entries]
+    assert actions[:2] == ["agent.connector", "agent.connector"]
+    assert entries[0]["status"] == "approved"
+    assert entries[0]["allowPrefixes"] == [f"ext.{slug}."]
+    assert entries[0]["actorUserId"]
+
+
+def test_mcp_key_rotation_is_chained_without_the_secret(db_tx) -> None:
+    """Mint, rotate, revoke: each is an entry naming the key, its scopes and
+    its prefix -- and never the key or its hash."""
+    import json
+
+    from agent_core.mcp_http import auth
+
+    _reset_chain_head()
+    minted = auth.mint_key(name="chain-test", scopes=[auth.SCOPE_CRM_READ])
+    rotated = auth.rotate_key(minted["id"])
+    old = _entries(minted["id"])
+    new = _entries(rotated["id"])
+    assert [e["action"] for e in old] == ["agent.mcp_key", "agent.mcp_key"]
+    assert old[0]["revoked"] is True and old[1]["revoked"] is False
+    assert new[0]["rotatedFrom"] == minted["id"]
+    blob = json.dumps(old + new)
+    assert minted["key"] not in blob and rotated["key"] not in blob
+    assert auth.hash_key(minted["key"]) not in blob

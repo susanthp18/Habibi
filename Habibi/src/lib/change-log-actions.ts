@@ -36,6 +36,16 @@ export const CHANGE_LOG_ACTIONS = {
     verb: "rebuilt the fleet bundle after a member published",
     tone: "information",
   },
+  "agent.connector": {
+    label: "Connector",
+    verb: "registered, changed or approved a connector",
+    tone: "information",
+  },
+  "agent.mcp_key": {
+    label: "MCP key",
+    verb: "minted, rotated or revoked an MCP key",
+    tone: "warning",
+  },
 } as const satisfies Record<string, { label: string; verb: string; tone: LozengeTone }>;
 
 export type ChangeLogAction = keyof typeof CHANGE_LOG_ACTIONS;

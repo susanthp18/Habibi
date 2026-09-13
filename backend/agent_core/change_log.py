@@ -56,6 +56,11 @@ PLATFORM_SYNC = "agent.platform_sync"
 #: A door's bundle was re-derived because a member it merges published;
 #: the door got a new deployment (one deployment id is one bundle_hash).
 FLEET_REBUILD = "agent.fleet_rebuild"
+#: A connector was registered, changed or approved: its URL, prefixes and
+#: data class are the bound on what a published card may call.
+CONNECTOR = "agent.connector"
+#: An MCP key was minted, rotated or revoked -- a credential, never its value.
+MCP_KEY = "agent.mcp_key"
 
 #: Components of a prompt version that are hashed and diffed independently.
 COMPONENTS: tuple[str, ...] = (
@@ -417,6 +422,72 @@ def record_role_grants(
         actor_user_id=actor_user_id,
         action=ROLE_GRANTS,
         bot_id=role_id,
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_connector(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    connector: Mapping[str, Any],
+) -> dict[str, Any]:
+    """A connector's URL, prefixes, data class and status decide what a
+    published card may call through it. Widening any of them, or approving
+    it, is evidence; the row only holds the current answer."""
+    payload = {
+        "connectorId": connector.get("id"),
+        "slug": connector.get("slug"),
+        "kind": connector.get("kind"),
+        "url": connector.get("url"),
+        "status": connector.get("status"),
+        "allowPrefixes": list(connector.get("allowPrefixes") or connector.get("allow_prefixes") or []),
+        "dataClass": list(connector.get("dataClass") or connector.get("data_class") or []),
+        "allowedEnv": connector.get("allowedEnv") or connector.get("allowed_env"),
+    }
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=CONNECTOR,
+        bot_id=str(connector.get("id") or "connector"),
+        payload=payload,
+        entry_id=entry_id,
+    )
+
+
+def record_mcp_key(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str,
+    entry_id: str,
+    key_id: str,
+    name: str,
+    scopes: list[str],
+    prefix: str,
+    revoked: bool = False,
+    rotated_from: str | None = None,
+) -> dict[str, Any]:
+    """A credential's life: minted (with its scopes), rotated (from which),
+    revoked. Never the key or its hash -- the chain is readable."""
+    payload = {
+        "keyId": key_id,
+        "name": name,
+        "scopes": list(scopes),
+        "prefix": prefix,
+        "revoked": bool(revoked),
+        "rotatedFrom": rotated_from,
+    }
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=MCP_KEY,
+        bot_id=key_id,
         payload=payload,
         entry_id=entry_id,
     )

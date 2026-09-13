@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 
 import db
+from agent_core import change_log
 
 SCOPE_CRM_READ = "crm.read"
 SCOPE_KB_SEARCH = "kb.search"
@@ -97,7 +98,7 @@ def resource_allowed(principal: dict[str, Any], scheme: str) -> bool:
     return need in set(principal.get("scopes") or [])
 
 
-def mint_key(*, name: str, scopes: list[str]) -> dict[str, Any]:
+def mint_key(*, name: str, scopes: list[str], rotated_from: str | None = None) -> dict[str, Any]:
     allowed = [s for s in scopes if s in KNOWN_SCOPES]
     if not allowed:
         raise ValueError("mcp_scopes_required")
@@ -123,8 +124,20 @@ def mint_key(*, name: str, scopes: list[str]) -> dict[str, Any]:
             },
         )
         # A credential was created: the actor is the audit fact, and the
-        # table has no column for one.
+        # table has no column for one. The chain entry carries the scopes and
+        # the prefix -- never the key or its hash.
         db.record_activity(conn, "mcp_key", kid, "mcp_key_minted", f"MCP key {name.strip() or kid} minted")
+        change_log.record_mcp_key(
+            conn,
+            tenant_id=db._tenant(),
+            actor_user_id=db._actor_user_id() or "system",
+            entry_id=db._id("AUD"),
+            key_id=kid,
+            name=name.strip() or kid,
+            scopes=list(allowed),
+            prefix=raw[:7],
+            rotated_from=rotated_from,
+        )
     return {"id": kid, "name": name, "scopes": allowed, "key": raw, "prefix": raw[:7]}
 
 
@@ -167,16 +180,30 @@ def revoke_key(key_id: str) -> None:
     told it was done while the key kept working. KeyError maps to 404.
     """
     with db.engine.begin() as conn:
-        result = conn.execute(
-            text(
-                "UPDATE mcp_keys SET revoked_at = now() "
-                "WHERE id = :id AND tenant_id = :t AND revoked_at IS NULL"
-            ),
-            {"id": key_id, "t": db._tenant()},
+        row = db._one(
+            conn.execute(
+                text(
+                    "UPDATE mcp_keys SET revoked_at = now() "
+                    "WHERE id = :id AND tenant_id = :t AND revoked_at IS NULL "
+                    "RETURNING name, scopes, key_prefix"
+                ),
+                {"id": key_id, "t": db._tenant()},
+            )
         )
-        if not result.rowcount:
+        if row is None:
             raise KeyError("mcp_key_not_found")
         db.record_activity(conn, "mcp_key", key_id, "mcp_key_revoked", "MCP key revoked")
+        change_log.record_mcp_key(
+            conn,
+            tenant_id=db._tenant(),
+            actor_user_id=db._actor_user_id() or "system",
+            entry_id=db._id("AUD"),
+            key_id=key_id,
+            name=str(row.get("name") or key_id),
+            scopes=list(row.get("scopes") or []),
+            prefix=str(row.get("key_prefix") or ""),
+            revoked=True,
+        )
 
 
 def rotate_key(key_id: str) -> dict[str, Any]:
@@ -193,4 +220,4 @@ def rotate_key(key_id: str) -> dict[str, Any]:
     scopes = list(row.get("scopes") or [])
     if hasattr(scopes, "tolist"):
         scopes = list(scopes)
-    return mint_key(name=str(row["name"]), scopes=scopes)
+    return mint_key(name=str(row["name"]), scopes=scopes, rotated_from=key_id)

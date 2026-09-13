@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 
 import db
+from agent_core import change_log
 from agent_core.connectors import circuit
 from agent_core.connectors.first_party import FIRST_PARTY_TOOLS, dispatch_first_party
 from agent_core.connectors.strip import strip_result
@@ -96,15 +97,25 @@ def list_connectors() -> list[dict[str, Any]]:
     return [_public(r) for r in rows]
 
 
+def _connector_row(conn: Any, connector_id: str) -> dict[str, Any]:
+    """The public shape, read on the caller's connection (inside its transaction)."""
+    row = db._one(
+        conn.execute(
+            text("SELECT * FROM mcp_connectors WHERE (id = :id OR slug = :id) AND tenant_id = :t"),
+            {"id": connector_id, "t": db._tenant()},
+        )
+    )
+    if row is None:
+        raise KeyError("connector_not_found")
+    return _public(row)
+
+
 def get_connector(connector_id: str) -> dict[str, Any] | None:
     with db.engine.connect() as conn:
-        row = db._one(
-            conn.execute(
-                text("SELECT * FROM mcp_connectors WHERE (id = :id OR slug = :id) AND tenant_id = :t"),
-                {"id": connector_id, "t": db._tenant()},
-            )
-        )
-    return _public(row) if row else None
+        try:
+            return _connector_row(conn, connector_id)
+        except KeyError:
+            return None
 
 
 def _arr(value: Any) -> list[str]:
@@ -211,10 +222,17 @@ def upsert_connector(payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
         # Who registered or changed a connector is an audit fact: it widens
-        # what a published card may call. Nothing recorded it.
+        # what a published card may call. The timeline row is for the desk;
+        # the chain entry is the evidence.
         db.record_activity(conn, "connector", cid, "connector_upserted", f"Connector {slug} saved")
-    row = get_connector(slug)
-    assert row is not None
+        row = _connector_row(conn, cid)
+        change_log.record_connector(
+            conn,
+            tenant_id=db._tenant(),
+            actor_user_id=db._actor_user_id() or "system",
+            entry_id=db._id("AUD"),
+            connector=row,
+        )
     return row
 
 
@@ -232,6 +250,13 @@ def approve(connector_id: str) -> dict[str, Any]:
             {"id": row["id"], "t": db._tenant()},
         )
         db.record_activity(conn, "connector", row["id"], "connector_approved", f"Connector {row.get('slug')} approved")
+        change_log.record_connector(
+            conn,
+            tenant_id=db._tenant(),
+            actor_user_id=db._actor_user_id() or "system",
+            entry_id=db._id("AUD"),
+            connector={**row, "status": "approved"},
+        )
     return get_connector(row["id"])  # type: ignore[return-value]
 
 
