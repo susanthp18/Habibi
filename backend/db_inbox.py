@@ -164,8 +164,11 @@ def _inbox_promise_status(status: str | None) -> str:
 
 
 def _inbox_channel(channel: str | None) -> str:
+    # The five values the CHECK permits, as stored: `chat` used to be rewritten
+    # to `whatsapp` on the way out although the schema and the console both
+    # carry it, so a web-chat thread wore the wrong icon.
     if channel in {"whatsapp", "sms", "email", "voice", "chat"}:
-        return "whatsapp" if channel == "chat" else channel
+        return channel
     return "whatsapp"
 
 

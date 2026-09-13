@@ -20,6 +20,8 @@ from schemas.common import (
     Channel,
     DisputeResponse,
     DisputeSla,
+    DisputeType,
+    FollowupStatus,
     IdStatusResponse,
     OfferPolicyResponse,
     PromiseResponse,
@@ -208,7 +210,7 @@ class DisputeListResponse(BaseModel):
     customerName: str
     accountId: str
     accountTail: str
-    type: Literal["paid_already", "wrong_amount", "not_my_account", "fee_waiver", "duplicate_charge", "fraud"]
+    type: DisputeType
     disputedAmount: float
     source: Literal["bot_voice", "bot_chat", "agent"]
     transcriptSnippet: str
@@ -260,7 +262,7 @@ class DisputeCreateRequest(BaseModel):
     customerId: str
     accountId: str | None = None
     interactionId: str | None = None
-    type: str
+    type: DisputeType
     #: A disputed amount is money the borrower says is wrong -- positive, or absent.
     amount: float | None = Field(default=None, gt=0)
     transcriptSnippet: str | None = None
@@ -384,7 +386,7 @@ class ReminderCreateRequest(BaseModel):
 
 
 class FollowupPatchRequest(BaseModel):
-    status: Literal["open", "done", "cancelled"] | None = None
+    status: FollowupStatus | None = None
 
 
 class LeadCreateRequest(BaseModel):

@@ -33,6 +33,12 @@ ReminderStatus = Literal["off", "queued", "scheduled", "sent", "acknowledged", "
 #: messages.sender -- the CHECK's list.
 Sender = Literal["customer", "bot", "agent", "system"]
 
+#: ``disputes.type`` and ``followups.status``, the CHECK constraints' values.
+#: One Literal per column: the create request and the response read the same
+#: name, so a value the table refuses is a 422 here rather than a 409 there.
+DisputeType = Literal["paid_already", "wrong_amount", "not_my_account", "fee_waiver", "duplicate_charge", "fraud"]
+FollowupStatus = Literal["open", "in_progress", "snoozed", "done", "cancelled"]
+
 
 Sentiment = Literal["positive", "neutral", "negative"]
 

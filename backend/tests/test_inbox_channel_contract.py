@@ -83,3 +83,38 @@ def test_a_critical_borrower_is_not_medium_risk_in_the_inbox() -> None:
 
     assert db_inbox._inbox_risk("critical") == "High"
     assert db_inbox._inbox_risk("low") == "Low"
+
+
+def test_a_chat_thread_reads_chat() -> None:
+    """The serializer rewrote `chat` to `whatsapp` on the way out although the
+    schema, the CHECK and the console all carry it."""
+    import db_inbox
+
+    assert db_inbox._inbox_channel("chat") == "chat"
+    assert db_inbox._inbox_channel("voice") == "voice"
+    assert db_inbox._inbox_channel("fax") == "whatsapp"
+
+
+def test_a_dispute_type_the_table_refuses_is_422_not_409(api_headers) -> None:
+    """The create request took `type: str` while the response Literal and the
+    CHECK both named the six values; an unknown one reached the INSERT and
+    came back as a 409 constraint_violation."""
+    from fastapi.testclient import TestClient
+
+    import main
+
+    with TestClient(main.app, headers=api_headers) as client:
+        r = client.post(
+            "/disputes",
+            json={"customerId": "CUST-X", "type": "vibes", "transcriptSnippet": "x"},
+        )
+    assert r.status_code == 422, r.text
+
+
+def test_a_followup_can_be_snoozed_through_the_api(api_headers) -> None:
+    """`in_progress` and `snoozed` are states the table and the board use;
+    the PATCH body's Literal omitted them, so the board could not write them."""
+    from schemas.crm import FollowupPatchRequest
+
+    assert FollowupPatchRequest(status="snoozed").status == "snoozed"
+    assert FollowupPatchRequest(status="in_progress").status == "in_progress"
