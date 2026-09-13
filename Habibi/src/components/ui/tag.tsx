@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.tag*` — decorative classification only (categories, labels), never
+ * Design spec (styles.css) `components.tag*` — decorative classification only (categories, labels), never
  * semantic status (that's Lozenge). Background is always transparent; only the accent border
  * carries color. `tag-gray` is the canonical example; other hues follow the same pattern.
  */

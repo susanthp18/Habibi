@@ -5,7 +5,7 @@ import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.toggle*` — 32x16 (space-400 x space-200) track, radius-full, success
+ * Design spec (styles.css) `components.toggle*` — 32x16 (space-400 x space-200) track, radius-full, success
  * track only when checked, thumb travels space-200 via a transform transition (short duration +
  * out-practical easing, not a jump). A tick/cross glyph sits in the uncovered track segment so
  * state reads without relying on color alone.

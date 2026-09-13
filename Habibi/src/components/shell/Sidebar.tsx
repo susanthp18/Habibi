@@ -52,7 +52,7 @@ type NavItem = {
 
 type NavGroup = { label: string; items: NavItem[] };
 
-// Design.md: sentence case everywhere, no exceptions — only proper nouns/acronyms (QA, CRM, DND)
+// Design spec (styles.css): sentence case everywhere, no exceptions — only proper nouns/acronyms (QA, CRM, DND)
 // keep their capitalization.
 const groups: NavGroup[] = [
   {

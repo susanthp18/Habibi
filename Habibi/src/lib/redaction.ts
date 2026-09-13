@@ -18,7 +18,7 @@ export const ENTITY_TYPES: PiiEntityType[] = [
   "custom",
 ];
 
-// Design.md accent ramp, "-bolder" tier — one distinct hue per PII type.
+// Design spec (styles.css) accent ramp, "-bolder" tier — one distinct hue per PII type.
 export const ENTITY_COLORS: Record<PiiEntityType, string> = {
   card: "#C9372C", // accent-red-bolder
   pan: "#1868DB", // accent-blue-bolder

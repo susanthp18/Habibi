@@ -8,7 +8,7 @@ import { BRAND } from "@/lib/brand";
 import { NavLinks } from "@/components/shell/Sidebar";
 
 /*
- * Design.md Responsive rules explicitly forbid hiding navigation on small screens — the desktop
+ * Design spec (styles.css) Responsive rules explicitly forbid hiding navigation on small screens — the desktop
  * Sidebar disappears below `lg` with no fallback, so this drawer (built on the existing Sheet
  * primitive) is the required replacement, not an optional nicety.
  */

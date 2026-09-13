@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.badge*` — compact count primitive only (unread counts, list totals).
+ * Design spec (styles.css) `components.badge*` — compact count primitive only (unread counts, list totals).
  * For status use Lozenge; for decorative labels use Tag.
  */
 const badgeVariants = cva(

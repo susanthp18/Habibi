@@ -23,7 +23,7 @@ const spinnerVariants = cva("shrink-0", {
 export interface SpinnerProps
   extends React.SVGAttributes<SVGSVGElement>, VariantProps<typeof spinnerVariants> {}
 
-/** Design.md `components.spinner*` — stroke-based loader, rotate + load-in motion. */
+/** Design spec (styles.css) `components.spinner*` — stroke-based loader, rotate + load-in motion. */
 export const Spinner = React.forwardRef<SVGSVGElement, SpinnerProps>(
   ({ className, size, tone, ...props }, ref) => (
     <svg

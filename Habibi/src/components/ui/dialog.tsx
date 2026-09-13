@@ -30,7 +30,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 /*
- * Design.md `components.modal-dialog` — surface-overlay + shadow-overlay, radius-xlarge.
+ * Design spec (styles.css) `components.modal-dialog` — surface-overlay + shadow-overlay, radius-xlarge.
  * Width tiers per YAML: small 400px / medium 600px (default) / large 800px / xlarge 968px.
  */
 const DialogContent = React.forwardRef<

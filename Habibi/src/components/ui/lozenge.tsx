@@ -4,13 +4,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.lozenge*` — semantic status only. MUST keep a visible border (not a
+ * Design spec (styles.css) `components.lozenge*` — semantic status only. MUST keep a visible border (not a
  * fill-only pill); `lozenge-success` is the YAML's canonical example, other roles are inferred
  * from the same background-subtler / text-bolder / border-role triad.
  */
 const lozengeVariants = cva(
   // min-h (not a fixed h) so labels with an icon/dot or slightly longer text never get clipped —
-  // Design.md's 1.25rem is the resting/default size, not a hard ceiling on content.
+  // Design spec's 1.25rem is the resting/default size, not a hard ceiling on content.
   "inline-flex max-w-full items-center gap-050 whitespace-nowrap rounded-small border border-width-default text-body-small font-normal min-h-[1.25rem] px-050 py-025 leading-none [&_svg]:size-3 [&_svg]:shrink-0",
   {
     variants: {

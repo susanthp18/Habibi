@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 const Tabs = TabsPrimitive.Root;
 
 /*
- * Design.md `components.tab-list` / `tab*` — 1px baseline with a 2px selected underline,
+ * Design spec (styles.css) `components.tab-list` / `tab*` — 1px baseline with a 2px selected underline,
  * not a boxed/pill segmented control.
  */
 const TabsList = React.forwardRef<
