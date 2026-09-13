@@ -71,6 +71,8 @@ const TableHead = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <th
     ref={ref}
+    // Column headers by default; a row header passes scope="row".
+    scope="col"
     className={cn(
       "h-500 px-100 text-left align-middle text-body-small font-weight-bold-token text-text-subtle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-025",
       className,

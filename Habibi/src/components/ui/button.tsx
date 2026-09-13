@@ -20,7 +20,7 @@ const buttonVariants = cva(
         // button-default: intentionally text-subtle, not full-contrast text — the design spec (styles.css)
         // explicitly says don't "fix" this so primary actions keep stronger visual emphasis.
         default:
-          "bg-background-neutral-subtle text-text-subtle border border-border hover:bg-background-neutral-subtle-hovered active:bg-background-neutral-subtle-pressed",
+          "bg-background-neutral-subtle text-text-subtle border border-border-bold hover:bg-background-neutral-subtle-hovered active:bg-background-neutral-subtle-pressed",
         primary:
           "bg-background-brand-bold text-text-inverse hover:bg-background-brand-bold-hovered active:bg-background-brand-bold-pressed",
         subtle:
@@ -35,7 +35,7 @@ const buttonVariants = cva(
         destructive:
           "bg-background-danger-bold text-text-inverse hover:bg-background-danger-bold-hovered active:bg-background-danger-bold-pressed",
         outline:
-          "bg-background-neutral-subtle text-text-subtle border border-border hover:bg-background-neutral-subtle-hovered",
+          "bg-background-neutral-subtle text-text-subtle border border-border-bold hover:bg-background-neutral-subtle-hovered",
         secondary:
           "bg-background-neutral-subtle text-text-subtle border-transparent hover:bg-background-neutral-subtle-hovered",
         ghost:
