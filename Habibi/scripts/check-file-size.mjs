@@ -22,7 +22,6 @@ const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
 
 /** Measured on 2026-09-12. Shrink or delete; never add. */
 const BASELINE = {
-  "src/components/flow/FlowCanvas.tsx": 1406,
   "src/components/prompt-studio/OutboundCardEditor.tsx": 1104,
   "src/components/prompt-studio/VoiceCatalogBrowser.tsx": 1026,
   "src/components/prompt-studio/VoicePanel.tsx": 882,

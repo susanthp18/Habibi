@@ -4,47 +4,36 @@ import {
   ReactFlow,
   ReactFlowProvider,
   applyNodeChanges,
-  useNodesInitialized,
   useStore,
   useReactFlow,
-  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
-  type Node,
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { toast } from "sonner";
 import {
-  AlertTriangle,
-  CheckCircle2,
   Crosshair,
   LayoutGrid,
-  Loader2,
   Maximize2,
   Minimize2,
   MoreHorizontal,
   PhoneOff,
   Plus,
   RotateCcw,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { SplitPanes } from "@/components/shared/SplitPanes";
 import { useTheme } from "@/lib/theme";
 
 import {
-  VALIDATOR_UNREACHABLE,
   defaultCondition,
   emptyGraph,
   fetchBuiltInFlow,
-  isEmptyGraph,
   newNodeData,
   useFlowTools,
   useFlowTransitions,
   useReservedKeys,
-  validateFlow,
   type FlowEdge as ApiEdge,
   type FlowGraph,
   type FlowIssue,
@@ -57,331 +46,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 import { flowToolChoices } from "@/lib/studio-contract";
 import { FlowEdgeMarkers, flowEdgeTypes } from "./FlowConditionEdge";
-import { flowNodeTypes, type CanvasNodeData, type NodeTool } from "./FlowNodes";
+import { flowNodeTypes } from "./FlowNodes";
 import { EdgeInspector, GraphInspector, NodeInspector } from "./inspector";
+import { IMPLICIT_PREFIX, NODE_W, keyFromName, layeredLayout, uniqueId } from "./canvas/layout";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-
-type Selection = { kind: "none" } | { kind: "node"; id: string } | { kind: "edge"; id: string };
-
-/** Card width in FlowNodes (`w-72`), which the layout has to reserve room for. */
-const NODE_W = 288;
-
-const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 2;
-
-/**
- * The zoom readout and its two buttons.
- *
- * Its own component so the subscription lives at the leaf. Read from
- * FlowCanvasInner, `s.transform[2]` re-renders the entire canvas on every wheel
- * tick — the node and edge renderers deliberately select booleans from the same
- * value for exactly this reason.
- */
-function ZoomControls() {
-  const zoom = useStore((s) => s.transform[2]);
-  const { zoomIn, zoomOut } = useReactFlow();
-  return (
-    <div className="flex shrink-0 items-center gap-025">
-      <Button
-        variant="ghost"
-        size="icon-compact"
-        onClick={() => void zoomOut({ duration: 120 })}
-        disabled={zoom <= MIN_ZOOM + 0.001}
-        title="Zoom out"
-      >
-        <ZoomOut className="h-3.5 w-3.5" />
-      </Button>
-      <span className="w-10 text-center tabular-nums text-text-subtle">
-        {Math.round(zoom * 100)}%
-      </span>
-      <Button
-        variant="ghost"
-        size="icon-compact"
-        onClick={() => void zoomIn({ duration: 120 })}
-        disabled={zoom >= MAX_ZOOM - 0.001}
-        title="Zoom in"
-      >
-        <ZoomIn className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  );
-}
-
-/** Divider between toolbar groups, so the groups read as groups. */
-function Rule() {
-  return <span aria-hidden className="h-4 w-px shrink-0 bg-border" />;
-}
-
-/** A sample of one edge treatment, for the legend in the status bar. */
-function EdgeSwatch({
-  color,
-  dash,
-  width = 1.6,
-  round = false,
-}: {
-  color: string;
-  dash?: string;
-  width?: number;
-  round?: boolean;
-}) {
-  return (
-    <svg width="20" height="6" aria-hidden className="shrink-0">
-      <line
-        x1="0"
-        y1="3"
-        x2="20"
-        y2="3"
-        stroke={color}
-        strokeWidth={width}
-        strokeDasharray={dash}
-        strokeLinecap={round ? "round" : undefined}
-      />
-    </svg>
-  );
-}
-
-let idCounter = 0;
-/**
- * Date.now() alone collides for two nodes added in the same millisecond, which
- * produces a graph with duplicate ids that only fails at save.
- */
-function uniqueId(prefix: string): string {
-  idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
-}
-
-function keyFromName(name: string, taken: Set<string>): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .replace(/^([^a-z])/, "n$1")
-      .slice(0, 40) || "node";
-  let key = base;
-  let n = 2;
-  while (taken.has(key)) key = `${base}_${n++}`;
-  return key;
-}
-
-const IMPLICIT_PREFIX = "implicit:";
-
-/**
- * Layered top-down positions, keyed by node id. Used by Auto-layout.
- *
- * Three passes beyond the plain BFS this replaces, which is what made "Tidy"
- * worth pressing once and never again:
- *
- * - Cycles are broken first, for layering only. A collections script loops on
- *   purpose — `return_to_position` goes back to the hub — and longest-path
- *   layering over a loop has no fixed point: every pass pushes the nodes in it
- *   one row further down until the cap stops them, which draws the busiest part
- *   of the graph as a long thin column. A depth-first pass marks the edges that
- *   close a loop; the layering ignores them and they still render, as an edge
- *   that runs back up the canvas.
- * - Layers come from the *longest* remaining path to a node, not the first one
- *   found. On a BFS depth, a node reachable in one hop and again in four sits in
- *   row 1 with a four-row edge dropping past three other cards to reach it.
- * - Within a layer, nodes are ordered by the mean slot of their parents (the
- *   barycentre heuristic) rather than by whatever order they arrived in. One
- *   pass of it removes most of the crossings on the built-in twelve-node
- *   script, and the graph reads as a script instead of a tangle.
- */
-function layeredLayout(
-  nodes: { id: string; data: { isStart: boolean } }[],
-  edges: { source: string; target: string }[],
-): Record<string, { x: number; y: number }> {
-  const COL = NODE_W + 72;
-  const ROW = 230;
-  const out: Record<string, { x: number; y: number }> = {};
-  if (nodes.length === 0) return out;
-
-  const known = new Set(nodes.map((n) => n.id));
-  const outgoing = new Map<string, string[]>();
-  for (const e of edges) {
-    if (e.source === e.target) continue;
-    if (!known.has(e.source) || !known.has(e.target)) continue;
-    const list = outgoing.get(e.source);
-    if (!list) outgoing.set(e.source, [e.target]);
-    else if (!list.includes(e.target)) list.push(e.target);
-  }
-
-  const start = nodes.find((n) => n.data.isStart) ?? nodes[0];
-
-  // Iterative three-colour DFS. Iterative rather than recursive so a wide graph
-  // cannot overflow the stack inside a render.
-  const back = new Set<string>();
-  const colour = new Map<string, 0 | 1 | 2>();
-  for (const root of [start.id, ...nodes.map((n) => n.id)]) {
-    if ((colour.get(root) ?? 0) !== 0) continue;
-    colour.set(root, 1);
-    const stack: { id: string; i: number }[] = [{ id: root, i: 0 }];
-    while (stack.length) {
-      const top = stack[stack.length - 1];
-      const kids = outgoing.get(top.id) ?? [];
-      if (top.i >= kids.length) {
-        colour.set(top.id, 2);
-        stack.pop();
-        continue;
-      }
-      const next = kids[top.i];
-      top.i += 1;
-      const c = colour.get(next) ?? 0;
-      // Grey means `next` is still on the stack, so this edge closes a loop.
-      if (c === 1) back.add(`${top.id}->${next}`);
-      if (c !== 0) continue;
-      colour.set(next, 1);
-      stack.push({ id: next, i: 0 });
-    }
-  }
-
-  const forward = (source: string) =>
-    (outgoing.get(source) ?? []).filter((t) => !back.has(`${source}->${t}`));
-
-  const incoming = new Map<string, string[]>();
-  for (const source of outgoing.keys()) {
-    for (const target of forward(source)) {
-      incoming.set(target, [...(incoming.get(target) ?? []), source]);
-    }
-  }
-
-  // Longest path over the acyclic remainder, relaxed until it settles. Bounded
-  // by the node count, which is also the deepest a simple path can be.
-  const depth = new Map<string, number>([[start.id, 0]]);
-  for (let pass = 0; pass < nodes.length; pass += 1) {
-    let changed = false;
-    for (const [source] of outgoing) {
-      const from = depth.get(source);
-      if (from === undefined) continue;
-      for (const target of forward(source)) {
-        const current = depth.get(target);
-        if (current === undefined || current < from + 1) {
-          depth.set(target, from + 1);
-          changed = true;
-        }
-      }
-    }
-    if (!changed) break;
-  }
-
-  // Anything the walk cannot reach — an orphan, or a node only reachable
-  // through a tool hop we do not model — is parked in a trailing layer rather
-  // than dropped on the origin.
-  const maxDepth = Math.max(0, ...depth.values());
-  for (const n of nodes) if (!depth.has(n.id)) depth.set(n.id, maxDepth + 1);
-
-  const layers = new Map<number, string[]>();
-  for (const n of nodes) {
-    const d = depth.get(n.id) ?? 0;
-    layers.set(d, [...(layers.get(d) ?? []), n.id]);
-  }
-
-  const slot = new Map<string, number>();
-  for (const d of [...layers.keys()].sort((a, b) => a - b)) {
-    const ids = layers.get(d) ?? [];
-    if (d > 0) {
-      const scored = ids.map((id, i) => {
-        const parents = (incoming.get(id) ?? [])
-          .map((parent) => slot.get(parent))
-          .filter((s): s is number => s !== undefined);
-        return {
-          id,
-          // No placed parent keeps its incoming order rather than jumping to
-          // the left edge, which is what `?? 0` would have done.
-          score: parents.length ? parents.reduce((a, b) => a + b, 0) / parents.length : i,
-        };
-      });
-      scored.sort((a, b) => a.score - b.score);
-      ids.splice(0, ids.length, ...scored.map((entry) => entry.id));
-    }
-    ids.forEach((id, i) => {
-      slot.set(id, i);
-      out[id] = { x: (i - (ids.length - 1) / 2) * COL, y: d * ROW };
-    });
-  }
-  return out;
-}
-
-function FitToGraph({ signature }: { signature: string }) {
-  // `signature` folds in anything that should re-frame and re-measure the
-  // graph: the node set, and the shape of the pane. Entering full screen keeps
-  // the component mounted, so without the pane in the key the camera stayed on
-  // the crop it had at a third of the width — a zoomed-in corner of the graph,
-  // with the rest off-screen.
-  const { fitView } = useReactFlow();
-  const initialized = useNodesInitialized();
-  const updateNodeInternals = useUpdateNodeInternals();
-  const nodeIds = useMemo(
-    // The leading segment is the pane key, not a node id.
-    () => signature.split("|").slice(1),
-    [signature],
-  );
-  // Switching tabs unmounts this canvas, and on the way back the pane is
-  // mounted before layout has given it a size. `initialized` flips true while
-  // the pane is still 0x0, so fitView framed a degenerate box, parked the
-  // camera off the graph, and marked the fit done — the canvas came back blank
-  // and stayed blank. Waiting for real dimensions is what makes the return trip
-  // survivable.
-  const paneReady = useStore((s) => s.width > 0 && s.height > 0);
-  // Every node has a real measured box.
-  //
-  // `useNodesInitialized()` is not enough on its own: it can report true while
-  // the nodes still have no dimensions, and fitView against a collapsed
-  // bounding box does not fail — it computes an enormous zoom, clamps to
-  // maxZoom (2), and parks there. The canvas then opens showing two or three
-  // giant cards with the rest of the graph off-screen, and because the fit
-  // marked itself done it never corrects once the real sizes arrive. A graph
-  // that looks permanently "zoomed in" is this, not a zoom anyone asked for.
-  const measured = useStore((s) => {
-    if (s.nodeLookup.size === 0) return false;
-    for (const node of s.nodeLookup.values()) {
-      if (!node.measured?.width || !node.measured?.height) return false;
-    }
-    return true;
-  });
-  const fitted = useRef<string | null>(null);
-  const remeasured = useRef<string | null>(null);
-
-  // Force a re-read of every node's DOM box once the pane has a size.
-  //
-  // xyflow measures nodes with a ResizeObserver, and an observer never
-  // delivers a first entry for an element that was mounted without layout —
-  // which is exactly what a hidden tab panel is, and what a background browser
-  // tab is. The nodes then stay unmeasured: xyflow renders each one
-  // `visibility: hidden` and refuses to draw a single edge, so the canvas comes
-  // back from a tab switch as an empty grid. Nothing recovers on its own,
-  // because nothing resizes afterwards and the observer stays silent for the
-  // life of the component. Twelve nodes, twenty-one transitions, and not one
-  // line on screen.
-  useEffect(() => {
-    if (!paneReady || nodeIds.length === 0) return;
-    if (remeasured.current === signature) return;
-    remeasured.current = signature;
-    updateNodeInternals(nodeIds);
-  }, [paneReady, signature, nodeIds, updateNodeInternals]);
-
-  useEffect(() => {
-    if (!initialized || !paneReady || !measured || !signature) return;
-    if (fitted.current === signature) return;
-    fitted.current = signature;
-    void fitView({ padding: 0.15, duration: 200 });
-  }, [initialized, paneReady, measured, signature, fitView]);
-
-  return null;
-}
+  CanvasStatusBar,
+  FitToGraph,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ReloadBuiltInDialog,
+  Rule,
+  ValidityPill,
+} from "./canvas/chrome";
+import { useCanvasValidation } from "./canvas/useCanvasValidation";
+import { useCanvasGraph, type Selection } from "./canvas/useCanvasGraph";
 
 export function FlowCanvas({
   graph,
@@ -424,26 +105,8 @@ function FlowCanvasInner({
   grantTools?: string[];
 }) {
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
-  const [issues, setIssues] = useState<FlowIssue[]>([]);
-  /**
-   * The exact graph object the current `issues` describe, or null if none.
-   *
-   * `issues` starts empty, and an empty issue list is indistinguishable from a
-   * clean bill of health — so the status pill rendered a green "Valid" for a
-   * graph that had not been checked yet, and went on rendering it if
-   * `/flow/validate` was unreachable, because the catch deliberately keeps the
-   * last known issues and the last known issues were `[]`.
-   *
-   * Publish is gated server-side, so nothing invalid could ship. What could
-   * happen is worse for the author than for the caller: a graph with four
-   * errors that says "Valid" until the response lands, and says it forever if
-   * the response never does.
-   *
-   * Compared by reference, not by fingerprint — `commit` produces a new object
-   * for every change, so identity is exact and costs nothing.
-   */
-  const [validatedGraph, setValidatedGraph] = useState<FlowGraph | null>(null);
-
+  const check = useCanvasValidation(graph, onValidation);
+  const { issues, issuesByNode, issuesByEdge } = check;
   /**
    * The graph as of the last change *this tick*, which is not the same thing as
    * the `graph` prop.
@@ -471,250 +134,16 @@ function FlowCanvasInner({
   const transitionsQuery = useFlowTransitions();
   const dark = useTheme() === "dark";
 
-  // The callback lives in a ref so it is not an effect dependency.
-  //
-  // It is an inline arrow in the Studio, so its identity changes on every
-  // parent render — and the effect below both depends on it and causes a
-  // parent render by calling it. That closed a loop: validate -> setFlowIssues
-  // -> re-render -> new callback identity -> effect re-runs -> validate. The
-  // canvas hammered POST /flow/validate about twice a second for as long as
-  // the Flow tab stayed open, and no amount of memoising in the parent would
-  // have been load-bearing enough to trust.
-  const onValidationRef = useRef(onValidation);
-  useEffect(() => {
-    onValidationRef.current = onValidation;
-  }, [onValidation]);
-
-  // Server-side validation, debounced. The same validator gates publish, so
-  // the canvas can never show "fine" for something the backend will reject.
-  useEffect(() => {
-    if (isEmptyGraph(graph)) {
-      setIssues([]);
-      // An empty graph is a known state, not an unchecked one: the runtime
-      // reads it as "use the built-in script", which is valid by construction.
-      setValidatedGraph(graph);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void validateFlow(graph)
-        .then((result) => {
-          setIssues(result.issues);
-          setValidatedGraph(graph);
-          onValidationRef.current?.(result);
-        })
-        .catch(() => {
-          // Keep the last known issues rather than clearing them — but do NOT
-          // keep reporting the last known verdict as if it applied to the graph
-          // on screen. The publish gate starts open (`flowValid = true`) and
-          // holds whatever it was last told, so a validator that dies mid-edit
-          // left the editor asserting a graph is publishable on the strength of
-          // a check that ran against different content. The server re-validates
-          // on publish, so the cost is a late 422 rather than a bad deploy —
-          // but the editor should not be the thing that promises otherwise.
-          // On the canvas too, not only in the header: the last verdict's
-          // issues stayed painted beside a graph nobody had checked.
-          setIssues([VALIDATOR_UNREACHABLE]);
-          onValidationRef.current?.({ ok: false, issues: [VALIDATOR_UNREACHABLE] });
-        });
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [graph]);
-
-  const issuesByNode = useMemo(() => {
-    const map = new Map<string, FlowIssue[]>();
-    for (const issue of issues) {
-      if (!issue.nodeId) continue;
-      map.set(issue.nodeId, [...(map.get(issue.nodeId) ?? []), issue]);
-    }
-    return map;
-  }, [issues]);
-
-  const issuesByEdge = useMemo(() => {
-    const map = new Map<string, FlowIssue[]>();
-    for (const issue of issues) {
-      if (!issue.edgeId) continue;
-      map.set(issue.edgeId, [...(map.get(issue.edgeId) ?? []), issue]);
-    }
-    return map;
-  }, [issues]);
-
-  /**
-   * Edges the built-in tools perform, which no author drew.
-   *
-   * A node exposing `begin_dispute` really does move the call to
-   * `handle_dispute` — the tool calls `_node("handle_dispute")`. Without these
-   * the materialised collections script renders as twelve disconnected boxes.
-   * Rendered read-only and never written into the graph: they are a property of
-   * the tool, not of the authored flow, and inventing real edges here would
-   * publish transitions the runtime then applies twice.
-   */
-  /**
-   * Tools this card cannot grant, so a hop of theirs is not a way out.
-   *
-   * A node may name any tool in the catalog — the picker allowed it,
-   * `/flow/validate` allowed it and G1 allowed it — and the runtime then
-   * filters its registry to the grant and skips the rest with a log line. The
-   * canvas drew the hop anyway, so a step whose only exit the call would never
-   * be offered looked like a step with an exit, and "Nothing leaves this step"
-   * never fired on it. G16 reports the same intersection at compile.
-   *
-   * Flow-control verbs are on the runtime floor and are never dropped.
-   */
-  const ungranted = useMemo(() => {
-    if (!grantTools) return null;
-    const allowed = new Set(grantTools);
-    return new Set(
-      (toolsQuery.data ?? [])
-        .filter((t) => t.kind !== "flow_control" && !t.alwaysOn && !allowed.has(t.key))
-        .map((t) => t.key),
-    );
-  }, [toolsQuery.data, grantTools]);
-
-  const implicitEdges: Edge[] = useMemo(() => {
-    const map = transitionsQuery.data;
-    if (!map) return [];
-    // Duplicate node keys make this lookup last-wins, and drafts are savable
-    // with `duplicate_node_key` — so a mid-edit graph with two nodes named
-    // `verify` drew every tool hop into whichever one happened to be second in
-    // the array, silently and with no indication that the destination shown is
-    // a coin toss. Ambiguous keys resolve to nothing instead: no ghost edge is
-    // a visible absence, a wrong ghost edge is not.
-    const keyCounts = new Map<string, number>();
-    for (const n of graph.nodes) keyCounts.set(n.key, (keyCounts.get(n.key) ?? 0) + 1);
-    const byKey = new Map(
-      graph.nodes.filter((n) => keyCounts.get(n.key) === 1).map((n) => [n.key, n.id]),
-    );
-    const authored = new Set(graph.edges.map((e) => `${e.source}->${e.target}`));
-    const seen = new Set<string>();
-    const out: Edge[] = [];
-    for (const node of graph.nodes) {
-      for (const tool of node.data.tools) {
-        if (ungranted?.has(tool)) continue;
-        for (const targetKey of map[tool] ?? []) {
-          const target = byKey.get(targetKey);
-          if (!target || target === node.id) continue;
-          const pair = `${node.id}->${target}`;
-          // An authored edge already says this; do not draw it twice.
-          if (authored.has(pair) || seen.has(pair)) continue;
-          seen.add(pair);
-          out.push({
-            id: `${IMPLICIT_PREFIX}${node.id}:${tool}:${target}`,
-            source: node.id,
-            target,
-            // A real edge type, not `style` + `label` props. Those two are
-            // dropped on the floor: `flowEdgeTypes.default` is
-            // FlowConditionEdge, which sets its own stroke and never reads
-            // `label` — so these arrived solid and unlabelled, identical to
-            // the edges the author drew.
-            type: "implicit",
-            data: { tool },
-            selectable: false,
-            deletable: false,
-            focusable: false,
-          });
-        }
-      }
-    }
-    return out;
-  }, [transitionsQuery.data, graph.nodes, graph.edges, ungranted]);
-
-  /**
-   * Everything a node card shows that is not stored on the node.
-   *
-   * Degree counts fold in the implicit hops, because "does anything leave this
-   * step" is a question about the call, not about which edges someone drew by
-   * hand — a node whose only exit is `begin_dispute` is not a dead end.
-   */
-  const nodeContext = useMemo(() => {
-    const catalog = new Map((toolsQuery.data ?? []).map((t) => [t.key, t]));
-    const catalogLoaded = (toolsQuery.data?.length ?? 0) > 0;
-    const reserved = reservedQuery.data ?? {};
-    const degree = new Map<
-      string,
-      { out: number; in: number; implicitOut: number; implicitIn: number }
-    >();
-    const bump = (id: string) => {
-      let d = degree.get(id);
-      if (!d) {
-        d = { out: 0, in: 0, implicitOut: 0, implicitIn: 0 };
-        degree.set(id, d);
-      }
-      return d;
-    };
-    for (const e of graph.edges) {
-      bump(e.source).out += 1;
-      bump(e.target).in += 1;
-    }
-    for (const e of implicitEdges) {
-      bump(e.source).implicitOut += 1;
-      bump(e.target).implicitIn += 1;
-    }
-    const globalToolCount = graph.globalTools?.length ?? 0;
-    return { catalog, catalogLoaded, reserved, degree, globalToolCount };
-  }, [toolsQuery.data, reservedQuery.data, graph.edges, graph.globalTools, implicitEdges]);
-
-  const rfNodes: Node[] = useMemo(
-    () =>
-      graph.nodes.map((n) => {
-        const own = issuesByNode.get(n.id) ?? [];
-        const degree = nodeContext.degree.get(n.id);
-        const toolDetail: NodeTool[] = n.data.tools.map((key) => {
-          const tool = nodeContext.catalog.get(key);
-          return {
-            key,
-            moves: tool?.transitions ?? false,
-            locked: tool?.locked ?? false,
-            // Only claim a tool is unknown once the catalog has actually
-            // loaded; otherwise every tool on the graph flashes red on the
-            // first paint and settles a moment later.
-            unknown: nodeContext.catalogLoaded && !tool,
-          };
-        });
-        const data: CanvasNodeData = {
-          ...n.data,
-          nodeKey: n.key,
-          errorCount: own.filter((i) => i.severity === "error").length,
-          warningCount: own.filter((i) => i.severity === "warning").length,
-          toolDetail,
-          reservedHint: nodeContext.reserved[n.key] ?? null,
-          outCount: degree?.out ?? 0,
-          inCount: degree?.in ?? 0,
-          implicitOut: degree?.implicitOut ?? 0,
-          implicitIn: degree?.implicitIn ?? 0,
-          // Most steps in the built-in script move by calling a tool, not by an
-          // authored edge, so those hops are only known once /flow/transitions
-          // answers. Without this flag a failed read made `implicitOut` zero on
-          // every node and the canvas told the author, confidently and about
-          // their whole graph, that nothing leaves any step.
-          transitionsUnknown: !transitionsQuery.data,
-          globalToolCount: nodeContext.globalToolCount,
-        };
-        return {
-          id: n.id,
-          type: n.type,
-          position: n.position,
-          data,
-          selected: selection.kind === "node" && selection.id === n.id,
-        };
-      }),
-    [graph.nodes, issuesByNode, selection, nodeContext],
-  );
-
-  const rfEdges: Edge[] = useMemo(
-    () =>
-      graph.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        animated: e.data.condition.type === "prompt",
-        selected: selection.kind === "edge" && selection.id === e.id,
-        data: {
-          condition: e.data.condition,
-          hasError: (issuesByEdge.get(e.id) ?? []).some((i) => i.severity === "error"),
-        },
-      })),
-    [graph.edges, issuesByEdge, selection],
-  );
+  const { implicitEdges, rfNodes, rfEdges } = useCanvasGraph({
+    graph,
+    grantTools,
+    tools: toolsQuery.data,
+    transitions: transitionsQuery.data,
+    reserved: reservedQuery.data,
+    issuesByNode,
+    issuesByEdge,
+    selection,
+  });
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -966,13 +395,6 @@ function FlowCanvasInner({
 
   const allEdges = useMemo(() => [...rfEdges, ...implicitEdges], [rfEdges, implicitEdges]);
 
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.length - errorCount;
-  // `issues` describes `validatedGraph`, which is only `graph` once a response
-  // for this exact object has landed.
-  const stale = validatedGraph !== graph;
-  const neverChecked = validatedGraph === null;
-
   const nodeName = (id: string) => graph.nodes.find((n) => n.id === id)?.data.name ?? "(deleted)";
 
   /** Move the camera onto a node or edge and select it. Used by the issue list. */
@@ -1055,11 +477,6 @@ function FlowCanvasInner({
       document.body.style.overflow = previous;
     };
   }, [fullscreen]);
-
-  const stats = [
-    `${graph.nodes.length} step${graph.nodes.length === 1 ? "" : "s"}`,
-    `${graph.edges.length} transition${graph.edges.length === 1 ? "" : "s"}`,
-  ].join(" · ");
 
   return (
     <div
@@ -1186,43 +603,12 @@ function FlowCanvasInner({
                 {/* The one piece of state that decides whether this can be
                     published, so it takes the semantic pill rather than another
                     grey chip at the same weight as the fullscreen toggle. */}
-                {neverChecked ? (
-                  // Says what it knows. "Valid" here would be a green tick for
-                  // a graph nobody has looked at.
-                  <Lozenge tone="neutral">
-                    <Loader2 className="animate-spin" />
-                    Checking…
-                  </Lozenge>
-                ) : (
-                  <Lozenge
-                    // Dimmed while the answer describes the previous edit. The
-                    // counts are usually still right and flickering them to
-                    // "Checking…" on every keystroke would be unreadable, but
-                    // they must not look confirmed when they are not.
-                    className={cn(stale && "opacity-60")}
-                    title={
-                      stale ? "Re-checking — these counts describe the previous edit" : undefined
-                    }
-                    tone={errorCount > 0 ? "danger" : warningCount > 0 ? "warning" : "success"}
-                  >
-                    {errorCount > 0 ? (
-                      <>
-                        <AlertTriangle />
-                        {errorCount} error{errorCount === 1 ? "" : "s"}
-                      </>
-                    ) : warningCount > 0 ? (
-                      <>
-                        <AlertTriangle />
-                        {warningCount} warning{warningCount === 1 ? "" : "s"}
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 />
-                        Valid
-                      </>
-                    )}
-                  </Lozenge>
-                )}
+                <ValidityPill
+                  neverChecked={check.neverChecked}
+                  stale={check.stale}
+                  errorCount={check.errorCount}
+                  warningCount={check.warningCount}
+                />
               </div>
             </div>
 
@@ -1261,54 +647,12 @@ function FlowCanvasInner({
               </ReactFlow>
             </div>
 
-            {/* Document stats, zoom, and the key to the three edge treatments —
-                the things you consult rather than operate, along the bottom edge
-                where a document's status belongs. */}
-            <div className="flex shrink-0 items-center gap-100 overflow-hidden border-t border-border px-100 py-050 text-body-micro text-text-subtlest">
-              <ZoomControls />
-
-              <Rule />
-
-              <span className="truncate tabular-nums">{stats}</span>
-
-              {implicitEdges.length > 0 && (
-                <span
-                  className="shrink-0 tabular-nums"
-                  title="Performed by the built-in tools, not authored here. Not saved with the graph."
-                >
-                  · {implicitEdges.length} implicit
-                </span>
-              )}
-              {(graph.globalTools?.length ?? 0) > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelection({ kind: "none" })}
-                  className="focus-ring shrink-0 rounded-small tabular-nums underline-offset-2 hover:text-text hover:underline"
-                  title={`Available from every step: ${(graph.globalTools ?? []).join(", ")}. Click to edit.`}
-                >
-                  · {graph.globalTools.length} global
-                </button>
-              )}
-
-              {/* Three edge treatments carry three different meanings and none
-                  of them is guessable. Dropped rather than wrapped when the pane
-                  is too narrow to hold it on one line. */}
-              {allEdges.length > 0 && paneWidth >= 720 && (
-                <div className="ml-auto flex shrink-0 items-center gap-150">
-                  <span className="flex items-center gap-050">
-                    <EdgeSwatch color="var(--border-bold)" />
-                    the model decides
-                  </span>
-                  <span className="flex items-center gap-050">
-                    <EdgeSwatch color="var(--border-bold)" dash="7 4" />a captured value
-                  </span>
-                  <span className="flex items-center gap-050">
-                    <EdgeSwatch color="var(--text-subtlest)" dash="1 4" width={1.2} round />a tool
-                    moves the call
-                  </span>
-                </div>
-              )}
-            </div>
+            <CanvasStatusBar
+              graph={graph}
+              implicitCount={implicitEdges.length}
+              showLegend={allEdges.length > 0 && paneWidth >= 720}
+              onEditGlobals={() => setSelection({ kind: "none" })}
+            />
           </div>
 
           {/* ────────────────────────── inspector ────────────────────────── */}
@@ -1367,37 +711,11 @@ function FlowCanvasInner({
           </div>
         </SplitPanes>
       </div>
-      {/* Replaces a window.confirm. Reload discards every node, transition and
-          edit on the canvas, so it is worth asking — but asked in the product's
-          own surface: themed, escapable, and it names what is lost rather than
-          restating the click. */}
-      <AlertDialog
+      <ReloadBuiltInDialog
         open={confirmReload}
-        onOpenChange={(next) => {
-          if (!next) setConfirmReload(false);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace this graph with the built-in script?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Every node, transition and edit on this canvas is discarded. Nothing changes for live
-              callers until you publish.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep this graph</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmReload(false);
-                reloadBuiltIn();
-              }}
-            >
-              Replace it
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmReload}
+        onConfirm={reloadBuiltIn}
+      />
     </div>
   );
 }
