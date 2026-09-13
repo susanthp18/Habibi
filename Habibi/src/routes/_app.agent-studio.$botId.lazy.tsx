@@ -5,7 +5,6 @@ import type { FlowGraph } from "@/api/flow";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
-import { useAutoLint, type PromptLintFinding } from "@/api/prompt-studio";
 import type { PersonaPreset, PromptVersion } from "@/api/types/prompt-studio";
 import {
   DEFAULT_GUARDRAILS,
@@ -28,6 +27,7 @@ import { StudioTabBody } from "@/components/prompt-studio/studio/StudioTabBody";
 import { PresetConfirm } from "@/components/prompt-studio/studio/PresetConfirm";
 import { useStudioDraft, type SaveStatus } from "@/components/prompt-studio/studio/useStudioDraft";
 import { useFlowValidation } from "@/components/prompt-studio/studio/useFlowValidation";
+import { useStudioLint } from "@/components/prompt-studio/studio/useStudioLint";
 import {
   EMPTY_FIELDS,
   INITIAL_STATE,
@@ -130,16 +130,10 @@ export function PromptStudioPage({
   const presetShown = useRef<PersonaPreset | null>(null);
   if (presetPending) presetShown.current = presetPending;
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [lintFindings, setLintFindings] = useState<PromptLintFinding[]>([]);
-  // What produced them. The panel used to be cleared by the textarea's own
-  // onChange, which covered typing and nothing else — so toggling
-  // alwaysDiscloseRecording in the Guardrails tab left a
-  // "missing_recording_disclosure" error on screen for a prompt that no longer
-  // had that rule, and turning it *on* showed a clean panel. The lint is a
-  // function of prompt *and* guardrails; comparing against both is the version
-  // that cannot be forgotten when a third input is added.
-  const [lintedFp, setLintedFp] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("prompt");
+  const readFindings = useCallback(() => setTab("prompt"), []);
+  const lint = useStudioLint({ prompt, guardrails, lintMutation, onRead: readFindings });
+  const clearLint = lint.clear;
   const flowCheck = useFlowValidation(flow, tab === "flow");
   const [diffOpen, setDiffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -391,37 +385,6 @@ export function PromptStudioPage({
     () => history.find((v) => v.id === draftId)?.label || nextLabel,
     [history, draftId, nextLabel],
   );
-  const clearLint = useCallback(() => {
-    setLintFindings([]);
-    setLintedFp(null);
-  }, []);
-
-  const lintFp = useMemo(() => JSON.stringify({ prompt, guardrails }), [prompt, guardrails]);
-  // The deterministic pass, running continuously. It used to need a button, and
-  // the cost of that showed up in the data: three PUBLISHED cards carry CRM
-  // tokens that delete the line they sit on, including the one every inbound
-  // call resolves to. Nobody had pressed it.
-  const autoLint = useAutoLint({ prompt, guardrails });
-  // The Critique pass still answers on demand, and its rows are additive: the
-  // auto pass never returns llm_checklist, so the two cannot double up.
-  //
-  // The advisory filter lives inside the memo rather than beside it because a
-  // fresh array on every render is a dependency that changes on every render —
-  // the memo would recompute always and memoise nothing. `lintedFp === lintFp`
-  // is the staleness guard: advice is dropped the moment the prompt or the
-  // guardrails move away from what was actually critiqued.
-  const freshLint = useMemo(() => {
-    // The two failure codes ride along: a review that could not run must
-    // stay visible beside the editor, not only in a toast that fades.
-    const advisory =
-      lintedFp === lintFp
-        ? lintFindings.filter((f) =>
-            ["llm_checklist", "llm_lint_failed", "llm_lint_unavailable"].includes(f.code),
-          )
-        : [];
-    return [...(autoLint.data ?? []), ...advisory];
-  }, [autoLint.data, lintFindings, lintedFp, lintFp]);
-
   // Derived, not stored. Two bugs lived in the stored version: it was set from
   // the traits alone, so rewriting the prompt into something unrecognisable
   // left the badge still naming the preset ("Empathetic Collector" above text
@@ -703,39 +666,6 @@ export function PromptStudioPage({
       adoptVersion,
     });
 
-  // The costed half, on demand. The free deterministic pass now runs itself
-  // (`useAutoLint`), so this exists only to add the model's read of the WRITING
-  // — vagueness, contradictions, promises no tool can keep. It is told the
-  // guardrails are already enforced and will not report them as missing.
-  //
-  // Still a request for the whole lint with `includeLlm`, because the backend
-  // owns that composition; only the advisory rows are kept from the response,
-  // the deterministic ones being on screen already.
-  const onLint = async (includeLlm = true) => {
-    try {
-      const findings = await lintMutation.mutateAsync({ prompt, guardrails, includeLlm });
-      setLintFindings(findings);
-      setLintedFp(JSON.stringify({ prompt, guardrails }));
-      const advice = findings.filter((f) => f.code === "llm_checklist");
-      const unavailable = findings.find(
-        (f) => f.code === "llm_lint_failed" || f.code === "llm_lint_unavailable",
-      );
-      if (unavailable) {
-        // A review that could not run must never read as a clean bill of health.
-        toast.error("Critique unavailable", { description: unavailable.message });
-      } else if (!advice.length) {
-        toast.success("Critique clean — nothing flagged in the wording");
-      } else {
-        toast.message(`Critique: ${advice.length} suggestion(s)`, {
-          description: "Advisory — listed beside the editor, nothing was changed",
-          action: { label: "Read", onClick: () => setTab("prompt") },
-        });
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Lint failed");
-    }
-  };
-
   const onTestSandbox = async () => {
     try {
       // The same save the debounce makes -- with the draft's own summary, not
@@ -882,8 +812,8 @@ export function PromptStudioPage({
           setPublishOpen(true);
           void runCompile();
         },
-        onAiReview: () => void onLint(true),
-        lintBusy: lintMutation.isPending,
+        onAiReview: () => void lint.critique(),
+        lintBusy: lint.busy,
         onOpenHistory: () => setHistoryOpen(true),
         versionCount: history.length,
         draftCount: history.filter((v) => v.status === "draft").length,
@@ -982,9 +912,9 @@ export function PromptStudioPage({
           applyPreset={applyPreset}
           presets={presets}
           presetsFailed={presetsQuery.isError}
-          freshLint={freshLint}
-          lintFailed={autoLint.isError}
-          lintPending={autoLint.isPending && !autoLint.data}
+          freshLint={lint.findings}
+          lintFailed={lint.failed}
+          lintPending={lint.pending}
           cardLocales={cardLocales}
           flowUnreadable={flowUnreadable}
           setReplaceUnreadable={setReplaceUnreadable}
