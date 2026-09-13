@@ -1,8 +1,9 @@
 ---
 name: ptp-negotiate
-description: Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window. Call create_promise_to_pay only after verify. Use run_skill_script for EMI remaining and date-in-window.
+description: Negotiate a Promise-to-Pay. Authority decides the cap; DND blocks writes outside the calling window. Call create_promise_to_pay only after verify; when a promise is already open, move it with revise_promise_to_pay and the customer's reason. Use run_skill_script for EMI remaining and date-in-window.
 allowed-tools:
   - create_promise_to_pay
+  - revise_promise_to_pay
   - capture_nonpayment_reason
   - evaluate_authority
   - request_callback
@@ -11,7 +12,7 @@ allowed-tools:
   - get_emi_schedule
   - run_skill_script
 metadata:
-  version: 1.5.0
+  version: 1.6.0
   data_class:
     - money
     - pii
@@ -35,6 +36,7 @@ The mouth speaks a date and amount. The engines decide whether the write is lega
 3. Call `run_skill_script` with `promise_date_in_window` before offering a date. The window is the one on the CRM card; when the card carries none, the script applies the platform default -- never state a window the card does not carry.
 4. Call `evaluate_authority` before any concession language.
 5. Call `create_promise_to_pay` with amount and ISO date. A spoken promise with no row is a miss.
+6. If the tool answers `promise_already_open`, the account already holds a commitment: read back its date and amount, ask whether they want to move it, and call `revise_promise_to_pay` with the new date and/or amount and the reason in their words (salary late, medical, a partial payment agreed). Never record a second promise beside an open one. If it answers `promise_revision_cap`, do not move it again -- offer a callback for a hardship review.
 
 ## Never
 

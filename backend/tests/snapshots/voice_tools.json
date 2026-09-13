@@ -97,7 +97,8 @@
         "create_promise_to_pay",
         "get_account_position",
         "request_callback",
-        "return_to_position"
+        "return_to_position",
+        "revise_promise_to_pay"
       ],
       "pre_actions": [
         {
@@ -133,7 +134,8 @@
         "capture_nonpayment_reason",
         "create_promise_to_pay",
         "get_account_position",
-        "request_callback"
+        "request_callback",
+        "revise_promise_to_pay"
       ],
       "respond_immediately": true,
       "task_message_roles": [
@@ -704,6 +706,44 @@
       "kind": "direct",
       "name": "return_to_position",
       "params": []
+    },
+    "revise_promise_to_pay": {
+      "cancel_on_interruption": false,
+      "description": "Move the customer's existing promise to a new date and/or amount because they asked (salary late, medical, partial payment agreed). The promise keeps its id and its pay link; the change is recorded with the reason. Use this, never a second promise, when one is already open.",
+      "handler": "_revise_ptp_handler",
+      "kind": "schema",
+      "properties": {
+        "amount": {
+          "description": "New amount in INR, if the amount is changing.",
+          "minimum": 0.01,
+          "type": "number"
+        },
+        "note": {
+          "description": "One line in the customer's own words. No account numbers.",
+          "type": "string"
+        },
+        "promise_date": {
+          "description": "New ISO date YYYY-MM-DD, if the date is moving.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the customer asked, in their words as a code.",
+          "enum": [
+            "customer_requested_delay",
+            "salary_delayed",
+            "medical",
+            "dispute_raised",
+            "partial_payment_agreed",
+            "agent_correction",
+            "other"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "timeout_secs": 8.0
     },
     "run_skill_script": {
       "cancel_on_interruption": false,

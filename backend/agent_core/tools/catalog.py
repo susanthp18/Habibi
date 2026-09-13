@@ -233,6 +233,9 @@ IDENTIFY_CUSTOMER = _r(
 )
 
 # --------------------------------------------------------------------------
+#: The revision vocabulary is the database's (promise_revisions.reason CHECK).
+from db_promises import REVISION_REASONS  # noqa: E402
+
 # CRM writes
 # --------------------------------------------------------------------------
 
@@ -295,6 +298,48 @@ CREATE_PROMISE_TO_PAY = _r(
         channels=BOTH,
         entity="promise",
         deep_link="/promises?id={id}",
+    )
+)
+
+REVISE_PROMISE_TO_PAY = _r(
+    ToolSpec(
+        name="revise_promise_to_pay",
+        description=(
+            "Move the customer's existing promise to a new date and/or amount because they asked "
+            "(salary late, medical, partial payment agreed). The promise keeps its id and its pay "
+            "link; the change is recorded with the reason. Use this, never a second promise, when "
+            "one is already open."
+        ),
+        args=(
+            ArgSpec(
+                name="promise_date",
+                type="string",
+                description="New ISO date YYYY-MM-DD, if the date is moving.",
+                aliases=("promisedDate", "promised_date"),
+            ),
+            ArgSpec(
+                name="amount",
+                type="number",
+                description="New amount in INR, if the amount is changing.",
+                minimum=0.01,
+            ),
+            ArgSpec(
+                name="reason",
+                type="string",
+                description="Why the customer asked, in their words as a code.",
+                required=True,
+                enum=REVISION_REASONS,
+            ),
+            ArgSpec(
+                name="note",
+                type="string",
+                description="One line in the customer's own words. No account numbers.",
+            ),
+        ),
+        channels=BOTH,
+        entity="promise",
+        deep_link="/promises?id={id}",
+        timeout_secs=8.0,
     )
 )
 

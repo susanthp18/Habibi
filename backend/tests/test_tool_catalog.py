@@ -53,6 +53,7 @@ EXPECTED_TEXT_REQUIRED: dict[str, tuple[str, ...]] = {
     "get_emi_schedule": (),
     "identify_customer": (),
     "create_promise_to_pay": ("amount", "promise_date"),
+    "revise_promise_to_pay": ("reason",),
     "flag_dispute": ("dispute_type",),
     "capture_nonpayment_reason": ("reason",),
     "set_contact_preference": (),

@@ -273,6 +273,25 @@ def _tool_create_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     }
 
 
+def _tool_revise_promise(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    idem = f"{ctx.job_id}:revise_promise_to_pay"
+    if not str(args.get("reason") or "").strip():
+        return {"ok": False, "error": "reason_required"}
+    result = domain.revise_promise_to_pay(
+        customer_id=ctx.customer_id,
+        reason=str(args["reason"]),
+        amount=args.get("amount"),
+        promise_date=args.get("promise_date"),
+        note=args.get("note"),
+        interaction_id=ctx.interaction_id,
+        idempotency_key=idem,
+    )
+    soft = _domain_soft_fail(result)
+    if soft is not None:
+        return soft
+    return {"ok": True, **(result.data or {}), "say": result.spoken_summary}
+
+
 def _tool_flag_dispute(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     idem = f"{ctx.job_id}:flag_dispute"
     result = domain.flag_dispute(
@@ -802,6 +821,7 @@ HANDLERS: dict[str, Callable[[ToolContext, dict[str, Any]], dict[str, Any]]] = {
     "get_emi_schedule": _tool_get_emi_schedule,
     "search_knowledge_base": _tool_search_knowledge_base,
     "create_promise_to_pay": _tool_create_promise,
+    "revise_promise_to_pay": _tool_revise_promise,
     "flag_dispute": _tool_flag_dispute,
     "evaluate_authority": _tool_evaluate_authority,
     "apply_goodwill": _tool_apply_goodwill,

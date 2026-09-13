@@ -96,6 +96,7 @@ def test_build_tools_constructs(tools: dict) -> None:
         "search_knowledge_base",
         # collections
         "create_promise_to_pay",
+        "revise_promise_to_pay",
         "begin_negotiate",
         "request_callback",
         "begin_dispute",

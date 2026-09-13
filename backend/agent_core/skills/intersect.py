@@ -29,6 +29,7 @@ CONNECTOR_BIND_FAILED = "connector_tools_unavailable"
 SKILL_GATED_TOOLS: frozenset[str] = frozenset(
     {
         "create_promise_to_pay",
+        "revise_promise_to_pay",
         "flag_dispute",
         # Same family as the two above, and gated for the same reason: it is a
         # write the mouth performs only once a collections conversation is

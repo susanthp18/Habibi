@@ -200,3 +200,74 @@ def test_a_date_is_not_a_patch(db_tx) -> None:
     created = _create(customer_id, account_id, days=3)
     with pytest.raises(ValueError, match="illegal_transition:promise:upcoming->cancelled"):
         db.patch_promise(created["id"], {"status": "cancelled"})
+
+
+# ---------------------------------------------------------------------------
+# The mouth: create says what is already open; revise moves it
+# ---------------------------------------------------------------------------
+
+
+def test_the_create_tool_names_the_open_promise_instead_of_failing(db_tx) -> None:
+    from agent_core.tools import create_promise_to_pay
+
+    customer_id, account_id = _customer(db_tx)
+    first = _create(customer_id, account_id, amount=500, days=5)
+    out = create_promise_to_pay(
+        customer_id=customer_id,
+        amount=600,
+        promised_date=_day(9),
+        account_id=account_id,
+        channel="voice",
+        idempotency_key=f"tool-{uuid.uuid4().hex}",
+    )
+    assert out.ok is False and out.error == "promise_already_open"
+    assert out.data["promiseId"] == first["id"]
+    assert out.data["amount"] == 500.0 and out.data["promisedDate"] == _day(5)
+    assert "revise_promise_to_pay" in out.spoken_summary
+
+
+def test_the_revise_tool_moves_the_open_promise(db_tx) -> None:
+    from agent_core.tools import revise_promise_to_pay
+
+    customer_id, account_id = _customer(db_tx)
+    first = _create(customer_id, account_id, amount=500, days=5)
+    out = revise_promise_to_pay(
+        customer_id=customer_id,
+        reason="salary_delayed",
+        promise_date=_day(12),
+        account_id=account_id,
+        note="salary comes on the 10th",
+        idempotency_key=f"revise-{uuid.uuid4().hex}",
+    )
+    assert out.ok is True, out
+    assert out.data["promiseId"] == first["id"]
+    assert out.data["promisedDate"] == _day(12) and out.data["revisionCount"] == 1
+    assert out.entity_id == first["id"]
+
+    # past the cap the tool refuses with the next step, not a second promise
+    import policy_rules
+
+    for i in range(policy_rules.PTP_MAX_REVISIONS - 1):
+        assert revise_promise_to_pay(
+            customer_id=customer_id, reason="other", promise_date=_day(13 + i), account_id=account_id
+        ).ok
+    capped = revise_promise_to_pay(
+        customer_id=customer_id, reason="other", promise_date=_day(30), account_id=account_id
+    )
+    assert capped.ok is False and capped.error == "promise_revision_cap"
+    assert "hardship" in capped.spoken_summary
+
+
+def test_the_revise_tool_with_nothing_open_says_so(db_tx) -> None:
+    from agent_core.tools import revise_promise_to_pay
+
+    customer_id, account_id = _customer(db_tx)
+    out = revise_promise_to_pay(customer_id=customer_id, reason="other", promise_date=_day(4), account_id=account_id)
+    assert out.ok is False and out.error == "promise_not_open"
+
+
+def test_the_catalog_and_the_database_agree_on_the_reasons() -> None:
+    from agent_core.tools.catalog import REVISION_REASONS as CATALOG_REASONS
+    from db_promises import REVISION_REASONS
+
+    assert CATALOG_REASONS == REVISION_REASONS

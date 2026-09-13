@@ -166,6 +166,52 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         _create_ptp_handler
     )
 
+    async def _revise_ptp_handler(
+        args: dict[str, Any],
+        flow_manager,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Move the open promise because the customer asked."""
+        cid, err = _require_customer()
+        if err:
+            return err, None
+        args = CATALOG.normalize("revise_promise_to_pay", args)
+        reason = str(args.get("reason") or "").strip()
+        if not reason:
+            return {"error": "reason_required"}, None
+        call_scope = session.provider_call_id or session.interaction_id or "no-ix"
+        idem = f"voice-ptp-revise:{call_scope}:{cid}:{args.get('amount')}:{args.get('promise_date')}"
+        try:
+            result = await asyncio.to_thread(
+                domain.revise_promise_to_pay,
+                customer_id=cid,
+                reason=reason,
+                amount=args.get("amount"),
+                promise_date=args.get("promise_date"),
+                note=args.get("note"),
+                interaction_id=session.interaction_id,
+                account_id=session.account_id,
+                idempotency_key=idem,
+            )
+            if not result.ok:
+                return {
+                    "error": result.error or "crm_write_failed",
+                    **(result.data or {}),
+                    "say": result.spoken_summary or "apologise and offer a callback or human agent",
+                }, None
+            await _announce(result, "revise_promise_to_pay", inject_delta=False)
+            _schedule_context_refresh("revise_promise_to_pay")
+            state.commitment_secured = True
+            return {"ok": True, **(result.data or {}), "say": result.spoken_summary}, None
+        except Exception as exc:
+            logger.exception("revise_promise_to_pay failed")
+            return {
+                "error": "crm_write_failed",
+                "detail": str(exc),
+                "say": "apologise and offer a callback or human agent",
+            }, None
+
+    revise_promise_to_pay = _spec("revise_promise_to_pay", _revise_ptp_handler)
+
     async def _flag_dispute_handler(
         args: dict[str, Any],
         flow_manager,
@@ -244,5 +290,6 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
     return {
         "create_promise_to_pay": create_promise_to_pay,
+        "revise_promise_to_pay": revise_promise_to_pay,
         "flag_dispute": flag_dispute,
     }

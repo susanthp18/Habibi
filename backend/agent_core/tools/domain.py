@@ -751,8 +751,31 @@ def create_promise_to_pay(
             logger.warning("create_promise: unknown ownerBotId %s — retrying unowned", bot_id)
             payload.pop("ownerBotId", None)
             row = db.create_promise(payload, idempotency_key=idempotency_key)
+    except ValueError as exc:
+        # One open commitment per account: say which, so the model can ask
+        # whether to move it rather than fail and offer a callback.
+        if str(exc).startswith("promise_already_open:"):
+            open_id = str(exc).split(":", 1)[1]
+            existing = _open_promise_summary(open_id)
+            return ToolResult(
+                ok=False,
+                error="promise_already_open",
+                data={"promiseId": open_id, **existing},
+                spoken_summary=(
+                    f"there is already a promise for {existing.get('amount')} on "
+                    f"{existing.get('promisedDate')}; ask whether they want to move it, "
+                    "then use revise_promise_to_pay"
+                ),
+            )
+        logger.exception("create_promise failed customer=%s", customer_id)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            data={"detail": "crm_write_failed"},
+            spoken_summary="apologise and offer a callback or human agent",
+        )
     except Exception:
-        logger.exception("create_promise failed")
+        logger.exception("create_promise failed customer=%s", customer_id)
         return ToolResult(
             ok=False,
             error="crm_write_failed",
@@ -811,6 +834,136 @@ def create_promise_to_pay(
         entity=_entity("create_promise_to_pay"),
         entity_id=promise_id,
         deep_link=_link("create_promise_to_pay", promise_id),
+    )
+
+
+def _open_promise_summary(promise_id: str) -> dict[str, Any]:
+    """Amount and day of an open promise, for the model's next sentence."""
+    import db
+    from sqlalchemy import text
+
+    from agent_core import clock
+
+    try:
+        with db.engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT amount, promised_at, revision_count FROM promises WHERE id = :id"), {"id": promise_id}
+            ).mappings().first()
+    except Exception:
+        return {}
+    if row is None:
+        return {}
+    day = clock.as_utc(row["promised_at"])
+    return {
+        "amount": float(row["amount"]),
+        "promisedDate": day.astimezone(clock.tenant_tz()).date().isoformat() if day else None,
+        "revisionCount": int(row["revision_count"] or 0),
+    }
+
+
+_REVISE_SPOKEN: dict[str, str] = {
+    "promise_revision_cap": (
+        "this promise has already been moved the maximum number of times; do not move it "
+        "again -- offer a callback for a hardship review or a payment plan"
+    ),
+    "promise_not_open": "there is no open promise to move; offer to record a new one",
+    "nothing_to_revise": "the date and amount are the same as the promise already holds",
+    "invalid_revision_reason": "choose one of the listed reasons",
+}
+
+
+def revise_promise_to_pay(
+    *,
+    customer_id: str,
+    reason: str,
+    promise_id: str | None = None,
+    amount: Any = None,
+    promise_date: str | None = None,
+    note: str | None = None,
+    interaction_id: str | None = None,
+    account_id: str | None = None,
+    idempotency_key: str | None = None,
+) -> ToolResult:
+    """Renegotiate the account's open promise: a new date and/or amount, with why."""
+    import db
+    from sqlalchemy import text
+
+    pid = promise_id
+    if not pid:
+        try:
+            with db.engine.connect() as conn:
+                acct = account_id or db._first_account_id(conn, customer_id)
+                pid = (
+                    conn.execute(
+                        text(
+                            "SELECT id FROM promises WHERE account_id = :a "
+                            "AND status IN ('upcoming','due_today')"
+                        ),
+                        {"a": acct},
+                    ).scalar()
+                    if acct
+                    else None
+                )
+        except Exception:
+            logger.exception("revise_promise lookup failed customer=%s", customer_id)
+            pid = None
+    if not pid:
+        return ToolResult(
+            ok=False,
+            error="promise_not_open",
+            data={"detail": "promise_not_open"},
+            spoken_summary=_REVISE_SPOKEN["promise_not_open"],
+        )
+    payload: dict[str, Any] = {"reason": reason, "interactionId": interaction_id}
+    if amount not in (None, ""):
+        try:
+            payload["amount"] = float(amount)
+        except (TypeError, ValueError):
+            return ToolResult(ok=False, error="invalid_amount", data={"detail": "invalid_amount"})
+    if promise_date:
+        payload["promisedDate"] = str(promise_date).strip().split("T", 1)[0]
+    if note:
+        payload["note"] = str(note)[:500]
+    try:
+        row = db.revise_promise(pid, payload, idempotency_key=idempotency_key)
+    except ValueError as exc:
+        code = str(exc).split(":", 1)[0]
+        return ToolResult(
+            ok=False,
+            error=code,
+            data={"promiseId": pid, "detail": str(exc), **_open_promise_summary(pid)},
+            spoken_summary=_REVISE_SPOKEN.get(code, "apologise and offer a callback or human agent"),
+        )
+    except Exception:
+        logger.exception("revise_promise failed promise=%s", pid)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            data={"detail": "crm_write_failed"},
+            spoken_summary="apologise and offer a callback or human agent",
+        )
+    fulfillment = (row or {}).get("_fulfillment") or {}
+    summary = _open_promise_summary(pid)
+    spoken = (
+        f"confirm the promise now stands at {summary.get('amount')} on {summary.get('promisedDate')}"
+        + ("; the confirmation could not be re-sent, say so" if fulfillment.get("error") else "")
+    )
+    return ToolResult(
+        ok=True,
+        data={
+            "promiseId": pid,
+            "amount": summary.get("amount"),
+            "promisedDate": summary.get("promisedDate"),
+            "revisionCount": summary.get("revisionCount"),
+            "status": _row_field(row, "status"),
+            "amountCapped": bool((row or {}).get("_capped")),
+            "payLinkSent": bool(fulfillment.get("payLinkSent")),
+            "fulfillmentError": fulfillment.get("error"),
+        },
+        spoken_summary=spoken,
+        entity=_entity("revise_promise_to_pay"),
+        entity_id=pid,
+        deep_link=_link("revise_promise_to_pay", pid),
     )
 
 

@@ -52,6 +52,7 @@ _COLLECTIONS_TOOLS = [
     "get_payment_history",
     "get_emi_schedule",
     "create_promise_to_pay",
+    "revise_promise_to_pay",
     "flag_dispute",
     "evaluate_authority",
     "apply_goodwill",
@@ -149,7 +150,10 @@ def _card(
         tools=CardTools(include=include, locked=_LOCKED),
         handoffs=handoffs,
         human_gates=human_gates
-        or [HumanGate(tool_name="create_promise_to_pay", require="identity")],
+        or [
+            HumanGate(tool_name="create_promise_to_pay", require="identity"),
+            HumanGate(tool_name="revise_promise_to_pay", require="identity"),
+        ],
         eval=CardEval(require=["regression", "redteam"]),
         connectors=connectors or [],
         outbound=outbound or CardOutbound(),

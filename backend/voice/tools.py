@@ -204,6 +204,7 @@ def build_tools(
         "begin_wrap_up": built["begin_wrap_up"],
         "return_to_position": built["return_to_position"],
         "create_promise_to_pay": built["create_promise_to_pay"],
+        "revise_promise_to_pay": built["revise_promise_to_pay"],
         "flag_dispute": built["flag_dispute"],
         "evaluate_authority": built["evaluate_authority"],
         "apply_goodwill": built["apply_goodwill"],

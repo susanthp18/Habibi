@@ -149,6 +149,7 @@
         "tools": [
           "get_account_position",
           "create_promise_to_pay",
+          "revise_promise_to_pay",
           "capture_nonpayment_reason",
           "request_callback",
           "begin_negotiate",
@@ -178,6 +179,7 @@
         "tools": [
           "get_account_position",
           "create_promise_to_pay",
+          "revise_promise_to_pay",
           "request_callback",
           "begin_wrap_up",
           "return_to_position"
