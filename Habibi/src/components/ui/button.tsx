@@ -86,6 +86,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading && (
           <Spinner
+            aria-hidden="true"
             size={size === "compact" || size === "sm" ? "xsmall" : "small"}
             tone={
               variant === "primary" || variant === "danger" || variant === "discovery"
@@ -94,7 +95,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             }
           />
         )}
-        <span className={cn(loading && "invisible", "contents")}>{children}</span>
+        <span className={cn(loading && "opacity-0", "contents")}>{children}</span>
       </button>
     );
   },

@@ -439,6 +439,19 @@ export function ConversationPanel({
               }}
               onMouseUp={() => void holdEnd()}
               onMouseLeave={() => void holdEnd()}
+              // Hold Space to talk, as the mouse holds the button. `repeat`
+              // guards the auto-repeat keydown that would restart the hold.
+              onKeyDown={(e) => {
+                if (e.key !== " " || e.repeat) return;
+                e.preventDefault();
+                void holdStart();
+              }}
+              onKeyUp={(e) => {
+                if (e.key !== " ") return;
+                e.preventDefault();
+                void holdEnd();
+              }}
+              aria-label={recording ? "Release to send" : "Hold to talk (Space)"}
               onPointerUp={() => void holdEnd()}
               onPointerCancel={() => void holdEnd()}
               onTouchStart={(e) => {

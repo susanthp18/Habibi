@@ -83,10 +83,16 @@ export function AudioPlayer({
           size="icon"
           className="h-400 w-400"
           onClick={() => onSeek(Math.max(0, currentTime - 10))}
+          aria-label="Back 10 seconds"
         >
           <SkipBack className="h-4 w-4" />
         </Button>
-        <Button size="icon" className="h-9 w-9" onClick={onPlayPause}>
+        <Button
+          size="icon"
+          className="h-9 w-9"
+          onClick={onPlayPause}
+          aria-label={playing ? "Pause" : "Play"}
+        >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </Button>
         <Button
@@ -94,6 +100,7 @@ export function AudioPlayer({
           size="icon"
           className="h-400 w-400"
           onClick={() => onSeek(Math.min(duration, currentTime + 10))}
+          aria-label="Forward 10 seconds"
         >
           <SkipForward className="h-4 w-4" />
         </Button>

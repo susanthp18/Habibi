@@ -39,7 +39,7 @@ export function MobileNav() {
             </p>
           </div>
         </SheetHeader>
-        <nav className="min-h-0 flex-1 overflow-y-auto px-150 pb-150 pt-100">
+        <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto px-150 pb-150 pt-100">
           <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
         </nav>
       </SheetContent>

@@ -413,7 +413,7 @@ export function Sidebar() {
           </div>
         )}
 
-        <nav className="min-h-0 flex-1 overflow-y-auto">
+        <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto">
           <NavLinks collapsed={collapsed} pathname={pathname} query={query} />
         </nav>
 

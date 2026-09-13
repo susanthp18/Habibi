@@ -70,7 +70,13 @@ export function InspectorPanel({
           </TabsList>
         </Tabs>
         {onClose && (
-          <Button variant="ghost" size="icon" className="mr-050 h-400 w-400" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mr-050 h-400 w-400"
+            onClick={onClose}
+            aria-label="Close inspector"
+          >
             <X className="h-4 w-4" />
           </Button>
         )}

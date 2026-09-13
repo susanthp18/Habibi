@@ -84,14 +84,15 @@ export function AvailabilityToggle() {
       </div>
       <div
         className="inline-flex rounded-medium border border-border bg-surface p-025"
-        role="group"
+        role="radiogroup"
         aria-label="Availability"
       >
         {options.map((o) => (
           <button
             key={o.key}
             type="button"
-            aria-pressed={status === o.key}
+            role="radio"
+            aria-checked={status === o.key}
             disabled={mutation.isPending}
             onClick={() => setStatus(o.key)}
             className={cn(

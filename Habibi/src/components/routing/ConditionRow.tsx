@@ -100,7 +100,13 @@ export function ConditionRow({ cond, onChange, onRemove }: Props) {
         />
       )}
 
-      <Button variant="ghost" size="icon" className="h-400 w-400 shrink-0" onClick={onRemove}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-400 w-400 shrink-0"
+        onClick={onRemove}
+        aria-label="Remove condition"
+      >
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>

@@ -154,9 +154,10 @@ export function SplitPanes({
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize panels"
-              aria-valuemin={Math.round(minWidthsPx[i] ?? 160)}
-              aria-valuemax={100 - Math.round(minWidthsPx[i + 1] ?? 160)}
-              aria-valuenow={Math.round(widths[i])}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(widths[i] ?? defaults[i] ?? 50)}
+              aria-valuetext={`${Math.round(widths[i] ?? defaults[i] ?? 50)}% of the width`}
               tabIndex={0}
               onPointerDown={(e) => onPointerDown(i, e)}
               onPointerMove={onPointerMove}

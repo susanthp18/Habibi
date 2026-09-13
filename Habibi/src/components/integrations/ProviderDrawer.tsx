@@ -120,7 +120,13 @@ export function ProviderDrawer({
                 <span className="ml-100 text-text-subtlest">{cfg.region}</span>
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onClose}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-400 w-400"
+              onClick={onClose}
+              aria-label="Close"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>

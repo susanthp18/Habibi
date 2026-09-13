@@ -259,6 +259,7 @@ export function EndpointSheet({
                     onClick={() =>
                       setDraft({ ...draft, headers: draft.headers.filter((_, j) => j !== i) })
                     }
+                    aria-label="Remove header"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

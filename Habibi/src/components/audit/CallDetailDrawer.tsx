@@ -148,7 +148,13 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                   <ExternalLink className="h-3 w-3" />
                 </Link>
               </Button>
-              <Button variant="ghost" size="icon" className="h-400 w-400" onClick={onClose}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-400 w-400"
+                onClick={onClose}
+                aria-label="Close"
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>

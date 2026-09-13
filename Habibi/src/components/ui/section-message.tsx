@@ -48,7 +48,7 @@ export const SectionMessage = React.forwardRef<HTMLDivElement, SectionMessagePro
   ({ className, variant = "information", icon: Icon, title, children, ...props }, ref) => (
     <div
       ref={ref}
-      role="alert"
+      role={variant === "error" || variant === "warning" ? "alert" : "status"}
       className={cn(sectionMessageVariants({ variant }), className)}
       {...props}
     >
