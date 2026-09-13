@@ -21,8 +21,9 @@ CEILING = 1_500
 SKIP_DIRS = {"tests", "alembic", ".venv", "node_modules", "scripts", "seeds", "sql", "docs", "__pycache__"}
 
 #: path -> measured lines on 2026-09-12. Shrink or delete; never add.
-BASELINE: dict[str, int] = {
-}
+#: Empty since 2026-09-13 (pass 7). Nothing joins; a module that crosses the
+#: ceiling is split in the same commit.
+BASELINE: dict[str, int] = {}
 
 
 def _over_ceiling() -> dict[str, int]:
