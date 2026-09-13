@@ -26,13 +26,11 @@ import {
 } from "@/api/outbound";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { useCompilePreview } from "@/api/agent-studio";
-import {
-  CadencesEditor,
-  DirectionPanel,
-  MissionsEditor,
-  PostCallEditor,
-  resolvedOutbound,
-} from "./OutboundCardEditor";
+import { CadencesEditor } from "./outbound/CadencesEditor";
+import { DirectionPanel } from "./outbound/DirectionPanel";
+import { MissionsEditor } from "./outbound/MissionsEditor";
+import { PostCallEditor } from "./outbound/PostCallEditor";
+import { resolvedOutbound } from "./outbound/shared";
 import { NumberPoolTable } from "./NumberPoolTable";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";

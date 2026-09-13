@@ -15,7 +15,7 @@
  *
  * **There was no primitive for `<select>`.** `flow/inspector/chrome.tsx` said so in
  * a comment — "Matches the system's Input height and chrome; `select` has no
- * primitive" — and hand-rolled one anyway; `prompt-studio/OutboundCardEditor.tsx`
+ * primitive" — and hand-rolled one anyway; `prompt-studio/outbound/` (then one file)
  * hand-rolled a second, 16px one. `SelectField` in `ui/select.tsx` is the
  * primitive that was missing.
  *
