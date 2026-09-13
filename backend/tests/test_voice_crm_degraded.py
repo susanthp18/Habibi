@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from voice import crm_sink as cs
+from voice import crm_sink_jobs
 from voice.crm_sink import CRM_DEGRADED_DISPOSITION, CrmSink, mark_crm_degraded
 from voice.session import VoiceSession
 
@@ -184,8 +185,8 @@ def test_the_id_guards_count_their_drops(monkeypatch: pytest.MonkeyPatch) -> Non
     sink = CrmSink(_session())
     assert sink.session.interaction_id is None
 
-    sink._handle_sync(cs._Job("transcript_turn", {"text": "hello"}))
-    sink._handle_sync(cs._Job("tool_call", {"tool_name": "get_account_position"}))
+    crm_sink_jobs.handle(sink, cs._Job("transcript_turn", {"text": "hello"}))
+    crm_sink_jobs.handle(sink, cs._Job("tool_call", {"tool_name": "get_account_position"}))
     sink._handle_understanding(cs._Job("understanding", {"turn_index": 1, "text": "hi"}))
     asyncio.run(sink.enqueue_alert("compliance", "hours-breach"))
 

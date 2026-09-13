@@ -20,7 +20,7 @@ from typing import Any, cast
 from agent_core import classify_intent
 from agent_core import turn_critic
 from agent_core.guardrails import mentions_recording_disclosure
-from voice import persist
+from voice import crm_sink_jobs, crm_sink_observer, persist
 from voice.safety import (
     SENTIMENT_WINDOW,
     detect_abuse,
@@ -97,22 +97,6 @@ class _Job:
     kind: str
     payload: dict[str, Any] = field(default_factory=dict)
 
-
-
-def _cached_input_tokens(usage: Any) -> int | None:
-    """Prompt-cache hits, whichever field the provider spells them in."""
-    direct = getattr(usage, "cache_read_input_tokens", None)
-    if direct is not None:
-        return int(direct)
-    details = getattr(usage, "prompt_tokens_details", None)
-    if details is None and isinstance(usage, dict):
-        details = usage.get("prompt_tokens_details")
-    if details is None:
-        return None
-    cached = getattr(details, "cached_tokens", None)
-    if cached is None and isinstance(details, dict):
-        cached = details.get("cached_tokens")
-    return int(cached) if cached is not None else None
 
 
 class CrmSink:
@@ -1317,144 +1301,8 @@ class CrmSink:
         }
 
     def build_observer(self) -> Any | None:
-        """Optional MetricsFrame observer — returns None if Pipecat API unavailable."""
-        try:
-            from pipecat.observers.base_observer import BaseObserver
-            from pipecat.frames.frames import MetricsFrame
-        except Exception:
-            try:
-                from pipecat.utils.base_object import BaseObject as BaseObserver  # type: ignore
-
-                MetricsFrame = None  # type: ignore
-            except Exception:
-                return None
-
-        # The usage classes carry their payload in `.value`, not as attributes on
-        # the item, so they are matched by type rather than duck-typed. Optional
-        # so an older/newer Pipecat that lacks them degrades to latency-only
-        # observation instead of failing to build the observer at all.
-        try:
-            from pipecat.metrics.metrics import LLMUsageMetricsData, TTSUsageMetricsData
-        except Exception:  # pragma: no cover - depends on pipecat version
-            LLMUsageMetricsData = None  # type: ignore
-            TTSUsageMetricsData = None  # type: ignore
-
-        sink = self
-
-        def _as_ms(value: Any) -> float | None:
-            """Pipecat latency metrics are seconds — convert, don't guess.
-
-            Every shape read below is documented and implemented in seconds:
-            ``TTFBMetricsData.value`` is ``end_time - start_time``, and
-            ``TTFAMetricsData.ttfa`` / ``.ttfb`` mirror it. The old magnitude
-            test ("< 50 means seconds") happened to be right for realistic
-            values but silently stopped converting above 50 s and would have
-            multiplied a genuinely millisecond-valued field by a thousand.
-            """
-            try:
-                v = float(value)
-            except (TypeError, ValueError):
-                return None
-            if v <= 0:
-                return None
-            return v * 1000.0
-
-        class _MetricsObserver(BaseObserver):  # type: ignore[misc,valid-type]
-            async def on_push_frame(self, data):  # noqa: ANN001
-                try:
-                    frame = getattr(data, "frame", None) or data
-                    if MetricsFrame is not None and isinstance(frame, MetricsFrame):
-                        for item in getattr(frame, "data", None) or []:
-                            name = str(getattr(item, "name", "") or "").lower()
-                            cls = type(item).__name__.lower()
-
-                            ttfb = getattr(item, "ttfb", None)
-                            if ttfb is None and hasattr(item, "value") and "ttfb" in (name + cls):
-                                ttfb = getattr(item, "value", None)
-                            ms = _as_ms(ttfb)
-                            if ms is not None:
-                                sink.record_ttfb_ms(ms)
-
-                            ttfa = getattr(item, "ttfa", None)
-                            if ttfa is None and hasattr(item, "value") and "ttfa" in (name + cls):
-                                ttfa = getattr(item, "value", None)
-                            ms_a = _as_ms(ttfa)
-                            if ms_a is not None:
-                                sink.record_ttfa_ms(ms_a)
-
-                            # leading_silence (new on TTFAMetricsData in 1.6.0)
-                            # separates real TTS latency from padding at the
-                            # head of the audio. Logged, deliberately not a
-                            # column — it tunes the voice, it isn't a per-turn
-                            # business metric.
-                            lead = _as_ms(getattr(item, "leading_silence", None))
-                            if lead is not None:
-                                logger.debug(
-                                    "tts leading silence %.0fms · session=%s",
-                                    lead,
-                                    sink.session.session_id,
-                                )
-
-                            # Token usage. This previously read `item.tokens` /
-                            # `item.total_tokens` / `item.prompt_tokens` straight
-                            # off the metrics item — none of which exist on
-                            # LLMUsageMetricsData, whose fields are
-                            # (processor, model, value: LLMTokenUsage). Every
-                            # getattr returned None, so record_tokens() was never
-                            # called and interaction_transcript.tokens was NULL on
-                            # every live call ever recorded.
-                            if LLMUsageMetricsData is not None and isinstance(
-                                item, LLMUsageMetricsData
-                            ):
-                                usage = getattr(item, "value", None)
-                                if usage is not None:
-                                    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
-                                    completion = int(
-                                        getattr(usage, "completion_tokens", 0) or 0
-                                    )
-                                    # total_tokens is authoritative when present:
-                                    # some providers report a total that exceeds
-                                    # prompt+completion (audio/reasoning tokens).
-                                    total = int(getattr(usage, "total_tokens", 0) or 0)
-                                    if total > 0:
-                                        sink.record_tokens(total)
-                                    elif prompt or completion:
-                                        sink.record_tokens(prompt + completion)
-                                    sink.usage.record_llm(
-                                        prompt_tokens=prompt,
-                                        completion_tokens=completion,
-                                        model=getattr(item, "model", None),
-                                        # Anthropic spells it cache_read_input_tokens;
-                                        # Azure/OpenAI nest it as
-                                        # prompt_tokens_details.cached_tokens. Only the
-                                        # first was read, against an Azure deployment,
-                                        # so no voice call had ever recorded a hit.
-                                        cached_input_tokens=_cached_input_tokens(usage),
-                                        reasoning_tokens=getattr(
-                                            usage, "reasoning_tokens", None
-                                        ),
-                                    )
-
-                            # Characters synthesised, the unit Azure TTS bills.
-                            if TTSUsageMetricsData is not None and isinstance(
-                                item, TTSUsageMetricsData
-                            ):
-                                try:
-                                    chars = int(getattr(item, "value", 0) or 0)
-                                except (TypeError, ValueError):
-                                    chars = 0
-                                if chars > 0:
-                                    sink.usage.record_tts(
-                                        chars=chars, model=getattr(item, "model", None)
-                                    )
-                except Exception:
-                    logger.exception("metrics observer failed")
-
-        try:
-            return _MetricsObserver()
-        except Exception:
-            logger.exception("could not construct metrics observer")
-            return None
+        """Optional MetricsFrame observer — None if the Pipecat API is unavailable."""
+        return crm_sink_observer.build(self)
 
     async def _drain(self) -> None:
         while True:
@@ -1462,7 +1310,7 @@ class CrmSink:
             if job is None:
                 break
             try:
-                await asyncio.to_thread(self._handle_sync, job)
+                await asyncio.to_thread(crm_sink_jobs.handle, self, job)
             except Exception:
                 logger.exception(
                     "crm sink job failed · kind=%s · session=%s",
@@ -1470,201 +1318,6 @@ class CrmSink:
                     self.session.session_id,
                 )
 
-    def _handle_sync(self, job: _Job) -> None:
-        p = job.payload
-        if job.kind == "kb_gap":
-            # Handled before the interaction_id guard below: the payload carries
-            # the id the tool call actually used, and a gap is worth recording
-            # even on a session whose interaction row never materialised.
-            import db
-
-            try:
-                db.record_kb_gap(
-                    question=str(p.get("question") or ""),
-                    intent=p.get("intent"),
-                    channel=p.get("channel") or "voice",
-                    interaction_id=p.get("interaction_id"),
-                )
-            except Exception:
-                logger.warning("kb gap write failed", exc_info=True)
-            return
-
-        ix = self.session.interaction_id
-        if not ix:
-            self._note_dropped(job.kind)
-            return
-        if job.kind == "tool_call":
-            persist.record_voice_tool_call(
-                interaction_id=ix,
-                turn_index=int(p.get("turn_index") or 0),
-                tool_name=str(p.get("tool_name") or ""),
-                result_ok=bool(p.get("result_ok")),
-                error=p.get("error"),
-                latency_ms=p.get("latency_ms"),
-                args=p.get("args") if isinstance(p.get("args"), dict) else None,
-            )
-            return
-        if job.kind == "live_alert":
-            persist.append_live_alert(
-                interaction_id=ix,
-                kind=str(p.get("alert_kind") or "escalation"),
-                reason=str(p.get("reason") or ""),
-            )
-            return
-        if job.kind == "live_qa_barge":
-            self._auto_barge(ix, str(p.get("reason") or "live_qa"))
-            return
-        if job.kind == "customer_turn":
-            persist.append_transcript_turn(
-                interaction_id=ix,
-                turn_index=int(p["turn_index"]),
-                speaker="customer",
-                text_content=p["text"],
-                at_sec=float(p["at_sec"]),
-                sentiment_delta=float(p["score"]),
-                intent=p.get("intent"),
-                intent_score=p.get("intent_score"),
-            )
-            persist.append_sentiment_point(
-                interaction_id=ix,
-                at_sec=float(p["at_sec"]),
-                score=float(p["score"]),
-                label=p.get("label"),
-            )
-            if p.get("intent"):
-                try:
-                    import capture
-                    import capture_events
-                    import db as _db
-
-                    with _db.engine.begin() as conn:
-                        capture.touch_primary_intent(conn, ix, str(p["intent"]))
-                        if str(p["intent"]) in capture.PRODUCT_INTENTS:
-                            capture_events.record_product_interest(
-                                conn,
-                                interaction_id=ix,
-                                intent=str(p["intent"]),
-                                snippet=str(p.get("text") or "")[:240],
-                            )
-                except Exception:
-                    logger.exception("touch_primary_intent failed")
-            persist.heartbeat(self.session.session_id)
-        elif job.kind == "bot_turn":
-            persist.append_transcript_turn(
-                interaction_id=ix,
-                turn_index=int(p["turn_index"]),
-                speaker="bot",
-                text_content=p["text"],
-                at_sec=float(p["at_sec"]),
-                ttfb_ms=p.get("ttfb_ms"),
-                ttfa_ms=p.get("ttfa_ms"),
-                tokens=p.get("tokens"),
-                stt_ttfb_ms=p.get("stt_ttfb_ms"),
-                llm_ttfb_ms=p.get("llm_ttfb_ms"),
-                tts_ttfb_ms=p.get("tts_ttfb_ms"),
-                user_turn_ms=p.get("user_turn_ms"),
-                tool_ms=p.get("tool_ms"),
-                aggregation_ms=p.get("aggregation_ms"),
-            )
-            if p.get("interrupted"):
-                persist.append_interaction_flag(
-                    interaction_id=ix,
-                    flag="barge_in",
-                    severity="low",
-                )
-            flags = persist.evaluate_and_flag_bot_turn(
-                interaction_id=ix,
-                customer_text=p.get("customer_text") or "",
-                bot_text=p["text"],
-                intent=p.get("intent") or "out_of_scope",
-                guardrails=self.guardrails,
-                turn_index=int(p["turn_index"]),
-                elapsed_seconds=float(p.get("at_sec") or 0),
-                customer_bot_exchanges=int(p.get("customer_bot_exchanges") or 0),
-                identity_verified=bool(self.session.identity_verified),
-                third_party=bool((self.session.extra or {}).get("third_party")),
-                channel="voice",
-                customer_id=self.session.customer_id,
-                account_id=self.session.account_id,
-                max_waiver_inr=_session_waiver_cap(self.session),
-                # A rehearsal reaches no customer, and an inbound caller chose
-                # the hour themselves. Without these the RBI calling-window
-                # check fired on turn 1 of a 20:43 sandbox call and spent a
-                # high-severity self-correction before anyone had spoken.
-                direction=self.call_direction,
-                simulated=self.simulated_call,
-                recording_disclosed=bool(p.get("recording_disclosed")),
-            )
-            self._drain_whispers()
-            if "live-qa-auto-barge" in flags:
-                self.enqueue("live_qa_barge", reason=next(
-                    (f for f in flags if f in {
-                        "hours-breach",
-                        "third-party-leak",
-                        "identity-before-verify",
-                        "authority-cap-exceeded",
-                        "auto-escalate",
-                        "opt-out-ignored",
-                    }),
-                    "live_qa",
-                ))
-            # The flags used to stop here, in a database row nobody reads until
-            # the QA review. Hand them to the critic so the next turn can
-            # actually change.
-            #
-            # This is deliberately a lighter trigger than the `detect_bot_loop`
-            # tripwire on the enqueue side: that one needs three near-identical
-            # turns at 0.92 similarity and escalates the call to a human. The
-            # critic fires on two at 0.82 and merely nudges — the intent being
-            # to break the loop before it earns an escalation.
-            self.enqueue_critique(
-                bot_text=p["text"],
-                user_text=p.get("customer_text") or "",
-                guardrail_flags=flags,
-                recent_bot_turns=list(p.get("prior_bot_turns") or []),
-            )
-            persist.heartbeat(self.session.session_id)
-        elif job.kind == "complete":
-            if self._completed:
-                return
-            self._completed = True
-            persist.complete_voice_call(
-                session_id=self.session.session_id,
-                interaction_id=ix,
-                status=str(p.get("status") or "completed"),
-                latency_ms=p.get("latency_ms"),
-                rag_hits=int(p.get("rag_hits") or 0),
-                avg_sentiment=p.get("avg_sentiment"),
-                summary=p.get("summary"),
-                disposition=p.get("disposition"),
-                # What actually ran, per slot, including a substituted STT
-                # language -- on the interaction, not only in a log line.
-                providers=self.session.extra.get("providers") or None,
-            )
-            # Off audio path — serialize turns after CRM close.
-            try:
-                exported = persist.export_transcript_json(
-                    interaction_id=ix,
-                    session_id=self.session.session_id,
-                )
-                if exported:
-                    logger.info(
-                        "transcript export · interaction=%s · media=%s · turns=%s",
-                        ix,
-                        exported.get("mediaId"),
-                        exported.get("turnCount"),
-                    )
-            except Exception:
-                logger.exception("transcript export failed · interaction=%s", ix)
-
-            # Cross-call memory. Deliberately AFTER complete_voice_call, in its
-            # own try/except, so a slow or failing summariser can never block
-            # call closure. This whole handler already runs in asyncio.to_thread
-            # off the audio path, and azure_openai.chat_complete is synchronous,
-            # so there is nothing to await here.
-            self._write_customer_memory(ix, p)
-        elif job.kind == "heartbeat":
-            persist.heartbeat(self.session.session_id)
 
 
 def bind_session_start(
@@ -1699,14 +1352,3 @@ def bind_session_start(
     if row.get("startedAt"):
         session.call_started_at = row["startedAt"]
     return row
-
-
-def _session_waiver_cap(session: Any) -> float | None:
-    extra = getattr(session, "extra", None) or {}
-    raw = extra.get("max_waiver_inr")
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return None
