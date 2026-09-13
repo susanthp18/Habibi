@@ -129,16 +129,22 @@ export function FilterTable<T, K extends string>({
         role="region"
         tabIndex={0}
       >
-        <div className="min-w-[36rem]">
-          <div
-            className="sticky top-0 z-10 grid border-b border-border bg-surface-sunken px-150 py-100 text-body-small font-semibold text-text-subtlest"
-            style={{ gridTemplateColumns: gridTemplate }}
-          >
-            {columns.map((col) => (
-              <span key={col.id} className={col.className}>
-                {col.header}
-              </span>
-            ))}
+        {/* A grid for the collapse animation (a <tr> cannot animate its
+            height), with table semantics for a reader: the roles say what
+            the layout does not. */}
+        <div className="min-w-[36rem]" role="table" aria-label={ariaLabel}>
+          <div role="rowgroup">
+            <div
+              role="row"
+              className="sticky top-0 z-10 grid border-b border-border bg-surface-sunken px-150 py-100 text-body-small font-semibold text-text-subtlest"
+              style={{ gridTemplateColumns: gridTemplate }}
+            >
+              {columns.map((col) => (
+                <span key={col.id} role="columnheader" className={col.className}>
+                  {col.header}
+                </span>
+              ))}
+            </div>
           </div>
 
           {isLoading
@@ -155,39 +161,42 @@ export function FilterTable<T, K extends string>({
             </div>
           ) : null}
 
-          {!isLoading &&
-            !showError &&
-            rows.map((row) => {
-              const shown = filter === "all" || getStatus(row) === filter;
-              return (
-                <div
-                  key={getRowId(row)}
-                  className="grid transition-[grid-template-rows,opacity] duration-300"
-                  style={{
-                    gridTemplateRows: shown ? "1fr" : "0fr",
-                    opacity: shown ? 1 : 0,
-                    transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
-                  }}
-                  aria-hidden={!shown}
-                  // aria-hidden hides it from readers, not from Tab: the
-                  // collapsed row's controls still took focus invisibly.
-                  inert={!shown}
-                >
-                  <div className="overflow-hidden">
-                    <div
-                      className="grid items-center border-b border-border px-150 py-100 text-body-small transition-colors duration-100 last:border-0 hover:bg-background-neutral-subtle-hovered"
-                      style={{ gridTemplateColumns: gridTemplate }}
-                    >
-                      {columns.map((col) => (
-                        <div key={col.id} className={col.className}>
-                          {col.cell(row)}
-                        </div>
-                      ))}
+          <div role="rowgroup">
+            {!isLoading &&
+              !showError &&
+              rows.map((row) => {
+                const shown = filter === "all" || getStatus(row) === filter;
+                return (
+                  <div
+                    key={getRowId(row)}
+                    className="grid transition-[grid-template-rows,opacity] duration-300"
+                    style={{
+                      gridTemplateRows: shown ? "1fr" : "0fr",
+                      opacity: shown ? 1 : 0,
+                      transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)",
+                    }}
+                    aria-hidden={!shown}
+                    // aria-hidden hides it from readers, not from Tab: the
+                    // collapsed row's controls still took focus invisibly.
+                    inert={!shown}
+                  >
+                    <div className="overflow-hidden">
+                      <div
+                        role="row"
+                        className="grid items-center border-b border-border px-150 py-100 text-body-small transition-colors duration-100 last:border-0 hover:bg-background-neutral-subtle-hovered"
+                        style={{ gridTemplateColumns: gridTemplate }}
+                      >
+                        {columns.map((col) => (
+                          <div key={col.id} role="cell" className={col.className}>
+                            {col.cell(row)}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+          </div>
 
           {!isLoading && !showError && visibleCount === 0 && (
             <div className="px-150 py-500 text-center text-body-small text-text-subtlest">
