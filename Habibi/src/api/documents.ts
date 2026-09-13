@@ -19,10 +19,8 @@ import type {
 } from "@/api/types/documents";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
-import { humanNames, resolveActor, type Staff } from "./staff";
+import { UNASSIGNED, humanNames, resolveActor, type Staff } from "./staff";
 import { toast } from "sonner";
-
-export const UNASSIGNED = "Unassigned";
 
 export function documentAssigneeOptions(staff: Staff[]): string[] {
   return humanNames(staff);
@@ -33,7 +31,7 @@ export async function fetchDocuments(): Promise<DocRequest[]> {
 }
 
 export function useDocuments() {
-  return useQuery({ queryKey: ["documents"], queryFn: fetchDocuments, staleTime: 15_000 });
+  return useQuery({ queryKey: ["documents"], queryFn: fetchDocuments });
 }
 
 export async function createRequest(input: NewRequestInput): Promise<{ id: string }> {

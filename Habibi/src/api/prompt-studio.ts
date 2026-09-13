@@ -353,7 +353,6 @@ export function usePromptVersions(botId?: string) {
   return useQuery({
     queryKey: [...VERSIONS_KEY, botId ?? "all"],
     queryFn: () => fetchPromptVersions(botId),
-    staleTime: 15_000,
   });
 }
 
@@ -361,7 +360,6 @@ export function usePublishedPromptVersion(botId?: string) {
   return useQuery({
     queryKey: [...PUBLISHED_KEY, botId ?? "default"],
     queryFn: () => fetchPublishedPromptVersion(botId),
-    staleTime: 15_000,
   });
 }
 
@@ -601,7 +599,6 @@ export function useActiveProdDeployment(botId?: string) {
   return useQuery({
     queryKey: [...DEPLOYMENTS_KEY, "active", "production", botId ?? "default"],
     queryFn: () => fetchActiveBotDeployment("production", botId),
-    staleTime: 15_000,
   });
 }
 
@@ -609,7 +606,6 @@ export function useProdDeployments(botId?: string) {
   return useQuery({
     queryKey: [...DEPLOYMENTS_KEY, "production", botId ?? "all"],
     queryFn: () => fetchBotDeployments({ environment: "production", botId }),
-    staleTime: 15_000,
   });
 }
 

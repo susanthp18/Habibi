@@ -43,7 +43,6 @@ export type RecordsTableProps<T> = {
   emptyMessage?: string;
   ariaLabel?: string;
   defaultSort?: { id: string; dir: RecordsSortDir };
-  dense?: boolean;
   className?: string;
   /** Override table min-width (default wide CRM grid). Use min-w-full in narrow panels. */
   tableClassName?: string;

@@ -123,11 +123,11 @@ export async function fetchPaymentPlans(): Promise<PaymentPlan[]> {
 }
 
 export function usePromises() {
-  return useQuery({ queryKey: ["promises"], queryFn: fetchPromises, staleTime: 15_000 });
+  return useQuery({ queryKey: ["promises"], queryFn: fetchPromises });
 }
 
 export function usePaymentPlans() {
-  return useQuery({ queryKey: ["payment-plans"], queryFn: fetchPaymentPlans, staleTime: 15_000 });
+  return useQuery({ queryKey: ["payment-plans"], queryFn: fetchPaymentPlans });
 }
 
 export function promiseSheetCustomers(customers: Customer[]): CustomerOption[] {

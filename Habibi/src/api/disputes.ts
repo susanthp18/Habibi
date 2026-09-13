@@ -22,12 +22,10 @@ import type {
 } from "@/api/types/disputes";
 import type { QueryClient } from "@tanstack/react-query";
 import { apiGet, apiPatch, apiPost } from "./config";
-import { humanNames, resolveActor, type Staff } from "./staff";
+import { UNASSIGNED, humanNames, resolveActor, type Staff } from "./staff";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { idempotencyKey } from "@/lib/utils";
-
-export const UNASSIGNED = "Unassigned";
 
 export function disputeAssigneeOptions(staff: Staff[], existing: string[]): string[] {
   return humanNames(staff);
@@ -68,7 +66,7 @@ export async function createDispute(
 }
 
 export function useDisputes() {
-  return useQuery({ queryKey: ["disputes"], queryFn: fetchDisputes, staleTime: 15_000 });
+  return useQuery({ queryKey: ["disputes"], queryFn: fetchDisputes });
 }
 
 export async function moveDispute(d: Dispute, status: DisputeStatus): Promise<void> {

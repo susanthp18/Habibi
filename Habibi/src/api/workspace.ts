@@ -69,7 +69,6 @@ export function useWorkItems(assignee: "me" | "all" = "me") {
   return useQuery({
     queryKey: ["work-items", assignee],
     queryFn: () => fetchWorkItems(assignee),
-    staleTime: 15_000,
   });
 }
 

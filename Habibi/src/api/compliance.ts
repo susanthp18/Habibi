@@ -32,7 +32,7 @@ export async function fetchViolations(): Promise<Violation[]> {
 }
 
 export function useViolations() {
-  return useQuery({ queryKey: ["violations"], queryFn: fetchViolations, staleTime: 15_000 });
+  return useQuery({ queryKey: ["violations"], queryFn: fetchViolations });
 }
 
 async function postNote(id: string, note: string): Promise<void> {

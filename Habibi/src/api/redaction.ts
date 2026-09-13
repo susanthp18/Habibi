@@ -31,7 +31,6 @@ export function useRedactionRecords() {
   return useQuery({
     queryKey: ["redaction-records"],
     queryFn: fetchRedactionRecords,
-    staleTime: 15_000,
   });
 }
 
@@ -62,7 +61,6 @@ export function useExportJobs() {
   return useQuery({
     queryKey: ["export-jobs"],
     queryFn: fetchExportJobs,
-    staleTime: 15_000,
   });
 }
 

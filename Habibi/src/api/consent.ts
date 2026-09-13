@@ -93,7 +93,7 @@ export async function fetchConsent(): Promise<ConsentRecord[]> {
 }
 
 export function useConsent() {
-  return useQuery({ queryKey: ["consent"], queryFn: fetchConsent, staleTime: 15_000 });
+  return useQuery({ queryKey: ["consent"], queryFn: fetchConsent });
 }
 
 export function consentPatchBody(

@@ -360,7 +360,6 @@ export function useEvalReports(kind?: string, botId?: string) {
       const qs = q.toString();
       return apiGet<EvalReport[]>(`/eval/reports${qs ? `?${qs}` : ""}`);
     },
-    staleTime: 15_000,
   });
 }
 

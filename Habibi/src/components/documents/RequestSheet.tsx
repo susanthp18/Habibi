@@ -29,13 +29,8 @@ import {
   templatesFor,
 } from "@/lib/documents";
 import { fmtDate } from "@/lib/format";
-import {
-  UNASSIGNED,
-  assignDocument,
-  changeTemplate,
-  reassignChannel,
-  retryDocument,
-} from "@/api/documents";
+import { assignDocument, changeTemplate, reassignChannel, retryDocument } from "@/api/documents";
+import { UNASSIGNED } from "@/api/staff";
 
 interface Props {
   d: DocRequest;

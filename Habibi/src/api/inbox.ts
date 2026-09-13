@@ -104,7 +104,6 @@ export function useConversation(threadId: string | null | undefined) {
     queryKey: ["conversation", threadId],
     queryFn: () => fetchConversation(threadId as string),
     enabled: Boolean(threadId),
-    staleTime: 15_000,
     retry: retryUnlessClientError,
   });
 }

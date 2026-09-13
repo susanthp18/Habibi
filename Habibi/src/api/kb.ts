@@ -101,7 +101,7 @@ export async function fetchKbStats(): Promise<KbStats> {
 }
 
 export function useKbStats() {
-  return useQuery({ queryKey: ["kb", "stats"], queryFn: fetchKbStats, staleTime: 15_000 });
+  return useQuery({ queryKey: ["kb", "stats"], queryFn: fetchKbStats });
 }
 
 export async function fetchKbDocuments(): Promise<KbDocument[]> {
@@ -384,5 +384,5 @@ export async function fetchKbSnapshots(): Promise<KbSnapshot[]> {
 }
 
 export function useKbSnapshots() {
-  return useQuery({ queryKey: ["kb", "snapshots"], queryFn: fetchKbSnapshots, staleTime: 15_000 });
+  return useQuery({ queryKey: ["kb", "snapshots"], queryFn: fetchKbSnapshots });
 }

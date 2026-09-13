@@ -26,7 +26,6 @@ export function useProviders(env: Env) {
   return useQuery({
     queryKey: ["providers", env],
     queryFn: () => fetchProviders(env),
-    staleTime: 15_000,
   });
 }
 
@@ -187,7 +186,6 @@ export function useConnectors() {
   return useQuery({
     queryKey: ["connectors"],
     queryFn: async () => apiGet<Connector[]>("/connectors"),
-    staleTime: 15_000,
   });
 }
 
@@ -223,7 +221,6 @@ export function useVaultRefs() {
   return useQuery({
     queryKey: ["vault-refs"],
     queryFn: async () => apiGet<VaultRef[]>("/vault/refs"),
-    staleTime: 15_000,
   });
 }
 
@@ -250,7 +247,6 @@ export function useMcpKeys() {
   return useQuery({
     queryKey: ["mcp-keys"],
     queryFn: async () => apiGet<McpKey[]>("/mcp/keys"),
-    staleTime: 15_000,
   });
 }
 
@@ -306,7 +302,6 @@ export function useGatewayCanary() {
     queryKey: ["gateway-canary"],
     queryFn: async () =>
       apiGet<{ current: GatewayCanary | null; history: GatewayCanary[] }>("/gateway/canary"),
-    staleTime: 15_000,
   });
 }
 
@@ -339,7 +334,6 @@ export function useA2aPartners() {
   return useQuery({
     queryKey: ["a2a-partners"],
     queryFn: async () => apiGet<A2aPartner[]>("/a2a/partners"),
-    staleTime: 15_000,
   });
 }
 

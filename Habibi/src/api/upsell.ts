@@ -145,7 +145,6 @@ export function useLeadMetrics(query: LeadQuery = {}) {
   return useQuery({
     queryKey: ["lead-metrics", leadQueryString(query)],
     queryFn: () => fetchLeadMetrics(query),
-    staleTime: 15_000,
   });
 }
 
@@ -272,7 +271,6 @@ export function useLeads(query: LeadQuery = {}) {
   return useQuery({
     queryKey: ["leads", leadQueryString(query)],
     queryFn: () => fetchLeads(query),
-    staleTime: 15_000,
   });
 }
 

@@ -49,6 +49,9 @@ export async function resolveActor(name: string): Promise<Staff> {
   return match;
 }
 
+/** The assignee option that clears the column. */
+export const UNASSIGNED = "Unassigned";
+
 export function humanNames(roster: Staff[]): string[] {
   return roster.filter((s) => s.kind === "human").map((s) => s.name);
 }

@@ -115,7 +115,6 @@ export function useRoutingRules() {
   return useQuery({
     queryKey: ["routing-rules"],
     queryFn: fetchRoutingRules,
-    staleTime: 15_000,
   });
 }
 
@@ -127,7 +126,6 @@ export function useRoutingAudit() {
   return useQuery({
     queryKey: ["routing-audit"],
     queryFn: fetchRoutingAudit,
-    staleTime: 15_000,
   });
 }
 

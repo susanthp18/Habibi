@@ -23,7 +23,7 @@ export async function fetchScorecards(): Promise<Scorecard[]> {
 }
 
 export function useScorecards() {
-  return useQuery({ queryKey: ["scorecards"], queryFn: fetchScorecards, staleTime: 15_000 });
+  return useQuery({ queryKey: ["scorecards"], queryFn: fetchScorecards });
 }
 
 export type QaCoverage = {
@@ -88,7 +88,6 @@ export function useCoachingActions() {
   return useQuery({
     queryKey: ["coaching-actions"],
     queryFn: fetchCoachingActions,
-    staleTime: 15_000,
   });
 }
 
@@ -120,7 +119,6 @@ export function useCalibrationSessions() {
   return useQuery({
     queryKey: ["calibration-sessions"],
     queryFn: fetchCalibrationSessions,
-    staleTime: 15_000,
   });
 }
 

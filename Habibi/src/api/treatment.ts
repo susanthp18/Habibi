@@ -493,7 +493,6 @@ export function useTreatmentHolds(query: HoldQuery = {}) {
   return useQuery({
     queryKey: ["treatment-holds", customerId, activeOnly, limit ?? null, offset ?? null],
     queryFn: () => fetchTreatmentHolds({ customerId, activeOnly, limit, offset }),
-    staleTime: 15_000,
   });
 }
 
@@ -502,7 +501,6 @@ export function useTreatmentCases(query: CaseQuery = {}) {
   return useQuery({
     queryKey: ["treatment-cases", customerId, openOnly, limit ?? null, offset ?? null],
     queryFn: () => fetchTreatmentCases({ customerId, openOnly, limit, offset }),
-    staleTime: 15_000,
   });
 }
 

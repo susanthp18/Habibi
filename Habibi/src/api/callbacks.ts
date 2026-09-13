@@ -21,11 +21,9 @@ import type {
 import { CURRENT_QUEUE } from "@/lib/callbacks";
 import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost } from "./config";
-import { humanNames, resolveActor, type Staff } from "./staff";
+import { UNASSIGNED, humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team } from "./teams";
 import { toast } from "sonner";
-
-export const UNASSIGNED = "Unassigned";
 
 /**
  * Picker roster. An empty /staff roster falls back to names already on the
@@ -72,7 +70,7 @@ export async function fetchCallbacks(): Promise<Callback[]> {
 }
 
 export function useCallbacks() {
-  return useQuery({ queryKey: ["callbacks"], queryFn: fetchCallbacks, staleTime: 15_000 });
+  return useQuery({ queryKey: ["callbacks"], queryFn: fetchCallbacks });
 }
 
 export async function createCallback(input: CreateInput): Promise<{ id: string }> {

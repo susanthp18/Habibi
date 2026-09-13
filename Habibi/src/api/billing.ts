@@ -96,7 +96,6 @@ export function useBilling(period: Period, tenantId: string, env: Env) {
   return useQuery({
     queryKey: ["billing", period, tenantId, env],
     queryFn: () => fetchBilling(period, tenantId, env),
-    staleTime: 15_000,
     placeholderData: keepPreviousData,
   });
 }

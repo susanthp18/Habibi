@@ -53,7 +53,6 @@ export function useBotAnalytics(range: RangeKey, channel: ChannelKey) {
   return useQuery({
     queryKey: ["bot-analytics", range, channel],
     queryFn: () => fetchBotAnalytics(range, channel),
-    staleTime: 15_000,
   });
 }
 
