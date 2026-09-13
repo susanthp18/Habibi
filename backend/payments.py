@@ -186,38 +186,7 @@ def record_payment(
             )
             raise ValueError("intent_expired")
 
-    import db as dbmod
-
-    ledger_id = dbmod._id("LED")
-    posted = utc_now()
-    ledger_row = {
-        "id": ledger_id,
-        "account_id": intent["account_id"],
-        "type": "payment",
-        "description": f"PTP payment {intent['id']}",
-        "amount": float(-paid),
-        "posted_at": posted,
-    }
-    conn.execute(
-        text(
-            """
-            INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
-            VALUES (:id, :account_id, :type, :description, :amount, :posted_at)
-            """
-        ),
-        ledger_row,
-    )
-    _chain_ledger(conn, ledger_row, tenant_id=intent.get("tenant_id"))
-    conn.execute(
-        text(
-            """
-            UPDATE accounts
-            SET outstanding = GREATEST(0, outstanding - :paid)
-            WHERE id = :id
-            """
-        ),
-        {"id": intent["account_id"], "paid": float(paid)},
-    )
+    ledger_id, posted = _post_payment(conn, intent, paid, f"PTP payment {intent['id']}")
     conn.execute(
         text(
             """
@@ -458,10 +427,9 @@ def allocate_to_promises(
     return applied
 
 
-def _record_second_settlement(
-    conn: Any, intent: Mapping[str, Any], paid: Decimal, provider_ref: str
-) -> dict[str, Any]:
-    """Post a settlement that arrived after the intent was already paid."""
+def _post_payment(conn: Any, intent: Mapping[str, Any], paid: Decimal, description: str) -> tuple[str, Any]:
+    """One receipt: the ledger row (negative, seed convention), its chain
+    entry, and the account's outstanding. Returns ``(ledger_id, posted_at)``."""
     import db as dbmod
 
     ledger_id = dbmod._id("LED")
@@ -470,7 +438,7 @@ def _record_second_settlement(
         "id": ledger_id,
         "account_id": intent["account_id"],
         "type": "payment",
-        "description": f"Second settlement {provider_ref} on PTP payment {intent['id']} -- review",
+        "description": description,
         "amount": float(-paid),
         "posted_at": posted,
     }
@@ -487,6 +455,18 @@ def _record_second_settlement(
     conn.execute(
         text("UPDATE accounts SET outstanding = GREATEST(0, outstanding - :paid) WHERE id = :id"),
         {"id": intent["account_id"], "paid": float(paid)},
+    )
+    return ledger_id, posted
+
+
+def _record_second_settlement(
+    conn: Any, intent: Mapping[str, Any], paid: Decimal, provider_ref: str
+) -> dict[str, Any]:
+    """Post a settlement that arrived after the intent was already paid."""
+    import db as dbmod
+
+    ledger_id, _posted = _post_payment(
+        conn, intent, paid, f"Second settlement {provider_ref} on PTP payment {intent['id']} -- review"
     )
     dbmod._activity(
         conn,
