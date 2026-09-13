@@ -10,19 +10,11 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  RouterProvider,
-  createMemoryHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { PromptVersion } from "@/api/types/prompt-studio";
+import { mountAt } from "@/test/mount";
 import { installWireFetch, sample, type WireCall } from "@/test/wire-fetch";
 
 const { PromptStudioPage } = await import("./_app.agent-studio.$botId.lazy");
@@ -57,24 +49,10 @@ afterEach(() => {
   wire.restore();
 });
 
-function mount() {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const studioRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/agent-studio/$botId",
-    component: () => <PromptStudioPage botId={BOT} />,
+const mount = () =>
+  mountAt("/agent-studio/$botId", <PromptStudioPage botId={BOT} />, {
+    entry: `/agent-studio/${BOT}`,
   });
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([studioRoute]),
-    history: createMemoryHistory({ initialEntries: [`/agent-studio/${BOT}`] }),
-  });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
 
 /** The system prompt textarea, once hydration has put the live prompt in it. */
 async function promptEditor(): Promise<HTMLTextAreaElement> {

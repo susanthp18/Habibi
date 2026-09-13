@@ -8,19 +8,11 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  RouterProvider,
-  createMemoryHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { KbDocument } from "@/api/kb";
+import { mountAt } from "@/test/mount";
 import { installWireFetch, sample, type WireCall } from "@/test/wire-fetch";
 
 const { KnowledgeBasePage } = await import("./_app.knowledge-base.lazy");
@@ -43,26 +35,11 @@ afterEach(() => {
   wire.restore();
 });
 
-function mount() {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const route = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/knowledge-base",
-    validateSearch: (search: Record<string, unknown>) =>
+const mount = () =>
+  mountAt("/knowledge-base", <KnowledgeBasePage search={{}} />, {
+    validateSearch: (search) =>
       search as { gapId?: string; q?: string; tab?: "documents" | "faqs" | "gaps" | "test" },
-    component: () => <KnowledgeBasePage search={{}} />,
   });
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([route]),
-    history: createMemoryHistory({ initialEntries: ["/knowledge-base"] }),
-  });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
 
 describe("/knowledge-base", () => {
   it("lists the documents the API serves", { timeout: 30_000 }, async () => {

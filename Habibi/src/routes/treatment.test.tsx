@@ -9,19 +9,11 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  RouterProvider,
-  createMemoryHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { TreatmentHold, TreatmentInsights } from "@/api/treatment";
+import { mountAt } from "@/test/mount";
 import { installWireFetch, sample, type WireCall } from "@/test/wire-fetch";
 
 const { TreatmentPage } = await import("./_app.treatment.lazy");
@@ -45,24 +37,7 @@ afterEach(() => {
   wire.restore();
 });
 
-function mount() {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const route = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/treatment",
-    component: TreatmentPage,
-  });
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([route]),
-    history: createMemoryHistory({ initialEntries: ["/treatment"] }),
-  });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
+const mount = () => mountAt("/treatment", <TreatmentPage />);
 
 describe("/treatment", () => {
   it("shows the window's decision count from the insights read", { timeout: 30_000 }, async () => {

@@ -10,20 +10,12 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  RouterProvider,
-  createMemoryHistory,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Scenario } from "@/api/types/sandbox";
 import type { PromptVersion } from "@/api/types/prompt-studio";
+import { mountAt } from "@/test/mount";
 import { installWireFetch, sample, type WireCall } from "@/test/wire-fetch";
 
 const { SandboxPage } = await import("./_app.sandbox.lazy");
@@ -97,24 +89,7 @@ afterEach(() => {
   wire.restore();
 });
 
-function mount() {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const route = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/sandbox",
-    component: () => <SandboxPage search={{ botId: BOT }} />,
-  });
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([route]),
-    history: createMemoryHistory({ initialEntries: ["/sandbox"] }),
-  });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
+const mount = () => mountAt("/sandbox", <SandboxPage search={{ botId: BOT }} />);
 
 describe("/sandbox", () => {
   it(
