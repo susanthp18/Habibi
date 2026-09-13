@@ -620,7 +620,7 @@ def mark_upsell_presented(
                 actor_bot_id=bot_id,
             )
     except Exception:
-        logger.exception("mark_upsell_presented failed")
+        logger.exception("mark_upsell_presented failed interaction=%s", interaction_id)
 
 
 # ---------------------------------------------------------------------------
@@ -667,7 +667,7 @@ def request_documents(
     try:
         row = db.create_document_request(payload, idempotency_key=idempotency_key)
     except Exception:
-        logger.exception("create_document_request failed")
+        logger.exception("create_document_request failed customer=%s account=%s", customer_id, account_id)
         return ToolResult(
             ok=False,
             error="crm_write_failed",
@@ -1006,7 +1006,7 @@ def flag_dispute(
     try:
         row = db.create_dispute(payload, idempotency_key=idempotency_key)
     except Exception:
-        logger.exception("create_dispute failed")
+        logger.exception("create_dispute failed customer=%s account=%s", customer_id, account_id)
         return ToolResult(
             ok=False,
             error="crm_write_failed",
@@ -1093,7 +1093,7 @@ def apply_goodwill(
             ),
         )
     except Exception:
-        logger.exception("apply_goodwill failed")
+        logger.exception("apply_goodwill failed dispute=%s", dispute_id)
         return ToolResult(
             ok=False,
             error="crm_write_failed",
@@ -1148,7 +1148,7 @@ def request_callback(
     try:
         row = db.create_callback(payload, idempotency_key=idempotency_key)
     except Exception:
-        logger.exception("create_callback failed")
+        logger.exception("create_callback failed account=%s interaction=%s", account_id, interaction_id)
         return ToolResult(
             ok=False,
             error="crm_write_failed",
