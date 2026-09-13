@@ -302,7 +302,9 @@ def delete_object(storage_ref: str) -> bool:
     try:
         client = get_client()
         bucket, key = parse_storage_ref(storage_ref)
-        client.remove_object(bucket, key)
+        # Through the breaker like the reads and writes: a delete against a
+        # MinIO that is down was the one call still retried at full rate.
+        _minio_breaker().call(client.remove_object, bucket, key)
         return True
     except Exception as exc:
         logger.warning("minio_delete_failed ref=%s err=%s", storage_ref, exc)

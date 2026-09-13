@@ -356,7 +356,7 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
     # is the process default rather than the bank whose borrower is about to be
     # messaged - which would eventually put one bank's grievance officer, and
     # one bank's brand, into another bank's dunning message.
-    footer = compliance_copy.written_footer(compliance_copy.tenant_contacts(tenant_id))
+    footer = compliance_copy.written_footer(compliance_copy.tenant_contacts(tenant_id, conn=conn))
     if footer is None:
         raise NoExecutor(compliance_copy.NO_GRIEVANCE_CONTACT)
 

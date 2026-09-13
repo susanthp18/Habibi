@@ -36,29 +36,26 @@ logger = logging.getLogger(__name__)
 NO_GRIEVANCE_CONTACT = "no_grievance_contact"
 
 
-def tenant_contacts(tenant_id: str | None = None) -> dict[str, Any]:
+def tenant_contacts(tenant_id: str | None = None, *, conn: Any | None = None) -> dict[str, Any]:
     """Issuer name, grievance officer and callback number. Never raises.
 
     Returns ``{}`` when the tenant is unreadable or absent, which callers must
     treat as "no disclosure available" rather than as an empty-but-fine result.
+    Reads on ``conn`` when the caller is inside a transaction -- both senders
+    are -- so the disclosure does not take a second pool connection per
+    message, and a test's savepoint sees the tenant row it seeded.
     """
     try:
         import db as dbmod
         from sqlalchemy import text
 
         tid = (tenant_id or "").strip() or dbmod.current_tenant()
-        with dbmod.engine.connect() as conn:
-            row = (
-                conn.execute(
-                    text(
-                        "SELECT name, grievance_officer, contact_number "
-                        "FROM tenants WHERE id = :id"
-                    ),
-                    {"id": tid},
-                )
-                .mappings()
-                .first()
-            )
+        stmt = text("SELECT name, grievance_officer, contact_number FROM tenants WHERE id = :id")
+        if conn is not None:
+            row = conn.execute(stmt, {"id": tid}).mappings().first()
+        else:
+            with dbmod.engine.connect() as own:
+                row = own.execute(stmt, {"id": tid}).mappings().first()
         if row is None:
             return {}
         officer = row["grievance_officer"]

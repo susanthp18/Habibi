@@ -136,3 +136,38 @@ def test_a_carrier_stop_reaches_the_opt_out_ledger(db_tx, monkeypatch) -> None:
     assert event["actor_kind"] == "system" and event["actor_user_id"] is None
     # a STOP is the recipient's decision, not a carrier fault
     assert circuit_breaker.get_breaker("twilio").snapshot()["state"] == "closed"
+
+
+def test_a_minio_delete_runs_through_the_breaker(monkeypatch) -> None:
+    """Reads and writes were behind the MinIO breaker; the delete was not,
+    so a recording purge against a MinIO that is down was retried at full
+    rate by every sweep."""
+    import storage
+
+    circuit_breaker._breakers.pop("minio", None)
+    monkeypatch.setenv("CIRCUIT_FAILURE_THRESHOLD", "1")
+    monkeypatch.setattr(storage, "is_configured", lambda: True)
+
+    class _Client:
+        def remove_object(self, bucket, key):
+            raise ConnectionError("minio down")
+
+    monkeypatch.setattr(storage, "get_client", lambda: _Client())
+    assert storage.delete_object("minio://recordings/x.wav") is False
+    assert circuit_breaker.get_breaker("minio").snapshot()["state"] == "open"
+    assert storage.delete_object("minio://recordings/y.wav") is False  # open circuit, no call
+
+
+def test_tenant_contacts_reads_on_the_callers_connection(db_tx) -> None:
+    """Both senders call it inside a transaction; it used to open a second
+    pool connection per message and could not see a row the caller's own
+    transaction had just written."""
+    from sqlalchemy import text
+
+    import compliance_copy
+    import db
+
+    db_tx.execute(
+        text("UPDATE tenants SET name = 'Savepoint Bank' WHERE id = :t"), {"t": db.TENANT_ID}
+    )
+    assert compliance_copy.tenant_contacts(db.TENANT_ID, conn=db_tx)["issuer"] == "Savepoint Bank"

@@ -245,7 +245,7 @@ def send(
 
         # A follow-up is a recovery communication and owes para 100AA the same
         # disclosure the voicemail and the dunning SMS owe it.
-        footer = compliance_copy.written_footer(compliance_copy.tenant_contacts(tenant_id))
+        footer = compliance_copy.written_footer(compliance_copy.tenant_contacts(tenant_id, conn=conn))
         if footer is None:
             result.reason = compliance_copy.NO_GRIEVANCE_CONTACT
             return result
