@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { SlaPill } from "@/components/ui/SlaPill";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtMoney } from "@/lib/format";
 import {
   RecordsAvatarMark,
@@ -305,102 +306,103 @@ export function AssignedQueue() {
         </Popover>
       </div>
 
-      <div className="border-b border-border bg-surface-sunken/60 px-200 py-150">
-        <div className="flex gap-075 overflow-x-auto" role="tablist" aria-label="Queue tabs">
-          {visibleTabs.map((t) => {
-            const isActive = active === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                id={`queue-tab-${t.key}`}
-                aria-controls="queue-tabpanel"
-                onClick={() => setActive(t.key)}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-075 rounded-full border px-150 py-075 text-body-small font-medium transition-colors",
-                  isActive
-                    ? "border-border-brand/35 bg-surface text-text-brand"
-                    : "border-transparent bg-transparent text-text-subtle hover:bg-surface/70 hover:text-text",
-                )}
-              >
-                {t.label}
-                <Badge
+      {/* The tabs primitive, not a hand-rolled tablist: the arrow keys move
+          between queues and focus follows the selection, which the buttons
+          this replaced did not do. Pill styling rides on className. */}
+      <Tabs value={active} onValueChange={(v) => setActive(v as TabKey)}>
+        <div className="border-b border-border bg-surface-sunken/60 px-200 py-150">
+          <TabsList
+            aria-label="Queue tabs"
+            className="flex h-auto gap-075 overflow-x-auto border-0 bg-transparent"
+          >
+            {visibleTabs.map((t) => {
+              const isActive = active === t.key;
+              return (
+                <TabsTrigger
+                  key={t.key}
+                  value={t.key}
                   className={cn(
-                    "font-weight-bold-token tabular",
+                    "inline-flex shrink-0 items-center gap-075 rounded-full border border-b px-150 py-075 text-body-small font-medium transition-colors",
                     isActive
-                      ? "bg-background-brand-subtlest text-text-brand"
-                      : "bg-surface/80 text-text-subtlest",
+                      ? "border-border-brand/35 bg-surface text-text-brand"
+                      : "border-transparent bg-transparent text-text-subtle hover:bg-surface/70 hover:text-text",
                   )}
                 >
-                  {t.rows.length}
-                </Badge>
-              </button>
-            );
-          })}
+                  {t.label}
+                  <Badge
+                    className={cn(
+                      "font-weight-bold-token tabular",
+                      isActive
+                        ? "bg-background-brand-subtlest text-text-brand"
+                        : "bg-surface/80 text-text-subtlest",
+                    )}
+                  >
+                    {t.rows.length}
+                  </Badge>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
         </div>
-      </div>
 
-      {filterActive && (
-        <div className="flex items-center gap-100 border-b border-border bg-background-brand-subtlest/40 px-250 py-075 text-body-small text-text-subtle">
-          Showing {filteredRows.length} of {current.rows.length}
-          <button
-            type="button"
-            className="ml-auto inline-flex items-center gap-025 font-medium text-text-brand hover:underline"
-            onClick={() => {
-              setQ("");
-              setSlaFilter(new Set());
-            }}
-          >
-            <X className="h-3 w-3" /> Clear filters
-          </button>
-        </div>
-      )}
-
-      <div
-        className="min-h-[16rem] overflow-hidden bg-surface-sunken/25 p-100"
-        role="tabpanel"
-        id="queue-tabpanel"
-        aria-labelledby={`queue-tab-${active}`}
-      >
-        {isError && !isLoading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
-            <AlertTriangle className="h-5 w-5 text-text-danger" />
-            <div className="text-body text-text-subtle">Couldn&rsquo;t load your queue.</div>
+        {filterActive && (
+          <div className="flex items-center gap-100 border-b border-border bg-background-brand-subtlest/40 px-250 py-075 text-body-small text-text-subtle">
+            Showing {filteredRows.length} of {current.rows.length}
             <button
               type="button"
-              onClick={() => void refetch()}
-              className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text transition-colors hover:bg-surface-sunken"
+              className="ml-auto inline-flex items-center gap-025 font-medium text-text-brand hover:underline"
+              onClick={() => {
+                setQ("");
+                setSlaFilter(new Set());
+              }}
             >
-              Retry
+              <X className="h-3 w-3" /> Clear filters
             </button>
           </div>
-        ) : !isLoading && filteredRows.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
-            <Inbox className="h-5 w-5 text-text-subtlest" />
-            <div className="text-body text-text-subtle">
-              {current.rows.length === 0
-                ? "Nothing in this tab right now. New items assigned to you will appear here."
-                : "No rows match your filters."}
-            </div>
-          </div>
-        ) : (
-          <RecordsTable
-            rows={filteredRows}
-            getRowId={(row) => row.id}
-            columns={columns}
-            isLoading={isLoading}
-            isError={isError}
-            errorLabel="your queue"
-            emptyMessage="No rows match your filters."
-            ariaLabel={`My assigned queue — ${current.label}`}
-            defaultSort={{ id: "sla", dir: -1 }}
-            className="h-full border-0 shadow-none"
-            tableClassName="min-w-[72rem]"
-          />
         )}
-      </div>
+
+        <TabsContent
+          value={active}
+          className="mt-0 min-h-[16rem] overflow-hidden bg-surface-sunken/25 p-100"
+        >
+          {isError && !isLoading ? (
+            <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
+              <AlertTriangle className="h-5 w-5 text-text-danger" />
+              <div className="text-body text-text-subtle">Couldn&rsquo;t load your queue.</div>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text transition-colors hover:bg-surface-sunken"
+              >
+                Retry
+              </button>
+            </div>
+          ) : !isLoading && filteredRows.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
+              <Inbox className="h-5 w-5 text-text-subtlest" />
+              <div className="text-body text-text-subtle">
+                {current.rows.length === 0
+                  ? "Nothing in this tab right now. New items assigned to you will appear here."
+                  : "No rows match your filters."}
+              </div>
+            </div>
+          ) : (
+            <RecordsTable
+              rows={filteredRows}
+              getRowId={(row) => row.id}
+              columns={columns}
+              isLoading={isLoading}
+              isError={isError}
+              errorLabel="your queue"
+              emptyMessage="No rows match your filters."
+              ariaLabel={`My assigned queue — ${current.label}`}
+              defaultSort={{ id: "sla", dir: -1 }}
+              className="h-full border-0 shadow-none"
+              tableClassName="min-w-[72rem]"
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
