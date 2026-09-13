@@ -389,25 +389,6 @@ def patch_agent_presence(status: str) -> dict[str, Any]:
     return _map_presence_row(row)
 
 
-def _ptp_status(status: str) -> str:
-    return "upcoming" if status == "due_today" else status
-
-
-def _reminder_status(status: str) -> str:
-    return status if status in {"queued", "sent", "acknowledged", "off"} else "queued"
-
-
-# Promises SCREEN vocabulary (off | scheduled | sent) vs the DB's fuller enum.
-def _reminder_status_screen(status: str) -> str:
-    if status in {"off", "scheduled", "sent"}:
-        return status
-    if status == "queued":
-        return "scheduled"
-    if status == "acknowledged":
-        return "sent"
-    return "off"  # failed / unknown
-
-
 def _sentiment_delta(score: float | None) -> str:
     if score is None:
         return "flat"
@@ -918,8 +899,8 @@ def _promise_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             "createdAt": r["created_at"],
             "channel": r["channel"],
             "handler": r["handler"] or "Unassigned",
-            "status": _ptp_status(r["status"]),
-            "reminderStatus": _reminder_status(r["reminder_status"]),
+            "status": r["status"],
+            "reminderStatus": r["reminder_status"],
         }
         for r in rows
     ]
@@ -1059,7 +1040,7 @@ def list_promises(*, limit: int | None = None, offset: int | None = None) -> lis
                     "channel": r["channel"] or "voice",
                     "source": "bot" if r["owner_kind"] == "bot" else "agent",
                     "owner": r["owner"] or "Unassigned",
-                    "reminderStatus": _reminder_status_screen(r["reminder_status"]),
+                    "reminderStatus": r["reminder_status"],
                     "status": r["status"],
                     "paidAmount": r["paid_amount"] if r["paid_amount"] else None,
                     "notes": None,

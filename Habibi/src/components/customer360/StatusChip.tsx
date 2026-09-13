@@ -74,6 +74,8 @@ export function ptpStatusTone(status: string): ChipTone {
       return "warning";
     case "upcoming":
       return "brand";
+    case "due_today":
+      return "warning";
     default:
       return "neutral";
   }

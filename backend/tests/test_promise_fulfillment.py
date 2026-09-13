@@ -381,3 +381,21 @@ def test_settle_breaks_in_bounded_batches(db_tx, monkeypatch) -> None:
         text("SELECT status FROM promises WHERE id = ANY(:ids)"), {"ids": pids}
     ).scalars().all()
     assert statuses == ["broken"] * 3
+
+
+def test_a_failed_reminder_reads_failed_on_both_screens(db_tx) -> None:
+    """The 360 and the promises board used to remap the reminder column
+    (failed -> queued, failed -> off), so a reminder that could not be sent
+    looked like one that was waiting. The column is the truth on both."""
+    _require_intents(db_tx)
+    customer_id, account_id = _customer(db_tx)
+    out = _create(customer_id, account_id)
+    pid = out.data["promiseId"]
+    db_tx.execute(text("UPDATE promises SET reminder_status = 'failed' WHERE id = :id"), {"id": pid})
+
+    import db
+
+    on_360 = next(p for p in db._promise_contracts(db_tx, customer_id) if p["id"] == pid)
+    assert on_360["reminderStatus"] == "failed"
+    on_board = next(p for p in db.list_promises(limit=500) if p["id"] == pid)
+    assert on_board["reminderStatus"] == "failed"
