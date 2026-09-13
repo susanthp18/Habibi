@@ -570,7 +570,7 @@ def _intent(conn, cust: dict) -> dict:
     )
 
 
-def test_a_second_settlement_with_a_new_reference_is_refused(db_tx) -> None:
+def test_a_second_settlement_with_a_new_reference_is_parked_for_review(db_tx) -> None:
     import payments
 
     cust = _a_customer(db_tx)
@@ -581,8 +581,22 @@ def test_a_second_settlement_with_a_new_reference_is_refused(db_tx) -> None:
     replay = payments.record_payment(db_tx, intent_id=intent["id"], amount=250, provider_ref="pay_A")
     assert replay["idempotent"] is True
 
-    with pytest.raises(ValueError, match="duplicate_settlement"):
-        payments.record_payment(db_tx, intent_id=intent["id"], amount=250, provider_ref="pay_B")
+    # Real money at the PSP: posted to the ledger as its own entry, the desk
+    # told on the timeline, the intent left on its first reference.
+    second = payments.record_payment(db_tx, intent_id=intent["id"], amount=250, provider_ref="pay_B")
+    assert second["duplicateSettlement"] is True
+    assert second["ledgerEntryId"] != first["ledgerEntryId"]
+    row = db_tx.execute(
+        text("SELECT provider_ref FROM payment_intents WHERE id = :id"), {"id": intent["id"]}
+    ).mappings().first()
+    assert row["provider_ref"] == "pay_A"
+    kinds = [
+        r[0]
+        for r in db_tx.execute(
+            text("SELECT kind FROM activity_events WHERE entity_id = :id"), {"id": intent["id"]}
+        )
+    ]
+    assert "duplicate_settlement" in kinds
 
 
 def test_a_failed_cure_is_reported_and_the_payment_still_posts(db_tx, monkeypatch) -> None:

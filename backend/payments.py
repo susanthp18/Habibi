@@ -15,7 +15,7 @@ from decimal import Decimal
 
 import money_inr
 import env_utils
-from typing import Any
+from typing import Any, Mapping
 
 from sqlalchemy import text
 
@@ -163,11 +163,15 @@ def record_payment(
 
     if intent["status"] == "paid":
         # A replay of the settlement we already posted is idempotent. A second
-        # settlement — the provider's reference differs from the one on the
-        # paid row — is real money we would otherwise discard with a 200.
+        # settlement -- the provider's reference differs from the one on the
+        # paid row -- is real money at the PSP: the borrower paid the link
+        # twice, or the PSP charged twice. Refusing it discarded the receipt;
+        # the desk had nothing to refund or apply. It posts to the ledger as
+        # what it is and leaves a review item on the customer's timeline. The
+        # intent stays on its first reference; the promise is already kept.
         prior = str(intent.get("provider_ref") or "")
         if provider_ref and prior and str(provider_ref) != prior:
-            raise ValueError(f"duplicate_settlement:{provider_ref}")
+            return _record_second_settlement(conn, intent, paid, str(provider_ref))
         return {"ok": True, "intentId": intent["id"], "status": "paid", "idempotent": True}
     if intent["status"] in {"expired", "cancelled"}:
         raise ValueError(f"intent_{intent['status']}")
@@ -452,6 +456,61 @@ def allocate_to_promises(
             )
         remaining -= take
     return applied
+
+
+def _record_second_settlement(
+    conn: Any, intent: Mapping[str, Any], paid: Decimal, provider_ref: str
+) -> dict[str, Any]:
+    """Post a settlement that arrived after the intent was already paid."""
+    import db as dbmod
+
+    ledger_id = dbmod._id("LED")
+    posted = utc_now()
+    ledger_row = {
+        "id": ledger_id,
+        "account_id": intent["account_id"],
+        "type": "payment",
+        "description": f"Second settlement {provider_ref} on PTP payment {intent['id']} -- review",
+        "amount": float(-paid),
+        "posted_at": posted,
+    }
+    conn.execute(
+        text(
+            """
+            INSERT INTO ledger_entries (id, account_id, type, description, amount, posted_at)
+            VALUES (:id, :account_id, :type, :description, :amount, :posted_at)
+            """
+        ),
+        ledger_row,
+    )
+    _chain_ledger(conn, ledger_row, tenant_id=intent.get("tenant_id"))
+    conn.execute(
+        text("UPDATE accounts SET outstanding = GREATEST(0, outstanding - :paid) WHERE id = :id"),
+        {"id": intent["account_id"], "paid": float(paid)},
+    )
+    dbmod._activity(
+        conn,
+        "payment_intent",
+        intent["id"],
+        "duplicate_settlement",
+        "Second settlement received",
+        f"{provider_ref}: {paid} INR on an intent already paid under {intent.get('provider_ref')}; refund or apply",
+        intent["customer_id"],
+    )
+    logger.warning(
+        "duplicate settlement parked intent=%s provider_ref=%s amount=%s ledger=%s",
+        intent["id"],
+        provider_ref,
+        paid,
+        ledger_id,
+    )
+    return {
+        "ok": True,
+        "intentId": intent["id"],
+        "status": "paid",
+        "duplicateSettlement": True,
+        "ledgerEntryId": ledger_id,
+    }
 
 
 def record_provider_payment(parsed: dict[str, Any]) -> dict[str, Any]:
