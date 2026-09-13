@@ -18,11 +18,14 @@ each question. Everything runs from `backend/`; use `docker exec`, not
 ### Dead jobs
 `job_queue_depth{status="dead"} > 0` — a job exhausted its retries.
 
+The queue label names the table (`observability._QUEUES` lists the twelve).
+The three job tables share a shape:
+
 ```bash
-docker exec collections_db psql -U collections -c "SELECT queue, id, kind, last_error, updated_at FROM (SELECT 'jobs' AS queue, id, kind, last_error, updated_at FROM jobs WHERE status='dead' UNION ALL SELECT 'bot_jobs', id, kind, last_error, updated_at FROM bot_jobs WHERE status='dead') d ORDER BY updated_at DESC LIMIT 20;"
+docker exec collections_db psql -U collections -c "SELECT 'bot_turn_jobs' AS q, id, status, error, updated_at FROM bot_turn_jobs WHERE status='dead' UNION ALL SELECT 'work_runtime_jobs', id, status, error, updated_at FROM work_runtime_jobs WHERE status='dead' UNION ALL SELECT 'kb_index_jobs', id, status, error, updated_at FROM kb_index_jobs WHERE status='dead' ORDER BY updated_at DESC LIMIT 20;"
 ```
 
-Read `last_error`, fix the cause, then requeue by setting `status='queued', attempts=0` on the rows you understand. A dead job is never deleted: it is the record that the work was not done.
+Read `error`, fix the cause, then requeue by setting `status='queued', attempts=0` on the rows you understand. A dead job is never deleted: it is the record that the work was not done.
 
 ### Stuck queue
 `job_queue_oldest_seconds > 900` — the oldest pending job has waited fifteen minutes. Either the worker for that queue is down (`docker ps`, `docker logs collections_worker --tail 100`) or one job is holding the loop. `docker top collections_worker` shows whether it is alive; `bot_worker` runs the stages named in `agent_core/worker_roles.py`.
