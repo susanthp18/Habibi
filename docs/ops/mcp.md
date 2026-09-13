@@ -7,7 +7,7 @@ debug sidecar.
 ## How to run — stdio
 
 ```text
-pip install -r requirements-mcp.txt
+pip install -c requirements.txt -r requirements-mcp.txt
 python -m mcp_server
 ```
 
