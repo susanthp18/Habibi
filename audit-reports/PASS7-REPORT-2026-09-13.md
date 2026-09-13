@@ -53,10 +53,11 @@ Module-size baseline **empty**: `outbound_pools.py`, `bank_boundary/ingest_apply
 | BINDINGS-7 (`voice_ref`), BINDINGS-9 (locale 422), HEADER-8, VOICE-12, WS3.2 `record_provider_binding`, `/mcp/status` reachability probe | **deferred** | they live in the other stream's uncommitted files (`agent_core/providers/*`, `routers/integrations.py`, `schemas/integrations.py`, `Habibi/src/api/providers.ts`, `PublishDialog.tsx`); `raw/closures.json` names each |
 | `src/lib/studio-trust.ts` type-aware rule | held at warn | same file set; the fix is `"a" | (string & {})` and the ESLint block says so |
 | `queryKeys` factory | not built | one spelling per module already; nothing forced it |
-| Coverage gate re-measure (`--cov-fail-under` 68 → measured − 1) | **not done** | needs the full suite on the dev stack (below) |
 | `test_specialist_hop` prefix pin, `test_outbound_completion`/`test_outbound_card_switches` source pins | left | not one-liners; the handler layer has no fixture that drives it |
 
 ## Verification
+
+Everything below was run at the close of the pass, after the Docker engine recovered.
 
 | Check | Result |
 |---|---|
@@ -66,27 +67,15 @@ Module-size baseline **empty**: `outbound_pools.py`, `bank_boundary/ingest_apply
 | `npm run lint` (eslint with type-aware rules + 9 gates) | exit 0; 0 errors, 167 warnings at the baseline; file-size 0, query-state 0, layering clean, 318 tokens |
 | `npx vitest run` | **40 files, 364 passed** (warm; a cold run reports fork-worker timeouts — the known jsdom start cost, not failures) |
 | `npm run build` | green |
-| Backend tests touched this pass, in `collections_voice` | connectors (23), authority/skills/treatment/understanding/vault (248), crm degraded (12), sandbox/bot/campaign/promise/kb/qa/seed/ready set, mouth-turn split, run-up, pins — all green before the Docker engine stopped |
-| `migrate_from_empty.py` parity / `rls.py status` | 7,313 lines parity; 224/224 enforcing (WS2, this morning) |
-| **Full backend suite, end of pass** | **not run**: the Docker Desktop Linux engine began answering `500` to every API call (`docker ps`, `docker version`; `wsl -d docker-desktop` times out with `Wsl/Service/0x8007274c`) after the WS7.4 commits, and I do not restart it from here — it holds the user's containers and their Ubuntu WSL session. The last full run was 4,694 passed / 0 failed at the close of pass 6; every backend file this pass touched had its own tests run green in the container before the outage, except the DB-backed tests of the last commits (`test_lead_pipeline`, `test_dashboard_live`, `test_escalate_txn`, `test_tenant_scoping`); the DB-free ones (`test_eval_honesty`, `test_cardless_runtime_deny_all`, `test_no_new_source_pins`, the connector, authority-resource, crm-degraded, notices and module-size tests — 49) ran green on the host `.venv` |
-| Worker images rebuilt after the carves (`compose build worker bot_worker`) | **not done** — same outage |
-| `/metrics` ×4, every screen opened once, `fleet_parity.py`, `eval_gate_preflight.py` | done through WS5/WS6 during the pass; **not repeated** at the close — same outage |
+| **Full backend suite, end of pass** (worker images rebuilt first, nothing edited during the run) | first run **11 failed / 4,739 passed / 79 skipped** in 21:02 — every failure a premise this pass changed (two promise-idempotency tests booked two open promises on one account, the closed-status set and the refresh wiring lacked `cancelled`/`revise_promise_to_pay`, the G15 fallback test assumed an Azure voice, a duplicate of the retargeted circuit-handler test, `DEFAULT_CALLS_LIMIT` undocumented once the carve read it through `env_int`, two snapshots); fixed in `f14d259`, the eleven files **70/70** on re-run |
+| Coverage | **72%** over 55,683 statements; `--cov-fail-under` **68 → 71** |
+| `migrate_from_empty.py` | **parity, 7,313 schema lines** (built in the container with `--keep`, diffed on the host) |
+| `rls.py status` | 224 installed / 224 derived, 224 enabled / 224 forced |
+| `fleet_parity.py` / `eval_gate_preflight.py` | 4 of 4 deployments agree / every published card satisfies its `eval.require` |
+| `/metrics` | api, bot_worker, kb_worker, voice each serve the 52 queue-depth series on `:9100`; `wk_batch` declares no `METRICS_PORT` (it never did — a candidate for the next pass) |
+| Browser | all 26 routes walked three times against the dev API through the dev server: every `<main>` rendered, no 5xx on any `fetch`, no duplicate-key or unhandled error attributed to any route. (The first walk's console carried 27 `confirm_identity` duplicate-key lines and three `500`s from the tab's earlier history — the API restart and the pre-pass HMR artefacts; two clean walks after it, with `console.error` and `fetch` hooked per route, reproduced neither.) |
 
-**To finish the verification once the engine is back** (from `D:\Hackathon\backend`; nothing edited while it runs):
-
-```bash
-MSYS_NO_PATHCONV=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -T voice pytest -q -p no:cacheprovider --no-header tests/test_lead_pipeline.py tests/test_dashboard_live.py tests/test_escalate_txn.py tests/test_tenant_scoping.py
-```
-
-```bash
-MSYS_NO_PATHCONV=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -T voice pytest -q -p no:cacheprovider --no-header --cov=. --cov-report=term
-```
-
-```bash
-docker compose build worker bot_worker && docker compose up -d worker bot_worker && docker compose restart api
-```
-
-Then raise `--cov-fail-under` in `.github/workflows/backend-pytest.yml` to the measured figure minus one.
+**Note on the dev stack:** the Docker Desktop Linux engine answered `500` to every API call for ~1h45 during WS7.4–7.7 (`Wsl/Service/0x8007274c`) and recovered on its own; `wk_batch` logged `failed to resolve host 'db'` while the embedded DNS was down and came back healthy with it. Not a defect of this tree.
 
 ## The unverifiables (~60), with the command that would verify each
 
