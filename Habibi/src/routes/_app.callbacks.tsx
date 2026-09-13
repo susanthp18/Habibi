@@ -101,9 +101,13 @@ function CallbacksPage() {
   useEffect(() => {
     if (autoMarked.current || callbacksData.length === 0) return;
     autoMarked.current = true;
-    void autoMarkMissed(callbacksData).then((n) => {
-      if (n > 0) invalidate();
-    });
+    autoMarkMissed(callbacksData)
+      .then((n) => {
+        if (n > 0) invalidate();
+      })
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Could not mark missed callbacks"),
+      );
   }, [callbacksData]);
 
   const filtered = useMemo(

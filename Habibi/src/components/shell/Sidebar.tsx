@@ -124,13 +124,23 @@ export function NavLinks({
   const navRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
 
+  // A detail route (/customers/CUST-1, /agent-studio/kaia-v2-4) belongs to
+  // its list's entry; the longest matching prefix wins so /agent-studio/skills
+  // lights Skills rather than Agent Studio. "/" matches only itself.
   const activeKey = useMemo(() => {
+    let best: { key: string; len: number } | null = null;
     for (const group of groups) {
       for (const item of group.items) {
-        if (item.to && pathname === item.to) return item.key;
+        if (!item.to) continue;
+        const hit =
+          item.to === "/"
+            ? pathname === "/"
+            : pathname === item.to || pathname.startsWith(item.to + "/");
+        if (hit && (!best || item.to.length > best.len))
+          best = { key: item.key, len: item.to.length };
       }
     }
-    return null;
+    return best?.key ?? null;
   }, [pathname]);
 
   const filteredGroups = useMemo(() => {
@@ -191,9 +201,9 @@ export function NavLinks({
           )}
           <div className="flex flex-col gap-px">
             {group.items.map((item) => {
-              const isActive = Boolean(item.to && pathname === item.to);
               const Icon = item.icon;
               const key = itemKey(item);
+              const isActive = key === activeKey;
               const className = cn(
                 "group relative z-10 flex w-full items-center rounded-[7px] text-left transition-[color,transform] duration-150 active:scale-[0.96]",
                 collapsed ? "justify-center px-0 py-150" : "gap-150 px-150 py-100",

@@ -23,7 +23,9 @@ export const getRouter = () => {
     context: { queryClient },
     scrollRestoration: true,
     defaultPreload: "intent",
-    defaultPreloadStaleTime: 0,
+    // Hovering a link preloads; below the QueryClient staleTime it would
+    // refetch data the screen already holds fresh.
+    defaultPreloadStaleTime: 15_000,
   });
 
   return router;

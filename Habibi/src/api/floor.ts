@@ -161,13 +161,14 @@ export function useSupervisorAction() {
   });
 }
 
-export function useAckFloorAlert() {
+export function useAckFloorAlert(alsoInvalidate: readonly (readonly unknown[])[] = []) {
   const qc = useQueryClient();
   return useMutation({
-    meta: { errors: "caller" },
+    meta: { errors: "toast" },
     mutationFn: (alertId: string) => ackFloorAlert(alertId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["floor"] });
+      for (const key of alsoInvalidate) void qc.invalidateQueries({ queryKey: [...key] });
     },
   });
 }
@@ -280,6 +281,17 @@ export function useCopilotStream(interactionId: string | null) {
             vetoes: Array.isArray(payload.vetoes) ? (payload.vetoes as string[]) : prev.vetoes,
             streaming: false,
             done: true,
+          }));
+          return;
+        }
+        if (event === "error") {
+          // The server's own refusal (interaction_not_found); without this
+          // branch the panel stayed "streaming" forever.
+          setState((prev) => ({
+            ...prev,
+            streaming: false,
+            done: true,
+            error: String(payload.detail ?? "copilot_failed"),
           }));
         }
       },

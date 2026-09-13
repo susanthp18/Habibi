@@ -1,17 +1,12 @@
 import { Headphones, ShieldAlert } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
 import type { HandoffAlert } from "@/api/handoff";
-import { ackFloorAlert } from "@/api/floor";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAckFloorAlert } from "@/api/floor";
 
 export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: boolean }) {
-  const qc = useQueryClient();
-  const ack = useMutation({
-    mutationFn: (id: string) => ackFloorAlert(id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["handoff"] });
-    },
-  });
+  // The floor's own hook: the alert list is read under both keys, and the
+  // component-local copy had no error path at all.
+  const ack = useAckFloorAlert([["handoff"]]);
 
   if (!items.length) return null;
 

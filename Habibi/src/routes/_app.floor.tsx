@@ -163,9 +163,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
 
   const handleAck = (alertId: string) => {
     applyMockAck(alertId);
-    ackMut.mutate(alertId, {
-      onError: (e) => toast.error(e instanceof Error ? e.message : "Ack failed"),
-    });
+    ackMut.mutate(alertId);
   };
 
   return (

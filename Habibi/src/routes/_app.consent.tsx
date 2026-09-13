@@ -48,7 +48,11 @@ function ConsentPage() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["consent"] });
+    // A consent write moves contactableNow on the 360 pill and the inbox
+    // thread list, both read from other keys.
+    void queryClient.invalidateQueries({ queryKey: ["consent"] });
+    void queryClient.invalidateQueries({ queryKey: ["customer"] });
+    void queryClient.invalidateQueries({ queryKey: ["conversations"] });
   };
 
   const filtered = useMemo(() => filterConsents(items, filters), [items, filters]);
