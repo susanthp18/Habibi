@@ -348,3 +348,35 @@ def test_empathy_must_be_the_next_turn_not_an_afterthought():
             ("bot", "I understand, that must be hard."),
         ),
     )
+
+
+def test_the_scan_context_reads_both_dnd_stores(db_tx):
+    """The Gate refuses a borrower on the operator flag *or* the national
+    registry; the scan used to read the flag alone, so a registry-only
+    contact was scored clean."""
+    import uuid
+
+    import db
+    from sqlalchemy import text
+
+    from agent_core.compliance.context import load_context
+
+    customer = db_tx.execute(
+        text("SELECT c.id FROM customers c JOIN consent_records cr ON cr.customer_id = c.id LIMIT 1")
+    ).scalar()
+    if customer is None:
+        pytest.skip("no customer with a consent record")
+    db_tx.execute(text("UPDATE customers SET dnd = FALSE WHERE id = :c"), {"c": customer})
+    db_tx.execute(text("UPDATE consent_records SET dnd_registry = TRUE WHERE customer_id = :c"), {"c": customer})
+    ix = f"IX-DND-{uuid.uuid4().hex[:8].upper()}"
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO interactions (id, tenant_id, customer_id, handler_kind, handler_bot_id, channel,
+                                      status, started_at)
+            VALUES (:id, :t, :c, 'bot', (SELECT id FROM bots LIMIT 1), 'voice', 'completed', now())
+            """
+        ),
+        {"id": ix, "t": db.TENANT_ID, "c": customer},
+    )
+    assert load_context(db_tx, ix).on_dnd is True

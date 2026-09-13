@@ -116,11 +116,17 @@ _INTERACTION_SQL = """
            i.disposition, i.handler_kind, i.handler_user_id, i.handler_bot_id,
            i.started_at, i.duration_sec, i.avg_sentiment,
            c.timezone,
-           COALESCE(c.dnd, FALSE) AS on_dnd
+           (COALESCE(c.dnd, FALSE) OR COALESCE(cr.dnd_registry, FALSE)) AS on_dnd
     FROM interactions i
     JOIN customers c ON c.id = i.customer_id
+    LEFT JOIN consent_records cr ON cr.customer_id = c.id
     WHERE i.id = :id
 """
+# Two stores say "do not disturb": the operator's own flag on the customer and
+# the national registry on the consent record. The contact Gate refuses on
+# either (contact_policy._load_customer) and the callback board blocks on
+# either (db_callbacks._callback_dnd_active); a detector that read one of them
+# let a registry-only breach through as a clean call.
 
 
 def load_context(conn: Any, interaction_id: str) -> ScanContext | None:
