@@ -313,14 +313,22 @@ def test_the_shipped_door_passes_the_gate_it_is_now_held_to() -> None:
 def test_an_inbound_card_still_reports_the_outbound_eval_gate() -> None:
     """EVALS-16: ticking Outbound on an inbound-only card produced no G-OB9 at
     all -- not even skipped -- so the requirement looked satisfied."""
-    from agent_core.cards.compile import _outbound_gates
+    from agent_core.cards import compile as compile_mod
+    from agent_core.cards.gates_outbound import outbound_gates
     from agent_core.cards.schema import parse_card
 
     card = parse_card(_card("intake-v1", tools=["handoff_to_agent"]))
     gates = {
         g.gate: g
-        for g in _outbound_gates(
-            card, {}, catalog_names=set(), effective=[], known_bot_ids=set(), eval_report=None
+        for g in outbound_gates(
+            card,
+            {},
+            catalog_names=set(),
+            effective=[],
+            known_bot_ids=set(),
+            eval_report=None,
+            gate=compile_mod._gate,
+            eval_gate=compile_mod._eval_gate,
         )
     }
     assert gates["G-OB9"].status == "skipped"

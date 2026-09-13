@@ -54,7 +54,10 @@ def test_a_cached_pass_reports_its_report_id(db_tx, monkeypatch) -> None:
         prompt_version_id=None, content_key=key,
     )
     monkeypatch.setenv("EVAL_GATE_ENABLED", "true")
-    report = db.compile_agent_studio_card("kaia-v2-4")
+    # Compile the row the report was keyed against. Without the id the
+    # compiler takes the newest draft, and a draft left by an editor session
+    # has different content and so a different key.
+    report = db.compile_agent_studio_card("kaia-v2-4", prompt_version_id=published["id"])
     g7 = next(g for g in report["gates"] if g["gate"] == "G7")
     assert g7["status"] == "pass"
     assert g7["detail"].startswith("cached EVR-")
@@ -79,6 +82,8 @@ def test_a_report_for_different_content_does_not_open_the_gate(db_tx, monkeypatc
         prompt_version_id=published["id"], content_key="not-this-content",
     )
     monkeypatch.setenv("EVAL_GATE_ENABLED", "true")
-    report = db.compile_agent_studio_card("kaia-v2-4", persona={**published["persona"], "language": "Tamil"})
+    report = db.compile_agent_studio_card(
+        "kaia-v2-4", prompt_version_id=published["id"], persona={**published["persona"], "language": "Tamil"}
+    )
     gf14 = next(g for g in report["gates"] if g["gate"] == "G-F14")
     assert gf14["status"] == "fail"
