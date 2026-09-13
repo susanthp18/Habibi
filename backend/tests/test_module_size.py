@@ -29,7 +29,7 @@ BASELINE: dict[str, int] = {
     "agent_core/cards/compile.py": 1633,
     "voice/crm_sink.py": 1713,
     "contact_policy.py": 1648,
-    "outbound.py": 1627,
+    "outbound.py": 1580,
     "bank_boundary/ingest.py": 1545,
 }
 

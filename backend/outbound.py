@@ -62,7 +62,6 @@ from sqlalchemy import text
 
 import circuit_breaker
 from env_utils import env_bool, env_int
-from agent_core import clock
 from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
@@ -1396,52 +1395,6 @@ def reach_stats(conn: Any, *, tenant_id: str, days: int = 14) -> dict[str, Any]:
     stats["attemptsPerConnect"] = round(attempts / answered, 2) if answered else None
     stats["windowDays"] = int(days)
     return stats
-
-
-def hourly_reach(conn: Any, *, customer_id: str, days: int = 90) -> list[dict[str, Any]]:
-    """Per-hour answer rate for one borrower, in their own local time.
-
-    This is the query ``treatment/features.responsive_hours`` should eventually
-    read: it has a denominator. Timezone comes off the customer row rather than
-    being assumed, because "when is this borrower reachable" is a question about
-    their day, not about UTC.
-    """
-    rows = conn.execute(
-        text(
-            """
-            SELECT
-              -- Same guard as contact_policy: `customers.timezone` holds display
-              -- labels ("Asia/Kolkata (IST)") in seeded data, and an unknown zone
-              -- here does not fail this row — it aborts the transaction.
-              EXTRACT(HOUR FROM (a.reserved_at AT TIME ZONE COALESCE(
-                (SELECT n.name FROM pg_timezone_names n
-                  WHERE n.name = btrim(split_part(COALESCE(c.timezone, ''), '(', 1))
-                  LIMIT 1),
-                :tz)))::int AS hour,
-              count(*)                                        AS attempts,
-              count(*) FILTER (WHERE a.answered_at IS NOT NULL) AS answered
-            FROM call_attempts a
-            JOIN customers c ON c.id = a.customer_id
-            WHERE a.customer_id = :cid
-              AND a.state <> 'suppressed'
-              AND a.reserved_at >= now() - make_interval(days => :days)
-            GROUP BY 1
-            ORDER BY 1
-            """
-        ),
-        {"cid": customer_id, "days": max(1, int(days)), "tz": clock.timezone_name()},
-    ).mappings().all()
-    return [
-        {
-            "hour": int(r["hour"]),
-            "attempts": int(r["attempts"]),
-            "answered": int(r["answered"]),
-            "answerRate": round(int(r["answered"]) / int(r["attempts"]), 4)
-            if r["attempts"]
-            else None,
-        }
-        for r in rows
-    ]
 
 
 def _json(value: Any) -> str:

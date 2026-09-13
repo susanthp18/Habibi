@@ -375,3 +375,28 @@ def test_an_export_bundle_is_scoped_like_every_other_customer_read(db_tx, as_act
     assert call_export.build_bundle("CL-SCOPE-PROBE") is not None
     as_actor(OTHER_AGENT)
     assert call_export.build_bundle("CL-SCOPE-PROBE") is None
+
+
+def test_hourly_reach_is_scoped_like_the_customer(db_tx, as_actor) -> None:
+    """The per-hour answer series is a fact about one borrower; an operator
+    who cannot see the borrower gets an empty series, not their pattern."""
+    import uuid
+
+    import db_outbound
+
+    theirs = _assigned_to(db_tx, AGENT)
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO call_attempts (id, tenant_id, customer_id, to_phone_hash, objective, state,
+                                       reserved_at, answered_at)
+            VALUES (:id, :t, :c, 'vis-test', 'collections', 'completed', now() - interval '1 day',
+                    now() - interval '1 day')
+            """
+        ),
+        {"id": f"CA-VIS-{uuid.uuid4().hex[:8]}", "t": db.TENANT_ID, "c": theirs},
+    )
+    as_actor(AGENT)
+    assert db_outbound._hourly_reach(db_tx, customer_id=theirs, days=90)
+    as_actor(OTHER_AGENT)
+    assert db_outbound._hourly_reach(db_tx, customer_id=theirs, days=90) == []

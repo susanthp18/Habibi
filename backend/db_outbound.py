@@ -15,6 +15,9 @@ import logging
 from sqlalchemy import text
 from typing import Any
 
+from agent_core import clock
+from db_core import _sql, _tenant, _vis_params
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,12 +131,66 @@ def reserve_demo_attempt(
     return gated, customer_id, account_id, reason
 
 
-def hourly_reach(customer_id: str, *, days: int) -> list[dict[str, Any]]:
-    """Per-hour answer rate for one borrower (``outbound.hourly_reach``)."""
-    import outbound
-
+def hourly_reach(customer_id: str, *, days: int = 90) -> list[dict[str, Any]]:
+    """Per-hour answer rate for one borrower."""
     with _db().engine.connect() as conn:
-        return outbound.hourly_reach(conn, customer_id=customer_id, days=days)
+        return _hourly_reach(conn, customer_id=customer_id, days=days)
+
+
+def _hourly_reach(conn: Any, *, customer_id: str, days: int) -> list[dict[str, Any]]:
+    """Per-hour answer rate for one borrower, in their own local time.
+
+    This is the query ``treatment/features.responsive_hours`` should eventually
+    read: it has a denominator. Timezone comes off the customer row rather than
+    being assumed, because "when is this borrower reachable" is a question about
+    their day, not about UTC.
+    """
+    # Tenant and object visibility on the customer, like every other
+    # per-borrower read: an assignee-scoped operator gets an empty series
+    # for a borrower they cannot see, not the borrower's calling pattern.
+    rows = conn.execute(
+        _sql(
+            """
+            SELECT
+              -- Same guard as contact_policy: `customers.timezone` holds display
+              -- labels ("Asia/Kolkata (IST)") in seeded data, and an unknown zone
+              -- here does not fail this row — it aborts the transaction.
+              EXTRACT(HOUR FROM (a.reserved_at AT TIME ZONE COALESCE(
+                (SELECT n.name FROM pg_timezone_names n
+                  WHERE n.name = btrim(split_part(COALESCE(c.timezone, ''), '(', 1))
+                  LIMIT 1),
+                :tz)))::int AS hour,
+              count(*)                                        AS attempts,
+              count(*) FILTER (WHERE a.answered_at IS NOT NULL) AS answered
+            FROM call_attempts a
+            JOIN customers c ON c.id = a.customer_id
+            WHERE a.customer_id = :cid
+              AND c.tenant_id = :tenant_id /*VISIBILITY*/
+              AND a.state <> 'suppressed'
+              AND a.reserved_at >= now() - make_interval(days => :days)
+            GROUP BY 1
+            ORDER BY 1
+            """
+        ),
+        {
+            "cid": customer_id,
+            "days": max(1, int(days)),
+            "tz": clock.timezone_name(),
+            "tenant_id": _tenant(),
+            **_vis_params(),
+        },
+    ).mappings().all()
+    return [
+        {
+            "hour": int(r["hour"]),
+            "attempts": int(r["attempts"]),
+            "answered": int(r["answered"]),
+            "answerRate": round(int(r["answered"]) / int(r["attempts"]), 4)
+            if r["attempts"]
+            else None,
+        }
+        for r in rows
+    ]
 
 
 def reserve_operator_attempt(
