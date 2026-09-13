@@ -45,15 +45,17 @@ docker exec collections_db psql -U collections -c "SELECT pid, now()-xact_start 
 ## Row-level security
 
 ```bash
-python scripts/rls.py status
+docker exec collections_voice python scripts/rls.py status
 ```
+
+(From the host the DSN in `.env` points at the compose network name, so run it inside a container.)
 
 Every tenant-scoped table must read `enforced`. A table that is not is a cross-tenant read waiting to happen; `enable` refuses while the app role could still bypass.
 
 ## A call's evidence
 
 ```bash
-python -c "from voice.call_export import build_bundle; import json; print(json.dumps(build_bundle('CL-...'), default=str)[:2000])"
+docker exec collections_voice python -c "from voice.call_export import build_bundle; import json; print(json.dumps(build_bundle('CL-...'), default=str)[:2000])"
 ```
 
 `build_bundle` is the complaint pack: the redacted transcript, the tool calls, the consent state and the money rows for one interaction. Everything in it is already masked at rest; nothing in it is re-derived.
