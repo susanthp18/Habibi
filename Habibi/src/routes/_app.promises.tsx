@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { idempotencyKey } from "@/lib/utils";
 import { HandCoins, Plus, CalendarClock, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/use-confirm";
 import { MetricsStrip } from "@/components/promises/MetricsStrip";
 import { FiltersBar } from "@/components/promises/FiltersBar";
 import { PromisePipeline } from "@/components/promises/PromisePipeline";
@@ -16,6 +17,8 @@ import type {
   CreateInput,
   PlanInput,
   PromiseFilters,
+  PromiseRevisionReason,
+  ReviseInput,
   PaymentPlan,
   Promise as Ptp,
   PromiseStatus,
@@ -27,7 +30,8 @@ import {
   movePromise,
   promiseOwnerOptions,
   promiseSheetCustomers,
-  reschedulePromise,
+  revisePromise,
+  cancelPromise,
   resendPromiseConfirm,
   usePaymentPlans,
   usePromises,
@@ -75,6 +79,7 @@ function PromisesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
   const [planDetail, setPlanDetail] = useState<PaymentPlan | null>(null);
   const deepLinkKey = useRef<string | null>(null);
 
@@ -118,13 +123,26 @@ function PromisesPage() {
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Update failed"),
   });
 
-  const rescheduleMutation = useMutation({
-    mutationFn: (v: { p: Ptp; newDate: string }) => reschedulePromise(v.p, v.newDate),
+  const reviseKey = useRef(idempotencyKey("ptp-revise"));
+  const reviseMutation = useMutation({
+    mutationFn: (v: { p: Ptp; input: ReviseInput }) =>
+      revisePromise(v.p, v.input, reviseKey.current),
+    onSuccess: (_r, v) => {
+      reviseKey.current = idempotencyKey("ptp-revise");
+      invalidate();
+      toast.success(`Revised ${v.p.id}`);
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Revise failed"),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (v: { p: Ptp; input: { reason: PromiseRevisionReason; note?: string } }) =>
+      cancelPromise(v.p, v.input),
     onSuccess: (_r, v) => {
       invalidate();
-      toast.success(`Rescheduled ${v.p.id}`);
+      toast.success(`Cancelled ${v.p.id}`);
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Reschedule failed"),
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Cancel failed"),
   });
 
   const createKey = useRef(idempotencyKey("ptp"));
@@ -165,8 +183,24 @@ function PromisesPage() {
     if (detailId === p.id) setDetailId(null);
   };
 
-  const handleReschedule = (p: Ptp, newDate: string) => {
-    rescheduleMutation.mutate({ p, newDate });
+  const handleRevise = (p: Ptp, input: ReviseInput) => {
+    reviseMutation.mutate({ p, input });
+    if (detailId === p.id) setDetailId(null);
+  };
+  const handleCancelPromise = async (
+    p: Ptp,
+    input: { reason: PromiseRevisionReason; note?: string },
+  ) => {
+    if (
+      !(await confirm({
+        title: `Cancel ${p.id}?`,
+        description:
+          "The commitment is withdrawn with the reason shown; its reminders and pay link stop, and the account is free for a new promise.",
+        confirmLabel: "Cancel promise",
+      }))
+    )
+      return;
+    cancelMutation.mutate({ p, input });
     if (detailId === p.id) setDetailId(null);
   };
 
@@ -268,11 +302,13 @@ function PromisesPage() {
         owners={owners}
         customers={sheetCustomers}
       />
+      {confirmDialog}
       <PromiseDetailSheet
         promise={detail}
         onOpenChange={(v) => !v && setDetailId(null)}
         onMark={handleMark}
-        onReschedule={handleReschedule}
+        onRevise={handleRevise}
+        onCancelPromise={handleCancelPromise}
         onResend={handleResend}
       />
       <PlanDetailDrawer plan={planDetail} onOpenChange={(v) => !v && setPlanDetail(null)} />

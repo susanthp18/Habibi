@@ -9,6 +9,7 @@
  */
 
 import type { DisputeSla } from "./dispute-sla";
+import type { PromiseStatus, ReminderStatus } from "@/api/types/promises";
 import type { DisputeStatus } from "./disputes";
 import type { DocStatus } from "./documents";
 
@@ -19,7 +20,7 @@ export type ContactChannel = "voice" | "whatsapp" | "chat" | "email" | "sms";
 export type Sentiment = "positive" | "neutral" | "negative";
 export type LedgerType = "charge" | "payment" | "fee" | "adjustment" | "waiver" | "reversal";
 export type EmiStatus = "paid" | "upcoming" | "overdue" | "partial";
-export type PtpStatus = "upcoming" | "kept" | "broken" | "partial";
+export type PtpStatus = PromiseStatus;
 export interface LedgerEntry {
   id: string;
   date: string; // ISO
@@ -60,7 +61,9 @@ export interface CustomerPromise {
   channel: ContactChannel;
   handler: string;
   status: PtpStatus;
-  reminderStatus: "queued" | "sent" | "acknowledged" | "off";
+  reminderStatus: ReminderStatus;
+  revisionCount: number;
+  cancelReason?: string | null;
 }
 /**
  * The 360 contract for a dispute. `sla`/`slaLabel`/`slaMinutes` are the same

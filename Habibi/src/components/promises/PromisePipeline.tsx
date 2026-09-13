@@ -21,6 +21,7 @@ const columnAccent: Record<PromiseStatus, string> = {
   kept: "border-t-emerald-500",
   broken: "border-t-red-500",
   partial: "border-t-orange-500",
+  cancelled: "border-t-border",
 };
 
 export function PromisePipeline({

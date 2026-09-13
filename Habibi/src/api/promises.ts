@@ -2,7 +2,7 @@
 // Promise-to-Pay & Payment Plans — data access seam.
 //   fetchPromises()      → pipeline list   (GET /promises)
 //   fetchPaymentPlans()  → plans table     (GET /payment-plans)
-//   createPromise / movePromise / reschedulePromise / createPlan → writes
+//   createPromise / movePromise / revisePromise / cancelPromise / createPlan → writes
 //
 // Writes map to the Phase 3A endpoints and rely on query invalidation for the
 // refreshed list (POST/PATCH return the Customer-360 promise shape, not the
@@ -12,13 +12,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 
-import type {
-  CreateInput,
-  CustomerOption,
-  PaymentPlan,
-  PlanInput,
-  Promise as Ptp,
-  PromiseStatus,
+import {
+  type CreateInput,
+  type CustomerOption,
+  type PaymentPlan,
+  type PlanInput,
+  type Promise as Ptp,
+  PROMISE_STATUSES,
+  type PromiseRevisionReason,
+  type PromiseStatus,
+  REMINDER_STATUSES,
+  type ReviseInput,
 } from "@/api/types/promises";
 import { buildSchedule } from "@/lib/promises";
 import type { Customer } from "@/api/types/customer360";
@@ -44,8 +48,10 @@ const promiseListSchema = z.object({
   channel: z.enum(["voice", "whatsapp", "chat", "email", "sms"]),
   source: z.enum(["bot", "agent", "self"]),
   owner: z.string(),
-  reminderStatus: z.enum(["off", "queued", "scheduled", "sent", "acknowledged", "failed"]),
-  status: z.enum(["upcoming", "due_today", "kept", "broken", "partial"]),
+  reminderStatus: z.enum(REMINDER_STATUSES),
+  status: z.enum(PROMISE_STATUSES),
+  revisionCount: z.number(),
+  cancelReason: z.string().nullable(),
   paidAmount: z.number().nullable(),
   notes: z.string().nullable(),
   planId: z.string().nullable(),
@@ -181,8 +187,37 @@ export async function resendPromiseConfirm(p: Ptp): Promise<void> {
   await apiPost(`/promises/${p.id}/resend-confirm`, {}, { schema: promiseResendConfirmSchema });
 }
 
-export async function reschedulePromise(p: Ptp, newDate: string): Promise<void> {
-  await apiPatch(`/promises/${p.id}`, { promisedDate: newDate }, { schema: ptpPromiseSchema });
+/**
+ * Renegotiate the open promise: a new date and/or amount, with the reason.
+ * The promise keeps its id, reminders and pay link; the change is history.
+ */
+export async function revisePromise(
+  p: Ptp,
+  input: ReviseInput,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiPost(
+    `/promises/${p.id}/revise`,
+    {
+      promisedDate: input.promisedDate,
+      amount: input.amount,
+      reason: input.reason,
+      note: input.note?.trim() || undefined,
+    },
+    { schema: ptpPromiseSchema, headers: { "Idempotency-Key": idempotencyKey } },
+  );
+}
+
+/** Withdraw the open promise with its reason; the account is free for a new one. */
+export async function cancelPromise(
+  p: Ptp,
+  input: { reason: PromiseRevisionReason; note?: string },
+): Promise<void> {
+  await apiPost(
+    `/promises/${p.id}/cancel`,
+    { reason: input.reason, note: input.note?.trim() || undefined },
+    { schema: ptpPromiseSchema },
+  );
 }
 
 export async function createPlan(input: PlanInput): Promise<{ id: string }> {

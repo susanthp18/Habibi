@@ -110,7 +110,7 @@ function PtpForm({
           </Button>
           <Button
             onClick={() => onSubmit({ amount: Number(amount), date, channel, notes })}
-            disabled={!amount || !date}
+            disabled={!(Number(amount) > 0) || !date}
           >
             Save PTP
           </Button>

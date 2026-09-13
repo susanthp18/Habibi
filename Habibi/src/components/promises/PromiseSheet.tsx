@@ -13,21 +13,26 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectField,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import type {
-  Promise,
-  PromiseChannel,
-  PromiseStatus,
-  ReminderStatus,
-  CreateInput,
-  CustomerOption,
+import {
+  PROMISE_REVISION_REASONS,
+  type Promise,
+  type PromiseChannel,
+  type PromiseRevisionReason,
+  type ReviseInput,
+  type PromiseStatus,
+  type ReminderStatus,
+  type CreateInput,
+  type CustomerOption,
 } from "@/api/types/promises";
 import { fmtDate, fmtMoney } from "@/lib/format";
+import { REVISION_REASON_LABELS } from "@/lib/promises";
 
 // --- Create sheet ---
 
@@ -95,7 +100,7 @@ export function CreatePromiseSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-[25rem]">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[25rem]">
         <SheetHeader>
           <SheetTitle>New promise-to-pay</SheetTitle>
           <SheetDescription>
@@ -205,32 +210,53 @@ interface DetailProps {
   promise: Promise | null;
   onOpenChange: (v: boolean) => void;
   onMark: (p: Promise, status: PromiseStatus, opts?: { paidAmount?: number }) => void;
-  onReschedule: (p: Promise, newDate: string) => void;
+  onRevise: (p: Promise, input: ReviseInput) => void;
+  onCancelPromise: (p: Promise, input: { reason: PromiseRevisionReason; note?: string }) => void;
   onResend?: (p: Promise) => void;
 }
+
+const REASON_OPTIONS = PROMISE_REVISION_REASONS.map((r) => ({
+  value: r,
+  label: REVISION_REASON_LABELS[r],
+}));
 
 export function PromiseDetailSheet({
   promise,
   onOpenChange,
   onMark,
-  onReschedule,
+  onRevise,
+  onCancelPromise,
   onResend,
 }: DetailProps) {
+  const uid = useId();
   const [partialAmt, setPartialAmt] = useState("");
-  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [reviseDate, setReviseDate] = useState("");
+  const [reviseAmount, setReviseAmount] = useState("");
+  const [reviseReason, setReviseReason] = useState<PromiseRevisionReason>(
+    "customer_requested_delay",
+  );
+  const [reviseNote, setReviseNote] = useState("");
 
   useEffect(() => {
     if (promise) {
       setPartialAmt(String(Math.round(promise.amount / 2)));
-      setRescheduleDate(promise.promisedDate.slice(0, 10));
+      setReviseDate(promise.promisedDate.slice(0, 10));
+      setReviseAmount(String(promise.amount));
+      setReviseReason("customer_requested_delay");
+      setReviseNote("");
     }
   }, [promise]);
+
+  const reviseChanged =
+    !!promise &&
+    ((!!reviseDate && reviseDate !== promise.promisedDate.slice(0, 10)) ||
+      (!!reviseAmount && Number(reviseAmount) !== promise.amount));
 
   if (!promise) return null;
 
   return (
     <Sheet open={!!promise} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-[25rem]">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[25rem]">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-100">
             {promise.customerName}
@@ -245,7 +271,14 @@ export function PromiseDetailSheet({
 
         <div className="mt-200 space-y-200">
           <div className="grid grid-cols-2 gap-150 rounded-large border border-border bg-surface-sunken/50 p-150 text-body-small">
-            <Meta label="Status" value={promise.status.replace("_", " ")} />
+            <Meta
+              label="Status"
+              value={
+                promise.status === "cancelled" && promise.cancelReason
+                  ? `cancelled · ${REVISION_REASON_LABELS[promise.cancelReason as PromiseRevisionReason] ?? promise.cancelReason}`
+                  : promise.status.replace("_", " ")
+              }
+            />
             <Meta label="Channel" value={promise.channel} />
             <Meta label="Source" value={promise.source} />
             <Meta label="Owner" value={promise.owner} />
@@ -372,28 +405,112 @@ export function PromiseDetailSheet({
               </div>
 
               <div className="rounded-medium border border-border p-150">
-                <div className="mb-100 text-body-small font-semibold text-text-subtlest">
-                  Reschedule
+                <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+                  Revise the promise
                 </div>
-                <div className="flex items-end gap-100">
-                  <div className="flex-1">
-                    <Label className="text-body-small text-text-subtlest">New promised date</Label>
+                <p className="mb-100 text-body-small text-text-subtle">
+                  The customer asked for a different date or amount. The promise keeps its id and
+                  its pay link; the change is recorded with the reason
+                  {promise.revisionCount > 0 && ` (moved ${promise.revisionCount}× already)`}.
+                </p>
+                <div className="grid grid-cols-2 gap-100">
+                  <div>
+                    <Label
+                      htmlFor={`${uid}-revise-date`}
+                      className="text-body-small text-text-subtlest"
+                    >
+                      New date
+                    </Label>
                     <Input
+                      id={`${uid}-revise-date`}
                       type="date"
-                      value={rescheduleDate}
-                      onChange={(e) => setRescheduleDate(e.target.value)}
+                      value={reviseDate}
+                      onChange={(e) => setReviseDate(e.target.value)}
                       className="mt-050"
                     />
                   </div>
+                  <div>
+                    <Label
+                      htmlFor={`${uid}-revise-amount`}
+                      className="text-body-small text-text-subtlest"
+                    >
+                      New amount (₹)
+                    </Label>
+                    <Input
+                      id={`${uid}-revise-amount`}
+                      type="number"
+                      value={reviseAmount}
+                      onChange={(e) => setReviseAmount(e.target.value)}
+                      className="mt-050"
+                    />
+                  </div>
+                </div>
+                <div className="mt-100">
+                  <Label
+                    htmlFor={`${uid}-revise-reason`}
+                    className="text-body-small text-text-subtlest"
+                  >
+                    Reason
+                  </Label>
+                  <SelectField
+                    id={`${uid}-revise-reason`}
+                    className="mt-050"
+                    value={reviseReason}
+                    onChange={(v) => setReviseReason(v as PromiseRevisionReason)}
+                    options={REASON_OPTIONS}
+                  />
+                </div>
+                <div className="mt-100">
+                  <Label
+                    htmlFor={`${uid}-revise-note`}
+                    className="text-body-small text-text-subtlest"
+                  >
+                    In their words
+                  </Label>
+                  <Textarea
+                    id={`${uid}-revise-note`}
+                    rows={2}
+                    value={reviseNote}
+                    onChange={(e) => setReviseNote(e.target.value)}
+                    className="mt-050"
+                    placeholder="Salary comes on the 10th…"
+                  />
+                </div>
+                <div className="mt-150 flex items-center justify-between gap-100">
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      const iso = new Date(`${rescheduleDate}T10:00:00`).toISOString();
-                      onReschedule(promise, iso);
-                    }}
+                    disabled={!reviseChanged}
+                    title={reviseChanged ? undefined : "Change the date or the amount"}
+                    onClick={() =>
+                      onRevise(promise, {
+                        promisedDate:
+                          reviseDate && reviseDate !== promise.promisedDate.slice(0, 10)
+                            ? reviseDate
+                            : undefined,
+                        amount:
+                          reviseAmount && Number(reviseAmount) !== promise.amount
+                            ? Number(reviseAmount)
+                            : undefined,
+                        reason: reviseReason,
+                        note: reviseNote || undefined,
+                      })
+                    }
                   >
-                    Reschedule
+                    Revise promise
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-text-danger-bolder"
+                    onClick={() =>
+                      onCancelPromise(promise, {
+                        reason: reviseReason,
+                        note: reviseNote || undefined,
+                      })
+                    }
+                  >
+                    Cancel promise
                   </Button>
                 </div>
               </div>

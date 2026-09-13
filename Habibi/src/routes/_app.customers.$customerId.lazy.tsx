@@ -29,6 +29,7 @@ import { QueryState } from "@/components/ui/query-state";
 import type { NbaActionKind } from "@/api/types/customer-insights";
 import { cn, idempotencyKey } from "@/lib/utils";
 import { createPromise } from "@/api/promises";
+import { ApiError } from "@/api/config";
 import { createDispute } from "@/api/disputes";
 import type { PromiseChannel } from "@/api/types/promises";
 
@@ -135,8 +136,24 @@ function CustomerDetail() {
       toast.success("PTP captured");
       setTab("promises");
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Failed to capture PTP"),
+    onError: (error) => {
+      // One open promise per account: the refusal names it, and the board's
+      // detail sheet is where it is revised with a reason.
+      const detail = error instanceof ApiError ? error.detail : "";
+      if (detail.startsWith("promise_already_open:")) {
+        const openId = detail.split(":", 2)[1] ?? "";
+        toast.error(`This account already has an open promise (${openId}).`, {
+          description:
+            "Revise its date or amount with the customer's reason instead of adding a second one.",
+          action: {
+            label: "Revise it",
+            onClick: () => void navigate({ to: "/promises", search: { id: openId } }),
+          },
+        });
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Failed to capture PTP");
+    },
   });
 
   const disputeKey = useRef(idempotencyKey(`dispute-${customer.id}`));

@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import { ROLLBACK_TRIGGERS } from "@/api/agent-card";
 import { SENDERS } from "@/api/types/inbox";
-import { PROMISE_STATUSES, REMINDER_STATUSES } from "@/api/types/promises";
+import {
+  PROMISE_REVISION_REASONS,
+  PROMISE_STATUSES,
+  REMINDER_STATUSES,
+} from "@/api/types/promises";
 import constants from "./constants.json";
 
 describe("wire constants", () => {
@@ -17,6 +21,7 @@ describe("wire constants", () => {
   it("promise and reminder statuses are the columns'", () => {
     expect([...PROMISE_STATUSES]).toEqual(constants.promiseStatuses);
     expect([...REMINDER_STATUSES]).toEqual(constants.reminderStatuses);
+    expect([...PROMISE_REVISION_REASONS]).toEqual(constants.promiseRevisionReasons);
   });
   it("senders are the column's", () => {
     expect([...SENDERS]).toEqual(constants.senders);

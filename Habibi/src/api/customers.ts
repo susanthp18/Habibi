@@ -8,6 +8,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
+import { PROMISE_STATUSES, REMINDER_STATUSES } from "@/api/types/promises";
 
 import type {
   Customer,
@@ -106,8 +107,10 @@ export const ptpPromiseSchema = z.object({
   createdAt: z.string(),
   channel: channelSchema,
   handler: z.string(),
-  status: z.enum(["upcoming", "kept", "broken", "partial"]),
-  reminderStatus: z.enum(["queued", "sent", "acknowledged", "off"]),
+  status: z.enum(PROMISE_STATUSES),
+  reminderStatus: z.enum(REMINDER_STATUSES),
+  revisionCount: z.number().default(0),
+  cancelReason: z.string().nullable().default(null),
 });
 
 /** DisputeResponse — also what POST /disputes returns. */

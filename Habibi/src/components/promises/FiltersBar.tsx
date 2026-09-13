@@ -2,7 +2,8 @@ import { SelectField } from "@/components/ui/select";
 import { Chip, type ChipTone } from "@/components/ui/chip";
 import { FiltersBar as Bar, FilterGroup } from "@/components/records/FiltersBar";
 import type { PromiseFilters, PromiseStatus } from "@/api/types/promises";
-import { STATUS_LABELS, STATUS_ORDER } from "@/lib/promises";
+import { STATUS_LABELS } from "@/lib/promises";
+import { PROMISE_STATUSES } from "@/api/types/promises";
 
 interface Props {
   filters: PromiseFilters;
@@ -17,6 +18,7 @@ const TONE: Record<PromiseStatus, ChipTone> = {
   kept: "success",
   broken: "danger",
   partial: "warning",
+  cancelled: "neutral",
 };
 
 export function FiltersBar({ filters, onChange, owners, counts }: Props) {
@@ -30,7 +32,7 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         <Chip active={filters.status === "all"} onClick={() => onChange({ status: "all" })}>
           All · {counts.all}
         </Chip>
-        {STATUS_ORDER.map((s) => (
+        {PROMISE_STATUSES.map((s) => (
           <Chip
             key={s}
             tone={TONE[s]}

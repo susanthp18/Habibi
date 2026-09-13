@@ -5,7 +5,14 @@
  */
 
 /** The column's CHECK, as the wire declares it (api/wire/constants.json pins these lists). */
-export const PROMISE_STATUSES = ["upcoming", "due_today", "kept", "broken", "partial"] as const;
+export const PROMISE_STATUSES = [
+  "upcoming",
+  "due_today",
+  "kept",
+  "broken",
+  "partial",
+  "cancelled",
+] as const;
 export type PromiseStatus = (typeof PROMISE_STATUSES)[number];
 export type PromiseChannel = "voice" | "whatsapp" | "sms" | "chat" | "email";
 export type PromiseSource = "bot" | "agent" | "self";
@@ -18,6 +25,38 @@ export const REMINDER_STATUSES = [
   "failed",
 ] as const;
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
+/** Why a promise was renegotiated or withdrawn (promise_revisions.reason). */
+export const PROMISE_REVISION_REASONS = [
+  "customer_requested_delay",
+  "salary_delayed",
+  "medical",
+  "dispute_raised",
+  "partial_payment_agreed",
+  "agent_correction",
+  "other",
+] as const;
+export type PromiseRevisionReason = (typeof PROMISE_REVISION_REASONS)[number];
+
+/** A renegotiation: what the commitment was, what it became, why. */
+export interface PromiseRevision {
+  seq: number;
+  priorAmount: number;
+  priorPromisedDate: string;
+  amount: number;
+  promisedDate: string;
+  reason: PromiseRevisionReason;
+  note?: string | null;
+  actorKind: "human" | "bot" | "system";
+  actor?: string | null;
+  createdAt: string;
+}
+
+export interface ReviseInput {
+  promisedDate?: string;
+  amount?: number;
+  reason: PromiseRevisionReason;
+  note?: string;
+}
 /** What the create sheet (or the 360) submits. The owner defaults to the acting user. */
 export interface CreateInput {
   customerId: string;
@@ -64,6 +103,8 @@ export interface Promise {
   owner: string;
   reminderStatus: ReminderStatus;
   status: PromiseStatus;
+  revisionCount: number;
+  cancelReason?: string | null;
   paidAmount?: number | null;
   notes?: string | null;
   planId?: string | null;

@@ -1,4 +1,4 @@
-import { PROMISE_STATUSES } from "@/api/types/promises";
+import { PROMISE_STATUSES, type PromiseRevisionReason } from "@/api/types/promises";
 import type {
   PromiseStatus,
   PromiseChannel,
@@ -118,23 +118,21 @@ export function computeMetrics(list: Promise[]) {
     avgDays,
     counts: {
       all: list.length,
-      upcoming: list.filter((p) => p.status === "upcoming").length,
-      due_today: dueToday.length,
-      kept: kept.length,
-      broken: broken.length,
-      partial: partial.length,
-    },
-    subtotals: {
-      upcoming: list.filter((p) => p.status === "upcoming").reduce((s, p) => s + p.amount, 0),
-      due_today: dueToday.reduce((s, p) => s + p.amount, 0),
-      kept: kept.reduce((s, p) => s + p.amount, 0),
-      broken: broken.reduce((s, p) => s + p.amount, 0),
-      partial: partial.reduce((s, p) => s + p.amount, 0),
-    },
+      ...Object.fromEntries(
+        PROMISE_STATUSES.map((s) => [s, list.filter((p) => p.status === s).length]),
+      ),
+    } as Record<PromiseStatus | "all", number>,
+    subtotals: Object.fromEntries(
+      PROMISE_STATUSES.map((s) => [
+        s,
+        list.filter((p) => p.status === s).reduce((sum, p) => sum + p.amount, 0),
+      ]),
+    ) as Record<PromiseStatus, number>,
   };
 }
 
-export const STATUS_ORDER: PromiseStatus[] = [...PROMISE_STATUSES];
+/** Pipeline columns. `cancelled` is a filter, not a column: a card is not dragged into a withdrawal. */
+export const STATUS_ORDER: PromiseStatus[] = PROMISE_STATUSES.filter((s) => s !== "cancelled");
 
 export const REMINDER_LABELS: Record<ReminderStatus, string> = {
   off: "Off",
@@ -151,4 +149,15 @@ export const STATUS_LABELS: Record<PromiseStatus, string> = {
   kept: "Kept",
   broken: "Broken",
   partial: "Partial",
+  cancelled: "Cancelled",
+};
+
+export const REVISION_REASON_LABELS: Record<PromiseRevisionReason, string> = {
+  customer_requested_delay: "Customer asked for more time",
+  salary_delayed: "Salary delayed",
+  medical: "Medical",
+  dispute_raised: "Dispute raised",
+  partial_payment_agreed: "Partial payment agreed",
+  agent_correction: "Agent correction",
+  other: "Other",
 };
