@@ -22,7 +22,6 @@ SKIP_DIRS = {"tests", "alembic", ".venv", "node_modules", "scripts", "seeds", "s
 
 #: path -> measured lines on 2026-09-12. Shrink or delete; never add.
 BASELINE: dict[str, int] = {
-    "db.py": 2119,
     "db_inbox.py": 2526,
 }
 

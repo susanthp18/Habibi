@@ -40,6 +40,8 @@ include = [
   "db_consent.py",
   "db_core.py",
   "db_dashboard.py",
+  "db_disputes.py",
+  "db_interactions.py",
   "db_documents.py",
   "db_evals.py",
   "db_handoff.py",

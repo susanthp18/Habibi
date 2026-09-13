@@ -10,10 +10,8 @@ from sqlalchemy import text
 
 import contact_window
 from agent_core import clock
-from agent_core.clock import utc_now
 import visibility
 from env_utils import env_float
-from env_utils import env_int as _env_int
 
 from db_core import (
     DEFAULT_DETAIL_LIMIT as DEFAULT_DETAIL_LIMIT,
@@ -77,9 +75,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Calls carry their whole transcript inline, so a call row is orders of
-# magnitude larger than a customer row and gets its own, tighter default.
-DEFAULT_CALLS_LIMIT = max(1, _env_int("DEFAULT_CALLS_LIMIT", 100))
 # Child collections rendered inside one customer's 360 view. Bounded by that
 # customer's own history rather than the portfolio, so the ceiling can be
 # generous — but not absent: a five-year-old account with a thousand notes
@@ -366,63 +361,6 @@ def patch_agent_presence(status: str) -> dict[str, Any]:
         )
     assert row is not None
     return _map_presence_row(row)
-
-
-def _sentiment_delta(score: float | None) -> str:
-    if score is None:
-        return "flat"
-    if score > 0.15:
-        return "up"
-    if score < -0.15:
-        return "down"
-    return "flat"
-
-
-# A dispute is at risk once less than a quarter of its filing→due window is
-# left, and breached the moment it passes due.
-DISPUTE_SLA_WARN_FRACTION = 0.25
-
-
-def _dispute_sla_countdown(seconds: float) -> str:
-    """Minutes-precise countdown: '0h 29m left', '0h 40m over'."""
-    total = abs(int(seconds))
-    hours, rem = divmod(total, 3600)
-    return f"{hours}h {rem // 60}m {'over' if seconds < 0 else 'left'}"
-
-
-def _dispute_sla(
-    sla_due_at: Any,
-    captured_at: Any,
-    status: str | None,
-) -> tuple[str, str, int]:
-    """Compute (sla, slaLabel, slaMinutes) for one dispute.
-
-    This is the only place a dispute SLA is turned into something a screen can
-    render. It used to be computed twice — here in hours ("23h left", no tone)
-    for the Customer 360 tab, and again in the client (disputes-seed.slaInfo)
-    in hours-and-minutes with a tone for the board — so the same dispute read
-    "0h 29m left / at risk" on one screen and "0h left / no colour" on the
-    other. The client copy is gone; both screens render these fields.
-
-    Shape mirrors :func:`_work_item_sla` — tone first, then the display string
-    — so "the SLA of a thing" means the same fields across the API.
-    ``slaMinutes`` is signed: positive is time remaining, negative is overdue.
-    """
-    if status in {"resolved", "rejected"}:
-        return "done", "Closed", 0
-    due = _as_utc(sla_due_at)
-    if due is None:
-        return "ok", "Open", 0
-    remaining = (due - utc_now()).total_seconds()
-    label = _dispute_sla_countdown(remaining)
-    minutes = int(remaining / 60)
-    if remaining < 0:
-        return "breach", label, minutes
-    captured = _as_utc(captured_at)
-    window = (due - captured).total_seconds() if captured else 0.0
-    if window > 0 and remaining < window * DISPUTE_SLA_WARN_FRACTION:
-        return "warn", label, minutes
-    return "ok", label, minutes
 
 
 def _base_customer_row(
@@ -782,130 +720,6 @@ _PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
 _PREVIEW_TTL_S = env_float("TREATMENT_PREVIEW_TTL_S", 60.0)
 
 
-def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
-    # Tenant-scoped unconditionally. Filtering on customer_id alone was safe
-    # only because every live caller passes one and customers are themselves
-    # tenant-scoped; the customer_id=None path selected across tenants, and
-    # neither the limit nor the tenant were required by the signature.
-    where = "WHERE i.tenant_id = :tenant_id"
-    params: dict[str, Any] = {"tenant_id": _tenant()}
-    if customer_id:
-        where += " AND i.customer_id = :customer_id"
-        params["customer_id"] = customer_id
-    # No unbounded branch: this loads full transcripts per interaction.
-    params["limit"] = clamp_list_limit(limit, DEFAULT_CALLS_LIMIT)
-    limit_sql = "LIMIT :limit"
-    interactions = _rows(
-        conn.execute(
-            text(
-                f"""
-                SELECT
-                  i.id,
-                  i.channel,
-                  i.handler_kind,
-                  COALESCE(u.name, b.name) AS handler_name,
-                  i.started_at,
-                  i.duration_sec,
-                  i.disposition,
-                  i.sentiment_label,
-                  i.avg_sentiment,
-                  i.summary,
-                  i.query_resolved,
-                  i.upsell_presented,
-                  i.ptp_captured
-                FROM interactions i
-                LEFT JOIN users u ON u.id = i.handler_user_id
-                LEFT JOIN bots b ON b.id = i.handler_bot_id
-                {where}
-                ORDER BY i.started_at DESC NULLS LAST, i.id
-                {limit_sql}
-                """
-            ),
-            params,
-        )
-    )
-    # Batch transcripts — avoid N+1 (one query per interaction).
-    transcripts_by_id: dict[str, list[str]] = {row["id"]: [] for row in interactions}
-    interaction_ids = list(transcripts_by_id)
-    if interaction_ids:
-        for trow in _rows(
-            conn.execute(
-                text(
-                    """
-                    SELECT interaction_id, text
-                    FROM interaction_transcript
-                    WHERE interaction_id = ANY(:ids)
-                    ORDER BY interaction_id, turn_index
-                    """
-                ),
-                {"ids": interaction_ids},
-            )
-        ):
-            transcripts_by_id.setdefault(trow["interaction_id"], []).append(trow["text"])
-
-    output = []
-    for interaction in interactions:
-        output.append(
-            {
-                "id": interaction["id"],
-                "channel": interaction["channel"],
-                "handler": {"kind": interaction["handler_kind"], "name": interaction["handler_name"] or "Unknown"},
-                "startedAt": interaction["started_at"],
-                "duration": _duration(interaction["duration_sec"]),
-                "disposition": interaction["disposition"] or "Unknown",
-                "sentiment": interaction["sentiment_label"] or "neutral",
-                "sentimentDelta": _sentiment_delta(interaction["avg_sentiment"]),
-                "summary": interaction["summary"] or "",
-                "intents": {
-                    "queryResolved": bool(interaction["query_resolved"]),
-                    "upsellPresented": bool(interaction["upsell_presented"]),
-                    "ptpCaptured": bool(interaction["ptp_captured"]),
-                },
-                "transcript": transcripts_by_id.get(interaction["id"], []),
-            }
-        )
-    return output
-
-
-def _dispute_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT d.id, d.type, d.disputed_amount, d.transcript_snippet, d.status,
-                       d.sla_due_at, d.created_at, u.name AS assignee
-                FROM disputes d
-                LEFT JOIN users u ON u.id = d.assignee_user_id
-                WHERE d.customer_id = :customer_id
-                ORDER BY d.created_at DESC
-                LIMIT :limit
-                """
-            ),
-            {"customer_id": customer_id, "limit": DEFAULT_DETAIL_LIMIT},
-        )
-    )
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        sla, sla_label, sla_minutes = _dispute_sla(
-            r["sla_due_at"], r["created_at"], r["status"]
-        )
-        out.append(
-            {
-                "id": r["id"],
-                "type": r["type"],
-                "amount": r["disputed_amount"],
-                "transcriptSnippet": r["transcript_snippet"] or "",
-                "status": r["status"],
-                "sla": sla,
-                "slaLabel": sla_label,
-                "slaMinutes": sla_minutes,
-                "filedAt": r["created_at"],
-                "assignee": r["assignee"],
-            }
-        )
-    return out
-
-
 def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
     rows = _rows(
         conn.execute(
@@ -923,111 +737,6 @@ def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
         )
     )
     return [{"id": r["id"], "author": r["author"], "at": r["created_at"], "text": r["text"], "pinned": r["pinned"]} for r in rows]
-
-
-def _dispute_source_screen(source: str | None, interaction_channel: str | None) -> str:
-    """Map DB source (+ optional interaction channel) to the disputes-screen enum."""
-    if source in {"bot_voice", "bot_chat", "agent"}:
-        return source
-    # Seeder stores plain "bot"; derive voice vs chat from the linked interaction.
-    if source == "bot" and interaction_channel in {"chat", "whatsapp", "sms", "email"}:
-        return "bot_chat"
-    if source == "bot":
-        return "bot_voice"
-    if interaction_channel in {"chat", "whatsapp", "sms", "email"}:
-        return "bot_chat"
-    return "bot_voice"
-
-
-def _evidence_kind(filename: str, mime_type: str | None) -> str:
-    """filename/mime → screen Evidence.kind heuristic."""
-    name = (filename or "").lower()
-    mime = (mime_type or "").lower()
-    if mime.startswith("audio/") or name.endswith((".mp3", ".wav", ".m4a", ".ogg")):
-        return "audio"
-    if mime.startswith("image/") or name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
-        return "screenshot"
-    if "statement" in name:
-        return "statement"
-    if "receipt" in name or "payment" in name:
-        return "receipt"
-    return "other"
-
-
-def _dispute_event_tone(kind: str | None, note: str | None) -> str | None:
-    if kind in {"dispute_created", "evidence_added", "note_added"}:
-        return "info"
-    if kind == "dispute_updated":
-        if note == "resolved":
-            return "success"
-        if note == "rejected":
-            return "danger"
-        return "info"
-    return None
-
-
-def _dispute_events(conn: Any, dispute_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    """activity_events grouped by dispute id, for the disputes-screen timeline."""
-    if not dispute_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT ae.entity_id, ae.at, ae.label, ae.tone, ae.kind, ae.note,
-                       u.name AS actor
-                FROM activity_events ae
-                LEFT JOIN users u ON u.id = ae.actor_user_id
-                WHERE ae.entity_type = 'dispute' AND ae.entity_id = ANY(:ids)
-                ORDER BY ae.at
-                """
-            ),
-            {"ids": dispute_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["entity_id"], []).append(
-            {
-                "at": r["at"],
-                "label": r["label"],
-                "actor": r["actor"],
-                "tone": r["tone"] or _dispute_event_tone(r["kind"], r["note"]),
-            }
-        )
-    return grouped
-
-
-def _dispute_evidence(conn: Any, dispute_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-    if not dispute_ids:
-        return {}
-    rows = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT e.id, e.dispute_id, e.filename, e.mime_type, e.created_at,
-                       u.name AS uploaded_by
-                FROM dispute_evidence e
-                LEFT JOIN users u ON u.id = e.uploaded_by_user_id
-                WHERE e.dispute_id = ANY(:ids)
-                ORDER BY e.created_at DESC
-                """
-            ),
-            {"ids": dispute_ids},
-        )
-    )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for r in rows:
-        grouped.setdefault(r["dispute_id"], []).append(
-            {
-                "id": r["id"],
-                "name": r["filename"],
-                "kind": _evidence_kind(r["filename"], r["mime_type"]),
-                "uploadedAt": r["created_at"],
-                "uploadedBy": r["uploaded_by"] or "System",
-            }
-        )
-    return grouped
 
 
 def list_staff() -> list[dict[str, Any]]:
@@ -1094,219 +803,6 @@ def list_teams() -> list[dict[str, Any]]:
         return _rows(conn.execute(text("SELECT id, name FROM teams ORDER BY name")))
 
 
-def list_disputes(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Disputes & Exceptions queue feed (richer than the Customer 360 contract)."""
-    page, skip = clamp_list_limit(limit), clamp_offset(offset)
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                _sql(
-                    """
-                    SELECT d.id, d.customer_id, c.name AS customer_name, d.account_id,
-                           d.type, d.disputed_amount, d.source, d.transcript_snippet,
-                           d.interaction_id, d.created_at, d.sla_due_at, d.status,
-                           d.priority, d.resolution_code, d.resolution_notes,
-                           u.name AS assignee, i.channel AS interaction_channel
-                    FROM disputes d
-                    JOIN customers c ON c.id = d.customer_id
-                     AND c.tenant_id = :tenant_id
-                     /*VISIBILITY*/
-                    LEFT JOIN users u ON u.id = d.assignee_user_id
-                    LEFT JOIN interactions i ON i.id = d.interaction_id
-                    ORDER BY d.created_at DESC, d.id
-                    LIMIT :limit OFFSET :offset
-                    """
-                ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
-            )
-        )
-        ids = [r["id"] for r in rows]
-        events = _dispute_events(conn, ids)
-        evidence = _dispute_evidence(conn, ids)
-        result = []
-        for r in rows:
-            captured = r["created_at"]
-            due = r["sla_due_at"] or captured
-            # Tone is computed from the real due date, not the capturedAt
-            # fallback above: a dispute with no due date is "Open", the same
-            # answer the Customer 360 tab gives, not instantly breached.
-            sla, sla_label, sla_minutes = _dispute_sla(
-                r["sla_due_at"], captured, r["status"]
-            )
-            evts = events.get(r["id"]) or [
-                {"at": captured, "label": "Dispute captured", "actor": None, "tone": "info"}
-            ]
-            result.append(
-                {
-                    "id": r["id"],
-                    "customerId": r["customer_id"],
-                    "customerName": r["customer_name"],
-                    "accountId": r["account_id"],
-                    "accountTail": _account_tail(r["account_id"]) or "",
-                    "type": r["type"],
-                    "disputedAmount": r["disputed_amount"] or 0.0,
-                    "source": _dispute_source_screen(r["source"], r["interaction_channel"]),
-                    "transcriptSnippet": r["transcript_snippet"] or "",
-                    "originConversationId": r["interaction_id"],
-                    "capturedAt": captured,
-                    "slaDueAt": due,
-                    "sla": sla,
-                    "slaLabel": sla_label,
-                    "slaMinutes": sla_minutes,
-                    "status": r["status"],
-                    "assignee": r["assignee"] or "Unassigned",
-                    "priority": r["priority"] or "normal",
-                    "evidence": evidence.get(r["id"]) or [],
-                    "events": evts,
-                    "resolutionCode": r["resolution_code"],
-                    "resolutionNotes": r["resolution_notes"],
-                }
-            )
-        return result
-
-
-def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Audit-screen call list, newest first.
-
-    Bounded and tenant-scoped. Both were missing: the outer query selected every
-    interaction the deployment had ever recorded, and the four child queries
-    below then loaded *every transcript turn of every one of them* into memory
-    to assemble the response. That is fine against a demo seed and is a
-    guaranteed outage against a real portfolio.
-    """
-
-    from schemas import CallResponse
-    page = clamp_list_limit(limit, DEFAULT_CALLS_LIMIT)
-    skip = clamp_offset(offset)
-    with engine.connect() as conn:
-        rows = _rows(
-            conn.execute(
-                _sql(
-                    """
-                    SELECT
-                      i.id,
-                      i.started_at,
-                      i.duration_sec,
-                      i.channel,
-                      i.direction,
-                      i.handler_kind,
-                      COALESCE(u.name, b.name) AS handled_by,
-                      i.customer_id,
-                      c.name AS customer_name,
-                      c.phone_primary,
-                      i.account_id,
-                      i.disposition,
-                      i.summary,
-                      i.avg_sentiment,
-                      i.sentiment_label,
-                      i.redaction_applied,
-                      i.hash,
-                      i.rag_hits,
-                      i.latency_ms
-                    FROM interactions i
-                    JOIN customers c ON c.id = i.customer_id
-                    LEFT JOIN users u ON u.id = i.handler_user_id
-                    LEFT JOIN bots b ON b.id = i.handler_bot_id
-                    WHERE i.tenant_id = :tenant_id
-                      /*VISIBILITY*/
-                    ORDER BY i.started_at DESC NULLS LAST, i.id
-                    LIMIT :limit OFFSET :offset
-                    """
-                ),
-                {"tenant_id": _tenant(), "limit": page, "offset": skip, **_vis_params()},
-            )
-        )
-        # Four child tables, one query each — not four per interaction. The
-        # per-row version issued 4N round trips against an unbounded outer
-        # query, so the Calls screen got slower in direct proportion to how
-        # long the deployment had been running.
-        interaction_ids = [row["id"] for row in rows]
-
-        def _grouped(sql: str) -> dict[str, list[dict[str, Any]]]:
-            grouped: dict[str, list[dict[str, Any]]] = {}
-            if not interaction_ids:
-                return grouped
-            for r in _rows(conn.execute(text(sql), {"interaction_ids": interaction_ids})):
-                grouped.setdefault(r.pop("interaction_id"), []).append(r)
-            return grouped
-
-        transcripts_by = _grouped(
-            """
-            SELECT interaction_id, id, at_sec AS t, speaker, text
-            FROM interaction_transcript
-            WHERE interaction_id = ANY(:interaction_ids)
-            ORDER BY interaction_id, turn_index
-            """
-        )
-        flags_by = _grouped(
-            """
-            SELECT interaction_id, flag, severity
-            FROM interaction_flags
-            WHERE interaction_id = ANY(:interaction_ids)
-            ORDER BY interaction_id, created_at
-            """
-        )
-        sentiment_by = _grouped(
-            """
-            SELECT interaction_id, at_sec AS t, score AS v
-            FROM interaction_sentiment
-            WHERE interaction_id = ANY(:interaction_ids)
-            ORDER BY interaction_id, at_sec
-            """
-        )
-        disclosures_by = _grouped(
-            """
-            SELECT interaction_id, id, label, read, read_at_sec AS "atSec"
-            FROM interaction_disclosures
-            WHERE interaction_id = ANY(:interaction_ids)
-            ORDER BY interaction_id, id
-            """
-        )
-
-        calls = []
-        for row in rows:
-            transcript = transcripts_by.get(row["id"], [])
-            flags = flags_by.get(row["id"], [])
-            sentiment_series = sentiment_by.get(row["id"], [])
-            disclosures = disclosures_by.get(row["id"], [])
-            handled_by = {"kind": row["handler_kind"]}
-            if row["handler_kind"] == "bot":
-                handled_by["bot"] = row["handled_by"] or "Bot"
-            else:
-                handled_by["agent"] = row["handled_by"] or "Agent"
-            calls.append(
-                _dump(
-                    CallResponse(
-                        id=row["id"],
-                        startedAt=row["started_at"],
-                        duration=row["duration_sec"] or 0,
-                        channel=row["channel"],
-                        direction=row["direction"],
-                        handledBy=handled_by,
-                        customerId=row["customer_id"],
-                        customerName=row["customer_name"],
-                        accountId=row["account_id"],
-                        disposition=row["disposition"],
-                        summary=row["summary"],
-                        avgSentiment=row["avg_sentiment"],
-                        sentiment=row["sentiment_label"] or "neutral",
-                        redactionApplied=bool(row["redaction_applied"]),
-                        hash=row["hash"],
-                        ragHits=row["rag_hits"] or 0,
-                        latencyMs=row["latency_ms"],
-                        transcript=transcript,
-                        flags=flags,
-                        phoneMasked=row["phone_primary"] or "",
-                        tags=[row["disposition"]] if row["disposition"] else [],
-                        sentimentSeries=sentiment_series,
-                        disclosures=disclosures,
-                        routing=["Postgres", "API"],
-                    )
-                )
-            )
-    return calls
-
-
 def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     """Offer catalog. Inactive products stay retrievable for historical leads —
     a lead captured last month must still render its product name after the
@@ -1360,172 +856,6 @@ def list_products(include_inactive: bool = False) -> list[dict[str, Any]]:
     ]
 
 
-def _dispute_by_id(conn: Any, dispute_id: str) -> dict[str, Any]:
-    row = _one(conn.execute(text("SELECT customer_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
-    if row is None:
-        raise KeyError("dispute_not_found")
-    for item in _dispute_contracts(conn, row["customer_id"]):
-        if item["id"] == dispute_id:
-            return item
-    raise KeyError("dispute_not_found")
-
-
-def create_dispute(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-    endpoint = "POST /disputes"
-    with engine.begin() as conn:
-        return _create_dispute(conn, payload, idempotency_key, endpoint)
-
-
-def _create_dispute(
-    conn: Any,
-    payload: dict[str, Any],
-    idempotency_key: str | None,
-    endpoint: str,
-) -> dict[str, Any]:
-    """Connection-scoped body of :func:`create_dispute` — see _create_promise."""
-    cached = _idempotent_response(conn, idempotency_key, endpoint)
-    if cached:
-        return cached
-    customer_id = payload["customerId"]
-    _ensure_customer(conn, customer_id)
-    dispute_id = _id("DSP")
-    conn.execute(
-        text(
-            """
-            INSERT INTO disputes
-              (id, customer_id, account_id, interaction_id, assignee_user_id, type,
-               disputed_amount, source, status, priority, transcript_snippet, sla_due_at)
-            VALUES
-              (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :type,
-               :amount, 'agent', 'new', :priority, :transcript_snippet, now() + interval '2 days')
-            """
-        ),
-        {
-            "id": dispute_id,
-            "customer_id": customer_id,
-            "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
-            "interaction_id": payload.get("interactionId"),
-            "assignee_user_id": payload.get("assigneeUserId") or _actor_user_id(),
-            "type": payload["type"],
-            "amount": payload.get("amount"),
-            "priority": payload.get("priority") or "normal",
-            "transcript_snippet": payload.get("transcriptSnippet"),
-        },
-    )
-    _activity(conn, "dispute", dispute_id, "dispute_created", "Dispute raised", payload.get("transcriptSnippet"), customer_id)
-    response = _dispute_by_id(conn, dispute_id)
-    _store_idempotent_response(conn, idempotency_key, endpoint, response)
-    return response
-
-
-# A dispute's status is a state machine. `resolved` is terminal -- a resolved
-# fee waiver has a ledger row behind it -- and `rejected` reopens only into
-# review (an appeal), never straight back to new.
-_DISPUTE_TRANSITIONS: dict[str, frozenset[str]] = {
-    "new": frozenset({"under_review", "awaiting_customer", "resolved", "rejected"}),
-    "under_review": frozenset({"awaiting_customer", "resolved", "rejected"}),
-    "awaiting_customer": frozenset({"under_review", "resolved", "rejected"}),
-    "rejected": frozenset({"under_review"}),
-}
-
-
-def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Payload arrives with exclude_unset: a present key is an intentional write,
-    so an explicit None clears the column (used to unassign)."""
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "disputes", dispute_id)
-        row = _one(conn.execute(text("SELECT customer_id, assignee_user_id, status FROM disputes WHERE id = :id"), {"id": dispute_id}))
-        if row is None:
-            raise KeyError("dispute_not_found")
-        assert_transition("dispute", row["status"], payload.get("status"), _DISPUTE_TRANSITIONS)
-        if payload.get("assigneeUserId") is not None:
-            assignee = payload["assigneeUserId"]
-            if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee}).fetchone():
-                raise KeyError(f"user_not_found: {assignee}")
-        updates = []
-        params: dict[str, Any] = {"id": dispute_id}
-        mapping = {
-            "status": "status",
-            "assigneeUserId": "assignee_user_id",
-            "resolutionCode": "resolution_code",
-            "resolutionNotes": "resolution_notes",
-        }
-        for key, column in mapping.items():
-            if key in payload:  # present == intentional (None clears)
-                updates.append(f"{column} = :{column}")
-                params[column] = payload[key]
-
-        status = payload.get("status")
-        resolution = payload.get("resolutionCode")
-        if status == "resolved" and resolution == "valid_waive_fee":
-            # Post before the status write. A failure must not leave
-            # resolved/valid_waive_fee on a dispute whose fee was not waived;
-            # the open transaction rolls the whole patch back either way.
-            from agent_core.authority import enact as authority_enact
-
-            authority_enact.post_waiver_for_dispute(conn, dispute_id=dispute_id)
-        if updates:
-            conn.execute(text(f"UPDATE disputes SET {', '.join(updates)} WHERE id = :id"), params)
-        if "assigneeUserId" in payload and payload["assigneeUserId"] is None:
-            label, note = "Dispute unassigned", None
-        elif payload.get("assigneeUserId"):
-            label = "Dispute reassigned"
-            note = _user_name(conn, payload["assigneeUserId"])
-        elif status:
-            label, note = "Dispute updated", status
-        else:
-            label, note = "Dispute updated", None
-        _activity(conn, "dispute", dispute_id, "dispute_updated", label, note, row["customer_id"])
-        return _dispute_by_id(conn, dispute_id)
-
-
-def add_dispute_note(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Free-text note on a dispute. activity_events IS the timeline store, so the
-    note is a first-class timeline entry rather than a separate table."""
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "disputes", dispute_id)
-        row = _one(conn.execute(text("SELECT customer_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
-        if row is None:
-            raise KeyError("dispute_not_found")
-        text_value = (payload.get("text") or "").strip()
-        if not text_value:
-            raise ValueError("note text is required")
-        _activity(conn, "dispute", dispute_id, "note_added", text_value, None, row["customer_id"])
-        return {"id": dispute_id, "text": text_value}
-
-
-def add_dispute_evidence(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id FROM disputes WHERE id = :id"), {"id": dispute_id}))
-        if row is None:
-            raise KeyError("dispute_not_found")
-        evidence_id = _id("EVD")
-        conn.execute(
-            text(
-                """
-                INSERT INTO dispute_evidence
-                  (id, dispute_id, storage_ref, filename, mime_type, size_bytes, hash, uploaded_by_user_id)
-                VALUES
-                  (:id, :dispute_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash, :uploaded_by_user_id)
-                """
-            ),
-            {
-                "id": evidence_id,
-                "dispute_id": dispute_id,
-                # Storage layout is the server's concern — clients don't dictate paths.
-                "storage_ref": payload.get("storageRef")
-                or f"minio://dispute-evidence/{_tenant()}/{dispute_id}/{payload['filename']}",
-                "filename": payload["filename"],
-                "mime_type": payload["mimeType"],
-                "size_bytes": payload.get("sizeBytes"),
-                "hash": payload.get("hash"),
-                "uploaded_by_user_id": _actor_user_id(),
-            },
-        )
-        _activity(conn, "dispute", dispute_id, "evidence_added", "Evidence added", payload["filename"], row["customer_id"])
-        return {"id": evidence_id, **payload}
-
-
 def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with engine.begin() as conn:
         _ensure_customer(conn, customer_id)
@@ -1544,133 +874,6 @@ def add_customer_note(customer_id: str, payload: dict[str, Any]) -> dict[str, An
     if customer is None:
         raise KeyError("customer_not_found")
     return customer
-
-
-def create_interaction(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-    from schemas import CallResponse
-
-    endpoint = "POST /interactions"
-    with engine.begin() as conn:
-        cached = _idempotent_response(conn, idempotency_key, endpoint)
-        if cached:
-            return cached
-        customer_id = payload["customerId"]
-        _ensure_customer(conn, customer_id)
-        interaction_id = _id("CL")
-        handler_kind = payload.get("handlerKind") or "human"
-        # Attribution is the acting user, never a value the client chose.
-        handler_user_id = _actor_user_id() if handler_kind == "human" else None
-        handler_bot_id = payload.get("handlerBotId") or (DEFAULT_BOT_ID if handler_kind == "bot" else None)
-        conn.execute(
-            text(
-                """
-                INSERT INTO interactions
-                  (id, tenant_id, customer_id, account_id, handler_kind, handler_user_id, handler_bot_id,
-                   channel, direction, status, disposition, summary, started_at, source_payload)
-                VALUES
-                  (:id, :tenant_id, :customer_id, :account_id, :handler_kind, :handler_user_id, :handler_bot_id,
-                   :channel, :direction, 'completed', :disposition, :summary, now(), '{}'::jsonb)
-                """
-            ),
-            {"id": interaction_id, "tenant_id": _tenant(), "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
-        )
-        import capture_events
-
-        for idx, turn in enumerate(payload.get("transcript") or []):
-            # The one transcript writer: a manually logged call is masked at
-            # rest like a recorded one. An empty line is not a turn.
-            if not (turn.get("text") or "").strip():
-                continue
-            capture_events.insert_transcript_turn(
-                conn,
-                interaction_id=interaction_id,
-                turn_index=idx,
-                speaker=turn.get("speaker") or "human",
-                text_content=turn["text"],
-                at_sec=turn.get("atSec") or 0,
-            )
-        _activity(conn, "interaction", interaction_id, "interaction_created", "Manual interaction logged", payload.get("summary"), customer_id)
-        customer = _one(conn.execute(text("SELECT name, phone_primary FROM customers WHERE id = :id"), {"id": customer_id})) or {}
-        response = _dump(
-            CallResponse(
-                id=interaction_id,
-                startedAt=utc_now().isoformat(),
-                duration=0,
-                channel=payload.get("channel") or "voice",
-                direction=payload.get("direction") or "outbound",
-                handledBy={"kind": handler_kind, "agent" if handler_kind == "human" else "bot": handler_user_id or handler_bot_id or "unknown"},
-                customerId=customer_id,
-                customerName=customer.get("name") or customer_id,
-                accountId=payload.get("accountId") or _first_account_id(conn, customer_id),
-                disposition=payload.get("disposition"),
-                summary=payload.get("summary"),
-                phoneMasked=customer.get("phone_primary") or "",
-                transcript=payload.get("transcript") or [],
-            )
-        )
-        _store_idempotent_response(conn, idempotency_key, endpoint, response)
-        return response
-
-
-def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
-    endpoint = f"POST /interactions/{interaction_id}/wrap-up"
-    with engine.begin() as conn:
-        _assert_tenant_owns(conn, "interactions", interaction_id)
-        cached = _idempotent_response(conn, idempotency_key, endpoint)
-        if cached:
-            return cached
-        interaction = _ensure_interaction(conn, interaction_id)
-        conn.execute(
-            text(
-                """
-                UPDATE interactions
-                SET disposition = :disposition,
-                    summary = COALESCE(:notes, summary),
-                    status = 'completed',
-                    ended_at = COALESCE(ended_at, now()),
-                    ptp_captured = ptp_captured OR :ptp,
-                    updated_at = now()
-                WHERE id = :id
-                """
-            ),
-            {
-                "id": interaction_id,
-                "disposition": payload["disposition"],
-                "notes": payload.get("notes"),
-                "ptp": bool(payload.get("promise")),
-            },
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE interaction_handoffs
-                SET completed_at = now()
-                WHERE interaction_id = :id AND completed_at IS NULL
-                """
-            ),
-            {"id": interaction_id},
-        )
-        for flag in payload.get("flags") or []:
-            conn.execute(text("INSERT INTO interaction_flags (id, interaction_id, flag, severity) VALUES (:id, :interaction_id, :flag, 'medium')"), {"id": _id("FLAG"), "interaction_id": interaction_id, "flag": flag})
-        spawned: dict[str, Any] = {}
-        # Connection-scoped: a wrap-up spawning a promise, a dispute and a
-        # callback is one atomic outcome. The public create_* entrypoints open
-        # their own transaction, so a failure after the second spawn used to
-        # leave the first two committed while the wrap-up itself rolled back —
-        # and the idempotent replay then spawned them a second time.
-        if payload.get("promise"):
-            promise_payload = {**payload["promise"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["promise"] = _create_promise(conn, promise_payload, None, "POST /promises")
-        if payload.get("dispute"):
-            dispute_payload = {**payload["dispute"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["dispute"] = _create_dispute(conn, dispute_payload, None, "POST /disputes")
-        if payload.get("callback"):
-            callback_payload = {**payload["callback"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
-            spawned["callback"] = _create_callback(conn, callback_payload)
-        _activity(conn, "interaction", interaction_id, "interaction_wrapped_up", "Interaction wrapped up", payload.get("notes"), interaction["customer_id"])
-        response = {"id": interaction_id, "spawned": spawned}
-        _store_idempotent_response(conn, idempotency_key, endpoint, response)
-        return response
 
 
 # ---------------------------------------------------------------------------
@@ -2027,6 +1230,34 @@ from db_documents import (  # noqa: E402
     create_document_request as create_document_request,
     list_documents as list_documents,
     patch_document_request as patch_document_request,
+)
+
+from db_disputes import (  # noqa: E402
+    DISPUTE_SLA_WARN_FRACTION as DISPUTE_SLA_WARN_FRACTION,
+    _dispute_sla_countdown as _dispute_sla_countdown,
+    _dispute_sla as _dispute_sla,
+    _dispute_contracts as _dispute_contracts,
+    _dispute_source_screen as _dispute_source_screen,
+    _evidence_kind as _evidence_kind,
+    _dispute_event_tone as _dispute_event_tone,
+    _dispute_events as _dispute_events,
+    _dispute_evidence as _dispute_evidence,
+    list_disputes as list_disputes,
+    _dispute_by_id as _dispute_by_id,
+    create_dispute as create_dispute,
+    _create_dispute as _create_dispute,
+    patch_dispute as patch_dispute,
+    add_dispute_note as add_dispute_note,
+    add_dispute_evidence as add_dispute_evidence,
+)
+
+from db_interactions import (  # noqa: E402
+    DEFAULT_CALLS_LIMIT as DEFAULT_CALLS_LIMIT,
+    _sentiment_delta as _sentiment_delta,
+    _interaction_contracts as _interaction_contracts,
+    list_calls as list_calls,
+    create_interaction as create_interaction,
+    wrap_up_interaction as wrap_up_interaction,
 )
 
 from db_promises import (  # noqa: E402
