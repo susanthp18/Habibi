@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -304,15 +303,6 @@ SQL_SAFE_TZ = safe_tz_sql(":tz")
 SQL_SAFE_TZ_ALT = safe_tz_sql(":tz2")
 
 
-def _parse_hours(raw: str | None) -> tuple[int, int] | None:
-    if not raw or not str(raw).strip():
-        return None
-    m = re.search(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})", str(raw))
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(3))
-
-
 def _parse_days(raw: str | None) -> list[int] | None:
     """Consent days, or ``None`` when nothing was recorded.
 
@@ -328,6 +318,7 @@ def _parse_days(raw: str | None) -> list[int] | None:
 #: *when* to act and has to see the same window this module vetoes against; a
 #: second parser that agreed with these on Tuesday is one that disagrees in
 #: November.
+_parse_hours = contact_window.parse_hours
 parse_allowed_hours = _parse_hours
 parse_allowed_days = _parse_days
 
@@ -1144,30 +1135,35 @@ def narrow_window(
             return result
 
         value = f"{start:02d}:00-{end:02d}:00 IST"
-        conn.execute(
-            text(
-                """
-                INSERT INTO consent_records (id, customer_id, allowed_hours, updated_at)
-                VALUES (:id, :cid, :hours, now())
-                ON CONFLICT (customer_id)
-                DO UPDATE SET allowed_hours = EXCLUDED.allowed_hours, updated_at = now()
-                """
-            ),
-            # A consent row, not a contact event — the CE- prefix would be a
-            # small lie in every audit export that joins on id prefixes.
-            {"id": f"CR-{uuid.uuid4().hex[:10].upper()}", "cid": cid, "hours": value},
-        )
         import db as dbmod
 
-        dbmod.record_activity(
-            conn,
-            "customer",
-            cid,
-            "contact_window_narrowed",
-            f"Calling window narrowed to {value}",
-            (note or source)[:500],
-            cid,
-        )
+        # Both writes under a savepoint: this runs on the caller's connection
+        # (a voice tool mid-call), and a failure half-way used to leave that
+        # transaction aborted while `except` below reported "failed" as if
+        # nothing had happened -- every later write on the call then failed.
+        with conn.begin_nested():
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO consent_records (id, customer_id, allowed_hours, updated_at)
+                    VALUES (:id, :cid, :hours, now())
+                    ON CONFLICT (customer_id)
+                    DO UPDATE SET allowed_hours = EXCLUDED.allowed_hours, updated_at = now()
+                    """
+                ),
+                # A consent row, not a contact event — the CE- prefix would be a
+                # small lie in every audit export that joins on id prefixes.
+                {"id": f"CR-{uuid.uuid4().hex[:10].upper()}", "cid": cid, "hours": value},
+            )
+            dbmod.record_activity(
+                conn,
+                "customer",
+                cid,
+                "contact_window_narrowed",
+                f"Calling window narrowed to {value}",
+                (note or source)[:500],
+                cid,
+            )
         logger.info("contact window narrowed for %s to %s (%s)", cid, value, source)
         result.update({"ok": True, "window": [start, end], "reason": "narrowed"})
         return result

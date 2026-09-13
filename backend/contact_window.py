@@ -32,18 +32,29 @@ DEFAULT_WINDOW = "09:00-20:00 IST"
 _WINDOW_RE = re.compile(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})")
 
 
+def parse_hours(raw: str | None) -> tuple[int, int] | None:
+    """The two hours in a window string, or ``None`` when nothing parses.
+
+    The raw read: "nothing on file" and "unreadable" both come back ``None``
+    so the gate can intersect a stated window with the statutory one and
+    treat an absent one as absent. Screens that need a default use
+    :func:`window_hours`.
+    """
+    if not raw or not str(raw).strip():
+        return None
+    match = _WINDOW_RE.search(str(raw))
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(3))
+
+
 def window_hours(preferred_window: str | None) -> tuple[int, int]:
     """Start/end hour of ``preferred_window``, falling back to the defaults.
 
     An unparseable window is not a licence to call at 03:00: it falls back to
     the default bounds rather than to "no restriction".
     """
-    if not preferred_window:
-        return DEFAULT_START_HOUR, DEFAULT_END_HOUR
-    match = _WINDOW_RE.search(preferred_window)
-    if not match:
-        return DEFAULT_START_HOUR, DEFAULT_END_HOUR
-    return int(match.group(1)), int(match.group(3))
+    return parse_hours(preferred_window) or (DEFAULT_START_HOUR, DEFAULT_END_HOUR)
 
 
 def outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:

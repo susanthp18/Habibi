@@ -238,6 +238,28 @@ def test_a_window_with_nothing_in_it_is_refused(db_tx) -> None:
     assert result["reason"] == "window_would_be_empty"
 
 
+def test_a_failed_narrowing_leaves_the_call_transaction_usable(db_tx, monkeypatch) -> None:
+    """The tool runs on the call's connection. A write that fails half-way
+    used to abort that transaction while the tool answered "failed"; every
+    later write on the call then failed too. Under a savepoint the consent
+    row is untouched and the connection still works."""
+    import db as dbmod
+
+    cid = _customer_for(db_tx)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("activity table is on fire")
+
+    monkeypatch.setattr(dbmod, "record_activity", _boom)
+    result = contact_policy.narrow_window(db_tx, customer_id=cid, earliest_hour=10)
+    assert result["ok"] is False and result["reason"] == "failed"
+    stored = db_tx.execute(
+        text("SELECT allowed_hours FROM consent_records WHERE customer_id = :c"), {"c": cid}
+    ).scalar()
+    assert stored is None
+    assert db_tx.execute(text("SELECT 1")).scalar() == 1
+
+
 def test_the_planner_and_the_gate_share_one_window_definition() -> None:
     """A second parser that agreed on Tuesday is one that disagrees in November."""
     from agent_core.treatment import features
