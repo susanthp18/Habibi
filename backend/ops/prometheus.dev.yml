@@ -12,6 +12,10 @@
 global:
   scrape_interval: 15s
 
+# The alert rules ship beside this file; the dev overlay mounts both.
+rule_files:
+  - alerts.yml
+
 scrape_configs:
   - job_name: habibi-api
     metrics_path: /metrics

@@ -170,7 +170,8 @@ def test_ready_shape(client: TestClient, api_key: str) -> None:
     else:
         assert res.status_code == 200
         assert "pool" in body or "ok" in body
-        assert "circuits" in body
+        # The breakers are on /metrics, not on a probe a load balancer polls.
+        assert "circuits" not in body
 
 
 def test_azure_busy_maps_to_503(client: TestClient, api_key: str) -> None:

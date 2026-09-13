@@ -1172,8 +1172,16 @@ def _prepare_reminder(
 
 
 def _record_reminder(
-    conn: Any, reminder: dict[str, Any], *, ok: bool, err: str | None
+    conn: Any,
+    reminder: dict[str, Any],
+    *,
+    ok: bool,
+    err: str | None,
+    provider_delivery_id: str | None = None,
 ) -> None:
+    """The outcome on the row. The carrier's id and the failure used to share
+    ``provider_delivery_id``, so a retried reminder overwrote its SID with an
+    exception name and the desk could not ask the carrier about it."""
     conn.execute(
         text(
             """
@@ -1181,7 +1189,8 @@ def _record_reminder(
             SET status = :status,
                 sending_at = NULL,
                 sent_at = CASE WHEN :ok THEN now() ELSE sent_at END,
-                provider_delivery_id = COALESCE(:err, provider_delivery_id),
+                provider_delivery_id = COALESCE(:sid, provider_delivery_id),
+                last_error = CASE WHEN :ok THEN NULL ELSE COALESCE(:err, last_error) END,
                 updated_at = now()
             WHERE id = :id
             """
@@ -1190,6 +1199,7 @@ def _record_reminder(
             "id": reminder["id"],
             "status": "sent" if ok else "failed",
             "ok": ok,
+            "sid": provider_delivery_id,
             "err": (err or "")[:200] or None,
         },
     )
@@ -1298,17 +1308,18 @@ def process_one_reminder(engine: Engine | Any) -> bool:
 
     import twilio_sms
 
-    ok, err = True, None
+    ok, err, sid = True, None, None
     try:
-        twilio_sms.send(
+        sent = twilio_sms.send(
             to_phone=prepared["to"],
             body=prepared["body"],
             customer_id=prepared["customer_id"],
             related_id=reminder["id"],
         )
+        sid = str((sent or {}).get("sid") or "") or None
     except Exception as exc:
         logger.warning("reminder %s send failed: %s", reminder["id"], exc, exc_info=True)
         ok, err = False, type(exc).__name__
     with engine.begin() as conn:
-        _record_reminder(conn, reminder, ok=ok, err=err)
+        _record_reminder(conn, reminder, ok=ok, err=err, provider_delivery_id=sid)
     return True

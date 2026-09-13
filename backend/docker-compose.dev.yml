@@ -60,6 +60,7 @@ services:
     container_name: collections_prometheus
     volumes:
       - ./ops/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/alerts.yml:/etc/prometheus/alerts.yml:ro
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:

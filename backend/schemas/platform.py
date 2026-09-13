@@ -186,14 +186,6 @@ class MinioPingResponse(BaseModel):
     bucket: str | None = None
 
 
-class CircuitSnapshotResponse(BaseModel):
-    name: str
-    state: Literal["closed", "open", "half_open"]
-    failures: int
-    threshold: int
-    resetTimeoutS: float
-
-
 class ReadinessResponse(BaseModel):
     """The 200 branch of /ready; the 503 branch carries the same dict as detail."""
 
@@ -202,7 +194,6 @@ class ReadinessResponse(BaseModel):
     pool: PoolSnapshotResponse
     detail: str | None = None
     minio: MinioPingResponse
-    circuits: list[CircuitSnapshotResponse]
 
 
 class PlatformSwitchResponse(BaseModel):

@@ -3338,20 +3338,12 @@ export const MinioPingResponse = z.object({
   "detail": z.string().nullable().optional(),
   "bucket": z.string().nullable().optional(),
 }).passthrough();
-export const CircuitSnapshotResponse = z.object({
-  "name": z.string(),
-  "state": z.enum(["closed", "open", "half_open"]),
-  "failures": z.number(),
-  "threshold": z.number(),
-  "resetTimeoutS": z.number(),
-}).passthrough();
 export const ReadinessResponse = z.object({
   "ok": z.boolean(),
   "db": z.boolean().nullable().optional(),
   "pool": PoolSnapshotResponse,
   "detail": z.string().nullable().optional(),
   "minio": MinioPingResponse,
-  "circuits": z.array(CircuitSnapshotResponse),
 }).passthrough();
 export const DashboardResponse = z.object({
   "heroKpis": z.array(z.record(z.string(), z.unknown())),

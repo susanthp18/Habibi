@@ -509,7 +509,6 @@ from schemas.platform import (
     BotAnalyticsSkillBucketResponse as BotAnalyticsSkillBucketResponse,
     BotAnalyticsTurnsBucketResponse as BotAnalyticsTurnsBucketResponse,
     BotAnalyticsUnansweredQuestionResponse as BotAnalyticsUnansweredQuestionResponse,
-    CircuitSnapshotResponse as CircuitSnapshotResponse,
     HealthResponse as HealthResponse,
     MeResponse as MeResponse,
     MinioPingResponse as MinioPingResponse,

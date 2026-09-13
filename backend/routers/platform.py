@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 
-import circuit_breaker
 import db
 import observability
 import storage
@@ -48,7 +47,10 @@ def ready():
     """
     result = db.readiness()
     minio = storage.ping()
-    result = {**result, "minio": minio, "circuits": circuit_breaker.snapshots()}
+    # No breaker dump: a readiness probe is polled by a load balancer every
+    # few seconds and answers ok / not ok. The breakers are on /metrics as
+    # circuit_breaker_state, where an alert reads them.
+    result = {**result, "minio": minio}
     # Only fail readiness on MinIO when it is configured but unreachable.
     if minio.get("configured") and not minio.get("ok"):
         result = {

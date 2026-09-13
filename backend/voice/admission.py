@@ -183,7 +183,9 @@ def _count(metric: str) -> None:
 
         getattr(observability, metric).inc()
     except Exception:
-        logger.debug("metric %s unavailable", metric, exc_info=True)
+        # The admission counters are what the capacity alert reads; a missing
+        # one means calls are being admitted or refused off the record.
+        logger.warning("admission metric %s unavailable", metric, exc_info=True)
 
 
 def release(token: str | None) -> None:

@@ -1,0 +1,43 @@
+# The four alerts the ops floor starts with. Every series here is emitted
+# with an explicit zero when nothing is wrong (observability.py), so a missing
+# series never reads as "fine".
+#
+#   promtool check rules ops/alerts.yml
+groups:
+  - name: habibi
+    rules:
+      - alert: JobsDead
+        expr: sum by (queue) (job_queue_depth{status="dead"}) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value }} dead job(s) on {{ $labels.queue }}"
+          runbook: docs/ops/runbook.md#dead-jobs
+
+      - alert: JobsStuck
+        expr: max by (queue) (job_queue_oldest_seconds) > 900
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "oldest pending job on {{ $labels.queue }} has waited {{ $value }}s"
+          runbook: docs/ops/runbook.md#stuck-queue
+
+      - alert: CircuitOpen
+        expr: circuit_breaker_state{state="open"} == 1
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "breaker {{ $labels.breaker }} has been open for five minutes"
+          runbook: docs/ops/runbook.md#open-breaker
+
+      - alert: DbPoolExhausted
+        expr: db_pool_available == 0 and db_pool_checked_out >= db_pool_capacity
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "the SQLAlchemy pool is fully checked out ({{ $value }} available)"
+          runbook: docs/ops/runbook.md#pool-exhausted
