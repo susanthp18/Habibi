@@ -31,7 +31,11 @@ export const Route = createFileRoute("/_app/agent-studio/skills/$skillId")({
 });
 
 function SkillEditor() {
-  const { skillId } = Route.useParams();
+  return <SkillEditorPage skillId={Route.useParams().skillId} />;
+}
+
+/** One skill, editable. Takes its id as a prop so the render test can mount it. */
+export function SkillEditorPage({ skillId }: { skillId: string }) {
   const navigate = useNavigate();
   const skillQuery = useAgentStudioSkill(skillId);
   const catalogQuery = useCatalogTools();

@@ -49,7 +49,7 @@ function warnLint(warnings: Record<string, unknown>[] | null | undefined) {
 }
 
 export const Route = createFileRoute("/_app/agent-studio/skills/")({
-  component: SkillsIndex,
+  component: SkillsIndexPage,
   head: () => ({
     meta: [
       { title: "Skills — Agent studio" },
@@ -61,7 +61,8 @@ export const Route = createFileRoute("/_app/agent-studio/skills/")({
   }),
 });
 
-function SkillsIndex() {
+/** The signed-skills roster. Exported so the render test can mount it. */
+export function SkillsIndexPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data, isLoading, isError, error } = useAgentStudioSkills();
