@@ -132,7 +132,20 @@ def test_two_concurrent_posts_with_the_same_key_create_one_promise(
         pytest.skip("priya-nair required for human-owned PTP")
 
     key = f"ptp-contention-{uuid.uuid4().hex}"
-    amount = 10_000 + (uuid.uuid4().int % 89_999)
+    # Below the account's outstanding balance, or create caps it and the sweep
+    # by amount below would miss the row; and no open promise may already sit
+    # on the account (one per account).
+    with db_real.connect() as conn:
+        outstanding = conn.execute(
+            text("SELECT outstanding FROM accounts WHERE id = :a"), {"a": account_id}
+        ).scalar()
+        open_here = conn.execute(
+            text("SELECT 1 FROM promises WHERE account_id = :a AND status IN ('upcoming','due_today')"),
+            {"a": account_id},
+        ).scalar()
+    if open_here:
+        pytest.skip("the seeded account already holds an open promise")
+    amount = min(int(float(outstanding or 0)) or 1000, 10_000 + (uuid.uuid4().int % 89_999))
     promised = (clock.today_local() + timedelta(days=14)).isoformat()
     payload = {
         "customerId": customer_id,

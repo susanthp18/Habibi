@@ -19,6 +19,7 @@ from schemas.common import (
     Channel,
     PromiseResponse,
     PromiseStatus,
+    PromiseRevisionReason,
     ReminderStatus,
 )
 
@@ -43,6 +44,8 @@ class PromiseListResponse(BaseModel):
     owner: str
     reminderStatus: ReminderStatus
     status: PromiseStatus
+    revisionCount: int = 0
+    cancelReason: str | None = None
     paidAmount: float | None = None
     notes: str | None = None
     planId: str | None = None
@@ -95,9 +98,27 @@ class PromiseCreateRequest(BaseModel):
 
 
 class PromisePatchRequest(BaseModel):
-    status: Literal["upcoming", "kept", "broken", "partial"] | None = None
-    promisedDate: str | None = None
+    """Settlement only. A new date or amount is a renegotiation and goes
+    through ``POST /promises/{id}/revise`` with its reason; withdrawing the
+    commitment goes through ``/cancel``."""
+
+    status: Literal["kept", "broken", "partial"] | None = None
     paidAmount: float | None = Field(default=None, ge=0)
+
+
+class PromiseReviseRequest(BaseModel):
+    """The borrower asked for a different date, a different amount, or both."""
+
+    amount: float | None = Field(default=None, gt=0)
+    promisedDate: str | None = None
+    reason: PromiseRevisionReason
+    note: str | None = None
+    interactionId: str | None = None
+
+
+class PromiseCancelRequest(BaseModel):
+    reason: PromiseRevisionReason
+    note: str | None = None
 
 
 class InstallmentCreateRequest(BaseModel):

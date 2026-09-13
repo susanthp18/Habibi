@@ -16,6 +16,8 @@ from sqlalchemy import text
 from agent_core import clock
 from agent_core.clock import utc_now
 from db_core import (
+    _actor,
+    assert_transition,
     DEFAULT_DETAIL_LIMIT,
     _account_tail,
     _activity,
@@ -62,7 +64,8 @@ def _promise_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             text(
                 """
                 SELECT p.id, p.amount, p.promised_at, p.created_at, p.channel, p.status,
-                       p.reminder_status, COALESCE(u.name, b.name) AS handler
+                       p.reminder_status, p.revision_count, p.cancel_reason,
+                       COALESCE(u.name, b.name) AS handler
                 FROM promises p
                 LEFT JOIN users u ON u.id = p.owner_user_id
                 LEFT JOIN bots b ON b.id = p.owner_bot_id
@@ -84,6 +87,8 @@ def _promise_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:
             "handler": r["handler"] or "Unassigned",
             "status": r["status"],
             "reminderStatus": r["reminder_status"],
+            "revisionCount": int(r["revision_count"] or 0),
+            "cancelReason": r["cancel_reason"],
         }
         for r in rows
     ]
@@ -123,6 +128,7 @@ def list_promises(*, limit: int | None = None, offset: int | None = None) -> lis
                     SELECT p.id, p.customer_id, c.name AS customer_name, p.account_id,
                            p.amount, p.promised_at, p.created_at, p.channel, p.status,
                            p.reminder_status, p.paid_amount, p.plan_id, p.owner_kind,
+                           p.revision_count, p.cancel_reason,
                            COALESCE(u.name, b.name) AS owner,
                            pi.status AS payment_intent_status,
                            pi.confirm_channel,
@@ -167,6 +173,8 @@ def list_promises(*, limit: int | None = None, offset: int | None = None) -> lis
                     "owner": r["owner"] or "Unassigned",
                     "reminderStatus": r["reminder_status"],
                     "status": r["status"],
+                    "revisionCount": int(r["revision_count"] or 0),
+                    "cancelReason": r["cancel_reason"],
                     "paidAmount": r["paid_amount"] if r["paid_amount"] else None,
                     "notes": None,
                     "planId": r["plan_id"],
@@ -300,7 +308,7 @@ def _promise_by_id(conn: Any, promise_id: str) -> dict[str, Any]:
         raise KeyError("promise_not_found")
     for item in _promise_contracts(conn, row["customer_id"]):
         if item["id"] == promise_id:
-            return item
+            return {**item, "revisions": _promise_revisions(conn, promise_id)}
     raise KeyError("promise_not_found")
 
 
@@ -341,6 +349,13 @@ def _create_promise(
     customer_id = payload["customerId"]
     _ensure_customer(conn, customer_id)
     account_id = payload.get("accountId") or _first_account_id(conn, customer_id)
+    if account_id:
+        open_id = _open_promise_id(conn, account_id)
+        if open_id:
+            # One commitment per account. The open one travels with the
+            # refusal so every client can offer "revise it" instead.
+            raise ValueError(f"promise_already_open:{open_id}")
+    amount, capped = _capped_amount(conn, account_id, payload["amount"])
     promise_id = _id("PTP")
 
     # Honour the chosen owner (human or bot); fall back to the acting user.
@@ -377,7 +392,7 @@ def _create_promise(
             "owner_kind": owner_kind,
             "owner_user_id": owner_user_id if owner_kind == "human" else None,
             "owner_bot_id": owner_bot_id if owner_kind == "bot" else None,
-            "amount": payload["amount"],
+            "amount": amount,
             "promised_at": clock.local_midnight(payload["promisedDate"]),
             "reminder_status": payload.get("reminderStatus") or "queued",
             "channel": payload.get("channel") or "voice",
@@ -400,6 +415,10 @@ def _create_promise(
         logger.exception("ptp fulfill failed promise=%s", promise_id)
         fulfillment_error = f"{type(exc).__name__}: {exc}"
     response = _promise_by_id(conn, promise_id)
+    if capped:
+        # The pay link can only ever collect the outstanding balance; a promise
+        # for more than that was a figure `kept` could never reach.
+        response["_capped"] = True
     if fulfillment is not None:
         response["_fulfillment"] = fulfillment.as_dict()
         response["_spoken"] = fulfillment.spoken_summary
@@ -409,60 +428,95 @@ def _create_promise(
     return response
 
 
+#: kept is final; broken can still be kept (a late payment); partial can go
+#: either way; cancelled and kept move nowhere. A new date is a revision.
+_PROMISE_TRANSITIONS: dict[str, frozenset[str]] = {
+    "upcoming": frozenset({"kept", "partial", "broken"}),
+    "due_today": frozenset({"kept", "partial", "broken"}),
+    "partial": frozenset({"kept", "broken"}),
+    "broken": frozenset({"kept"}),
+}
+
+#: The `promise_revisions.reason` CHECK; the wire carries the same list.
+REVISION_REASONS: tuple[str, ...] = (
+    "customer_requested_delay",
+    "salary_delayed",
+    "medical",
+    "dispute_raised",
+    "partial_payment_agreed",
+    "agent_correction",
+    "other",
+)
+
+OPEN_STATUSES: tuple[str, ...] = ("upcoming", "due_today")
+
+
+def _open_promise_id(conn: Any, account_id: str) -> str | None:
+    """The account's one open commitment, if any (uq_promises_one_open)."""
+    return conn.execute(
+        text("SELECT id FROM promises WHERE account_id = :a AND status IN ('upcoming','due_today')"),
+        {"a": account_id},
+    ).scalar()
+
+
+def _capped_amount(conn: Any, account_id: str | None, amount: Any) -> tuple[Any, bool]:
+    """A promise cannot exceed what is owed: the pay link caps at outstanding
+    (promise_fulfillment), and `kept` compared against the uncapped figure."""
+    if not account_id:
+        return amount, False
+    outstanding = conn.execute(
+        text("SELECT outstanding FROM accounts WHERE id = :a"), {"a": account_id}
+    ).scalar()
+    if outstanding is None or float(outstanding) <= 0 or float(amount) <= float(outstanding):
+        return amount, False
+    return float(outstanding), True
+
+
+def _refulfil(conn: Any, promise_id: str, what: str) -> dict[str, Any] | None:
+    """Re-derive the reminder and the pay link from the live promise, under a
+    savepoint: the operator's edit is the record, the message a consequence."""
+    import promise_fulfillment
+
+    try:
+        with conn.begin_nested():
+            return promise_fulfillment.fulfill(conn, promise_id).as_dict()
+    except Exception:
+        logger.exception("promise %s re-fulfil failed promise=%s", what, promise_id)
+        return None
+
+
 def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Settle a promise: kept, partial or broken, with what was paid.
+
+    A new date or amount is not a patch -- it is a renegotiation with a
+    reason, see :func:`revise_promise`; withdrawing it is :func:`cancel_promise`.
+    """
     with _db().engine.begin() as conn:
         _assert_tenant_owns(conn, "promises", promise_id)
         row = _one(
             conn.execute(
-                text("SELECT status, customer_id, amount, paid_amount FROM promises WHERE id = :id"),
+                text("SELECT status, customer_id, amount, paid_amount FROM promises WHERE id = :id FOR UPDATE"),
                 {"id": promise_id},
             )
         )
         if row is None:
             raise KeyError("promise_not_found")
         next_status = payload.get("status")
-        if row["status"] == "kept" and next_status in {"broken", "partial"}:
-            raise ValueError("kept promise cannot move to broken/partial")
+        assert_transition("promise", row["status"], next_status, _PROMISE_TRANSITIONS)
         if next_status == "kept":
             current_paid = float(row["paid_amount"] or 0)
             if current_paid < float(row["amount"] or 0):
                 raise ValueError("kept_requires_payment")
-        updates = []
-        params = {"id": promise_id}
-        if next_status:
+        updates: list[str] = []
+        params: dict[str, Any] = {"id": promise_id}
+        if next_status and next_status != row["status"]:
             updates.append("status = :status")
-            # `upcoming` is stored as `upcoming`. "Due today" is a fact about
-            # `promised_at` and the calendar, not a status the client can
-            # express; writing it here produced rows no schema could read back.
             params["status"] = next_status
-        if payload.get("promisedDate"):
-            updates.append("promised_at = :promised_at")
-            params["promised_at"] = clock.local_midnight(payload["promisedDate"])
         if payload.get("paidAmount") is not None:
             updates.append("paid_amount = :paid_amount")
             params["paid_amount"] = payload["paidAmount"]
         if updates:
             conn.execute(text(f"UPDATE promises SET {', '.join(updates)} WHERE id = :id"), params)
-        if payload.get("promisedDate"):
-            # Moving the date moves what the pay link has to say. The intent is
-            # a separate row carrying its own `expires_at`, derived from the
-            # promise date at the moment it was minted, and nothing here used to
-            # touch it — so a rescheduled promise kept the old expiry and the
-            # borrower was sent "pay by 28 Aug, link valid until 23 Aug".
-            #
-            # `fulfill` reuses the open intent (the partial unique index allows
-            # only one) and now refreshes its amount and expiry from the live
-            # promise, so this is a re-derivation rather than a second link.
-            import promise_fulfillment
-
-            try:
-                with conn.begin_nested():
-                    promise_fulfillment.fulfill(conn, promise_id)
-            except Exception:
-                # A reschedule must still succeed if the confirm cannot be
-                # re-sent — the operator's edit is the record, the message is a
-                # consequence of it.
-                logger.exception("promise reschedule re-fulfil failed promise=%s", promise_id)
         if next_status == "broken":
             conn.execute(
                 text(
@@ -476,6 +530,189 @@ def patch_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         _activity(conn, "promise", promise_id, "promise_updated", "Promise updated", next_status, row["customer_id"])
         return _promise_by_id(conn, promise_id)
+
+
+def revise_promise(
+    promise_id: str, payload: dict[str, Any], idempotency_key: str | None = None
+) -> dict[str, Any]:
+    """Renegotiate an open promise: a new date and/or amount, with the reason.
+
+    The promise keeps its id, its reminders and its pay link -- all re-derived
+    -- and the change is one row of history. Refused past the policy cap
+    (`policy_rules.PTP_MAX_REVISIONS`): a date that keeps moving is a broken
+    promise wearing a new one, and the desk has to decide something else.
+    """
+    import policy_rules
+
+    endpoint = f"POST /promises/{promise_id}/revise"
+    reason = str(payload.get("reason") or "")
+    if reason not in REVISION_REASONS:
+        raise ValueError(f"invalid_revision_reason:{reason}")
+    with _db().engine.begin() as conn:
+        cached = _idempotent_response(conn, idempotency_key, endpoint)
+        if cached:
+            return cached
+        _assert_tenant_owns(conn, "promises", promise_id)
+        row = _one(
+            conn.execute(
+                text(
+                    "SELECT status, customer_id, account_id, amount, promised_at, revision_count "
+                    "FROM promises WHERE id = :id FOR UPDATE"
+                ),
+                {"id": promise_id},
+            )
+        )
+        if row is None:
+            raise KeyError("promise_not_found")
+        if row["status"] not in OPEN_STATUSES:
+            raise ValueError(f"promise_not_open:{row['status']}")
+        if int(row["revision_count"] or 0) >= policy_rules.PTP_MAX_REVISIONS:
+            raise ValueError("promise_revision_cap")
+        new_amount = row["amount"]
+        capped = False
+        if payload.get("amount") is not None:
+            new_amount, capped = _capped_amount(conn, row["account_id"], payload["amount"])
+        # _one stringifies timestamps; back to an instant for the compare.
+        prior_at = datetime.fromisoformat(str(row["promised_at"]))
+        new_at = clock.local_midnight(payload["promisedDate"]) if payload.get("promisedDate") else prior_at
+        if float(new_amount) == float(row["amount"]) and new_at == prior_at:
+            raise ValueError("nothing_to_revise")
+        seq = int(row["revision_count"] or 0) + 1
+        actor_kind, actor_user_id, actor_bot_id = _actor()
+        conn.execute(
+            text(
+                """
+                INSERT INTO promise_revisions
+                  (id, promise_id, seq, prior_amount, prior_promised_at, amount, promised_at,
+                   reason, note, actor_kind, actor_user_id, actor_bot_id, interaction_id)
+                VALUES
+                  (:id, :promise_id, :seq, :prior_amount, :prior_at, :amount, :at,
+                   :reason, :note, :actor_kind, :actor_user_id, :actor_bot_id, :interaction_id)
+                """
+            ),
+            {
+                "id": _id("PRV"),
+                "promise_id": promise_id,
+                "seq": seq,
+                "prior_amount": row["amount"],
+                "prior_at": prior_at,
+                "amount": new_amount,
+                "at": new_at,
+                "reason": reason,
+                "note": (payload.get("note") or "").strip() or None,
+                "actor_kind": actor_kind,
+                "actor_user_id": actor_user_id,
+                "actor_bot_id": actor_bot_id,
+                "interaction_id": payload.get("interactionId"),
+            },
+        )
+        # A moved date is upcoming again whatever the calendar said yesterday;
+        # the settler re-derives due_today from promised_at.
+        conn.execute(
+            text(
+                """
+                UPDATE promises
+                SET amount = :amount, promised_at = :at, revision_count = :seq, status = 'upcoming'
+                WHERE id = :id
+                """
+            ),
+            {"id": promise_id, "amount": new_amount, "at": new_at, "seq": seq},
+        )
+        label = f"Promise moved to {new_at.astimezone(clock.tenant_tz()).date().isoformat()} for {float(new_amount):.2f} ({reason})"
+        _activity(conn, "promise", promise_id, "promise_revised", label, payload.get("note"), row["customer_id"])
+        fulfillment = _refulfil(conn, promise_id, "revise")
+        response = _promise_by_id(conn, promise_id)
+        if capped:
+            response["_capped"] = True
+        if fulfillment is not None:
+            response["_fulfillment"] = fulfillment
+        _store_idempotent_response(conn, idempotency_key, endpoint, response)
+        return response
+
+
+def cancel_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Withdraw an open commitment with its reason; the account is free for a
+    new one. Pending reminders stop and the open pay link is cancelled."""
+    reason = str(payload.get("reason") or "")
+    if reason not in REVISION_REASONS:
+        raise ValueError(f"invalid_revision_reason:{reason}")
+    with _db().engine.begin() as conn:
+        _assert_tenant_owns(conn, "promises", promise_id)
+        row = _one(
+            conn.execute(
+                text("SELECT status, customer_id FROM promises WHERE id = :id FOR UPDATE"), {"id": promise_id}
+            )
+        )
+        if row is None:
+            raise KeyError("promise_not_found")
+        if row["status"] not in OPEN_STATUSES:
+            raise ValueError(f"promise_not_open:{row['status']}")
+        _actor_kind, actor_user_id, actor_bot_id = _actor()
+        conn.execute(
+            text(
+                """
+                UPDATE promises
+                SET status = 'cancelled', cancel_reason = :reason, cancelled_at = now(),
+                    cancelled_by = :by, reminder_status = 'off'
+                WHERE id = :id
+                """
+            ),
+            {"id": promise_id, "reason": reason, "by": actor_user_id or actor_bot_id},
+        )
+        conn.execute(
+            text(
+                "UPDATE promise_reminders SET status = 'off' "
+                "WHERE promise_id = :id AND status IN ('queued','scheduled')"
+            ),
+            {"id": promise_id},
+        )
+        conn.execute(
+            text(
+                "UPDATE payment_intents SET status = 'cancelled' "
+                "WHERE promise_id = :id AND status IN ('created','sent','opened')"
+            ),
+            {"id": promise_id},
+        )
+        _activity(
+            conn, "promise", promise_id, "promise_cancelled", f"Promise cancelled ({reason})",
+            payload.get("note"), row["customer_id"],
+        )
+        return _promise_by_id(conn, promise_id)
+
+
+def _promise_revisions(conn: Any, promise_id: str) -> list[dict[str, Any]]:
+    rows = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT r.seq, r.prior_amount, r.prior_promised_at, r.amount, r.promised_at,
+                       r.reason, r.note, r.actor_kind, r.created_at,
+                       COALESCE(u.name, b.name) AS actor
+                FROM promise_revisions r
+                LEFT JOIN users u ON u.id = r.actor_user_id
+                LEFT JOIN bots b ON b.id = r.actor_bot_id
+                WHERE r.promise_id = :id
+                ORDER BY r.seq
+                """
+            ),
+            {"id": promise_id},
+        )
+    )
+    return [
+        {
+            "seq": r["seq"],
+            "priorAmount": r["prior_amount"],
+            "priorPromisedDate": r["prior_promised_at"],
+            "amount": r["amount"],
+            "promisedDate": r["promised_at"],
+            "reason": r["reason"],
+            "note": r["note"],
+            "actorKind": r["actor_kind"],
+            "actor": r["actor"],
+            "createdAt": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 def resend_promise_confirm(promise_id: str) -> dict[str, Any]:

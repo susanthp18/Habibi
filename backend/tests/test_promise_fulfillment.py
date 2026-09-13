@@ -326,7 +326,10 @@ def test_a_raising_fulfiller_leaves_the_promise_committed(db_tx, monkeypatch) ->
     ).mappings().first()
     assert row is not None and row["status"] == "upcoming"
 
-    # The tool must not have the model confirm a message that never went.
+    # The tool must not have the model confirm a message that never went. The
+    # account holds one open promise, so the first is withdrawn before the
+    # tool's own create.
+    db.cancel_promise(response["id"], {"reason": "agent_correction"})
     out = _create(customer_id, account_id, amount=500, days=3)
     assert out.ok is True
     assert out.data["fulfillmentError"].startswith("ProgrammingError")
@@ -412,8 +415,25 @@ def test_settle_breaks_in_bounded_batches(db_tx, monkeypatch) -> None:
     import promise_fulfillment
 
     monkeypatch.setattr(promise_fulfillment, "_SETTLE_BATCH", 1)
-    customer_id, account_id = _customer(db_tx)
-    pids = [_create(customer_id, account_id, amount=40.0 + i, days=1).data["promiseId"] for i in range(3)]
+    # One open promise per account, so three overdue promises are three accounts.
+    rows = db_tx.execute(
+        text(
+            """
+            SELECT c.id, a.id AS account_id
+            FROM customers c JOIN accounts a ON a.customer_id = c.id
+            WHERE c.id <> 'UNKNOWN-CALLER'
+              AND NOT EXISTS (SELECT 1 FROM promises p WHERE p.account_id = a.id
+                              AND p.status IN ('upcoming','due_today'))
+            ORDER BY c.id LIMIT 3
+            """
+        )
+    ).mappings().all()
+    if len(rows) < 3:
+        pytest.skip("needs three accounts without an open promise")
+    pids = [
+        _create(r["id"], r["account_id"], amount=40.0 + i, days=1).data["promiseId"]
+        for i, r in enumerate(rows)
+    ]
     db_tx.execute(
         text(
             """

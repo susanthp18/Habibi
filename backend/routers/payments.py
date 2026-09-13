@@ -25,7 +25,9 @@ from schemas import (
     PaymentWebhookResponse,
     PromiseCreateRequest,
     PromiseListResponse,
+    PromiseCancelRequest,
     PromisePatchRequest,
+    PromiseReviseRequest,
     PromiseResendConfirmResponse,
     PromiseResponse,
 )
@@ -91,6 +93,21 @@ def create_promise(payload: PromiseCreateRequest, idempotency_key: str | None = 
 @router.patch("/promises/{promise_id}", response_model=PromiseResponse)
 def patch_promise(promise_id: str, payload: PromisePatchRequest):
     return _handle_write(db.patch_promise, promise_id, payload.model_dump(exclude_none=True))
+
+@router.post("/promises/{promise_id}/revise", response_model=PromiseResponse)
+def revise_promise(
+    promise_id: str, payload: PromiseReviseRequest, idempotency_key: str | None = Header(default=None)
+):
+    """The borrower asked to move the date or change the amount. The promise
+    keeps its id, reminders and pay link; the change is written down with
+    its reason."""
+    return _handle_write(db.revise_promise, promise_id, payload.model_dump(exclude_none=True), idempotency_key)
+
+@router.post("/promises/{promise_id}/cancel", response_model=PromiseResponse)
+def cancel_promise(promise_id: str, payload: PromiseCancelRequest):
+    """The commitment is withdrawn -- by the borrower, or because a dispute or
+    a settlement elsewhere made it moot. Frees the account for a new one."""
+    return _handle_write(db.cancel_promise, promise_id, payload.model_dump(exclude_none=True))
 
 @router.post("/promises/{promise_id}/resend-confirm", response_model=PromiseResendConfirmResponse)
 def resend_promise_confirm(promise_id: str):

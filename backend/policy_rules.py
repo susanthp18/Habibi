@@ -55,6 +55,11 @@ from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
+#: How many times one promise may be renegotiated before the desk has to
+#: decide something else -- a plan, a hardship review, a hold. Three is the
+#: point past which a moving date is a broken promise wearing a new one.
+PTP_MAX_REVISIONS = 3
+
 SCOPE_STATUTORY = "statutory"
 SCOPE_CLIENT = "client"
 SCOPE_PRODUCT = "product"

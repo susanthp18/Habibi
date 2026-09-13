@@ -25,7 +25,18 @@ Channel = Literal["voice", "whatsapp", "chat", "email", "sms"]
 
 
 #: promises.status -- the CHECK's list; due_today is a row state, not a screen derivation.
-PromiseStatus = Literal["upcoming", "due_today", "kept", "broken", "partial"]
+PromiseStatus = Literal["upcoming", "due_today", "kept", "broken", "partial", "cancelled"]
+
+#: Why a promise was renegotiated -- the `promise_revisions.reason` CHECK.
+PromiseRevisionReason = Literal[
+    "customer_requested_delay",
+    "salary_delayed",
+    "medical",
+    "dispute_raised",
+    "partial_payment_agreed",
+    "agent_correction",
+    "other",
+]
 
 #: promises.reminder_status -- the CHECK's list.
 ReminderStatus = Literal["off", "queued", "scheduled", "sent", "acknowledged", "failed"]
@@ -116,6 +127,19 @@ class InteractionResponse(BaseModel):
     transcript: list[str] = []
 
 
+class PromiseRevisionResponse(BaseModel):
+    seq: int
+    priorAmount: float
+    priorPromisedDate: str
+    amount: float
+    promisedDate: str
+    reason: PromiseRevisionReason
+    note: str | None = None
+    actorKind: Literal["human", "bot", "system"]
+    actor: str | None = None
+    createdAt: str
+
+
 class PromiseResponse(BaseModel):
     id: str
     amount: float
@@ -125,6 +149,9 @@ class PromiseResponse(BaseModel):
     handler: str
     status: PromiseStatus
     reminderStatus: ReminderStatus
+    revisionCount: int = 0
+    cancelReason: str | None = None
+    revisions: list[PromiseRevisionResponse] = []
 
 
 # Disputes carry the work-item tones plus "done": a resolved dispute has no

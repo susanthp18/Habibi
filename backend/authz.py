@@ -471,6 +471,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
         ("POST", "/promises"): COLLECTIONS_WRITE,
         ("PATCH", "/promises/{promise_id}"): COLLECTIONS_WRITE,
         ("POST", "/promises/{promise_id}/resend-confirm"): COLLECTIONS_WRITE,
+        ("POST", "/promises/{promise_id}/revise"): COLLECTIONS_WRITE,
+        ("POST", "/promises/{promise_id}/cancel"): COLLECTIONS_WRITE,
     # --- next-best-treatment (P3) ------------------------------------------
     # Reading the plan is a collections read even though it writes a decision
     # row: the row is a log of the question, not a change to the borrower's

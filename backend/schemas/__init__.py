@@ -49,6 +49,8 @@ from schemas.common import (
     PaymentEventWebhookResponse as PaymentEventWebhookResponse,
     PaymentWebhookResponse as PaymentWebhookResponse,
     PromiseResponse as PromiseResponse,
+    PromiseRevisionReason as PromiseRevisionReason,
+    PromiseRevisionResponse as PromiseRevisionResponse,
     PromiseStatus as PromiseStatus,
     ReminderStatus as ReminderStatus,
     Sender as Sender,
@@ -65,7 +67,9 @@ from schemas.payments import (
     PromiseCreateRequest as PromiseCreateRequest,
     PromiseFulfillmentResponse as PromiseFulfillmentResponse,
     PromiseListResponse as PromiseListResponse,
+    PromiseCancelRequest as PromiseCancelRequest,
     PromisePatchRequest as PromisePatchRequest,
+    PromiseReviseRequest as PromiseReviseRequest,
     PromiseResendConfirmResponse as PromiseResendConfirmResponse,
     PtpEventResponse as PtpEventResponse,
 )

@@ -14,7 +14,17 @@
     "due_today",
     "kept",
     "broken",
-    "partial"
+    "partial",
+    "cancelled"
+  ],
+  "promiseRevisionReasons": [
+    "customer_requested_delay",
+    "salary_delayed",
+    "medical",
+    "dispute_raised",
+    "partial_payment_agreed",
+    "agent_correction",
+    "other"
   ],
   "reminderStatuses": [
     "off",

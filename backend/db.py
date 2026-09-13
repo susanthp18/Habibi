@@ -2030,6 +2030,9 @@ from db_documents import (  # noqa: E402
 )
 
 from db_promises import (  # noqa: E402
+    REVISION_REASONS as REVISION_REASONS,
+    cancel_promise as cancel_promise,
+    revise_promise as revise_promise,
     _promise_contracts as _promise_contracts,
     OwnerBotNotFound as OwnerBotNotFound,
     _create_promise as _create_promise,
