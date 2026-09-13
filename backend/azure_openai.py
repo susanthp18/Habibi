@@ -255,28 +255,44 @@ def get_analysis_client() -> AzureOpenAI:
         return _analysis_client
 
 
-def _reasoning_override() -> bool | None:
+#: The override the text process reads. Voice reads its own first, then this.
+REASONING_OVERRIDE_ENVS: tuple[str, ...] = ("AZURE_OPENAI_REASONING_MODEL",)
+VOICE_REASONING_OVERRIDE_ENVS: tuple[str, ...] = (
+    "AZURE_OPENAI_VOICE_REASONING_MODEL",
+    "AZURE_OPENAI_REASONING_MODEL",
+)
+
+
+def _reasoning_override(envs: tuple[str, ...] = REASONING_OVERRIDE_ENVS) -> bool | None:
     """Explicit config: reasoning models (o-series / GPT-5) reject a custom
     ``temperature`` and require ``max_completion_tokens``. Deployment names are
     user-defined aliases (an o-series model may be named ``prod-chat``), so an
-    explicit flag must be able to force the behaviour. Returns True/False when the
-    flag is set, else None to fall back to the name heuristic.
+    explicit flag must be able to force the behaviour. The first of ``envs``
+    that is set decides; returns None when none is, to fall back to the name.
     """
-    raw = (os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip().lower()
-    if not raw:
-        return None
-    if env_bool("AZURE_OPENAI_REASONING_MODEL"):
-        return True
-    if raw in ("0", "false", "no", "off"):
-        return False
+    for name in envs:
+        raw = (os.getenv(name) or "").strip().lower()
+        if not raw:
+            continue
+        if env_bool(name):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
     return None
 
 
-def _is_reasoning_deployment(deployment: str) -> bool:
+def _is_reasoning_deployment(
+    deployment: str, *, envs: tuple[str, ...] = REASONING_OVERRIDE_ENVS
+) -> bool:
     """Whether the chat deployment is a reasoning model. Explicit override wins;
     otherwise fall back to matching the common family substrings in the name.
+
+    The one definition: the voice pool and the tuning layer used to carry
+    their own copies with a narrower name heuristic and a different override
+    order, so the same deployment could be "reasoning" to one and not the
+    other.
     """
-    override = _reasoning_override()
+    override = _reasoning_override(envs)
     if override is not None:
         return override
     d = (deployment or "").lower()

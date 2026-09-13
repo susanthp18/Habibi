@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 import logging
-import os
 import threading
 import time
 
@@ -21,7 +20,6 @@ from openai import AsyncAzureOpenAI, DefaultAsyncHttpxClient
 
 from pipecat.services.azure.llm import AzureLLMService
 
-from env_utils import env_bool
 from voice import config as voice_config
 
 logger = logging.getLogger(__name__)
@@ -111,25 +109,12 @@ class KeepAliveAzureLLMService(AzureLLMService):
 
 
 def _is_reasoning_deployment(deployment: str) -> bool:
-    """gpt-5 / o-series deployments require ``max_completion_tokens`` (not
-    ``max_tokens``) and reject a custom ``temperature``. Explicit config override
-    wins over the name heuristic, since deployment names are user-defined aliases.
-    """
-    voice_raw = (os.getenv("AZURE_OPENAI_VOICE_REASONING_MODEL") or "").strip()
-    base_raw = (os.getenv("AZURE_OPENAI_REASONING_MODEL") or "").strip()
-    chosen = voice_raw or base_raw
-    if chosen:
-        name = (
-            "AZURE_OPENAI_VOICE_REASONING_MODEL"
-            if voice_raw
-            else "AZURE_OPENAI_REASONING_MODEL"
-        )
-        if env_bool(name):
-            return True
-        if chosen.lower() in ("0", "false", "no", "off"):
-            return False
-    d = (deployment or "").lower()
-    return d.startswith(("o1", "o3", "o4")) or "gpt-5" in d or "gpt5" in d
+    """The one definition, with the voice override read first."""
+    import azure_openai
+
+    return azure_openai._is_reasoning_deployment(
+        deployment, envs=azure_openai.VOICE_REASONING_OVERRIDE_ENVS
+    )
 
 
 def build_completion_kwargs(
