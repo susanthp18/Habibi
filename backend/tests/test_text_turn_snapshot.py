@@ -189,13 +189,14 @@ def _rows(conn, job: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
 
 
 def render(monkeypatch: pytest.MonkeyPatch, conn) -> dict[str, Any]:
+    import bot_conversation
     import bot_runtime
     import db
 
     monkeypatch.setenv("UNDERSTANDING_LLM_ENABLED", "0")
     # The gate is its own function and not what is being moved; a fresh number
     # has no consent on file and the policy would refuse before the turn ran.
-    monkeypatch.setattr(bot_runtime, "_policy_gate", lambda _engine, _conv: None)
+    monkeypatch.setattr(bot_conversation, "policy_gate", lambda _engine, _conv: None)
     monkeypatch.setattr(
         bot_runtime.wa,
         "send_text_message",

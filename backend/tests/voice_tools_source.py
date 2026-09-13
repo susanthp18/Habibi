@@ -55,6 +55,7 @@ def source() -> str:
 def text_turn_source() -> str:
     """``bot_runtime._handle_turn`` and the phases it became, in phase order."""
     import bot_runtime
+    import bot_turn_write
 
     return "\n".join(
         inspect.getsource(f)
@@ -65,8 +66,8 @@ def text_turn_source() -> str:
             bot_runtime._understand_turn,
             bot_runtime._run_model,
             bot_runtime._tool_loop,
-            bot_runtime._send_reply,
-            bot_runtime._persist_turn,
+            bot_turn_write.send_reply,
+            bot_turn_write.persist_turn,
         )
     )
 

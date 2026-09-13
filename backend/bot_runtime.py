@@ -9,21 +9,20 @@ from __future__ import annotations
 import json
 import logging
 import os
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 import azure_openai
+import bot_conversation
 import bot_jobs
+import bot_turn_write
 import bot_tools
 import db
 import whatsapp as wa
 from agent_core import lexicon
-from agent_core import perception
 from agent_core.compaction import run_up
 from agent_core.deployment import ChannelNotAuthored, load_active_bundle
 from agent_core.prompt import build_system_prompt, default_context
@@ -72,220 +71,6 @@ def _max_tool_iterations() -> int:
 
 def _hard_max_turns() -> int:
     return max(1, env_int("BOT_HARD_MAX_TURNS", 12))
-
-
-def _load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | None:
-    with engine.connect() as conn:
-        return conn.execute(
-            text(
-                """
-                SELECT cv.id, cv.customer_id, cv.interaction_id, cv.status,
-                       cv.assigned_user_id, cv.channel, cv.bot_state,
-                       c.name AS customer_name, c.phone_primary, c.phone_alt,
-                       c.dnd, c.preferred_window, c.language,
-                       a.id AS account_id, a.outstanding, a.dpd, a.minimum_due,
-                       p.name AS product,
-                       (
-                         SELECT MAX(COALESCE(m.sent_at, m.created_at))
-                         FROM messages m
-                         WHERE m.conversation_id = cv.id
-                           AND m.sender = 'customer'
-                           AND m.provider_ref IS NOT NULL
-                       ) AS last_customer_at
-                FROM conversations cv
-                JOIN customers c ON c.id = cv.customer_id
-                LEFT JOIN LATERAL (
-                  SELECT * FROM accounts a
-                  WHERE a.customer_id = c.id
-                  ORDER BY CASE WHEN a.id LIKE 'AC-%' THEN 0 ELSE 1 END, a.created_at, a.id
-                  LIMIT 1
-                ) a ON true
-                LEFT JOIN products p ON p.id = a.product_id
-                WHERE cv.id = :id
-                """
-            ),
-            {"id": conversation_id},
-        ).mappings().first()
-
-
-def _whatsapp_opted_in(engine: Engine, customer_id: str) -> bool | None:
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT cc.status
-                FROM consent_records cr
-                JOIN channel_consents cc ON cc.consent_id = cr.id
-                WHERE cr.customer_id = :cid
-                  AND lower(cc.channel) IN ('whatsapp', 'wa')
-                ORDER BY cc.captured_at DESC NULLS LAST
-                LIMIT 1
-                """
-            ),
-            {"cid": customer_id},
-        ).mappings().first()
-    if row is None:
-        return None
-    return (row.get("status") or "").lower() == "opted_in"
-
-
-def _within_24h(last_customer_at: Any) -> bool:
-    if last_customer_at is None:
-        return False
-    if isinstance(last_customer_at, str):
-        last_customer_at = datetime.fromisoformat(last_customer_at.replace("Z", "+00:00"))
-    if getattr(last_customer_at, "tzinfo", None) is None:
-        last_customer_at = last_customer_at.replace(tzinfo=timezone.utc)
-    age = utc_now() - last_customer_at.astimezone(timezone.utc)
-    return age <= timedelta(hours=24)
-
-
-def _policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
-    """Return abort reason or None if send is allowed."""
-    if not bot_jobs.bot_runtime_enabled():
-        return "bot_runtime_disabled"
-    if conv.get("status") != "bot" or conv.get("assigned_user_id"):
-        return "takeover_or_not_bot"
-    if conv.get("channel") != "whatsapp":
-        return "unsupported_channel"
-    if conv.get("dnd"):
-        return "customer_dnd"
-    opted = _whatsapp_opted_in(engine, conv["customer_id"])
-    if opted is False:
-        return "whatsapp_opted_out"
-    if not _within_24h(conv.get("last_customer_at")):
-        return "whatsapp_window_closed"
-    try:
-        import contact_policy
-
-        with engine.begin() as conn:
-            decision = contact_policy.admit(
-                conn,
-                customer_id=conv.get("customer_id"),
-                channel="whatsapp",
-                purpose="in_session",
-                session_key=conv.get("id"),
-                source="bot_reply",
-                related_id=conv.get("id"),
-                actor_kind="bot",
-                endpoint=conv.get("phone_primary"),
-            )
-        if not decision.allowed:
-            return decision.reason or "contact_policy"
-    except Exception:
-        logger.exception("contact_policy bot gate failed conversation=%s", conv.get("id"))
-    return None
-
-
-def _latest_customer_text(engine: Engine, conversation_id: str) -> tuple[str, str | None]:
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT id, body FROM messages
-                WHERE conversation_id = :cid AND sender = 'customer'
-                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
-                LIMIT 1
-                """
-            ),
-            {"cid": conversation_id},
-        ).mappings().first()
-    if not row:
-        return "", None
-    return (row.get("body") or "").strip(), row.get("id")
-
-
-def _message_sent_at(conn: Any, message_id: str | None) -> datetime | None:
-    """When a message actually landed — for stamping its transcript offset."""
-    if not message_id:
-        return None
-    row = conn.execute(
-        text("SELECT COALESCE(sent_at, created_at) AS at FROM messages WHERE id = :id"),
-        {"id": message_id},
-    ).first()
-    return row[0] if row else None
-
-
-def _message_history(
-    engine: Engine,
-    conversation_id: str,
-    limit: int,
-    *,
-    since: datetime | None = None,
-) -> list[dict[str, str]]:
-    with engine.connect() as conn:
-        # Fetch only the newest `limit` rows (avoids loading the whole thread each
-        # turn — O(n²) over a long WhatsApp conversation), then restore chrono order.
-        if since is not None:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT sender, body FROM messages
-                    WHERE conversation_id = :cid
-                      AND sender IN ('customer', 'bot', 'agent')
-                      AND COALESCE(sent_at, created_at) >= :since
-                    ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
-                    LIMIT :limit
-                    """
-                ),
-                {"cid": conversation_id, "limit": limit, "since": since},
-            ).mappings().all()
-        else:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT sender, body FROM messages
-                    WHERE conversation_id = :cid
-                      AND sender IN ('customer', 'bot', 'agent')
-                    ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
-                    LIMIT :limit
-                    """
-                ),
-                {"cid": conversation_id, "limit": limit},
-            ).mappings().all()
-    rows = list(reversed(rows))
-    history: list[dict[str, str]] = []
-    for r in rows:
-        body = (r.get("body") or "").strip()
-        if not body:
-            continue
-        sender = r.get("sender")
-        if sender == "customer":
-            history.append({"role": "user", "content": body})
-        else:
-            history.append({"role": "assistant", "content": body})
-    return history[-(limit):]
-
-
-def _parse_dialog_reset_at(state: dict[str, Any]) -> datetime | None:
-    raw = state.get("dialog_reset_at")
-    if not raw:
-        return None
-    if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
-    try:
-        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _history_already_disclosed_recording(history: list[dict[str, str]]) -> bool:
-    """Has any bot turn in this thread stated the recording disclosure?
-
-    The detector is ``agent_core.guardrails.mentions_recording_disclosure`` --
-    the same one the guardrail evaluator and the Studio lint run. This used to
-    be a fourth copy (a tuple of four substrings) that disagreed with the
-    other three about what counts as a disclosure.
-    """
-    from agent_core.guardrails import mentions_recording_disclosure
-
-    return any(
-        turn.get("role") == "assistant" and mentions_recording_disclosure(turn.get("content") or "")
-        for turn in history
-    )
 
 
 def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recording: bool) -> str:
@@ -399,19 +184,6 @@ def _looks_like_closing(text: str) -> bool:
     return t in {"thanks", "thank you", "ty", "cool", "great"}
 
 
-def _bot_state(conv: dict[str, Any]) -> dict[str, Any]:
-    raw = conv.get("bot_state")
-    if isinstance(raw, dict):
-        return dict(raw)
-    if isinstance(raw, str) and raw.strip():
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            return {}
-    return {}
-
-
 def _hop_to(
     walker: Any,
     tool_ctx: Any,
@@ -510,120 +282,6 @@ def _walk_graph_tool(walker: Any, name: str, arguments: Any) -> tuple[bool, dict
     return True, {"ok": True, "node": target.key}
 
 
-def _save_bot_state(engine: Engine, conversation_id: str, state: dict[str, Any]) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE conversations
-                SET bot_state = CAST(:state AS jsonb), updated_at = now()
-                WHERE id = :id
-                """
-            ),
-            {"id": conversation_id, "state": json.dumps(state)},
-        )
-
-
-def _existing_outbound(engine: Engine, job_id: str) -> dict[str, Any] | None:
-    with engine.connect() as conn:
-        return conn.execute(
-            text(
-                """
-                SELECT id, delivery_status, provider_ref, body
-                FROM messages
-                WHERE bot_turn_job_id = :job_id
-                LIMIT 1
-                """
-            ),
-            {"job_id": job_id},
-        ).mappings().first()
-
-
-def _persist_outbound_sending(
-    engine: Engine,
-    *,
-    conversation_id: str,
-    job_id: str,
-    body: str,
-) -> str:
-    msg_id = f"MSG-{uuid.uuid4().hex[:10].upper()}"
-    now = utc_now()
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO messages (
-                  id, conversation_id, sender, body, delivery_status,
-                  bot_turn_job_id, sent_at
-                ) VALUES (
-                  :id, :conversation_id, 'bot', :body, 'sending',
-                  :bot_turn_job_id, :sent_at
-                )
-                """
-            ),
-            {
-                "id": msg_id,
-                "conversation_id": conversation_id,
-                "body": body,
-                "bot_turn_job_id": job_id,
-                "sent_at": now,
-            },
-        )
-        conn.execute(
-            text(
-                """
-                UPDATE bot_turn_jobs
-                SET outbound_message_id = :mid, updated_at = now()
-                WHERE id = :job_id
-                """
-            ),
-            {"mid": msg_id, "job_id": job_id},
-        )
-        conn.execute(
-            text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-            {"id": conversation_id},
-        )
-    return msg_id
-
-
-def _finalize_outbound(
-    engine: Engine,
-    *,
-    message_id: str,
-    provider_ref: str | None,
-    delivery_status: str,
-    customer_id: str | None,
-    conversation_id: str,
-    body: str,
-) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE messages
-                SET provider_ref = COALESCE(:provider_ref, provider_ref),
-                    delivery_status = :delivery_status
-                WHERE id = :id
-                """
-            ),
-            {
-                "id": message_id,
-                "provider_ref": provider_ref,
-                "delivery_status": delivery_status,
-            },
-        )
-        if delivery_status == "sent":
-            db.record_activity(
-                conn,
-                "conversation",
-                conversation_id,
-                "bot_reply_sent",
-                "Bot WhatsApp reply sent",
-                body[:120],
-                customer_id,
-            )
-
-
 def _build_messages(
     *,
     bundle: dict[str, Any],
@@ -671,7 +329,7 @@ def _build_messages(
         # chat thread. The builder now states the medium instead.
         channel="whatsapp",
     )
-    disclosed = _history_already_disclosed_recording(history)
+    disclosed = bot_conversation.history_already_disclosed_recording(history)
     system += (
         # "## WhatsApp behaviour", not a second "## Channel":
         # build_system_prompt now owns a "## Channel" section naming the
@@ -813,7 +471,7 @@ def _reuse_prior_outbound(engine: Engine, job: dict[str, Any]) -> tuple[str | No
     stuck in ``sending``, or a prior definite/ambiguous send error)."""
     job_id = job["id"]
 
-    existing = _existing_outbound(engine, job_id)
+    existing = bot_conversation.existing_outbound(engine, job_id)
     if existing and (existing.get("delivery_status") or "") == "sent":
         with engine.begin() as conn:
             bot_jobs.mark_succeeded(conn, job_id, outbound_message_id=existing["id"])
@@ -892,7 +550,7 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
         return None
     reuse_outbound_id, reuse_body = reuse
 
-    conv = _load_conversation(engine, conversation_id)
+    conv = bot_conversation.load_conversation(engine, conversation_id)
     if not conv:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, "conversation_not_found")
@@ -903,20 +561,20 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
 
     usage_meter.retarget_attribution(conv.get("interaction_id"))
 
-    gate = _policy_gate(engine, conv)
+    gate = bot_conversation.policy_gate(engine, conv)
     if gate:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, gate)
         logger.info("bot_turn cancelled job=%s reason=%s", job_id, gate)
         return None
 
-    customer_text, latest_msg_id = _latest_customer_text(engine, conversation_id)
+    customer_text, latest_msg_id = bot_conversation.latest_customer_text(engine, conversation_id)
     if not customer_text:
         with engine.begin() as conn:
             bot_jobs.mark_cancelled(conn, job_id, "no_customer_text")
         return None
 
-    state = _bot_state(conv)
+    state = bot_conversation.bot_state(conv)
 
     # Stale reuse: regenerate unless the reserved body was generated against the
     # message that is still the latest one. `last_trigger_message_id` is the
@@ -1010,7 +668,7 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
                 "escalate_reason": reason,
             }
         )
-        _save_bot_state(engine, conversation_id, state)
+        bot_conversation.save_bot_state(engine, conversation_id, state)
         with engine.begin() as conn:
             bot_jobs.mark_succeeded(conn, job_id)
         logger.info("bot_turn early-escalate job=%s reason=%s", job_id, reason)
@@ -1064,8 +722,8 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
     # The per-intent narrowing that used to size this fetch now trims the list
     # afterwards instead — trimming needs no second round trip, and the rows are
     # identical either way because both paths take the newest `hist_limit * 4`.
-    reset_at = _parse_dialog_reset_at(state)
-    full_history = _message_history(
+    reset_at = bot_conversation.parse_dialog_reset_at(state)
+    full_history = bot_conversation.message_history(
         engine,
         conversation_id,
         _history_limit() * 4,
@@ -1403,7 +1061,7 @@ def _tool_loop(
         # after `go_to_negotiate` must not still be offering the step before.
         turn_tools = _turn_tools(_offered_names())
         # Re-check take-over race before each Azure call.
-        fresh = _load_conversation(engine, conversation_id)
+        fresh = bot_conversation.load_conversation(engine, conversation_id)
         if not fresh or fresh.get("status") != "bot" or fresh.get("assigned_user_id"):
             with engine.begin() as conn:
                 bot_jobs.mark_cancelled(conn, job_id, "takeover_mid_flight")
@@ -1523,7 +1181,7 @@ def _tool_loop(
                         "escalate_reason": tool_ctx.escalate_reason,
                     }
                 )
-                _save_bot_state(engine, conversation_id, state)
+                bot_conversation.save_bot_state(engine, conversation_id, state)
                 logger.info("bot_turn escalated job=%s reason=%s", job_id, tool_ctx.escalate_reason)
                 return False
 
@@ -1544,292 +1202,12 @@ def _tool_loop(
     return True
 
 
-def _send_reply(engine: Engine, t: Turn) -> bool:
-    """Persist-then-send. ``t.msg_id`` and ``t.fresh`` on ``True``; ``False`` when the
-    turn was cancelled at the final take-over check or the number is undeliverable."""
-    job_id = t.job_id
-    conversation_id = t.conversation_id
-    reuse_outbound_id = t.reuse_outbound_id
-    final_text = t.final_text
-
-    # Final take-over race check immediately before persist/send.
-    fresh = _load_conversation(engine, conversation_id)
-    gate = _policy_gate(engine, fresh) if fresh else "conversation_missing"
-    if gate:
-        with engine.begin() as conn:
-            bot_jobs.mark_cancelled(conn, job_id, gate)
-        return False
-
-    if reuse_outbound_id:
-        msg_id = reuse_outbound_id
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE messages
-                    SET body = :body,
-                        delivery_status = 'sending',
-                        provider_ref = NULL,
-                        sent_at = now()
-                    WHERE id = :id
-                    """
-                ),
-                {"id": msg_id, "body": final_text},
-            )
-    else:
-        msg_id = _persist_outbound_sending(
-            engine,
-            conversation_id=conversation_id,
-            job_id=job_id,
-            body=final_text,
-        )
-
-    to_phone = wa.normalize_phone(fresh.get("phone_primary"))
-    if not to_phone:
-        # No deliverable number on the customer record. This is not a transport
-        # failure — retrying and escalating would both be noise.
-        _finalize_outbound(
-            engine,
-            message_id=msg_id,
-            provider_ref=None,
-            delivery_status="failed",
-            customer_id=fresh.get("customer_id"),
-            conversation_id=conversation_id,
-            body=final_text,
-        )
-        with engine.begin() as conn:
-            bot_jobs.mark_cancelled(conn, job_id, "missing_recipient")
-        logger.warning(
-            "bot_turn outbound has no recipient phone job=%s conversation=%s",
-            job_id,
-            conversation_id,
-        )
-        return False
-    try:
-        send_resp = wa.send_text_message(to_phone=to_phone, body=final_text)
-        provider_ref = wa.extract_wamid(send_resp)
-        _finalize_outbound(
-            engine,
-            message_id=msg_id,
-            provider_ref=provider_ref,
-            delivery_status="sent",
-            customer_id=fresh.get("customer_id"),
-            conversation_id=conversation_id,
-            body=final_text,
-        )
-    except Exception as exc:
-        err_str = str(exc)
-        if wa.is_ambiguous_transport_error(err_str):
-            # Meta may have accepted the POST. Leave the row in 'sending' so the
-            # next pass takes the "stuck sending" branch and parks it for manual
-            # reconciliation instead of re-POSTing a possible duplicate.
-            logger.warning(
-                "bot_turn outbound ambiguous transport error — leaving 'sending' "
-                "for reconciliation job=%s message=%s err=%s",
-                job_id,
-                msg_id,
-                err_str[:200],
-            )
-            with engine.begin() as conn:
-                bot_jobs.mark_cancelled(
-                    conn, job_id, f"outbound_ambiguous_transport:{err_str[:500]}"
-                )
-            return False
-        _finalize_outbound(
-            engine,
-            message_id=msg_id,
-            provider_ref=None,
-            delivery_status="failed",
-            customer_id=fresh.get("customer_id"),
-            conversation_id=conversation_id,
-            body=final_text,
-        )
-        if wa.is_definite_client_error(err_str):
-            with engine.begin() as conn:
-                bot_jobs.mark_cancelled(conn, job_id, err_str[:2000])
-            logger.warning(
-                "bot_turn outbound client error (no retry) job=%s err=%s",
-                job_id,
-                err_str[:200],
-            )
-            return False
-        raise RuntimeError(f"whatsapp_send_failed:{exc}") from exc
-
-    t.fresh = fresh
-    t.msg_id = msg_id
-    return True
-
-
-def _persist_turn(engine: Engine, t: Turn) -> None:
-    """The state save, both transcript turns, the trace backfill, live QA, and the job's close."""
-    job_id = t.job_id
-    conversation_id = t.conversation_id
-    conv = t.conv
-    customer_text = t.customer_text
-    latest_msg_id = t.latest_msg_id
-    state = t.state
-    turn_count = t.turn_count
-    guardrails = t.guardrails
-    turn_started_at = t.turn_started_at
-    understanding = t.understanding
-    intent = t.intent
-    intent_scores = t.intent_scores
-    sentiment = t.sentiment
-    final_text = t.final_text
-    flow_walker = t.flow_walker
-    fresh = t.fresh
-    msg_id = t.msg_id
-
-    state.update(
-        {
-            "turn_count": turn_count,
-            "last_intent": intent,
-            "last_intent_scores": intent_scores,
-            "last_sentiment": sentiment_label(sentiment),
-            "last_trigger_message_id": latest_msg_id,
-            "last_outbound_message_id": msg_id,
-        }
-    )
-    if flow_walker is not None and flow_walker.current is not None:
-        # Where the script is, so the next inbound message resumes here rather
-        # than re-greeting a thread that is four turns in.
-        state["flow_node"] = flow_walker.current.key
-    _save_bot_state(engine, conversation_id, state)
-
-    # Phase 1 gap-fix: WhatsApp previously never wrote interaction_transcript,
-    # so rollup/upsell flags could not work like voice. Persist both turns here
-    # (bot_worker path — never on the webhook request).
-    ix = conv.get("interaction_id") or fresh.get("interaction_id")
-    if ix:
-        try:
-            import capture
-            import capture_events
-
-            top_score = float(intent_scores.get(intent) or 0.0) if intent_scores else None
-            with engine.begin() as conn:
-                # `at_sec` is the offset every timing view is keyed on, and both
-                # turns were written at a literal 0 — so the entire WhatsApp
-                # channel read as one instantaneous exchange while looking
-                # perfectly well-formed. Stamp the customer turn from the
-                # message being replied to, and the bot turn from now.
-                started_at = capture_events.interaction_started_at(conn, ix)
-                customer_turn_index = capture_events.insert_transcript_turn(
-                    conn,
-                    interaction_id=ix,
-                    speaker="customer",
-                    text_content=customer_text,
-                    at_sec=capture_events.elapsed_seconds(
-                        started_at, _message_sent_at(conn, latest_msg_id)
-                    ),
-                    sentiment_delta=float(sentiment) if sentiment is not None else None,
-                    intent=intent,
-                    intent_score=top_score,
-                )
-                # W9: the same classification, kept as provenance-tagged facts
-                # instead of only as three untyped columns on the row above.
-                # Written here rather than beside `analyze_turn` because this is
-                # where the turn index exists — a fact keyed to a different
-                # index than the transcript row joins to nothing. Records
-                # nothing on a database without 0119, and never raises.
-                perception.record_turn_for_interaction(
-                    conn,
-                    interaction_id=ix,
-                    turn_index=customer_turn_index,
-                    understanding=understanding,
-                    turn_text=customer_text,
-                    latency_ms=understanding.latency_ms,
-                )
-                # Let the bot turn allocate its own index too. Passing t_idx + 1
-                # with ON CONFLICT DO NOTHING silently dropped the reply if any
-                # other writer had taken that index; MAX()+1 inside the same
-                # transaction already sees the customer turn above, so ordering
-                # is preserved either way.
-                capture_events.insert_transcript_turn(
-                    conn,
-                    interaction_id=ix,
-                    speaker="bot",
-                    text_content=final_text,
-                    at_sec=capture_events.elapsed_seconds(started_at, utc_now()),
-                )
-                # Backfill this turn's tool calls and retrievals with the turn
-                # they belong to. Deliberately a backfill rather than a reorder:
-                # bot_tool_calls rows are written inside the tool loop, long
-                # before the transcript row for the turn exists, and moving that
-                # write would change the turn loop's failure semantics.
-                #
-                # The id is read back via a subquery, never constructed —
-                # capture's canonical-id rename is savepoint-guarded and can be
-                # skipped, leaving `{ix}-T-next-{uuid}` on the row.
-                conn.execute(
-                    text(
-                        """
-                        UPDATE bot_tool_calls
-                           SET transcript_turn_id = (
-                                 SELECT id FROM interaction_transcript
-                                  WHERE interaction_id = :ix AND turn_index = :ti
-                               ),
-                               interaction_id = :ix,
-                               channel = 'whatsapp'
-                         WHERE job_id = :job_id AND transcript_turn_id IS NULL
-                        """
-                    ),
-                    {"ix": ix, "ti": customer_turn_index, "job_id": job_id},
-                )
-                conn.execute(
-                    text(
-                        """
-                        UPDATE retrieval_logs
-                           SET transcript_turn_id = (
-                                 SELECT id FROM interaction_transcript
-                                  WHERE interaction_id = :ix AND turn_index = :ti
-                               )
-                         WHERE interaction_id = :ix
-                           AND transcript_turn_id IS NULL
-                           AND created_at >= :turn_started
-                        """
-                    ),
-                    {"ix": ix, "ti": customer_turn_index, "turn_started": turn_started_at},
-                )
-                capture.rollup_interaction(conn, ix, channel_hint="whatsapp", force_summary=False)
-        except Exception:
-            logger.exception("whatsapp transcript/rollup capture failed job=%s", job_id)
-        try:
-            from agent_core.tools.gates import interaction_identity_verified
-            from voice import persist as voice_persist
-
-            voice_persist.evaluate_and_flag_bot_turn(
-                interaction_id=ix,
-                customer_text=customer_text,
-                bot_text=final_text,
-                intent=intent or "out_of_scope",
-                guardrails=guardrails if isinstance(guardrails, dict) else {},
-                turn_index=int(turn_count or 0),
-                elapsed_seconds=0,
-                customer_bot_exchanges=int(turn_count or 0),
-                # A resolved sender is not a verified one -- the same rule the
-                # tool gate and the authority engine already apply on this
-                # channel (bot_tools._identity_verified).
-                identity_verified=interaction_identity_verified(
-                    interaction_id=ix, customer_id=fresh.get("customer_id")
-                ),
-                third_party=False,
-                channel="whatsapp",
-                customer_id=fresh.get("customer_id"),
-            )
-        except Exception:
-            logger.exception("whatsapp live_qa failed job=%s", job_id)
-
-    with engine.begin() as conn:
-        bot_jobs.mark_succeeded(conn, job_id, outbound_message_id=msg_id)
-    logger.info("bot_turn succeeded job=%s message=%s", job_id, msg_id)
-
-
 def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     turn = _prepare_turn(engine, job)
     if turn is None:
         return
     if not _run_model(engine, turn):
         return
-    if not _send_reply(engine, turn):
+    if not bot_turn_write.send_reply(engine, turn):
         return
-    _persist_turn(engine, turn)
+    bot_turn_write.persist_turn(engine, turn)
