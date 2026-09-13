@@ -18,6 +18,7 @@ from env_utils import env_int as _env_int
 
 from db_core import (
     DEFAULT_DETAIL_LIMIT as DEFAULT_DETAIL_LIMIT,
+    user_exists as user_exists,
     _assert_tenant_owns_customer as _assert_tenant_owns_customer,
     _duration as _duration,
     _short_product as _short_product,
@@ -153,17 +154,6 @@ def probe() -> None:
     """One round trip at boot: the schema is reachable, or the process does not start."""
     with engine.connect() as conn:
         conn.execute(text("SELECT 1 FROM tenants LIMIT 1"))
-
-
-def user_exists(user_id: str) -> bool:
-    uid = (user_id or "").strip()
-    if not uid:
-        return False
-    with engine.connect() as conn:
-        row = _one(
-            conn.execute(text("SELECT id FROM users WHERE id = :id"), {"id": uid})
-        )
-        return row is not None
 
 
 def get_current_user() -> dict[str, Any]:

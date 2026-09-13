@@ -58,6 +58,7 @@ __all__ = [
     "_account_tail",
     "_activity",
     "_actor_user_id",
+    "user_exists",
     "_as_dict",
     "_as_utc",
     "_assert_tenant_owns",
@@ -484,6 +485,25 @@ def _actor() -> tuple[str, str | None, str | None]:
         return kind, None, actor_context.get_actor_bot_id()
     except Exception:
         return "human", ACTOR_USER_ID, None
+
+
+def user_exists(user_id: str) -> bool:
+    """Is this an operator who may act -- present *and* active.
+
+    The actor resolver is the caller: a deactivated operator whose key or
+    header still names them must stop resolving, and ``status`` is where
+    deactivation is recorded.
+    """
+    uid = (user_id or "").strip()
+    if not uid:
+        return False
+    with _db().engine.connect() as conn:
+        row = _one(
+            conn.execute(
+                text("SELECT id FROM users WHERE id = :id AND status = 'active'"), {"id": uid}
+            )
+        )
+        return row is not None
 
 
 def _activity(conn: Any, entity_type: str, entity_id: str, kind: str, label: str, note: str | None = None, customer_id: str | None = None) -> None:

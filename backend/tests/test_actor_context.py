@@ -210,3 +210,24 @@ def test_an_ignored_actor_header_is_said_once(
         provided_key="shared-dev-key", actor_header=other
     )
     assert ok and actor == other
+
+
+def test_a_deactivated_operator_stops_resolving(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A per-user key or an actor header naming an inactive user is refused;
+    deactivation is recorded on users.status and nowhere else."""
+    import actor_context
+    import db
+
+    other = next((u["id"] for u in db.list_staff() if u["id"] != "priya-nair"), None)
+    if other is None:
+        pytest.skip("needs a second seeded user")
+    from sqlalchemy import text
+
+    db_tx.execute(text("UPDATE users SET status = 'inactive' WHERE id = :id"), {"id": other})
+    actor_context._user_exists_cache.clear()
+
+    monkeypatch.setenv("API_KEY_MAP", json.dumps({"k-other": other}))
+    monkeypatch.setenv("APP_ENV", "dev")
+    actor_context.reload_api_key_map()
+    ok, actor, err = actor_context.resolve_authenticated_actor(provided_key="k-other", actor_header=None)
+    assert (ok, actor, err) == (False, None, "actor_not_found")
