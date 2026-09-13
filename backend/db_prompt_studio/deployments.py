@@ -331,16 +331,10 @@ def rollback_bot_deployment(deployment_id: str) -> dict[str, Any]:
                 attached = packs_for_skill_refs(parsed.skills)
         except Exception:
             pass
-        # Tenant-scoped: this is G5's allowlist of legal handoff targets.
-        known_bots = {
-            r["id"]
-            for r in _mod._rows(
-                conn.execute(
-                    text("SELECT id FROM bots WHERE tenant_id = :t"),
-                    {"t": _tenant()},
-                )
-            )
-        }
+        # The same allowlist publish and preview use (archived cards excluded).
+        from db_prompt_studio.publish import _known_bots
+
+        known_bots = _known_bots(conn)
         voice_short, voice_locale, card_locales = voice_locale_facts(
             (version_row or {}).get("voice"), (version_row or {}).get("persona")
         )

@@ -764,7 +764,8 @@ def _check_objectives(st: GraphCheck) -> None:
         if objective == "inbound":
             continue
         for node in nodes:
-            if not node.data.respondImmediately and not node.data.entryLine.strip():
+            scripted = node.data.instructionType == "say" and node.data.instructions.strip()
+            if not node.data.respondImmediately and not node.data.entryLine.strip() and not scripted:
                 _err(issues, 
                     "silent_outbound_entry",
                     "This step begins an outbound call but neither speaks first "

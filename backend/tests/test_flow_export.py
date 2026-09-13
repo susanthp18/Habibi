@@ -138,7 +138,8 @@ def test_per_node_tools_match_the_built_in(graph: dict) -> None:
     # node-local rather than global, because an idle tool sits in every node's
     # prompt on every turn and G6 caps that count.
     assert "capture_nonpayment_reason" in by_key["state_position"]
-    assert len(by_key["state_position"]) == 7
+    assert "revise_promise_to_pay" in by_key["state_position"]
+    assert len(by_key["state_position"]) == 8
 
 
 def test_every_node_carries_instructions(graph: dict) -> None:

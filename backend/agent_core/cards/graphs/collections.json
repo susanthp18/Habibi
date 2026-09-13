@@ -234,6 +234,7 @@
           "recommend_next_offer",
           "capture_lead",
           "decline_offer",
+          "handoff_to_agent",
           "return_to_position",
           "begin_wrap_up"
         ],

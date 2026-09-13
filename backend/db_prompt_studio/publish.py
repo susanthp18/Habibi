@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from db_core import _rows, _tenant
 from db_prompt_studio.common import (
     _column_exists,
     _db,
@@ -66,6 +67,20 @@ def _change_log_components(
         )
     ) or {}
     return {**dict(row), "label": row.get("label") or target.get("label"), "summary": summary}
+
+def _known_bots(conn: Any) -> set[str]:
+    """Live bots this tenant may name as a handoff target (db_inbox.list_bot_ids,
+    on the caller's connection so the publish transaction sees its own rows)."""
+    return {
+        r["id"]
+        for r in _rows(
+            conn.execute(
+                text("SELECT id FROM bots WHERE tenant_id = :t AND archived_at IS NULL"),
+                {"t": _tenant()},
+            )
+        )
+    }
+
 
 def publish_prompt_version(
     version_id: str,
@@ -140,7 +155,6 @@ def rebuild_fleet_deployment(
     engine = _mod.engine
     _one = _mod._one
     _jsonb = _mod._jsonb
-    _tenant = _mod._tenant
     _id = _mod._id
     from agent_core import change_log
 
@@ -301,9 +315,7 @@ def _freeze(
     the facts the compile needs (known bots, attached skills, experiment,
     actor, mouth columns, content key)."""
     _mod = _db()
-    _rows = _mod._rows
     _one = _mod._one
-    _tenant = _mod._tenant
     _actor_user_id = _mod._actor_user_id
 
     target = _one(
@@ -338,16 +350,10 @@ def _freeze(
         {"k": f"{bot_id}:production"},
     )
 
-    # Tenant-scoped: this is G5's allowlist of legal handoff targets.
-    known_bots = {
-        r["id"]
-        for r in _rows(
-            conn.execute(
-                text("SELECT id FROM bots WHERE tenant_id = :t"),
-                {"t": _tenant()},
-            )
-        )
-    }
+    # G5's allowlist of legal handoff targets: the same tenant-scoped,
+    # archived-excluded set the compile preview reads, so a handoff to a
+    # retired card fails at publish exactly as it does in the editor.
+    known_bots = _known_bots(conn)
     card_raw = sub(target, "agent_card")
     attached = None
     try:
@@ -775,7 +781,6 @@ def _deploy(
 def _record(conn: Any, f: _Frozen, c: _Compiled, d: _Deployed) -> None:
     """The change log entry for the publish that just happened."""
     _mod = _db()
-    _tenant = _mod._tenant
     _id = _mod._id
     from sqlalchemy.exc import IntegrityError
 

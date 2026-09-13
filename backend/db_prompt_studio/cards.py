@@ -235,7 +235,10 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
         # while the single-card endpoint always had it.
         "archivedAt": None,
         "agentCard": card,
-        "publishedCard": published_card or {},
+        # A first-party card with no published row runs its built-in card on
+        # every call, so the fleet walk (reachability, G-F4) reads that; an
+        # empty dict said "no handoffs" while the runtime enforced two.
+        "publishedCard": published_card or (card if source == "default" else {}),
     }
 
 def _handoff_edges() -> list[tuple[str, Any]]:

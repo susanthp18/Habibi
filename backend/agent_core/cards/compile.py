@@ -465,6 +465,24 @@ def _handoff_edge_gate(flow: Any, card: Any, grant: Any) -> GateResult:
     if "handoff_to_agent" not in set(grant or ()):
         return _gate("G-F4", "handoff_is_an_edge", "skipped", "handoff not granted")
     if card.handoffs:
+        # The card says where; the graph has to offer the tool somewhere or
+        # the targets are unreachable. A warning, not a block: a card can
+        # legitimately keep its edges while a graph is still being drawn.
+        if fg.is_authored(flow):
+            try:
+                graph = fg.parse_graph(flow)
+            except Exception:
+                graph = None
+            if graph is not None and "handoff_to_agent" not in (graph.globalTools or []):
+                offered = any("handoff_to_agent" in (n.data.tools or []) for n in graph.nodes)
+                if not offered:
+                    return _gate(
+                        "G-F4",
+                        "handoff_is_an_edge",
+                        "warn",
+                        f"{len(card.handoffs)} authored target(s), but no step offers "
+                        "handoff_to_agent -- the transfer cannot happen on this graph",
+                    )
         return _gate(
             "G-F4",
             "handoff_is_an_edge",

@@ -607,7 +607,6 @@ def build_flow(call) -> None:
 def make_flow_manager(call) -> None:
     from pipecat.flows import FlowManager
 
-    session = call.session
     transport = call.transport
     llm = call.llm
     context_aggregator = call.context_aggregator
@@ -621,25 +620,5 @@ def make_flow_manager(call) -> None:
         transport=transport,
         global_functions=global_fns,
     )
-
-    async def _summarize_context_action(action: dict) -> None:
-        """Collapse history on a topic hop (voice plan §2.15).
-
-        Uses the native summarizer frame rather than Flows' deprecated
-        RESET_WITH_SUMMARY context strategy. Best-effort: a failed summarize
-        must leave the call running on the full context, not break the hop.
-        """
-        from pipecat.frames.frames import LLMSummarizeContextFrame
-
-        try:
-            await worker.queue_frame(LLMSummarizeContextFrame())
-            logger.debug("Topic-hop summarize queued · session={}", session.session_id)
-        except Exception:
-            logger.exception("summarize_context action failed (non-fatal)")
-
-    try:
-        flow_manager.register_action("summarize_context", _summarize_context_action)
-    except Exception:
-        logger.warning("could not register summarize_context action", exc_info=True)
 
     call.flow_manager = flow_manager

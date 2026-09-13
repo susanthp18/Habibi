@@ -226,9 +226,14 @@ def test_invalid_hmac_pack_is_dropped_not_fallen_back(db_tx) -> None:
     ).mappings().first()
     if not row:
         pytest.skip("no signed ptp-negotiate version in this database")
+    # Every signed row of the slug: the loader falls back to the newest row
+    # whose signature verifies, so corrupting one of several proves nothing.
     db_tx.execute(
-        text("UPDATE skill_versions SET signature = :sig WHERE id = :id"),
-        {"sig": "0" * 64, "id": row["id"]},
+        text(
+            "UPDATE skill_versions SET signature = :sig "
+            "WHERE skill_id = (SELECT id FROM skills WHERE slug = :slug) AND status = 'signed'"
+        ),
+        {"sig": "0" * 64, "slug": slug},
     )
     packs = packs_for_slugs([slug])
     assert slug not in {p.slug for p in packs}
