@@ -219,8 +219,12 @@ function MissionEditor({
             </label>
           ))}
         </div>
-        {(productsQuery.data ?? []).length === 0 ? (
-          <p className="text-body-tiny text-text-subtle">Product catalog unavailable.</p>
+        {productsQuery.isError ? (
+          <p className="text-body-tiny text-text-danger">
+            The product catalog could not be read; offers cannot be chosen until it answers.
+          </p>
+        ) : (productsQuery.data ?? []).length === 0 ? (
+          <p className="text-body-tiny text-text-subtle">No products in the catalog.</p>
         ) : null}
       </fieldset>
 

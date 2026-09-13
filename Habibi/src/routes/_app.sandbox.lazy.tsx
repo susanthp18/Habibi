@@ -52,6 +52,7 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
     attachedSkills,
     activeKb,
     loading,
+    loadError,
   } = useSandboxSelection(search);
   const [session, dispatch] = useReducer(sandboxSessionReducer, EMPTY_SESSION);
   const { turns, scriptIndex, run, halted, flowNode, textToolCalls, liveMetrics } = session;
@@ -257,7 +258,9 @@ export function SandboxPage({ search }: { search: SandboxSearch }) {
     return (
       <>
         <div className="grid h-full place-items-center text-body text-text-danger">
-          Couldn’t load scenarios / prompt versions.
+          {loadError
+            ? `Couldn’t load ${loadError}; the sandbox cannot rehearse without them.`
+            : "No scenario or prompt version to rehearse yet."}
         </div>
       </>
     );

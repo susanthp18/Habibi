@@ -34,6 +34,7 @@ export function TwinTab() {
   const wa = run?.outcome.queues?.whatsapp?.length ?? 0;
   const voice = run?.outcome.queues?.voice?.length ?? 0;
   const rows = corpus.data ?? [];
+  const corpusUnknown = corpus.isError;
 
   return (
     <div className="space-y-150">
@@ -78,7 +79,11 @@ export function TwinTab() {
       <div>
         <div className="mb-075 text-body-small font-semibold text-text">Twin corpus</div>
         <ul className="divide-y divide-border rounded-medium border border-border">
-          {rows.length === 0 ? (
+          {corpusUnknown ? (
+            <li className="px-150 py-100 text-body-tiny text-text-danger">
+              The twin corpus could not be read.
+            </li>
+          ) : rows.length === 0 ? (
             <li className="px-150 py-100 text-body-tiny text-text-subtlest">
               No outcome tasks yet.
             </li>

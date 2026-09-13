@@ -52,7 +52,11 @@ export function EdgeInspector({
 }) {
   const booleans = booleanVariables(graph);
   const systemVariables = useFlowVariables();
+  // A failed read leaves the picker with the graph's own variables only; the
+  // condition editor says so below rather than offering a shorter list as if
+  // it were the whole one.
   const variableNames = knownVariables(graph, systemVariables.data ?? []);
+  const systemVariablesUnknown = systemVariables.isError;
   const condition = edge.data.condition;
   const setCondition = (patch: Partial<FlowCondition>) => {
     if (readOnly) return;
@@ -158,6 +162,11 @@ export function EdgeInspector({
                     <option key={name} value={name} />
                   ))}
                 </datalist>
+                {systemVariablesUnknown && i === 0 ? (
+                  <span className="text-body-tiny text-text-warning-bolder">
+                    System variables could not be read; only this graph&apos;s own are offered.
+                  </span>
+                ) : null}
                 <SelectField
                   aria-label="Operator"
                   className="w-[9.375rem] shrink-0"

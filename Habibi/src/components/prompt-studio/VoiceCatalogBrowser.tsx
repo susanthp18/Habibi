@@ -370,6 +370,12 @@ export function VoiceCatalogBrowser({
   const pricingLabel = standardPricing != null ? `~$${standardPricing}` : "—";
 
   const syncRuns = syncRunsQuery.data ?? [];
+  // The chips and the locale list are derived from three reads. One failing
+  // used to render as "no voices from that provider" and a preset locale list
+  // with no counts -- a statement about the catalogue made from a network
+  // error. Named here; shown beside the filters.
+  const countsUnknown =
+    voiceCountsQuery.isError || localeCountsQuery.isError || ttsModelsQuery.isError;
 
   return (
     <div className={cn("flex min-w-0 flex-col gap-100", fill && "h-full min-h-0", className)}>
@@ -518,6 +524,7 @@ export function VoiceCatalogBrowser({
               ? "Loading catalog…"
               : `${items.length}${total ? ` / ${total}` : ""} voices`}
             {!showPremium ? " · premium hidden" : ""}
+            {countsUnknown ? " · provider and locale counts could not be read" : ""}
           </span>
           {!compact && providerFilter === "azure" ? (
             // Only shown when the list is filtered to Azure. The band comes

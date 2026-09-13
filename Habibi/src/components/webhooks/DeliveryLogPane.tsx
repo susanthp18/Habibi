@@ -19,7 +19,8 @@ export function DeliveryLogPane({
   deliveries: Delivery[];
   onRetry: (d: Delivery) => void;
 }) {
-  const catalog = useEventCatalog().data ?? [];
+  const catalogQuery = useEventCatalog();
+  const catalog = catalogQuery.data ?? [];
   const [epId, setEpId] = useState<string>("all");
   const [event, setEvent] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
@@ -60,7 +61,9 @@ export function DeliveryLogPane({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All events</SelectItem>
+              <SelectItem value="all">
+                {catalogQuery.isError ? "All events (catalogue unavailable)" : "All events"}
+              </SelectItem>
               {catalog.map((e) => (
                 <SelectItem key={e.key} value={e.key as EventKey}>
                   {e.key}

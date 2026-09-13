@@ -191,6 +191,7 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
   // from the voice itself: capability belongs to the model, and every voice a
   // provider ships is driven by the same one.
   const ttsModelsQuery = useProviderModels("tts");
+  const modelsUnknown = ttsModelsQuery.isError;
   const selectedModel: ProviderModel | null = (() => {
     // The catalog row is authoritative, but it arrives a request later than the
     // voice id does. This used to fall back to "azure" in that window, so a
@@ -742,7 +743,11 @@ export function VoicePanel({ value, onChange, cardLocales = EMPTY_LOCALES }: Pro
                 className="mt-075 truncate text-body-tiny text-text-subtlest"
               >
                 {selectedModel?.providerName ?? "Selected provider"}
-                {selectedModel ? ` · ${selectedModel.displayName}` : ""}
+                {selectedModel
+                  ? ` · ${selectedModel.displayName}`
+                  : modelsUnknown
+                    ? " · model registry could not be read"
+                    : ""}
                 {meta ? ` · ${meta}` : ""}
               </p>
             </div>

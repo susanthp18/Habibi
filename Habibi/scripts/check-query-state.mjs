@@ -13,8 +13,8 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
 
-/** Unguarded `?? []` sites at the time this gate was introduced. Shrink-only. */
-const BASELINE = 16;
+/** Zero since 2026-09-13: every failed read says so. Stays zero. */
+const BASELINE = 0;
 
 const FALLBACK = /\.data \?\? \[\]/g;
 const GUARDED = /components\/ui\/query-state"|\bisError\b/;

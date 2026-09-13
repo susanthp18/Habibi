@@ -118,5 +118,17 @@ export function useSandboxSelection(search: SandboxSearch) {
     attachedSkills,
     activeKb,
     loading: scenariosQuery.isLoading || versionsQuery.isLoading,
+    /** Which read failed, so the page can say so instead of "couldn't load". */
+    loadError: scenariosQuery.isError
+      ? "scenarios"
+      : versionsQuery.isError
+        ? "prompt versions"
+        : cardsQuery.isError
+          ? "the fleet"
+          : skillsQuery.isError
+            ? "skills"
+            : snapshotsQuery.isError
+              ? "KB snapshots"
+              : null,
   };
 }
