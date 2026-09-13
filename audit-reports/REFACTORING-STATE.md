@@ -419,6 +419,34 @@ Nothing prevents any of these starting today.
 
 Every number carries the method that produced it. **Where a metric cannot currently be measured, it says so rather than being estimated** — that distinction is itself a finding.
 
+### Measured — 2026-09-13, end of pass 7
+
+The baseline tables below are the audit's (2026-09-03) and are left as written. This table is the living part: the same metrics, re-measured on this machine at the end of pass 7, each with the command. A row that says *needs the dev stack* was not measured in this pass because the Docker engine was down when the pass closed; the command is the one to run.
+
+| Metric | 2026-09-03 | 2026-09-13 | Method |
+|---|---:|---:|---|
+| Python type checker | none | **pyright, basic, whole tree, 0 errors** | `npx pyright` from `backend/` (`[tool.pyright] include = ["."]`) |
+| Backend modules > 1,500 lines (production) | 5 > 2,000 | **0** (`seed_postgres.py` is data, excluded by the ratchet) | `tests/test_module_size.py`, `BASELINE = {}` |
+| `db.py` | 18,087 lines | **1,355** (`db_*.py` siblings own the rest) | `wc -l` |
+| `main.py` / routes / routers | 5,448 lines · 314 routes · 0 routers | **1,276 lines · 340 routes · 19 routers** | AST over `routers/*.py` + `main.py` |
+| Routes without a `response_model` | 178 of 314 | **16 of 340** (the SSE / redirect / file routes) | AST |
+| Modules importing `db` | 101 | 163 of 430 (the carves import their sibling; the layering contract is `tests/test_db_layering.py`) | regex over production modules |
+| Tests asserting source text | 53 files | **102 files**, ratcheted (106 → 102 this pass) | `tests/test_no_new_source_pins.py` |
+| Backend test files / functions | 186 / 2,431 | **312 / 3,621** | count |
+| Backend suite | 1 failed · 3,141 passed | 4,694 passed · 0 failed (2026-09-13 morning, pass 6 close); *end-of-pass-7 run needs the dev stack* | `pytest` in `collections_voice` |
+| Coverage gate | none (62%) | `--cov-fail-under=68` (measured 70% at pass 6); *re-measure needs the dev stack* | `backend-pytest.yml` |
+| Frontend `tsc` | strict | **strict + `noUncheckedIndexedAccess`, 0 errors** | `npx tsc --noEmit` |
+| ESLint | 0 errors, 62 warnings, no type-aware rules | **0 errors, 167 warnings, type-aware rules on** (errors under `src/api`, `src/lib`; `check-lint-warnings.mjs` holds 167 and only falls) | `npm run lint` |
+| Frontend test files | 11 | **30** (render tests for every flagship route and the eight studio panels) | count |
+| Frontend mutations declared in screens | 43 | **0** — `useMutation` is a restricted import under `components/` and `routes/` | ESLint `no-restricted-imports` |
+| `query.data ?? []` unguarded | ~110 | **0** | `scripts/check-query-state.mjs` |
+| Frontend files over the size ceiling | 2 god routes | **0 baselined** | `scripts/check-file-size.mjs`, `BASELINE = {}` |
+| `USE_MOCK` references | 26 | **0** — the mock layer is deleted (pass 6) | search |
+| Runbook / alert rules / `/metrics` scrapers | none / none / 0 | **`docs/ops/runbook.md` · `ops/alerts.yml` (4 rules) · dev Prometheus scrapes 4 processes** | files |
+| RLS | complete, inert | **enforcing, 224 / 224 tables** (2026-09-13, WS2) | `scripts/rls.py status` in a container |
+| Python lockfile / licences | none / — | `requirements.lock` with hashes · `LICENSE` (proprietary) · `THIRD_PARTY_NOTICES.txt` generated and tested current | files |
+| Studio backlog (345 findings) | — | **121 closed by id, 4 deferred by name**, the rest worked under work packages and not re-verified by id | `agent-studio-nextgen/merge.py` |
+
 ### Duplication
 
 | Metric | Baseline | Method | Target |
@@ -669,6 +697,7 @@ Consolidation put `WP-001` first, on the reasoning that nothing has a rollback u
 
 | Date | Phase | Result |
 |---|---|---|
+| **2026-09-13** | **Pass 7 — the last 10%** | See `PASS7-REPORT-2026-09-13.md`. pyright covers the whole backend (114 → 0, and it found a dead connector dial and a dangling call); `noUncheckedIndexedAccess` on; type-aware lint; the module-size, file-size, query-state baselines are empty; promises are one open commitment per account with a renegotiation model (migration 0144); one error envelope; one transcript writer; the studio residue closed by id in `raw/closures.json`. The measured table above is the state. |
 | 2026-09-01 → 09-03 | Reports `01`–`41` | ~23,850 lines of read-only forensics. Reports `32` and `33` were never produced |
 | **2026-09-03** | **Consolidation** | 40 report files read in full · **129** MASTER findings from ~700+ · **15** conflicts adjudicated at source · **21** claims re-verified · **65** work packages · **10** runtime questions left open. **No application file modified.** |
 | **2026-09-04** | **`WP-012` + `WP-013` — the envelope is shut** | `2350a14`, `70d91be`. `.env` now reaches the line that decides production, and that line is an allow-list: `staging`, `uat` and typos no longer disable eight controls at once. `actor_context`'s third copy of the deny-list is gone. CI gains a `production-envelope` job — the suite had only ever run the permissive branch. **Two findings filed rather than fixed**: `WP-069` (a sweep test whose setup runs in a transaction the sweep cannot see — pass/fail/pass on identical code) and `WP-070` (whether `ALLOW_ACTOR_HEADER` should be opt-in — a decision with an audit-attribution cost, twice attempted by the agent, twice reverted). |
