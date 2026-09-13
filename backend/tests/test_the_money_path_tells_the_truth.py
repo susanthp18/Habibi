@@ -242,8 +242,7 @@ def test_a_provider_rejection_moves_the_job_off_succeeded() -> None:
     "code=131047 … Message failed to send", and its message row reads `failed`.
     Anything counting job status over-reported delivery."""
     import inspect
+    import db_whatsapp
 
-    import db_inbox
-
-    src = inspect.getsource(db_inbox._apply_whatsapp_status)
+    src = inspect.getsource(db_whatsapp._apply_whatsapp_status)
     assert "status = CASE WHEN status = 'succeeded' THEN 'failed' ELSE status END" in src

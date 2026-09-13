@@ -104,10 +104,9 @@ def test_a_phone_lookup_uses_the_hmac_index(db_tx) -> None:
     )
     db_tx.execute(text("SET LOCAL enable_seqscan = on"))
     assert "idx_customers_phone_primary_hmac" in plan, plan
+    import db_whatsapp
 
-    import db_inbox
-
-    found = db_inbox.find_customer_by_phone("919876543210")
+    found = db_whatsapp.find_customer_by_phone("919876543210")
     assert found is not None and found["id"] == cid
 
 

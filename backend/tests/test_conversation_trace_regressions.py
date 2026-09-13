@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import text
 
 import db
-import db_inbox
+import db_inbox_rag
 
 
 # --- F16: a throttled refresh must say so, not serve stale chips -------------
@@ -37,7 +37,7 @@ def test_a_rate_limited_refresh_raises_instead_of_faking_success(
     import kb_rate_limit
     import kb_retrieve
 
-    monkeypatch.setattr(db_inbox, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
+    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
 
     def _throttled(**_kwargs: object) -> dict[str, object]:
         raise kb_rate_limit.RateLimitExceeded("rate_limited:inbox:30/min")
@@ -54,7 +54,7 @@ def test_a_retrieval_outage_still_falls_back_to_persisted_chips(
     """The fallback is deliberate — only the throttle must escape it."""
     import kb_retrieve
 
-    monkeypatch.setattr(db_inbox, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
+    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
 
     def _down(**_kwargs: object) -> dict[str, object]:
         raise RuntimeError("azure is down")

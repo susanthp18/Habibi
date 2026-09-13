@@ -46,6 +46,8 @@ include = [
   "db_evals.py",
   "db_handoff.py",
   "db_inbox.py",
+  "db_inbox_rag.py",
+  "db_whatsapp.py",
   "db_kb.py",
   "db_kb_snapshots.py",
   "db_leads.py",

@@ -83,9 +83,9 @@ class _Gateway:
 
 def _seed(conn, body: str) -> dict[str, Any]:
     """A never-seen number writes in: customer, interaction, thread, message, job."""
-    import db_inbox
+    import db_whatsapp
 
-    out = db_inbox._ingest_inbound_whatsapp_message(
+    out = db_whatsapp._ingest_inbound_whatsapp_message(
         conn,
         wa_message_id=f"wamid.SNAP{secrets.token_hex(6)}",
         from_phone="+9198" + "".join(secrets.choice("0123456789") for _ in range(8)),

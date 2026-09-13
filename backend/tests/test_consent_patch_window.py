@@ -270,10 +270,10 @@ def test_a_first_write_records_no_window_the_borrower_never_gave(db_tx) -> None:
 def test_a_whatsapp_first_contact_records_no_window_either(db_tx) -> None:
     """Same fabrication, second site: the customer row WhatsApp creates for an
     unknown number carried ``preferred_window = '10:00-19:00 IST'``."""
-    import db_inbox
+    import db_whatsapp
 
     phone = "+9199" + uuid.uuid4().hex[:8].translate(str.maketrans("abcdef", "123456"))
-    customer, recognised = db_inbox._ensure_whatsapp_customer(db_tx, phone, "Window Test")
+    customer, recognised = db_whatsapp._ensure_whatsapp_customer(db_tx, phone, "Window Test")
     assert recognised is False
     window = db_tx.execute(
         text("SELECT preferred_window FROM customers WHERE id = :id"), {"id": customer["id"]}

@@ -27,7 +27,7 @@ import pytest
 from sqlalchemy import text
 
 import db
-import db_inbox
+import db_whatsapp
 import outbound
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -660,7 +660,7 @@ def test_a_post_send_internal_error_is_dead_lettered(db_tx) -> None:
     import whatsapp_outbound as wo
 
     cust = _a_customer(db_tx)
-    conv = db_inbox._open_whatsapp_conversation(db_tx, cust["id"])
+    conv = db_whatsapp._open_whatsapp_conversation(db_tx, cust["id"])
     mid = f"MSG-T-{uuid.uuid4().hex[:8]}"
     db_tx.execute(
         text(
@@ -698,7 +698,7 @@ def test_a_pre_send_internal_error_still_retries(db_tx) -> None:
     import whatsapp_outbound as wo
 
     cust = _a_customer(db_tx)
-    conv = db_inbox._open_whatsapp_conversation(db_tx, cust["id"])
+    conv = db_whatsapp._open_whatsapp_conversation(db_tx, cust["id"])
     mid = f"MSG-T-{uuid.uuid4().hex[:8]}"
     db_tx.execute(
         text(

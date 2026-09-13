@@ -267,6 +267,7 @@ def test_two_concurrent_first_messages_open_one_whatsapp_thread(
     """
     import db
     import db_inbox
+    import db_whatsapp
 
     with db_real.begin() as conn:
         row = conn.execute(
@@ -325,7 +326,7 @@ def test_two_concurrent_first_messages_open_one_whatsapp_thread(
     def caller(idx: int) -> None:
         try:
             with db.engine.begin() as conn:
-                results[idx] = db_inbox._open_whatsapp_conversation(conn, customer_id)
+                results[idx] = db_whatsapp._open_whatsapp_conversation(conn, customer_id)
         except BaseException as exc:  # noqa: BLE001 — surface in the main thread
             results[idx] = exc
 
