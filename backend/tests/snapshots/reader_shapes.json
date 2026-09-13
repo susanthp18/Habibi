@@ -380,7 +380,7 @@
       ],
       "heroKpis": [
         {
-          "delta": "float",
+          "delta": "null",
           "deltaGood": "str",
           "label": "str",
           "raw": "int",

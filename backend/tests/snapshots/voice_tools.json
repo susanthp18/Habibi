@@ -55,6 +55,7 @@
         "begin_wrap_up",
         "capture_lead",
         "decline_offer",
+        "handoff_to_agent",
         "recommend_next_offer",
         "return_to_position"
       ],

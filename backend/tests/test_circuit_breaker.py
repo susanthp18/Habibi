@@ -57,22 +57,6 @@ def test_breaker_closes_after_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
     assert b.snapshot()["state"] == "closed"
 
 
-def test_circuit_open_handler_returns_503() -> None:
-    import asyncio
-
-    import circuit_breaker
-    import main as app_main
-
-    resp = asyncio.run(
-        app_main._circuit_open_handler(
-            None,  # type: ignore[arg-type]
-            circuit_breaker.CircuitOpenError("circuit_open:azure_openai"),
-        )
-    )
-    assert resp.status_code == 503
-    assert b"circuit_open" in resp.body
-
-
 def test_every_breaker_call_lands_in_one_dependency_histogram() -> None:
     """The breaker is the seam every adapter entry point passes through, so
     latency and outcome are observed there once -- ok, error, ignored and

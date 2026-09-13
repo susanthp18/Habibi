@@ -246,7 +246,8 @@ def test_closed_status_sets_match_the_real_check_constraints() -> None:
     )
 
     legal = {
-        "promises": {"upcoming", "due_today", "kept", "broken", "partial"},
+        # sql/05 plus the `cancelled` that sql/52 (pass 7) added.
+        "promises": {"upcoming", "due_today", "kept", "broken", "partial", "cancelled"},
         "disputes": {"new", "under_review", "awaiting_customer", "resolved", "rejected"},
         "document_requests": {"requested", "generating", "sent", "failed"},
         "callbacks": {

@@ -170,7 +170,13 @@ def test_the_preview_falls_back_to_the_stored_draft(db_tx) -> None:
     """No override supplied is the Publish-dialog case before the first
     autosave lands, and the row is then the only truth there is."""
     report = db.compile_agent_studio_card(db.DEFAULT_BOT_ID)
-    assert _g15(report)["status"] in {"pass", "warn"}, "the demo card has a voice and a language"
+    g15 = _g15(report)
+    # The row's voice reached the gate. Whether it then passes, warns, or is
+    # skipped because that voice carries `und` (a Fish voice does) is the
+    # voice's business, not the fallback's; the one detail that would mean
+    # the row was ignored is "no voice or no card language".
+    assert g15["status"] in {"pass", "warn", "skipped"}
+    assert "no voice or no card language" not in str(g15.get("detail") or "")
 
 
 # --- restore ----------------------------------------------------------------

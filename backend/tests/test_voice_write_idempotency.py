@@ -141,6 +141,16 @@ def _book(
     )
 
 
+def _settle(db_tx, promise_id: str) -> None:
+    """Close the commitment. An account holds one open promise (pass 7), so a
+    second *separate* booking on the same account is only a second row once
+    the first has ended; the dedupe question these tests ask is unchanged."""
+    db_tx.execute(
+        text("UPDATE promises SET status = 'kept', updated_at = now() WHERE id = :id"),
+        {"id": promise_id},
+    )
+
+
 def _promise_count(db_tx, customer_id: str, amount: float) -> int:
     return db_tx.execute(
         text(
@@ -209,6 +219,7 @@ def test_two_genuinely_separate_calls_each_book_their_own_promise(
         provider_call_id=f"CA{uuid.uuid4().hex}",
         amount=amount,
     )
+    _settle(db_tx, first["promiseId"])
     second = _book(
         db_tx,
         customer_id=customer_id,
@@ -238,7 +249,9 @@ def test_a_session_with_no_provider_id_still_keys_on_the_interaction(
         db_tx, customer_id=customer_id, interaction_id=ix, provider_call_id=None, amount=amount
     )
     # Different interaction, no provider id — nothing ties them together, so
-    # this inserts, exactly as it did under the old key.
+    # once the first commitment has ended this inserts, exactly as it did
+    # under the old key.
+    _settle(db_tx, first["promiseId"])
     third = _book(
         db_tx,
         customer_id=customer_id,
@@ -294,6 +307,9 @@ class WriteTool:
     # The part of the key after the call scope — must be untouched by the fix.
     suffix: Callable[[str, Any], str]
     count: Callable[[Any, str, Any], int]
+    # End the first row before a genuinely separate second write, where the
+    # domain allows one open row per account (promises); None elsewhere.
+    settle: Callable[[Any, str], None] | None = None
 
 
 def _unique_amount() -> float:
@@ -341,6 +357,7 @@ WRITE_TOOLS = (
             ),
             {"c": cid, "a": f"{amt:.2f}", "d": clock.local_midnight(PROMISE_DATE)},
         ).scalar(),
+        settle=_settle,
     ),
     WriteTool(
         tool="flag_dispute",
@@ -453,6 +470,8 @@ def test_two_separate_carrier_calls_each_write_their_own_row(
         ix=_interaction(db_tx, customer_id),
         call_id=f"CA{uuid.uuid4().hex}",
     )
+    if spec.settle:
+        spec.settle(db_tx, first[spec.id_field])
     second = _drive(
         db_tx,
         spec,
@@ -480,7 +499,10 @@ def test_no_provider_id_falls_back_to_the_interaction_id(
     # Same interaction, double tool-call — still deduped.
     second = _drive(db_tx, spec, marker, customer_id=customer_id, ix=ix, call_id=None)
     # Different interaction, no provider id — nothing ties them together, so
-    # this inserts, exactly as it did under the old key.
+    # this inserts, exactly as it did under the old key (once the first
+    # promise has ended: one open per account).
+    if spec.settle:
+        spec.settle(db_tx, first[spec.id_field])
     third = _drive(
         db_tx,
         spec,

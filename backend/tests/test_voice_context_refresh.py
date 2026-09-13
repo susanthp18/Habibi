@@ -25,6 +25,7 @@ from voice.session import VoiceSession
 # Tools whose writes appear in CallContext.open_work / customer_card.
 CARD_AFFECTING = {
     "create_promise_to_pay",
+    "revise_promise_to_pay",
     "flag_dispute",
     "request_documents",
     "evaluate_authority",

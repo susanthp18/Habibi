@@ -248,12 +248,12 @@ jobs:
       - name: Seed demo graph
         run: python scripts/seed_demo.py
 
-      # Coverage is gated. Measured 70% on 2026-09-12 (4,624 passing tests over
-      # 55,555 statements); the floor sits two points under so a flaky skip does
+      # Coverage is gated. Measured 72% on 2026-09-13 (4,750 passing tests over
+      # 55,683 statements); the floor sits one point under so a flaky skip does
       # not fail the build, and it only ever moves up. xml is the archive; term
       # is the log line.
       - name: Pytest
-        run: pytest -q -rs --cov=. --cov-report=xml --cov-report=term --cov-fail-under=68
+        run: pytest -q -rs --cov=. --cov-report=xml --cov-report=term --cov-fail-under=71
         env:
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
