@@ -28,6 +28,7 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from api_support import Utf8JSONResponse, authz_guard as _authz_guard
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -139,7 +140,11 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if auth_required and not provided:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
 
-        ok, actor_id, err = actor_context.resolve_authenticated_actor(
+        # Off the loop: on a user-cache miss this is a pool checkout and a
+        # SELECT, and it runs on every request that misses -- the same reason
+        # the authz guard resolves grants through the threadpool.
+        ok, actor_id, err = await run_in_threadpool(
+            actor_context.resolve_authenticated_actor,
             provided_key=provided if auth_required else (provided or ""),
             actor_header=actor_header,
         )

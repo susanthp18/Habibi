@@ -6,6 +6,8 @@ included by main.py.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 
 import db
@@ -344,7 +346,9 @@ async def ingest_document_request(
     from agent_core.tools.gates import interaction_identity_verified
 
     raw = await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
-    result = ingest_customer_document(
+    # A vision call and a DB write, off the loop like kb_upload_document.
+    result = await asyncio.to_thread(
+        ingest_customer_document,
         customer_id=customer_id,
         filename=file.filename or "receipt.jpg",
         mime_type=file.content_type or "image/jpeg",

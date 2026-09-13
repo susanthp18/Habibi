@@ -7,6 +7,7 @@ import ssl
 from typing import Any
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -53,7 +54,9 @@ async def mcp_endpoint(request: Request) -> Response:
     }
     principal = getattr(request.state, "principal", None) or {}
     try:
-        result = handle_rpc(method, params, principal)
+        # The stdio transport runs the same dispatcher in a thread; a tool
+        # call is a DB read at least and a connector round-trip at most.
+        result = await run_in_threadpool(handle_rpc, method, params, principal)
         if rpc_id is None:
             return Response(status_code=204, headers=headers)
         return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result}, headers=headers)

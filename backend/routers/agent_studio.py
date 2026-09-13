@@ -6,6 +6,8 @@ included by main.py.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 
 import authz
@@ -520,7 +522,8 @@ async def import_agent_studio_skill(file: UploadFile = File(...)):
     pack.references = refs
     pack.origin = "tenant"
     pack.signed = False
-    return _handle_write(upsert_skill_from_pack, pack, origin="tenant", signed=False)
+    # The write signs, verifies and inserts; off the loop like kb_upload_document.
+    return await asyncio.to_thread(_handle_write, upsert_skill_from_pack, pack, origin="tenant", signed=False)
 
 @router.post(
     "/agent-studio/skills/run-script",
