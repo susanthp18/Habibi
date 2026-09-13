@@ -168,25 +168,31 @@ def add_targets(conn: Any, run_id: str, customer_ids: list[str], *, tenant_id: s
     ).scalar()
     if not owned:
         raise KeyError(f"campaign_run_not_found: {run_id}")
+    ids = [str(c) for c in dict.fromkeys(customer_ids) if str(c).strip()]
     added = 0
-    for customer_id in customer_ids:
+    if ids:
+        # One statement for the whole list: this runs inside the API
+        # transaction, and a thousand-borrower campaign was a thousand round
+        # trips holding it open. The ids are minted here per row so the shape
+        # stays the one the target table expects.
         result = conn.execute(
             text(
                 """
                 INSERT INTO campaign_targets (
                   id, run_id, customer_id, account_id, state, created_at, updated_at
                 )
-                SELECT :id, :run, c.id,
+                SELECT want.tid, :run, c.id,
                        (SELECT a.id FROM accounts a WHERE a.customer_id = c.id
                         ORDER BY a.dpd DESC NULLS LAST LIMIT 1),
                        'pending', now(), now()
-                FROM customers c WHERE c.id = :cid AND c.tenant_id = :t
+                FROM unnest(CAST(:cids AS text[]), CAST(:tids AS text[])) AS want(cid, tid)
+                JOIN customers c ON c.id = want.cid AND c.tenant_id = :t
                 ON CONFLICT (run_id, customer_id) DO NOTHING
                 """
             ),
-            {"id": _tid(), "run": run_id, "cid": customer_id, "t": tenant},
+            {"run": run_id, "cids": ids, "tids": [_tid() for _ in ids], "t": tenant},
         )
-        added += int(result.rowcount or 0)
+        added = int(result.rowcount or 0)
     conn.execute(
         text(
             """
