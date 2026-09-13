@@ -3,9 +3,9 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.table-*` — header uses body-small + weight-bold + text-subtle with a
+ * Design spec (styles.css) `components.table-*` — header uses body-small + weight-bold + text-subtle with a
  * 2px (border-width-selected) bottom rule; body rows use a 1px hairline; cells stay full
- * `body` (14px) typography — Design.md explicitly bans shrinking table cells for density.
+ * `body` (14px) typography — the design spec (styles.css) explicitly bans shrinking table cells for density.
  */
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (

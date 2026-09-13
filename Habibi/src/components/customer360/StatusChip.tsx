@@ -24,9 +24,9 @@ type Props = {
 };
 
 /**
- * Shared C360 status chip — thin wrapper over the Design.md Lozenge primitive, kept so the
+ * Shared C360 status chip — thin wrapper over the design spec's Lozenge primitive, kept so the
  * ~9 existing call sites (and their tone-mapping helpers below) don't need a coordinated
- * rewrite. Sentence case, never all caps — Design.md bans ALL CAPS with no exemptions.
+ * rewrite. Sentence case, never all caps — the design spec bans ALL CAPS with no exemptions.
  */
 export function StatusChip({
   label,

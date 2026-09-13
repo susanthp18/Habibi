@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** Stable hue palette from Design.md accent tokens — decorative classification only. */
+/** Stable hue palette from the design spec (styles.css) accent tokens — decorative classification only. */
 const HUE_DOT: Record<string, string> = {
   lime: "var(--icon-accent-lime)",
   red: "var(--icon-accent-red)",

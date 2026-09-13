@@ -8,7 +8,7 @@ type Tone = NonNullable<LozengeProps["tone"]>;
 type Hue = NonNullable<TagProps["hue"]>;
 
 /*
- * InboxChannel is a decorative classification, not a status, so Design.md puts it on a Tag
+ * InboxChannel is a decorative classification, not a status, so the design spec (styles.css) puts it on a Tag
  * (transparent + accent border) rather than a Lozenge — "Decorative Tag used for status"
  * and "Filled tag pills with semantic-looking backgrounds" are both listed as DON'Ts, and
  * the old filled-green WhatsApp pill was reading as a success state it never meant.

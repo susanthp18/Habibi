@@ -99,7 +99,7 @@ function looksLikeClassList(literal) {
 /**
  * Source with comments removed.
  *
- * Comments in this codebase quote class names constantly — Design.md rules,
+ * Comments in this codebase quote class names constantly — the design spec (styles.css) rules,
  * bug write-ups naming the CSS property that failed — and none of them renders
  * anything. Flagging them would bury the four real ones in forty false ones,
  * which is how a check stops being read.

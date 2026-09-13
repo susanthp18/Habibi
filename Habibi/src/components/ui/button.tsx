@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 
 /*
- * Design.md `components.button-*` recipe. Canonical appearances are
+ * Design spec (styles.css) `components.button-*` recipe. Canonical appearances are
  * default/primary/subtle/warning/danger/discovery — the closed vocabulary the spec allows.
  * Legacy shadcn variant names (destructive/outline/secondary/ghost/link) are kept as aliases
  * onto the closest canonical appearance so the ~230 existing call sites keep compiling; Phase 3's
@@ -17,7 +17,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // button-default: intentionally text-subtle, not full-contrast text — Design.md
+        // button-default: intentionally text-subtle, not full-contrast text — the design spec (styles.css)
         // explicitly says don't "fix" this so primary actions keep stronger visual emphasis.
         default:
           "bg-background-neutral-subtle text-text-subtle border border-border hover:bg-background-neutral-subtle-hovered active:bg-background-neutral-subtle-pressed",

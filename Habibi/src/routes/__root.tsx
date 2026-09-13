@@ -128,7 +128,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         // Atlassian Sans/Mono are proprietary, unlicensed for this app — Inter (kept; Atlassian
         // Sans is itself Inter-derived) and JetBrains Mono (same lineage as Atlassian Mono,
-        // free/SIL-OFL) stand in. Inter loads as a variable font (wght@1..1000) so Design.md's
+        // free/SIL-OFL) stand in. Inter loads as a variable font (wght@1..1000) so the design spec's
         // weight-bold (653) renders exactly instead of snapping to the nearest static cut.
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@1..1000&family=JetBrains+Mono:wght@400;500;600;700&display=swap",

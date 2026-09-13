@@ -5,13 +5,13 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /*
- * Design.md `components.section-message*` — inline page-level status/system notice.
+ * Design spec (styles.css) `components.section-message*` — inline page-level status/system notice.
  * `section-message-information` is the YAML's only literal example; the other 4 roles are
  * inferred from the same background-role + icon-role + neutral-body-text shape.
  *
  * Critical rule (previously violated by the old alert.tsx this replaces): body copy — and the
  * title — stay neutral `text` always. ONLY the icon and the background carry semantic color.
- * Tinting body text on a colored panel is the most common drift pattern Design.md calls out.
+ * Tinting body text on a colored panel is the most common drift pattern the design spec (styles.css) calls out.
  */
 const sectionMessageVariants = cva("relative w-full rounded-large p-200 flex gap-200", {
   variants: {

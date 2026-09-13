@@ -9,8 +9,10 @@
  * Token-for-token port of the design manifest (Atlassian Design System export, revision 0.0.7,
  * theme: light; the manifest itself is not in this repository).
  * Every hex value below is copied verbatim from the manifest's `colors:` / `typography:` / `rounded:` /
- * `spacing:` / `borders:` / `surfaces:` / `motion:` YAML — do not hand-tune a value here without
- * updating the manifest first. `rovo-*` tokens are intentionally omitted (unused AI sub-brand).
+ * `spacing:` / `borders:` / `surfaces:` / `motion:` YAML. The manifest is not checked in, so
+ * THIS FILE IS THE DESIGN SPEC: a token changes here, with the reason in the commit, and the
+ * `check-*-scale` scripts hold the rest of the tree to it. `rovo-*` tokens are intentionally
+ * omitted (unused AI sub-brand).
  * `.dark` remaps the same token names to Atlassian dark counterparts so night mode is a class toggle.
  */
 

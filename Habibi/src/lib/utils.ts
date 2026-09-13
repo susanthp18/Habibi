@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
 
 /*
- * The Design.md type scale is declared in styles.css as custom `@utility` classes whose
+ * The design spec's type scale is declared in styles.css as custom `@utility` classes whose
  * names sit inside namespaces Tailwind already owns: `text-body-small` looks exactly like
  * a `text-<color>` utility, and `border-width-default` like `border-<color>`. Stock
  * tailwind-merge therefore files them in the *colour* conflict groups, decides they clash
