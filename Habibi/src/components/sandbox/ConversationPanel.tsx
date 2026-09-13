@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
 import { groundedLabel, groundedSources, type SandboxChunkHit } from "@/api/sandbox";
-import { previewTts } from "@/api/prompt-studio";
+import { previewTts } from "@/api/tts-preview";
 import { transcribeAudio } from "@/api/speech";
 import type { VoiceConfig } from "@/api/types/prompt-studio";
 import type { IntentKey, SandboxTurn } from "@/api/types/sandbox";

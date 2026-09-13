@@ -18,9 +18,9 @@ import { Lozenge } from "@/components/ui/lozenge";
 import {
   fetchTtsVoiceDetail,
   fetchTtsVoiceWarning,
-  previewTts,
   type TtsCatalogVoice,
 } from "@/api/prompt-studio";
+import { previewTts } from "@/api/tts-preview";
 import type { VoiceConfig, VoiceParamValue } from "@/api/types/prompt-studio";
 import { DEFAULT_VOICE } from "@/lib/prompt-studio";
 import { useProviderModels, type ProviderModel } from "@/api/providers";

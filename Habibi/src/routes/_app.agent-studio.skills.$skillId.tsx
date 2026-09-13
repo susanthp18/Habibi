@@ -8,7 +8,7 @@ import {
   useSignSkill,
   useSkillScripts,
   exportSkillZip,
-} from "@/api/agent-studio";
+} from "@/api/skills";
 import { useFlowTools as useCatalogTools } from "@/api/flow";
 import { usePromptTokenEstimate } from "@/api/prompt-studio";
 import { LoadingState } from "@/components/ui/loading-state";

@@ -3,7 +3,7 @@ import { Play, Square, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Slider } from "@/components/ui/slider";
 import { SelectField } from "@/components/ui/select";
-import { previewTts } from "@/api/prompt-studio";
+import { previewTts } from "@/api/tts-preview";
 import type {
   PersonaPreset,
   PersonaState,

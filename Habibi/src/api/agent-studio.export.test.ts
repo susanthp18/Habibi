@@ -27,7 +27,8 @@ vi.mock("./config", () => ({
   retryUnlessClientError: () => false,
 }));
 
-const { exportSkillZip, invalidateAgentStudio } = await import("./agent-studio");
+const { exportSkillZip } = await import("./skills");
+const { invalidateAgentStudio } = await import("./agent-studio");
 
 describe("exportSkillZip", () => {
   beforeEach(() => {

@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { invalidateAgentStudio } from "@/api/agent-studio";
 import {
   importSkillZip,
-  invalidateAgentStudio,
   useAgentStudioSkills,
   useCloneSkill,
   useCreateSkill,
   useDeleteSkill,
-} from "@/api/agent-studio";
+} from "@/api/skills";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { previewTts, type TtsCatalogVoice, type TtsPreviewInput } from "@/api/prompt-studio";
+import { type TtsCatalogVoice } from "@/api/prompt-studio";
+import { previewTts, type TtsPreviewInput } from "@/api/tts-preview";
 
 /** The line every voice speaks when you audition it from a list. */
 export const VOICE_DEMO_LINE = "Hello, this is a sample of how I sound on a collections call.";
