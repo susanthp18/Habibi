@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 from typing import Any
+import db_core
 from db_core import (
     _activity,
     _one,
@@ -260,13 +261,25 @@ def _violation_by_id(conn: Any, violation_id: str) -> dict[str, Any]:
     items = _violation_rows_to_screen(conn, [row])
     return items[0]
 
+#: A resolved violation reopens into review, never straight to open: the
+#: four other PATCHes got a table in pass 6 and this one still took any→any.
+_VIOLATION_TRANSITIONS: dict[str, frozenset[str]] = {
+    "open": frozenset({"in_review", "acknowledged", "resolved"}),
+    "in_review": frozenset({"open", "acknowledged", "resolved"}),
+    "acknowledged": frozenset({"in_review", "resolved"}),
+    "resolved": frozenset({"in_review"}),
+}
+
+
 def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Payload arrives with exclude_unset: a present key is intentional,
     so an explicit None clears assignee. Notes are NOT written here —
     use add_violation_note → activity_events."""
     engine = _db().engine
     with engine.begin() as conn:
-        row = _one(conn.execute(text("SELECT customer_id FROM violations WHERE id = :id"), {"id": violation_id}))
+        row = _one(
+            conn.execute(text("SELECT customer_id, status FROM violations WHERE id = :id"), {"id": violation_id})
+        )
         if row is None:
             raise KeyError("violation_not_found")
 
@@ -274,6 +287,7 @@ def patch_violation(violation_id: str, payload: dict[str, Any]) -> dict[str, Any
             status = payload["status"]
             if status not in {"open", "in_review", "acknowledged", "resolved"}:
                 raise ValueError(f"invalid_status: {status}")
+            db_core.assert_transition("violation", row["status"], status, _VIOLATION_TRANSITIONS)
 
         if "assigneeUserId" in payload and payload["assigneeUserId"] is not None:
             assignee = payload["assigneeUserId"]

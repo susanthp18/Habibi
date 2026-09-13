@@ -70,3 +70,18 @@ def test_a_done_followup_reopens_only_to_open(db_tx) -> None:
     with pytest.raises(ValueError, match="illegal_transition:followup:done->snoozed"):
         db_leads.patch_followup(row["id"], {"status": "snoozed"})
     assert db_leads.patch_followup(row["id"], {"status": "open"})["status"] == "open"
+
+
+def test_a_resolved_violation_reopens_only_into_review(db_tx) -> None:
+    """The four other PATCHes got a transition table in pass 6; this one still
+    took any->any, so a resolved breach could be flipped straight to open."""
+    import db_violations
+    from sqlalchemy import text
+
+    vid = db_tx.execute(text("SELECT id FROM violations WHERE status <> 'resolved' LIMIT 1")).scalar()
+    if vid is None:
+        pytest.skip("no open violation seeded")
+    db_violations.patch_violation(vid, {"status": "resolved"})
+    with pytest.raises(ValueError, match="illegal_transition:violation:resolved->open"):
+        db_violations.patch_violation(vid, {"status": "open"})
+    assert db_violations.patch_violation(vid, {"status": "in_review"})["status"] == "in_review"
