@@ -81,6 +81,50 @@ def test_escalate_voice_interaction_one_txn(db_tx) -> None:
     assert int(n_al or 0) >= 1
 
 
+def test_a_failed_alert_write_leaves_no_handoff_behind(db_tx) -> None:
+    """One transaction, or nothing: the live alert is the last write, and when
+    it fails the handoff and the conversation written before it must not
+    survive -- a handoff with no alert is a customer waiting for a supervisor
+    who was never told."""
+    from sqlalchemy import event
+
+    import db
+    import db_core
+
+    cust = db_tx.execute(text("SELECT id FROM customers ORDER BY id LIMIT 1")).scalar()
+    acct = db_tx.execute(
+        text("SELECT id FROM accounts WHERE customer_id = :c ORDER BY id LIMIT 1"),
+        {"c": cust},
+    ).scalar()
+    if not cust or not acct:
+        pytest.skip("no customers")
+    ix = _seed_interaction(db_tx, str(cust), str(acct))
+
+    def _fail_the_alert(conn, cursor, statement, parameters, context, executemany):
+        if "INSERT INTO live_alerts" in statement:
+            raise RuntimeError("alert store unavailable")
+
+    event.listen(db_core.engine, "before_cursor_execute", _fail_the_alert)
+    try:
+        with pytest.raises(RuntimeError, match="alert store unavailable"):
+            db.escalate_voice_interaction(
+                interaction_id=ix,
+                reason="customer_requested",
+                bot_id=db.DEFAULT_BOT_ID,
+                customer_id=str(cust),
+                note_text="[escalation] wants supervisor",
+                route_context={"channel": "voice", "intent": "customer_requested"},
+            )
+    finally:
+        event.remove(db_core.engine, "before_cursor_execute", _fail_the_alert)
+
+    for table in ("interaction_handoffs", "conversations"):
+        n = db_tx.execute(
+            text(f"SELECT count(*) FROM {table} WHERE interaction_id = :ix"), {"ix": ix}
+        ).scalar()
+        assert int(n or 0) == 0, table
+
+
 def test_amd_only_on_outbound_twilio() -> None:
     from voice.amd import should_enable_amd
 

@@ -134,7 +134,7 @@ def test_tenant_column_has_an_index(db_tx, table: str) -> None:
             """
             SELECT count(*) FROM pg_indexes
              WHERE schemaname = 'public' AND tablename = :t
-               AND indexdef LIKE '%tenant_id%'
+               AND indexdef LIKE '%(tenant_id%'
             """
         ),
         {"t": table},
