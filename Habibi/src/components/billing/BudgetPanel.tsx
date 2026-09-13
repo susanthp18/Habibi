@@ -2,10 +2,10 @@ import { useState } from "react";
 import { AlertTriangle, Bell, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BudgetRule } from "@/api/types/billing";
-import { inrCompact } from "@/lib/format";
+import { fmtShortDate, inrCompact } from "@/lib/format";
 import type { BillingBudget } from "@/api/billing";
 import type { AlertEvent } from "@/api/types/billing";
-import { cn, formatKbDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { BudgetRuleDialog } from "./BudgetRuleDialog";
 import { useConfirm } from "@/components/ui/use-confirm";
 
@@ -171,7 +171,7 @@ export function BudgetPanel({
               {alerts.map((a) => (
                 <li key={a.id} className="flex items-baseline gap-100 text-text-subtle">
                   <span className="w-[6.875rem] shrink-0 font-mono text-body-small text-text-subtlest">
-                    {formatKbDate(a.when)}
+                    {fmtShortDate(a.when)}
                   </span>
                   <span>{a.message}</span>
                 </li>

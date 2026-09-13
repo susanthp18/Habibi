@@ -16,6 +16,7 @@ import { sandboxTurnResultSchema } from "@/lib/studio-contract";
 import { apiGet, apiGetBlob, apiPost } from "./config";
 import { INTENT_KEYS } from "@/lib/sandbox";
 import { toast } from "sonner";
+import { fmtMoney } from "@/lib/format";
 
 export type SandboxContext = {
   /** A real `customers` id makes the simulated tools read that borrower's real
@@ -136,7 +137,7 @@ function contextFromPersona(persona: Persona): SandboxContext {
   return {
     customer_name: persona.name,
     account_no: persona.phoneLast4 ? `••••${persona.phoneLast4}` : "XXXX",
-    overdue_amount: persona.overdue ? `₹${persona.overdue.toLocaleString("en-IN")}` : "0",
+    overdue_amount: persona.overdue ? fmtMoney(persona.overdue) : "0",
     language: persona.language,
     agent_name: "Priya",
     bank_name: "HDFC Bank",

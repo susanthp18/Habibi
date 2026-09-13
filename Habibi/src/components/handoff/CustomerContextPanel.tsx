@@ -9,13 +9,7 @@ import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RiskLozenge } from "./HandoffQueue";
-
-function fmtDate(raw: string) {
-  if (!raw) return "—";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-}
+import { fmtShortDate } from "@/lib/format";
 
 export function CustomerContextPanel({
   call: activeCall,
@@ -98,7 +92,7 @@ export function CustomerContextPanel({
           label="Last promise"
           value={
             c.lastPromise
-              ? `${money(c.lastPromise.amount)} · ${fmtDate(c.lastPromise.date)}`
+              ? `${money(c.lastPromise.amount)} · ${fmtShortDate(c.lastPromise.date)}`
               : "None on file"
           }
           badge={
@@ -120,7 +114,7 @@ export function CustomerContextPanel({
           label="Next EMI"
           value={
             c.nextEmi
-              ? `${money(c.nextEmi.amount)} · due ${fmtDate(c.nextEmi.dueDate)}`
+              ? `${money(c.nextEmi.amount)} · due ${fmtShortDate(c.nextEmi.dueDate)}`
               : "No upcoming EMI"
           }
           badge={

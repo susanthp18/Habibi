@@ -53,7 +53,8 @@ import {
 // live call must never fall through to a half-populated table, because a
 // plausible-looking number with no backend behind it is worse than a gap.
 // ---------------------------------------------------------------------------
-import { HOLD_TONE, Panel, StateGate, fmtWhen } from "./chrome";
+import { HOLD_TONE, Panel, StateGate } from "./chrome";
+import { fmtDateTime } from "@/lib/format";
 
 export function HoldsTab() {
   const [activeOnly, setActiveOnly] = useState(true);
@@ -142,13 +143,13 @@ export function HoldsTab() {
                       ) : null}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                      {fmtWhen(h.startsAt)}
+                      {fmtDateTime(h.startsAt)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                      {fmtWhen(h.slaDueAt)}
+                      {fmtDateTime(h.slaDueAt)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                      {h.expiresAt ? fmtWhen(h.expiresAt) : "no expiry"}
+                      {h.expiresAt ? fmtDateTime(h.expiresAt) : "no expiry"}
                     </TableCell>
                     <TableCell>
                       {h.active ? (
@@ -164,7 +165,7 @@ export function HoldsTab() {
                         </Button>
                       ) : (
                         <span className="text-body-small text-text-subtlest">
-                          {fmtWhen(h.releasedAt)}
+                          {fmtDateTime(h.releasedAt)}
                         </span>
                       )}
                     </TableCell>

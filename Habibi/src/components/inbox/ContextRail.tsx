@@ -14,6 +14,7 @@ import type { Thread, ThreadContext } from "@/api/types/inbox";
 import { Avatar } from "./meta";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";
+import { fmtMoney } from "@/lib/format";
 import {
   Accordion,
   AccordionContent,
@@ -109,7 +110,7 @@ export function ContextRail({
         <div className="border-t border-border px-200 py-200">
           <div className="text-body-small font-semibold text-text-subtlest">Outstanding</div>
           <div className="mt-050 font-mono metric-medium text-text tabular">
-            ₹{c.outstanding.toLocaleString("en-IN")}
+            {fmtMoney(c.outstanding)}
           </div>
           <div className="text-body-small text-text-subtle">{c.outstandingAging}</div>
 
@@ -117,7 +118,7 @@ export function ContextRail({
             <div className="flex items-baseline justify-between gap-100">
               <dt className="text-body-small text-text-subtlest">Next EMI</dt>
               <dd className="text-right text-body-small text-text">
-                {c.nextEmiAmount ? `₹${c.nextEmiAmount.toLocaleString("en-IN")}` : "—"}
+                {c.nextEmiAmount ? fmtMoney(c.nextEmiAmount) : "—"}
                 {c.nextEmiDate ? (
                   <span className="text-text-subtlest"> · {c.nextEmiDate}</span>
                 ) : null}
@@ -129,7 +130,7 @@ export function ContextRail({
                 {c.lastPromise ? (
                   <>
                     <span>
-                      ₹{c.lastPromise.amount.toLocaleString("en-IN")}
+                      {fmtMoney(c.lastPromise.amount)}
                       <span className="text-text-subtlest"> · {c.lastPromise.date}</span>
                     </span>
                     <Lozenge tone={promiseTone[c.lastPromise.status]}>

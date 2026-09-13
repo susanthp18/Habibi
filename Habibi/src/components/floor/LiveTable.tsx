@@ -7,17 +7,8 @@ import type { ActiveCall } from "@/api/types/floor";
 import { channelLabel, LIVE_QA_STATUS_LABEL, LIVE_QA_STATUS_TONE } from "@/lib/floor";
 import { OFFER_STATUS_LABEL, OFFER_STATUS_TONE } from "@/lib/offer-policy";
 import { AUTHORITY_STATUS_LABEL, AUTHORITY_STATUS_TONE } from "@/lib/authority-policy";
+import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const fmtDur = (s: number) => {
-  const m = Math.floor(s / 60)
-    .toString()
-    .padStart(2, "0");
-  const r = Math.floor(s % 60)
-    .toString()
-    .padStart(2, "0");
-  return `${m}:${r}`;
-};
 
 const riskTone = {
   high: "danger",
@@ -119,7 +110,7 @@ export function LiveTable({
         align: "right",
         cell: (r) => (
           <span className="tabular text-body-small font-semibold text-text">
-            {fmtDur(r.durationSec)}
+            {formatDuration(r.durationSec)}
           </span>
         ),
       },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { inr } from "@/lib/format";
 
 export type OfferPolicyStatus =
   | "none"
@@ -96,5 +97,5 @@ export function emptyOfferPolicy(): OfferPolicy {
 
 export function fmtOfferAmount(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return "";
-  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+  return inr(n);
 }

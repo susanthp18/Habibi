@@ -18,19 +18,7 @@ import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 import { SentimentBubble } from "./SentimentBubble";
 import { useFloorCopilot } from "@/api/floor";
-
-const fmtDur = (s: number) => {
-  const m = Math.floor(s / 60)
-    .toString()
-    .padStart(2, "0");
-  const r = Math.floor(s % 60)
-    .toString()
-    .padStart(2, "0");
-  return `${m}:${r}`;
-};
-
-const inr = (n: number) =>
-  n.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+import { formatDuration, inr } from "@/lib/format";
 
 const riskTone = {
   high: "danger",
@@ -81,7 +69,7 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
             {isHuman ? call.handler.name : "Bot"}
           </Lozenge>
           <span className="ml-auto tabular text-body-small font-semibold text-text">
-            {fmtDur(call.durationSec)}
+            {formatDuration(call.durationSec)}
           </span>
         </div>
 

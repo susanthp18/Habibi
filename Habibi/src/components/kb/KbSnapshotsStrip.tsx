@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { KbSnapshot } from "@/api/kb";
 import { Camera, ChevronDown } from "lucide-react";
-import { cn, formatKbDateTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/format";
 
 function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
@@ -28,7 +29,7 @@ export function KbSnapshotsStrip({ snapshots }: { snapshots: KbSnapshot[] }) {
           <span className="text-text-subtlest">
             {" "}
             · {plural(latest.documentCount, "doc", "docs")} ·{" "}
-            {plural(latest.faqCount, "FAQ", "FAQs")} · {formatKbDateTime(latest.createdAt)}
+            {plural(latest.faqCount, "FAQ", "FAQs")} · {fmtDateTime(latest.createdAt)}
           </span>
         </span>
         {extra > 0 && (
@@ -56,7 +57,7 @@ export function KbSnapshotsStrip({ snapshots }: { snapshots: KbSnapshot[] }) {
                 <span>
                   {plural(s.documentCount, "doc", "docs")} · {plural(s.faqCount, "FAQ", "FAQs")}
                 </span>
-                <span className="tabular-nums">{formatKbDateTime(s.createdAt)}</span>
+                <span className="tabular-nums">{fmtDateTime(s.createdAt)}</span>
               </div>
             </li>
           ))}

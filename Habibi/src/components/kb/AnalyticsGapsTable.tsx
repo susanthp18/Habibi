@@ -18,11 +18,11 @@ import {
 import { Label } from "@/components/ui/label";
 import type { KbGap } from "@/api/kb";
 import type { KbDocument } from "@/api/types/kb";
-import { formatKbDate } from "@/lib/utils";
 import { CheckCircle2, MessageSquarePlus, BookOpen, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
+import { fmtShortDate } from "@/lib/format";
 
 export function AnalyticsGapsTable({
   gaps,
@@ -173,7 +173,7 @@ export function AnalyticsGapsTable({
         className: "min-w-[7rem] whitespace-nowrap",
         cell: (q) => (
           <span className="text-body-small text-text-subtle">
-            {formatKbDate(q.lastSeen, { day: "2-digit", month: "short" })}
+            {fmtShortDate(q.lastSeen, { day: "2-digit", month: "short" })}
           </span>
         ),
       },

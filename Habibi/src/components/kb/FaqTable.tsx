@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import type { FaqPair } from "@/api/types/kb";
-import { formatKbDate } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
+import { fmtShortDate } from "@/lib/format";
 
 export function FaqTable({
   faqs,
@@ -74,7 +74,7 @@ export function FaqTable({
         className: "min-w-[7rem] whitespace-nowrap",
         cell: (f) => (
           <span className="text-body-small text-text-subtle">
-            {formatKbDate(f.updatedAt, { day: "2-digit", month: "short" })}
+            {fmtShortDate(f.updatedAt, { day: "2-digit", month: "short" })}
           </span>
         ),
       },

@@ -35,8 +35,8 @@ import {
   Stat,
   StateGate,
   VERDICT_TONE,
-  fmtWhen,
 } from "./chrome";
+import { fmtDateTime } from "@/lib/format";
 
 export function ModelsTab({ days }: { days: number }) {
   const health = useTreatmentModelHealth(days);
@@ -267,10 +267,10 @@ export function ModelsTab({ days }: { days: number }) {
                           {fmtNum(m.segments_promoted)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                          {fmtWhen(m.registered_at)}
+                          {fmtDateTime(m.registered_at)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                          {fmtWhen(m.promoted_at)}
+                          {fmtDateTime(m.promoted_at)}
                         </TableCell>
                       </TableRow>
                     ))}

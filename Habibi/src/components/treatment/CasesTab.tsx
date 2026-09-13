@@ -32,7 +32,8 @@ import {
 // live call must never fall through to a half-populated table, because a
 // plausible-looking number with no backend behind it is worse than a gap.
 // ---------------------------------------------------------------------------
-import { EmptyPanel, Panel, Stat, StateGate, fmtWhen } from "./chrome";
+import { EmptyPanel, Panel, Stat, StateGate } from "./chrome";
+import { fmtDateTime } from "@/lib/format";
 
 export function CasesTab() {
   const [openOnly, setOpenOnly] = useState(true);
@@ -134,7 +135,7 @@ export function CasesTab() {
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap tabular-nums text-text-subtle">
-                      {fmtWhen(c.lastDecidedAt)}
+                      {fmtDateTime(c.lastDecidedAt)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -194,7 +195,7 @@ export function NextTreatmentPanel({ selected }: { selected: TreatmentCase | nul
 
             <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
               <Stat label="Expected value" value={fmtInr(d.expectedValueInr)} />
-              <Stat label="Scheduled for" value={fmtWhen(d.at)} />
+              <Stat label="Scheduled for" value={fmtDateTime(d.at)} />
               <Stat label="Propensity" value={fmtRate(d.propensity)} />
               <Stat label="Latency" value={`${fmtNum(d.latencyMs)} ms`} />
             </div>

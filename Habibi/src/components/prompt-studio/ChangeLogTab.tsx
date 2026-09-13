@@ -35,6 +35,7 @@ import {
   parseLogTimestamp,
 } from "@/lib/change-log-actions";
 import { partitionGates } from "@/lib/gate-status";
+import { fmtDateTime } from "@/lib/format";
 
 // `agent.restore` was missing from both maps although the backend has recorded
 // it since `record_restore` landed, so a restore rendered as the raw string
@@ -48,7 +49,7 @@ const CHAIN_REASON: Record<string, string> = {
 function stamp(at: string | null): string {
   const d = parseLogTimestamp(at);
   if (!d) return at ?? "—";
-  return d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return fmtDateTime(d.toISOString());
 }
 
 /**

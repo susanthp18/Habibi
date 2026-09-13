@@ -22,6 +22,11 @@ export function fmtDate(iso: string | null | undefined, opts?: Intl.DateTimeForm
   });
 }
 
+/** `13 Sep 26` -- the compact date the tables use. */
+export function fmtShortDate(iso: string | null | undefined, opts?: Intl.DateTimeFormatOptions) {
+  return fmtDate(iso, opts ?? { day: "2-digit", month: "short", year: "2-digit" });
+}
+
 export function fmtDateTime(iso: string | null | undefined) {
   if (!iso) return "—";
   const d = new Date(iso);

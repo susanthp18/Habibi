@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { SlaPill } from "@/components/ui/SlaPill";
 import { Badge } from "@/components/ui/badge";
+import { fmtMoney } from "@/lib/format";
 import {
   RecordsAvatarMark,
   RecordsTable,
@@ -166,7 +167,7 @@ export function AssignedQueue() {
           const hasAmount = typeof amount === "number" && Number.isFinite(amount);
           return (
             <span className="text-body font-medium tabular-nums text-text">
-              {hasAmount ? `₹${amount.toLocaleString("en-IN")}` : "—"}
+              {hasAmount ? fmtMoney(amount) : "—"}
             </span>
           );
         },
@@ -178,7 +179,7 @@ export function AssignedQueue() {
           );
           return sum > 0 ? (
             <span className="text-body-small font-semibold tabular-nums text-text">
-              ₹{sum.toLocaleString("en-IN")}
+              {fmtMoney(sum)}
             </span>
           ) : (
             <span className="text-text-subtlest">—</span>

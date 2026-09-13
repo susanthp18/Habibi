@@ -1,6 +1,6 @@
 import { BookOpen, MessageSquareText, AlertTriangle, Layers, Clock, Gauge } from "lucide-react";
 import { MetricsStrip } from "@/components/records/MetricsStrip";
-import { formatKbDate } from "@/lib/utils";
+import { fmtShortDate } from "@/lib/format";
 
 export type KbTab = "documents" | "faqs" | "gaps" | "test";
 
@@ -62,7 +62,7 @@ export function KbStatsStrip({
         },
         {
           label: "Last re-index",
-          value: formatKbDate(lastIndexed, { day: "2-digit", month: "short" }),
+          value: fmtShortDate(lastIndexed, { day: "2-digit", month: "short" }),
           icon: Clock,
           tone: "brand",
           className: "hidden xl:flex",

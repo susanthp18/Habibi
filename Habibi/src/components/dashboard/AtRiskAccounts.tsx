@@ -1,6 +1,7 @@
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import type { AtRiskAccount } from "@/api/types/dashboard";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { fmtMoney } from "@/lib/format";
 
 const riskTone: Record<AtRiskAccount["risk"], LozengeTone> = {
   critical: "danger",
@@ -10,9 +11,6 @@ const riskTone: Record<AtRiskAccount["risk"], LozengeTone> = {
 
 // `accounts.outstanding` is INR. Rendering it with a dollar sign understated
 // every exposure on this list by roughly a factor of 85 to anyone reading it.
-function fmtMoney(n: number) {
-  return `₹${n.toLocaleString("en-IN")}`;
-}
 
 export function AtRiskAccounts({
   accounts,

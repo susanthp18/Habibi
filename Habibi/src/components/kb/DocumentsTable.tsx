@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { cn, formatKbDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import type { KbDocument } from "@/api/types/kb";
 import { DOC_TYPE_LABEL, STATUS_LABEL } from "@/lib/kb";
@@ -7,6 +7,7 @@ import { FileText, RefreshCw, Trash2 } from "lucide-react";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
+import { fmtShortDate } from "@/lib/format";
 
 const statusStyles: Record<string, LozengeTone> = {
   indexed: "success",
@@ -156,7 +157,7 @@ export function DocumentsTable({
         sortValue: (d) => d.lastIndexed,
         className: "min-w-[8rem] whitespace-nowrap",
         cell: (d) => (
-          <span className="text-body-small text-text-subtle">{formatKbDate(d.lastIndexed)}</span>
+          <span className="text-body-small text-text-subtle">{fmtShortDate(d.lastIndexed)}</span>
         ),
       },
       {

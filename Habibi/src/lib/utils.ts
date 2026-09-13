@@ -52,34 +52,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Safe date label for KB timestamps that may be empty / invalid. */
-export function formatKbDate(
-  value: string | null | undefined,
-  opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "2-digit" },
-): string {
-  const raw = (value || "").trim();
-  if (!raw) return "—";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "—";
-  // Pinned locale, matching formatDateTime: `undefined` follows the browser,
-  // so the same timestamp rendered differently per user (and differently
-  // between SSR and CSR).
-  return d.toLocaleDateString("en-IN", opts);
-}
-
-export function formatKbDateTime(value: string | null | undefined): string {
-  const raw = (value || "").trim();
-  if (!raw) return "—";
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 /** The list with `v` added if absent, removed if present. */
 /**
  * One write intent, one key. Held in a ref for the life of a form and rotated
