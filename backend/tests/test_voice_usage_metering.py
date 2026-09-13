@@ -128,6 +128,24 @@ def test_llm_usage_is_metered_with_prompt_completion_split(sink, events) -> None
     assert sink.usage.llm_turns == 1
 
 
+def test_cached_prompt_tokens_are_counted_by_deployment(sink, events) -> None:
+    """`prompt_tokens_details.cached_tokens` used to reach a debug log and stop.
+    The counter is what says whether the stable-prefix layout hits the cache."""
+    from observability import REGISTRY
+
+    before = REGISTRY.get_sample_value(
+        "llm_cached_input_tokens_total", {"deployment": "gpt-5-mini"}
+    ) or 0.0
+    sink.usage.record_llm(
+        prompt_tokens=1200, completion_tokens=30, model="gpt-5-mini", cached_input_tokens=1024
+    )
+    sink.usage.record_llm(prompt_tokens=100, completion_tokens=10, model="gpt-5-mini")
+    after = REGISTRY.get_sample_value(
+        "llm_cached_input_tokens_total", {"deployment": "gpt-5-mini"}
+    )
+    assert after == before + 1024
+
+
 def test_llm_usage_populates_transcript_tokens(sink, events) -> None:
     """The regression that left interaction_transcript.tokens NULL on every call."""
     assert sink._pending_tokens is None

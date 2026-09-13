@@ -34,6 +34,7 @@ import logging
 from typing import Any
 
 import usage_meter
+from observability import llm_cached_input_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +117,12 @@ class VoiceUsageMeter:
             )
             # Cache reads bill below the input rate on Azure, but the price book
             # has no cached-input line, so they are currently charged at the full
-            # input rate. Recorded here so the overstatement is visible and can
-            # be corrected without replaying calls.
+            # input rate. Counted so the overstatement is visible and can be
+            # corrected without replaying calls.
+            if cached_input_tokens:
+                llm_cached_input_tokens.labels(
+                    deployment=model or self._llm_model or "unknown"
+                ).inc(int(cached_input_tokens))
             if cached_input_tokens or reasoning_tokens:
                 logger.debug(
                     "llm usage extras · cached=%s · reasoning=%s · interaction=%s",

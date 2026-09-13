@@ -146,6 +146,16 @@ voice_calls_rejected = Counter(
     registry=REGISTRY,
 )
 
+#: Prompt tokens Azure served from its prefix cache. The price book bills them
+#: at the full input rate, so this is how far the LLM line overstates cost --
+#: and whether the stable-prefix prompt layout is actually hitting the cache.
+llm_cached_input_tokens = Counter(
+    "llm_cached_input_tokens_total",
+    "Prompt tokens served from the provider's prefix cache, by deployment.",
+    ["deployment"],
+    registry=REGISTRY,
+)
+
 
 def observe_request(*, method: str, route: str, status_code: int, seconds: float) -> None:
     """Record one finished request. Never raises — see :func:`_safe`."""
