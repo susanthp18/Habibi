@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class RemoteRefused(Exception):
+    """A JSON-RPC error object from the remote: it was reached and declined."""
+
+
 def _https_ok(url: str | None) -> bool:
     if not url:
         return True
@@ -331,6 +335,13 @@ def dispatch(
         return dispatch_first_party(name, customer_id)
     try:
         result = _call_remote(conn, name, customer_id, args=args)
+    except RemoteRefused as exc:
+        # The remote answered, and said no: an unknown invoice, a bad
+        # argument. That is the model's business, not the circuit's -- three
+        # of these in a row used to open the connector for every caller.
+        logger.info("remote connector refused · %s · %s", name, exc)
+        circuit.record_success(conn["id"])
+        return {"ok": False, "error": "remote_refused", "detail": str(exc)[:200]}
     except Exception as exc:
         code = _blocked_url_code(exc)
         if code:
@@ -442,7 +453,7 @@ def _call_remote(
     resp.raise_for_status()
     payload = resp.json()
     if payload.get("error"):
-        raise RuntimeError(payload["error"].get("message") or "remote_error")
+        raise RemoteRefused(payload["error"].get("message") or "remote_error")
     result = payload.get("result") or {}
     content = result.get("content") or []
     if content and isinstance(content[0], dict) and content[0].get("text"):

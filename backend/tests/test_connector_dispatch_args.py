@@ -169,3 +169,36 @@ def test_execute_tool_forwards_the_models_arguments(monkeypatch: pytest.MonkeyPa
     assert result == {"ok": True}
     assert seen["customer_id"] == "CUST-1"
     assert seen["args"] == {"invoice_id": "INV-9"}
+
+
+def test_a_remote_refusal_is_the_models_problem_not_the_circuits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A JSON-RPC error object means the remote was reached and said no. It
+    used to be raised as a RuntimeError, scored as a circuit failure and
+    returned as connector_call_failed -- three bad invoice ids opened the
+    connector for everyone."""
+    import httpx
+
+    class _Refused:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "unknown invoice"}}
+
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: _Refused())
+    import webhooks_dispatch as wd
+
+    monkeypatch.setattr(cp, "_pinned", lambda url: wd.Pinned(str(url), "mcp.example.com", str(url)))
+    monkeypatch.setattr(cp, "mcp_client_enabled", lambda: True)
+    monkeypatch.setattr(cp, "get_connector", lambda _id: _connector())
+    failures: list[str] = []
+    monkeypatch.setattr(cp.circuit, "record_failure", lambda cid: failures.append(cid))
+    monkeypatch.setattr(cp.circuit, "record_success", lambda cid: None)
+
+    result = cp.dispatch(
+        "ext.vendor.get_invoice", customer_id="CUST-1", connector_id="conn-args-test", args={"invoice_id": "nope"}
+    )
+    assert result == {"ok": False, "error": "remote_refused", "detail": "unknown invoice"}
+    assert failures == []
