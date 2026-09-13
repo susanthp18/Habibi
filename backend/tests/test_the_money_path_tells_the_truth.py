@@ -128,15 +128,48 @@ def test_the_confirm_copy_is_internally_consistent_after_a_refresh() -> None:
     assert expires > promised_at, body
 
 
-def test_a_reschedule_re_enters_fulfilment() -> None:
-    """`patch_promise` moved the date and touched nothing downstream."""
-    import inspect
+def test_a_revision_re_enters_fulfilment(db_tx) -> None:
+    """Moving the date moves what the pay link has to say: the open intent's
+    expiry is re-derived from the new promise date, not left at the old one.
+    (Was a source pin on patch_promise; the date now moves through revise.)"""
+    import uuid
+    from datetime import timedelta
 
     import db
+    import pytest
+    from agent_core import clock
+    from sqlalchemy import text
 
-    src = inspect.getsource(db.patch_promise)
-    assert "promise_fulfillment.fulfill" in src
-    assert src.index('payload.get("promisedDate")') < src.index("promise_fulfillment")
+    row = db_tx.execute(
+        text(
+            """
+            SELECT c.id, a.id AS account_id FROM customers c JOIN accounts a ON a.customer_id = c.id
+            WHERE c.id <> 'UNKNOWN-CALLER'
+              AND NOT EXISTS (SELECT 1 FROM promises p WHERE p.account_id = a.id
+                              AND p.status IN ('upcoming','due_today'))
+            ORDER BY c.id LIMIT 1
+            """
+        )
+    ).mappings().first()
+    if row is None:
+        pytest.skip("no account without an open promise")
+    day = lambda n: (clock.today_local() + timedelta(days=n)).isoformat()  # noqa: E731
+    created = db.create_promise(
+        {"customerId": row["id"], "accountId": row["account_id"], "amount": 300, "promisedDate": day(4)},
+        idempotency_key=f"refulfil-{uuid.uuid4().hex}",
+    )
+    before = db_tx.execute(
+        text("SELECT expires_at FROM payment_intents WHERE promise_id = :id AND status IN ('created','sent','opened')"),
+        {"id": created["id"]},
+    ).scalar()
+    if before is None:
+        pytest.skip("no pay intent minted (payments not configured)")
+    db.revise_promise(created["id"], {"promisedDate": day(14), "reason": "salary_delayed"})
+    after = db_tx.execute(
+        text("SELECT expires_at FROM payment_intents WHERE promise_id = :id AND status IN ('created','sent','opened')"),
+        {"id": created["id"]},
+    ).scalar()
+    assert after is not None and after > before
 
 
 # ---------------------------------------------------------------------------

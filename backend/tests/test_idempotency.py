@@ -18,11 +18,25 @@ import pytest
 def _pick_customer() -> tuple[str, str | None]:
     import db
 
-    customers = db.list_customers()
-    if not customers:
-        pytest.skip("no customers seeded")
-    c = customers[0]
-    return c["id"], c.get("accountId") or None
+    from sqlalchemy import text
+
+    # One open promise per account: pick a customer whose account has none.
+    with db.engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT c.id, a.id AS account_id
+                FROM customers c JOIN accounts a ON a.customer_id = c.id
+                WHERE c.id <> 'UNKNOWN-CALLER'
+                  AND NOT EXISTS (SELECT 1 FROM promises p WHERE p.account_id = a.id
+                                  AND p.status IN ('upcoming','due_today'))
+                ORDER BY c.id LIMIT 1
+                """
+            )
+        ).mappings().first()
+    if row is None:
+        pytest.skip("no account without an open promise")
+    return row["id"], row["account_id"]
 
 
 def test_whatsapp_path_double_submit_one_row(db_tx) -> None:

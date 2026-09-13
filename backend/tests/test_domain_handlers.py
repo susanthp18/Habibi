@@ -19,6 +19,8 @@ def _customer(db_tx) -> tuple[str, str | None]:
             FROM customers c
             LEFT JOIN accounts a ON a.customer_id = c.id
             WHERE c.id <> 'UNKNOWN-CALLER'
+              AND NOT EXISTS (SELECT 1 FROM promises p WHERE p.account_id = a.id
+                              AND p.status IN ('upcoming','due_today'))
             ORDER BY c.id
             LIMIT 1
             """
