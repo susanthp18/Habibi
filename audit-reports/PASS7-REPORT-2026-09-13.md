@@ -68,14 +68,14 @@ Module-size baseline **empty**: `outbound_pools.py`, `bank_boundary/ingest_apply
 | `npm run build` | green |
 | Backend tests touched this pass, in `collections_voice` | connectors (23), authority/skills/treatment/understanding/vault (248), crm degraded (12), sandbox/bot/campaign/promise/kb/qa/seed/ready set, mouth-turn split, run-up, pins — all green before the Docker engine stopped |
 | `migrate_from_empty.py` parity / `rls.py status` | 7,313 lines parity; 224/224 enforcing (WS2, this morning) |
-| **Full backend suite, end of pass** | **not run**: the Docker Desktop Linux engine began answering `500` to every API call (`docker ps`, `docker version`; `wsl -d docker-desktop` times out with `Wsl/Service/0x8007274c`) after the WS7.4 commits, and I do not restart it from here — it holds the user's containers and their Ubuntu WSL session. The last full run was 4,694 passed / 0 failed at the close of pass 6; every backend file this pass touched had its own tests run green in the container before the outage, except the last three commits' tests (`test_lead_pipeline`, `test_dashboard_live`, `test_escalate_txn`, `test_tenant_scoping`, `test_eval_honesty`, `test_cardless_runtime_deny_all`) |
+| **Full backend suite, end of pass** | **not run**: the Docker Desktop Linux engine began answering `500` to every API call (`docker ps`, `docker version`; `wsl -d docker-desktop` times out with `Wsl/Service/0x8007274c`) after the WS7.4 commits, and I do not restart it from here — it holds the user's containers and their Ubuntu WSL session. The last full run was 4,694 passed / 0 failed at the close of pass 6; every backend file this pass touched had its own tests run green in the container before the outage, except the DB-backed tests of the last commits (`test_lead_pipeline`, `test_dashboard_live`, `test_escalate_txn`, `test_tenant_scoping`); the DB-free ones (`test_eval_honesty`, `test_cardless_runtime_deny_all`, `test_no_new_source_pins`, the connector, authority-resource, crm-degraded, notices and module-size tests — 49) ran green on the host `.venv` |
 | Worker images rebuilt after the carves (`compose build worker bot_worker`) | **not done** — same outage |
 | `/metrics` ×4, every screen opened once, `fleet_parity.py`, `eval_gate_preflight.py` | done through WS5/WS6 during the pass; **not repeated** at the close — same outage |
 
 **To finish the verification once the engine is back** (from `D:\Hackathon\backend`; nothing edited while it runs):
 
 ```bash
-MSYS_NO_PATHCONV=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -T voice pytest -q -p no:cacheprovider --no-header tests/test_lead_pipeline.py tests/test_dashboard_live.py tests/test_escalate_txn.py tests/test_tenant_scoping.py tests/test_eval_honesty.py tests/test_cardless_runtime_deny_all.py tests/test_no_new_source_pins.py
+MSYS_NO_PATHCONV=1 docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -T voice pytest -q -p no:cacheprovider --no-header tests/test_lead_pipeline.py tests/test_dashboard_live.py tests/test_escalate_txn.py tests/test_tenant_scoping.py
 ```
 
 ```bash
