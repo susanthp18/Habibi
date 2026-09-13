@@ -479,7 +479,7 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
     if not result.get("placed"):
         reason = result.get("reason") or "dial_failed"
         raise HTTPException(
-            status_code=503 if reason == "fleet_busy" else 502, detail=reason
+            status_code=503 if reason in outbound.UNAVAILABLE_REASONS else 502, detail=reason
         )
     return result
 

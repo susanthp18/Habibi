@@ -114,6 +114,10 @@ TERMINAL: frozenset[str] = frozenset(
 #: Cadence input. A ``rejected`` number retried three times is a number to
 #: retire, not a number to keep dialling — that rule lives in the cadence, not
 #: here, but it starts from this set.
+#: Refusals that are the platform's state, not the request's: the dial
+#: routes answer 503 for these and 502 for the rest.
+UNAVAILABLE_REASONS: frozenset[str] = frozenset({"fleet_busy", "outbound_disabled"})
+
 RETRYABLE: frozenset[str] = frozenset(
     {STATE_NO_ANSWER, STATE_BUSY, STATE_VOICEMAIL_LEFT, STATE_VOICEMAIL_SKIPPED, STATE_REJECTED}
 )

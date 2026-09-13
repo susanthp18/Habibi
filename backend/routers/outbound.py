@@ -319,7 +319,7 @@ async def demo_outbound_call():
     if not result.get("placed"):
         reason = result.get("reason") or "dial_failed"
         raise HTTPException(
-            status_code=503 if reason in {"fleet_busy", "outbound_disabled"} else 502,
+            status_code=503 if reason in outbound.UNAVAILABLE_REASONS else 502,
             detail=reason,
         )
     return {

@@ -7,18 +7,21 @@ app -- main.py includes the routers, so the other direction would be a cycle.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from env_utils import env_int
 
 import authz
 import observability
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi import UploadFile
 from sqlalchemy.exc import IntegrityError
 
 from fastapi.responses import JSONResponse
 from starlette.requests import HTTPConnection
 from starlette.concurrency import run_in_threadpool
+
+import pg_errors
 
 logger = logging.getLogger("main")
 
@@ -213,9 +216,84 @@ def _handle_write(fn, *args, **kwargs):
     except IntegrityError as exc:
         # A bad foreign key (unknown productId / teamId / ownerUserId) is a
         # client error, not a server fault. It used to escape as an unhandled
-        # 500 with a psycopg traceback in the response body.
+        # 500 with a psycopg traceback in the response body. The detail names
+        # the class -- duplicate, unknown_reference, check_violation -- from
+        # the SQLSTATE, one map for every write path.
         logger.warning("write rejected by a database constraint: %s", exc.orig)
-        raise HTTPException(status_code=409, detail="constraint_violation") from exc
+        raise HTTPException(status_code=409, detail=pg_errors.constraint_detail(exc)) from exc
+
+
+def _unavailable(status: int, detail: str, retry_after_s: float) -> Utf8JSONResponse:
+    """A 429/503 with the one header a client can act on."""
+    import math
+
+    return Utf8JSONResponse(
+        status_code=status,
+        content={"detail": detail},
+        headers={"Retry-After": str(max(1, math.ceil(retry_after_s)))},
+    )
+
+
+def register_error_handlers(app: Any) -> None:
+    """Every error the API answers, in one place.
+
+    FastAPI builds HTTPException and validation responses with its own
+    JSONResponse, so those went out as bare application/json; the stock
+    handlers are kept and one header rewritten. The 422 body is rebuilt
+    without pydantic's ``input`` echo: the field that failed validation is
+    the field most likely to hold a PAN or a phone number, and it went back
+    to the client verbatim. 429 and 503 carry Retry-After. A true 500 gets
+    one envelope with the request id -- Starlette runs the catch-all inside
+    ServerErrorMiddleware, outside every BaseHTTPMiddleware, so the
+    request-id middleware never sees that response and this sets the header
+    itself.
+    """
+    from fastapi.exception_handlers import http_exception_handler
+    from fastapi.exceptions import RequestValidationError
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    import azure_openai
+    import circuit_breaker
+    import kb_rate_limit
+
+    async def _json_charset(response: Response) -> Response:
+        media = response.headers.get("content-type", "")
+        if media.startswith("application/json") and "charset=" not in media.lower():
+            response.headers["content-type"] = "application/json; charset=utf-8"
+        return response
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http(request: Request, exc: StarletteHTTPException):
+        return await _json_charset(await http_exception_handler(request, exc))
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation(_request: Request, exc: RequestValidationError):
+        errors = [{k: e[k] for k in ("type", "loc", "msg") if k in e} for e in exc.errors()]
+        return Utf8JSONResponse(status_code=422, content={"detail": errors})
+
+    @app.exception_handler(azure_openai.AzureBusyError)
+    async def _busy(_request: Request, exc: azure_openai.AzureBusyError):
+        return _unavailable(503, str(exc) or "azure_concurrency_saturated", azure_openai._acquire_timeout_s())
+
+    @app.exception_handler(circuit_breaker.CircuitOpenError)
+    async def _circuit(_request: Request, exc: circuit_breaker.CircuitOpenError):
+        return _unavailable(503, str(exc) or "circuit_open", exc.retry_after_s)
+
+    @app.exception_handler(kb_rate_limit.RateLimitExceeded)
+    async def _rate(_request: Request, exc: kb_rate_limit.RateLimitExceeded):
+        import time
+
+        return _unavailable(429, str(exc) or "rate_limited", 60 - int(time.time()) % 60)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, _exc: Exception):
+        rid = getattr(request.state, "request_id", None)
+        logger.exception("unhandled %s %s request_id=%s", request.method, request.url.path, rid)
+        return Utf8JSONResponse(
+            status_code=500,
+            content={"detail": "internal_error", "requestId": rid},
+            headers={"X-Request-Id": rid} if rid else None,
+        )
 
 
 #: Every router declares this dependency. Routes are appended to the app flat

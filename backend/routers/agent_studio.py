@@ -12,6 +12,7 @@ import logging
 
 import authz
 import db
+import pg_errors
 import flow_graph
 
 from fastapi import APIRouter
@@ -701,7 +702,7 @@ def publish_prompt_version(version_id: str, payload: PromptVersionPublishRequest
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
         logger.warning("write rejected by a database constraint: %s", exc.orig)
-        raise HTTPException(status_code=409, detail="constraint_violation") from exc
+        raise HTTPException(status_code=409, detail=pg_errors.constraint_detail(exc)) from exc
 
 @router.post("/prompt-versions/lint", response_model=PromptLintResponse)
 def lint_prompt_version(payload: PromptLintRequest):
@@ -813,5 +814,5 @@ def rollback_bot_deployment(deployment_id: str):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
         logger.warning("write rejected by a database constraint: %s", exc.orig)
-        raise HTTPException(status_code=409, detail="constraint_violation") from exc
+        raise HTTPException(status_code=409, detail=pg_errors.constraint_detail(exc)) from exc
 

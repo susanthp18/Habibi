@@ -179,30 +179,76 @@ def test_azure_busy_maps_to_503(client: TestClient, api_key: str) -> None:
     import azure_openai
     import main as app_main
 
-    resp = asyncio.run(
-        app_main._azure_busy_handler(
-            None,  # type: ignore[arg-type]
-            azure_openai.AzureBusyError("azure_concurrency_saturated"),
-        )
-    )
+    handler = app_main.app.exception_handlers[azure_openai.AzureBusyError]
+    resp = asyncio.run(handler(None, azure_openai.AzureBusyError("azure_concurrency_saturated")))  # type: ignore[arg-type]
     assert resp.status_code == 503
     assert b"azure_concurrency_saturated" in resp.body
+    assert int(resp.headers["Retry-After"]) >= 1
 
 
-def test_circuit_open_maps_to_503(client: TestClient, api_key: str) -> None:
+def test_circuit_open_maps_to_503_with_the_breakers_own_wait(client: TestClient, api_key: str) -> None:
     import asyncio
 
     import circuit_breaker
     import main as app_main
 
+    handler = app_main.app.exception_handlers[circuit_breaker.CircuitOpenError]
     resp = asyncio.run(
-        app_main._circuit_open_handler(
-            None,  # type: ignore[arg-type]
-            circuit_breaker.CircuitOpenError("circuit_open:azure_openai"),
-        )
+        handler(None, circuit_breaker.CircuitOpenError("circuit_open:azure_openai", retry_after_s=12.2))  # type: ignore[arg-type]
     )
     assert resp.status_code == 503
     assert b"circuit_open" in resp.body
+    assert resp.headers["Retry-After"] == "13"
+
+
+def test_422_does_not_echo_the_input(client: TestClient, api_key: str) -> None:
+    """pydantic's error rows carry `input` -- the field that failed is the one
+    most likely to hold a PAN or a phone number, and it went back verbatim."""
+    resp = client.post(
+        "/disputes",
+        json={"customerId": "CUST-X", "type": "vibes", "amount": "4111 1111 1111 1111"},
+        headers={"X-API-Key": api_key},
+    )
+    assert resp.status_code == 422, resp.text
+    assert b"4111" not in resp.content
+    for row in resp.json()["detail"]:
+        assert set(row) <= {"type", "loc", "msg"}, row
+
+
+def test_rate_limited_carries_retry_after(client: TestClient, api_key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    import kb_rate_limit
+    import kb_retrieve
+
+    def _throttled(**_kw):
+        raise kb_rate_limit.RateLimitExceeded("rate_limited:retrieve:60/min")
+
+    monkeypatch.setattr(kb_retrieve, "retrieve", _throttled)
+    resp = client.post(
+        "/kb/retrieve", json={"query": "hello", "topK": 3}, headers={"X-API-Key": api_key}
+    )
+    assert resp.status_code == 429, resp.text
+    assert 1 <= int(resp.headers["Retry-After"]) <= 60
+
+
+def test_an_unhandled_error_is_one_envelope_with_the_request_id(
+    api_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Starlette answers a raw exception outside every BaseHTTPMiddleware, so
+    the request-id middleware never saw that response: no id, no charset,
+    and whatever the default error page was."""
+    import db
+    import main as app_main
+
+    def _boom(**_kw):
+        raise RuntimeError("the pool is on fire")
+
+    monkeypatch.setattr(db, "list_promises", _boom)
+    probe = TestClient(app_main.app, raise_server_exceptions=False)
+    resp = probe.get("/promises", headers={"X-API-Key": api_key, "X-Request-Id": "req-boom-1"})
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "internal_error", "requestId": "req-boom-1"}
+    assert resp.headers["X-Request-Id"] == "req-boom-1"
+    assert "charset=utf-8" in resp.headers["content-type"]
 
 
 def test_prod_boot_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -296,6 +296,17 @@ def test_write_helper_maps_each_failure_kind_to_its_own_status() -> None:
     assert caught.value.status_code == 409
     assert caught.value.detail == "constraint_violation"
 
+    class _Fk(Exception):
+        sqlstate = "23503"
+
+    def _foreign_key():
+        raise IntegrityError("INSERT", {}, orig=_Fk("fk"))
+
+    with pytest.raises(HTTPException) as caught:
+        main._handle_write(_foreign_key)
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "unknown_reference"
+
 
 def test_write_helper_maps_value_error_codes_by_table() -> None:
     """Bad input is 422; a race stays 409. Unmapped codes keep today's 409 so

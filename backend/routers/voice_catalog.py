@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 import asyncio
+import circuit_breaker
 import db
 
 from fastapi import APIRouter
@@ -193,8 +194,12 @@ def tts_preview(payload: TtsPreviewRequest):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except circuit_breaker.CircuitOpenError:
+        raise  # a RuntimeError by class; the app's handler answers 503 with Retry-After
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # Azure's error body rode out in the detail; it stays in the log.
+        logger.warning("tts preview failed: %s", exc)
+        raise HTTPException(status_code=502, detail="tts_preview_failed") from exc
 
     headers = {
         "X-TTS-Cache": "HIT" if result["cacheHit"] else "MISS",
@@ -232,8 +237,12 @@ async def stt_transcribe(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except circuit_breaker.CircuitOpenError:
+        raise  # a RuntimeError by class; the app's handler answers 503 with Retry-After
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # Azure's error body rode out in the detail; it stays in the log.
+        logger.warning("tts preview failed: %s", exc)
+        raise HTTPException(status_code=502, detail="tts_preview_failed") from exc
     return result
 
 @router.get("/tts-voices/catalog-provider-counts", response_model=list[TtsProviderCountResponse])

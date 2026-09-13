@@ -19,24 +19,16 @@ from env_utils import env_bool, env_name, is_prod
 
 load_env()
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.exception_handlers import (
-    http_exception_handler,
-    request_validation_exception_handler,
-)
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
-from api_support import Utf8JSONResponse, authz_guard as _authz_guard
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from api_support import Utf8JSONResponse, authz_guard as _authz_guard, register_error_handlers
 from starlette.middleware.base import BaseHTTPMiddleware
 
 import actor_context
 import authz
-import azure_openai
-import circuit_breaker
 import db
 from sqlalchemy import text
 import observability
@@ -544,49 +536,7 @@ if _EMBEDDED_VOICE_HOST:
     _register_voice_routes(app)
 
 
-# Error bodies are JSON too, and `default_response_class` does not reach them.
-#
-# FastAPI builds HTTPException and validation responses with its own
-# `JSONResponse`, so those went out as bare `application/json` even after the
-# app default was set — leaving exactly the charset-less responses that started
-# this, on the path most likely to carry a non-ASCII detail string (a customer
-# name, a Hindi KB title, a skill slug echoed back in a 409).
-#
-# Delegating to the stock handler and rewriting one header keeps FastAPI's
-# status codes, bodies and headers (including the WWW-Authenticate a 401 must
-# carry) exactly as they were.
-async def _json_charset(response: Response) -> Response:
-    media = response.headers.get("content-type", "")
-    if media.startswith("application/json") and "charset=" not in media.lower():
-        response.headers["content-type"] = "application/json; charset=utf-8"
-    return response
-
-
-@app.exception_handler(StarletteHTTPException)
-async def _http_exception_charset(request: Request, exc: StarletteHTTPException):
-    return await _json_charset(await http_exception_handler(request, exc))
-
-
-@app.exception_handler(RequestValidationError)
-async def _validation_exception_charset(request: Request, exc: RequestValidationError):
-    return await _json_charset(await request_validation_exception_handler(request, exc))
-
-
-# Azure concurrency saturation / circuit open → shed load fast.
-@app.exception_handler(azure_openai.AzureBusyError)
-async def _azure_busy_handler(_request: Request, exc: azure_openai.AzureBusyError):
-    return Utf8JSONResponse(
-        status_code=503,
-        content={"detail": str(exc) or "azure_concurrency_saturated"},
-    )
-
-
-@app.exception_handler(circuit_breaker.CircuitOpenError)
-async def _circuit_open_handler(_request: Request, exc: circuit_breaker.CircuitOpenError):
-    return Utf8JSONResponse(
-        status_code=503,
-        content={"detail": str(exc) or "circuit_open"},
-    )
+register_error_handlers(app)
 
 
 

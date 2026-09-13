@@ -95,8 +95,8 @@ def kb_retrieve_endpoint(payload: KbRetrieveRequest):
             include_draft_answer=payload.includeDraftAnswer,
             source=payload.source,
         )
-    except kb_rate_limit.RateLimitExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except kb_rate_limit.RateLimitExceeded:
+        raise  # the app's handler answers 429 with Retry-After
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
@@ -178,7 +178,9 @@ def kb_ingest_source_db(product: str | None = Query(default=None)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # The message is a container path; the log line below carries it.
+        logger.warning("kb source database missing: %s", exc)
+        raise HTTPException(status_code=404, detail="kb_source_db_not_found") from exc
     except Exception as exc:
         # Static detail: the underlying exception carries DSNs, file paths and
         # Azure error bodies that must not reach an API client.

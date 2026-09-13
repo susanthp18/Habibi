@@ -20,7 +20,15 @@ T = TypeVar("T")
 
 
 class CircuitOpenError(RuntimeError):
-    """Raised when the breaker is open — map to HTTP 503."""
+    """Raised when the breaker is open — map to HTTP 503.
+
+    ``retry_after_s`` is how long until the breaker admits its next probe,
+    so the 503 can carry a Retry-After a client can honour.
+    """
+
+    def __init__(self, message: str, *, retry_after_s: float = 0.0) -> None:
+        super().__init__(message)
+        self.retry_after_s = max(0.0, float(retry_after_s))
 
 
 class CircuitBreaker:
@@ -80,7 +88,9 @@ class CircuitBreaker:
             now = time.monotonic()
             elapsed = now - self._opened_at
             if elapsed < self.reset_timeout_s:
-                raise CircuitOpenError(f"circuit_open:{self.name}")
+                raise CircuitOpenError(
+                    f"circuit_open:{self.name}", retry_after_s=self.reset_timeout_s - elapsed
+                )
             # Exactly one probe per reset window — but a probe that never
             # returns (hung socket, no client-side timeout) would otherwise hold
             # the slot forever and wedge the breaker open permanently. Age the
@@ -88,7 +98,10 @@ class CircuitBreaker:
             if self._probe_admitted:
                 admitted_at = self._probe_admitted_at
                 if admitted_at is not None and (now - admitted_at) < self.reset_timeout_s:
-                    raise CircuitOpenError(f"circuit_open:{self.name}:probe_busy")
+                    raise CircuitOpenError(
+                        f"circuit_open:{self.name}:probe_busy",
+                        retry_after_s=self.reset_timeout_s - (now - admitted_at),
+                    )
                 logger.warning(
                     "circuit probe slot expired name=%s — admitting a new probe", self.name
                 )
