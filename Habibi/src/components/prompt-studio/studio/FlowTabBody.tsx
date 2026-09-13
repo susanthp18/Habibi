@@ -1,8 +1,8 @@
-import type { Dispatch, SetStateAction } from "react";
+import { Suspense, lazy, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FlowCanvas } from "@/components/flow/FlowCanvas";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   emptyGraph,
   fetchBuiltInFlow,
@@ -11,13 +11,17 @@ import {
   type FlowIssue,
 } from "@/api/flow";
 
+// The canvas is xyflow plus every node editor -- the studio's largest chunk,
+// and most sessions never open the Flow tab. It loads when the tab does.
+const FlowCanvas = lazy(() =>
+  import("@/components/flow/FlowCanvas").then((m) => ({ default: m.FlowCanvas })),
+);
+
 /** The Flow tab: unreadable-graph panel, empty-graph panel, or the canvas. */
 export function FlowTabBody({
   flow,
   setFlow,
   flowUnreadable,
-  loadingBuiltIn,
-  setLoadingBuiltIn,
   setReplaceUnreadable,
   onFlowValidation,
   grantTools,
@@ -26,8 +30,6 @@ export function FlowTabBody({
   flow: FlowGraph | null;
   setFlow: Dispatch<SetStateAction<FlowGraph | null>>;
   flowUnreadable: boolean;
-  loadingBuiltIn: boolean;
-  setLoadingBuiltIn: Dispatch<SetStateAction<boolean>>;
   setReplaceUnreadable: (value: boolean) => void;
   onFlowValidation: (r: { ok: boolean; issues: FlowIssue[] }) => void;
   grantTools?: string[];
@@ -35,6 +37,7 @@ export function FlowTabBody({
   channels?: string[];
 }) {
   const walked = !channels || channels.some((c) => c === "voice" || c === "whatsapp");
+  const [loadingBuiltIn, setLoadingBuiltIn] = useState(false);
   return (
     <div className="h-full min-h-0">
       {!walked ? (
@@ -152,12 +155,20 @@ export function FlowTabBody({
           </div>
         </div>
       ) : (
-        <FlowCanvas
-          graph={flow as FlowGraph}
-          onChange={setFlow}
-          onValidation={onFlowValidation}
-          grantTools={grantTools}
-        />
+        <Suspense
+          fallback={
+            <div className="grid h-full place-items-center">
+              <LoadingState label="Loading the canvas" />
+            </div>
+          }
+        >
+          <FlowCanvas
+            graph={flow as FlowGraph}
+            onChange={setFlow}
+            onValidation={onFlowValidation}
+            grantTools={grantTools}
+          />
+        </Suspense>
       )}
     </div>
   );

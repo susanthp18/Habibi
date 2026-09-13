@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { VALIDATOR_UNREACHABLE } from "@/components/flow/FlowCanvas";
-import { isEmptyGraph, validateFlow, type FlowGraph, type FlowIssue } from "@/api/flow";
+import type { FlowGraph } from "@/api/flow";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
@@ -28,6 +27,7 @@ import { useStudioQueries } from "@/components/prompt-studio/studio/useStudioQue
 import { StudioTabBody } from "@/components/prompt-studio/studio/StudioTabBody";
 import { PresetConfirm } from "@/components/prompt-studio/studio/PresetConfirm";
 import { useStudioDraft, type SaveStatus } from "@/components/prompt-studio/studio/useStudioDraft";
+import { useFlowValidation } from "@/components/prompt-studio/studio/useFlowValidation";
 import {
   EMPTY_FIELDS,
   INITIAL_STATE,
@@ -139,14 +139,8 @@ export function PromptStudioPage({
   // function of prompt *and* guardrails; comparing against both is the version
   // that cannot be forgotten when a third input is added.
   const [lintedFp, setLintedFp] = useState<string | null>(null);
-  const [flowValid, setFlowValid] = useState(true);
-  const [flowIssues, setFlowIssues] = useState<FlowIssue[]>([]);
-  // The validator did not answer: blocked, and said as such rather than as
-  // "0 flow errors -- publish blocked".
-  const flowUnchecked = flowIssues.some((i) => i.code === "validator_unreachable");
-  const [loadingBuiltIn, setLoadingBuiltIn] = useState(false);
-
   const [tab, setTab] = useState<Tab>("prompt");
+  const flowCheck = useFlowValidation(flow, tab === "flow");
   const [diffOpen, setDiffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [diffBase, setDiffBase] = useState<PromptVersion | undefined>();
@@ -500,63 +494,6 @@ export function PromptStudioPage({
     setReplaceUnreadable,
   });
 
-  // Compiler preview: same validator that publish uses. Runs even if the Flow
-  // tab has never been opened, so a stored invalid graph cannot ship by
-  // staying on the Prompt tab.
-  useEffect(() => {
-    if (isEmptyGraph(flow)) {
-      setFlowValid(true);
-      setFlowIssues([]);
-      return;
-    }
-    // The canvas runs the same validator on the same graph, so while the Flow
-    // tab is open this would double every request for an identical answer.
-    // It is the mounted canvas that owns the result then; this exists for the
-    // graph you never look at.
-    if (tab === "flow") return;
-    const timer = window.setTimeout(() => {
-      void validateFlow(flow as FlowGraph)
-        .then((result) => {
-          setFlowValid(result.ok);
-          setFlowIssues(result.issues);
-        })
-        .catch(() => {
-          // Same rule as the canvas: an unchecked graph is not a publishable
-          // one, and the last verdict does not describe this graph.
-          setFlowValid(false);
-          setFlowIssues([VALIDATOR_UNREACHABLE]);
-        });
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [flow, tab]);
-
-  // Stable, and a no-op when nothing actually changed.
-  //
-  // The canvas reports validation, which lands in state, which re-renders this
-  // component. An inline arrow here meant a new callback identity on every one
-  // of those renders — and the canvas depended on that identity to schedule the
-  // next validation. The two fed each other: POST /flow/validate roughly twice
-  // a second for as long as the Flow tab was open. Fixed on both sides, because
-  // one side alone is a coincidence rather than an invariant.
-  const onFlowValidation = useCallback((r: { ok: boolean; issues: FlowIssue[] }) => {
-    setFlowValid(r.ok);
-    setFlowIssues((prev) =>
-      prev.length === r.issues.length &&
-      prev.every((issue, i) => {
-        const next = r.issues[i];
-        return (
-          issue.code === next.code &&
-          issue.severity === next.severity &&
-          issue.nodeId === next.nodeId &&
-          issue.edgeId === next.edgeId &&
-          issue.message === next.message
-        );
-      })
-        ? prev
-        : r.issues,
-    );
-  }, []);
-
   // Commit a preset. Split from the click handler so the confirmation step can
   // sit between them without the write path knowing a dialog exists.
   const commitPreset = useCallback(
@@ -707,9 +644,9 @@ export function PromptStudioPage({
   const { confirm, confirmDialog } = useConfirm();
 
   const publish = async (note: string) => {
-    if (!flowValid) {
+    if (!flowCheck.valid) {
       toast.error(
-        flowUnchecked
+        flowCheck.unchecked
           ? "The flow validator could not be reached, so this graph is unchecked. Retry before publishing."
           : "Fix conversation-flow errors before publishing.",
       );
@@ -950,9 +887,9 @@ export function PromptStudioPage({
         onOpenHistory: () => setHistoryOpen(true),
         versionCount: history.length,
         draftCount: history.filter((v) => v.status === "draft").length,
-        publishBlocked: !flowValid,
-        flowErrorCount: flowIssues.filter((i) => i.severity === "error").length,
-        flowUnchecked,
+        publishBlocked: !flowCheck.valid,
+        flowErrorCount: flowCheck.errorCount,
+        flowUnchecked: flowCheck.unchecked,
         onFixFlow: () => setTab("flow"),
         deploymentUnknown: livenessUnknown,
       }}
@@ -1050,10 +987,8 @@ export function PromptStudioPage({
           lintPending={autoLint.isPending && !autoLint.data}
           cardLocales={cardLocales}
           flowUnreadable={flowUnreadable}
-          loadingBuiltIn={loadingBuiltIn}
-          setLoadingBuiltIn={setLoadingBuiltIn}
           setReplaceUnreadable={setReplaceUnreadable}
-          onFlowValidation={onFlowValidation}
+          onFlowValidation={flowCheck.onValidation}
           grantTools={grantTools}
         />
       )}
@@ -1112,7 +1047,7 @@ export function PromptStudioPage({
           flow,
           agentCard: asCard(effectiveCard),
         }}
-        flowIssues={flowIssues}
+        flowIssues={flowCheck.issues}
         compileReport={compileReport}
         compileError={compileError}
         compileBusy={compileMutation.isPending}

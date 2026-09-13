@@ -139,6 +139,20 @@ export type FlowIssue = {
 
 export type FlowValidation = { ok: boolean; issues: FlowIssue[] };
 
+/**
+ * The issue a validator outage becomes. Blocking, as `ok: false` says: a graph
+ * that has not been checked is not one the editor may call publishable, and
+ * the header names the reason rather than counting zero errors.
+ */
+export const VALIDATOR_UNREACHABLE: FlowIssue = {
+  severity: "warning",
+  code: "validator_unreachable",
+  message:
+    "The flow validator could not be reached, so this graph has not been checked. Publish will re-run it server-side.",
+  nodeId: null,
+  edgeId: null,
+};
+
 export type FlowTool = {
   key: string;
   description: string;

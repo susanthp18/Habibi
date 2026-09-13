@@ -8,7 +8,6 @@ import type { PersonaPreset } from "@/api/types/prompt-studio";
 import type { CompileReport } from "@/api/agent-studio";
 import type { AgentCard } from "@/api/agent-card";
 import type { BotDeployment } from "@/api/prompt-studio";
-import type { Dispatch, SetStateAction } from "react";
 import { cn } from "@/lib/utils";
 import { ShipTab, type ShipState } from "@/components/prompt-studio/ShipTab";
 import { BindingsTab } from "@/components/prompt-studio/BindingsTab";
@@ -49,8 +48,6 @@ export function StudioTabBody({
   lintPending,
   cardLocales,
   flowUnreadable,
-  loadingBuiltIn,
-  setLoadingBuiltIn,
   setReplaceUnreadable,
   onFlowValidation,
   grantTools,
@@ -85,8 +82,6 @@ export function StudioTabBody({
   lintPending: boolean;
   cardLocales: string[];
   flowUnreadable: boolean;
-  loadingBuiltIn: boolean;
-  setLoadingBuiltIn: Dispatch<SetStateAction<boolean>>;
   setReplaceUnreadable: (v: boolean) => void;
   onFlowValidation: (r: { ok: boolean; issues: FlowIssue[] }) => void;
   grantTools: string[] | undefined;
@@ -198,8 +193,6 @@ export function StudioTabBody({
             flow={flow}
             setFlow={setFlow}
             flowUnreadable={flowUnreadable}
-            loadingBuiltIn={loadingBuiltIn}
-            setLoadingBuiltIn={setLoadingBuiltIn}
             setReplaceUnreadable={setReplaceUnreadable}
             onFlowValidation={onFlowValidation}
             grantTools={grantTools}
