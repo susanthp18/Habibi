@@ -134,6 +134,7 @@ def _insert_next_transcript_turn(
     ttfb_ms: int | None,
     ttfa_ms: int | None,
     tokens: int | None,
+    latency: dict[str, int | None],
 ) -> Any:
     """One attempt at MAX(turn_index)+1. Returns the row, or None on conflict."""
     return (
@@ -143,7 +144,10 @@ def _insert_next_transcript_turn(
                 INSERT INTO interaction_transcript (
                   id, interaction_id, turn_index, speaker, at_sec, text,
                   sentiment_delta, intent, intent_score,
-                  ttfb_ms, ttfa_ms, tokens, created_at
+                  ttfb_ms, ttfa_ms, tokens,
+                  stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms,
+                  user_turn_ms, tool_ms, aggregation_ms,
+                  created_at
                 )
                 SELECT
                   :id, :interaction_id,
@@ -153,7 +157,10 @@ def _insert_next_transcript_turn(
                   ) + 1,
                   :speaker, :at_sec, :text,
                   :sentiment_delta, :intent, :intent_score,
-                  :ttfb_ms, :ttfa_ms, :tokens, now()
+                  :ttfb_ms, :ttfa_ms, :tokens,
+                  :stt_ttfb_ms, :llm_ttfb_ms, :tts_ttfb_ms,
+                  :user_turn_ms, :tool_ms, :aggregation_ms,
+                  now()
                 ON CONFLICT (interaction_id, turn_index) DO NOTHING
                 RETURNING turn_index
                 """
@@ -175,6 +182,7 @@ def _insert_next_transcript_turn(
                 "ttfb_ms": ttfb_ms,
                 "ttfa_ms": ttfa_ms,
                 "tokens": tokens,
+                **latency,
             },
         )
         .mappings()
@@ -227,11 +235,40 @@ def insert_transcript_turn(
     ttfb_ms: int | None = None,
     ttfa_ms: int | None = None,
     tokens: int | None = None,
+    stt_ttfb_ms: int | None = None,
+    llm_ttfb_ms: int | None = None,
+    tts_ttfb_ms: int | None = None,
+    user_turn_ms: int | None = None,
+    tool_ms: int | None = None,
+    aggregation_ms: int | None = None,
 ) -> int:
-    """Insert one transcript turn; allocate turn_index atomically when omitted."""
+    """Insert one transcript turn; allocate turn_index atomically when omitted.
+
+    The one writer of ``interaction_transcript``: the voice pipeline, the
+    WhatsApp runtime and a manually logged call all land here, so a turn is
+    masked at rest the same way whichever channel spoke it. The mask is
+    ``transcript_view.redact_line`` -- the rule every LLM read and every
+    export already applied -- so nothing downstream sees a new shape. The
+    ``*_ttfb_ms`` / ``user_turn_ms`` / ``tool_ms`` / ``aggregation_ms``
+    breakdown rides on the same INSERT as ``ttfb_ms``: an UPDATE after the
+    fact would race the ON CONFLICT DO NOTHING.
+    """
+    from transcript_view import redact_line
+
     content = (text_content or "").strip()
     if not content:
         raise ValueError("text_content must not be empty")
+    content = redact_line(content)
+    if intent_score is not None:
+        intent_score = round(float(intent_score), 3)
+
+    def _int(value: Any) -> int | None:
+        return int(value) if value is not None else None
+
+    latency = {c: _int(v) for c, v in zip(
+        ("stt_ttfb_ms", "llm_ttfb_ms", "tts_ttfb_ms", "user_turn_ms", "tool_ms", "aggregation_ms"),
+        (stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms, user_turn_ms, tool_ms, aggregation_ms),
+    )}
 
     if turn_index is None:
         # ON CONFLICT DO NOTHING means a concurrent writer took the index this
@@ -252,6 +289,7 @@ def insert_transcript_turn(
                 ttfb_ms=ttfb_ms,
                 ttfa_ms=ttfa_ms,
                 tokens=tokens,
+                latency=latency,
             )
             if row is not None:
                 break
@@ -290,11 +328,15 @@ def insert_transcript_turn(
             INSERT INTO interaction_transcript (
               id, interaction_id, turn_index, speaker, at_sec, text,
               sentiment_delta, intent, intent_score,
-              ttfb_ms, ttfa_ms, tokens, created_at
+              ttfb_ms, ttfa_ms, tokens,
+              stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms,
+              user_turn_ms, tool_ms, aggregation_ms, created_at
             ) VALUES (
               :id, :interaction_id, :turn_index, :speaker, :at_sec, :text,
               :sentiment_delta, :intent, :intent_score,
-              :ttfb_ms, :ttfa_ms, :tokens, now()
+              :ttfb_ms, :ttfa_ms, :tokens,
+              :stt_ttfb_ms, :llm_ttfb_ms, :tts_ttfb_ms,
+              :user_turn_ms, :tool_ms, :aggregation_ms, now()
             )
             ON CONFLICT (interaction_id, turn_index) DO NOTHING
             """
@@ -307,11 +349,12 @@ def insert_transcript_turn(
             "at_sec": int(max(0, round(at_sec))),
             "text": content,
             "sentiment_delta": sentiment_delta,
-            "intent": intent,
+            "intent": intent or None,
             "intent_score": intent_score,
-            "ttfb_ms": ttfb_ms,
-            "ttfa_ms": ttfa_ms,
-            "tokens": tokens,
+            "ttfb_ms": _int(ttfb_ms),
+            "ttfa_ms": _int(ttfa_ms),
+            "tokens": _int(tokens),
+            **latency,
         },
     )
     return turn_index

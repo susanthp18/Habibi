@@ -2075,10 +2075,20 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
             ),
             {"id": interaction_id, "tenant_id": _tenant(), "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
         )
+        import capture_events
+
         for idx, turn in enumerate(payload.get("transcript") or []):
-            conn.execute(
-                text("INSERT INTO interaction_transcript (id, interaction_id, turn_index, speaker, at_sec, text) VALUES (:id, :interaction_id, :turn_index, :speaker, :at_sec, :text)"),
-                {"id": f"{interaction_id}-turn-{idx}", "interaction_id": interaction_id, "turn_index": idx, "speaker": turn.get("speaker") or "human", "at_sec": turn.get("atSec") or 0, "text": turn.get("text") or ""},
+            # The one transcript writer: a manually logged call is masked at
+            # rest like a recorded one. An empty line is not a turn.
+            if not (turn.get("text") or "").strip():
+                continue
+            capture_events.insert_transcript_turn(
+                conn,
+                interaction_id=interaction_id,
+                turn_index=idx,
+                speaker=turn.get("speaker") or "human",
+                text_content=turn["text"],
+                at_sec=turn.get("atSec") or 0,
             )
         _activity(conn, "interaction", interaction_id, "interaction_created", "Manual interaction logged", payload.get("summary"), customer_id)
         customer = _one(conn.execute(text("SELECT name, phone_primary FROM customers WHERE id = :id"), {"id": customer_id})) or {}

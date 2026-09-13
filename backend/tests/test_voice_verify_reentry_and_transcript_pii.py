@@ -243,4 +243,44 @@ def test_redaction_helper_matches_the_stored_value(db_tx, interaction: str) -> N
         text_content=body,
         at_sec=40,
     )
-    assert _stored(db_tx, interaction, 4) == persist._redact_transcript_text(body)
+    from transcript_view import redact_line
+
+    assert _stored(db_tx, interaction, 4) == redact_line(body)
+
+
+def test_a_whatsapp_turn_is_masked_at_rest(db_tx, interaction: str) -> None:
+    """The text runtime writes through the same door as voice, so an Aadhaar
+    typed into a WhatsApp thread is masked in the row, not only on the way
+    to the model."""
+    import capture_events
+
+    capture_events.insert_transcript_turn(
+        db_tx,
+        interaction_id=interaction,
+        speaker="customer",
+        text_content="my aadhaar is 123456789012",
+    )
+    stored = _stored(db_tx, interaction, 0)
+    assert "123456789012" not in stored, stored
+    assert "[REDACTED-ID]" in stored, stored
+
+
+def test_a_manual_transcript_is_masked_at_rest(db_tx) -> None:
+    """A call an operator logs by hand is a transcript like any other."""
+    customer = db_tx.execute(text("SELECT id FROM customers LIMIT 1")).scalar()
+    created = db.create_interaction(
+        {
+            "customerId": customer,
+            "transcript": [
+                {"speaker": "human", "text": "aadhaar 123456789012 noted", "atSec": 0},
+                {"speaker": "customer", "text": "   ", "atSec": 1},
+            ],
+        }
+    )
+    rows = db_tx.execute(
+        text("SELECT turn_index, text FROM interaction_transcript WHERE interaction_id = :ix ORDER BY 1"),
+        {"ix": created["id"]},
+    ).all()
+    assert [r[0] for r in rows] == [0], rows
+    assert "123456789012" not in rows[0][1]
+    assert "[REDACTED-ID]" in rows[0][1]

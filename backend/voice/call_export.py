@@ -168,11 +168,15 @@ def _redact(value: Any) -> Any:
 
 
 def _turn_json(t: dict[str, Any]) -> dict[str, Any]:
+    # Rows are masked at write with the same rule; re-applying it here is a
+    # no-op for those and the rule for rows written before it was the rule.
+    from transcript_view import redact_line
+
     return {
         "turnIndex": t.get("turn_index"),
         "speaker": t.get("speaker"),
         "atSec": t.get("at_sec"),
-        "text": t.get("text"),
+        "text": redact_line(str(t.get("text") or "")),
         "sentiment": t.get("sentiment_delta"),
         "intent": t.get("intent"),
         "intentScore": t.get("intent_score"),

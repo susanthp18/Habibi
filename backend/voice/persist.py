@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import socket
 import uuid
 from datetime import datetime, timezone
@@ -231,34 +230,6 @@ def start_voice_call(
     }
 
 
-#: A run of seven or more consecutive digits in caller speech is an identifier,
-#: not an amount — a mobile number, an account number, a card read out loud.
-#: ``pii_redact.redact_text`` only matches *formatted* PII (a ``+91`` prefix, a
-#: spaced 16-digit card), and digits reach the transcript bare: ``voice/ivr.py``
-#: folds keypad presses in as ``"Caller keypad input: 9876543210"``, and STT
-#: renders spoken digits the same way. Nothing in the shared detector set
-#: matches that shape, so the transcript is exactly where those digits survive.
-#: Two are kept for the same reason ``_mask_phone`` keeps two — enough to tell
-#: two turns apart, not enough to re-identify, and short of the last four that
-#: verification itself asks for.
-_BARE_DIGIT_RUN = re.compile(r"\d{7,}")
-
-
-def _redact_transcript_text(content: str) -> str:
-    """Mask PII in a transcript turn before it is stored.
-
-    Same redactor the tool-call audit rows use (``_audit_args``), so a card
-    number spoken into a dispute summary and the same number spoken into the
-    turn that preceded it are masked identically. The RTVI layer already keeps
-    ``verify_identity`` arguments out of the browser (``voice/bot.py``); without
-    this the transcript undid that at rest.
-    """
-    import pii_redact
-
-    out = pii_redact.redact_text(content)
-    return _BARE_DIGIT_RUN.sub(lambda m: "•" * 6 + m.group(0)[-2:], out)
-
-
 def append_transcript_turn(
     *,
     interaction_id: str,
@@ -279,61 +250,37 @@ def append_transcript_turn(
     tool_ms: int | None = None,
     aggregation_ms: int | None = None,
 ) -> None:
-    """Idempotent turn write — UNIQUE(interaction_id, turn_index).
+    """Idempotent turn write -- UNIQUE(interaction_id, turn_index).
 
-    The ``*_ttfb_ms`` / ``user_turn_ms`` / ``tool_ms`` / ``aggregation_ms``
-    breakdown comes from Pipecat's UserBotLatencyObserver and is written on the
-    same INSERT as ``ttfb_ms`` rather than a follow-up UPDATE — an UPDATE would
-    race the ON CONFLICT DO NOTHING above.
+    The voice pipeline's entry to the one transcript writer
+    (``capture_events.insert_transcript_turn``), which masks the turn at
+    rest; this keeps the pipeline's keyword surface and its own transaction.
     """
     content = (text_content or "").strip()
     if not content:
         return
-    content = _redact_transcript_text(content)
-
-    def _int(value: Any) -> int | None:
-        return int(value) if value is not None else None
+    import capture_events
 
     with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO interaction_transcript (
-                  id, interaction_id, turn_index, speaker, at_sec, text,
-                  sentiment_delta, intent, intent_score,
-                  ttfb_ms, ttfa_ms, tokens,
-                  stt_ttfb_ms, llm_ttfb_ms, tts_ttfb_ms,
-                  user_turn_ms, tool_ms, aggregation_ms, created_at
-                ) VALUES (
-                  :id, :interaction_id, :turn_index, :speaker, :at_sec, :text,
-                  :sentiment_delta, :intent, :intent_score,
-                  :ttfb_ms, :ttfa_ms, :tokens,
-                  :stt_ttfb_ms, :llm_ttfb_ms, :tts_ttfb_ms,
-                  :user_turn_ms, :tool_ms, :aggregation_ms, now()
-                )
-                ON CONFLICT (interaction_id, turn_index) DO NOTHING
-                """
-            ),
-            {
-                "id": f"{interaction_id}-T{turn_index}",
-                "interaction_id": interaction_id,
-                "turn_index": turn_index,
-                "speaker": speaker,
-                "at_sec": int(max(0, round(at_sec))),
-                "text": content,
-                "sentiment_delta": sentiment_delta,
-                "intent": (intent or None),
-                "intent_score": round(float(intent_score), 3) if intent_score is not None else None,
-                "ttfb_ms": _int(ttfb_ms),
-                "ttfa_ms": _int(ttfa_ms),
-                "tokens": _int(tokens),
-                "stt_ttfb_ms": _int(stt_ttfb_ms),
-                "llm_ttfb_ms": _int(llm_ttfb_ms),
-                "tts_ttfb_ms": _int(tts_ttfb_ms),
-                "user_turn_ms": _int(user_turn_ms),
-                "tool_ms": _int(tool_ms),
-                "aggregation_ms": _int(aggregation_ms),
-            },
+        capture_events.insert_transcript_turn(
+            conn,
+            interaction_id=interaction_id,
+            turn_index=turn_index,
+            speaker=speaker,
+            text_content=content,
+            at_sec=at_sec,
+            sentiment_delta=sentiment_delta,
+            intent=intent,
+            intent_score=intent_score,
+            ttfb_ms=ttfb_ms,
+            ttfa_ms=ttfa_ms,
+            tokens=tokens,
+            stt_ttfb_ms=stt_ttfb_ms,
+            llm_ttfb_ms=llm_ttfb_ms,
+            tts_ttfb_ms=tts_ttfb_ms,
+            user_turn_ms=user_turn_ms,
+            tool_ms=tool_ms,
+            aggregation_ms=aggregation_ms,
         )
 
 
@@ -1358,9 +1305,9 @@ def list_transcript_turns(interaction_id: str) -> list[dict[str, Any]]:
 def transcript_export_payload(
     interaction_id: str, session_id: str | None, turns: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """What the export file holds. Masked at write, but the write-time mask
-    leaves long digit runs alone; the bundle export scrubs those, and this
-    artefact leaves the system the same way."""
+    """What the export file holds. Rows are masked at write with
+    ``transcript_view.redact_line``; this re-applies the same rule so a row
+    written before that was the rule leaves the system the same way."""
     from transcript_view import scrub_identifiers
 
     return {
