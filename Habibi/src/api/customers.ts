@@ -6,7 +6,7 @@
 // route consumes fetchCustomers via the useCustomers() hook.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { PROMISE_STATUSES, REMINDER_STATUSES } from "@/api/types/promises";
 
@@ -22,6 +22,7 @@ import type { DisputeType } from "@/api/types/disputes";
 import type { CustomerInsights } from "@/api/types/customer-insights";
 import { offerPolicySchema } from "@/lib/offer-policy";
 import { authorityPolicySchema } from "@/lib/authority-policy";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "./config";
 
 // -----------------------------------------------------------------------------
@@ -380,5 +381,56 @@ export function useCustomers() {
     queryKey: ["customers"],
     queryFn: fetchCustomers,
     staleTime: 30_000,
+  });
+}
+
+// ---------- mutations ----------
+
+/** Every 360 read the write can move. */
+export function invalidateCustomer(qc: QueryClient, customerId: string) {
+  void qc.invalidateQueries({ queryKey: ["customers"] });
+  void qc.invalidateQueries({ queryKey: ["customer", customerId] });
+  void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+}
+
+export function useCreateDocumentRequest(customer: Customer) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (payload: { docType: string; delivery: "email" | "whatsapp" }) =>
+      createDocumentRequest(customer, payload),
+    onSuccess: () => {
+      invalidateCustomer(qc, customer.id);
+      void qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
+export function useLogInteraction(customer: Customer) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (payload: { disposition: string; notes: string }) =>
+      logInteraction(customer, payload),
+    onSuccess: () => invalidateCustomer(qc, customer.id),
+  });
+}
+
+/** The returned note is put straight into the cached customer; a null answer refetches. */
+export function useAddCustomerNote(customerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (text: string) => addCustomerNote(customerId, text),
+    onSuccess: (note) => {
+      if (note) {
+        qc.setQueryData<Customer>(["customer", customerId], (c) =>
+          c ? { ...c, notes: [note, ...c.notes] } : c,
+        );
+        void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+      } else {
+        invalidateCustomer(qc, customerId);
+      }
+    },
   });
 }

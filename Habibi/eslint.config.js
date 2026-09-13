@@ -134,6 +134,12 @@ export default tseslint.config(
               message:
                 "Screens do not talk to the transport. Consume the domain api/ module's hooks and functions instead.",
             },
+            {
+              name: "@tanstack/react-query",
+              importNames: ["useMutation"],
+              message:
+                "Writes are declared in src/api, where each names its error policy (meta.errors) and one invalidation set. A screen calls the hook and passes onSuccess/onError to mutate() for what it does afterwards.",
+            },
           ],
         },
       ],

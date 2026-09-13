@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Upload, Download, ShieldCheck } from "lucide-react";
 import { ConsentStatsStrip } from "@/components/consent/ConsentStatsStrip";
@@ -16,7 +16,13 @@ import type {
 } from "@/api/types/consent";
 import { defaultConsentFilters, filterConsents } from "@/lib/consent";
 import { Lozenge } from "@/components/ui/lozenge";
-import { captureOptOut, renewConsent, saveConsent, toggleDnd, useConsent } from "@/api/consent";
+import {
+  useConsent,
+  useSaveConsent,
+  useRenewConsent,
+  useCaptureOptOut,
+  useToggleDnd,
+} from "@/api/consent";
 
 const EMPTY_CONSENT: ConsentRecord[] = [];
 
@@ -59,49 +65,10 @@ function ConsentPage() {
   // Derive the open drawer from fetched data so it stays fresh after invalidation.
   const openRecord = useMemo(() => items.find((r) => r.id === openId) ?? null, [items, openId]);
 
-  const saveMutation = useMutation({
-    mutationFn: (v: { rec: ConsentRecord; patch: ConsentPreferencesPatch; note: string }) =>
-      saveConsent(v.rec, v.patch, v.note),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Consent preferences saved", {
-        description: "Change captured in the audit trail.",
-      });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Save failed"),
-  });
-
-  const renewMutation = useMutation({
-    mutationFn: (rec: ConsentRecord) => renewConsent(rec),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Consent renewed", { description: "New expiry set 12 months out." });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Renew failed"),
-  });
-
-  const optOutMutation = useMutation({
-    mutationFn: (v: {
-      rec: ConsentRecord;
-      evt: { channel: ConsentChannel | "all"; source: OptOutSource; note: string };
-    }) => captureOptOut(v.rec, v.evt),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Opt-out logged", {
-        description: "Bot will honor this immediately on next contact attempt.",
-      });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Opt-out failed"),
-  });
-
-  const dndMutation = useMutation({
-    mutationFn: (v: { rec: ConsentRecord; on: boolean }) => toggleDnd(v.rec, v.on),
-    onSuccess: (_r, v) => {
-      invalidate();
-      toast.success(v.on ? "Marked on DND registry" : "Removed from DND registry");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "DND update failed"),
-  });
+  const saveMutation = useSaveConsent();
+  const renewMutation = useRenewConsent();
+  const optOutMutation = useCaptureOptOut();
+  const dndMutation = useToggleDnd();
 
   const onSave = (id: string, p: ConsentPreferencesPatch, note: string) => {
     const rec = items.find((r) => r.id === id);

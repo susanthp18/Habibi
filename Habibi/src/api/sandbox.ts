@@ -8,13 +8,14 @@
 //
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Guardrails, PersonaState, PromptVersion } from "@/api/types/prompt-studio";
 import type { IntentKey, Persona, Scenario } from "@/api/types/sandbox";
 import { sandboxTurnResultSchema } from "@/lib/studio-contract";
 import { apiGet, apiGetBlob, apiPost } from "./config";
 import { INTENT_KEYS } from "@/lib/sandbox";
+import { toast } from "sonner";
 
 export type SandboxContext = {
   /** A real `customers` id makes the simulated tools read that borrower's real
@@ -333,4 +334,16 @@ export async function growTwinCorpus(): Promise<{ created: number; skipped: numb
 
 export async function runBounceTwin(twinId = "twin-bounce-ladder-v0"): Promise<TwinRunResult> {
   return apiPost<TwinRunResult>(`/twins/${twinId}/run`, {});
+}
+
+export function useGrowTwinCorpus() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: growTwinCorpus,
+    onSuccess: (d) => {
+      toast.success(`Grew ${d.created} outcome task(s) from kept PTPs`);
+      void qc.invalidateQueries({ queryKey: ["twin-corpus"] });
+    },
+  });
 }

@@ -1,25 +1,22 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchTwinCorpus, growTwinCorpus, runBounceTwin, type TwinRunResult } from "@/api/sandbox";
+import { useQuery } from "@tanstack/react-query";
+import {
+  fetchTwinCorpus,
+  runBounceTwin,
+  useGrowTwinCorpus,
+  type TwinRunResult,
+} from "@/api/sandbox";
 import { Button } from "@/components/ui/button";
 
 export function TwinTab() {
   const [run, setRun] = useState<TwinRunResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const qc = useQueryClient();
   const corpus = useQuery({
     queryKey: ["twin-corpus"],
     queryFn: fetchTwinCorpus,
   });
-  const grow = useMutation({
-    mutationFn: growTwinCorpus,
-    onSuccess: (d) => {
-      toast.success(`Grew ${d.created} outcome task(s) from kept PTPs`);
-      void qc.invalidateQueries({ queryKey: ["twin-corpus"] });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Grow failed"),
-  });
+  const grow = useGrowTwinCorpus();
 
   const replay = async () => {
     setBusy(true);

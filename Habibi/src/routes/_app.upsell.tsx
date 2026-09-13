@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sparkles, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import { NewLeadSheet } from "@/components/upsell/NewLeadSheet";
 import type { LeadFilters, LeadStage } from "@/api/types/upsell";
 import { STAGE_LABELS, defaultFilters, moneyValue } from "@/lib/upsell";
 import { useTeams } from "@/api/teams";
-import { leadTeamOptions } from "@/api/upsell";
+import { leadTeamOptions, usePatchLead } from "@/api/upsell";
 import {
   leadOwnerOptions,
   patchLead,
@@ -57,7 +56,6 @@ function UpsellPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [view, setView] = useState<UpsellView>("board");
-  const queryClient = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
   const deepLinkApplied = useRef(false);
@@ -100,13 +98,6 @@ function UpsellPage() {
   const owners = useMemo(() => leadOwnerOptions(staff), [staff]);
 
   const patchFilters = (p: Partial<LeadFilters>) => setFilters((f) => ({ ...f, ...p }));
-  const refreshLeads = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["leads"] }),
-      queryClient.invalidateQueries({ queryKey: ["lead-metrics"] }),
-    ]);
-  };
-
   useEffect(() => {
     if (deepLinkApplied.current) return;
     if (!search.id) return;
@@ -119,22 +110,7 @@ function UpsellPage() {
     void navigate({ search: { id: undefined }, replace: true });
   }, [search.id, navigate]);
 
-  const stageMutation = useMutation({
-    mutationFn: ({ id, next }: { id: string; next: LeadStage }) => {
-      const lead = filtered.find((x) => x.id === id);
-      if (!lead) throw new Error("Lead not found");
-      return patchLead(lead, {
-        stage: next,
-        wonAmount: next === "won" ? moneyValue(lead.estimatedValue) : undefined,
-      });
-    },
-    onSuccess: async (_, { next }) => {
-      await refreshLeads();
-      if (next === "won") toast.success("Marked won");
-      else toast.success(`Moved to ${STAGE_LABELS[next]}`);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lead update failed"),
-  });
+  const stageMutation = usePatchLead();
 
   const handleDropStage = (id: string, next: LeadStage) => {
     const l = filtered.find((x) => x.id === id);
@@ -149,7 +125,19 @@ function UpsellPage() {
       toast("Add a reason to mark this lost");
       return;
     }
-    stageMutation.mutate({ id, next });
+    stageMutation.mutate(
+      {
+        lead: l,
+        patch: {
+          stage: next,
+          wonAmount: next === "won" ? moneyValue(l.estimatedValue) : undefined,
+        },
+      },
+      {
+        onSuccess: () =>
+          toast.success(next === "won" ? "Marked won" : `Moved to ${STAGE_LABELS[next]}`),
+      },
+    );
   };
 
   const tableRows = useMemo(
@@ -228,10 +216,8 @@ function UpsellPage() {
           )}
         </div>
 
-        {openLead && (
-          <LeadSheet lead={openLead} onClose={() => setOpenId(null)} onMutate={refreshLeads} />
-        )}
-        {showNew && <NewLeadSheet onClose={() => setShowNew(false)} onCreated={refreshLeads} />}
+        {openLead && <LeadSheet lead={openLead} onClose={() => setOpenId(null)} />}
+        {showNew && <NewLeadSheet onClose={() => setShowNew(false)} />}
       </div>
     </>
   );

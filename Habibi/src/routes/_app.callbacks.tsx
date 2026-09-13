@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CalendarClock, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,12 +19,12 @@ import {
   callbackAssigneeOptions,
   callbackQueueOptions,
   callbackSheetCustomers,
-  cancelCallback,
   defaultCallbackQueue,
-  rescheduleCallback,
-  sendReminder,
-  startCall,
   useCallbacks,
+  useRescheduleCallback,
+  useStartCallback,
+  useSendCallbackReminder,
+  useCancelCallback,
 } from "@/api/callbacks";
 import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
@@ -147,61 +147,22 @@ function CallbacksPage() {
     void navigate({ search: {}, replace: true });
   }, [search.id, search.new, navigate]);
 
-  const rescheduleMutation = useMutation({
-    mutationFn: (v: { id: string; iso: string }) => {
-      const cb = callbacksData.find((c) => c.id === v.id);
-      if (!cb) throw new Error("Callback not found");
-      return rescheduleCallback(cb, v.iso);
-    },
-    onSuccess: () => {
-      invalidate();
-      toast.success("Rescheduled");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Reschedule failed"),
-  });
-
-  const startMutation = useMutation({
-    mutationFn: (id: string) => {
-      const cb = callbacksData.find((c) => c.id === id);
-      if (!cb) throw new Error("Callback not found");
-      return startCall(cb);
-    },
-    onSuccess: (_r, id) => {
-      invalidate();
-      setOpenId(id);
-      toast("Callback in progress — dial from your phone");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Start failed"),
-  });
-
-  const reminderMutation = useMutation({
-    mutationFn: (id: string) => {
-      const cb = callbacksData.find((c) => c.id === id);
-      if (!cb) throw new Error("Callback not found");
-      return sendReminder(cb, "whatsapp");
-    },
-    onSuccess: () => {
-      invalidate();
-      toast.success("Reminder sent · WhatsApp");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Reminder failed"),
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => {
-      const cb = callbacksData.find((c) => c.id === id);
-      if (!cb) throw new Error("Callback not found");
-      return cancelCallback(cb, "Cancelled by agent");
-    },
-    onSuccess: () => {
-      invalidate();
-      toast("Callback cancelled");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Cancel failed"),
-  });
+  const rescheduleMutation = useRescheduleCallback();
+  const startMutation = useStartCallback();
+  const reminderMutation = useSendCallbackReminder();
+  const cancelMutation = useCancelCallback();
+  const byId = (id: string) => {
+    const cb = callbacksData.find((c) => c.id === id);
+    if (!cb) toast.error("Callback not found");
+    return cb;
+  };
+  const reschedule = (id: string, iso: string) => {
+    const cb = byId(id);
+    if (cb) rescheduleMutation.mutate({ cb, iso });
+  };
 
   const handleDrop = (id: string, newISO: string) => {
-    rescheduleMutation.mutate({ id, iso: newISO });
+    reschedule(id, newISO);
   };
 
   const plusHours = (id: string, hours: number) => {
@@ -209,13 +170,13 @@ function CallbacksPage() {
     if (!cb) return;
     const base = cb.status === "missed" ? new Date() : new Date(cb.scheduledAt);
     base.setHours(base.getHours() + hours);
-    rescheduleMutation.mutate({ id, iso: base.toISOString() });
+    reschedule(id, base.toISOString());
   };
 
   const handleRetry = (id: string) => {
     const d = new Date();
     d.setMinutes(d.getMinutes() + 15);
-    rescheduleMutation.mutate({ id, iso: d.toISOString() });
+    reschedule(id, d.toISOString());
   };
 
   return (
@@ -284,10 +245,19 @@ function CallbacksPage() {
           <CallbackList
             rows={listRows}
             onOpen={(id) => setOpenId(id)}
-            onStart={(id) => startMutation.mutate(id)}
-            onSendReminder={(id) => reminderMutation.mutate(id)}
+            onStart={(id) => {
+              const cb = byId(id);
+              if (cb) startMutation.mutate(cb, { onSuccess: () => setOpenId(id) });
+            }}
+            onSendReminder={(id) => {
+              const cb = byId(id);
+              if (cb) reminderMutation.mutate({ cb, channel: "whatsapp" });
+            }}
             onReschedulePlus1h={(id) => plusHours(id, 1)}
-            onCancel={(id) => cancelMutation.mutate(id)}
+            onCancel={(id) => {
+              const cb = byId(id);
+              if (cb) cancelMutation.mutate({ cb, reason: "Cancelled by agent" });
+            }}
             isLoading={callbacksPending}
             isError={callbacksError}
             error={callbacksErr}

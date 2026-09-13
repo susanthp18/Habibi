@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   X,
@@ -31,13 +30,14 @@ import {
 import { fmtMoney } from "@/lib/upsell";
 import { fmtDateTime } from "@/lib/format";
 import {
-  addLeadFollowUp,
   leadContactChannel,
   leadOwnerOptions,
   leadTeamOptions,
-  markLeadFollowUpDone,
-  patchLead,
-  revalidateLead,
+  usePatchLead,
+  useAddLeadFollowUp,
+  useMarkLeadFollowUpDone,
+  useRevalidateLead,
+  type LeadPatch,
 } from "@/api/upsell";
 import { useProducts } from "@/api/products";
 import { useStaff } from "@/api/staff";
@@ -58,7 +58,6 @@ const FOLLOW_UP_CHANNELS = [
 interface Props {
   lead: Lead;
   onClose: () => void;
-  onMutate: () => void;
 }
 
 type Tab = "overview" | "eligibility" | "followups" | "timeline";
@@ -87,7 +86,7 @@ const stageButtonClass: Record<LeadStage, string> = {
   lost: "bg-background-neutral text-text",
 };
 
-export function LeadSheet({ lead, onClose, onMutate }: Props) {
+export function LeadSheet({ lead, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
   // Live rosters, not the hardcoded seed arrays. Assigning from this drawer
   // called resolveActor(name), which THROWS when the name is not in the DB —
@@ -125,37 +124,12 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
   }, [lead.id, lead.source]);
 
   const failing = useMemo(() => lead.eligibilityFlags.filter((f) => !f.ok), [lead]);
-  const leadMutation = useMutation({
-    mutationFn: (patch: Parameters<typeof patchLead>[1]) => patchLead(lead, patch),
-    onSuccess: () => onMutate(),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lead update failed"),
-  });
-  const followUpMutation = useMutation({
-    mutationFn: (input: { at: string; channel: FollowUpChannel; note: string }) =>
-      addLeadFollowUp(lead, input),
-    onSuccess: () => onMutate(),
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Follow-up scheduling failed"),
-  });
-  const followUpDoneMutation = useMutation({
-    mutationFn: ({ followUp, index }: { followUp: Lead["followUps"][number]; index: number }) =>
-      markLeadFollowUpDone(lead, followUp, index),
-    onSuccess: () => onMutate(),
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Follow-up update failed"),
-  });
-  // Eligibility was evaluated once, at capture. Consent and DPD move; the
-  // badge on this drawer does not, so a rep could work a lead the customer has
-  // since opted out of. This re-checks against today's facts before they dial.
-  const revalidateMutation = useMutation({
-    mutationFn: () => revalidateLead(lead, fuChannel),
-    onSuccess: (result) => {
-      onMutate();
-      if (result.eligible) toast.success("Still eligible");
-      else toast.error(`No longer eligible — ${result.blockReason ?? "blocked"}`);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Re-check failed"),
-  });
+  const leadMutation = usePatchLead();
+  const followUpMutation = useAddLeadFollowUp();
+  const followUpDoneMutation = useMarkLeadFollowUpDone();
+  const revalidateMutation = useRevalidateLead();
+  const patch = (p: LeadPatch, opts?: { onSuccess?: () => void }) =>
+    leadMutation.mutate({ lead, patch: p }, opts);
 
   const doStage = (s: LeadStage) => {
     if (s === "won") {
@@ -166,10 +140,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       setLostOpen(true);
       return;
     }
-    leadMutation.mutate(
-      { stage: s },
-      { onSuccess: () => toast.success(`Moved to ${STAGE_LABELS[s]}`) },
-    );
+    patch({ stage: s }, { onSuccess: () => toast.success(`Moved to ${STAGE_LABELS[s]}`) });
   };
 
   const saveOffer = () => {
@@ -178,7 +149,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       toast.error("Enter a valid amount");
       return;
     }
-    leadMutation.mutate(
+    patch(
       { offer: { productId, indicativeAmount: n, indicativeROI: roi } },
       { onSuccess: () => toast.success("Offer updated") },
     );
@@ -188,9 +159,12 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
     if (!fuDate) return;
     followUpMutation.mutate(
       {
-        at: new Date(fuDate).toISOString(),
-        channel: fuChannel,
-        note: fuNote || "Follow-up scheduled.",
+        lead,
+        input: {
+          at: new Date(fuDate).toISOString(),
+          channel: fuChannel,
+          note: fuNote || "Follow-up scheduled.",
+        },
       },
       {
         onSuccess: () => {
@@ -207,7 +181,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       toast.error("Enter disbursed amount");
       return;
     }
-    leadMutation.mutate({ stage: "won", wonAmount: n });
+    patch({ stage: "won", wonAmount: n });
     setWonOpen(false);
     toast.success(`Marked won · ${fmtMoney(n)}`);
   };
@@ -217,7 +191,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
       toast.error("Reason required");
       return;
     }
-    leadMutation.mutate({ stage: "lost", lossReason: lossReason.trim() });
+    patch({ stage: "lost", lossReason: lossReason.trim() });
     setLostOpen(false);
     toast(`Marked lost`);
   };
@@ -373,7 +347,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     aria-label="Owner"
                     value={lead.owner ?? "Unassigned"}
                     onChange={(v) => {
-                      leadMutation.mutate({ owner: v });
+                      patch({ owner: v });
                       toast.success(`Assigned to ${v}`);
                     }}
                     size="compact"
@@ -389,7 +363,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                     placeholder="Unassigned"
                     value={lead.team ?? ""}
                     onChange={(v) => {
-                      leadMutation.mutate({ team: v as Team });
+                      patch({ team: v as Team });
                       toast.success(`Routed to ${v}`);
                     }}
                     size="compact"
@@ -452,7 +426,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                   variant="outline"
                   className="h-7 shrink-0 text-body-small"
                   disabled={revalidateMutation.isPending}
-                  onClick={() => revalidateMutation.mutate()}
+                  onClick={() => revalidateMutation.mutate({ lead, channel: fuChannel })}
                 >
                   {revalidateMutation.isPending ? "Re-checking…" : "Re-check now"}
                 </Button>
@@ -561,7 +535,7 @@ export function LeadSheet({ lead, onClose, onMutate }: Props) {
                               variant="ghost"
                               className="h-300 px-100 text-body-small text-text-brand"
                               onClick={() => {
-                                followUpDoneMutation.mutate({ followUp: f, index: i });
+                                followUpDoneMutation.mutate({ lead, followUp: f, index: i });
                                 toast.success("Follow-up marked done");
                               }}
                             >

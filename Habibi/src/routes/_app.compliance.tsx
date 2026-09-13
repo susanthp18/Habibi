@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Lock, Download } from "lucide-react";
 import { ComplianceStatsStrip } from "@/components/compliance/ComplianceStatsStrip";
@@ -16,12 +16,12 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import {
-  acknowledgeViolation,
-  assignViolation,
   exportPolicyBundle,
-  resolveViolation,
   useViolations,
   violationAssigneeOptions,
+  useAssignViolation,
+  useAcknowledgeViolation,
+  useResolveViolation,
 } from "@/api/compliance";
 import { currentActor } from "@/api/me";
 import { useStaff } from "@/api/staff";
@@ -77,33 +77,9 @@ function CompliancePage() {
 
   const setRule = (ruleId: "all" | string) => setFilters({ ...filters, ruleId });
 
-  const assignMutation = useMutation({
-    mutationFn: (v: { item: Violation; assignee: string; note: string }) =>
-      assignViolation(v.item, v.assignee, v.note),
-    onSuccess: (_d, vars) => {
-      invalidate();
-      toast.success("Assigned for review", { description: `${vars.item.id} → ${vars.assignee}` });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Assign failed"),
-  });
-
-  const acknowledgeMutation = useMutation({
-    mutationFn: (v: { item: Violation; note: string }) => acknowledgeViolation(v.item, v.note),
-    onSuccess: (_d, vars) => {
-      invalidate();
-      toast.success("Acknowledged", { description: vars.item.id });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Acknowledge failed"),
-  });
-
-  const resolveMutation = useMutation({
-    mutationFn: (v: { item: Violation; note: string }) => resolveViolation(v.item, v.note),
-    onSuccess: (_d, vars) => {
-      invalidate();
-      toast.success("Marked resolved", { description: vars.item.id });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Resolve failed"),
-  });
+  const assignMutation = useAssignViolation();
+  const acknowledgeMutation = useAcknowledgeViolation();
+  const resolveMutation = useResolveViolation();
 
   const onAssign = async (id: string, assignee?: string, note = "Assigned for review.") => {
     const item = items.find((v) => v.id === id);

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SplitPanes } from "@/components/shared/SplitPanes";
 import { useMinWidth } from "@/hooks/use-min-width";
@@ -19,18 +19,18 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import type { Customer } from "@/api/types/customer360";
 import type { DisputeType } from "@/api/types/disputes";
 import {
-  addCustomerNote,
-  createDocumentRequest,
   fetchCustomer,
   fetchCustomerInsights,
-  logInteraction,
+  useCreateDocumentRequest,
+  useLogInteraction,
+  useAddCustomerNote,
 } from "@/api/customers";
 import { QueryState } from "@/components/ui/query-state";
 import type { NbaActionKind } from "@/api/types/customer-insights";
-import { cn, idempotencyKey } from "@/lib/utils";
-import { createPromise } from "@/api/promises";
+import { cn } from "@/lib/utils";
+import { useCreatePromise } from "@/api/promises";
 import { ApiError } from "@/api/config";
-import { createDispute } from "@/api/disputes";
+import { useCreateDispute } from "@/api/disputes";
 import type { PromiseChannel } from "@/api/types/promises";
 
 const TABS = [
@@ -81,7 +81,6 @@ function CustomerDetail() {
   const { customer: initial } = Route.useLoaderData();
   const { tab } = Route.useSearch();
   const navigate = useNavigate({ from: "/customers/$customerId" });
-  const queryClient = useQueryClient();
   const isLg = useMinWidth(1024);
 
   // The record lives in the query cache under ["customer", id], so the
@@ -109,114 +108,14 @@ function CustomerDetail() {
   // Pending is pending; the browser does not derive a placeholder recommendation.
   const insights = insightsQuery.data;
 
-  const refreshCustomer = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["customers"] });
-    await queryClient.invalidateQueries({ queryKey: ["customer-insights", customer.id] });
-    await queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
-  };
-
-  const ptpKey = useRef(idempotencyKey(`ptp-${customer.id}`));
-  const ptpMutation = useMutation({
-    mutationFn: (payload: { amount: number; date: string; channel: string; notes: string }) =>
-      createPromise(
-        {
-          customerId: customer.id,
-          accountId: customer.accountId,
-          amount: payload.amount,
-          promisedDate: new Date(payload.date).toISOString(),
-          channel: payload.channel as PromiseChannel,
-          reminder: "queued",
-          notes: payload.notes,
-        },
-        ptpKey.current,
-      ),
-    onSuccess: async () => {
-      ptpKey.current = idempotencyKey(`ptp-${customer.id}`);
-      await refreshCustomer();
-      toast.success("PTP captured");
-      setTab("promises");
-    },
-    onError: (error) => {
-      // One open promise per account: the refusal names it, and the board's
-      // detail sheet is where it is revised with a reason.
-      const detail = error instanceof ApiError ? error.detail : "";
-      if (detail.startsWith("promise_already_open:")) {
-        const openId = detail.split(":", 2)[1] ?? "";
-        toast.error(`This account already has an open promise (${openId}).`, {
-          description:
-            "Revise its date or amount with the customer's reason instead of adding a second one.",
-          action: {
-            label: "Revise it",
-            onClick: () => void navigate({ to: "/promises", search: { id: openId } }),
-          },
-        });
-        return;
-      }
-      toast.error(error instanceof Error ? error.message : "Failed to capture PTP");
-    },
-  });
-
-  const disputeKey = useRef(idempotencyKey(`dispute-${customer.id}`));
-  const disputeMutation = useMutation({
-    mutationFn: (payload: { type: DisputeType; amount: number; notes: string }) =>
-      createDispute(
-        {
-          customerId: customer.id,
-          accountId: customer.accountId,
-          type: payload.type,
-          amount: payload.amount,
-          notes: payload.notes,
-        },
-        disputeKey.current,
-      ),
-    onSuccess: async () => {
-      disputeKey.current = idempotencyKey(`dispute-${customer.id}`);
-      await refreshCustomer();
-      toast.success("Dispute filed");
-      setTab("disputes");
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Failed to file dispute"),
-  });
-
-  const documentMutation = useMutation({
-    mutationFn: (payload: { docType: string; delivery: "email" | "whatsapp" }) =>
-      createDocumentRequest(customer, payload),
-    onSuccess: async (_, payload) => {
-      await refreshCustomer();
-      toast.success(`${payload.docType} queued for ${payload.delivery}`);
-      setTab("documents");
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Failed to request document"),
-  });
-
-  const callMutation = useMutation({
-    mutationFn: (payload: { disposition: string; notes: string }) =>
-      logInteraction(customer, payload),
-    onSuccess: async () => {
-      await refreshCustomer();
-      toast.success("Call logged");
-      setTab("interactions");
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to log call"),
-  });
-
-  const noteMutation = useMutation({
-    mutationFn: (text: string) => addCustomerNote(customer.id, text),
-    onSuccess: async (note) => {
-      if (note) {
-        queryClient.setQueryData<Customer>(["customer", customer.id], (c) =>
-          c ? { ...c, notes: [note, ...c.notes] } : c,
-        );
-      } else {
-        await refreshCustomer();
-      }
-      toast.success("Note added");
-      await queryClient.invalidateQueries({ queryKey: ["customer-insights", customer.id] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to save note"),
-  });
+  // The writes live in api/; each invalidates the 360's reads itself. What is
+  // left here is what the screen does afterwards: move to the tab that shows
+  // the new row, or turn a refusal into the next step.
+  const ptpMutation = useCreatePromise();
+  const disputeMutation = useCreateDispute();
+  const documentMutation = useCreateDocumentRequest(customer);
+  const callMutation = useLogInteraction(customer);
+  const noteMutation = useAddCustomerNote(customer.id);
 
   const onNbaAction = (action: NbaActionKind) => {
     if (action === "ptp") setSheet("ptp");
@@ -252,26 +151,71 @@ function CustomerDetail() {
   );
 
   const addNote = (text: string) => {
-    noteMutation.mutate(text);
+    noteMutation.mutate(text, { onSuccess: () => toast.success("Note added") });
   };
 
   const submitSheet = (kind: "ptp" | "dispute" | "statement" | "call", payload: unknown) => {
     setSheet(null);
     if (kind === "ptp") {
+      const p = payload as { amount: number; date: string; channel: string; notes: string };
       ptpMutation.mutate(
-        payload as { amount: number; date: string; channel: string; notes: string },
+        {
+          customerId: customer.id,
+          accountId: customer.accountId,
+          amount: p.amount,
+          promisedDate: new Date(p.date).toISOString(),
+          channel: p.channel as PromiseChannel,
+          reminder: "queued",
+          notes: p.notes,
+        },
+        {
+          onSuccess: () => setTab("promises"),
+          onError: (error) => {
+            // One open promise per account: the refusal names it, and the
+            // board's detail sheet is where it is revised with a reason.
+            const detail = error instanceof ApiError ? error.detail : "";
+            if (detail.startsWith("promise_already_open:")) {
+              const openId = detail.split(":", 2)[1] ?? "";
+              toast.error(`This account already has an open promise (${openId}).`, {
+                description:
+                  "Revise its date or amount with the customer's reason instead of adding a second one.",
+                action: {
+                  label: "Revise it",
+                  onClick: () => void navigate({ to: "/promises", search: { id: openId } }),
+                },
+              });
+              return;
+            }
+            toast.error(error instanceof Error ? error.message : "Failed to capture PTP");
+          },
+        },
       );
       return;
     }
     if (kind === "dispute") {
-      disputeMutation.mutate(payload as { type: DisputeType; amount: number; notes: string });
+      const p = payload as { type: DisputeType; amount: number; notes: string };
+      disputeMutation.mutate(
+        { customerId: customer.id, accountId: customer.accountId, ...p },
+        { onSuccess: () => setTab("disputes") },
+      );
       return;
     }
     if (kind === "statement") {
-      documentMutation.mutate(payload as { docType: string; delivery: "email" | "whatsapp" });
+      const p = payload as { docType: string; delivery: "email" | "whatsapp" };
+      documentMutation.mutate(p, {
+        onSuccess: () => {
+          toast.success(`${p.docType} queued for ${p.delivery}`);
+          setTab("documents");
+        },
+      });
       return;
     }
-    callMutation.mutate(payload as { disposition: string; notes: string });
+    callMutation.mutate(payload as { disposition: string; notes: string }, {
+      onSuccess: () => {
+        toast.success("Call logged");
+        setTab("interactions");
+      },
+    });
   };
 
   const mainPane = (

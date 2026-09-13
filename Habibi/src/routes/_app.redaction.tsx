@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Settings2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { RedactionStatsStrip } from "@/components/redaction/RedactionStatsStrip";

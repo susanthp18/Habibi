@@ -18,7 +18,7 @@
 // the shadow corpus each time, which is why this module does not poll.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   authorityReasonLabel,
@@ -27,6 +27,7 @@ import {
   type AuthorityPolicy,
 } from "@/lib/authority-policy";
 import { apiGet, apiPost } from "./config";
+import { toast } from "sonner";
 
 /** matrix.py :: VERDICTS. */
 
@@ -145,5 +146,29 @@ export async function applyAuthority(input: {
     decisionId: input.decisionId,
     amount: input.amount ?? undefined,
     disputeId: input.disputeId ?? undefined,
+  });
+}
+
+// ---------- mutations ----------
+
+/**
+ * Goodwill posts against a decision. The verdict changes the moment it does
+ * -- a second waiver in the same 12 months is an escalate -- so the next-ask,
+ * the 360 and the handoff console are all re-read.
+ */
+export function useApplyAuthority(customerId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: applyAuthority,
+    onSuccess: () => {
+      toast.success("Goodwill posted");
+      void qc.invalidateQueries({ queryKey: ["handoff"] });
+      if (customerId) {
+        void qc.invalidateQueries({ queryKey: ["authority-next", customerId] });
+        void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+        void qc.invalidateQueries({ queryKey: ["customer", customerId] });
+      }
+    },
   });
 }

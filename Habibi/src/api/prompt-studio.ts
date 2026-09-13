@@ -737,3 +737,30 @@ export function useEnsureStudioDraft() {
     },
   });
 }
+
+/**
+ * Refresh the voice catalogue from every provider. Every read the sync can
+ * move is invalidated, not only the three obvious ones: the counts feeding
+ * the provider chips and the locale dropdown are derived from the same table
+ * with a 60s staleTime, so "Catalog refreshed" used to appear over a locale
+ * list and provider tallies still describing the pre-sync catalogue.
+ */
+export function useSyncTtsVoiceCatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: syncTtsVoiceCatalog,
+    onSuccess: () => {
+      for (const key of [
+        "tts-voice-catalog-infinite",
+        "tts-voice-catalog",
+        "tts-voice-sync-runs",
+        "tts-voice-provider-counts",
+        "tts-voice-locale-counts",
+        "tts-voices",
+      ]) {
+        void qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
+  });
+}

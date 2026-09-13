@@ -7,7 +7,7 @@
 // response, so callers invalidate + refetch.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import type {
@@ -19,8 +19,10 @@ import type {
   OptOutSource,
 } from "@/api/types/consent";
 import { allowedWindowsEqual } from "@/lib/consent";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { customerSchema } from "./customers";
+import { toast } from "sonner";
 
 // -----------------------------------------------------------------------------
 // Wire schema — field-for-field with ConsentListResponse (extra="forbid").
@@ -165,4 +167,69 @@ export async function toggleDnd(rec: ConsentRecord, on: boolean): Promise<void> 
     },
     { schema: customerSchema },
   );
+}
+
+// ---------- mutations ----------
+
+/** A consent change moves what the 360, the contact policy and the threads may say. */
+function invalidateConsentReads(qc: QueryClient) {
+  for (const key of ["consent", "customer", "customers", "contact-policy", "conversations"]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+export function useSaveConsent() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { rec: ConsentRecord; patch: ConsentPreferencesPatch; note: string }) =>
+      saveConsent(v.rec, v.patch, v.note),
+    onSuccess: () => {
+      invalidateConsentReads(qc);
+      toast.success("Consent preferences saved", {
+        description: "Change captured in the audit trail.",
+      });
+    },
+  });
+}
+
+export function useRenewConsent() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (rec: ConsentRecord) => renewConsent(rec),
+    onSuccess: () => {
+      invalidateConsentReads(qc);
+      toast.success("Consent renewed", { description: "New expiry set 12 months out." });
+    },
+  });
+}
+
+export function useCaptureOptOut() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: {
+      rec: ConsentRecord;
+      evt: { channel: ConsentChannel | "all"; source: OptOutSource; note: string };
+    }) => captureOptOut(v.rec, v.evt),
+    onSuccess: () => {
+      invalidateConsentReads(qc);
+      toast.success("Opt-out logged", {
+        description: "Bot will honor this immediately on next contact attempt.",
+      });
+    },
+  });
+}
+
+export function useToggleDnd() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { rec: ConsentRecord; on: boolean }) => toggleDnd(v.rec, v.on),
+    onSuccess: (_r, v) => {
+      invalidateConsentReads(qc);
+      toast.success(v.on ? "Marked on DND registry" : "Removed from DND registry");
+    },
+  });
 }

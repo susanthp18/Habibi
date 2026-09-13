@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ClipboardCheck, Scale, SlidersHorizontal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -16,16 +15,16 @@ import { CoachingBoard } from "@/components/qa/CoachingBoard";
 import { NewCoachingSheet } from "@/components/qa/NewCoachingSheet";
 import { RubricBuilderSheet } from "@/components/qa/RubricBuilderSheet";
 import {
-  createCoachingAction,
-  finalizeScorecard,
-  patchCalibrationSession,
-  patchCoachingAction,
-  saveScorecard,
   useCalibrationSessions,
   useCoachingActions,
   useQaCoverage,
   useRubric,
   useScorecards,
+  useSaveScorecard,
+  useFinalizeScorecard,
+  useMoveCoachingAction,
+  useCreateCoachingAction,
+  useCloseCalibrationSession,
 } from "@/api/qa";
 import { useQaDisagreements } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -75,7 +74,6 @@ function QaPage() {
 
 function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
   const { callId } = Route.useSearch();
-  const queryClient = useQueryClient();
   const {
     data: remoteScorecards,
     isPending: scorecardsPending,
@@ -144,58 +142,24 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
     [stats, activeAgent],
   );
 
-  const invalidateScorecards = () => queryClient.invalidateQueries({ queryKey: ["scorecards"] });
-  const invalidateCoaching = () =>
-    queryClient.invalidateQueries({ queryKey: ["coaching-actions"] });
-  const invalidateCalibrations = () =>
-    queryClient.invalidateQueries({ queryKey: ["calibration-sessions"] });
-
-  const saveMutation = useMutation({
-    mutationFn: async ({ sc, entries }: { sc: Scorecard; entries: ScorecardEntry[] }) => {
-      await saveScorecard(sc, entries);
-    },
-    onSuccess: (_data, vars) => {
-      setDraftEntries((prev) => {
-        const next = { ...prev };
-        delete next[vars.sc.id];
-        return next;
-      });
-      invalidateScorecards();
-      toast.success("Draft saved");
-    },
-    onError: (err: Error) => toast.error("Could not save draft", { description: err.message }),
-  });
-
-  const publishMutation = useMutation({
-    mutationFn: async ({ sc, entries }: { sc: Scorecard; entries: ScorecardEntry[] }) => {
-      await finalizeScorecard(sc, entries);
-    },
-    onSuccess: (_data, vars) => {
-      setDraftEntries((prev) => {
-        const next = { ...prev };
-        delete next[vars.sc.id];
-        return next;
-      });
-      invalidateScorecards();
-      toast.success("Scorecard published", {
-        description: "Sent to agent + logged to audit trail.",
-      });
-    },
-    onError: (err: Error) => toast.error("Could not publish", { description: err.message }),
-  });
-
   const updateEntries = (id: string, entries: ScorecardEntry[]) => {
     setDraftEntries((prev) => ({ ...prev, [id]: entries }));
   };
   const saveDraft = (id: string) => {
     const sc = scorecards.find((s) => s.id === id);
     if (!sc) return;
-    saveMutation.mutate({ sc, entries: draftEntries[id] ?? sc.entries });
+    saveMutation.mutate(
+      { sc, entries: draftEntries[id] ?? sc.entries },
+      { onSuccess: () => dropDraft(id) },
+    );
   };
   const publishScore = (id: string) => {
     const sc = scorecards.find((s) => s.id === id);
     if (!sc) return;
-    publishMutation.mutate({ sc, entries: draftEntries[id] ?? sc.entries });
+    publishMutation.mutate(
+      { sc, entries: draftEntries[id] ?? sc.entries },
+      { onSuccess: () => dropDraft(id) },
+    );
   };
 
   const openCoachFromScorecard = (s: Scorecard) => {
@@ -203,32 +167,18 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
     setCoachOpen(true);
   };
 
-  const moveCoachMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: CoachingStatus }) =>
-      patchCoachingAction(id, { status }),
-    onSuccess: () => invalidateCoaching(),
-    onError: (err: Error) => toast.error("Could not update coaching", { description: err.message }),
-  });
-
-  const createCoachMutation = useMutation({
-    mutationFn: createCoachingAction,
-    onSuccess: (item) => {
-      invalidateCoaching();
-      setCoachOpen(false);
-      toast.success("Coaching action created", { description: `${item.agentId} · ${item.title}` });
-    },
-    onError: (err: Error) => toast.error("Could not create coaching", { description: err.message }),
-  });
-
-  const closeCalMutation = useMutation({
-    mutationFn: (id: string) => patchCalibrationSession(id, { status: "closed" }),
-    onSuccess: () => {
-      invalidateCalibrations();
-      toast.success("Calibration closed");
-    },
-    onError: (err: Error) =>
-      toast.error("Could not close calibration", { description: err.message }),
-  });
+  const saveMutation = useSaveScorecard();
+  const publishMutation = useFinalizeScorecard();
+  const moveCoachMutation = useMoveCoachingAction();
+  const createCoachMutation = useCreateCoachingAction();
+  const closeCalMutation = useCloseCalibrationSession();
+  // The draft overlay for a scorecard clears once the row is written.
+  const dropDraft = (id: string) =>
+    setDraftEntries((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
 
   const moveCoaching = (id: string, status: CoachingStatus) => {
     moveCoachMutation.mutate({ id, status });
@@ -238,7 +188,7 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
     if (a) toast(a.title, { description: `${a.agentId} · ${a.category}` });
   };
   const addCoaching = (data: Omit<CoachingAction, "id" | "createdAt" | "notes" | "status">) => {
-    createCoachMutation.mutate(data);
+    createCoachMutation.mutate(data, { onSuccess: () => setCoachOpen(false) });
   };
 
   const closeCalibration = (id: string) => {

@@ -1,12 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { InsightsPanel } from "./InsightsPanel";
 import { NextBestActionCard } from "./NextBestActionCard";
 import { BehaviorMetricsStrip } from "./BehaviorMetricsStrip";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { applyAuthority, authorityPolicyFromNext, useAuthorityNext } from "@/api/authority";
-import { captureLeadFromPolicy } from "@/api/upsell";
+import { authorityPolicyFromNext, useApplyAuthority, useAuthorityNext } from "@/api/authority";
+import { useCaptureLeadFromPolicy } from "@/api/upsell";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import type { CustomerInsights, NbaActionKind } from "@/api/types/customer-insights";
@@ -19,7 +18,6 @@ export function OverviewTab({
   onNbaAction: (action: NbaActionKind) => void;
 }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   // The allowed move comes from the engine that owns it (GET /authority/next).
   // This panel used to render a client-side re-implementation of the matrix,
   // frozen at ₹500/₹250 and two escalate reasons while the real one stayed
@@ -33,11 +31,16 @@ export function OverviewTab({
     : authorityQuery.isPending || !authorityPolicy
       ? "pending"
       : "ready";
-  const captureMut = useMutation({
-    mutationFn: () => {
-      const policy = insights.offerPolicy;
-      if (!policy?.productId) throw new Error("No approved product to capture");
-      return captureLeadFromPolicy({
+  const captureMut = useCaptureLeadFromPolicy();
+  const applyMut = useApplyAuthority(insights.customerId);
+  const capture = () => {
+    const policy = insights.offerPolicy;
+    if (!policy?.productId) {
+      toast.error("No approved product to capture");
+      return;
+    }
+    captureMut.mutate(
+      {
         customerId: insights.customerId,
         productId: policy.productId,
         indicativeAmount: policy.suggestedAmount,
@@ -45,36 +48,23 @@ export function OverviewTab({
         interactionId: policy.interactionId,
         channel: policy.channel,
         note: policy.talkTrack,
-      });
-    },
-    onSuccess: (lead) => {
-      toast.success("Lead captured");
-      void queryClient.invalidateQueries({ queryKey: ["customer-insights", insights.customerId] });
-      void queryClient.invalidateQueries({ queryKey: ["leads"] });
-      void navigate({ to: "/upsell", search: { id: lead.id } });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lead capture failed"),
-  });
-  const applyMut = useMutation({
-    mutationFn: () => {
-      if (!authorityPolicy?.decisionId) throw new Error("No authority decision to apply");
-      return applyAuthority({
-        decisionId: authorityPolicy.decisionId,
-        amount: authorityPolicy.approvedAmount,
-        disputeId: authorityPolicy.disputeId,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Goodwill posted");
-      // The verdict changes the moment goodwill posts — a second waiver in the
-      // same 12 months is an escalate — so re-ask rather than keep this one.
-      void queryClient.invalidateQueries({ queryKey: ["authority-next", insights.customerId] });
-      void queryClient.invalidateQueries({ queryKey: ["customer-insights", insights.customerId] });
-      void queryClient.invalidateQueries({ queryKey: ["customer", insights.customerId] });
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
-  });
+      },
+      {
+        onSuccess: (lead) => {
+          toast.success("Lead captured");
+          void navigate({ to: "/upsell", search: { id: lead.id } });
+        },
+      },
+    );
+  };
+  const apply = () => {
+    if (!authorityPolicy?.decisionId) return;
+    applyMut.mutate({
+      decisionId: authorityPolicy.decisionId,
+      amount: authorityPolicy.approvedAmount,
+      disputeId: authorityPolicy.disputeId,
+    });
+  };
 
   return (
     <div className="space-y-200">
@@ -85,14 +75,14 @@ export function OverviewTab({
         className="rounded-large border border-border bg-surface !border-t"
         // Only offered when there is a recorded decision to post against. The
         // mock emulates the verdict but records nothing, so it has no id.
-        onApply={authorityPolicy?.decisionId ? () => applyMut.mutate() : undefined}
+        onApply={authorityPolicy?.decisionId ? apply : undefined}
         applying={applyMut.isPending}
       />
       {insights.offerPolicy && insights.offerPolicy.status !== "none" ? (
         <OfferPolicyBlock
           policy={insights.offerPolicy}
           className="rounded-large border border-border bg-surface !border-t"
-          onCapture={() => captureMut.mutate()}
+          onCapture={capture}
           capturing={captureMut.isPending}
         />
       ) : null}

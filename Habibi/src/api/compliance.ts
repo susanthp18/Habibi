@@ -8,12 +8,13 @@
 // the note author is the acting user from GET /me.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Violation, ViolationStatus } from "@/api/types/compliance";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
 import { humanNames, resolveActor, type Staff } from "./staff";
+import { toast } from "sonner";
 
 export function violationAssigneeOptions(staff: Staff[]): string[] {
   return humanNames(staff);
@@ -146,5 +147,44 @@ export function useRuleCoverage() {
       return apiGet<RuleCoverage>("/compliance/rule-coverage");
     },
     staleTime: 60_000,
+  });
+}
+
+// ---------- mutations ----------
+
+export function useAssignViolation() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { item: Violation; assignee: string; note: string }) =>
+      assignViolation(v.item, v.assignee, v.note),
+    onSuccess: (_d, v) => {
+      void qc.invalidateQueries({ queryKey: ["violations"] });
+      toast.success("Assigned for review", { description: `${v.item.id} → ${v.assignee}` });
+    },
+  });
+}
+
+export function useAcknowledgeViolation() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { item: Violation; note: string }) => acknowledgeViolation(v.item, v.note),
+    onSuccess: (_d, v) => {
+      void qc.invalidateQueries({ queryKey: ["violations"] });
+      toast.success("Acknowledged", { description: v.item.id });
+    },
+  });
+}
+
+export function useResolveViolation() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { item: Violation; note: string }) => resolveViolation(v.item, v.note),
+    onSuccess: (_d, v) => {
+      void qc.invalidateQueries({ queryKey: ["violations"] });
+      toast.success("Marked resolved", { description: v.item.id });
+    },
   });
 }

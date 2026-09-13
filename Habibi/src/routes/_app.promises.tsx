@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { idempotencyKey } from "@/lib/utils";
 import { HandCoins, Plus, CalendarClock, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/use-confirm";
@@ -25,16 +23,16 @@ import type {
 } from "@/api/types/promises";
 import { computeMetrics, defaultFilters, filterPromises } from "@/lib/promises";
 import {
-  createPlan,
-  createPromise,
-  movePromise,
   promiseOwnerOptions,
   promiseSheetCustomers,
-  revisePromise,
-  cancelPromise,
-  resendPromiseConfirm,
   usePaymentPlans,
   usePromises,
+  useMovePromise,
+  useRevisePromise,
+  useCancelPromise,
+  useCreatePromise,
+  useCreatePaymentPlan,
+  useResendPromiseConfirm,
 } from "@/api/promises";
 import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
@@ -62,7 +60,6 @@ export const Route = createFileRoute("/_app/promises")({
 });
 
 function PromisesPage() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
   const { data: promisesData = [] } = usePromises();
@@ -103,76 +100,12 @@ function PromisesPage() {
 
   const patchFilters = (patch: Partial<PromiseFilters>) => setFilters((f) => ({ ...f, ...patch }));
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["promises"] });
-    queryClient.invalidateQueries({ queryKey: ["payment-plans"] });
-  };
-
-  const markMutation = useMutation({
-    mutationFn: (v: { p: Ptp; status: PromiseStatus; opts?: { paidAmount?: number } }) =>
-      movePromise(v.p, v.status, v.opts),
-    onSuccess: (_r, v) => {
-      invalidate();
-      if (v.status === "kept") toast.success(`Marked kept · ${v.p.customerName}`);
-      else if (v.status === "partial")
-        toast.warning(`Partial payment logged · ${v.p.customerName}`);
-      else if (v.status === "broken")
-        toast.error(`Broken promise · ${v.p.customerName} routed to follow-up`);
-      else toast(`Updated to ${v.status.replace("_", " ")}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Update failed"),
-  });
-
-  const reviseKey = useRef(idempotencyKey("ptp-revise"));
-  const reviseMutation = useMutation({
-    mutationFn: (v: { p: Ptp; input: ReviseInput }) =>
-      revisePromise(v.p, v.input, reviseKey.current),
-    onSuccess: (_r, v) => {
-      reviseKey.current = idempotencyKey("ptp-revise");
-      invalidate();
-      toast.success(`Revised ${v.p.id}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Revise failed"),
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: (v: { p: Ptp; input: { reason: PromiseRevisionReason; note?: string } }) =>
-      cancelPromise(v.p, v.input),
-    onSuccess: (_r, v) => {
-      invalidate();
-      toast.success(`Cancelled ${v.p.id}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Cancel failed"),
-  });
-
-  const createKey = useRef(idempotencyKey("ptp"));
-  const createMutation = useMutation({
-    mutationFn: (input: CreateInput) => createPromise(input, createKey.current),
-    onSuccess: (res) => {
-      createKey.current = idempotencyKey("ptp");
-      invalidate();
-      toast.success(`Promise captured · ${res.id}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Capture failed"),
-  });
-
-  const planMutation = useMutation({
-    mutationFn: (input: PlanInput) => createPlan(input),
-    onSuccess: (res) => {
-      invalidate();
-      toast.success(`Plan ${res.id} created · first installment scheduled`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Plan creation failed"),
-  });
-
-  const resendMutation = useMutation({
-    mutationFn: (p: Ptp) => resendPromiseConfirm(p),
-    onSuccess: (_r, p) => {
-      invalidate();
-      toast.success(`Confirm resent · ${p.customerName}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Resend failed"),
-  });
+  const markMutation = useMovePromise();
+  const reviseMutation = useRevisePromise();
+  const cancelMutation = useCancelPromise();
+  const createMutation = useCreatePromise();
+  const planMutation = useCreatePaymentPlan();
+  const resendMutation = useResendPromiseConfirm();
 
   const handleMark = (p: Ptp, status: PromiseStatus, opts?: { paidAmount?: number }) => {
     if (status === "kept" && !(p.paidAmount && p.paidAmount > 0)) {
@@ -216,7 +149,10 @@ function PromisesPage() {
 
   const handleResend = (p: Ptp) => resendMutation.mutate(p);
 
-  const handleCreate = (input: CreateInput) => createMutation.mutate(input);
+  const handleCreate = (input: CreateInput) =>
+    createMutation.mutate(input, {
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Capture failed"),
+    });
   const handleCreatePlan = (input: PlanInput) => planMutation.mutate(input);
 
   const detail = detailId ? (promisesData.find((p) => p.id === detailId) ?? null) : null;

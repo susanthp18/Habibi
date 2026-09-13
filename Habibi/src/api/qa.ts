@@ -4,7 +4,7 @@
 //   Coaching / calibration: GET + POST/PATCH (fast-follow)
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   CalibrationSession,
@@ -16,6 +16,7 @@ import type {
 } from "@/api/types/qa";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
+import { toast } from "sonner";
 
 export async function fetchScorecards(): Promise<Scorecard[]> {
   return apiGet<Scorecard[]>("/scorecards");
@@ -131,3 +132,69 @@ export async function patchCalibrationSession(
 }
 
 export type { Rubric, Scorecard, ScorecardEntry, CoachingAction, CalibrationSession };
+
+// ---------- mutations ----------
+
+export function useSaveScorecard() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: async (v: { sc: Scorecard; entries: ScorecardEntry[] }) => {
+      await saveScorecard(v.sc, v.entries);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["scorecards"] });
+      toast.success("Draft saved");
+    },
+  });
+}
+
+export function useFinalizeScorecard() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: async (v: { sc: Scorecard; entries: ScorecardEntry[] }) => {
+      await finalizeScorecard(v.sc, v.entries);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["scorecards"] });
+      toast.success("Scorecard published", {
+        description: "Sent to agent + logged to audit trail.",
+      });
+    },
+  });
+}
+
+export function useMoveCoachingAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { id: string; status: CoachingAction["status"] }) =>
+      patchCoachingAction(v.id, { status: v.status }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["coaching-actions"] }),
+  });
+}
+
+export function useCreateCoachingAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: createCoachingAction,
+    onSuccess: (item) => {
+      void qc.invalidateQueries({ queryKey: ["coaching-actions"] });
+      toast.success("Coaching action created", { description: `${item.agentId} · ${item.title}` });
+    },
+  });
+}
+
+export function useCloseCalibrationSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (id: string) => patchCalibrationSession(id, { status: "closed" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calibration-sessions"] });
+      toast.success("Calibration closed");
+    },
+  });
+}

@@ -11,7 +11,7 @@
 // rather than a hardcoded map, so it can't drift from the DB.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   Dispute,
@@ -20,8 +20,12 @@ import type {
   Evidence,
   ResolutionCode,
 } from "@/api/types/disputes";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { humanNames, resolveActor, type Staff } from "./staff";
+import { useRef } from "react";
+import { toast } from "sonner";
+import { idempotencyKey } from "@/lib/utils";
 
 export const UNASSIGNED = "Unassigned";
 
@@ -129,5 +133,55 @@ export async function rejectDispute(d: Dispute, notes: string): Promise<void> {
     status: "rejected",
     resolutionCode: "invalid_no_action",
     resolutionNotes: notes,
+  });
+}
+
+// ---------- mutations ----------
+
+function invalidateDisputeReads(qc: QueryClient, customerId?: string) {
+  void qc.invalidateQueries({ queryKey: ["disputes"] });
+  void qc.invalidateQueries({ queryKey: ["customers"] });
+  if (customerId) {
+    void qc.invalidateQueries({ queryKey: ["customer", customerId] });
+    void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+  }
+}
+
+/** One key per intent: a retried submit lands once; a success mints the next. */
+export function useCreateDispute() {
+  const qc = useQueryClient();
+  const key = useRef(idempotencyKey("dispute"));
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (input: CreateDisputeInput) => createDispute(input, key.current),
+    onSuccess: (_r, input) => {
+      key.current = idempotencyKey("dispute");
+      invalidateDisputeReads(qc, input.customerId);
+      toast.success("Dispute filed");
+    },
+  });
+}
+
+export function useMoveDispute(statusLabel: (status: DisputeStatus) => string) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { d: Dispute; status: DisputeStatus }) => moveDispute(v.d, v.status),
+    onSuccess: (_r, v) => {
+      invalidateDisputeReads(qc, v.d.customerId);
+      toast.success(`${v.d.customerName} → ${statusLabel(v.status)}`);
+    },
+  });
+}
+
+export function useAssignDispute() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { d: Dispute; assignee: string }) => assignDispute(v.d, v.assignee),
+    onSuccess: (_r, v) => {
+      invalidateDisputeReads(qc, v.d.customerId);
+      toast.success(`Assigned to ${v.assignee} · ${v.d.id}`);
+    },
   });
 }

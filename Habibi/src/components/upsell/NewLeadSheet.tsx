@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import type { LeadSource, Priority, Team } from "@/api/types/upsell";
-import { createLead, leadCustomerOptions, leadOwnerOptions, leadTeamOptions } from "@/api/upsell";
+import {
+  leadCustomerOptions,
+  leadOwnerOptions,
+  leadTeamOptions,
+  useCreateLead,
+} from "@/api/upsell";
 import { useProducts } from "@/api/products";
 import { useTeams } from "@/api/teams";
 import { useCustomers } from "@/api/customers";
@@ -28,10 +32,9 @@ const PRIORITY_OPTIONS = [
 
 interface Props {
   onClose: () => void;
-  onCreated: () => void;
 }
 
-export function NewLeadSheet({ onClose, onCreated }: Props) {
+export function NewLeadSheet({ onClose }: Props) {
   // Live: real customers/staff from the DB so the picker can't offer an id that
   // doesn't exist. Mock: the seed rosters, unchanged.
   const { data: liveCustomers = [] } = useCustomers();
@@ -63,16 +66,7 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
   const [source, setSource] = useState<LeadSource>("agent");
   const [priority, setPriority] = useState<Priority>("normal");
   const [note, setNote] = useState("");
-  const createMutation = useMutation({
-    mutationFn: createLead,
-    onSuccess: () => {
-      toast.success("Lead created in Interested");
-      onCreated();
-      onClose();
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Lead creation failed"),
-  });
+  const createMutation = useCreateLead();
 
   const submit = () => {
     const n = Number(amount);
@@ -84,16 +78,19 @@ export function NewLeadSheet({ onClose, onCreated }: Props) {
       toast.error("Add a short capture note");
       return;
     }
-    createMutation.mutate({
-      customerId,
-      productId,
-      indicativeAmount: n,
-      team,
-      owner,
-      source,
-      priority,
-      note: note.trim(),
-    });
+    createMutation.mutate(
+      {
+        customerId,
+        productId,
+        indicativeAmount: n,
+        team,
+        owner,
+        source,
+        priority,
+        note: note.trim(),
+      },
+      { onSuccess: onClose },
+    );
   };
 
   return (

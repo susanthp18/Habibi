@@ -9,7 +9,7 @@
 // richer screen shape, so the route refetches rather than using the response).
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import {
@@ -26,9 +26,13 @@ import {
 } from "@/api/types/promises";
 import { buildSchedule } from "@/lib/promises";
 import type { Customer } from "@/api/types/customer360";
+import type { QueryClient } from "@tanstack/react-query";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { ptpPromiseSchema } from "./customers";
 import { resolveActor, type Staff } from "./staff";
+import { useRef } from "react";
+import { toast } from "sonner";
+import { idempotencyKey } from "@/lib/utils";
 
 // -----------------------------------------------------------------------------
 // Wire schemas — field-for-field with backend/schemas.py. No route in
@@ -236,4 +240,110 @@ export async function createPlan(input: PlanInput): Promise<{ id: string }> {
     },
     { schema: paymentPlanCreateSchema },
   );
+}
+
+// ---------- mutations ----------
+//
+// One invalidation set per write, here rather than in each screen: the board
+// and the 360 both create promises, and a write on either has to refresh the
+// other's reads. Errors toast through the mutation cache unless a screen says
+// it handles them (`caller`).
+
+function invalidatePromiseReads(qc: QueryClient, customerId?: string) {
+  void qc.invalidateQueries({ queryKey: ["promises"] });
+  void qc.invalidateQueries({ queryKey: ["payment-plans"] });
+  void qc.invalidateQueries({ queryKey: ["customers"] });
+  if (customerId) {
+    void qc.invalidateQueries({ queryKey: ["customer", customerId] });
+    void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+  }
+}
+
+/** kept / partial / broken. The status names the outcome; the toast says it. */
+export function useMovePromise() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { p: Ptp; status: PromiseStatus; opts?: { paidAmount?: number } }) =>
+      movePromise(v.p, v.status, v.opts),
+    onSuccess: (_r, v) => {
+      invalidatePromiseReads(qc, v.p.customerId);
+      if (v.status === "kept") toast.success(`Marked kept · ${v.p.customerName}`);
+      else if (v.status === "partial")
+        toast.warning(`Partial payment logged · ${v.p.customerName}`);
+      else if (v.status === "broken")
+        toast.error(`Broken promise · ${v.p.customerName} routed to follow-up`);
+      else toast(`Updated to ${v.status.replace("_", " ")}`);
+    },
+  });
+}
+
+/** One key per intent: retries of the same revise land once; a success mints the next. */
+export function useRevisePromise() {
+  const qc = useQueryClient();
+  const key = useRef(idempotencyKey("ptp-revise"));
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { p: Ptp; input: ReviseInput }) => revisePromise(v.p, v.input, key.current),
+    onSuccess: (_r, v) => {
+      key.current = idempotencyKey("ptp-revise");
+      invalidatePromiseReads(qc, v.p.customerId);
+      toast.success(`Revised ${v.p.id}`);
+    },
+  });
+}
+
+export function useCancelPromise() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { p: Ptp; input: { reason: PromiseRevisionReason; note?: string } }) =>
+      cancelPromise(v.p, v.input),
+    onSuccess: (_r, v) => {
+      invalidatePromiseReads(qc, v.p.customerId);
+      toast.success(`Cancelled ${v.p.id}`);
+    },
+  });
+}
+
+/**
+ * `caller` handles errors: the 360 turns `promise_already_open` into an offer
+ * to revise the open one, which is a screen's decision.
+ */
+export function useCreatePromise() {
+  const qc = useQueryClient();
+  const key = useRef(idempotencyKey("ptp"));
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: (input: CreateInput) => createPromise(input, key.current),
+    onSuccess: (res, input) => {
+      key.current = idempotencyKey("ptp");
+      invalidatePromiseReads(qc, input.customerId);
+      toast.success(`Promise captured · ${res.id}`);
+    },
+  });
+}
+
+export function useCreatePaymentPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (input: PlanInput) => createPlan(input),
+    onSuccess: (res, input) => {
+      invalidatePromiseReads(qc, input.customerId);
+      toast.success(`Plan ${res.id} created · first installment scheduled`);
+    },
+  });
+}
+
+export function useResendPromiseConfirm() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (p: Ptp) => resendPromiseConfirm(p),
+    onSuccess: (_r, p) => {
+      invalidatePromiseReads(qc, p.customerId);
+      toast.success(`Confirm resent · ${p.customerName}`);
+    },
+  });
 }

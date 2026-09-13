@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { AlertOctagon, CalendarClock, HandCoins, ShieldCheck, User2 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ActiveCall, CustomerContext } from "@/api/handoff";
-import { captureLeadFromPolicy } from "@/api/upsell";
-import { applyAuthority } from "@/api/authority";
+import { useCaptureLeadFromPolicy } from "@/api/upsell";
+import { useApplyAuthority } from "@/api/authority";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -28,12 +27,16 @@ export function CustomerContextPanel({
   const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   const ptpStatus = (c.lastPromise?.status || "").toLowerCase();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const captureMut = useMutation({
-    mutationFn: () => {
-      const policy = c.offerPolicy;
-      if (!policy?.productId) throw new Error("No approved product to capture");
-      return captureLeadFromPolicy({
+  const captureMut = useCaptureLeadFromPolicy();
+  const applyMut = useApplyAuthority(activeCall.customerId);
+  const capture = () => {
+    const policy = c.offerPolicy;
+    if (!policy?.productId) {
+      toast.error("No approved product to capture");
+      return;
+    }
+    captureMut.mutate(
+      {
         customerId: activeCall.customerId,
         productId: policy.productId,
         indicativeAmount: policy.suggestedAmount,
@@ -41,33 +44,28 @@ export function CustomerContextPanel({
         interactionId: activeCall.interactionId,
         channel: policy.channel ?? activeCall.channel,
         note: policy.talkTrack,
-      });
-    },
-    onSuccess: (lead) => {
-      toast.success("Lead captured");
-      void queryClient.invalidateQueries({ queryKey: ["handoff"] });
-      void queryClient.invalidateQueries({ queryKey: ["leads"] });
-      void navigate({ to: "/upsell", search: { id: lead.id } });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Lead capture failed"),
-  });
-  const applyMut = useMutation({
-    mutationFn: () => {
-      const policy = c.authorityPolicy;
-      if (!policy?.decisionId) throw new Error("No authority decision to apply");
-      return applyAuthority({
-        decisionId: policy.decisionId,
-        amount: policy.approvedAmount,
-        disputeId: policy.disputeId,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Goodwill posted");
-      void queryClient.invalidateQueries({ queryKey: ["handoff"] });
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Goodwill apply failed"),
-  });
+      },
+      {
+        onSuccess: (lead) => {
+          toast.success("Lead captured");
+          void navigate({ to: "/upsell", search: { id: lead.id } });
+        },
+      },
+    );
+  };
+  const apply = () => {
+    const policy = c.authorityPolicy;
+    if (!policy?.decisionId) {
+      toast.error("No authority decision to apply");
+      return;
+    }
+    applyMut.mutate({
+      decisionId: policy.decisionId,
+      amount: policy.approvedAmount,
+      disputeId: policy.disputeId,
+    });
+  };
+
   return (
     <div className="rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-150 py-100">
@@ -153,13 +151,13 @@ export function CustomerContextPanel({
 
       <AuthorityPolicyBlock
         policy={c.authorityPolicy}
-        onApply={() => applyMut.mutate()}
+        onApply={apply}
         applying={applyMut.isPending}
       />
 
       <OfferPolicyBlock
         policy={c.offerPolicy}
-        onCapture={() => captureMut.mutate()}
+        onCapture={capture}
         capturing={captureMut.isPending}
       />
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertOctagon, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,12 @@ import { DisputeSheet } from "@/components/disputes/DisputeSheet";
 import { NewDisputeSheet } from "@/components/disputes/NewDisputeSheet";
 import type { Dispute, DisputeFilters } from "@/api/types/disputes";
 import { computeMetrics, defaultFilters, filterDisputes, STATUS_LABELS } from "@/lib/disputes";
-import { assignDispute, disputeAssigneeOptions, moveDispute, useDisputes } from "@/api/disputes";
+import {
+  disputeAssigneeOptions,
+  useDisputes,
+  useMoveDispute,
+  useAssignDispute,
+} from "@/api/disputes";
 import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
 import { useCustomers } from "@/api/customers";
@@ -76,23 +81,8 @@ function DisputesPage() {
 
   const patchFilters = (p: Partial<DisputeFilters>) => setFilters((f) => ({ ...f, ...p }));
 
-  const moveMutation = useMutation({
-    mutationFn: (v: { d: Dispute; status: Dispute["status"] }) => moveDispute(v.d, v.status),
-    onSuccess: (_r, v) => {
-      invalidate();
-      toast.success(`${v.d.customerName} → ${STATUS_LABELS[v.status]}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Move failed"),
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: (v: { d: Dispute; assignee: string }) => assignDispute(v.d, v.assignee),
-    onSuccess: (_r, v) => {
-      invalidate();
-      toast.success(`Assigned to ${v.assignee} · ${v.d.id}`);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Assign failed"),
-  });
+  const moveMutation = useMoveDispute((status) => STATUS_LABELS[status]);
+  const assignMutation = useAssignDispute();
 
   const handleDrop = (id: string, status: Dispute["status"]) => {
     const d = disputesData.find((x) => x.id === id);

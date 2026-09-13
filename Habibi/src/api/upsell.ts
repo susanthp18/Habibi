@@ -5,7 +5,7 @@
 //   createLead()  → manual capture      (POST /leads)
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import type {
   FollowUpChannel,
@@ -22,6 +22,7 @@ import { apiGet, apiPatch, apiPost } from "./config";
 import { resolveProduct } from "./products";
 import { humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team as StaffTeam } from "./teams";
+import { toast } from "sonner";
 
 /** Resolve an owner name to a real user id, or undefined for "Unassigned". */
 
@@ -272,5 +273,96 @@ export function useLeads(query: LeadQuery = {}) {
     queryKey: ["leads", leadQueryString(query)],
     queryFn: () => fetchLeads(query),
     staleTime: 15_000,
+  });
+}
+
+// ---------- mutations ----------
+
+/** The board, its metrics, and -- when the lead belongs to a customer -- their 360. */
+export function invalidateLeadReads(qc: QueryClient, customerId?: string | null) {
+  void qc.invalidateQueries({ queryKey: ["leads"] });
+  void qc.invalidateQueries({ queryKey: ["lead-metrics"] });
+  if (customerId) {
+    void qc.invalidateQueries({ queryKey: ["customer-insights", customerId] });
+    void qc.invalidateQueries({ queryKey: ["customer", customerId] });
+  }
+}
+
+/** What PATCH /leads/:id accepts, as the sheet builds it. */
+export type LeadPatch = Parameters<typeof patchLead>[1];
+
+export function usePatchLead() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { lead: Lead; patch: LeadPatch }) => patchLead(v.lead, v.patch),
+    onSuccess: (_r, v) => invalidateLeadReads(qc, v.lead.customerId),
+  });
+}
+
+export function useAddLeadFollowUp() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: {
+      lead: Lead;
+      input: { at: string; channel: FollowUpChannel; note: string };
+    }) => addLeadFollowUp(v.lead, v.input),
+    onSuccess: (_r, v) => invalidateLeadReads(qc, v.lead.customerId),
+  });
+}
+
+export function useMarkLeadFollowUpDone() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { lead: Lead; followUp: Lead["followUps"][number]; index: number }) =>
+      markLeadFollowUpDone(v.lead, v.followUp, v.index),
+    onSuccess: (_r, v) => invalidateLeadReads(qc, v.lead.customerId),
+  });
+}
+
+/**
+ * Eligibility was evaluated once, at capture. Consent and DPD move; this
+ * re-checks against today's facts before the rep dials.
+ */
+export function useRevalidateLead() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { lead: Lead; channel: FollowUpChannel }) => revalidateLead(v.lead, v.channel),
+    onSuccess: (result, v) => {
+      invalidateLeadReads(qc, v.lead.customerId);
+      if (result.eligible) toast.success("Still eligible");
+      else toast.error(`No longer eligible — ${result.blockReason ?? "blocked"}`);
+    },
+  });
+}
+
+export function useCreateLead() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: createLead,
+    onSuccess: (_r, input) => {
+      invalidateLeadReads(qc, input.customerId);
+      toast.success("Lead created in Interested");
+    },
+  });
+}
+
+/**
+ * The offer engine's approved product becomes a lead. Both the 360 and the
+ * handoff console capture from here, so both invalidate the same reads.
+ */
+export function useCaptureLeadFromPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: captureLeadFromPolicy,
+    onSuccess: (_lead, input) => {
+      invalidateLeadReads(qc, input.customerId);
+      void qc.invalidateQueries({ queryKey: ["handoff"] });
+    },
   });
 }

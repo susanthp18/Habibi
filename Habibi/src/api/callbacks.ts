@@ -9,7 +9,7 @@
 // /teams (never hardcoded maps).
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   Callback,
@@ -23,6 +23,7 @@ import type { Customer } from "@/api/types/customer360";
 import { apiGet, apiPatch, apiPost } from "./config";
 import { humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team } from "./teams";
+import { toast } from "sonner";
 
 export const UNASSIGNED = "Unassigned";
 
@@ -182,4 +183,57 @@ export async function autoMarkMissed(list: Callback[]): Promise<number> {
     await markMissed(c);
   }
   return overdue.length;
+}
+
+// ---------- mutations ----------
+//
+// Each takes the row rather than an id: the screen has it, and the write
+// needs the customer on it. `callbacks` is the one read they move.
+
+export function useRescheduleCallback() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { cb: Callback; iso: string }) => rescheduleCallback(v.cb, v.iso),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["callbacks"] });
+      toast.success("Rescheduled");
+    },
+  });
+}
+
+export function useStartCallback() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (cb: Callback) => startCall(cb),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["callbacks"] });
+      toast("Callback in progress — dial from your phone");
+    },
+  });
+}
+
+export function useSendCallbackReminder() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { cb: Callback; channel: CbChannel }) => sendReminder(v.cb, v.channel),
+    onSuccess: (_r, v) => {
+      void qc.invalidateQueries({ queryKey: ["callbacks"] });
+      toast.success(`Reminder sent · ${v.channel === "whatsapp" ? "WhatsApp" : v.channel}`);
+    },
+  });
+}
+
+export function useCancelCallback() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { cb: Callback; reason: string }) => cancelCallback(v.cb, v.reason),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["callbacks"] });
+      toast("Callback cancelled");
+    },
+  });
 }

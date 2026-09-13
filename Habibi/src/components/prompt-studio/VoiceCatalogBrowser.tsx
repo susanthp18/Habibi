@@ -15,7 +15,6 @@ import {
 import { toast } from "sonner";
 
 import { isNotFound } from "@/api/config";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -30,11 +29,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   fetchTtsVoiceDetail,
-  syncTtsVoiceCatalog,
   useInfiniteTtsVoiceCatalog,
   useTtsPricing,
   useTtsSyncRuns,
   type TtsCatalogVoice,
+  useSyncTtsVoiceCatalog,
 } from "@/api/prompt-studio";
 import {
   loadTtsFavorites,
@@ -164,7 +163,6 @@ export function VoiceCatalogBrowser({
   listHeight,
   defaultLocale,
 }: Props) {
-  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [qDebounced, setQDebounced] = useState("");
   // Initial value only. The browser unmounts with its tab, so reopening it
@@ -256,33 +254,22 @@ export function VoiceCatalogBrowser({
     };
   }, [value, selectedInList]);
 
-  const syncMutation = useMutation({
-    mutationFn: syncTtsVoiceCatalog,
-    onSuccess: (run) => {
-      // Every read the sync can move, not only the three obvious ones. The
-      // counts feeding the provider chips and the locale dropdown are derived
-      // from the same table with a 60s staleTime, so "Catalog refreshed"
-      // appeared over a locale list and provider tallies still describing the
-      // pre-sync catalog — the two numbers an operator presses Refresh to see
-      // change were the two that did not.
-      void qc.invalidateQueries({ queryKey: ["tts-voice-catalog-infinite"] });
-      void qc.invalidateQueries({ queryKey: ["tts-voice-catalog"] });
-      void qc.invalidateQueries({ queryKey: ["tts-voice-sync-runs"] });
-      void qc.invalidateQueries({ queryKey: ["tts-voice-provider-counts"] });
-      void qc.invalidateQueries({ queryKey: ["tts-voice-locale-counts"] });
-      void qc.invalidateQueries({ queryKey: ["tts-voices"] });
-      if (run.error) toast.error(`Sync failed: ${run.error}`);
-      else toast.success(`Catalog refreshed · ${run.fetchedCount} voices`);
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : "Sync failed";
-      if (/403|admin_required/i.test(msg)) {
-        toast.error("Admin role required to refresh the catalog");
-      } else {
-        toast.error(msg);
-      }
-    },
-  });
+  const syncMutation = useSyncTtsVoiceCatalog();
+  const sync = () =>
+    syncMutation.mutate(undefined, {
+      onSuccess: (run) => {
+        if (run.error) toast.error(`Sync failed: ${run.error}`);
+        else toast.success(`Catalog refreshed · ${run.fetchedCount} voices`);
+      },
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : "Sync failed";
+        if (/403|admin_required/i.test(msg)) {
+          toast.error("Admin role required to refresh the catalog");
+        } else {
+          toast.error(msg);
+        }
+      },
+    });
 
   const parentRef = useRef<HTMLDivElement | null>(null);
   // Only the pre-measurement guess — rows carry `virtualizer.measureElement`,
@@ -529,7 +516,7 @@ export function VoiceCatalogBrowser({
               <button
                 type="button"
                 disabled={syncMutation.isPending || disabled}
-                onClick={() => syncMutation.mutate()}
+                onClick={sync}
                 // Recent sync runs used to occupy a whole row of chips above
                 // the table. They are diagnostics you consult when something
                 // looks stale, not something to read on every visit.

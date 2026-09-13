@@ -8,7 +8,7 @@
 // resolve through /staff.
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   DocChannel,
@@ -20,6 +20,7 @@ import type {
 import { apiGet, apiPatch, apiPost } from "./config";
 import { currentActor } from "./me";
 import { humanNames, resolveActor, type Staff } from "./staff";
+import { toast } from "sonner";
 
 export const UNASSIGNED = "Unassigned";
 
@@ -121,3 +122,26 @@ export async function retryDocument(doc: DocRequest): Promise<void> {
 }
 
 export type { DocChannel, DocRequest, DocStatus, DocType, NewRequestInput };
+
+// ---------- mutations ----------
+
+export function useReassignDocumentChannel() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { doc: DocRequest; channel: DocChannel }) => reassignChannel(v.doc, v.channel),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
+export function useRetryDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (doc: DocRequest) => retryDocument(doc),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["documents"] });
+      toast.success("Retry queued");
+    },
+  });
+}

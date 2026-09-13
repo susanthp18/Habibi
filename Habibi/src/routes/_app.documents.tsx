@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { FileText, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,9 @@ import {
   documentAssigneeOptions,
   markGenerating,
   markSent,
-  reassignChannel,
-  retryDocument,
   useDocuments,
+  useReassignDocumentChannel,
+  useRetryDocument,
 } from "@/api/documents";
 import { useStaff } from "@/api/staff";
 import { useCustomers } from "@/api/customers";
@@ -109,20 +109,8 @@ function DocumentsPage() {
     });
   };
 
-  const channelMutation = useMutation({
-    mutationFn: (v: { doc: DocRequest; channel: DocChannel }) => reassignChannel(v.doc, v.channel),
-    onSuccess: () => invalidate(),
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Channel update failed"),
-  });
-
-  const retryMutation = useMutation({
-    mutationFn: (doc: DocRequest) => retryDocument(doc),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Retry queued");
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Retry failed"),
-  });
+  const channelMutation = useReassignDocumentChannel();
+  const retryMutation = useRetryDocument();
 
   const runGenerate = async (d: DocRequest) => {
     try {
