@@ -177,3 +177,4 @@ def test_a_card_built_entirely_from_the_offered_vocabulary_validates(vocab):
     )
     assert card.outbound.dials
     assert card.outbound.cadence_for(objective).name == "ladder"
+

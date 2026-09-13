@@ -504,6 +504,25 @@ def test_a_cadence_the_card_never_defined_is_not_publishable() -> None:
     assert _gate(_compile(card), "G-OB8").status == "fail"
 
 
+def test_a_cadence_retrying_on_an_unknown_state_fails_ob6() -> None:
+    """``retry_on`` is matched against the attempt's state. A state the
+    dialler never writes is a retry that never fires; a state that is also
+    in ``stop_on`` is a ladder arguing with itself. The editor could author
+    both and every gate stayed green."""
+    card = collections_card()
+    card.outbound.cadences[0].retry_on = ["no_answer", "refused"]
+    gate = _gate(_compile(card), "G-OB6")
+    assert gate.status == "fail"
+    assert any("'refused'" in i["problem"] and "not a retryable" in i["problem"] for i in gate.issues)
+
+    card = collections_card()
+    card.outbound.cadences[0].retry_on = ["no_answer"]
+    card.outbound.cadences[0].stop_on = ["no_answer"]
+    gate = _gate(_compile(card), "G-OB6")
+    assert gate.status == "fail"
+    assert any("both retries and stops on 'no_answer'" in i["problem"] for i in gate.issues)
+
+
 def test_the_outcome_vocabulary_is_shared_not_copied() -> None:
     """The compiler restates it to avoid importing the post-call module; the
     pair has to stay pinned or a valid rule becomes unpublishable."""
