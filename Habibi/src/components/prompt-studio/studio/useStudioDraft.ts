@@ -4,6 +4,7 @@ import type { useEnsureStudioDraft } from "@/api/prompt-studio";
 import type { FlowGraph } from "@/api/flow";
 import type { PromptVersion } from "@/api/types/prompt-studio";
 import type { AgentCard } from "@/api/agent-card";
+import { at } from "@/lib/arrays";
 import { nextVersionLabel } from "@/lib/prompt-studio";
 import {
   EMPTY_FIELDS,
@@ -139,10 +140,9 @@ export function useStudioDraft({
       markSaved("");
       return;
     }
-    const live = history.find((v) => v.status === "published") ?? history[0];
     // Prefer the newest draft if present (resume work after refresh).
     const newestDraft = history.find((v) => v.status === "draft");
-    const start = newestDraft ?? live;
+    const start = newestDraft ?? history.find((v) => v.status === "published") ?? at(history, 0);
     adoptVersion(adopted(start), {
       draftId: newestDraft?.id ?? null,
       summary: newestDraft?.summary,
@@ -223,8 +223,8 @@ export function useStudioDraft({
       .map((v) => v.label ?? "")
       .filter((l) => /^v\d+\.\d+$/.test(l))
       .sort((a, b) => {
-        const [am, an] = a.slice(1).split(".").map(Number);
-        const [bm, bn] = b.slice(1).split(".").map(Number);
+        const [am = 0, an = 0] = a.slice(1).split(".").map(Number);
+        const [bm = 0, bn = 0] = b.slice(1).split(".").map(Number);
         return bm - am || bn - an;
       })[0];
     return newest ? nextVersionLabel(newest) : "v1.0";

@@ -52,6 +52,7 @@ export function useFlowValidation(flow: FlowGraph | null, canvasMounted: boolean
       prev.every((issue, i) => {
         const next = r.issues[i];
         return (
+          next !== undefined &&
           issue.code === next.code &&
           issue.severity === next.severity &&
           issue.nodeId === next.nodeId &&

@@ -380,11 +380,12 @@ export function useSandboxLiveCall(args: Args) {
           if (!data?.tool_call_id) return;
           setInsights((p) => {
             const idx = p.toolCalls.findIndex((t) => t.id === data.tool_call_id);
+            const existing = p.toolCalls[idx];
             // A cancelled call is a barge-in, not a failure — but the result is
             // still incomplete, so mark it error so the Inspector doesn't imply
             // a CRM write succeeded.
             const status: LiveToolCall["status"] = data.cancelled ? "error" : "done";
-            if (idx < 0) {
+            if (!existing) {
               return {
                 ...p,
                 toolCalls: [
@@ -402,9 +403,9 @@ export function useSandboxLiveCall(args: Args) {
             }
             const next = [...p.toolCalls];
             next[idx] = {
-              ...next[idx],
+              ...existing,
               status,
-              result: data.result ?? next[idx].result,
+              result: data.result ?? existing.result,
               endedAt: Date.now(),
             };
             return { ...p, toolCalls: next };
@@ -423,9 +424,10 @@ export function useSandboxLiveCall(args: Args) {
               // Inspector shows one chip per action, not two parallel lists.
               const next = [...p.toolCalls];
               for (let i = next.length - 1; i >= 0; i--) {
-                if (!msg.tool || next[i].name === msg.tool) {
+                const call = next[i];
+                if (call && (!msg.tool || call.name === msg.tool)) {
                   next[i] = {
-                    ...next[i],
+                    ...call,
                     entity: msg.entity,
                     entityId: msg.id,
                     deepLink: msg.deepLink,

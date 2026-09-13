@@ -22,6 +22,7 @@ import type { DocChannel, DocRequest } from "@/api/types/documents";
 import {
   CHANNEL_LABELS,
   DOC_TYPE_LABELS,
+  DEFAULT_TEMPLATE,
   TEMPLATES,
   VIA_LABELS,
   agingInfo,
@@ -46,7 +47,7 @@ type Tab = "details" | "preview" | "audit";
 export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Props) {
   const [tab, setTab] = useState<Tab>("details");
   const [busy, setBusy] = useState(false);
-  const tpl = TEMPLATES.find((t) => t.id === d.templateId) ?? TEMPLATES[0];
+  const tpl = TEMPLATES.find((t) => t.id === d.templateId) ?? DEFAULT_TEMPLATE;
   const aging = agingInfo(d);
   const closed = d.status === "sent";
   const templates = templatesFor(d.docType);

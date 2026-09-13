@@ -61,20 +61,23 @@ export const VIA_LABELS: Record<RequestedVia, string> = {
 };
 
 // ---- templates ----
+/** The template a new request starts on. */
+export const DEFAULT_TEMPLATE: Template = {
+  id: "T-STMT-6M",
+  name: "Statement · Last 6 months",
+  docType: "account_statement",
+  description: "Full transaction history for the past 6 months, with running balance.",
+  previewLines: [
+    "HDFC Bank · Account Statement",
+    "Account: {{account}} · Customer: {{name}}",
+    "Period: {{period}}",
+    "— Opening balance, transactions, interest, closing balance —",
+    "Generated on {{today}} · System-signed PDF",
+  ],
+};
+
 export const TEMPLATES: Template[] = [
-  {
-    id: "T-STMT-6M",
-    name: "Statement · Last 6 months",
-    docType: "account_statement",
-    description: "Full transaction history for the past 6 months, with running balance.",
-    previewLines: [
-      "HDFC Bank · Account Statement",
-      "Account: {{account}} · Customer: {{name}}",
-      "Period: {{period}}",
-      "— Opening balance, transactions, interest, closing balance —",
-      "Generated on {{today}} · System-signed PDF",
-    ],
-  },
+  DEFAULT_TEMPLATE,
   {
     id: "T-STMT-12M",
     name: "Statement · Last 12 months",

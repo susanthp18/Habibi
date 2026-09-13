@@ -97,10 +97,11 @@ function FleetIndex() {
 
   useEffect(() => {
     const rows = templates.data ?? [];
-    if (!rows.length) return;
+    const first = rows[0];
+    if (!first) return;
     if (rows.some((t) => t.id === templateId)) return;
-    setTemplateId(rows[0].id);
-    setName(rows[0].label);
+    setTemplateId(first.id);
+    setName(first.label);
   }, [templates.data, templateId]);
 
   return (

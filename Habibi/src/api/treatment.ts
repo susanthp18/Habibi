@@ -587,12 +587,13 @@ const PROPER_NOUNS: Record<string, string> = {
 /** `voice_bot` → `Voice bot`, `whatsapp` → `WhatsApp`. Sentence case otherwise. */
 export function humanise(token: string | null | undefined): string {
   if (!token) return "—";
-  const words = token.replace(/_/g, " ").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "—";
-  const mapped = words.map((w) => PROPER_NOUNS[w.toLowerCase()] ?? w);
+  const [lead, ...rest] = token.replace(/_/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (lead === undefined) return "—";
+  const proper = (w: string) => PROPER_NOUNS[w.toLowerCase()] ?? w;
   // Capitalise the leading word unless it is a proper noun already spelled right.
-  if (!(words[0].toLowerCase() in PROPER_NOUNS)) {
-    mapped[0] = mapped[0].charAt(0).toUpperCase() + mapped[0].slice(1);
-  }
-  return mapped.join(" ");
+  const first =
+    lead.toLowerCase() in PROPER_NOUNS
+      ? proper(lead)
+      : lead.charAt(0).toUpperCase() + lead.slice(1);
+  return [first, ...rest.map(proper)].join(" ");
 }

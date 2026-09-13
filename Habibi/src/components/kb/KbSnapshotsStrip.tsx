@@ -10,9 +10,9 @@ function plural(n: number, one: string, many: string) {
 
 export function KbSnapshotsStrip({ snapshots }: { snapshots: KbSnapshot[] }) {
   const [open, setOpen] = useState(false);
-  if (!snapshots.length) return null;
-
   const latest = snapshots[0];
+  if (!latest) return null;
+
   const extra = snapshots.length - 1;
 
   return (

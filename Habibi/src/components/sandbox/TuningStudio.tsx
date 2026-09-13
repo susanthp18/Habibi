@@ -123,7 +123,7 @@ export function TuningStudio({
         setPresets(rows);
         setPresetsError(false);
         setPresetId((currentId) =>
-          rows.some((row) => row.id === currentId) ? currentId : rows[0].id,
+          rows.some((row) => row.id === currentId) ? currentId : (rows[0]?.id ?? currentId),
         );
       })
       .catch(() => {

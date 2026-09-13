@@ -79,7 +79,7 @@ function lastCustomerFingerprint(
   if (!thread) return "";
   for (let i = thread.messages.length - 1; i >= 0; i--) {
     const m = thread.messages[i];
-    if (m.kind === "system") continue;
+    if (!m || m.kind === "system") continue;
     if (m.sender === "customer") return `${m.id ?? i}:${m.text ?? ""}`;
   }
   return `len:${thread.messages.length}`;
@@ -131,8 +131,9 @@ function InboxPage() {
   }, [conversationId]);
 
   useEffect(() => {
-    if (!activeId && threads.length > 0) {
-      setActiveId(threads[0].id);
+    const first = threads[0];
+    if (!activeId && first) {
+      setActiveId(first.id);
     }
   }, [threads, activeId]);
 

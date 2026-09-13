@@ -46,7 +46,7 @@ describe("PersonaSliders languages", () => {
     await user.click(screen.getByRole("combobox", { name: "Primary language" }));
     await user.click(await screen.findByRole("option", { name: "Hindi" }));
     expect(onChange).toHaveBeenCalledTimes(1);
-    const next = onChange.mock.calls[0][0] as PersonaState;
+    const next = onChange.mock.calls[0]?.[0] as PersonaState;
     expect(next.language).toBe("Hindi");
     expect(next.fallbackLanguages).toEqual(["Tamil"]);
   });

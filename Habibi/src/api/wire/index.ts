@@ -14,7 +14,9 @@ import { ROUTES } from "./generated";
 type Compiled = { method: string; re: RegExp; schema: ZodTypeAny; params: boolean };
 
 const compiled: Compiled[] = ROUTES.map(([key, schema]) => {
-  const [method, template] = key.split(" ", 2);
+  // Every generated key is "METHOD /path"; a key without the space is a
+  // generator bug, not a runtime case.
+  const [method = "", template = ""] = key.split(" ", 2);
   const source = template
     .split("/")
     .map((seg) => (seg.startsWith("{") ? "[^/]+" : seg.replace(/[.*+?^$()|[\]\\]/g, "\\$&")))
@@ -38,7 +40,7 @@ export class WireError extends Error {
 
 /** The schema of `method path`'s 200 body, or undefined when no route models it. */
 export function schemaFor(method: string, path: string): ZodTypeAny | undefined {
-  const bare = path.split("?", 1)[0];
+  const bare = path.split("?", 1)[0] ?? path;
   let fallback: ZodTypeAny | undefined;
   for (const route of compiled) {
     if (route.method !== method || !route.re.test(bare)) continue;

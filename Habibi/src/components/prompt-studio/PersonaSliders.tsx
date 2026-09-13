@@ -220,7 +220,7 @@ export function PersonaSliders({
                 min={0}
                 max={100}
                 step={1}
-                onValueChange={([v]) => setTrait(t.key, v)}
+                onValueChange={([v]) => v !== undefined && setTrait(t.key, v)}
               />
               <div className="mt-025 flex justify-between text-body-small text-text-subtlest">
                 <span>{t.lo}</span>

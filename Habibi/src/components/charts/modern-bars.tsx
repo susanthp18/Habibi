@@ -24,6 +24,7 @@ export function ModernBars({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const hovered = hover === null ? null : data[hover];
   const [plotH, setPlotH] = useState(Math.max(80, height - 22));
   const max = Math.max(...data.map((d) => d.value), 1);
   const labelH = 22;
@@ -100,7 +101,7 @@ export function ModernBars({
           );
         })}
 
-        {hover !== null ? (
+        {hover !== null && hovered ? (
           <span
             className="chart-tooltip-anchor pointer-events-none absolute top-1 z-10"
             style={
@@ -116,11 +117,11 @@ export function ModernBars({
             }
           >
             <ChartTooltip
-              time={data[hover].label}
+              time={hovered.label}
               rows={
-                data[hover].stack?.length
-                  ? data[hover]
-                      .stack!.filter((s) => s.value > 0)
+                hovered.stack?.length
+                  ? hovered.stack
+                      .filter((s) => s.value > 0)
                       .map((s) => ({
                         label: s.label,
                         value: formatValue(s.value),
@@ -128,9 +129,9 @@ export function ModernBars({
                       }))
                   : [
                       {
-                        label: data[hover].label,
-                        value: formatValue(data[hover].value),
-                        color: data[hover].color ?? "var(--background-brand-bold)",
+                        label: hovered.label,
+                        value: formatValue(hovered.value),
+                        color: hovered.color ?? "var(--background-brand-bold)",
                       },
                     ]
               }

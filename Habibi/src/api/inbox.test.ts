@@ -107,6 +107,6 @@ describe("mergeThreads", () => {
       id: "CV-1",
       updatedAt: "2026-08-23T06:00:00.000000+00:00",
     } as unknown as Thread;
-    expect(mergeThreads(prev, [delta])[0].messages).toHaveLength(1);
+    expect(mergeThreads(prev, [delta])[0]?.messages).toHaveLength(1);
   });
 });

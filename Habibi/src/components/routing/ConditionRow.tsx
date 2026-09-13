@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Condition, RuleOperator } from "@/api/types/routing";
-import { FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
+import { DEFAULT_FIELD, FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
 
 type Props = {
   cond: Condition;
@@ -18,11 +18,11 @@ type Props = {
 };
 
 export function ConditionRow({ cond, onChange, onRemove }: Props) {
-  const field = FIELDS.find((f) => f.key === cond.field) ?? FIELDS[0];
+  const field = FIELDS.find((f) => f.key === cond.field) ?? DEFAULT_FIELD;
   const ops = OPERATORS_BY_TYPE[field.type];
 
   const setField = (key: string) => {
-    const nf = FIELDS.find((f) => f.key === key)!;
+    const nf = FIELDS.find((f) => f.key === key) ?? DEFAULT_FIELD;
     const nextOp = OPERATORS_BY_TYPE[nf.type][0];
     let val: Condition["value"] = "";
     if (nf.type === "enum") val = nf.options?.[0] ?? "";

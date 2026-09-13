@@ -180,7 +180,7 @@ export function DocumentInspector({
                 step={32}
                 value={[chunkSize]}
                 onValueChange={(v) => {
-                  const next = v[0];
+                  const next = v[0] ?? chunkSize;
                   setChunkSize(next);
                   if (overlap >= next) setOverlap(Math.max(0, next - 1));
                 }}
@@ -197,7 +197,7 @@ export function DocumentInspector({
                 max={Math.min(200, Math.max(0, chunkSize - 1))}
                 step={8}
                 value={[Math.min(overlap, chunkSize - 1)]}
-                onValueChange={(v) => setOverlap(v[0])}
+                onValueChange={(v) => setOverlap(v[0] ?? 0)}
                 disabled={busy}
               />
             </div>

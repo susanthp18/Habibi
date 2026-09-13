@@ -3,6 +3,7 @@ import { INTENT_LABEL } from "@/lib/sandbox";
 import type { TurnAnalysisEvent } from "../voice/liveEvents";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
+import { at } from "@/lib/arrays";
 
 /**
  * Classifier output for the most recent customer turn.
@@ -72,7 +73,7 @@ function Scores({
       </div>
     );
   }
-  const winner = top ?? entries[0][0];
+  const winner = top ?? at(entries, 0)[0];
   return (
     <div className="space-y-100">
       <div className="flex items-center justify-between gap-100">

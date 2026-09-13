@@ -48,7 +48,7 @@ describe("groundedSources", () => {
   it("labels an id-only source by its id, so a chip is never blank", () => {
     const [only] = groundedSources({ chunkIds: ["kbc-7"] });
 
-    expect(groundedLabel(only)).toBe("kbc-7");
+    expect(only && groundedLabel(only)).toBe("kbc-7");
   });
 });
 

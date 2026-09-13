@@ -185,7 +185,7 @@ function CohortBuilder({ botId, objectives }: { botId: string; objectives: strin
     ["Min outstanding", minOutstanding],
     ["Quiet days", quietDays],
     ["Limit", limit],
-  ].filter(([, raw]) => raw.trim() !== "" && num(raw) === undefined);
+  ].filter(([, raw]) => raw !== undefined && raw.trim() !== "" && num(raw) === undefined);
 
   // Deliberately gated on a preview. Creating a run without having looked at
   // who is in it is the mistake this whole panel exists to make difficult.

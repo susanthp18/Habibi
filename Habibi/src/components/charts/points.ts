@@ -1,5 +1,7 @@
 import type { PointerEvent } from "react";
 
+import { at } from "@/lib/arrays";
+
 /** Map pointer X to a discrete index across a series. */
 export function chartIndexFromPointer(event: PointerEvent<HTMLElement>, pointCount: number) {
   if (pointCount <= 1) return 0;
@@ -53,7 +55,7 @@ export function buildSmoothPath(
   }));
 
   if (pts.length === 1) {
-    const p = pts[0];
+    const p = at(pts, 0);
     return {
       line: `M0,${p.y} L${width},${p.y}`,
       area: `M0,${baseline} L0,${p.y} L${width},${p.y} L${width},${baseline} Z`,
@@ -67,49 +69,51 @@ export function buildSmoothPath(
   const dy: number[] = [];
   const m: number[] = [];
   for (let i = 0; i < n - 1; i++) {
-    dx[i] = pts[i + 1].x - pts[i].x || 1;
-    dy[i] = pts[i + 1].y - pts[i].y;
-    m[i] = dy[i] / dx[i];
+    dx[i] = at(pts, i + 1).x - at(pts, i).x || 1;
+    dy[i] = at(pts, i + 1).y - at(pts, i).y;
+    m[i] = at(dy, i) / at(dx, i);
   }
 
   // Tangents
   const t: number[] = new Array(n);
-  t[0] = m[0];
-  t[n - 1] = m[n - 2];
+  t[0] = at(m, 0);
+  t[n - 1] = at(m, n - 2);
   for (let i = 1; i < n - 1; i++) {
-    t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+    t[i] = at(m, i - 1) * at(m, i) <= 0 ? 0 : (at(m, i - 1) + at(m, i)) / 2;
   }
 
   // Fritsch–Carlson restrictor — keeps the cubic monotone between knots
   for (let i = 0; i < n - 1; i++) {
-    if (Math.abs(m[i]) < 1e-12) {
+    const mi = at(m, i);
+    if (Math.abs(mi) < 1e-12) {
       t[i] = 0;
       t[i + 1] = 0;
       continue;
     }
-    const a = t[i] / m[i];
-    const b = t[i + 1] / m[i];
+    const a = at(t, i) / mi;
+    const b = at(t, i + 1) / mi;
     const s = a * a + b * b;
     if (s > 9) {
       const tau = 3 / Math.sqrt(s);
-      t[i] = tau * a * m[i];
-      t[i + 1] = tau * b * m[i];
+      t[i] = tau * a * mi;
+      t[i + 1] = tau * b * mi;
     }
   }
 
-  let line = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  const first = at(pts, 0);
+  let line = `M${first.x.toFixed(2)},${first.y.toFixed(2)}`;
   for (let i = 0; i < n - 1; i++) {
-    const p0 = pts[i];
-    const p1 = pts[i + 1];
-    const cp1x = p0.x + dx[i] / 3;
-    const cp1y = p0.y + (t[i] * dx[i]) / 3;
-    const cp2x = p1.x - dx[i] / 3;
-    const cp2y = p1.y - (t[i + 1] * dx[i]) / 3;
+    const p0 = at(pts, i);
+    const p1 = at(pts, i + 1);
+    const dxi = at(dx, i);
+    const cp1x = p0.x + dxi / 3;
+    const cp1y = p0.y + (at(t, i) * dxi) / 3;
+    const cp2x = p1.x - dxi / 3;
+    const cp2y = p1.y - (at(t, i + 1) * dxi) / 3;
     line += ` C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p1.x.toFixed(2)},${p1.y.toFixed(2)}`;
   }
 
-  const last = pts[pts.length - 1];
-  const first = pts[0];
+  const last = at(pts, n - 1);
   const area = `${line} L${last.x.toFixed(2)},${baseline.toFixed(2)} L${first.x.toFixed(2)},${baseline.toFixed(2)} Z`;
   return { line, area, min, max };
 }

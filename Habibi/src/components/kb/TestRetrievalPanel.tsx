@@ -151,7 +151,7 @@ export function TestRetrievalPanel() {
             max={8}
             step={1}
             value={[topK]}
-            onValueChange={(v) => setTopK(v[0])}
+            onValueChange={(v) => setTopK(v[0] ?? topK)}
             disabled={loading}
           />
         </div>

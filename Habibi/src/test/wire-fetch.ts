@@ -21,7 +21,7 @@ export type WireCall = { method: string; path: string; search: string; body: unk
 type Override = (call: WireCall) => unknown;
 
 function templateToRegExp(key: string): RegExp {
-  const [, template] = key.split(" ", 2);
+  const [, template = ""] = key.split(" ", 2);
   const source = template.replace(/[.*+?^${}()|[\]\\]/g, (c) =>
     c === "{" || c === "}" ? c : `\\${c}`,
   );

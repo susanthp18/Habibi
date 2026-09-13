@@ -10,6 +10,7 @@ import type {
   LanguageName,
   DiffLine,
 } from "@/api/types/prompt-studio";
+import { at } from "@/lib/arrays";
 import STUDIO_VOCABULARY from "@/lib/studio-vocabulary.json";
 
 export const SYSTEM_SAFE_VARIABLES = [
@@ -55,7 +56,7 @@ export const FLOW_TOKEN_RE = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g;
 
 /** Flow-syntax tokens typed into a prompt — each is read out, braces and all. */
 export function detectFlowVars(prompt: string): string[] {
-  return Array.from(new Set(Array.from(prompt.matchAll(FLOW_TOKEN_RE)).map((m) => m[1])));
+  return Array.from(new Set(Array.from(prompt.matchAll(FLOW_TOKEN_RE), (m) => at(m, 1))));
 }
 
 /** Single-brace prompt tokens. Mirrors `prompt_render.TOKEN_RE`. */
@@ -73,7 +74,7 @@ export const PROMPT_TOKEN_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
  */
 function promptTokens(prompt: string): string[] {
   const masked = prompt.replace(FLOW_TOKEN_RE, (m) => " ".repeat(m.length));
-  return Array.from(masked.matchAll(PROMPT_TOKEN_RE)).map((m) => m[1]);
+  return Array.from(masked.matchAll(PROMPT_TOKEN_RE), (m) => at(m, 1));
 }
 
 /** CRM tokens present in a template — each one costs its whole line at runtime. */
@@ -161,10 +162,12 @@ export function diffPrompts(a: string, b: string): DiffLine[] {
   const B = b.split("\n");
   const m = A.length,
     n = B.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  // LCS table, (m+1) x (n+1), read through `d`.
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  const d = (i: number, j: number) => at(at(dp, i), j);
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      at(dp, i)[j] = A[i] === B[j] ? d(i + 1, j + 1) + 1 : Math.max(d(i + 1, j), d(i, j + 1));
     }
   }
   const out: DiffLine[] = [];
@@ -172,17 +175,17 @@ export function diffPrompts(a: string, b: string): DiffLine[] {
     j = 0;
   while (i < m && j < n) {
     if (A[i] === B[j]) {
-      out.push({ kind: "same", text: A[i] });
+      out.push({ kind: "same", text: at(A, i) });
       i++;
       j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push({ kind: "del", text: A[i++] });
+    } else if (d(i + 1, j) >= d(i, j + 1)) {
+      out.push({ kind: "del", text: at(A, i++) });
     } else {
-      out.push({ kind: "add", text: B[j++] });
+      out.push({ kind: "add", text: at(B, j++) });
     }
   }
-  while (i < m) out.push({ kind: "del", text: A[i++] });
-  while (j < n) out.push({ kind: "add", text: B[j++] });
+  while (i < m) out.push({ kind: "del", text: at(A, i++) });
+  while (j < n) out.push({ kind: "add", text: at(B, j++) });
   return out;
 }
 

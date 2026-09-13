@@ -41,7 +41,9 @@ function playPcmBase64(pcmBase64: string, sampleRate: number) {
     }
     const buffer = ctx.createBuffer(1, samples.length, sampleRate);
     const channel = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 32768;
+    samples.forEach((sample, i) => {
+      channel[i] = sample / 32768;
+    });
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(ctx.destination);

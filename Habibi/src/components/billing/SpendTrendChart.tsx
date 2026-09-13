@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { DayPoint, Service } from "@/api/types/billing";
 import { inrCompact } from "@/lib/format";
 import { ChartCard, ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
+import { at } from "@/lib/arrays";
 
 export function SpendTrendChart({ data, services }: { data: DayPoint[]; services: Service[] }) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -86,8 +87,8 @@ export function SpendTrendChart({ data, services }: { data: DayPoint[]; services
           </div>
         ) : series.length === 1 ? (
           <LivelineTrend
-            values={series[0].values}
-            color={series[0].color}
+            values={at(series, 0).values}
+            color={at(series, 0).color}
             labels={labels}
             height={220}
             formatValue={inrCompact}

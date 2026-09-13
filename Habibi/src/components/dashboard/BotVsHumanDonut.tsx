@@ -1,4 +1,5 @@
 import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
+import { at } from "@/lib/arrays";
 
 type Slice = { name: string; value: number; color: string };
 
@@ -15,7 +16,7 @@ const FALLBACKS = [
 
 function resolveColor(color: string, index: number) {
   if (color.startsWith("var(--") || color.startsWith("#")) return color;
-  return FALLBACKS[index % FALLBACKS.length];
+  return at(FALLBACKS, index % FALLBACKS.length);
 }
 
 export function BotVsHumanDonut({ data }: { data: Slice[] }) {

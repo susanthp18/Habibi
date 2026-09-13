@@ -237,7 +237,7 @@ export function EndpointSheet({
                     value={h.key}
                     onChange={(e) => {
                       const next = [...draft.headers];
-                      next[i] = { ...next[i], key: e.target.value };
+                      next[i] = { ...h, key: e.target.value };
                       setDraft({ ...draft, headers: next });
                     }}
                   />
@@ -248,7 +248,7 @@ export function EndpointSheet({
                     value={h.value}
                     onChange={(e) => {
                       const next = [...draft.headers];
-                      next[i] = { ...next[i], value: e.target.value };
+                      next[i] = { ...h, value: e.target.value };
                       setDraft({ ...draft, headers: next });
                     }}
                   />

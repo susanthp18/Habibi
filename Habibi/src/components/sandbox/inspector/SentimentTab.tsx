@@ -2,6 +2,7 @@ import { TrendingDown, TrendingUp, Minus } from "lucide-react";
 import type { SandboxTurn } from "@/api/types/sandbox";
 import type { TurnAnalysisEvent } from "../voice/liveEvents";
 import { ChartStage, LivelineTrend, SnapshotPill } from "@/components/charts";
+import { at } from "@/lib/arrays";
 
 /**
  * Customer sentiment over the call.
@@ -35,7 +36,7 @@ export function SentimentTab({
     );
   }
 
-  const last = points[points.length - 1].sentiment;
+  const last = at(points, points.length - 1).sentiment;
   const prev = points[points.length - 2]?.sentiment ?? last;
   const delta = last - prev;
   const Icon = delta > 0.05 ? TrendingUp : delta < -0.05 ? TrendingDown : Minus;

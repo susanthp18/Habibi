@@ -205,7 +205,7 @@ describe("live floor selection", () => {
     activator.focus();
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0]).toMatchObject({ id: "call-1" });
+    expect(onSelect.mock.calls[0]?.[0]).toMatchObject({ id: "call-1" });
   });
 
   it("wraps only an opted-in cell in a button that opens the row", async () => {
@@ -228,6 +228,6 @@ describe("live floor selection", () => {
 
     await user.click(screen.getByRole("button", { name: "Anita Sharma" }));
     expect(onRowClick).toHaveBeenCalledTimes(1);
-    expect(onRowClick.mock.calls[0][0]).toMatchObject({ id: "r1" });
+    expect(onRowClick.mock.calls[0]?.[0]).toMatchObject({ id: "r1" });
   });
 });

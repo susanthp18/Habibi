@@ -48,11 +48,12 @@ export function WeekCalendar({
   const rows = Array.from({ length: CAL_MINUTES / SLOT_MINUTES }, (_, i) => i);
   const now = new Date();
 
-  const byDay = days.map((day) =>
-    list
+  const columns = days.map((day) => ({
+    day,
+    list: list
       .filter((cb) => sameDay(new Date(cb.scheduledAt), day))
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
-  );
+  }));
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -92,9 +93,8 @@ export function WeekCalendar({
         style={{ gridTemplateColumns: "56px repeat(7, 1fr)" }}
       >
         <div className="border-r border-border bg-surface-sunken/50" />
-        {days.map((d) => {
+        {columns.map(({ day: d, list: dayList }) => {
           const isToday = sameDay(d, new Date());
-          const dayList = byDay[days.indexOf(d)];
           return (
             <div
               key={d.toISOString()}
@@ -139,7 +139,7 @@ export function WeekCalendar({
           </div>
 
           {/* Day columns */}
-          {days.map((day, di) => {
+          {columns.map(({ day, list: dayList }) => {
             const isToday = sameDay(day, new Date());
             const nowMins = isToday
               ? (now.getHours() - CALENDAR_START_HOUR) * 60 + now.getMinutes()
@@ -176,7 +176,7 @@ export function WeekCalendar({
                 )}
 
                 {/* Callback pills */}
-                {byDay[di].map((cb) => {
+                {dayList.map((cb) => {
                   const top = (minutesFromStart(cb.scheduledAt) / SLOT_MINUTES) * ROW_H;
                   const height = Math.max(24, (cb.windowMins / SLOT_MINUTES) * ROW_H - 2);
                   if (top < 0 || top > TOTAL_H) return null;

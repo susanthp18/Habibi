@@ -22,7 +22,9 @@ export function TranscriptView({ turns, currentTime, onSeek }: Props) {
 
   const activeIndex = (() => {
     let idx = -1;
-    for (let i = 0; i < turns.length; i++) if (turns[i].t <= currentTime) idx = i;
+    turns.forEach((turn, i) => {
+      if (turn.t <= currentTime) idx = i;
+    });
     return idx;
   })();
 

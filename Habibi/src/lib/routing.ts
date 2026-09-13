@@ -14,13 +14,16 @@ import type {
   RuleEval,
 } from "@/api/types/routing";
 
+/** The field a new condition starts on. */
+export const DEFAULT_FIELD: FieldMeta = {
+  key: "sentiment",
+  label: "Sentiment",
+  type: "enum",
+  options: ["angry", "frustrated", "neutral", "happy"],
+};
+
 export const FIELDS: FieldMeta[] = [
-  {
-    key: "sentiment",
-    label: "Sentiment",
-    type: "enum",
-    options: ["angry", "frustrated", "neutral", "happy"],
-  },
+  DEFAULT_FIELD,
   {
     key: "intent",
     label: "Intent",
@@ -56,7 +59,7 @@ export const FIELDS: FieldMeta[] = [
   },
 ];
 
-export const OPERATORS_BY_TYPE: Record<FieldType, RuleOperator[]> = {
+export const OPERATORS_BY_TYPE: Record<FieldType, [RuleOperator, ...RuleOperator[]]> = {
   enum: ["=", "!=", "in"],
   number: ["=", "!=", ">", "<", ">=", "<="],
   boolean: ["="],

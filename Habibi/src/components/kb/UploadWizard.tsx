@@ -241,7 +241,7 @@ export function UploadWizard({
                   step={32}
                   value={[size]}
                   onValueChange={(v) => {
-                    const next = v[0];
+                    const next = v[0] ?? size;
                     setSize(next);
                     if (overlap >= next) setOverlap(Math.max(0, next - 1));
                   }}
@@ -258,7 +258,7 @@ export function UploadWizard({
                   max={Math.min(200, Math.max(0, size - 1))}
                   step={8}
                   value={[Math.min(overlap, size - 1)]}
-                  onValueChange={(v) => setOverlap(v[0])}
+                  onValueChange={(v) => setOverlap(v[0] ?? 0)}
                   disabled={submitting}
                 />
               </div>

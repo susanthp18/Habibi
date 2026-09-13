@@ -1,5 +1,7 @@
 /** Ids, keys and the auto-layout: the canvas's arithmetic, with no React in it. */
 
+import { at } from "@/lib/arrays";
+
 /** Card width in FlowNodes (`w-72`), which the layout has to reserve room for. */
 export const NODE_W = 288;
 
@@ -69,7 +71,7 @@ export function layeredLayout(
     else if (!list.includes(e.target)) list.push(e.target);
   }
 
-  const start = nodes.find((n) => n.data.isStart) ?? nodes[0];
+  const start = nodes.find((n) => n.data.isStart) ?? at(nodes, 0);
 
   // Iterative three-colour DFS. Iterative rather than recursive so a wide graph
   // cannot overflow the stack inside a render.
@@ -79,15 +81,14 @@ export function layeredLayout(
     if ((colour.get(root) ?? 0) !== 0) continue;
     colour.set(root, 1);
     const stack: { id: string; i: number }[] = [{ id: root, i: 0 }];
-    while (stack.length) {
-      const top = stack[stack.length - 1];
+    for (let top = stack.at(-1); top !== undefined; top = stack.at(-1)) {
       const kids = outgoing.get(top.id) ?? [];
       if (top.i >= kids.length) {
         colour.set(top.id, 2);
         stack.pop();
         continue;
       }
-      const next = kids[top.i];
+      const next = at(kids, top.i);
       top.i += 1;
       const c = colour.get(next) ?? 0;
       // Grey means `next` is still on the stack, so this edge closes a loop.

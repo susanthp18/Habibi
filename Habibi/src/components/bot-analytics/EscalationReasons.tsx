@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 import type { EscalationReason } from "@/api/types/bot-analytics";
 import { ChartCard, ModernDonut, SnapshotPill } from "@/components/charts";
+import { at } from "@/lib/arrays";
 
 const COLORS = ["#357de8", "#82b536", "#bf63f3", "#f68909", "#1558bc", "#964ac0", "#42b2d7"];
 
@@ -9,7 +10,7 @@ export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) 
   const slices = reasons.map((r, i) => ({
     name: r.label,
     value: r.count,
-    color: COLORS[i % COLORS.length],
+    color: at(COLORS, i % COLORS.length),
   }));
 
   return (
@@ -37,7 +38,7 @@ export function EscalationReasons({ reasons }: { reasons: EscalationReason[] }) 
               <li key={r.id} className="flex items-center gap-100">
                 <span
                   className="inline-block size-2 rounded-full"
-                  style={{ background: COLORS[i % COLORS.length] }}
+                  style={{ background: at(COLORS, i % COLORS.length) }}
                 />
                 <span className="flex-1 truncate text-text">{r.label}</span>
                 <span className="tabular-nums text-text-subtle">{r.count}</span>

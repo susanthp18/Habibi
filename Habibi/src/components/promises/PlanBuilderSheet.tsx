@@ -151,7 +151,7 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
               min={2}
               max={12}
               step={1}
-              onValueChange={([v]) => setInstallments(v)}
+              onValueChange={([v]) => setInstallments(v ?? installments)}
             />
           </Field>
 

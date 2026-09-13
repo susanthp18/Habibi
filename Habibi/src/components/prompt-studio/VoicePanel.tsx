@@ -68,7 +68,7 @@ const EMPTY_LOCALES: string[] = [];
  * `agent_core/cards/compile.py`, which is what G15 compares with server-side.
  */
 function primarySubtag(tag: string): string {
-  return (tag || "").trim().replace(/_/g, "-").split("-")[0].toLowerCase();
+  return ((tag || "").trim().replace(/_/g, "-").split("-")[0] ?? "").toLowerCase();
 }
 
 /** Narrow a control's value to what `VoiceConfig.params` may carry. The schema

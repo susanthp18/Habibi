@@ -154,18 +154,21 @@ export function computeMetrics(list: Callback[]) {
 }
 
 // ---- Calendar helpers ----
+export type WeekDays = [Date, Date, Date, Date, Date, Date, Date];
+
 /** Return 7 dates starting from Monday of the week containing `anchor`. */
-export function weekDays(anchor: Date): Date[] {
+export function weekDays(anchor: Date): WeekDays {
   const start = new Date(anchor);
   const day = start.getDay(); // 0=Sun..6=Sat
   const diffToMon = (day + 6) % 7;
   start.setDate(start.getDate() - diffToMon);
   start.setHours(0, 0, 0, 0);
-  return Array.from({ length: 7 }, (_, i) => {
+  const day_ = (i: number) => {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     return d;
-  });
+  };
+  return [day_(0), day_(1), day_(2), day_(3), day_(4), day_(5), day_(6)];
 }
 
 export function sameDay(a: Date, b: Date) {
@@ -218,8 +221,8 @@ export function isWithinDndWindow(
   // parse "HH:MM–HH:MM ..."
   const m = /(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})/.exec(cb.preferredWindow);
   if (!m) return hour < 9 || hour >= 20;
-  const startH = parseInt(m[1]);
-  const endH = parseInt(m[3]);
+  const startH = parseInt(m[1] ?? "");
+  const endH = parseInt(m[3] ?? "");
   return hour < startH || hour >= endH;
 }
 

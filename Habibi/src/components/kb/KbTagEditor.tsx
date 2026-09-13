@@ -83,8 +83,9 @@ export function KbTagEditor({
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
               add(draft);
-            } else if (e.key === "Backspace" && !draft && tags.length) {
-              remove(tags[tags.length - 1]);
+            } else if (e.key === "Backspace" && !draft) {
+              const lastTag = tags.at(-1);
+              if (lastTag !== undefined) remove(lastTag);
             }
           }}
           onBlur={() => {

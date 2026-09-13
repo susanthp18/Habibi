@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ActionKey, Condition, ConditionNode, Rule, RuleCategory } from "@/api/types/routing";
-import { ACTION_LABEL, FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
+import { ACTION_LABEL, DEFAULT_FIELD, FIELDS, OPERATORS_BY_TYPE } from "@/lib/routing";
 import { ConditionRow } from "./ConditionRow";
 
 const CATEGORIES: RuleCategory[] = ["Escalation", "Handoff", "Throttle", "Compliance", "Routing"];
@@ -21,7 +21,7 @@ const CATEGORIES: RuleCategory[] = ["Escalation", "Handoff", "Throttle", "Compli
 const cid = () => Math.random().toString(36).slice(2, 9);
 
 function blankCondition(): Condition {
-  const f = FIELDS[0];
+  const f = DEFAULT_FIELD;
   return {
     id: cid(),
     field: f.key,

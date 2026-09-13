@@ -54,7 +54,7 @@ export function EndpointDrawer({
   const p95 = useMemo(() => {
     if (!epDeliveries.length) return 0;
     const sorted = [...epDeliveries].map((d) => d.latencyMs).sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1];
+    return sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 0;
   }, [epDeliveries]);
 
   if (!endpoint) return null;

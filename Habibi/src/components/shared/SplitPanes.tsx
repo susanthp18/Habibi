@@ -79,12 +79,13 @@ export function SplitPanes({
       const next = [...drag.startWidths];
       const leftMin = ((minWidthsPx[i] ?? 160) / totalPx) * 100;
       const rightMin = ((minWidthsPx[i + 1] ?? 160) / totalPx) * 100;
-      const pair = next[i] + next[i + 1];
+      const current = next[i] ?? 0;
+      const pair = current + (next[i + 1] ?? 0);
       const lo = leftMin;
       const hi = pair - rightMin;
       const left =
         lo <= hi
-          ? clamp(next[i] + deltaPct, lo, hi)
+          ? clamp(current + deltaPct, lo, hi)
           : Math.max(0, Math.min(pair, (pair * leftMin) / (leftMin + rightMin || 1)));
       next[i] = left;
       next[i + 1] = pair - left;
@@ -124,12 +125,13 @@ export function SplitPanes({
       const next = [...widths];
       const leftMin = ((minWidthsPx[i] ?? 160) / totalPx) * 100;
       const rightMin = ((minWidthsPx[i + 1] ?? 160) / totalPx) * 100;
-      const pair = next[i] + next[i + 1];
+      const current = next[i] ?? 0;
+      const pair = current + (next[i + 1] ?? 0);
       const lo = leftMin;
       const hi = pair - rightMin;
       const left =
         lo <= hi
-          ? clamp(next[i] + deltaPct, lo, hi)
+          ? clamp(current + deltaPct, lo, hi)
           : Math.max(0, Math.min(pair, (pair * leftMin) / (leftMin + rightMin || 1)));
       next[i] = left;
       next[i + 1] = pair - left;

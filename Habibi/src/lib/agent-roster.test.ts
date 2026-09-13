@@ -132,9 +132,9 @@ describe("groupRoster", () => {
       row("Audit", { archivedAt: "2026-08-19T04:43:18Z", isFirstParty: true }),
     ]);
     expect(groups.map((g) => g.key)).toEqual(["first-party", "clones", "archived"]);
-    expect(groups[0].cards.map((c) => c.name)).toEqual(["Collections", "Intake"]);
-    expect(groups[1].cards.map((c) => c.name)).toEqual(["Collections-clone", "Webchat"]);
-    expect(groups[2].cards.map((c) => c.name)).toEqual(["Audit", "Probe"]);
+    expect(groups[0]?.cards.map((c) => c.name)).toEqual(["Collections", "Intake"]);
+    expect(groups[1]?.cards.map((c) => c.name)).toEqual(["Collections-clone", "Webchat"]);
+    expect(groups[2]?.cards.map((c) => c.name)).toEqual(["Audit", "Probe"]);
   });
 
   it("emits no heading for a group with no cards", () => {
@@ -147,7 +147,7 @@ describe("groupRoster", () => {
       row("Collections-clone", { botId: "collections-clone-9ff4b6" }),
       row("Collections-clone", { botId: "collections-clone-1a2b3c" }),
     ]);
-    expect(groups[0].cards.map((c) => c.botId)).toEqual([
+    expect(groups[0]?.cards.map((c) => c.botId)).toEqual([
       "collections-clone-1a2b3c",
       "collections-clone-9ff4b6",
     ]);
