@@ -38,6 +38,7 @@ import campaigns
 import db
 import observability
 import outbound
+import outbound_pools
 from voice import reaper
 import payment_events
 from agent_core.treatment import enact as treatment_enact
@@ -99,7 +100,7 @@ def process_one_any() -> bool:
         # on the same settle cadence, because a number's answer rate does not
         # move between iterations and rotating on a stale reading is the same
         # mistake as not rotating at all.
-        _run_stage("number_pool_health", lambda: outbound.sweep_pool_health(db.engine))
+        _run_stage("number_pool_health", lambda: outbound_pools.sweep_pool_health(db.engine))
 
     if bot_first and _run_stage("bot_jobs", lambda: bot_jobs.process_one(db.engine)):
         return True

@@ -30,6 +30,7 @@ import campaigns
 import compliance_copy
 import contact_policy
 import outbound
+import outbound_pools
 import written_followup
 from agent_core import canary
 
@@ -411,7 +412,7 @@ def test_a_number_nobody_answers_is_rested(db_tx) -> None:
     number_id = _pool_with_number(db_tx, e164)
     _attempts(db_tx, e164, total=40, answered=1)
 
-    counts = outbound.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
+    counts = outbound_pools.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
     assert counts["cooled"] == 1
 
     row = db_tx.execute(
@@ -430,7 +431,7 @@ def test_a_bad_afternoon_does_not_retire_a_number(db_tx) -> None:
     number_id = _pool_with_number(db_tx, e164)
     _attempts(db_tx, e164, total=4, answered=0)
 
-    outbound.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
+    outbound_pools.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
     state = db_tx.execute(
         text("SELECT state FROM pool_numbers WHERE id = :id"), {"id": number_id}
     ).scalar()
@@ -443,7 +444,7 @@ def test_cooling_is_a_door_that_opens_both_ways(db_tx) -> None:
     e164 = f"+9199{uuid.uuid4().hex[:8]}"
     number_id = _pool_with_number(db_tx, e164, state="cooling", changed_hours_ago=200)
 
-    counts = outbound.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
+    counts = outbound_pools.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
     assert counts["restored"] == 1
     state = db_tx.execute(
         text("SELECT state FROM pool_numbers WHERE id = :id"), {"id": number_id}
@@ -455,7 +456,7 @@ def test_a_retired_number_is_left_alone(db_tx) -> None:
     """Retirement is a human decision about a number we mean to hand back."""
     e164 = f"+9199{uuid.uuid4().hex[:8]}"
     number_id = _pool_with_number(db_tx, e164, state="retired", changed_hours_ago=1000)
-    outbound.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
+    outbound_pools.refresh_pool_health(db_tx, tenant_id="hdfc.retail")
     state = db_tx.execute(
         text("SELECT state FROM pool_numbers WHERE id = :id"), {"id": number_id}
     ).scalar()
@@ -473,7 +474,7 @@ def test_picking_a_number_no_longer_fakes_a_seven_day_count(db_tx) -> None:
         {"id": number_id},
     ).scalar()
 
-    outbound.pick_number(db_tx, tenant_id="hdfc.retail", pool_name=pool_name)
+    outbound_pools.pick_number(db_tx, tenant_id="hdfc.retail", pool_name=pool_name)
     row = db_tx.execute(
         text("SELECT attempts_7d, last_used_at FROM pool_numbers WHERE id = :id"),
         {"id": number_id},
@@ -549,9 +550,18 @@ def test_a_selector_resolves_to_borrowers(db_tx) -> None:
 def test_an_open_promise_keeps_a_borrower_out_of_the_run(db_tx) -> None:
     """Ringing somebody before the date they promised is how a kept promise
     becomes a broken one."""
-    with_promise = campaigns.resolve_selector(
+    cohort = campaigns.resolve_selector(
         db_tx, tenant_id="hdfc.retail", selector={"dpdMin": 0, "limit": 500}
     )
+    # One open promise per account: pick a borrower who does not have one yet.
+    already = {
+        r[0]
+        for r in db_tx.execute(
+            text("SELECT customer_id FROM promises WHERE status IN ('upcoming','due_today')")
+        )
+    }
+    with_promise = [r for r in cohort if r["customer_id"] not in already]
+    assert with_promise, "every borrower in the cohort already has an open promise"
     db_tx.execute(
         text(
             """
@@ -711,9 +721,9 @@ def test_a_budgeted_call_still_ends_if_the_agent_cannot_converge() -> None:
 
 
 def test_the_cool_off_is_shorter_than_forever() -> None:
-    assert 0 < outbound.POOL_COOL_HOURS <= 24 * 30
-    assert outbound.POOL_MIN_ATTEMPTS >= 10
-    assert 0 < outbound.POOL_ANSWER_FLOOR < 0.5
+    assert 0 < outbound_pools.POOL_COOL_HOURS <= 24 * 30
+    assert outbound_pools.POOL_MIN_ATTEMPTS >= 10
+    assert 0 < outbound_pools.POOL_ANSWER_FLOOR < 0.5
 
 
 def test_a_hold_publishes_the_date_the_row_actually_carries(db_tx) -> None:

@@ -26,6 +26,7 @@ include = [
   "agent_core/cards",
   "agent_core/fleet",
   "outbound.py",
+  "outbound_pools.py",
   "flow_graph.py",
   "policy_rules.py",
   "contact_policy.py",

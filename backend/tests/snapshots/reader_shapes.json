@@ -219,6 +219,9 @@
         },
         "stt_az": {
           "hdfc.retail": "float"
+        },
+        "tts_az": {
+          "hdfc.retail": "float"
         }
       },
       "services": [
