@@ -28,7 +28,6 @@ BASELINE: dict[str, int] = {
     "bot_runtime.py": 1836,
     "voice/crm_sink.py": 1713,
     "contact_policy.py": 1644,
-    "bank_boundary/ingest.py": 1545,
 }
 
 
