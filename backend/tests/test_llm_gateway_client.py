@@ -94,3 +94,131 @@ def test_the_spend_cap_is_one_number_across_processes(db_tx, monkeypatch) -> Non
 
     monkeypatch.setattr(gw, "spent_today_inr", _boom)
     assert gw._over_cap("text") is True
+
+
+def _gw(monkeypatch):
+    import circuit_breaker
+    from llm_gateway import client as gw
+
+    with circuit_breaker._breakers_lock:
+        circuit_breaker._breakers.pop("llm_gateway", None)
+    monkeypatch.setattr(gw, "base_url", lambda: "http://gateway.test")
+    monkeypatch.setattr(gw.time, "sleep", lambda s: None)
+    monkeypatch.delenv("AZURE_OPENAI_REASONING_MODEL", raising=False)
+    return gw
+
+
+def _chat(gw, **kw):
+    return gw._http_chat(
+        [{"role": "user", "content": "hi"}],
+        tools=None,
+        tool_choice=None,
+        temperature=0.3,
+        max_completion_tokens=8,
+        profile="chat",
+        timeout=1.0,
+        **kw,
+    )
+
+
+def test_a_client_error_is_not_retried(monkeypatch) -> None:
+    """The same bytes get the same 400; three of them are three bills for
+    one mistake and a 4xx never trips the breaker either."""
+    import circuit_breaker
+    import httpx
+
+    gw = _gw(monkeypatch)
+    calls: list[int] = []
+
+    def _bad(*a, **k):
+        calls.append(1)
+        return httpx.Response(400, text="bad request", request=httpx.Request("POST", "x"))
+
+    monkeypatch.setattr(httpx, "post", _bad)
+    with pytest.raises(RuntimeError, match="GatewayRejected"):
+        _chat(gw)
+    assert calls == [1]
+    assert circuit_breaker.get_breaker("llm_gateway").snapshot()["state"] == "closed"
+
+
+def test_a_throttle_waits_what_the_gateway_says_then_tries_once_more(monkeypatch) -> None:
+    import httpx
+
+    gw = _gw(monkeypatch)
+    waits: list[float] = []
+    monkeypatch.setattr(gw.time, "sleep", lambda s: waits.append(s))
+    answers = iter(
+        [
+            httpx.Response(429, headers={"Retry-After": "2"}, request=httpx.Request("POST", "x")),
+            httpx.Response(
+                200,
+                json={"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}},
+                request=httpx.Request("POST", "x"),
+            ),
+        ]
+    )
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: next(answers))
+    out = _chat(gw)
+    assert out["content"] == "ok"
+    assert waits == [2.0]
+
+
+def test_a_read_timeout_is_not_replayed(monkeypatch) -> None:
+    """The gateway may have forwarded the completion before we gave up on
+    it. A second POST is a second completion, billed and possibly spoken."""
+    import httpx
+
+    gw = _gw(monkeypatch)
+    calls: list[int] = []
+
+    def _slow(*a, **k):
+        calls.append(1)
+        raise httpx.ReadTimeout("slow")
+
+    monkeypatch.setattr(httpx, "post", _slow)
+    with pytest.raises(RuntimeError, match="ReadTimeout"):
+        _chat(gw)
+    assert calls == [1]
+
+
+def test_a_reasoning_model_gets_effort_and_no_temperature(monkeypatch) -> None:
+    import httpx
+
+    gw = _gw(monkeypatch)
+    seen: list[dict] = []
+
+    def _ok(url, json, **k):
+        seen.append(json)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}},
+            request=httpx.Request("POST", "x"),
+        )
+
+    monkeypatch.setattr(httpx, "post", _ok)
+    monkeypatch.setenv("LLM_GATEWAY_CHAT_MODEL", "azure/gpt-5-mini")
+    _chat(gw, reasoning_effort="low")
+    monkeypatch.setenv("LLM_GATEWAY_CHAT_MODEL", "azure/gpt-4o")
+    _chat(gw, reasoning_effort="low")
+    reasoning, plain = seen
+    assert reasoning["reasoning_effort"] == "low" and "temperature" not in reasoning
+    assert plain["temperature"] == 0.3 and "reasoning_effort" not in plain
+
+
+def test_the_three_processes_agree_on_what_a_reasoning_deployment_is(monkeypatch) -> None:
+    """The voice pool and the tuning layer carried their own copies with a
+    narrower heuristic and a different override order."""
+    import azure_openai
+    from voice import llm_pool, tuning_apply
+
+    monkeypatch.delenv("AZURE_OPENAI_REASONING_MODEL", raising=False)
+    monkeypatch.delenv("AZURE_OPENAI_VOICE_REASONING_MODEL", raising=False)
+    for name in ("gpt-5-mini", "prod-o3", "gpt-4o", "o1-preview"):
+        assert (
+            azure_openai._is_reasoning_deployment(name)
+            == llm_pool._is_reasoning_deployment(name)
+            == tuning_apply._is_reasoning_model(name)
+        ), name
+    monkeypatch.setenv("AZURE_OPENAI_VOICE_REASONING_MODEL", "true")
+    assert llm_pool._is_reasoning_deployment("gpt-4o") is True
+    assert azure_openai._is_reasoning_deployment("gpt-4o") is False  # the text override is its own

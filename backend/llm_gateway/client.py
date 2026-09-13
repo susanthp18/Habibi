@@ -112,6 +112,7 @@ def chat(
         max_completion_tokens=max_completion_tokens,
         profile=profile,
         timeout=timeout,
+        reasoning_effort=reasoning_effort,
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
     result.setdefault("latencyMs", latency_ms)
@@ -129,6 +130,7 @@ def _http_chat(
     max_completion_tokens: int,
     profile: str,
     timeout: float | None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     import httpx
 
@@ -146,8 +148,17 @@ def _http_chat(
         "model": model,
         "messages": messages,
         "max_completion_tokens": max_completion_tokens,
-        "temperature": temperature,
     }
+    # A reasoning deployment answers 400 to a temperature and takes an
+    # effort instead; the direct Azure client already made this choice and
+    # the gateway path sent both wrong: temperature always, effort never.
+    import azure_openai
+
+    if azure_openai._is_reasoning_deployment(model.rsplit("/", 1)[-1]):
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+    else:
+        payload["temperature"] = temperature
     if tools:
         payload["tools"] = tools
         if tool_choice is not None:
@@ -175,17 +186,36 @@ def _http_chat(
 
     retries = 2
     last_exc: Exception | None = None
+    pause: float | None = None
     for attempt in range(retries + 1):
         if attempt:
             # A retry with no pause hits a gateway that is still failing with
-            # the same request a few milliseconds later.
-            time.sleep(0.25 * (2 ** (attempt - 1)))
+            # the same request a few milliseconds later; a throttle says how
+            # long to wait and that wait replaces the backoff.
+            time.sleep(pause if pause is not None else 0.25 * (2 ** (attempt - 1)))
+            pause = None
         try:
             resp = breaker.call(_post_once)
+            if 400 <= resp.status_code < 500:
+                # The request is wrong, or we are being throttled: the same
+                # bytes again will get the same answer. A 429 says when.
+                if resp.status_code == 429 and attempt < retries:
+                    pause = _retry_after_s(resp)
+                    continue
+                raise GatewayRejected(resp.status_code, resp.text[:200])
             resp.raise_for_status()
             data = resp.json()
             return _normalize_openai(data)
         except circuit_breaker.CircuitOpenError as exc:
+            last_exc = exc
+            break
+        except GatewayRejected as exc:
+            last_exc = exc
+            break
+        except httpx.ReadTimeout as exc:
+            # The gateway may have forwarded the completion before we gave
+            # up on it; a second POST is a second completion, billed twice
+            # and possibly spoken twice. Report the timeout instead.
             last_exc = exc
             break
         except Exception as exc:
@@ -193,6 +223,23 @@ def _http_chat(
             if attempt >= retries:
                 break
     raise RuntimeError(f"llm_gateway_http_failed:{type(last_exc).__name__}") from last_exc
+
+
+class GatewayRejected(Exception):
+    """A 4xx from the gateway: the request, not the gateway, is at fault."""
+
+    def __init__(self, status: int, body: str) -> None:
+        super().__init__(f"{status}:{body}")
+        self.status = status
+
+
+def _retry_after_s(resp: Any) -> float:
+    """The gateway's own pause on a 429, bounded; a short default when absent."""
+    try:
+        value = float(resp.headers.get("Retry-After") or 1.0)
+    except (TypeError, ValueError):
+        value = 1.0
+    return max(0.0, min(value, 5.0))
 
 
 def _normalize_openai(data: dict[str, Any]) -> dict[str, Any]:
