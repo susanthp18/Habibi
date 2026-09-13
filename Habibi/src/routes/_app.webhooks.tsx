@@ -397,6 +397,10 @@ function WebhooksPage() {
         }}
         onRotate={rotateOne}
         onRetry={retryDelivery}
+        onEdit={(ep) => {
+          setDrawerOpen(false);
+          openEdit(ep);
+        }}
         onTestFire={async (ep, event) => {
           try {
             await testFire(ep, event);

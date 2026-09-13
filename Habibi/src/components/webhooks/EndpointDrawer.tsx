@@ -13,11 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Copy, KeyRound, Pause, Play, Trash2, Zap } from "lucide-react";
 import type { Delivery, Endpoint, EventKey } from "@/api/types/webhooks";
-import { useEventCatalog } from "@/api/webhooks";
 import { SIGNATURE_HEADER_EXAMPLE, successRate, within } from "@/lib/webhooks";
 import { DeliveryRow } from "./DeliveryRow";
-import { EventPicker } from "./EventPicker";
-import { QueryState } from "@/components/ui/query-state";
 import { cn } from "@/lib/utils";
 
 export function EndpointDrawer({
@@ -30,6 +27,7 @@ export function EndpointDrawer({
   onRotate,
   onRetry,
   onTestFire,
+  onEdit,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -40,10 +38,11 @@ export function EndpointDrawer({
   onRotate: (ep: Endpoint) => void;
   onRetry: (d: Delivery) => void;
   onTestFire: (ep: Endpoint, event: EventKey) => void | Promise<void>;
+  /** Open the endpoint form -- the drawer inspects, the sheet edits. */
+  onEdit: (ep: Endpoint) => void;
 }) {
   const [tab, setTab] = useState("overview");
   const [testEvent, setTestEvent] = useState<EventKey>("call.completed");
-  const catalogQuery = useEventCatalog();
   const [testBusy, setTestBusy] = useState(false);
 
   const epDeliveries = useMemo(
@@ -114,7 +113,6 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
         <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
           <TabsList className="mx-300 mt-150 shrink-0 self-start">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="events">Events</TabsTrigger>
             <TabsTrigger value="log">Delivery log</TabsTrigger>
             <TabsTrigger value="signing">Signing</TabsTrigger>
             <TabsTrigger value="test">Test fire</TabsTrigger>
@@ -156,6 +154,15 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                   </span>
                 ))}
               </div>
+              {/* Subscriptions are edited in the one form that validates them. */}
+              <Button
+                variant="link"
+                size="sm"
+                className="mt-050 px-0"
+                onClick={() => onEdit(endpoint)}
+              >
+                Edit endpoint
+              </Button>
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text">Retry policy</div>
@@ -197,20 +204,6 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
                 <Trash2 className="mr-075 h-3.5 w-3.5" /> Delete
               </Button>
             </div>
-          </TabsContent>
-
-          {/* Events */}
-          <TabsContent
-            value="events"
-            className="min-h-0 flex-1 space-y-150 overflow-y-auto px-300 py-200"
-          >
-            <QueryState query={catalogQuery} label="the event catalogue">
-              <EventPicker
-                catalog={catalogQuery.data ?? []}
-                selected={endpoint.events}
-                onChange={(events) => onUpdate({ ...endpoint, events })}
-              />
-            </QueryState>
           </TabsContent>
 
           {/* Delivery log */}
