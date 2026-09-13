@@ -8,28 +8,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useRef } from "react";
 import type { PersonaPreset } from "@/api/types/prompt-studio";
 
 /**
  * "Replace the system prompt?" -- asked before a preset discards authored text.
  *
- * `shown` is the last non-null subject: the dialog animates out over ~150ms
- * and reads its subject while `pending` is already null, so the closing frame
+ * The dialog animates out over ~150ms and reads its subject while `pending`
+ * is already null, so the last non-null subject is held and the closing frame
  * says the same thing the open one did.
  */
 export function PresetConfirm({
   pending,
-  shown,
   prompt,
   onCancel,
   onConfirm,
 }: {
   pending: PersonaPreset | null;
-  shown: PersonaPreset | null;
   prompt: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const shownRef = useRef<PersonaPreset | null>(null);
+  if (pending) shownRef.current = pending;
+  const shown = shownRef.current;
   return (
     <AlertDialog
       open={pending !== null}

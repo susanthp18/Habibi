@@ -1,10 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { VersionHistory } from "@/components/prompt-studio/VersionHistory";
 import { DiffModal } from "@/components/prompt-studio/DiffModal";
 import { PublishDialog } from "@/components/prompt-studio/PublishDialog";
-import type { PersonaPreset, PromptVersion } from "@/api/types/prompt-studio";
+import type { PromptVersion } from "@/api/types/prompt-studio";
 import {
   DEFAULT_GUARDRAILS,
   DEFAULT_PERSONA,
@@ -13,9 +12,7 @@ import {
 } from "@/lib/prompt-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useConfirm } from "@/components/ui/use-confirm";
-import { rollbackLive } from "@/components/prompt-studio/studio/rollbackLive";
-import { useCompilePreview, type CompileReport } from "@/api/agent-studio";
+import { useCompilePreview } from "@/api/agent-studio";
 import { isNotFound } from "@/api/config";
 import { asRollbackTriggers, type AgentCard } from "@/api/agent-card";
 import { type ShipState } from "@/components/prompt-studio/ShipTab";
@@ -26,7 +23,9 @@ import { PresetConfirm } from "@/components/prompt-studio/studio/PresetConfirm";
 import { useStudioDraft } from "@/components/prompt-studio/studio/useStudioDraft";
 import { useFlowValidation } from "@/components/prompt-studio/studio/useFlowValidation";
 import { useStudioLint } from "@/components/prompt-studio/studio/useStudioLint";
-import { EMPTY_FIELDS, adopted, asCard } from "@/components/prompt-studio/studio/studioDraft";
+import { useStudioActions } from "@/components/prompt-studio/studio/useStudioActions";
+import { CardStaleBanner, GapBanner } from "@/components/prompt-studio/studio/StudioBanners";
+import { asCard } from "@/components/prompt-studio/studio/studioDraft";
 
 export const Route = createLazyFileRoute("/_app/agent-studio/$botId")({
   component: AgentCardEditor,
@@ -57,7 +56,7 @@ export function PromptStudioPage({
   note?: string;
 }) {
   const navigate = useNavigate();
-  const [gapBannerDismissed, setGapBannerDismissed] = useState(false);
+  const queries = useStudioQueries(botId);
   const {
     versionsQuery,
     presetsQuery,
@@ -75,7 +74,7 @@ export function PromptStudioPage({
     discardMutation,
     rollbackMutation,
     lintMutation,
-  } = useStudioQueries(botId);
+  } = queries;
   const ensureDraft = ensureDraftMutation.mutateAsync;
 
   // The version list is the query's; the page keeps no mirror of it.
@@ -105,32 +104,18 @@ export function PromptStudioPage({
     flushDraft,
   } = editor;
   const { hydrated, draftId, prompt, persona, voice, guardrails, flow } = draft;
-  // Preset awaiting confirmation because applying it would discard authored text.
-  const [presetPending, setPresetPending] = useState<PersonaPreset | null>(null);
-  // The dialog animates out over ~150ms, and it reads its subject from
-  // `presetPending` — which is already null by then, so the sentence degraded to
-  // "Applying  overwrites the prompt…" on the way out. Hold the last subject so
-  // the closing frame says the same thing the open one did.
-  const presetShown = useRef<PersonaPreset | null>(null);
-  if (presetPending) presetShown.current = presetPending;
   const [tab, setTab] = useState<Tab>("prompt");
   const readFindings = useCallback(() => setTab("prompt"), []);
   const lint = useStudioLint({ prompt, guardrails, lintMutation, onRead: readFindings });
-  const clearLint = lint.clear;
   const flowCheck = useFlowValidation(flow, tab === "flow");
   const [diffOpen, setDiffOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [diffBase, setDiffBase] = useState<PromptVersion | undefined>();
-  const [publishOpen, setPublishOpen] = useState(false);
-  const [compileReport, setCompileReport] = useState<CompileReport | null>(null);
-  /** Why the last compile produced no report. See `runCompile`. */
-  const [compileError, setCompileError] = useState<string | null>(null);
   // The API, not a hardcoded copy. `?? PRESETS` made an empty persona_presets
   // table look populated — and the rows only ever existed in a migration that
   // a fresh install stamps rather than replays, so a new database showed four
   // presets that were not there and applied templates from nowhere.
-  const presets = presetsQuery.data ?? [];
-  const showGapBanner = Boolean((gapNote || unansweredId) && !gapBannerDismissed);
+  const presets = useMemo(() => presetsQuery.data ?? [], [presetsQuery.data]);
   const activeDeployment = activeDepQuery.data ?? null;
   const priorDeployment = useMemo(() => {
     const rows = prodDepsQuery.data ?? [];
@@ -149,19 +134,6 @@ export function PromptStudioPage({
     );
   }, [prodDepsQuery.data, activeDeployment]);
 
-  // Canary settings are a card field, not editor-local state. Keeping them
-  // separate meant they never marked the editor dirty, never autosaved, and
-  // were invisible to the compile preview — which read `card.experiment` and
-  // cheerfully reported "full ship" for a publish that then 422'd at 40%.
-  // The Tools tab has always had a live grant, because it runs its own preview.
-  // The Flow tab read `compileReport`, which is null until somebody presses
-  // Publish or Compile and is reset to null on every recompile — so the canvas's
-  // "not on this card" chip, the whole point of FLOW-3, was invisible in an
-  // ordinary authoring session and stale afterwards. Two tabs of one editor
-  // disagreeing about the same card's grant is the drift this phase is removing.
-  const flowPreview = useCompilePreview(botId, { agentCard: effectiveCard }, hydrated);
-  const grantTools = compileReport?.effective_tools ?? flowPreview.data?.effective_tools;
-
   const ship = useMemo<ShipState>(() => {
     const exp = effectiveCard.experiment;
     return {
@@ -179,6 +151,32 @@ export function PromptStudioPage({
       },
     });
   };
+
+  const [publishOpen, setPublishOpen] = useState(false);
+  const closePublish = useCallback(() => setPublishOpen(false), []);
+  const goToFlow = useCallback(() => setTab("flow"), []);
+  const actions = useStudioActions({
+    botId,
+    editor,
+    queries,
+    history,
+    ship,
+    activeDeployment,
+    priorDeployment,
+    flowValid: flowCheck.valid,
+    flowUnchecked: flowCheck.unchecked,
+    clearLint: lint.clear,
+    onFlowBlocked: goToFlow,
+    onPublished: closePublish,
+  });
+  const { compileReport } = actions;
+
+  // The Tools tab has always had a live grant, because it runs its own
+  // preview. The Flow tab read `compileReport`, which is null until somebody
+  // presses Publish or Compile -- so the canvas's "not on this card" chip was
+  // invisible in an ordinary authoring session. Same preview, same card.
+  const flowPreview = useCompilePreview(botId, { agentCard: effectiveCard }, hydrated);
+  const grantTools = compileReport?.effective_tools ?? flowPreview.data?.effective_tools;
 
   // Derived, not stored. Two bugs lived in the stored version: it was set from
   // the traits alone, so rewriting the prompt into something unrecognisable
@@ -219,238 +217,6 @@ export function PromptStudioPage({
     ensureDraftMutation.isPending ||
     discardMutation.isPending ||
     rollbackMutation.isPending;
-
-  // Commit a preset. Split from the click handler so the confirmation step can
-  // sit between them without the write path knowing a dialog exists.
-  const commitPreset = useCallback(
-    (p: PersonaPreset) => {
-      // Both halves of what a preset writes, and always an Undo.
-      //
-      // It restored the prompt only, so the traits it moved in the same click —
-      // 75/40/55/60/20 to 35/80/65/40/15 — had no way back short of
-      // remembering five numbers. And the Undo was conditional on the prompt
-      // having changed, so applying a preset whose template was already in the
-      // editor offered nothing at all while the sliders still jumped.
-      const previousPrompt = prompt;
-      const previousTraits = persona.traits;
-      set.prompt(p.promptTemplate);
-      set.persona((s) => ({ ...s, traits: p.traits }));
-      clearLint();
-      toast.success(`Applied ${p.label}`, {
-        action: {
-          label: "Undo",
-          onClick: () => {
-            set.prompt(previousPrompt);
-            set.persona((s) => ({ ...s, traits: previousTraits }));
-            clearLint();
-          },
-        },
-      });
-    },
-    [prompt, persona.traits, clearLint, set],
-  );
-
-  // One compile, two callers. The Publish button ran it inline; the Ship tab
-  // said "run Compile" and offered nothing to run, so the one screen named
-  // after shipping was the one place you could not ask whether the card would.
-  // Sharing the call is what keeps the two reports describing the same publish.
-  const runCompile = useCallback(() => {
-    // Never show the last run's gates for this one.
-    setCompileReport(null);
-    return compileMutation
-      .mutateAsync({
-        flow: flow ?? undefined,
-        agentCard: asCard(effectiveCard) ?? undefined,
-        // What Confirm will actually send. Omitting these made the dialog
-        // preview a different publish than the one it runs.
-        trafficPct: ship.trafficPct,
-        autoRollback: ship.autoRollback,
-        // G15 reads the mouth columns, which live here unsaved between
-        // autosaves. Without them the compiler gates the last save while
-        // Publish ships what is on screen.
-        voice,
-        persona,
-      })
-      .then((report) => {
-        setCompileError(null);
-        setCompileReport(report);
-      })
-      .catch((err: unknown) => {
-        // A compile that could not run is not a compile with nothing to say.
-        // This used to swallow the error and leave `compileReport` null, which
-        // the publish dialog renders as simply having no gate section — so the
-        // evidence panel silently disappeared and the operator was left to
-        // decide from a dialog that had stopped mentioning the compiler at all.
-        setCompileReport(null);
-        setCompileError(err instanceof Error ? err.message : "The compiler did not answer.");
-      });
-  }, [compileMutation, flow, effectiveCard, ship.trafficPct, ship.autoRollback, voice, persona]);
-
-  const applyPreset = useCallback(
-    (p: PersonaPreset) => {
-      // A preset replaces the whole prompt. Unannounced, that reads as data
-      // loss: a click on the wrong card discards everything typed since the
-      // last publish. Ask first when there is work to lose — and ask in the
-      // app's own dialog, not window.confirm, which paints as browser chrome
-      // titled with the origin ("localhost:8080 says"), cannot be themed, and
-      // blocks the renderer thread while it is open.
-      const hasWork = Boolean(prompt.trim()) && prompt !== p.promptTemplate;
-      if (hasWork) {
-        setPresetPending(p);
-        return;
-      }
-      commitPreset(p);
-    },
-    [prompt, commitPreset],
-  );
-
-  const loadDraft = async (v: PromptVersion) => {
-    // Up to a full autosave window of authored text used to go with the
-    // switch. It is written to the draft it belongs to first.
-    await flushDraft();
-    // The draft's own summary rides along, so autosave keeps the note
-    // restore-as-draft wrote ("restored from v1.2") instead of "draft autosave".
-    adoptVersion(
-      { ...adopted(v), flow: v.flow ?? null },
-      { draftId: v.id, summary: v.summary, status: "saved" },
-    );
-    clearLint();
-    toast.info(`Loaded draft ${v.label || v.id}`);
-  };
-
-  const discardDraft = async (v: PromptVersion) => {
-    try {
-      await discardMutation.mutateAsync(v.id);
-      if (draftId === v.id) {
-        // Explicitly not `published`. That falls back to `history[0]` when the
-        // card has never shipped, and on a draft-only card `history[0]` can BE
-        // the row just discarded — the refetch has not landed yet — so
-        // discarding reloaded the discarded text straight back into the editor,
-        // where autosave would have written it out again as a new draft.
-        const live =
-          history.find((h) => h.status === "published" && h.id !== v.id) ??
-          history.find((h) => h.id !== v.id) ??
-          null;
-        // Always off the discarded row. Left pointing at it, Publish stayed
-        // enabled and republished the text just discarded.
-        clearLint();
-        if (!live) {
-          // Nothing else to show: the seeded defaults, as a bot with no version
-          // starts. Keeping the discarded text on screen let autosave write it
-          // straight back out as a new draft.
-          adoptVersion(
-            { ...EMPTY_FIELDS, card: asCard(cardQuery.data?.publishedCard) },
-            { draftId: null, status: "idle" },
-          );
-          markSaved("");
-        } else {
-          adoptVersion(
-            { ...adopted(live), flow: live.flow ?? null },
-            { draftId: null, status: "idle" },
-          );
-        }
-      }
-      toast.success(`Discarded draft ${v.label || v.id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Discard failed");
-    }
-  };
-
-  const restore = async (v: PromptVersion) => {
-    try {
-      await flushDraft();
-      const draft = await restoreMutation.mutateAsync(v.id);
-      await loadDraft(draft);
-      toast.info(`Restored ${v.label} into draft — publish to make it live.`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Restore failed");
-    }
-  };
-
-  const { confirm, confirmDialog } = useConfirm();
-
-  const publish = async (note: string) => {
-    if (!flowCheck.valid) {
-      toast.error(
-        flowCheck.unchecked
-          ? "The flow validator could not be reached, so this graph is unchecked. Retry before publishing."
-          : "Fix conversation-flow errors before publishing.",
-      );
-      setTab("flow");
-      return;
-    }
-    try {
-      // The in-flight autosave lands first; publishing beside it created an
-      // orphan or a post-publish duplicate draft.
-      const flushed = await flushDraft();
-      const publishedRow = await publishMutation.mutateAsync({
-        draftId: flushed?.id ?? draftId,
-        label: draftLabel,
-        prompt,
-        persona,
-        voice,
-        guardrails,
-        summary: note,
-        flow: flow ?? undefined,
-        agentCard: asCard(effectiveCard) ?? undefined,
-        botId,
-        trafficPct: ship.trafficPct,
-        autoRollback: ship.autoRollback,
-      });
-      setPublishOpen(false);
-      adoptVersion(
-        { ...adopted(publishedRow), flow: publishedRow.flow ?? null },
-        { draftId: null, status: "idle" },
-      );
-      clearLint();
-      toast.success(`Published ${publishedRow.label || nextLabel}`);
-      // Publishing a member is a fleet act: every door that merges this card
-      // got a new deployment, or says why it kept the old one. Silence here
-      // would mean the hop keeps speaking the previous graph and nobody knew.
-      for (const r of publishedRow.fleetRebuilds ?? []) {
-        if (r.rebuilt) {
-          toast.info(`${r.doorBotId} rebuilt its fleet bundle (${r.deploymentId})`);
-        } else if (r.reason !== "unchanged") {
-          toast.warning(`${r.doorBotId} did not rebuild its fleet bundle: ${r.reason}`);
-        }
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Publish failed");
-    }
-  };
-
-  const onRollback = () =>
-    rollbackLive({
-      targetId: activeDeployment?.rollbackDeploymentId ?? priorDeployment?.id,
-      unsaved,
-      confirm,
-      rollback: rollbackMutation.mutateAsync,
-      refetchVersions: async () => (await versionsQuery.refetch()).data,
-      adoptVersion,
-    });
-
-  const onTestSandbox = async () => {
-    try {
-      // The same save the debounce makes -- with the draft's own summary, not
-      // "sandbox try", which the next autosave then flipped back.
-      const flushed = dirty ? await flushDraft() : null;
-      const versionId = flushed?.id ?? draftId ?? published?.id;
-      if (!versionId) {
-        toast.info("No version to test yet.");
-        return;
-      }
-      void navigate({
-        to: "/sandbox",
-        // botId matters: the sandbox lists versions for the bot it has selected,
-        // which defaults to kaia-v2-4. Without it, a draft belonging to any
-        // other card was not found and the page quietly rehearsed kaia's
-        // published version instead — a green sandbox run for the wrong agent.
-        search: { promptVersionId: versionId, botId },
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not prepare sandbox draft");
-    }
-  };
 
   // What a publish is measured against: the live row, and nothing else.
   //
@@ -570,10 +336,10 @@ export function PromptStudioPage({
         dirty: unsaved,
         personaLabel,
         saveStatus,
-        onTestSandbox: () => void onTestSandbox(),
+        onTestSandbox: () => void actions.testSandbox(),
         onPublish: () => {
           setPublishOpen(true);
-          void runCompile();
+          void actions.runCompile();
         },
         onAiReview: () => void lint.critique(),
         lintBusy: lint.busy,
@@ -588,46 +354,8 @@ export function PromptStudioPage({
       }}
       banners={
         <>
-          {cardStale && (
-            <div className="mx-250 mt-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
-              The card could not be re-read (
-              {cardQuery.error instanceof Error
-                ? cardQuery.error.message
-                : "the API did not answer"}
-              ). You are editing the copy loaded earlier; saves still go to {botId}.
-            </div>
-          )}
-
-          {showGapBanner && (
-            <div className="mx-250 mt-150 flex items-start justify-between gap-150 rounded-medium border border-border-warning-subtle bg-background-warning-subtler px-150 py-100 text-body-small text-text-warning-bolder">
-              <div>
-                <div className="font-semibold text-text-warning-bolder">
-                  Fixing unanswered question
-                </div>
-                <div className="mt-025 text-text-warning-bolder/90">
-                  {gapNote || "Review the system prompt for this coverage gap."}
-                  {unansweredId ? (
-                    <span className="ml-050 font-mono text-body-small text-text-warning-bolder/70">
-                      ({unansweredId})
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-050 text-body-small text-text-warning-bolder/80">
-                  Banner only — edit the prompt yourself; nothing is auto-injected.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setGapBannerDismissed(true);
-                  void navigate({ to: "/agent-studio/$botId", params: { botId }, search: {} });
-                }}
-                className="shrink-0 rounded border border-border-warning px-100 py-025 text-body-small hover:bg-background-warning-subtler"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
+          {cardStale && <CardStaleBanner botId={botId} error={cardQuery.error} />}
+          <GapBanner botId={botId} unansweredId={unansweredId} note={gapNote} />
         </>
       }
       tab={tab}
@@ -663,9 +391,9 @@ export function PromptStudioPage({
           activeDeployment={activeDeployment}
           priorDeployment={priorDeployment}
           compileReport={compileReport}
-          runCompile={() => void runCompile()}
+          runCompile={() => void actions.runCompile()}
           compileBusy={compileMutation.isPending}
-          applyPreset={applyPreset}
+          applyPreset={actions.applyPreset}
           presets={presets}
           presetsFailed={presetsQuery.isError}
           freshLint={lint.findings}
@@ -698,15 +426,15 @@ export function PromptStudioPage({
               setHistoryOpen(false);
             }}
             onRestore={(v) => {
-              void restore(v);
+              void actions.restore(v);
               setHistoryOpen(false);
             }}
             onLoadDraft={(v) => {
-              void loadDraft(v);
+              void actions.loadDraft(v);
               setHistoryOpen(false);
             }}
-            onDiscardDraft={(v) => discardDraft(v)}
-            onRollback={() => void onRollback()}
+            onDiscardDraft={(v) => actions.discardDraft(v)}
+            onRollback={() => void actions.rollback()}
             rollbackBusy={rollbackMutation.isPending}
           />
         </SheetContent>
@@ -735,21 +463,17 @@ export function PromptStudioPage({
         }}
         flowIssues={flowCheck.issues}
         compileReport={compileReport}
-        compileError={compileError}
+        compileError={actions.compileError}
         compileBusy={compileMutation.isPending}
         busy={publishMutation.isPending}
-        onConfirm={(note) => void publish(note)}
+        onConfirm={(note) => void actions.publish(note)}
       />
 
       <PresetConfirm
-        pending={presetPending}
-        shown={presetShown.current}
+        pending={actions.presetPending}
         prompt={prompt}
-        onCancel={() => setPresetPending(null)}
-        onConfirm={() => {
-          if (presetPending) commitPreset(presetPending);
-          setPresetPending(null);
-        }}
+        onCancel={actions.cancelPreset}
+        onConfirm={actions.confirmPreset}
       />
 
       {busy && (
@@ -757,7 +481,7 @@ export function PromptStudioPage({
           Saving…
         </div>
       )}
-      {confirmDialog}
+      {actions.confirmDialog}
     </PromptStudioShell>
   );
 }
