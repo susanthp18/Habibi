@@ -148,7 +148,7 @@ class CrmSink:
         self._analysis_queue: asyncio.Queue[_Job | None] = asyncio.Queue()
         self._analysis_task: asyncio.Task[None] | None = None
         # Captured in start(). Bot-turn guardrail flags are computed inside
-        # _handle_sync, which runs in a worker thread via to_thread — and
+        # crm_sink_jobs.handle, which runs in a worker thread via to_thread — and
         # asyncio.Queue is not thread-safe, so the critique job has to be handed
         # back across the boundary rather than put_nowait'd directly.
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -448,7 +448,7 @@ class CrmSink:
             # drain that would have run it has been cancelled.
             if not self._completed:
                 try:
-                    await asyncio.to_thread(self._handle_sync, complete_job)
+                    await asyncio.to_thread(crm_sink_jobs.handle, self, complete_job)
                 except Exception:
                     logger.exception(
                         "crm sink direct finalisation failed · session=%s",
@@ -578,7 +578,7 @@ class CrmSink:
         loop = self._loop
         try:
             if loop is not None and loop.is_running():
-                # _handle_sync calls this from a to_thread worker; asyncio.Queue
+                # crm_sink_jobs.handle calls this from a to_thread worker; asyncio.Queue
                 # is not thread-safe, so hop back onto the loop to enqueue.
                 loop.call_soon_threadsafe(self._enqueue_analysis_job, job)
             else:

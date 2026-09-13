@@ -300,3 +300,35 @@ def test_a_degraded_call_that_cannot_be_filed_says_so(
 
     assert session.interaction_id is None
     assert any("this call is unrecorded" in r.getMessage() for r in caplog.records)
+
+
+# --- a stuck drain still closes the call -----------------------------------
+
+
+def test_a_stuck_drain_is_cancelled_and_the_call_still_completes(
+    quiet_persist: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The direct-finalisation path after a drain timeout called a method the
+    sink no longer had, so the one situation it exists for -- a backlog that
+    never reached the "complete" job -- ended with the interaction open."""
+    session = _session()
+    session.interaction_id = "CL-STUCK1"
+    sink = CrmSink(session, direction="inbound")
+
+    async def _never_drains(self: CrmSink) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(CrmSink, "_drain", _never_drains)
+
+    async def _run() -> None:
+        await sink.start()
+        with monkeypatch.context() as m:
+            real_wait_for = asyncio.wait_for
+            m.setattr(asyncio, "wait_for", lambda aw, timeout: real_wait_for(aw, timeout=0.05))
+            await sink.stop()
+
+    asyncio.run(_run())
+
+    assert len(quiet_persist["complete"]) == 1
+    assert quiet_persist["complete"][0]["interaction_id"] == "CL-STUCK1"
+    assert sink._task is None
