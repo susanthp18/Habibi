@@ -173,8 +173,7 @@ def _end_node(*, farewell_task: str, session: VoiceSession | None = None) -> dic
     Post-actions run after TTS finishes — no sleep guessing.
     """
     if session is not None:
-        session.extra["ending"] = True
-        session.extra.setdefault("ending_reason", "bot_farewell")
+        session.mark_ending("bot_farewell")
     return {
         "name": "call_ended",
         "task_messages": [

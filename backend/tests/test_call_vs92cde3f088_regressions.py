@@ -328,3 +328,19 @@ def test_the_voice_budget_covers_the_planner() -> None:
     observed_planner_secs = 1.8
     assert kb_plan.voice_budget_s() >= observed_planner_secs
     assert kb_plan.voice_budget_s() <= 3.0
+
+
+def test_the_ending_reason_has_one_owner() -> None:
+    """Three handlers latched `ending_reason` with two different rules (first
+    wins, last wins), so what the interaction recorded depended on which ran.
+    The session owns it: the first claim stands unless the caller overrides,
+    which only a terminal flow node does."""
+    from voice.session import VoiceSession
+
+    session = VoiceSession(session_id="VS-ENDING01")
+    session.mark_ending("dead_air")
+    session.mark_ending("bot_farewell")
+    assert session.extra["ending"] is True
+    assert session.extra["ending_reason"] == "dead_air"
+    session.mark_ending("flow_node:collections.escalate_close", override=True)
+    assert session.extra["ending_reason"] == "flow_node:collections.escalate_close"

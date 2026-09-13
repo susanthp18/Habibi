@@ -188,6 +188,8 @@ async def attach_ivr_handlers(
             await _flag(session, "ivr_detected", "low")
         elif status == IVRStatus.STUCK:
             session.extra["disposition"] = "ivr_stuck"
+            # finalize reads the reason; without it the interaction said bot_ended.
+            session.mark_ending("ivr_stuck")
             await _flag(session, "ivr_stuck", "high")
             await _alert("compliance", "ivr_stuck")
             await _end_call(worker)

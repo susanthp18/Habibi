@@ -201,10 +201,9 @@ def build(ctx: ToolBuildContext) -> None:
         # rule on the text mouths.
         state.active_specialist = split_key(name)[0] or state.active_specialist
         if local_key(name) in _TERMINAL_NODES:
-            session.extra["ending"] = True
-            # Last terminal wins. setdefault kept the first hop (often
-            # escalate_close) even after the caller later asked to hang up.
-            session.extra["ending_reason"] = f"flow_node:{name}"
+            # Last terminal wins: the first hop (often escalate_close) is not
+            # the reason when the caller later asked to hang up.
+            session.mark_ending(f"flow_node:{name}", override=True)
         previous = state.current_node
         state.current_node = name
         session.extra["flow_node"] = name

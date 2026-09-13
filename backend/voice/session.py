@@ -111,6 +111,20 @@ class VoiceSession:
             ts = ts.replace(tzinfo=timezone.utc)
         return max(0.0, (ts - self.call_started_at).total_seconds())
 
+    def mark_ending(self, reason: str, *, override: bool = False) -> None:
+        """Latch the call as ending and record why, once.
+
+        Three paths claimed the end with three rules -- two kept the first
+        reason, one kept the last -- so what the interaction recorded depended
+        on which handler ran. The first claim stands unless the caller says
+        otherwise: a terminal flow node reached after an escalation is the
+        truer reason and passes ``override=True``; a farewell after a hang-up
+        is not.
+        """
+        self.extra["ending"] = True
+        if override or not self.extra.get("ending_reason"):
+            self.extra["ending_reason"] = reason
+
     def next_turn_index(self) -> int:
         self.turn_index += 1
         return self.turn_index

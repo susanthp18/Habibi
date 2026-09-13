@@ -57,10 +57,9 @@ def build(scope: HandlerScope) -> None:
             )
             return False
         hs.ending = True
-        session.extra["ending"] = True
         # Read back by on_pipeline_finished so the finalized interaction records
         # why the call ended rather than a generic "bot_ended".
-        session.extra.setdefault("ending_reason", reason)
+        session.mark_ending(reason)
         if hs.duration_task is not None and not hs.duration_task.done():
             hs.duration_task.cancel()
         if hs.deadair_task is not None and not hs.deadair_task.done():
