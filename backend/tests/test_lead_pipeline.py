@@ -279,15 +279,45 @@ def test_an_overdue_follow_up_is_escalated_exactly_once(db_tx):
     )
 
 
-def test_the_sweep_never_contacts_anyone():
+def test_the_sweep_never_contacts_anyone(db_tx):
     """It escalates. Reaching out is a contact-policy decision with consent,
     hours and frequency caps attached, and a background sweep must not make one
-    silently — so nothing in here may enqueue an outbound touch."""
-    import inspect
+    silently — so with a due follow-up in front of it, every statement the
+    sweep runs is read against the outbound tables it must not write."""
+    from sqlalchemy import event
 
-    source = inspect.getsource(db.sweep_due_followups)
-    for forbidden in ("whatsapp_outbound", "twilio", "enqueue", "place_call", "admit("):
-        assert forbidden not in source
+    import db_core
+
+    lead_id = db_tx.execute(
+        text("SELECT id FROM leads WHERE stage = ANY(:s) LIMIT 1"),
+        {"s": list(db.OPEN_LEAD_STAGES)},
+    ).scalar()
+    if lead_id is None:
+        pytest.skip("no open lead in this database")
+    db_tx.execute(
+        text(
+            "INSERT INTO followups (id, lead_id, customer_id, status, priority, due_at, note, channel)"
+            " SELECT 'FU-TEST-SWEEP-2', id, customer_id, 'open', 'normal',"
+            "        now() - interval '1 hour', 'due', 'voice' FROM leads WHERE id = :id"
+        ),
+        {"id": lead_id},
+    )
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+
+    event.listen(db_core.engine, "before_cursor_execute", _record)
+    try:
+        assert lead_id in db.sweep_due_followups()["leads"]
+    finally:
+        event.remove(db_core.engine, "before_cursor_execute", _record)
+
+    writes = [s for s in statements if s.lstrip().startswith(("insert", "update", "delete"))]
+    assert writes, "the sweep escalated nothing"
+    for table in ("whatsapp_outbound", "messages", "outbound_attempts", "contact_events", "bot_turn_jobs"):
+        assert not any(table in s for s in writes), table
 
 
 # ------------------------------------------------------------------- metrics

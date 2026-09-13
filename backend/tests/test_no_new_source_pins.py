@@ -15,12 +15,14 @@ from pathlib import Path
 TESTS = Path(__file__).resolve().parent
 #: ``open(...).read()`` and the ``tests/voice_tools_source`` helper are source
 #: reads too; the first pattern missed them, which is how one pin slipped past
-#: the count. Re-measured under the wider net on 2026-09-12: 106.
+#: the count. Re-measured under the wider net on 2026-09-12: 106; four pins
+#: became behaviour tests on 2026-09-13 (the sweep's statements, the
+#: dashboard's statements, the scheduler's SUITE_KINDS, a deleted constant).
 _PIN = re.compile(r"inspect\.getsource\(|\.read_text\(|\.read\(\)|voice_tools_source")
 
 #: Files that read source text on 2026-09-12. Remove a name when its test
 #: stops doing so; never add one -- a new test pins behaviour, not text.
-BASELINE = 106
+BASELINE = 102
 
 
 def _pinning_files() -> list[str]:

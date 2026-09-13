@@ -36,12 +36,11 @@ def test_debt_words_match_whole_words_only() -> None:
 
 
 def test_the_scheduler_runs_the_outbound_suite() -> None:
-    """EVALS-8: the suite G-OB9 gates on was never scheduled."""
-    import inspect
-
+    """EVALS-8: the suite G-OB9 gates on was never scheduled. ``run_continuous``
+    runs every kind in SUITE_KINDS when none are named."""
     from agent_core.eval import schedule
 
-    assert '"outbound"' in inspect.getsource(schedule.run_continuous)
+    assert "outbound" in schedule.SUITE_KINDS
 
 
 def test_a_critique_is_filed_against_the_pack_that_owns_the_grader() -> None:

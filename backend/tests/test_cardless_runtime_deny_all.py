@@ -8,7 +8,6 @@ must offer zero write tools, and ``execute_tool`` must refuse them.
 
 from __future__ import annotations
 
-import inspect
 
 import pytest
 
@@ -82,11 +81,10 @@ def test_whatsapp_offers_no_tools_when_cardless() -> None:
 
 
 def test_text_runtime_no_longer_falls_back_to_the_full_catalog() -> None:
-    import bot_runtime
     import bot_tools
 
+    # The catalogue constant the fallback read is gone; nothing can fall back to it.
     assert not hasattr(bot_tools, "TOOL_DEFINITIONS")
-    assert "TOOL_DEFINITIONS" not in inspect.getsource(bot_runtime)
 
 
 # --- sandbox ----------------------------------------------------------------

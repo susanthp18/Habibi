@@ -230,8 +230,21 @@ def test_sparklines_are_real_series_not_synthetic_noise() -> None:
 
 
 def test_analytics_daily_is_no_longer_read() -> None:
-    """db.py:4592 tells callers not to read the stub tables; this one did."""
-    import inspect
+    """The stub tables are not to be read; the dashboard used to. Every
+    statement the read runs is captured and none may name them."""
+    from sqlalchemy import event
 
-    source = inspect.getsource(db.get_dashboard)
-    assert "analytics_daily" not in source
+    import db_core
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+
+    event.listen(db_core.engine, "before_cursor_execute", _record)
+    try:
+        db.get_dashboard(range="qtd")
+    finally:
+        event.remove(db_core.engine, "before_cursor_execute", _record)
+    assert statements
+    assert not any("analytics_daily" in s for s in statements)
