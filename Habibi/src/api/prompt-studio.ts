@@ -404,6 +404,8 @@ export type PromptTokenEstimateInput = {
   guardrails?: Guardrails;
   persona?: PersonaState;
   channel?: "voice" | "text";
+  /** The card whose skill catalog rides on the system message. */
+  botId?: string;
 };
 
 export async function estimatePromptTokens(
@@ -414,6 +416,7 @@ export async function estimatePromptTokens(
     ...(input.guardrails ? { guardrails: input.guardrails } : {}),
     ...(input.persona ? { persona: input.persona } : {}),
     ...(input.channel ? { channel: input.channel } : {}),
+    ...(input.botId ? { botId: input.botId } : {}),
   });
 }
 

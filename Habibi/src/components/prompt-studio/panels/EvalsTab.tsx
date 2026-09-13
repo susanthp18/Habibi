@@ -16,6 +16,7 @@ import {
 // `as never`, so nothing checked the other 7 or the spelling of these.
 import { isAuthoredCard, type AgentCard, type EvalRequire } from "@/api/agent-card";
 import { CritiquesPanel } from "../CritiquesPanel";
+import { useEvalReportDetail } from "@/api/agent-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner, QueryState } from "@/components/ui/query-state";
 import { NotAuthoredNotice } from "./NotAuthoredNotice";
@@ -95,6 +96,7 @@ export function EvalsTab({
    * being folded in as if the card had run them itself.
    */
   const tenantReportsQuery = useEvalReports(undefined, TENANT_WIDE_REPORTS);
+  const [openReport, setOpenReport] = useState<string | null>(null);
   const latestByKind = new Map<string, EvalReport>();
   for (const r of reportsQuery.data ?? []) {
     const kind = r.kind ?? "unknown";
@@ -168,6 +170,14 @@ export function EvalsTab({
                       : ""}
                   </span>
                   <Lozenge tone={gateTone(latest.status)}>{latest.status}</Lozenge>
+                  <button
+                    type="button"
+                    className="text-body-tiny text-text-brand underline-offset-2 hover:underline"
+                    aria-expanded={openReport === latest.id}
+                    onClick={() => setOpenReport((cur) => (cur === latest.id ? null : latest.id))}
+                  >
+                    {openReport === latest.id ? "hide trials" : "trials"}
+                  </button>
                 </span>
               ) : tenantWideByKind.get(kind) ? (
                 <span className="flex items-center gap-100">
@@ -195,6 +205,7 @@ export function EvalsTab({
           );
         })}
       </ul>
+      {openReport ? <EvalTrials reportId={openReport} /> : null}
       <QueryState
         query={suitesQuery}
         label="the suite catalog"
@@ -361,5 +372,48 @@ function EvalReportsList({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * The graded fixtures behind a verdict, failed first. The trials were written
+ * on every run and read by nothing; a lozenge that says "fail" with no way to
+ * see which fixture failed is a verdict the author cannot act on.
+ */
+function EvalTrials({ reportId }: { reportId: string }) {
+  const query = useEvalReportDetail(reportId);
+  return (
+    <QueryState query={query} label="the report's trials">
+      {query.data ? (
+        query.data.trials.length === 0 ? (
+          <p className="text-body-tiny text-text-subtle">
+            This report recorded no trials — it predates per-fixture storage.
+          </p>
+        ) : (
+          <ul className="max-h-[16rem] space-y-050 overflow-y-auto rounded-medium border border-border p-100">
+            {query.data.trials.map((t, i) => (
+              <li
+                key={`${t.taskId ?? "trial"}-${i}`}
+                className="flex items-start gap-100 text-body-tiny"
+              >
+                <Lozenge tone={t.passed ? "success" : "danger"}>
+                  {t.passed ? "pass" : "fail"}
+                </Lozenge>
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium text-text">{t.name ?? t.taskId ?? "trial"}</span>
+                  {(t.verdict.graders ?? [])
+                    .filter((g) => g.passed === false && g.detail)
+                    .map((g, j) => (
+                      <span key={j} className="block text-text-subtle">
+                        {g.grader}: {g.detail}
+                      </span>
+                    ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </QueryState>
   );
 }

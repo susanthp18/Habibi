@@ -49,7 +49,7 @@ from schemas import (
 )
 from schemas import AgentStudioSkillResponse
 
-from api_support import _read_upload_capped, Utf8JSONResponse, ROUTER_DEPENDENCIES
+from api_support import _handle_write, _read_upload_capped, Utf8JSONResponse, ROUTER_DEPENDENCIES
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -74,7 +74,10 @@ def promote_kb_gap_to_skill(gap_id: str):
         gap_id=gap_id,
     )
     assert_unsigned(draft)
-    return create_draft_skill(
+    # Through the write mapper like every other studio write: a slug already
+    # taken is a 409 skill_slug_taken, not a 500.
+    return _handle_write(
+        create_draft_skill,
         {
             "slug": draft["slug"],
             "description": draft["frontmatter"].get("description"),
@@ -82,7 +85,7 @@ def promote_kb_gap_to_skill(gap_id: str):
             "body": draft["body"],
             "frontmatter": draft["frontmatter"],
             "origin": "gardener",
-        }
+        },
     )
 
 @router.post("/kb/retrieve", response_model=KbRetrieveResponse)

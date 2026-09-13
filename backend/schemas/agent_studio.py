@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # The authored flow graph is a domain model, not a transport shape — it is
 # shared verbatim by the API, the validator and the voice runtime, so it is
@@ -81,6 +81,17 @@ class PersonaState(BaseModel):
     traits: PersonaTraits
     language: str
     fallbackLanguages: list[str]
+
+    @field_validator("language")
+    @classmethod
+    def _known_language(cls, value: str) -> str:
+        # The traits are bounded; the language was any string, and an unknown
+        # one reached the recogniser as a locale nothing could bind.
+        from agent_core.languages import tag_for
+
+        if tag_for(value) is None:
+            raise ValueError(f"unknown language: {value!r}")
+        return value
 
 
 class VoiceConfig(BaseModel):
@@ -326,6 +337,10 @@ class PromptTokenEstimateRequest(BaseModel):
     guardrails: Guardrails | None = None
     persona: PersonaState | None = None
     channel: Literal["voice", "text"] = "voice"
+    #: The card whose skills ride on the system message: both runtimes append
+    #: the skill catalog prefix, so an assembled count without it understated
+    #: every card that attaches a pack.
+    botId: str | None = None
 
 
 class PromptTokenEstimateResponse(BaseModel):
@@ -490,6 +505,47 @@ class AgentStudioChangeLogEntryResponse(BaseModel):
     replacedDeploymentId: str | None = None
     retiredDeploymentId: str | None = None
     archivedAt: str | None = None
+    # agent.role_grants
+    roleId: str | None = None
+    permissionIds: list[str] | None = None
+    # agent.experiment_rollback
+    experimentId: str | None = None
+    reason: str | None = None
+    baselineRestored: bool | None = None
+    trafficPct: int | None = None
+    shadow: bool | None = None
+    autoRollback: list[str] | None = None
+    # agent.entry_binding
+    bindingId: str | None = None
+    channel: str | None = None
+    address: str | None = None
+    enabled: bool | None = None
+    removed: bool | None = None
+    # agent.platform_sync
+    promptVersionId: str | None = None
+    filled: list[str] | None = None
+    moved: list[str] | None = None
+    # agent.fleet_rebuild
+    previousDeploymentId: str | None = None
+    bundleHash: str | None = None
+    memberBotId: str | None = None
+    memberVersionId: str | None = None
+    # agent.connector
+    connectorId: str | None = None
+    slug: str | None = None
+    kind: str | None = None
+    url: str | None = None
+    status: str | None = None
+    allowPrefixes: list[str] | None = None
+    dataClass: list[str] | None = None
+    allowedEnv: str | None = None
+    # agent.mcp_key
+    keyId: str | None = None
+    name: str | None = None
+    scopes: list[str] | None = None
+    prefix: str | None = None
+    revoked: bool | None = None
+    rotatedFrom: str | None = None
 
 
 class AgentStudioChainVerdictResponse(BaseModel):

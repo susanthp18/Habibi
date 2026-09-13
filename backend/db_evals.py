@@ -179,7 +179,9 @@ TENANT_WIDE_REPORTS = "__none__"
 
 
 def get_eval_report(report_id: str) -> dict[str, Any] | None:
-    """One report row, scoped to the tenant like every sibling read."""
+    """One report row with its trials, scoped to the tenant like every sibling
+    read. The trials were written since pass 5 and read by nobody; a verdict
+    with no way to see which fixture failed is a lozenge, not a report."""
     with _engine().connect() as conn:
         row = _one(
             conn.execute(
@@ -187,7 +189,36 @@ def get_eval_report(report_id: str) -> dict[str, Any] | None:
                 {"id": report_id, "t": _tenant()},
             )
         )
-    return dict(row) if row is not None else None
+        if row is None:
+            return None
+        trials = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT t.task_id, t.redteam_case_id, t.passed, t.tool_calls, t.crm_outcomes,
+                           t.grader_verdicts, COALESCE(k.name, c.name) AS name
+                    FROM eval_trials t
+                    LEFT JOIN eval_tasks k ON k.id = t.task_id
+                    LEFT JOIN eval_redteam_cases c ON c.id = t.redteam_case_id
+                    WHERE t.report_id = :id
+                    ORDER BY t.passed, t.created_at
+                    """
+                ),
+                {"id": report_id},
+            )
+        )
+    out = dict(row)
+    out["trials"] = [
+        {
+            "taskId": t.get("task_id") or t.get("redteam_case_id"),
+            "name": t.get("name"),
+            "passed": bool(t.get("passed")),
+            "verdict": {"graders": t.get("grader_verdicts") or []},
+            "fixture": {"toolCalls": t.get("tool_calls") or [], "crmOutcomes": t.get("crm_outcomes") or {}},
+        }
+        for t in trials
+    ]
+    return out
 
 
 def list_eval_reports(

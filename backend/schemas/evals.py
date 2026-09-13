@@ -398,6 +398,8 @@ class EvalReportRowResponse(BaseModel):
     created_at: datetime | None = None
     origin: str | None = None
     content_key: str | None = None
+    #: The graded fixtures behind the verdict, failed first.
+    trials: list[EvalTrialResponse] = []
 
 
 class EvalScheduleRunResponse(BaseModel):

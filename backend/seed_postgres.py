@@ -1487,9 +1487,14 @@ def seed_skills(conn: psycopg.Connection) -> None:
         "supervisor-brief": "pv-supervisor-1",
     }
     version_ids: dict[str, str] = {}
+    from agent_core.skills.persist import _stored_version, _version_row_id
+
     for pack in all_first_party_packs():
         sid = f"skill-{pack.slug}"
-        vid = f"{sid}-v1"
+        # The same id and version the boot sync derives, so a seeded database
+        # and a synced one hold one signed row per pack, not two.
+        version = _stored_version(pack.version)
+        vid = _version_row_id(sid, version)
         version_ids[pack.slug] = vid
         signature = sign_hash(pack.content_hash)
         upsert(
@@ -1509,7 +1514,7 @@ def seed_skills(conn: psycopg.Connection) -> None:
             {
                 "id": vid,
                 "skill_id": sid,
-                "version": "1",
+                "version": version,
                 "status": "signed",
                 "frontmatter": pack.frontmatter,
                 "body": pack.body,

@@ -767,16 +767,31 @@ def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
         # Same two steps the runtimes take, so the count reflects the CRM lines
         # that get deleted rather than the ones that were typed.
         rendered = strip_unrendered_crm_tokens(render_system_prompt(text, ctx))
+        # The skill catalog prefix rides on the system message on both
+        # channels (bot_runtime, voice/prompt); a count without it understated
+        # every card that attaches a pack.
+        skill_catalog = ""
+        if payload.botId:
+            try:
+                from agent_core.skills.runtime import description_block, packs_from_card
+
+                card = db.get_agent_studio_card(payload.botId).get("agentCard")
+                skill_catalog = description_block(packs_from_card(card))
+            except Exception:
+                logger.debug("skill catalog unavailable for the estimate", exc_info=True)
         if payload.channel == "voice":
             from voice.natural import build_voice_system_prompt
 
             assembled = build_voice_system_prompt(rendered, guardrails, persona=persona or None)
+            if skill_catalog:
+                assembled = assembled.rstrip() + "\n\n" + skill_catalog.strip() + "\n"
         else:
             assembled = build_system_prompt(
                 rendered_prompt=rendered,
                 persona=persona,
                 guardrails=guardrails,
                 context_blocks=[],
+                skill_catalog=skill_catalog,
                 channel="whatsapp",
             )
         assembled_tokens = count_tokens(assembled)

@@ -108,11 +108,8 @@ SELECT
   'stops_after_opt_out',
   $obfix${
   "opt_out_requested": true,
-  "tool_calls": [
-    {
-      "name": "record_optout"
-    }
-  ],
+  "optout_recorded": true,
+  "tool_calls": [],
   "agent_turns_after_opt_out": 1
 }$obfix$::jsonb,
   now()

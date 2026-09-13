@@ -330,6 +330,31 @@ export type EvalReport = {
   createdAt?: string | null;
 };
 
+/** One graded fixture behind a report's verdict. */
+export type EvalTrial = {
+  taskId?: string | null;
+  name?: string | null;
+  passed: boolean;
+  verdict: { graders?: { grader?: string; passed?: boolean; detail?: string }[] };
+  fixture: Record<string, unknown>;
+};
+
+export type EvalReportDetail = {
+  id: string;
+  status?: string | null;
+  summary?: { failed?: number; total?: number } | null;
+  trials: EvalTrial[];
+};
+
+/** The report with its trials, failed first -- fetched when a row is opened. */
+export function useEvalReportDetail(reportId: string | null) {
+  return useQuery({
+    queryKey: ["eval-report", reportId],
+    enabled: Boolean(reportId),
+    queryFn: () => apiGet<EvalReportDetail>(`/eval/reports/${encodeURIComponent(reportId!)}`),
+  });
+}
+
 /** `botId` that asks for the reports the scheduler filed against no card. */
 export const TENANT_WIDE_REPORTS = "__none__";
 

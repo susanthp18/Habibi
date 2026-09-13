@@ -48,6 +48,7 @@ export function PromptEditor({
     guardrails,
     persona,
     channel: "voice",
+    botId,
   });
   const insertVar = (name: string) => {
     const el = ref.current;
