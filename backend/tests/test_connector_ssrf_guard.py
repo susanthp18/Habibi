@@ -68,15 +68,13 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     The guard's whole job is to run *before* the connect, so a test that lets
     httpx through is not testing the guard.
     """
-    import httpx
-
     posted: list[str] = []
 
     def _explode(url: str, **kwargs: Any) -> Any:
         posted.append(url)
         raise AssertionError(f"outbound POST escaped the guard: {url}")
 
-    monkeypatch.setattr(httpx, "post", _explode)
+    monkeypatch.setattr(cp, "_post", _explode)
     return posted
 
 

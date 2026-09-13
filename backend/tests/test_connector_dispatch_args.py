@@ -49,15 +49,13 @@ class _Resp:
 @pytest.fixture
 def sent(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Capture the outbound JSON-RPC body instead of making a request."""
-    import httpx
-
     bodies: list[dict[str, Any]] = []
 
     def _post(url: str, **kwargs: Any) -> Any:
         bodies.append(kwargs.get("json") or {})
         return _Resp()
 
-    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(cp, "_post", _post)
     # The SSRF guard has its own suite; here it must simply not resolve DNS.
     import webhooks_dispatch as wd
 
@@ -178,7 +176,6 @@ def test_a_remote_refusal_is_the_models_problem_not_the_circuits(
     used to be raised as a RuntimeError, scored as a circuit failure and
     returned as connector_call_failed -- three bad invoice ids opened the
     connector for everyone."""
-    import httpx
 
     class _Refused:
         def raise_for_status(self) -> None:
@@ -187,7 +184,7 @@ def test_a_remote_refusal_is_the_models_problem_not_the_circuits(
         def json(self) -> dict[str, Any]:
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "unknown invoice"}}
 
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: _Refused())
+    monkeypatch.setattr(cp, "_post", lambda url, **kw: _Refused())
     import webhooks_dispatch as wd
 
     monkeypatch.setattr(cp, "_pinned", lambda url: wd.Pinned(str(url), "mcp.example.com", str(url)))
@@ -202,3 +199,37 @@ def test_a_remote_refusal_is_the_models_problem_not_the_circuits(
     )
     assert result == {"ok": False, "error": "remote_refused", "detail": "unknown invoice"}
     assert failures == []
+
+
+def test_the_dial_itself_carries_host_and_sni(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_post`` is exercised through a real httpx Client with a mock
+    transport. The fakes above replace it wholesale, which is how a call to
+    ``httpx.post(extensions=...)`` -- an argument that function does not take
+    -- passed every test while every real dial raised TypeError."""
+    import httpx
+
+    seen: dict[str, Any] = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen["host"] = request.headers["Host"]
+        seen["sni"] = request.extensions.get("sni_hostname")
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"ok": True}})
+
+    real_client = httpx.Client
+
+    def _client(**kw: Any) -> httpx.Client:
+        return real_client(transport=httpx.MockTransport(_handler), **kw)
+
+    monkeypatch.setattr(httpx, "Client", _client)
+    resp = cp._post(
+        "https://93.184.216.34/mcp",
+        headers={"Host": "mcp.example.com", "Content-Type": "application/json"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        timeout=1.0,
+        extensions={"sni_hostname": "mcp.example.com"},
+    )
+    assert resp.json()["result"] == {"ok": True}
+    assert seen["host"] == "mcp.example.com"
+    assert seen["sni"] == "mcp.example.com"
+    assert b'"tools/list"' in seen["body"]

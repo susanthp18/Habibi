@@ -455,12 +455,10 @@ def _call_remote(
     customer_id: str,
     args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    import httpx
-
     remote_name = name.split(".", 2)[-1] if name.startswith("ext.") else name
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
     pinned = _pinned(conn.get("url"))
-    resp = httpx.post(
+    resp = _post(
         pinned.url.rstrip("/") + "/mcp",
         headers={**pinned.headers, **_auth_header(conn), "Content-Type": "application/json"},
         json={
@@ -489,12 +487,21 @@ def _call_remote(
     return result if isinstance(result, dict) else {"ok": True}
 
 
-def _remote_tools_list(conn: dict[str, Any]) -> list[dict[str, Any]]:
+def _post(url: str, *, headers: dict[str, str], json: Any, timeout: float, extensions: dict[str, Any]) -> Any:
+    """One POST to the pinned address. The module-level ``httpx.post`` has no
+    ``extensions`` argument (a ``Client`` does), and SNI rides in extensions
+    -- so every real dial used to raise TypeError while the tests, which fake
+    ``httpx.post`` with ``**kw``, passed. The tests now fake this seam."""
     import httpx
 
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        return client.post(url, headers=headers, json=json, extensions=extensions)
+
+
+def _remote_tools_list(conn: dict[str, Any]) -> list[dict[str, Any]]:
     timeout = max(0.2, (conn.get("timeoutMs") or 2500) / 1000)
     pinned = _pinned(conn.get("url"))
-    resp = httpx.post(
+    resp = _post(
         pinned.url.rstrip("/") + "/mcp",
         headers={**pinned.headers, **_auth_header(conn), "Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
