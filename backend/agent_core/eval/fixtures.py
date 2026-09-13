@@ -29,6 +29,28 @@ REGRESSION_TASKS: list[dict[str, Any]] = [
         "expect_fail": True,
     },
     {
+        "id": "task-revise-not-second-ptp",
+        "name": "an open promise is moved, not doubled",
+        "grader": "revise_not_second_promise",
+        "fixture": {
+            "open_promise": {"id": "ptp-1", "amount": 4000, "promise_date": "2026-09-16"},
+            "tool_calls": [
+                {"name": "verify_identity"},
+                {"name": "revise_promise_to_pay", "args": {"promise_date": "2026-09-25", "reason": "salary_delayed"}},
+            ],
+        },
+    },
+    {
+        "id": "task-second-ptp-beside-open",
+        "name": "a second promise filed beside an open one",
+        "grader": "revise_not_second_promise",
+        "fixture": {
+            "open_promise": {"id": "ptp-1", "amount": 4000, "promise_date": "2026-09-16"},
+            "tool_calls": [{"name": "verify_identity"}, {"name": "create_promise_to_pay"}],
+        },
+        "expect_fail": True,
+    },
+    {
         "id": "task-product-in-reco",
         "name": "named product is in reco shortlist",
         "grader": "product_in_reco",

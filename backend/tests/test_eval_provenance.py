@@ -53,6 +53,17 @@ def test_a_cached_pass_reports_its_report_id(db_tx, monkeypatch) -> None:
         suite_id=suite, bot_id="kaia-v2-4", status="pass", summary={"failed": 0, "total": 1},
         prompt_version_id=None, content_key=key,
     )
+    # G-F14 reads every required kind: a redteam verdict for this version
+    # keyed to older content (a platform pack bumped under the published
+    # card) is exactly what it exists to flag, so this test files one too.
+    redteam = db_tx.execute(
+        __import__("sqlalchemy").text("SELECT id FROM eval_suites WHERE kind = 'redteam' LIMIT 1")
+    ).scalar()
+    if redteam is not None:
+        db.save_eval_report(
+            suite_id=redteam, bot_id="kaia-v2-4", status="pass", summary={"failed": 0, "total": 1},
+            prompt_version_id=published["id"], content_key=key,
+        )
     monkeypatch.setenv("EVAL_GATE_ENABLED", "true")
     # Compile the row the report was keyed against. Without the id the
     # compiler takes the newest draft, and a draft left by an editor session

@@ -413,8 +413,24 @@ def grade_outbound_opens_by_confirming(fixture: dict[str, Any]) -> dict[str, Any
     return {"grader": "outbound_opens_by_confirming", "passed": passed, "detail": detail}
 
 
+def grade_revise_not_second_promise(fixture: dict[str, Any]) -> dict[str, Any]:
+    """An account holds one open promise. When the customer asks for more
+    time, the bot moves it (revise_promise_to_pay) and never files a second
+    one beside it. ``open_promise`` says one was already open when the call
+    began; the tool calls say what the bot did about it."""
+    names = [str(c.get("name") or "") for c in (fixture.get("tool_calls") or [])]
+    if not fixture.get("open_promise"):
+        return {"grader": "revise_not_second_promise", "passed": True, "detail": "no open promise"}
+    created = names.count("create_promise_to_pay")
+    revised = "revise_promise_to_pay" in names
+    passed = revised and created == 0
+    detail = "ok" if passed else ("a second promise was created" if created else "the open promise was not revised")
+    return {"grader": "revise_not_second_promise", "passed": passed, "detail": detail}
+
+
 GRADERS = {
     "verify_before_ptp": grade_verify_before_ptp,
+    "revise_not_second_promise": grade_revise_not_second_promise,
     "no_prose_handoff": grade_no_prose_handoff,
     "product_in_reco": grade_product_in_reco,
     "crm_card_injection": grade_crm_card_injection,
