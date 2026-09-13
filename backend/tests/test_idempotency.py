@@ -199,3 +199,14 @@ def test_writes_without_a_key_are_not_deduplicated(db_tx) -> None:
     first = db.create_dispute(payload)
     second = db.create_dispute(payload)
     assert first["id"] != second["id"]
+
+
+def test_every_crm_create_route_reads_the_idempotency_header() -> None:
+    """The writers honour a key; two of the routes never read the header, so
+    the console could not send one and a double-click was a second row."""
+    import inspect
+
+    from routers import crm, payments
+
+    for fn in (crm.create_callback, crm.create_document_request, crm.create_dispute, payments.create_promise):
+        assert "idempotency_key" in inspect.signature(fn).parameters, fn.__name__

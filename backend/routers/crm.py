@@ -287,8 +287,8 @@ def add_dispute_evidence(dispute_id: str, payload: EvidenceCreateRequest):
     return _handle_write(db.add_dispute_evidence, dispute_id, payload.model_dump(exclude_none=True))
 
 @router.post("/callbacks", response_model=IdStatusResponse)
-def create_callback(payload: CallbackCreateRequest):
-    return _handle_write(db.create_callback, payload.model_dump(exclude_none=True))
+def create_callback(payload: CallbackCreateRequest, idempotency_key: str | None = Header(default=None)):
+    return _handle_write(db.create_callback, payload.model_dump(exclude_none=True), idempotency_key)
 
 @router.patch("/callbacks/{callback_id}", response_model=IdStatusResponse)
 def patch_callback(callback_id: str, payload: CallbackPatchRequest):
@@ -332,8 +332,10 @@ def patch_followup(followup_id: str, payload: FollowupPatchRequest):
     return _handle_write(db.patch_followup, followup_id, payload.model_dump(exclude_none=True))
 
 @router.post("/document-requests", response_model=DocumentRequestResponse)
-def create_document_request(payload: DocumentRequestCreateRequest):
-    return _handle_write(db.create_document_request, payload.model_dump(exclude_none=True))
+def create_document_request(
+    payload: DocumentRequestCreateRequest, idempotency_key: str | None = Header(default=None)
+):
+    return _handle_write(db.create_document_request, payload.model_dump(exclude_none=True), idempotency_key)
 
 @router.post("/document-requests/ingest", response_model=DocumentIngestResponse)
 async def ingest_document_request(
