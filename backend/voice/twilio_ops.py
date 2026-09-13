@@ -256,6 +256,16 @@ class CarrierRejected(Exception):
     """
 
 
+#: Twilio's "the recipient has replied STOP to this number" -- a statutory
+#: opt-out the carrier recorded and we had not.
+TWILIO_STOP_CODE = 21610
+
+
+class CarrierOptOut(CarrierRejected):
+    """The recipient told the carrier to stop. Not a bad number: an opt-out
+    that must reach the consent ledger, whichever sender tripped it."""
+
+
 def _is_rejection(exc: BaseException) -> bool:
     status = getattr(exc, "status", None)
     return isinstance(status, int) and 400 <= status < 500 and status not in (408, 429)
@@ -285,6 +295,8 @@ def carrier_call(fn, *args, **kwargs):
             return fn(*args, **kwargs)
         except Exception as exc:
             if _is_rejection(exc):
+                if getattr(exc, "code", None) == TWILIO_STOP_CODE:
+                    raise CarrierOptOut(str(exc)) from exc
                 raise CarrierRejected(str(exc)) from exc
             raise
 

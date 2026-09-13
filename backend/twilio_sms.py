@@ -74,9 +74,16 @@ def send(
     callback = status_callback_url()
     if callback:
         kwargs["status_callback"] = callback
-    from voice.twilio_ops import carrier_call
+    from voice.twilio_ops import CarrierOptOut, carrier_call
 
-    msg = carrier_call(client.messages.create, **kwargs)
+    try:
+        msg = carrier_call(client.messages.create, **kwargs)
+    except CarrierOptOut:
+        # Every SMS leaves through here, so this is the one place the
+        # carrier's STOP can reach the consent ledger before the sender
+        # decides what to do with the failure.
+        _record_carrier_opt_out(customer_id, digits[-4:])
+        raise
     logger.info("twilio_sms sent sid=%s to_last4=%s", msg.sid, digits[-4:])
 
     _record_sent(
@@ -87,6 +94,28 @@ def send(
         related_id=related_id,
     )
     return {"sid": msg.sid, "status": msg.status}
+
+
+def _record_carrier_opt_out(customer_id: str | None, last4: str) -> None:
+    """The recipient replied STOP to the carrier: close SMS for them here too.
+
+    Never raises -- the send has already failed and the caller reports that;
+    an opt-out that could not be written is logged, not lost in the same
+    exception.
+    """
+    if not customer_id:
+        logger.warning("twilio_sms STOP from an unattributed number last4=%s", last4)
+        return
+    try:
+        import db_consent
+
+        db_consent.opt_out(
+            customer_id,
+            {"channel": "sms", "source": "carrier", "note": "Twilio 21610: the recipient replied STOP"},
+        )
+        logger.warning("twilio_sms STOP recorded as an sms opt-out customer=%s", customer_id)
+    except Exception:
+        logger.exception("twilio_sms STOP could not be recorded customer=%s", customer_id)
 
 
 def _record_sent(

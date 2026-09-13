@@ -72,3 +72,67 @@ def test_key_vault_runs_through_its_breaker(monkeypatch) -> None:
         persist._get_azure("s1")
     with pytest.raises(circuit_breaker.CircuitOpenError):
         persist._get_azure("s1")
+
+
+def test_a_carrier_stop_reaches_the_opt_out_ledger(db_tx, monkeypatch) -> None:
+    """Twilio 21610 is the recipient replying STOP. It used to surface as a
+    plain CarrierRejected -- a bad number to every sender -- and the consent
+    ledger never heard of it. Every SMS leaves through twilio_sms.send, so
+    that is where the STOP is written down: sms opted out, the event naming
+    the carrier as its source, and the send still fails to its caller."""
+    from sqlalchemy import text
+    from twilio.base.exceptions import TwilioRestException
+
+    import actor_context
+    import twilio_sms
+    from voice import twilio_ops
+
+    customer = db_tx.execute(
+        text("SELECT id FROM customers WHERE id <> 'UNKNOWN-CALLER' ORDER BY id LIMIT 1")
+    ).scalar()
+    if customer is None:
+        pytest.skip("no customers seeded")
+    circuit_breaker._breakers.pop("twilio", None)
+
+    class _Messages:
+        def create(self, **_kw):
+            raise TwilioRestException(400, "/Messages", msg="STOP", code=21610)
+
+    class _Client:
+        messages = _Messages()
+
+    monkeypatch.setattr(twilio_sms, "configured", lambda: True)
+    monkeypatch.setattr(twilio_sms, "from_number", lambda: "+15005550006")
+    monkeypatch.setattr(twilio_sms, "status_callback_url", lambda: None)
+    monkeypatch.setattr(twilio_ops, "rest_client", lambda: _Client())
+    monkeypatch.setattr("agent_core.carrier_guard.refuse_real_carrier", lambda _n: None)
+    monkeypatch.setattr(actor_context, "get_actor_kind", lambda: "system")
+
+    with pytest.raises(twilio_ops.CarrierOptOut):
+        twilio_sms.send(to_phone="+919876543210", body="hi", customer_id=customer)
+
+    status = db_tx.execute(
+        text(
+            """
+            SELECT cc.status FROM channel_consents cc
+            JOIN consent_records cr ON cr.id = cc.consent_id
+            WHERE cr.customer_id = :c AND cc.channel = 'sms' AND cc.purpose = 'servicing'
+            """
+        ),
+        {"c": customer},
+    ).scalar()
+    assert status == "opted_out"
+    event = db_tx.execute(
+        text(
+            """
+            SELECT oe.source, oe.actor_kind, oe.actor_user_id FROM optout_events oe
+            JOIN consent_records cr ON cr.id = oe.consent_id
+            WHERE cr.customer_id = :c ORDER BY oe.created_at DESC LIMIT 1
+            """
+        ),
+        {"c": customer},
+    ).mappings().first()
+    assert event["source"] == "carrier"
+    assert event["actor_kind"] == "system" and event["actor_user_id"] is None
+    # a STOP is the recipient's decision, not a carrier fault
+    assert circuit_breaker.get_breaker("twilio").snapshot()["state"] == "closed"

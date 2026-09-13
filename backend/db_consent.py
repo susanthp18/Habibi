@@ -17,6 +17,7 @@ from typing import Any
 from agent_core.clock import utc_now
 from db_core import (
     _activity,
+    _actor,
     _actor_user_id,
     _assert_tenant_owns_customer,
     _consent_channel,
@@ -678,6 +679,7 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     affected = list(_CONSENT_CHANNEL_ORDER) if channel_raw == "all" else [channel_raw]
     source = payload.get("source") or "Agent"
     note = (payload.get("note") or "").strip() or None
+    actor_kind, actor_user_id, _bot = _actor()
     with engine.begin() as conn:
         _ensure_customer(conn, customer_id)
         consent_id = _ensure_consent_record(conn, customer_id)
@@ -721,7 +723,7 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 INSERT INTO optout_events
                   (id, consent_id, channel, source, actor_kind, actor_user_id, note)
                 VALUES
-                  (:id, :consent_id, :channel, :source, 'human', :actor_user_id, :note)
+                  (:id, :consent_id, :channel, :source, :actor_kind, :actor_user_id, :note)
                 """
             ),
             {
@@ -729,7 +731,10 @@ def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "consent_id": consent_id,
                 "channel": event_channel,
                 "source": source,
-                "actor_user_id": _actor_user_id(),
+                # A worker relaying the carrier's STOP is `system` with no
+                # user; a person on the consent screen is `human` with one.
+                "actor_kind": actor_kind,
+                "actor_user_id": actor_user_id,
                 "note": note,
             },
         )
