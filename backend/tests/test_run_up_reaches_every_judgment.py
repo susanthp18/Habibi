@@ -145,7 +145,7 @@ def test_the_text_channel_fetches_the_thread_before_it_judges_the_turn() -> None
     from tests.voice_tools_source import text_turn_source
 
     src = text_turn_source()
-    assert src.index("full_history = _message_history(") < src.index("understanding = analyze_turn("), (
+    assert src.index("full_history = bot_conversation.message_history(") < src.index("understanding = analyze_turn("), (
         "the thread must be in hand before anything classifies the turn"
     )
 
@@ -160,7 +160,7 @@ def test_the_thread_is_fetched_once() -> None:
     from tests.voice_tools_source import text_turn_source
 
     src = text_turn_source()
-    assert src.count("_message_history(") == 1
+    assert src.count("message_history(") == 1
     assert "FROM messages" not in src, (
         "message reads belong in the named helpers, not inline in the turn"
     )

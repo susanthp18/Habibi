@@ -77,4 +77,6 @@ def test_ready_200_when_pool_has_headroom(
     body = res.json()
     assert body.get("ok") is True
     assert body["pool"]["available"] == 13
-    assert "circuits" in body
+    # The breaker dump left /ready in pass 7: a probe answers ok / not ok and
+    # the breakers are on /metrics, where the CircuitOpen alert reads them.
+    assert "circuits" not in body

@@ -45,11 +45,11 @@ _EMPTY_SHA = "e3b0c44298fc1c14"
 # Both moved when the mouth started honouring a pack's declared ``mouth:``
 # channels: floor-coach is internal-only and no longer rides the collections
 # card, so its description left the prefix. Re-measured, not guessed.
-_PREFIX_SHA = "dfff68314cf3fe86"
-_PREFIX_LEN = 1356
+_PREFIX_SHA = "897053d86da0b1fb"
+_PREFIX_LEN = 1450
 # Moved again when the pack stopped stating a calling window the CRM card does
 # not carry (the platform default is the script's, not prose). Re-measured.
-_PTP_BODY_SHA = "9d7e7743dd089e92"
+_PTP_BODY_SHA = "e01d92f26b1e4a3d"
 
 _PACK_SLUGS = [
     "broken-ptp-chase",
@@ -88,6 +88,8 @@ _ALLOWED = [
     "recommend_next_offer",
     "request_callback",
     "request_documents",
+    # Pass 7: the renegotiation tool ptp-negotiate 1.6.0 grants.
+    "revise_promise_to_pay",
     "run_skill_script",
     "search_knowledge_base",
     "set_contact_preference",
@@ -114,7 +116,11 @@ _OFFERED_IDLE = [
 ]
 
 #: The two skill-gated writes ptp-negotiate adds, appended after the idle set.
-_OFFERED_WITH_PTP = _OFFERED_IDLE + ["create_promise_to_pay", "capture_nonpayment_reason"]
+_OFFERED_WITH_PTP = _OFFERED_IDLE + [
+    "create_promise_to_pay",
+    "revise_promise_to_pay",
+    "capture_nonpayment_reason",
+]
 
 _CARDLESS = {
     "card_is_none": True,
@@ -322,7 +328,8 @@ def test_a_voice_grant_drops_text_only_tools() -> None:
 def test_the_three_runtimes_pass_channel_tools() -> None:
     """Closing the divergence requires the callers, not only the parameter."""
     missing: list[str] = []
-    for rel in ("bot_runtime.py", "sandbox_runtime.py", "voice/bot_flow.py"):
+    # The sandbox turn loop is sandbox_tools.py since the pass-7 carve.
+    for rel in ("bot_runtime.py", "sandbox_tools.py", "voice/bot_flow.py"):
         path = BACKEND / rel
         tree = ast.parse(path.read_text(encoding="utf-8"))
         calls = [
