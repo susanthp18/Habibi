@@ -45,8 +45,20 @@ def load_verdicts() -> dict:
     return out
 
 
+def load_closures() -> dict:
+    """finding id -> {closed_in, pass, evidence} or {deferred, pass}.
+
+    raw/closures.json is the closure ledger: a finding is closed when a
+    commit (or a re-verification table) says so, and deferred when a named
+    reason keeps it open. Nothing else in this pipeline changes a status.
+    """
+    path = os.path.join(RAW, "closures.json")
+    return json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+
+
 def merge() -> list:
     audits, verdicts = load_audits(), load_verdicts()
+    closures = load_closures()
     merged = []
     for slice_name, report in audits.items():
         by_id = verdicts.get(slice_name, {})
@@ -65,6 +77,7 @@ def merge() -> list:
                     "status": status,
                     "files": files or finding["files"],
                     "verify_reason": (verdict or {}).get("reason", ""),
+                    **closures.get(finding["id"], {}),
                 }
             )
     merged.sort(key=lambda f: (SEVERITY_ORDER[f["severity"]], f["slice"], f["id"]))
@@ -91,7 +104,7 @@ if __name__ == "__main__":
         # set-notation and en-dashes, so printing them raises UnicodeEncodeError
         # on the very characters that make a mechanism readable.
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backlog.json")
-        with open(out, "w", encoding="utf-8") as fh:
+        with open(out, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(rows, fh, indent=1, ensure_ascii=False)
         print("wrote %d findings to %s" % (len(rows), out))
         raise SystemExit(0)
@@ -110,7 +123,15 @@ if __name__ == "__main__":
             print("%-14s %-20s %s" % (fid, verdict, title))
             print("               %s" % reason[:200])
 
+    closed = sum(1 for f in rows if f.get("closed_in"))
+    deferred = sum(1 for f in rows if f.get("deferred"))
     print(
-        "\ntotal in backlog: %d  (unverified: %d)"
-        % (len(rows), sum(1 for f in rows if f["status"] == "UNVERIFIED"))
+        "\ntotal in backlog: %d  (unverified: %d, closed: %d, deferred: %d, open: %d)"
+        % (
+            len(rows),
+            sum(1 for f in rows if f["status"] == "UNVERIFIED"),
+            closed,
+            deferred,
+            len(rows) - closed - deferred,
+        )
     )

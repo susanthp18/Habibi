@@ -1,0 +1,584 @@
+{
+ "AUTHZ-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`deployment.py:76` `frozenTools`; wired at `voice/bot.py:104,1204`, `bot_runtime.py:1017`"
+ },
+ "AUTHZ-10": {
+  "closed_in": "340a707",
+  "pass": 7
+ },
+ "AUTHZ-13": {
+  "closed_in": "e30ce97",
+  "pass": 7
+ },
+ "AUTHZ-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db_prompt_studio.py:2619` `rollback_bot_deployment` → `compile_card` + `_assert_card(report)` at `:2729`"
+ },
+ "AUTHZ-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`main.py:3586-3595` `_require_agent_edit_for_card` raises 403 without `AGENT_EDIT`; called by `POST /prompt-versions` (`:3601`) and `PATCH /prompt-versions/{id}` (`:3617`)"
+ },
+ "AUTHZ-6": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`a2a.py:366-390` scopes by `bot_id` and requires both cert columns; `upsert_partner` raises `a2a_cert_pem_required` and derives via `fingerprint_certificate(pem)`"
+ },
+ "AUTHZ-7": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db.py:216` → `change_log.record_role_grants`; `ROLE_GRANTS` at `change_log.py:47`"
+ },
+ "AUTHZ-9": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`canary.py:214` → `change_log.record_experiment_rollback`; `change_log.py:393`"
+ },
+ "BINDINGS-13": {
+  "closed_in": "40557ab",
+  "pass": 7
+ },
+ "BINDINGS-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`BindingsTab.tsx:89-90` — `setSlot` clears `modelId`"
+ },
+ "BINDINGS-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`BindingsTab.tsx:113-114` — `disabled={!modelBindingSelectable(m.runtime)}` and a runtime-aware label"
+ },
+ "BINDINGS-7": {
+  "deferred": "voice_ref column: schemas/integrations.py and providers/persist.py are the other stream's uncommitted files (provider runtime, 2026-09-13)",
+  "pass": 7
+ },
+ "BINDINGS-9": {
+  "deferred": "locale 422: routers/integrations.py is the other stream's uncommitted file",
+  "pass": 7
+ },
+ "CATALOG-10": {
+  "closed_in": "3637d46",
+  "pass": 7
+ },
+ "CATALOG-11": {
+  "closed_in": "3637d46",
+  "pass": 7
+ },
+ "CATALOG-16": {
+  "closed_in": "3637d46",
+  "pass": 7
+ },
+ "CATALOG-2": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "CATALOG-9": {
+  "closed_in": "3637d46",
+  "pass": 7
+ },
+ "CHANGELOG-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`change_log.py:165-174` — `actorUserId` and `at` are inside the digested `body`; the reader stops preferring the unhashed columns (`1f5004a`… actually `4346ae1`)"
+ },
+ "CHANGELOG-2": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "CHANGELOG-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`canary.py:214` → `record_experiment_rollback`"
+ },
+ "CHANGELOG-4": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "CONNECTORS-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`McpConsole.tsx:119` `if (kind === \"ok\") toast.success(...)`"
+ },
+ "CONNECTORS-17": {
+  "closed_in": "by design",
+  "pass": 7,
+  "evidence": "the offer is prompt cost, the grant is enforcement; execute_tool already refuses a name outside the grant (test_connector_dispatch_args)"
+ },
+ "CONNECTORS-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`connectors/persist.py` ON CONFLICT sets `status = mcp_connectors.status`"
+ },
+ "CONNECTORS-4": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`McpConsole.tsx:215-218` uses `cimdConnectorId`, not `rows[0]`"
+ },
+ "CONNECTORS-5": {
+  "closed_in": "5435761",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "CONNECTORS-6": {
+  "closed_in": "5435761",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "CONNECTORS-7": {
+  "closed_in": "340a707",
+  "pass": 7
+ },
+ "EVALS-1": {
+  "closed_in": "acaaa58",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "EVALS-12": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "EVALS-15": {
+  "closed_in": "36349ac",
+  "pass": 7
+ },
+ "EVALS-2": {
+  "closed_in": "9972995",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "EVALS-3": {
+  "closed_in": "9972995",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "FLEET-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db_prompt_studio.py:439-443` feeds `reachability` from `c.get(\"publishedCard\")`, excluding archived cards"
+ },
+ "FLEET-10": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "FLEET-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`handoff_allowlist.py:38-50`"
+ },
+ "FLEET-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`agent-studio.index.tsx:420` guards on `!card.archivedAt`"
+ },
+ "FLEET-4": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db_prompt_studio.py:579` `_worst_eval_status(...)`"
+ },
+ "FLEET-5": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "FLOW-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "verified by running it: `docker exec collections_api python -c \"from voice.flow_export import built_in_collections_graph\"` returns 14 nodes"
+ },
+ "FLOW-10": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "FLOW-11": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "FLOW-13": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "FLOW-17": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "FLOW-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`voice/flow_export.py:207` `\"endConversation\": _ends_conversation(node)`"
+ },
+ "FLOW-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`studio-contract.ts:260` `flowToolChoices(rows, grant)`, used at `FlowCanvas.tsx:468`; gate `G16 flow_grant`"
+ },
+ "FLOW-4": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db_prompt_studio.py` `_refuses_flow_write` raises `flow_unreadable_not_replaced` before the UPDATE"
+ },
+ "FLOW-5": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`flow_vars.py:31-43` `_as_text` handles `bool` before `str`"
+ },
+ "GRAPH-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "the hop moves the cursor and swaps the grant (`e897abb`); `CONTEXT.md` corrected in the same commit"
+ },
+ "GRAPH-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`handoff_allowlist.py:38-50`"
+ },
+ "GRAPH-3": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`handoff_allowlist.py:84` `specialise_handoff_tool`, pinned by `tests/test_handoffs_reach_the_model.py`"
+ },
+ "GRAPH-4": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "GRAPH-5": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "GRAPH-7": {
+  "closed_in": "a91d371",
+  "pass": 7
+ },
+ "GUARDRAILS-1": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "GUARDRAILS-2": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "GUARDRAILS-3": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "GUARDRAILS-4": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "HEADER-12": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "HEADER-6": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "HEADER-8": {
+  "deferred": "PublishDialog.tsx is the other stream's uncommitted file",
+  "pass": 7
+ },
+ "ORG-04": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`agent_core/tools/handoff_allowlist.py` is the single implementation; both mouths call it"
+ },
+ "ORG-09": {
+  "closed_in": "a33efbd",
+  "pass": 7
+ },
+ "ORG-11": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "OUTBOUND-01": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`call_closer.py:898-912`"
+ },
+ "OUTBOUND-02": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`cadence.py:502-506`"
+ },
+ "OUTBOUND-03": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`outbound.py:360-361` `if number_pool is None and bot_id: number_pool = _pool_for_bot(bot_id)`"
+ },
+ "OUTBOUND-04": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`campaigns.py:532` and `enact.py:507` both `if card is not None and not card.outbound.dials`"
+ },
+ "OUTBOUND-06": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`OutboundTab.tsx:554,622,668,720` all carry `isError` branches"
+ },
+ "PERSONA-1": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "PERSONA-10": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "PERSONA-4": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "POLICY-7": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "PROMPT-1": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "PROMPT-13": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "PROMPT-2": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "PROMPT-3": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "PROMPT-4": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "PROMPT-8": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "PROMPT-9": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "RUNTIME-01": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`agent_core/tools/gates.py:110-112` reads `human_gates`, reached from `bot_tools.py`, `voice/tools.py`, `sandbox_runtime.py`"
+ },
+ "RUNTIME-02": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`schema.py:426-427` retires `memory.scopes`/`memory.compaction`; `CardMemory` now holds only `max_hops_per_call`, read at `voice/tools.py:2853`"
+ },
+ "RUNTIME-03": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`schema.py:432` retires `experiment.shadow`; `:395` records why; `canary.py` refuses to create one"
+ },
+ "RUNTIME-05": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`handoff_allowlist.py:38-50` — live card first, built-in fallback, empty set denies"
+ },
+ "RUNTIME-06": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`a2a.py:154` raises `a2a_not_exposed` unless `a2a.expose`; `:158` uses `exposed_skill_ids(raw)`"
+ },
+ "RUNTIME-07": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`a2a.py:151` `_published_card(bot_id)` — published, not draft"
+ },
+ "RUNTIME-08": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`call_closer.py:898-912` — `declared.success` from the card wins, table is the fallback"
+ },
+ "RUNTIME-09": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`cadence.py:348-356` calls `escalation_target`, writes `STATE_ESCALATED` + the column"
+ },
+ "RUNTIME-13": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`enact.py:507` `if card is not None and not card.outbound.dials`"
+ },
+ "RUNTIME-14": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`cadence.py:502-506` `resolve_outbound_bot_id(explicit=case.bot_id or last_attempt_bot_id)`; `bot_id` column added at `:141-145`"
+ },
+ "SANDBOX-01": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`sandbox_runtime.py:1054` — the `and customer_id` conjunct is gone"
+ },
+ "SANDBOX-02": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`sandbox_runtime.py:1022` passes `context=payload.get(\"context\")` into `assemble_turn_messages` on every turn"
+ },
+ "SANDBOX-06": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`TuningStudio.tsx:124` calls `fetchTuningPresets()`; the hardcoded list is the initial fallback"
+ },
+ "SANDBOX-07": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`voice/bot.py:468-478` — version tuning is the base, session tuning overlays, precedence stated"
+ },
+ "SANDBOX-08": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`db_prompt_studio.py:2299-2312` — both branches documented"
+ },
+ "SANDBOX-13": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "SHELL-13": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "SHELL-16": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "SHELL-2": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`authz.py:296-297` — both rollback routes are now `AGENT_PUBLISH`"
+ },
+ "SHIP-01": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "SHIP-02": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "SHIP-03": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`canary.py:358` `percentile_cont(0.95) WITHIN GROUP (ORDER BY t.llm_ttfb_ms)`"
+ },
+ "SHIP-05": {
+  "closed_in": "4e06f87",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "SHIP-06": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`canary.py:231,274,324` scope every evaluator by `deployment_id`; `:482-490` scopes `eval_fail` to the candidate's own prompt version"
+ },
+ "SKILLS-01": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`runtime.py:99` `packs_from_card` → `packs_for_skill_refs`; `persist.py:733-744` honours `pin=exact` including the default `\"1\"`"
+ },
+ "SKILLS-02": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`persist.py:606` `ORDER BY (sv.id = s.latest_version_id) DESC, sv.created_at DESC`"
+ },
+ "SKILLS-03": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`persist.py:100` verifies the HMAC; `:699` and `:754` both `if not pack.signed: continue`"
+ },
+ "SKILLS-04": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`persist.py:256-260` raises `skill_first_party`; mapped 409, pinned by `test_studio_trust_baseline.py:222`"
+ },
+ "SKILLS-05": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`persist.py:60-64` calls `verify_signature(contentHash, signature)`"
+ },
+ "SKILLS-06": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`persist.py:845-852` — the inverted `or signature_status == \"signed\"` is gone, with the reasoning kept"
+ },
+ "SKILLS-08": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`runtime.py:71` `[p for p in packs if not p.mouth or (set(p.mouth) & on)]`"
+ },
+ "SKILLS-09": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`runtime.py:351` intersects with `allowed`; both handlers pass it (`voice/tools.py:2952`, `bot_tools.py:774`)"
+ },
+ "SKILLS-10": {
+  "closed_in": "9972995",
+  "pass": 3,
+  "evidence": "RESTATUS-2026-09-09 same-day closure table"
+ },
+ "SKILLS-13": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "SKILLS-16": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "SKILLS-17": {
+  "closed_in": "a33efbd",
+  "pass": 7
+ },
+ "SKILLS-19": {
+  "closed_in": "5d5ae1a",
+  "pass": 7
+ },
+ "TOOLS-1": {
+  "closed_in": "RESTATUS-2026-09-09",
+  "pass": 3,
+  "evidence": "`studio-contract.ts:245` `rows.filter((t) => t.kind !== \"flow_control\")`"
+ },
+ "TYPES-01": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "TYPES-09": {
+  "closed_in": "6089743",
+  "pass": 7
+ },
+ "VOICE-1": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "VOICE-12": {
+  "deferred": "the counts hook lives in Habibi/src/api/providers.ts, the other stream's uncommitted file",
+  "pass": 7
+ },
+ "VOICE-2": {
+  "closed_in": "fcbfefd",
+  "pass": 3,
+  "evidence": "one of the 16 MAJORs verified before RESTATUS-2026-09-09; its tally records all 81 closed"
+ },
+ "VOICE-9": {
+  "closed_in": "6089743",
+  "pass": 7
+ }
+}

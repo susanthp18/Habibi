@@ -8,6 +8,8 @@ The argument, the architecture and the work plan are in [AGENT_STUDIO_NEXT_GEN.m
 
 Line numbers were accurate when read against commit `026cada`, in a tree that was moving (see the working-tree caveat in the companion). **Re-anchor every citation before acting on it.**
 
+**Closure is recorded per finding in `raw/closures.json`** — 121 closed (every MAJOR, by the re-verification of 2026-09-09 and its same-day commits; the pass-7 residue by commit), 4 deferred with the reason named. A MINOR or trivial finding with no closure line was worked under a MASTER-BACKLOG work package (passes 3–6) and has not been re-verified by id, so it is not claimed closed here.
+
 ## Contents
 
 - [Ship tab — canary, shadow, auto-rollback, deployments](#ship-tab--canary-shadow-auto-rollback-deployments) — 15 findings, 5 MAJOR
@@ -41,13 +43,13 @@ Line numbers were accurate when read against commit `026cada`, in a tree that wa
 
 ## Ship tab — canary, shadow, auto-rollback, deployments
 
-15 findings — 5 MAJOR, 8 MINOR, 2 trivial.
+15 findings — 5 MAJOR, 8 MINOR, 2 trivial; 5 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-ship.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `SHIP-01` — `shadow` is stored in three tables and read by no router — a "shadow" canary sends real customer calls to the candidate
 
-**MAJOR** · dead-config · prior: 2m.2
+**MAJOR** · dead-config · prior: 2m.2 · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/ShipTab.tsx:169`, `Habibi/src/components/prompt-studio/ShipTab.tsx:209`, `backend/agent_core/canary.py:57`, `backend/agent_core/canary.py:129`, `backend/db_prompt_studio.py:2122`, `backend/agent_core/deployment.py:38`
 
@@ -59,7 +61,7 @@ What this slice is, end to end, is in `raw/audit-ship.json` (`summary`, `endpoin
 
 #### `SHIP-02` — Voice and outbound ignore the canary percentage entirely — 100% of calls hit the candidate
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:71`, `backend/voice/bot.py:427`, `backend/mission.py:516`, `backend/agent_core/deployment.py:38`, `backend/bot_runtime.py:712`, `Habibi/src/components/prompt-studio/ShipTab.tsx:96`
 
@@ -71,7 +73,7 @@ What this slice is, end to end, is in `raw/audit-ship.json` (`summary`, `endpoin
 
 #### `SHIP-03` — The `slo_miss` trigger compares call length against a latency budget — enabling it rolls back every canary on the next sweep
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:292`, `backend/agent_core/canary.py:27`, `backend/agent_core/canary.py:385`, `backend/sql/04_interactions.sql:28`, `backend/sql/04_interactions.sql:22`, `Habibi/src/components/prompt-studio/ShipTab.tsx:15`
 
@@ -83,7 +85,7 @@ What this slice is, end to end, is in `raw/audit-ship.json` (`summary`, `endpoin
 
 #### `SHIP-05` — Manual deployment rollback does not stop a running canary — traffic keeps going to the rolled-back candidate, and no gate is re-run
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `4e06f87` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:2292`, `backend/db_prompt_studio.py:2364`, `backend/agent_core/canary.py:35`, `backend/agent_core/canary.py:68`, `backend/db_prompt_studio.py:1494`, `Habibi/src/api/prompt-studio.ts:824`
 
@@ -95,7 +97,7 @@ What this slice is, end to end, is in `raw/audit-ship.json` (`summary`, `endpoin
 
 #### `SHIP-06` — Every auto-rollback trigger measures the whole bot, not the canary cohort — the baseline's failures roll back the candidate and vice versa
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:206`, `backend/agent_core/canary.py:236`, `backend/agent_core/canary.py:263`, `backend/agent_core/canary.py:281`, `backend/agent_core/canary.py:298`, `backend/agent_core/canary.py:381`, `backend/sql/04_interactions.sql:26`, `backend/voice/persist.py:143`, `backend/outbound.py:373`
 
@@ -229,13 +231,13 @@ trivial · disconnected
 
 ## Evals tab — suites, reports, and the publish gates
 
-20 findings — 3 MAJOR, 15 MINOR, 2 trivial.
+20 findings — 3 MAJOR, 15 MINOR, 2 trivial; 5 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-evals.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `EVALS-1` — G7/G8/G-OB9 certify a publish with the newest report for the BOT, from any prompt version — prompt_version_id is written by nobody
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `acaaa58` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:1914`, `backend/db_inbox.py:1592`, `backend/db_inbox.py:1610`, `backend/agent_core/eval/run.py:92`, `backend/agent_core/cards/compile.py:965`, `backend/sql/14_agent_factory.sql:46`, `backend/llm_gateway/canary.py:180`
 
@@ -247,7 +249,7 @@ What this slice is, end to end, is in `raw/audit-evals.json` (`summary`, `endpoi
 
 #### `EVALS-2` — The Twin requirement and the G11 twin gate read different tables — running the twin suite from the tab can never satisfy the gate
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `9972995` (pass 3)
 
 **Files** — `backend/agent_core/cards/compile.py:721`, `backend/agent_core/cards/compile.py:722`, `backend/db_prompt_studio.py:1916`, `backend/db_inbox.py:1572`, `backend/agent_core/twin.py:150`, `backend/agent_core/twin.py:160`, `backend/agent_core/twin.py:123`, `backend/main.py:1007`, `backend/agent_core/eval/corpus.py:141`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:256`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:392`
 
@@ -259,7 +261,7 @@ What this slice is, end to end, is in `raw/audit-evals.json` (`summary`, `endpoi
 
 #### `EVALS-3` — "Capability" is offered as a publish requirement and gates nothing
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `9972995` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:255`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:314`, `backend/agent_core/cards/schema.py:21`, `backend/agent_core/cards/compile.py:716`, `backend/agent_core/cards/compile.py:718`, `backend/agent_core/cards/compile.py:722`, `backend/agent_core/cards/compile.py:464`, `backend/agent_core/cards/compile.py:966`
 
@@ -283,7 +285,7 @@ MINOR · bug
 
 #### `EVALS-12` — Every trial's transcript, tool calls and CRM outcomes are written as empty literals, so a failed report cannot be inspected
 
-MINOR · bug
+MINOR · bug · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/db_inbox.py:1662`, `backend/db_inbox.py:1663`, `backend/db_inbox.py:1664`, `backend/sql/14_agent_factory.sql:60`, `backend/agent_core/eval/harness.py:19`, `backend/main.py:2812`
 
@@ -319,7 +321,7 @@ MINOR · bug
 
 #### `EVALS-15` — The Twin hint claims replays of real calls; no eval suite of any kind executes the candidate agent
 
-MINOR · doc-vs-code
+MINOR · doc-vs-code · **closed** in `36349ac` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:256`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:313`, `backend/agent_core/eval/harness.py:10`, `backend/agent_core/eval/run.py:1`, `backend/agent_core/eval/corpus.py:78`
 
@@ -477,13 +479,13 @@ trivial · security
 
 ## Skills — card tab, library, detail, packs, signing
 
-19 findings — 9 MAJOR, 8 MINOR, 2 trivial.
+19 findings — 9 MAJOR, 8 MINOR, 2 trivial; 13 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `SKILLS-01` — The Agent Card's skill version pin is decorative — the runtime always loads the newest signed row
 
-**MAJOR** · dead-config · prior: 2h.1
+**MAJOR** · dead-config · prior: 2h.1 · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/cards/schema.py:102-107`, `backend/agent_core/skills/runtime.py:72`, `backend/agent_core/skills/persist.py:642-677`, `backend/agent_core/skills/persist.py:592-601`, `backend/agent_core/skills/persist.py:704`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:774`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:797-806`
 
@@ -495,7 +497,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-02` — "Revert to signed" / "Restore" changes the Studio display but not what the mouth loads
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/persist.py:445-471`, `backend/agent_core/skills/persist.py:566-601`, `backend/agent_core/skills/persist.py:642-677`, `backend/db_prompt_studio.py:834`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:246-263`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:353-367`
 
@@ -507,7 +509,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-03` — Skill HMAC verification never reaches the runtime — an unverifiable pack still grants tools and injects its body
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/persist.py:91-100`, `backend/agent_core/skills/persist.py:660-673`, `backend/agent_core/skills/intersect.py:113-114`, `backend/agent_core/skills/runtime.py:166-173`, `backend/agent_core/skills/runtime.py:271-286`, `backend/agent_core/cards/compile.py:731`, `backend/.env.example:336-340`
 
@@ -519,7 +521,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-04` — Importing a .md/.zip permanently overwrites a signed first-party pack — no slug guard, and boot-sync will never restore it
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/main.py:2451-2481`, `backend/agent_core/skills/persist.py:354-358`, `backend/agent_core/skills/persist.py:243-313`, `backend/agent_core/skills/persist.py:744-745`, `backend/agent_core/skills/pack.py:152`, `backend/seed_postgres.py:1457`, `Habibi/src/routes/agent-studio.skills.index.tsx:140-149`
 
@@ -531,7 +533,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-05` — The library's "signed" lozenge echoes a stored column and never verifies the signature it claims to represent
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/persist.py:60`, `backend/agent_core/skills/persist.py:15`, `backend/agent_core/skills/persist.py:190-216`, `Habibi/src/routes/agent-studio.skills.index.tsx:159`, `Habibi/src/routes/agent-studio.skills.index.tsx:337-339`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:230`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:249`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:336`
 
@@ -543,7 +545,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-06` — API restart silently demotes an operator's signed edit of a first-party skill back to the platform version
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/persist.py:729-765`, `backend/agent_core/skills/persist.py:400`, `backend/agent_core/skills/persist.py:403-405`, `backend/agent_core/skills/persist.py:427-442`, `backend/agent_core/skills/persist.py:310-313`, `backend/main.py:499-501`
 
@@ -555,7 +557,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-08` — A pack's declared `mouth:` channels are parsed and never enforced — internal-only skills ride on a customer-facing card
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/pack.py:31`, `backend/agent_core/skills/pack.py:144-155`, `backend/agent_core/skills/defaults.py:22-31`, `backend/agent_core/skills/defaults.py:35-42`, `backend/agent_core/skills/packs/floor-coach/SKILL.md:10-17`, `backend/agent_core/skills/packs/qa-examiner/SKILL.md:10-12`, `backend/agent_core/skills/runtime.py:271-286`, `backend/agent_core/skills/intersect.py:51`
 
@@ -567,7 +569,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-09` — load_skill tells the model it may call tools that are not in its grant or renderable on its channel
 
-**MAJOR** · shape-mismatch
+**MAJOR** · shape-mismatch · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/runtime.py:280-284`, `backend/agent_core/skills/intersect.py:206-209`, `backend/voice/tools.py:2828-2833`, `backend/bot_tools.py:744-748`, `backend/bot_tools.py:769-793`, `backend/agent_core/skills/intersect.py:65-68`, `backend/agent_core/skills/intersect.py:198`, `backend/agent_core/tools/catalog.py:210`, `backend/agent_core/skills/defaults.py:23`, `backend/agent_core/skills/defaults.py:33-34`
 
@@ -579,7 +581,7 @@ What this slice is, end to end, is in `raw/audit-skills.json` (`summary`, `endpo
 
 #### `SKILLS-10` — "Load in sandbox" always falls back to kaia-v2-4 for the only skills you can actually author, producing a run that exercises nothing
 
-**MAJOR** · degradation-lie · prior: 4.7
+**MAJOR** · degradation-lie · prior: 4.7 · **closed** in `9972995` (pass 3)
 
 **Files** — `Habibi/src/routes/agent-studio.skills.$skillId.tsx:192-206`, `backend/agent_core/skills/persist.py:126-137`, `backend/agent_core/skills/persist.py:611-613`, `backend/agent_core/skills/persist.py:378`, `backend/agent_core/skills/runtime.py:166-173`, `backend/sandbox_runtime.py:719-726`, `Habibi/src/components/sandbox/SandboxHeader.tsx:137`
 
@@ -627,7 +629,7 @@ MINOR · dead-config
 
 #### `SKILLS-13` — Import and KB-gap promotion bypass _handle_write, so authoring errors return 500 instead of the mapped 422/409
 
-MINOR · bug
+MINOR · bug · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/main.py:2451-2481`, `backend/main.py:2510-2534`, `backend/main.py:818-834`, `backend/main.py:772-774`, `backend/main.py:724-745`, `backend/agent_core/skills/gardener.py:16-17`, `Habibi/src/routes/agent-studio.skills.index.tsx:146-148`
 
@@ -663,7 +665,7 @@ MINOR · security
 
 #### `SKILLS-16` — Seeded and boot-synced installs carry two signed version rows per pack for the three packs past 1.0.0
 
-MINOR · stale
+MINOR · stale · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/seed_postgres.py:1455-1494`, `backend/agent_core/skills/persist.py:20-21`, `backend/agent_core/skills/persist.py:749-763`, `backend/agent_core/skills/packs/ptp-negotiate/SKILL.md:14`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:342-372`
 
@@ -675,7 +677,7 @@ MINOR · stale
 
 #### `SKILLS-17` — The Skills library's only test greps its own source text and asserts no behaviour
 
-MINOR · test-gap
+MINOR · test-gap · **closed** in `a33efbd` (pass 7)
 
 **Files** — `Habibi/src/routes/agent-studio.skills.index.test.ts:1-15`, `Habibi/src/routes/agent-studio.skills.index.tsx:245-263`
 
@@ -699,7 +701,7 @@ trivial · bug
 
 #### `SKILLS-19` — The key-rotation runbook in .env.example understates what rotation does to tenant packs
 
-trivial · doc-vs-code · DOWNGRADED
+trivial · doc-vs-code · DOWNGRADED · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/.env.example:336-340`, `backend/agent_core/skills/persist.py:60`, `backend/agent_core/skills/persist.py:96-98`, `backend/agent_core/skills/intersect.py:113-114`
 
@@ -713,13 +715,13 @@ trivial · doc-vs-code · DOWNGRADED
 
 ## Connectors — tab, registry, ext.* dispatch
 
-17 findings — 5 MAJOR, 10 MINOR, 2 trivial.
+17 findings — 5 MAJOR, 10 MINOR, 2 trivial; 7 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-connectors.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `CONNECTORS-1` — "Test" toasts success for a failed or SSRF-blocked health probe, and a blocked probe leaves health untouched
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/integrations/McpConsole.tsx:108`, `Habibi/src/components/integrations/McpConsole.tsx:111-113`, `Habibi/src/api/integrations.ts:312-318`, `Habibi/src/router.tsx:13-15`, `backend/agent_core/connectors/persist.py:317-323`, `backend/agent_core/connectors/circuit.py:84`, `backend/main.py:2556-2561`, `backend/main.py:814-816`
 
@@ -731,7 +733,7 @@ What this slice is, end to end, is in `raw/audit-connectors.json` (`summary`, `e
 
 #### `CONNECTORS-3` — Re-saving an existing connector through "Add connector" silently reverts approved → draft
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/integrations/McpConsole.tsx:148`, `Habibi/src/components/integrations/McpConsole.tsx:152`, `backend/agent_core/connectors/persist.py:185`, `backend/agent_core/connectors/persist.py:169`
 
@@ -743,7 +745,7 @@ What this slice is, end to end, is in `raw/audit-connectors.json` (`summary`, `e
 
 #### `CONNECTORS-4` — "Connect IdP" always writes the CIMD issuer to rows[0], not to a selected connector
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/integrations/McpConsole.tsx:192`, `Habibi/src/components/integrations/McpConsole.tsx:195`, `backend/agent_core/connectors/persist.py:79`, `backend/agent_core/connectors/persist.py:424-444`, `backend/main.py:2563-2569`
 
@@ -755,7 +757,7 @@ What this slice is, end to end, is in `raw/audit-connectors.json` (`summary`, `e
 
 #### `CONNECTORS-5` — Bind/Unbind in the Connectors tab changes nothing any model can ever call — ext.* is in the Grant but in no Offer, and voice has no ext handler at all
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `5435761` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003`, `backend/agent_core/skills/intersect.py:117-123`, `backend/agent_core/skills/intersect.py:164`, `backend/agent_core/skills/intersect.py:168`, `backend/agent_core/skills/intersect.py:198`, `backend/agent_core/tools/schema.py:238`, `backend/voice/tools.py:2918-2919`, `backend/bot_tools.py:158-160`, `backend/bot_runtime.py:943`
 
@@ -767,7 +769,7 @@ What this slice is, end to end, is in `raw/audit-connectors.json` (`summary`, `e
 
 #### `CONNECTORS-6` — A binding to a connector that is no longer approved disappears from the tab, leaving no way to unbind it and a permanently unpublishable card
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `5435761` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:925`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:985`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1003`, `backend/agent_core/cards/compile.py:820`
 
@@ -839,7 +841,7 @@ MINOR · bug
 
 #### `CONNECTORS-17` — ext.* names sit in the Tool Grant but in no Offer, so the only way one executes is a name the model was never shown — and that path skips skill gating
 
-MINOR · security
+MINOR · security · **closed** in `by design` (pass 7)
 
 **Files** — `backend/bot_tools.py:806-821`, `backend/agent_core/skills/intersect.py:117-123`, `backend/agent_core/skills/intersect.py:164`, `backend/bot_runtime.py:943`, `backend/bot_runtime.py:949`
 
@@ -863,7 +865,7 @@ MINOR · dead-config · DOWNGRADED
 
 #### `CONNECTORS-7` — Connector registration and approval write no audit row and require no admin role
 
-MINOR · security · DOWNGRADED
+MINOR · security · DOWNGRADED · **closed** in `340a707` (pass 7)
 
 **Files** — `backend/main.py:2532-2537`, `backend/main.py:2549-2554`, `backend/main.py:2556-2561`, `backend/agent_core/connectors/persist.py:193-206`, `backend/agent_core/connectors/persist.py:132-190`, `backend/db.py:404-415`, `backend/authz.py:328-332`, `backend/main.py:532-577`, `backend/main.py:607-611`, `backend/main.py:839-848`
 
@@ -925,13 +927,13 @@ trivial · bug · DOWNGRADED
 
 ## Change log — the hash chain and what it covers
 
-12 findings — 4 MAJOR, 7 MINOR, 1 trivial.
+12 findings — 4 MAJOR, 7 MINOR, 1 trivial; 4 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-changelog.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `CHANGELOG-1` — The chain hashes the payload; the screen renders the unhashed columns — who, when and which agent are all forgeable under a green "Chain intact"
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/change_log.py:150`, `backend/agent_core/change_log.py:157`, `backend/agent_core/change_log.py:162`, `backend/agent_core/change_log.py:336`, `backend/agent_core/change_log.py:373`, `backend/sql/12_crosscutting.sql:23`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:98`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:120`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:129`, `backend/main.py:2177`
 
@@ -943,7 +945,7 @@ What this slice is, end to end, is in `raw/audit-changelog.json` (`summary`, `en
 
 #### `CHANGELOG-2` — Deleting the newest entries leaves the chain verifying clean — tail truncation is invisible, and verify_chain never checks seq contiguity
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/change_log.py:349`, `backend/agent_core/change_log.py:363`, `backend/agent_core/change_log.py:369`, `backend/agent_core/change_log.py:379`, `backend/agent_core/change_log.py:120`, `backend/tests/test_agent_change_log.py:34`, `backend/tests/test_agent_change_log.py:186`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:6`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:207`
 
@@ -955,7 +957,7 @@ What this slice is, end to end, is in `raw/audit-changelog.json` (`summary`, `en
 
 #### `CHANGELOG-3` — Canary rollback swaps the live deployment and writes nothing to the chain — including the auto-rollback the publish entry promised
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:136`, `backend/agent_core/canary.py:167`, `backend/agent_core/canary.py:420`, `backend/bot_worker.py:148`, `backend/main.py:3211`, `backend/main.py:3217`, `backend/db_prompt_studio.py:2411`, `Habibi/src/api/agent-studio.ts:870`, `Habibi/src/api/agent-studio.ts:202`, `Habibi/src/components/prompt-studio/ShipTab.tsx:77`
 
@@ -967,7 +969,7 @@ What this slice is, end to end, is in `raw/audit-changelog.json` (`summary`, `en
 
 #### `CHANGELOG-4` — The chain head is read without a tenant-scoped lock — two concurrent publishes of different bots fork the chain into a permanent, unclearable "tampered with" banner
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/change_log.py:120`, `backend/agent_core/change_log.py:149`, `backend/db_prompt_studio.py:1869`, `backend/db_prompt_studio.py:2327`, `backend/db_prompt_studio.py:691`, `backend/db_prompt_studio.py:746`, `backend/sql/12_crosscutting.sql:20`, `Habibi/src/components/prompt-studio/ChangeLogTab.tsx:64`
 
@@ -1077,13 +1079,13 @@ trivial · code-organization
 
 ## Guardrails tab — six toggles, two sliders, banned words
 
-11 findings — 4 MAJOR, 4 MINOR, 3 trivial.
+11 findings — 4 MAJOR, 4 MINOR, 3 trivial; 4 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-guardrails.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `GUARDRAILS-1` — WhatsApp files an RBI recording-disclosure violation on every bot turn while its own prompt forbids the disclosure
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/guardrails.py:240-243`, `backend/agent_core/prompt.py:74-86`, `backend/agent_core/prompt.py:117-125`, `backend/bot_runtime.py:1273-1287`, `backend/voice/persist.py:618-664 (violation is idempotent per interaction+rule)`
 
@@ -1095,7 +1097,7 @@ What this slice is, end to end, is in `raw/audit-guardrails.json` (`summary`, `e
 
 #### `GUARDRAILS-2` — 'Hard-blocks' hints are true only in the sandbox; on voice and WhatsApp the rule is evaluated after the reply was spoken/sent
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:28-45`, `backend/agent_core/guardrails.py:251-262`, `backend/sandbox_runtime.py:897-908`, `backend/voice/crm_sink.py:541-545`, `backend/voice/crm_sink.py:1527-1549`, `backend/bot_runtime.py:1099-1104`, `backend/bot_runtime.py:1273-1287`
 
@@ -1107,7 +1109,7 @@ What this slice is, end to end, is in `raw/audit-guardrails.json` (`summary`, `e
 
 #### `GUARDRAILS-3` — maxSeconds ('Max call duration') has no consumer that ends a call; voice uses a fixed 10-minute cap and WhatsApp passes elapsed=0
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:157-170`, `backend/agent_core/guardrails.py:227-229`, `backend/voice/persist.py:588-593`, `backend/bot_runtime.py:1280`
 
@@ -1119,7 +1121,7 @@ What this slice is, end to end, is in `raw/audit-guardrails.json` (`summary`, `e
 
 #### `GUARDRAILS-4` — maxTurns slider range 4-40 is honest on no channel: sandbox caps at 3, WhatsApp at 12, voice never enforces
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/GuardrailsPanel.tsx:145-156`, `backend/sandbox_runtime.py:365`, `backend/agent_core/guardrails.py:11-15`, `backend/agent_core/guardrails.py:221-225`, `backend/bot_runtime.py:859-864`
 
@@ -1217,13 +1219,13 @@ trivial · doc-vs-code
 
 ## Outbound tab — direction, missions, cadences, post-call, pools
 
-21 findings — 5 MAJOR, 16 MINOR, 0 trivial.
+21 findings — 5 MAJOR, 16 MINOR, 0 trivial; 5 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-outbound.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `OUTBOUND-01` — 'Closes the case' and 'Partly worked' are authored, gated, published — and the Closer never reads them
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:536-552`, `backend/call_closer.py:99`, `backend/call_closer.py:102`, `backend/call_closer.py:949`, `backend/mission.py:314`, `backend/agent_core/cards/schema.py:237`, `backend/agent_core/cards/schema.py:238`
 
@@ -1235,7 +1237,7 @@ What this slice is, end to end, is in `raw/audit-outbound.json` (`summary`, `end
 
 #### `OUTBOUND-02` — Cadence retries dial as DEFAULT_BOT_ID, so every attempt after the first runs the wrong card
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/cadence.py:418`, `backend/cadence.py:419`, `backend/cadence.py:429`, `backend/mission.py:461`, `backend/mission.py:474`, `backend/call_closer.py:753`, `backend/tests/test_outbound_studio_bindings.py:36`
 
@@ -1247,7 +1249,7 @@ What this slice is, end to end, is in `raw/audit-outbound.json` (`summary`, `end
 
 #### `OUTBOUND-03` — The caller-ID pool the card names is honoured by campaigns only — engine dials and retries ignore it
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/campaigns.py:539`, `backend/campaigns.py:549`, `backend/cadence.py:429`, `backend/agent_core/treatment/enact.py:386`, `backend/outbound.py:677-696`, `backend/outbound.py:1062`, `Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:277-303`
 
@@ -1259,7 +1261,7 @@ What this slice is, end to end, is in `raw/audit-outbound.json` (`summary`, `end
 
 #### `OUTBOUND-04` — `direction` is not a kill switch: a card switched to inbound keeps dialling, including mid-campaign
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/OutboundTab.tsx:455`, `Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:255`, `backend/campaigns.py:527`, `backend/campaigns.py:540`, `backend/agent_core/treatment/enact.py:424`, `backend/agent_core/cards/schema.py:357`, `backend/voice/bot.py:553-556`
 
@@ -1271,7 +1273,7 @@ What this slice is, end to end, is in `raw/audit-outbound.json` (`summary`, `end
 
 #### `OUTBOUND-06` — Five live panes render a failed query as an authoritative zero or empty state
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/OutboundTab.tsx:626`, `Habibi/src/components/prompt-studio/OutboundTab.tsx:642`, `Habibi/src/components/prompt-studio/OutboundTab.tsx:517`, `Habibi/src/components/prompt-studio/OutboundTab.tsx:556`, `Habibi/src/components/prompt-studio/OutboundTab.tsx:662`, `Habibi/src/components/prompt-studio/OutboundTab.tsx:710`, `Habibi/src/components/prompt-studio/NumberPoolTable.tsx:112-131`
 
@@ -1477,13 +1479,13 @@ MINOR · test-gap
 
 ## Flow tab — canvas, inspector, validator, the two runtimes
 
-17 findings — 5 MAJOR, 11 MINOR, 1 trivial.
+17 findings — 5 MAJOR, 11 MINOR, 1 trivial; 9 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `FLOW-1` — GET /flow/built-in cannot run in the API container: import chain requires pipecat
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/main.py:2068-2081`, `backend/voice/flow_export.py:35`, `backend/voice/flows.py:28`, `backend/voice/tools.py:26`, `backend/requirements.txt:23`, `backend/Dockerfile:5,23-24,54-55`, `backend/docker-compose.yml:79-83`, `backend/docker-compose.dev.yml:15-20`, `Habibi/src/api/flow.ts:267-268`, `Habibi/src/routes/prompt-studio.lazy.tsx:1508-1519`, `Habibi/src/components/flow/FlowCanvas.tsx:995-1013`
 
@@ -1495,7 +1497,7 @@ What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoin
 
 #### `FLOW-2` — Built-in export marks only call_ended as endConversation — wrap_up, terminate_politely and escalate_close stop hanging up once reloaded and published
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/flow_export.py:187`, `backend/voice/flow_export.py:143-159`, `backend/voice/flow_export.py:293-296`, `backend/voice/flows.py:722`, `backend/voice/flows.py:740`, `backend/voice/flows.py:770`, `backend/voice/flows_dynamic.py:371-380`, `backend/voice/flows_dynamic.py:496-505`, `backend/tests/test_flow_export.py:156-159`, `Habibi/src/components/flow/FlowNodes.tsx:73-75`
 
@@ -1507,7 +1509,7 @@ What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoin
 
 #### `FLOW-3` — Tool picker, /flow/validate and G1 accept any catalog tool; the card's Tool Grant silently drops it at runtime and the canvas still counts its hop as an exit
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/flow/FlowInspector.tsx:406-435`, `Habibi/src/components/flow/FlowInspector.tsx:736-748`, `Habibi/src/components/flow/FlowCanvas.tsx:1281`, `Habibi/src/components/flow/FlowCanvas.tsx:1318`, `Habibi/src/components/flow/FlowCanvas.tsx:550-627`, `Habibi/src/components/flow/FlowNodes.tsx:69-78`, `backend/main.py:3003-3012`, `backend/flow_graph.py:429-433`, `backend/flow_graph.py:806-833`, `backend/agent_core/cards/compile.py:569-573`, `backend/agent_core/tools/grant.py:57-88`, `backend/voice/bot.py:1141-1146`, `backend/voice/tools.py:2917-2919`, `backend/voice/flows_dynamic.py:414-424`
 
@@ -1519,7 +1521,7 @@ What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoin
 
 #### `FLOW-4` — A version flagged flowUnreadable is silently overwritten with the empty sentinel by the first autosave, while the tab says 'Nothing has been changed'
 
-**MAJOR** · degradation-lie · prior: 2b.2
+**MAJOR** · degradation-lie · prior: 2b.2 · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:155-174`, `backend/db_prompt_studio.py:1764-1772`, `backend/db_prompt_studio.py:199-203`, `backend/schemas.py:2226-2235`, `Habibi/src/routes/prompt-studio.lazy.tsx:224-226`, `Habibi/src/routes/prompt-studio.lazy.tsx:398`, `Habibi/src/routes/prompt-studio.lazy.tsx:645-656`, `Habibi/src/routes/prompt-studio.lazy.tsx:1160-1173`, `Habibi/src/routes/prompt-studio.lazy.tsx:1459-1478`, `Habibi/src/api/prompt-studio.ts:1011-1016`
 
@@ -1531,7 +1533,7 @@ What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoin
 
 #### `FLOW-5` — Captured yes/no variables serialise as 'True'/'False' while identity_verified is 'true'/'false' — an `equals true` expression edge on a captured boolean never fires
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/flows_dynamic.py:246-256`, `backend/voice/flows_dynamic.py:272`, `backend/voice/flows_dynamic.py:78`, `backend/voice/flows_dynamic.py:112-118`, `backend/voice/flow_vars.py:60-63`, `backend/voice/flow_vars.py:131-134`, `Habibi/src/components/flow/FlowInspector.tsx:926-934`, `Habibi/src/components/flow/FlowInspector.tsx:940-963`, `backend/tests/test_flow_graph_authoring.py:176-180`
 
@@ -1543,7 +1545,7 @@ What this slice is, end to end, is in `raw/audit-flow.json` (`summary`, `endpoin
 
 #### `FLOW-10` — 'Line spoken on entry' is ignored on 'Say verbatim' nodes, yet the validator demands it for listen-first outbound entries
 
-MINOR · shape-mismatch
+MINOR · shape-mismatch · **closed** in `a91d371` (pass 7)
 
 **Files** — `backend/voice/flows_dynamic.py:384-407`, `backend/flow_graph.py:559-573`, `Habibi/src/components/flow/FlowInspector.tsx:706-725`, `Habibi/src/components/flow/FlowNodes.tsx:416`
 
@@ -1555,7 +1557,7 @@ MINOR · shape-mismatch
 
 #### `FLOW-11` — End-node instructions are consumed at runtime but hidden from the inspector
 
-MINOR · disconnected
+MINOR · disconnected · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/voice/flows_dynamic.py:370-380`, `Habibi/src/components/flow/FlowInspector.tsx:659-661`, `Habibi/src/api/flow.ts:194-211`, `backend/voice/flow_export.py:167-172`
 
@@ -1579,7 +1581,7 @@ MINOR · stale
 
 #### `FLOW-13` — Export and runtime drop the non-tts pre_actions and the close-probe offer clause: summarize_context/mesh_activate_insurance are dead under an authored graph
 
-MINOR · dead-config
+MINOR · dead-config · **closed** in `a91d371` (pass 7)
 
 **Files** — `backend/voice/flow_export.py:143-159`, `backend/voice/flows.py:657-661`, `backend/voice/flows.py:678-690`, `backend/voice/bot.py:1499-1545`, `backend/voice/flows_dynamic.py:384-407`, `backend/voice/flows_dynamic.py:450-464`, `backend/flow_graph.py:148-181`
 
@@ -1675,7 +1677,7 @@ MINOR · degradation-lie
 
 #### `FLOW-17` — Copy drift: card-vocabulary returns 'inbound' although the inspector comment says the endpoint excludes it; reload toasts say 'steps' vs 'nodes'
 
-trivial · doc-vs-code
+trivial · doc-vs-code · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/main.py:5292`, `backend/flow_graph.py:76-78`, `Habibi/src/components/flow/FlowInspector.tsx:194-197`, `Habibi/src/components/flow/FlowCanvas.tsx:1002-1004`, `Habibi/src/routes/prompt-studio.lazy.tsx:1512`
 
@@ -1689,13 +1691,13 @@ trivial · doc-vs-code
 
 ## Tools tab — grant vs offer, locked engines, voice cap
 
-10 findings — 1 MAJOR, 7 MINOR, 2 trivial.
+10 findings — 1 MAJOR, 7 MINOR, 2 trivial; 1 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-tools.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `TOOLS-1` — Tools tab offers Add for nine flow-control verbs that are not catalog tools; Add makes G4 fail while the tab shows G6 green
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:154-181`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:103-112`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:95`, `backend/flow_graph.py:773-784`, `backend/flow_graph.py:822`, `backend/flow_graph.py:829`, `backend/agent_core/cards/compile.py:623`, `backend/agent_core/cards/compile.py:643-647`, `backend/agent_core/tools/grant.py:57-69`, `backend/schemas.py:14-25`, `backend/tests/test_tool_grant.py:181-186`
 
@@ -1817,13 +1819,13 @@ trivial · doc-vs-code · DOWNGRADED
 
 ## Tool catalog — 26 specs across voice, text, MCP and flow
 
-15 findings — 1 MAJOR, 11 MINOR, 3 trivial.
+15 findings — 1 MAJOR, 11 MINOR, 3 trivial; 5 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-catalog.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `CATALOG-2` — Both TEXT_ONLY catalog tools are unreachable, and the WhatsApp prompt tells the model to call one of them
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/tools/catalog.py:213-232`, `backend/agent_core/tools/catalog.py:684-709`, `backend/agent_core/cards/defaults.py:54-117`, `backend/agent_core/skills/intersect.py:104-107`, `backend/agent_core/skills/runtime.py:196-203`, `backend/agent_core/tools/grant.py:88`, `backend/bot_runtime.py:525-546`, `backend/bot_runtime.py:943-949`, `backend/bot_tools.py:806-808`, `backend/bot_tools.py:789-790`, `backend/flow_graph.py:815-820`
 
@@ -1847,7 +1849,7 @@ MINOR · shape-mismatch · DOWNGRADED
 
 #### `CATALOG-11` — apply_goodwill emits a CRM chip typed as a dispute with no deep link, unlike every sibling write
 
-MINOR · disconnected
+MINOR · disconnected · **closed** in `3637d46` (pass 7)
 
 **Files** — `backend/agent_core/tools/domain.py:928-935`, `backend/agent_core/tools/domain.py:73-75`, `backend/agent_core/tools/domain.py:857-859`, `backend/agent_core/tools/catalog.py:465-489`, `backend/voice/tools.py:454-475`, `backend/voice/tools.py:1536`
 
@@ -1955,7 +1957,7 @@ MINOR · bug
 
 #### `CATALOG-9` — An eval grader accepts a tool named record_optout that exists in no registry, and the catalog has no opt-out tool at all
 
-MINOR · test-gap
+MINOR · test-gap · **closed** in `3637d46` (pass 7)
 
 **Files** — `backend/agent_core/eval/graders.py:285-308`, `backend/agent_core/eval/fixtures.py:299-307`, `backend/agent_core/cards/defaults.py:265`, `backend/post_call_actions.py:284-301`, `backend/post_call_actions.py:487`, `backend/agent_core/cards/compile.py:160`, `backend/agent_core/tools/catalog.py:393-433`
 
@@ -1967,7 +1969,7 @@ MINOR · test-gap
 
 #### `CATALOG-10` — _FLOW_CONTROL_TOOLS declares verify_identity, contradicting its own docstring and shadowing the catalog description everywhere
 
-trivial · stale · DOWNGRADED
+trivial · stale · DOWNGRADED · **closed** in `3637d46` (pass 7)
 
 **Files** — `backend/flow_graph.py:766-775`, `backend/flow_graph.py:815-822`, `backend/agent_core/tools/catalog.py:188-211`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:159`, `Habibi/src/routes/agent-studio.skills.$skillId.tsx:13`
 
@@ -1991,7 +1993,7 @@ trivial · stale
 
 #### `CATALOG-16` — No CRM write carries a timeout_secs while the one KB read does
 
-trivial · bug · DOWNGRADED
+trivial · bug · DOWNGRADED · **closed** in `3637d46` (pass 7)
 
 **Files** — `backend/agent_core/tools/catalog.py:859`, `backend/agent_core/tools/schema.py:158-176`, `backend/voice/tools.py:1034-1040`, `backend/voice/tools.py:1268-1281`
 
@@ -2005,13 +2007,13 @@ trivial · bug · DOWNGRADED
 
 ## Agent graph tab — handoffs and the handoff runtime
 
-11 findings — 3 MAJOR, 7 MINOR, 1 trivial.
+11 findings — 3 MAJOR, 7 MINOR, 1 trivial; 6 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-graph.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `GRAPH-1` — Doc vs code: a handoff never loads the receiving card's prompt, tools or flow on either channel
 
-**MAJOR** · doc-vs-code
+**MAJOR** · doc-vs-code · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `CONTEXT.md:46-48`, `backend/agent_core/tools/grant.py:15-18`, `backend/agent_core/tools/grant.py:168-175`, `backend/agent_core/cards/routing.py:12-16`, `backend/voice/tools.py:2789-2808`, `backend/bot_tools.py:448`, `backend/bot_runtime.py:712-714`, `backend/bot_runtime.py:933`, `backend/bot_runtime.py:947`, `backend/db_inbox.py:1479-1501`, `backend/voice/mesh.py:126-152`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:754`
 
@@ -2023,7 +2025,7 @@ What this slice is, end to end, is in `raw/audit-graph.json` (`summary`, `endpoi
 
 #### `GRAPH-2` — Voice handoff allowlist reads the built-in card constants, not the published card, and disables itself on clone-card deployments
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/tools.py:2781-2788`, `backend/voice/tools.py:278-305`, `backend/agent_core/tools/domain.py:1026-1032`, `backend/agent_core/cards/defaults.py:342-346`, `backend/db_inbox.py:1457-1460`, `backend/bot_tools.py:400-429`, `backend/voice/bot.py:444-448`, `backend/voice/flows_dynamic.py:414-424`
 
@@ -2035,7 +2037,7 @@ What this slice is, end to end, is in `raw/audit-graph.json` (`summary`, `endpoi
 
 #### `GRAPH-3` — The `when` condition is stored but never reaches the model; the tab tells the author it is 'guidance for the model'
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:669-673`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:705-712`, `backend/agent_core/tools/catalog.py:577-596`, `backend/agent_core/cards/schema.py:123`, `backend/agent_core/cards/defaults.py:167-168`, `backend/agent_core/cards/defaults.py:288-289`
 
@@ -2059,7 +2061,7 @@ MINOR · dead-config
 
 #### `GRAPH-4` — payload_schema has no editor and no reader; the handoff `payload` argument is dropped on the floor
 
-MINOR · dead-config
+MINOR · dead-config · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/agent_core/cards/schema.py:122`, `Habibi/src/api/agent-card.ts:158`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:600-609`, `backend/agent_core/tools/catalog.py:588-592`, `backend/db_inbox.py:1479-1509`, `backend/agent_core/tools/domain.py:1071-1080`
 
@@ -2071,7 +2073,7 @@ MINOR · dead-config
 
 #### `GRAPH-5` — A handoff to an archived (or other-tenant) bot passes G5 and is invisible and unremovable in the editable allowlist
 
-MINOR · bug
+MINOR · bug · **closed** in `a91d371` (pass 7)
 
 **Files** — `backend/db_inbox.py:1511-1514`, `backend/db_prompt_studio.py:842`, `backend/agent_core/cards/compile.py:665`, `backend/main.py:2284-2291`, `backend/db_prompt_studio.py:326`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:685-687`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:611-615`, `backend/db_inbox.py:1458-1459`
 
@@ -2095,7 +2097,7 @@ MINOR · degradation-lie
 
 #### `GRAPH-7` — handoff_to_agent is granted to the Collections card but never offered on any node of the built-in voice flow
 
-MINOR · disconnected
+MINOR · disconnected · **closed** in `a91d371` (pass 7)
 
 **Files** — `backend/agent_core/cards/defaults.py:67`, `backend/agent_core/cards/defaults.py:91`, `backend/agent_core/cards/defaults.py:113`, `backend/voice/tools.py:2911`, `backend/voice/flows.py:922-932`, `backend/voice/flows_dynamic.py:414-424`, `backend/flow_graph.py:805-821`
 
@@ -2145,13 +2147,13 @@ trivial · bug
 
 ## Sandbox — parity between what you test and what you ship
 
-16 findings — 5 MAJOR, 9 MINOR, 2 trivial.
+16 findings — 5 MAJOR, 9 MINOR, 2 trivial; 6 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-sandbox.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `SANDBOX-01` — Test in Sandbox executes zero tools — the Tool Grant is never exercised, and SANDBOX_TEXT_TOOLS cannot turn it on
 
-**MAJOR** · disconnected · prior: none
+**MAJOR** · disconnected · prior: none · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/sandbox_runtime.py:852`, `backend/sandbox_runtime.py:843`, `backend/sandbox_runtime.py:190`, `backend/schemas.py:2532`, `backend/schemas.py:2580`, `backend/main.py:3446`, `Habibi/src/api/sandbox.ts:309`, `Habibi/src/routes/sandbox.lazy.tsx:279`, `backend/.env.example:378`
 
@@ -2163,7 +2165,7 @@ What this slice is, end to end, is in `raw/audit-sandbox.json` (`summary`, `endp
 
 #### `SANDBOX-02` — Every sandbox turn renders the prompt with the default context, not the scenario persona
 
-**MAJOR** · bug · prior: none
+**MAJOR** · bug · prior: none · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/sandbox_runtime.py:529`, `backend/sandbox_runtime.py:531`, `backend/sandbox_runtime.py:643`, `backend/sandbox_runtime.py:818`, `backend/agent_core/turn.py:55`, `backend/agent_core/prompt.py:38`, `Habibi/src/api/sandbox.ts:116`, `Habibi/src/api/sandbox.ts:248`, `Habibi/src/api/sandbox.ts:309`, `Habibi/src/routes/sandbox.lazy.tsx:279`
 
@@ -2175,7 +2177,7 @@ What this slice is, end to end, is in `raw/audit-sandbox.json` (`summary`, `endp
 
 #### `SANDBOX-06` — Tuning presets are a second, drifted copy in the browser; the server endpoint that exists to prevent this has no caller
 
-**MAJOR** · stale · prior: none
+**MAJOR** · stale · prior: none · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/sandbox/TuningStudio.tsx:112`, `Habibi/src/components/sandbox/TuningStudio.tsx:198`, `Habibi/src/data/agent-tuning.ts:107`, `Habibi/src/data/agent-tuning.ts:136`, `Habibi/src/data/agent-tuning.ts:149`, `Habibi/src/data/agent-tuning.ts:162`, `backend/agent_core/tuning.py:62`, `backend/agent_core/tuning.py:73`, `backend/agent_core/tuning.py:85`, `backend/agent_core/tuning.py:95`, `backend/agent_core/tuning.py:107`, `backend/agent_core/tuning.py:158`, `backend/main.py:3466`, `Habibi/src/api/voice-sandbox.ts:67`
 
@@ -2187,7 +2189,7 @@ What this slice is, end to end, is in `raw/audit-sandbox.json` (`summary`, `endp
 
 #### `SANDBOX-07` — The voice sandbox overwrites the version's authored tuning with a tuning object the browser built
 
-**MAJOR** · bug · prior: none
+**MAJOR** · bug · prior: none · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/bot.py:411`, `backend/voice/bot.py:418`, `backend/agent_core/tuning.py:354`, `backend/voice_sandbox.py:179`, `Habibi/src/components/sandbox/voice/useSandboxLiveCall.ts:237`, `Habibi/src/routes/sandbox.lazy.tsx:176`, `Habibi/src/data/agent-tuning.ts:230`
 
@@ -2199,7 +2201,7 @@ What this slice is, end to end, is in `raw/audit-sandbox.json` (`summary`, `endp
 
 #### `SANDBOX-08` — Promote from the Sandbox ships a different deployment than Publish from Prompt Studio, for the same version
 
-**MAJOR** · bug · prior: none
+**MAJOR** · bug · prior: none · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/routes/sandbox.lazy.tsx:442`, `Habibi/src/routes/sandbox.lazy.tsx:659`, `backend/db_prompt_studio.py:2002`, `backend/db_prompt_studio.py:2012`, `backend/db_prompt_studio.py:2020`, `backend/agent_core/tuning.py:387`, `backend/voice/bot.py:579`, `backend/sandbox_runtime.py:763`
 
@@ -2295,7 +2297,7 @@ MINOR · bug · prior: none
 
 #### `SANDBOX-13` — Text sandbox runs are never completed and the persisted transcript is never read back
 
-MINOR · disconnected · prior: none
+MINOR · disconnected · prior: none · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/main.py:3461`, `backend/voice_sandbox.py:238`, `Habibi/src/api/sandbox.ts:170`, `Habibi/src/routes/sandbox.lazy.tsx:219`, `backend/sandbox_runtime.py:1039`
 
@@ -2345,13 +2347,13 @@ trivial · dead-config · prior: none
 
 ## Fleet index — roster, clone, archive, reachability
 
-12 findings — 4 MAJOR, 5 MINOR, 3 trivial.
+12 findings — 4 MAJOR, 5 MINOR, 3 trivial; 6 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-fleet.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `FLEET-1` — Reachability chip is computed from the DRAFT card's handoffs, not the published one the runtime enforces
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:429-430`, `backend/db_prompt_studio.py:353-359`, `backend/db_prompt_studio.py:507-536`, `backend/agent_core/cards/routing.py:92-94`, `backend/bot_tools.py:398-427`, `Habibi/src/routes/agent-studio.index.tsx:64-68`
 
@@ -2363,7 +2365,7 @@ What this slice is, end to end, is in `raw/audit-fleet.json` (`summary`, `endpoi
 
 #### `FLEET-2` — 'via handoff' on the voice channel is not backed by the card at all: voice allowlist is the Python default, and unrestricted for clones
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/tools.py:2783-2788`, `backend/agent_core/tools/domain.py:1027-1033`, `backend/agent_core/cards/defaults.py:342-346`, `backend/bot_tools.py:398-427`, `Habibi/src/routes/agent-studio.index.tsx:64-68`
 
@@ -2375,7 +2377,7 @@ What this slice is, end to end, is in `raw/audit-fleet.json` (`summary`, `endpoi
 
 #### `FLEET-3` — An archived card can be edited and published back into production; the fleet then shows 'archived · takes no traffic' beside 'deployed · 100%'
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/routes/agent-studio.index.tsx:673-686`, `Habibi/src/routes/agent-studio.index.tsx:79-84`, `Habibi/src/routes/agent-studio.index.tsx:596-614`, `backend/db_prompt_studio.py:1860-1975`, `backend/main.py:3247-3275`
 
@@ -2387,7 +2389,7 @@ What this slice is, end to end, is in `raw/audit-fleet.json` (`summary`, `endpoi
 
 #### `FLEET-4` — evalStatus lozenge reports 'pass' when the latest redteam passed even if the latest regression suite failed
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:478-481`, `backend/db_inbox.py:1582-1600`, `Habibi/src/routes/agent-studio.index.tsx:636-644`
 
@@ -2399,7 +2401,7 @@ What this slice is, end to end, is in `raw/audit-fleet.json` (`summary`, `endpoi
 
 #### `FLEET-5` — Archive does not stop handoffs to the retired card: G5 and db.handoff_to_agent accept archived targets, so 'stops taking traffic immediately' is enforced nowhere
 
-MINOR · degradation-lie
+MINOR · degradation-lie · **closed** in `a91d371` (pass 7)
 
 **Files** — `Habibi/src/routes/agent-studio.index.tsx:724-729`, `backend/db_prompt_studio.py:1877`, `backend/agent_core/cards/compile.py:661-678`, `backend/db_inbox.py:1455-1460`, `backend/db_prompt_studio.py:656-690`
 
@@ -2459,7 +2461,7 @@ MINOR · stale
 
 #### `FLEET-10` — Fleet and editor can disagree on reachability for targets of a first-party card that has no prompt version yet
 
-trivial · shape-mismatch · DOWNGRADED
+trivial · shape-mismatch · DOWNGRADED · **closed** in `a91d371` (pass 7)
 
 **Files** — `backend/db_prompt_studio.py:353-359`, `backend/db_prompt_studio.py:436-442`, `backend/db_prompt_studio.py:507-536`, `backend/db_prompt_studio.py:605-618`
 
@@ -2497,13 +2499,13 @@ trivial · a11y
 
 ## System Prompt tab — lint, token estimate, the render path
 
-13 findings — 4 MAJOR, 5 MINOR, 4 trivial.
+13 findings — 4 MAJOR, 5 MINOR, 4 trivial; 7 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-prompt.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `PROMPT-1` — The seeded prompt_versions rows still carry the CRM tokens and the duplicate disclosure; only persona_presets were ever repaired
 
-**MAJOR** · stale
+**MAJOR** · stale · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:36`, `backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:148`, `backend/alembic/versions/20260722_0018_prompt_studio_schema_seed.py:222`, `backend/alembic/versions/20260819_0084_persona_presets_crm_free.py:85`, `backend/alembic/versions/20260825_0101_persona_presets_drop_redundant_disclosure.py:70`, `backend/seed_postgres.py:919`, `backend/seed_postgres.py:1078`, `backend/prompt_render.py:114`
 
@@ -2515,7 +2517,7 @@ What this slice is, end to end, is in `raw/audit-prompt.json` (`summary`, `endpo
 
 #### `PROMPT-2` — A spaceless flow token naming a CRM field silently deletes its line, while the lint and the editor both say the braces are read aloud — and the CRM warning is masked away
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/prompt_lint.py:65`, `backend/prompt_lint.py:73`, `backend/prompt_lint.py:89`, `backend/prompt_render.py:94`, `backend/prompt_render.py:114`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:250`, `Habibi/src/data/prompt-studio-seed.ts:80`, `backend/tests/test_prompt_lint.py:156`, `backend/tests/test_prompt_lint.py:193`
 
@@ -2527,7 +2529,7 @@ What this slice is, end to end, is in `raw/audit-prompt.json` (`summary`, `endpo
 
 #### `PROMPT-3` — A failed deterministic lint renders as a clean prompt: the prohibited-word ERROR and both recording-disclosure findings exist only server-side and have no error or pending surface
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `Habibi/src/routes/prompt-studio.lazy.tsx:569`, `Habibi/src/routes/prompt-studio.lazy.tsx:1431`, `Habibi/src/api/prompt-studio.ts:870`, `Habibi/src/api/prompt-studio.ts:877`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:207`, `backend/prompt_lint.py:143`, `backend/prompt_lint.py:203`
 
@@ -2539,7 +2541,7 @@ What this slice is, end to end, is in `raw/audit-prompt.json` (`summary`, `endpo
 
 #### `PROMPT-9` — Nothing gates or even mentions the lint at publish — a prompt whose every CRM line will be deleted ships warn-only, and the publish dialog never sees the findings
 
-**MAJOR** · disconnected
+**MAJOR** · disconnected · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/main.py:3286`, `backend/main.py:3247`, `backend/agent_core/cards/compile.py:1`, `backend/agent_core/cards/compile.py:40`, `Habibi/src/routes/prompt-studio.lazy.tsx:940`, `Habibi/src/routes/prompt-studio.lazy.tsx:1583`
 
@@ -2563,7 +2565,7 @@ MINOR · stale
 
 #### `PROMPT-4` — The "sent/call" figure omits the Skills description block the voice loop appends after the builder returns
 
-MINOR · shape-mismatch
+MINOR · shape-mismatch · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/main.py:3348`, `backend/voice/bot.py:102`, `backend/agent_core/skills/runtime.py:39`, `backend/agent_core/skills/runtime.py:172`, `backend/agent_core/skills/defaults.py:22`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:182`
 
@@ -2599,7 +2601,7 @@ MINOR · bug
 
 #### `PROMPT-8` — unknown_variable is reported twice — once as a server lint row and once as the client-side banner — because INLINE_CODES omits it
 
-MINOR · bug · prior: 2a.2
+MINOR · bug · prior: 2a.2 · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/PromptEditor.tsx:70`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:86`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:274`, `backend/prompt_lint.py:109`, `Habibi/src/data/prompt-studio-seed.ts:292`
 
@@ -2635,7 +2637,7 @@ trivial · test-gap · DOWNGRADED
 
 #### `PROMPT-13` — llm_lint_failed / llm_lint_unavailable survive only as a transient toast — nothing on the Prompt tab records that the critique did not run
 
-trivial · bug
+trivial · bug · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/routes/prompt-studio.lazy.tsx:1041`, `Habibi/src/routes/prompt-studio.lazy.tsx:570`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:97`, `Habibi/src/components/prompt-studio/PromptEditor.tsx:298`, `backend/prompt_lint.py:303`, `backend/prompt_lint.py:369`
 
@@ -2661,13 +2663,13 @@ trivial · shape-mismatch · DOWNGRADED
 
 ## Persona tab — traits, presets, language
 
-11 findings — 1 MAJOR, 8 MINOR, 2 trivial.
+11 findings — 1 MAJOR, 8 MINOR, 2 trivial; 3 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-persona.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `PERSONA-1` — Persona language never binds the recogniser on a real call — every tuning reaching resolve_session_tuning is pre-normalised to stt.language='en-IN', which the function treats as an explicit override
 
-**MAJOR** · degradation-lie
+**MAJOR** · degradation-lie · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/voice/tuning_apply.py:417`, `backend/voice/tuning_apply.py:442-450`, `backend/agent_core/tuning.py:302`, `backend/agent_core/tuning.py:37-38`, `backend/agent_core/tuning.py:146-148`, `backend/agent_core/deployment.py:70`, `backend/agent_core/deployment.py:112`, `backend/voice/bot.py:411-423`, `backend/voice/bot.py:437`, `backend/voice/bot.py:587-597`, `backend/db_prompt_studio.py:183`, `backend/db_prompt_studio.py:1620-1621`, `backend/db_prompt_studio.py:2004-2019`, `Habibi/src/components/prompt-studio/PersonaSliders.tsx:223-227`, `backend/tests/test_language_is_one_setting.py:56-85`
 
@@ -2715,7 +2717,7 @@ MINOR · degradation-lie
 
 #### `PERSONA-4` — 'Hear tone' auditions a different voice configuration than the Voice tab's Preview: it omits the model params and any language, so non-Azure voices play with backend defaults and a Hindi persona is spoken in English
 
-MINOR · disconnected
+MINOR · disconnected · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/PersonaSliders.tsx:110-120`, `Habibi/src/components/prompt-studio/PersonaSliders.tsx:269-273`, `Habibi/src/components/prompt-studio/VoicePanel.tsx:438-450`, `Habibi/src/api/prompt-studio.ts:1110-1130`, `backend/main.py:3110-3127`, `backend/schemas.py:2651-2670`, `backend/azure_speech.py:236`, `Habibi/src/data/prompt-studio-seed.ts:296-322`
 
@@ -2775,7 +2777,7 @@ MINOR · a11y
 
 #### `PERSONA-10` — Server accepts any persona.language string and any trait integer; an unregistered language publishes with G15 silently skipping and the recogniser silently unchanged
 
-trivial · bug · DOWNGRADED
+trivial · bug · DOWNGRADED · **closed** in `5d5ae1a` (pass 7)
 
 **Files** — `backend/schemas.py:2147-2162`, `backend/db_prompt_studio.py:71-91`, `backend/db_prompt_studio.py:1004-1011`, `backend/agent_core/cards/compile.py:207-210`, `backend/voice/tuning_apply.py:418-427`, `backend/voice/natural.py:114-121`
 
@@ -2801,13 +2803,13 @@ trivial · bug
 
 ## Voice (TTS) tab — catalog, params, preview, runtime binding
 
-11 findings — 2 MAJOR, 8 MINOR, 1 trivial.
+11 findings — 2 MAJOR, 8 MINOR, 1 trivial; 3 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-voice.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `VOICE-1` — Catalog Refresh is Azure-only but its soft-removal is not provider-scoped: it either marks every non-Azure voice removed (forcing runtime fallback to Aarti) or, as today, silently skips all removals while toasting 'Catalog refreshed'
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/tts_catalog_sync.py:212`, `backend/tts_catalog_sync.py:326-347`, `backend/worker.py:39-62`, `backend/provider_voice_sync.py:295-354`, `backend/main.py:3077-3086`, `backend/db_prompt_studio.py:1266-1272`, `backend/voice/tuning_apply.py:450-464`, `Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:257-283`
 
@@ -2819,7 +2821,7 @@ What this slice is, end to end, is in `raw/audit-voice.json` (`summary`, `endpoi
 
 #### `VOICE-2` — Bindings-tab voiceRef is dead config and a provider/voice mismatch is never checked: the Voice tab's short name is force-fed to whatever TTS service is bound (or the Azure fallback)
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `fcbfefd` (pass 3)
 
 **Files** — `backend/agent_core/providers/factory.py:226-227`, `backend/voice/tuning_apply.py:236`, `backend/agent_core/tuning.py:283`, `backend/voice/bot.py:660-676`, `backend/voice/provider_bind.py:59-79`, `backend/agent_core/providers/fish_service.py:129-139`, `backend/db_prompt_studio.py:961-979`, `backend/agent_core/cards/compile.py:194-226`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:192`, `Habibi/src/components/prompt-studio/VoiceParamsPanel.tsx:326-405`
 
@@ -2915,7 +2917,7 @@ MINOR · degradation-lie
 
 #### `VOICE-9` — Table column sort orders only the pages loaded so far while the header implies a catalog-wide sort
 
-MINOR · bug
+MINOR · bug · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/VoiceCatalogTable.tsx:106-119`, `Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:226-229`, `Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:702-706`, `backend/db_prompt_studio.py:1149`
 
@@ -2927,7 +2929,7 @@ MINOR · bug
 
 #### `VOICE-12` — Provider-chip counts and 'All' total ignore the active status filter
 
-trivial · shape-mismatch
+trivial · shape-mismatch · deferred: the counts hook lives in Habibi/src/api/providers.ts, the other stream's uncommitted file
 
 **Files** — `backend/db.py:7452-7466`, `backend/db.py:7485-7487`, `Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:386-411`, `Habibi/src/components/prompt-studio/VoiceCatalogBrowser.tsx:514-522`
 
@@ -2941,13 +2943,13 @@ trivial · shape-mismatch
 
 ## Bindings tab — provider models per slot
 
-12 findings — 2 MAJOR, 8 MINOR, 2 trivial.
+12 findings — 2 MAJOR, 8 MINOR, 2 trivial; 3 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-bindings.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `BINDINGS-2` — Slot switch keeps the previous slot's modelId; nothing on any layer checks model.kind == binding.slot
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/BindingsTab.tsx:49`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:59`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:85`, `backend/schemas.py:3426`, `backend/main.py:5489`, `backend/agent_core/providers/persist.py:151`, `backend/alembic/versions/20260821_0092_provider_registry.py:118`, `backend/agent_core/providers/factory.py:154`, `backend/agent_core/providers/factory.py:224`
 
@@ -2959,7 +2961,7 @@ What this slice is, end to end, is in `raw/audit-bindings.json` (`summary`, `end
 
 #### `BINDINGS-3` — The model picker offers unconfigured, preview-only and unconstructable models with no marking; binding one renders green and silently runs Azure
 
-**MAJOR** · degradation-lie · prior: AGENT_STUDIO_BUG_HUNT.md:247 cross-cutting theme 1 ("bindings render dead vendors green") — still present; the Bindings tab had no section of its own in that audit.
+**MAJOR** · degradation-lie · prior: AGENT_STUDIO_BUG_HUNT.md:247 cross-cutting theme 1 ("bindings render dead vendors green") — still present; the Bindings tab had no section of its own in that audit. · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `Habibi/src/components/prompt-studio/BindingsTab.tsx:105`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:204`, `Habibi/src/api/providers.ts:49`, `backend/main.py:5455`, `backend/agent_core/providers/registry.py:454`, `backend/agent_core/providers/registry.py:529`, `backend/agent_core/providers/openrouter_tts.py:192`, `backend/agent_core/providers/factory.py:285`, `backend/voice/provider_bind.py:80`
 
@@ -3031,7 +3033,7 @@ MINOR · bug
 
 #### `BINDINGS-7` — Re-saving a binding at the same identity nulls its voice_ref, and the form has no field to carry it back
 
-MINOR · bug
+MINOR · bug · deferred: voice_ref column: schemas/integrations.py and providers/persist.py are the other stream's uncommitted files (provider runtime, 2026-09-13)
 
 **Files** — `Habibi/src/components/prompt-studio/BindingsTab.tsx:61`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:149`, `backend/schemas.py:3433`, `backend/main.py:5498`, `backend/agent_core/providers/persist.py:187`
 
@@ -3055,7 +3057,7 @@ MINOR · dead-config
 
 #### `BINDINGS-9` — Locale is unvalidated free text matched exactly at runtime; a typo yields a permanently green binding that never applies
 
-MINOR · degradation-lie
+MINOR · degradation-lie · deferred: locale 422: routers/integrations.py is the other stream's uncommitted file
 
 **Files** — `Habibi/src/components/prompt-studio/BindingsTab.tsx:67`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:113`, `Habibi/src/api/providers.ts:22`, `backend/agent_core/providers/factory.py:158`, `backend/voice/bot.py:635`, `backend/agent_core/tuning.py:302`
 
@@ -3079,7 +3081,7 @@ trivial · a11y · DOWNGRADED
 
 #### `BINDINGS-13` — No test covers the bindings CRUD endpoints or the tab
 
-trivial · test-gap · DOWNGRADED
+trivial · test-gap · DOWNGRADED · **closed** in `40557ab` (pass 7)
 
 **Files** — `backend/tests/test_voice_provider_bind.py:1`, `backend/tests/test_provider_registry_runtime.py:1`, `Habibi/src/components/prompt-studio/BindingsTab.tsx:1`
 
@@ -3093,7 +3095,7 @@ trivial · test-gap · DOWNGRADED
 
 ## Policy tab — the six locked engines
 
-8 findings — 0 MAJOR, 5 MINOR, 3 trivial.
+8 findings — 0 MAJOR, 5 MINOR, 3 trivial; 1 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-policy.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
@@ -3171,7 +3173,7 @@ trivial · code-organization · DOWNGRADED
 
 #### `POLICY-7` — The Policy tab is a navigational dead end: it names six engines and links to none of the five screens that configure them
 
-trivial · disconnected · DOWNGRADED
+trivial · disconnected · DOWNGRADED · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202-242`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:2-3`, `Habibi/src/routes/upsell.tsx`, `Habibi/src/routes/treatment.tsx`, `Habibi/src/routes/qa.tsx`, `Habibi/src/routes/routing.tsx`, `Habibi/src/routes/consent.tsx`
 
@@ -3197,13 +3199,13 @@ trivial · doc-vs-code
 
 ## Card editor shell — hydration, autosave, drafts, publish
 
-17 findings — 1 MAJOR, 11 MINOR, 5 trivial.
+17 findings — 1 MAJOR, 11 MINOR, 5 trivial; 3 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-shell.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `SHELL-2` — Rollback (a production re-publish) is gated by BOT_WRITE while publish needs AGENT_PUBLISH; card edits via the editor need only BOT_WRITE although the card route demands AGENT_EDIT
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:2347-2404`, `backend/main.py:3382-3385`, `backend/main.py:2995-3000`, `backend/db_prompt_studio.py:1774-1778`
 
@@ -3251,7 +3253,7 @@ MINOR · degradation-lie
 
 #### `SHELL-13` — Version list is a silent 200-row page: an old published row can drop out, flipping the header to 'never published' and resetting labels
 
-MINOR · bug
+MINOR · bug · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/db_core.py:211`, `backend/db_core.py:215`, `backend/db_prompt_studio.py:225`, `Habibi/src/api/prompt-studio.ts:165-169`, `Habibi/src/routes/prompt-studio.lazy.tsx:413-425`, `Habibi/src/routes/prompt-studio.lazy.tsx:541`, `Habibi/src/components/prompt-studio/StudioHeader.tsx:80-84`
 
@@ -3383,7 +3385,7 @@ trivial · bug
 
 #### `SHELL-16` — Draft-count dot on the History button is a role-less span with aria-label
 
-trivial · a11y · prior: 2a.7 — still present at StudioHeader.tsx:119-124
+trivial · a11y · prior: 2a.7 — still present at StudioHeader.tsx:119-124 · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/StudioHeader.tsx:119-124`
 
@@ -3409,7 +3411,7 @@ trivial · bug · prior: 2.5 — fixed in loadDraft, still latent in publish/rol
 
 ## Header and version history
 
-11 findings — 0 MAJOR, 7 MINOR, 4 trivial.
+11 findings — 0 MAJOR, 7 MINOR, 4 trivial; 2 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-header.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
@@ -3487,7 +3489,7 @@ MINOR · bug
 
 #### `HEADER-6` — Version history is a single unpaginated 200-row page — the History count, the Live group and the by-bot publish endpoint all truncate silently
 
-MINOR · bug
+MINOR · bug · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/api/prompt-studio.ts:165-169`, `backend/main.py:2020-2027`, `backend/db_core.py:211-212`, `backend/db_core.py:215-227`, `backend/db_prompt_studio.py:225`, `backend/db_prompt_studio.py:243-244`, `Habibi/src/routes/prompt-studio.lazy.tsx:386`, `Habibi/src/routes/prompt-studio.lazy.tsx:1265`, `backend/main.py:2217`, `backend/main.py:2225-2228`
 
@@ -3511,7 +3513,7 @@ trivial · bug
 
 #### `HEADER-12` — "Restore" leaves the History drawer open on top of the editor it just repopulated, while "Load" closes it
 
-trivial · bug
+trivial · bug · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/routes/prompt-studio.lazy.tsx:1559-1563`, `Habibi/src/routes/prompt-studio.lazy.tsx:1564`, `Habibi/src/routes/prompt-studio.lazy.tsx:1565-1568`, `Habibi/src/routes/prompt-studio.lazy.tsx:930-938`, `Habibi/src/components/prompt-studio/VersionHistory.tsx:287-292`
 
@@ -3523,7 +3525,7 @@ trivial · bug
 
 #### `HEADER-8` — PublishDialog recomputes the full O(m·n) LCS diff on every Studio render, including every keystroke while the dialog is closed
 
-trivial · code-organization · DOWNGRADED
+trivial · code-organization · DOWNGRADED · deferred: PublishDialog.tsx is the other stream's uncommitted file
 
 **Files** — `Habibi/src/components/prompt-studio/PublishDialog.tsx:56-74`, `Habibi/src/components/prompt-studio/PublishDialog.tsx:72`, `Habibi/src/components/prompt-studio/PublishDialog.tsx:88-92`, `Habibi/src/data/prompt-studio-seed.ts:325-353`, `Habibi/src/routes/prompt-studio.lazy.tsx:1583-1606`, `Habibi/src/components/prompt-studio/DiffModal.tsx:44`
 
@@ -3549,13 +3551,13 @@ trivial · doc-vs-code
 
 ## Agent Card → runtime — the field-by-field inventory
 
-23 findings — 10 MAJOR, 10 MINOR, 3 trivial.
+23 findings — 10 MAJOR, 10 MINOR, 3 trivial; 10 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `RUNTIME-01` — human_gates is enforced nowhere — the card's identity/floor requirement has no reader at all
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/cards/schema.py:53`, `backend/agent_core/cards/schema.py:157-162`, `backend/agent_core/cards/schema.py:389`, `backend/agent_core/cards/defaults.py:131`, `backend/agent_core/cards/defaults.py:149-151`, `backend/agent_core/cards/defaults.py:171`, `backend/agent_core/cards/defaults.py:312`, `backend/agent_core/cards/defaults.py:328`, `backend/voice/tools.py:516-523`, `backend/agent_core/cards/compile.py:519-954`
 
@@ -3567,7 +3569,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-02` — card.memory is dead in its entirety — including the scopes that describe what is retained about a borrower
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/cards/schema.py:144-155`, `backend/agent_core/cards/schema.py:387`, `backend/voice/crm_sink.py:1154-1190`, `backend/voice/crm_sink.py:1614`, `backend/bot_runtime.py:49-50`, `backend/bot_runtime.py:871`, `backend/bot_runtime.py:893`, `backend/agent_core/compaction.py:12`, `backend/agent_core/compaction.py:35-50`, `backend/agent_core/turn.py:37`
 
@@ -3579,7 +3581,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-03` — experiment.shadow never reaches routing — a shadow canary serves real callers
 
-**MAJOR** · degradation-lie · prior: 2m.2
+**MAJOR** · degradation-lie · prior: 2m.2 · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:57-77`, `backend/agent_core/canary.py:87`, `backend/agent_core/canary.py:114-129`, `backend/agent_core/canary.py:342`, `backend/agent_core/deployment.py:37-50`, `backend/agent_core/cards/schema.py:365`, `backend/agent_core/cards/compile.py:880-895`
 
@@ -3591,7 +3593,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-05` — voice handoff_to_agent allowlists against the built-in card, not the live one — and denies nothing when the bot is not first-party
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/voice/tools.py:2773-2797`, `backend/voice/tools.py:2781`, `backend/voice/tools.py:2783-2788`, `backend/agent_core/tools/domain.py:1009-1027`, `backend/bot_tools.py:400-429`, `backend/voice/bot.py:1138`
 
@@ -3603,7 +3605,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-06` — a2a.expose and a2a.skill_ids are both dead: the well-known card is served for any bot to any authenticated partner, and lists card.skills instead
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/main.py:2711-2721`, `backend/agent_core/a2a.py:38-69`, `backend/agent_core/a2a.py:72-105`, `backend/agent_core/a2a.py:80`, `backend/agent_core/a2a.py:108-119`, `backend/agent_core/cards/compile.py:897-917`, `backend/agent_core/cards/schema.py:369-373`, `backend/agent_core/cards/defaults.py:318-331`
 
@@ -3615,7 +3617,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-07` — the A2A partner card is rendered from the DRAFT card, not the published one
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/a2a.py:74-77`, `backend/db_prompt_studio.py:429-430`, `backend/db_prompt_studio.py:503`, `backend/main.py:2711-2717`
 
@@ -3627,7 +3629,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-08` — CardObjective.success does not decide whether a mission succeeded — the closer uses a hardcoded table, and both the comment and the Outbound tab say otherwise
 
-**MAJOR** · stale
+**MAJOR** · stale · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/call_closer.py:99-112`, `backend/call_closer.py:949-950`, `backend/call_closer.py:1005`, `backend/call_closer.py:1032`, `backend/call_closer.py:1059`, `backend/mission.py:315`, `backend/main.py:5366`, `backend/agent_core/cards/schema.py:237-238`
 
@@ -3639,7 +3641,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-09` — cadence.escalate_to is gated at publish and read by nobody — an exhausted ladder escalates to no one
 
-**MAJOR** · dead-config
+**MAJOR** · dead-config · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/cadence.py:600-604`, `backend/cadence.py:231-240`, `backend/cadence.py:402-410`, `backend/agent_core/cards/compile.py:409-427`, `backend/agent_core/cards/compile.py:173`, `backend/agent_core/cards/schema.py:289-291`, `Habibi/src/components/prompt-studio/OutboundCardEditor.tsx:860-875`
 
@@ -3651,7 +3653,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-13` — outbound.direction never blocks a dial — an inbound-only card is dialled from, and the objective guard is skipped precisely when the card forbids dialling
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/treatment/enact.py:358-370`, `backend/mission.py:450-494`, `backend/campaigns.py:526-557`, `backend/agent_core/cards/schema.py:324`, `backend/agent_core/cards/schema.py:356-358`
 
@@ -3663,7 +3665,7 @@ What this slice is, end to end, is in `raw/audit-runtime.json` (`summary`, `endp
 
 #### `RUNTIME-14` — cadence retries are always placed as the tenant default bot, so the ladder abandons the card that opened it
 
-**MAJOR** · bug
+**MAJOR** · bug · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/cadence.py:418-440`, `backend/cadence.py:127-145`, `backend/mission.py:450-463`, `backend/mission.py:494`, `backend/mission.py:498-530`
 
@@ -3833,13 +3835,13 @@ trivial · dead-config · prior: 2j
 
 ## Type mirror — TypeScript vs Pydantic
 
-13 findings — 0 MAJOR, 9 MINOR, 4 trivial.
+13 findings — 0 MAJOR, 9 MINOR, 4 trivial; 2 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-types.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `TYPES-01` — Skill lint warnings reach the wire and die at the TypeScript boundary — the author is still told nothing
 
-MINOR · disconnected · DOWNGRADED
+MINOR · disconnected · DOWNGRADED · **closed** in `6089743` (pass 7)
 
 **Files** — `backend/agent_core/skills/lint.py:40`, `backend/agent_core/skills/lint.py:54-70`, `backend/agent_core/cards/compile.py:693-704`, `Habibi/src/routes/agent-studio.skills.index.tsx:140-146`
 
@@ -3959,7 +3961,7 @@ trivial · dead-config · DOWNGRADED
 
 #### `TYPES-09` — PromptVersion omits `tuning`, the column publish reads and VoicePanel writes through
 
-trivial · shape-mismatch · DOWNGRADED
+trivial · shape-mismatch · DOWNGRADED · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/api/types/prompt-studio.ts:61-85`, `backend/db_prompt_studio.py:1735-1749`, `backend/db_prompt_studio.py:1755-1762`, `Habibi/src/api/prompt-studio.ts:45`, `Habibi/src/components/prompt-studio/VersionHistory.tsx:164-166`
 
@@ -3997,13 +3999,13 @@ trivial · test-gap · DOWNGRADED
 
 ## Authorization, tenancy and audit on every studio write
 
-17 findings — 6 MAJOR, 11 MINOR, 0 trivial.
+17 findings — 6 MAJOR, 11 MINOR, 0 trivial; 8 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `AUTHZ-1` — Approving a connector or refreshing its tool cache silently widens the live Tool Grant of an already-published card — INTEGRATIONS_WRITE, no publish gate, no change-log entry
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/skills/intersect.py:117-123`, `backend/agent_core/connectors/persist.py:193`, `backend/agent_core/connectors/persist.py:222`, `backend/agent_core/connectors/persist.py:230`, `backend/agent_core/connectors/persist.py:306`, `backend/bot_runtime.py:916`, `backend/bot_runtime.py:943`, `backend/bot_tools.py:806`, `backend/bot_tools.py:810`, `backend/voice/bot.py:1141`, `backend/agent_core/change_log.py:162`
 
@@ -4015,7 +4017,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-2` — Deployment rollback re-publishes production on BOT_WRITE and never runs the compiler — every gate G0-G15, including G14 agent_publish, is skipped
 
-**MAJOR** · security · prior: SHELL-2
+**MAJOR** · security · prior: SHELL-2 · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db_prompt_studio.py:2292`, `backend/db_prompt_studio.py:2358`, `backend/db_prompt_studio.py:2378`, `backend/agent_core/cards/compile.py:932`, `backend/main.py:3371`
 
@@ -4027,7 +4029,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-3` — PATCH /prompt-versions/{id} accepts `agentCard` on BOT_WRITE, so AGENT_EDIT is unenforceable for card authoring
 
-**MAJOR** · security · prior: SHELL-2
+**MAJOR** · security · prior: SHELL-2 · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/schemas.py:2388`, `backend/schemas.py:2373`, `backend/authz.py:287`, `backend/main.py:2144`, `backend/db_prompt_studio.py:1774`
 
@@ -4039,7 +4041,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-6` — G13 (A2A mTLS) is satisfied by a self-asserted DN string that an INTEGRATIONS_WRITE holder types in, and it ignores the bot it is asked about
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/a2a.py:222`, `backend/agent_core/a2a.py:262`, `backend/agent_core/a2a.py:264`, `backend/agent_core/cards/compile.py:897`, `backend/agent_core/cards/compile.py:917`, `backend/db_prompt_studio.py:1894`
 
@@ -4051,7 +4053,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-7` — Changing who may publish an agent card writes no audit record at all
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/db.py:215`, `backend/db.py:243`, `backend/db.py:253`, `backend/main.py:2984`, `backend/agent_core/change_log.py:162`
 
@@ -4063,7 +4065,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-9` — Canary/experiment rollback swaps the live production deployment with no change-log entry and no actor recorded anywhere
 
-**MAJOR** · security
+**MAJOR** · security · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/agent_core/canary.py:136`, `backend/agent_core/canary.py:167`, `backend/agent_core/canary.py:175`, `backend/main.py:3211`, `backend/main.py:3214`, `backend/db_prompt_studio.py:2410`
 
@@ -4075,7 +4077,7 @@ What this slice is, end to end, is in `raw/audit-authz.json` (`summary`, `endpoi
 
 #### `AUTHZ-10` — Connector approval, MCP key mint/rotate and provider bindings record no actor — the columns to record one do not exist
 
-MINOR · security
+MINOR · security · **closed** in `340a707` (pass 7)
 
 **Files** — `backend/agent_core/mcp_http/auth.py:100`, `backend/agent_core/mcp_http/auth.py:110`, `backend/alembic/versions/20260815_0076_mcp_phase3.py:72`
 
@@ -4111,7 +4113,7 @@ MINOR · dead-config
 
 #### `AUTHZ-13` — The frontend has no notion of the actor's permissions, so every privileged studio control renders enabled and fails after the click with a raw permission id
 
-MINOR · a11y
+MINOR · a11y · **closed** in `e30ce97` (pass 7)
 
 **Files** — `backend/main.py:577`, `backend/schemas.py:531`, `backend/main.py:1314`, `Habibi/src/api/config.ts:103`
 
@@ -4209,13 +4211,13 @@ MINOR · degradation-lie · DOWNGRADED
 
 ## Code organization, duplication, dead code, test gaps
 
-13 findings — 1 MAJOR, 6 MINOR, 6 trivial.
+13 findings — 1 MAJOR, 6 MINOR, 6 trivial; 3 recorded closed in `raw/closures.json`.
 
 What this slice is, end to end, is in `raw/audit-org.json` (`summary`, `endpoints`, `runtime_consumers`, `checked_fine`).
 
 #### `ORG-04` — One handoff allowlist, two implementations: bot_tools' is hardened, voice/tools' is a copy that lost both hardenings
 
-**MAJOR** · code-organization · prior: Established fact: "The voice handoff allowlist reads the Python-constant card via card_for() (voice/tools.py:2783-2788), NOT the published card; a non-first-party bot_id yields allowlist=None = unrestricted" — this finding is the organizational cause (a duplicated control where only one copy was fixed), not a restatement of the symptom.
+**MAJOR** · code-organization · prior: Established fact: "The voice handoff allowlist reads the Python-constant card via card_for() (voice/tools.py:2783-2788), NOT the published card; a non-first-party bot_id yields allowlist=None = unrestricted" — this finding is the organizational cause (a duplicated control where only one copy was fixed), not a restatement of the symptom. · **closed** in `RESTATUS-2026-09-09` (pass 3)
 
 **Files** — `backend/bot_tools.py:398-427`, `backend/voice/tools.py:2783-2796`, `backend/agent_core/tools/domain.py:1026-1031`, `backend/agent_core/cards/defaults.py:334-346`, `backend/agent_core/cards/handoff_policy.py:11-30`, `backend/voice/bot.py:406-410`, `backend/voice/bot.py:444-447`, `backend/voice_sandbox.py:180-215`, `backend/main.py:3482`
 
@@ -4275,7 +4277,7 @@ MINOR · code-organization · prior: Established fact: "backend/voice/mesh.py ac
 
 #### `ORG-09` — All fifteen Studio tabs have zero rendering tests; the one studio test greps source text
 
-MINOR · test-gap · DOWNGRADED
+MINOR · test-gap · DOWNGRADED · **closed** in `a33efbd` (pass 7)
 
 **Files** — `Habibi/src/routes/agent-studio.skills.index.test.ts:8-14`, `Habibi/vitest.config.ts:20-30`, `Habibi/src/routes/prompt-studio.lazy.tsx:1109-1133`, `Habibi/src/routes/prompt-studio.lazy.tsx:164-171`, `Habibi/src/routes/prompt-studio.lazy.tsx:1145-1158`, `Habibi/src/components/prompt-studio/PublishDialog.tsx:84-96`, `Habibi/src/lib/agent-roster.test.ts:1-11`
 
@@ -4335,7 +4337,7 @@ trivial · code-organization · DOWNGRADED
 
 #### `ORG-11` — AgentCardPanels.tsx holds six tabs and a hook in 1,047 lines, one of which is a dead one-line passthrough
 
-trivial · code-organization · DOWNGRADED
+trivial · code-organization · DOWNGRADED · **closed** in `6089743` (pass 7)
 
 **Files** — `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:73`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:202`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:260`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:576`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:760`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:914`, `Habibi/src/components/prompt-studio/AgentCardPanels.tsx:1045-1047`, `Habibi/src/routes/prompt-studio.lazy.tsx:83`, `Habibi/src/routes/prompt-studio.lazy.tsx:93-100`
 

@@ -65,6 +65,10 @@ def render_finding(f: dict) -> str:
         bits.append(f["status"])
     if f.get("prior_ref"):
         bits.append("prior: %s" % f["prior_ref"])
+    if f.get("closed_in"):
+        bits.append("**closed** in `%s` (pass %s)" % (f["closed_in"], f.get("pass", "?")))
+    elif f.get("deferred"):
+        bits.append("deferred: %s" % f["deferred"])
     out.append("%s\n" % " · ".join(bits))
     out.append("**Files** — %s\n" % code_list(f["files"]))
     out.append("**Mechanism** — %s\n" % f["mechanism"])
@@ -84,10 +88,11 @@ def render_findings(rows: list) -> list[str]:
         if not band:
             continue
         counts = {s: sum(1 for f in band if f["severity"] == s) for s in ("MAJOR", "MINOR", "TRIVIAL")}
+        closed = sum(1 for f in band if f.get("closed_in"))
         parts.append("---\n\n## %s\n" % title)
         parts.append(
-            "%d findings — %d MAJOR, %d MINOR, %d trivial.\n"
-            % (len(band), counts["MAJOR"], counts["MINOR"], counts["TRIVIAL"])
+            "%d findings — %d MAJOR, %d MINOR, %d trivial; %d recorded closed in `raw/closures.json`.\n"
+            % (len(band), counts["MAJOR"], counts["MINOR"], counts["TRIVIAL"], closed)
         )
         parts.append("What this slice is, end to end, is in `raw/audit-%s.json` (`summary`, "
                      "`endpoints`, `runtime_consumers`, `checked_fine`).\n" % key)
@@ -178,6 +183,12 @@ def main() -> None:
         "Line numbers were accurate when read against commit `026cada`, in a tree that was moving "
         "(see the working-tree caveat in the companion). **Re-anchor every citation before acting "
         "on it.**\n",
+        "**Closure is recorded per finding in `raw/closures.json`** — %d closed (every MAJOR, by the "
+        "re-verification of 2026-09-09 and its same-day commits; the pass-7 residue by commit), "
+        "%d deferred with the reason named. A MINOR or trivial finding with no closure line was "
+        "worked under a MASTER-BACKLOG work package (passes 3–6) and has not been re-verified by "
+        "id, so it is not claimed closed here.\n"
+        % (sum(1 for f in rows if f.get("closed_in")), sum(1 for f in rows if f.get("deferred"))),
         "## Contents\n",
     ]
     by_slice = {}
@@ -197,7 +208,7 @@ def main() -> None:
 
     body = head + render_findings(rows) + render_crosscutting() + render_gaps()
     text = "\n".join(body)
-    with open(OUT, "w", encoding="utf-8") as fh:
+    with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     print("wrote %s — %d findings, %d lines, %d KB"
           % (OUT, len(rows), text.count("\n") + 1, len(text.encode("utf-8")) / 1024))
