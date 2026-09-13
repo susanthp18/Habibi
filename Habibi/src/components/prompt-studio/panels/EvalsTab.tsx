@@ -34,8 +34,9 @@ import { NotAuthoredNotice } from "./NotAuthoredNotice";
 /**
  * What a card may demand before it ships. Mirrors `schema.py::EvalRequire`.
  *
- * The first three predate outbound. `twin` replays a real call against the
- * candidate; `outbound` is separate because an outbound bug fails differently —
+ * The first three predate outbound. `twin` replays a bounce ladder against a
+ * simulated borrower (a fake ledger and queues -- `agent_core/twin.py`, never
+ * a call); `outbound` is separate because an outbound bug fails differently —
  * an inbound one annoys the caller who rang us, an outbound one has already
  * rung ten thousand phones by the time anyone notices.
  */
@@ -48,7 +49,7 @@ const EVAL_REQUIRE: Array<{ key: EvalRequire; label: string; hint: string }> = [
     // Where to run it, because it is not here. The Twin has its own runner in
     // the Sandbox inspector; the Evals tab's suites write `eval_reports` and
     // G11 reads `twin_runs`, so nothing on this screen can satisfy this box.
-    hint: "replays of real calls — run it from the Sandbox inspector's Twin tab",
+    hint: "a bounce ladder against a simulated borrower — run it from the Sandbox inspector's Twin tab",
   },
   { key: "outbound", label: "Outbound", hint: "gated by G-OB9, on the same terms as G7/G8" },
 ];
