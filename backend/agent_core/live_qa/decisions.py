@@ -8,11 +8,12 @@ Nothing here fails loudly. A logging error must never cost the call.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import uuid
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Mapping, Sequence
+
+from db_core import writer
 
 from sqlalchemy import text
 
@@ -21,17 +22,6 @@ logger = logging.getLogger(__name__)
 
 def _id() -> str:
     return f"LQ-{uuid.uuid4().hex[:12].upper()}"
-
-
-@contextlib.contextmanager
-def _writer(conn: Any | None) -> Iterator[Any]:
-    if conn is not None:
-        yield conn
-        return
-    import db
-
-    with db.engine.begin() as owned:
-        yield owned
 
 
 def record(
@@ -53,7 +43,7 @@ def record(
 ) -> str | None:
     decision_id = _id()
     try:
-        with _writer(conn) as c:
+        with writer(conn) as c:
             import db
 
             c.execute(
@@ -105,7 +95,7 @@ def mark_enacted(
     if not decision_id:
         return
     try:
-        with _writer(conn) as c:
+        with writer(conn) as c:
             c.execute(
                 text(
                     """
@@ -127,7 +117,7 @@ def pending_auto_barge(interaction_id: str, *, conn: Any | None = None) -> dict[
     if not interaction_id:
         return None
     try:
-        with _writer(conn) as c:
+        with writer(conn) as c:
             row = c.execute(
                 text(
                     """

@@ -25,13 +25,15 @@ behind. Commit ``fd855ca`` is this repository paying for that once.
 
 from __future__ import annotations
 
+import contextlib
+
 import json
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
@@ -617,6 +619,27 @@ def _db():
     import db as d
 
     return d
+
+
+@contextlib.contextmanager
+def writer(conn: Any | None) -> Iterator[Any]:
+    """The caller's transaction, or one of our own -- through ``db.engine`` at
+    call time so the tests' savepoint proxy is the engine that opens it."""
+    if conn is not None:
+        yield conn
+        return
+    with _db().engine.begin() as owned:
+        yield owned
+
+
+@contextlib.contextmanager
+def reader(conn: Any | None) -> Iterator[Any]:
+    """The caller's connection, or a short-lived one of our own."""
+    if conn is not None:
+        yield conn
+        return
+    with _db().engine.connect() as owned:
+        yield owned
 
 
 def _assert_tenant_owns_customer(conn: Any, customer_id: str | None) -> None:

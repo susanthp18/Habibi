@@ -10,11 +10,12 @@ did the bot refuse Tuesday?".
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import uuid
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Mapping, Sequence
+
+from db_core import writer
 
 from sqlalchemy import text
 
@@ -23,17 +24,6 @@ logger = logging.getLogger(__name__)
 
 def _id() -> str:
     return f"AD-{uuid.uuid4().hex[:12].upper()}"
-
-
-@contextlib.contextmanager
-def _writer(conn: Any | None) -> Iterator[Any]:
-    if conn is not None:
-        yield conn
-        return
-    import db
-
-    with db.engine.begin() as owned:
-        yield owned
 
 
 def record(
@@ -58,7 +48,7 @@ def record(
 ) -> str | None:
     decision_id = _id()
     try:
-        with _writer(conn) as c:
+        with writer(conn) as c:
             import db
 
             c.execute(
@@ -117,7 +107,7 @@ def mark_enacted(
     """
     if not decision_id:
         return True
-    with _writer(conn) as c:
+    with writer(conn) as c:
         result = c.execute(
             text(
                 """
@@ -162,7 +152,7 @@ def bind_ceiling(
     )
 
     cap = max(0.0, float(ceiling))
-    with _writer(conn) as c:
+    with writer(conn) as c:
         row = (
             c.execute(
                 text(

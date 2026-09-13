@@ -22,12 +22,13 @@ deadlock waiting for load.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Mapping, Sequence
+
+from db_core import writer, reader
 
 from sqlalchemy import text
 from agent_core.clock import utc_now
@@ -37,29 +38,6 @@ logger = logging.getLogger(__name__)
 
 def _id() -> str:
     return f"TD-{uuid.uuid4().hex[:12].upper()}"
-
-
-@contextlib.contextmanager
-def _writer(conn: Any | None) -> Iterator[Any]:
-    """Use the caller's transaction, or open one."""
-    if conn is not None:
-        yield conn
-        return
-    import db
-
-    with db.engine.begin() as owned:
-        yield owned
-
-
-@contextlib.contextmanager
-def _reader(conn: Any | None) -> Iterator[Any]:
-    if conn is not None:
-        yield conn
-        return
-    import db
-
-    with db.engine.connect() as owned:
-        yield owned
 
 
 def record(
@@ -139,7 +117,7 @@ def record(
             "rationale": rationale,
             "latency_ms": latency_ms,
         }
-        with _writer(conn) as active:
+        with writer(conn) as active:
             if schema_ready.w2_ready(active):
                 extra_cols = (
                     ", arm_propensity, action_propensity, replay_nonce, "
@@ -263,7 +241,7 @@ def planned_actions(
     """
     try:
         clause = "trigger_ref = :ref" if trigger_ref else "trigger_ref IS NULL"
-        with _reader(conn) as active:
+        with reader(conn) as active:
             rows = active.execute(
                 text(
                     f"""
@@ -359,7 +337,7 @@ def mark_enacted(
         return
     actor = enacted_by if enacted_by in {"treatment_executor", "clerk_agent", "human", "tuner"} else None
     try:
-        with _writer(conn) as active:
+        with writer(conn) as active:
             active.execute(
                 text(
                     """
@@ -418,7 +396,7 @@ def record_outcome(
     try:
         from agent_core.treatment import cancel as cancel_mod, schema_ready
 
-        with _writer(conn) as active:
+        with writer(conn) as active:
             extra = ""
             params: dict[str, Any] = {"id": decision_id, "outcome": outcome}
             if cancel_reason and schema_ready.has_column(active, "treatment_decisions", "cancel_reason"):
