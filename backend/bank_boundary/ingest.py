@@ -88,7 +88,8 @@ class Ingest:
     source_ref: str
     tenant_id: str
     adapter: Any = None
-    arrival: datetime | None = None
+    #: Set by the admission phase, the first to run; every later phase reads it.
+    arrival: datetime = field(default_factory=_now)
     payload_hash: str = ""
     validated: list[dict[str, Any]] = field(default_factory=list)
 
@@ -339,7 +340,7 @@ def _ingest_controls(st: Ingest) -> dict[str, Any] | None:
         raise IngestRejected(breaks[0]["kind"], breaks)
 
     try:
-        validated = adapter.validate(rows) if adapter else list(rows)
+        validated = adapter.validate(rows) if adapter else [dict(r) for r in rows]
         _preflight(
             conn,
             tenant_id=tenant_id,

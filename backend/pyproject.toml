@@ -15,60 +15,14 @@ name = "habibi-backend"
 version = "0.0.0"
 requires-python = ">=3.12,<3.13"
 
-# pyright, basic mode, on a named subset -- introduced green, widened a
-# module at a time (each addition must be green on the commit that adds it).
-# Still outside: voice/ (52 findings, mostly Optional row reads) and the
-# db_prompt_studio package (28); they join the same way.
+# pyright, basic mode, on the whole tree. Widened one module at a time from
+# a named subset (each addition green on the commit that added it) until the
+# list was the tree; a new module is covered the moment it exists. Tests,
+# scripts and the migration chain stay out: they are exercised, not typed.
 #   npx pyright            (from backend/; CI runs the same)
 [tool.pyright]
-include = [
-  "agent_core/tools",
-  "agent_core/cards",
-  "agent_core/fleet",
-  "outbound.py",
-  "outbound_pools.py",
-  "flow_graph.py",
-  "policy_rules.py",
-  "contact_policy.py",
-  "contact_ledger.py",
-  "routers",
-  "db_billing.py",
-  "db_bot_analytics.py",
-  "db_callbacks.py",
-  "db_coaching.py",
-  "db_compliance.py",
-  "db_consent.py",
-  "db_core.py",
-  "db_dashboard.py",
-  "db_disputes.py",
-  "db_interactions.py",
-  "db_documents.py",
-  "db_evals.py",
-  "db_handoff.py",
-  "db_inbox.py",
-  "db_inbox_rag.py",
-  "db_whatsapp.py",
-  "db_kb.py",
-  "db_kb_snapshots.py",
-  "db_leads.py",
-  "db_outbound.py",
-  "db_promises.py",
-  "db_qa.py",
-  "db_redaction.py",
-  "db_routing.py",
-  "db_sandbox.py",
-  "db_trace.py",
-  "db_treatment_holds.py",
-  "db_violations.py",
-  "db_workspace.py",
-  "voice",
-  "db_prompt_studio",
-  "webhooks_dispatch.py",
-  "work_loop.py",
-  "observability.py",
-  "circuit_breaker.py",
-]
-exclude = ["**/__pycache__", ".venv"]
+include = ["."]
+exclude = ["**/__pycache__", ".venv", "node_modules", "tests", "scripts", "alembic"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"

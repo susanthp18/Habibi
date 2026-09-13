@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -123,7 +123,7 @@ def _phone_last4(phone: str | None) -> str | None:
     return digits[-4:] if len(digits) >= 4 else (digits or None)
 
 
-def _promised_date_ist(promised_at: datetime) -> datetime.date:
+def _promised_date_ist(promised_at: datetime) -> date:
     if promised_at.tzinfo is None:
         promised_at = promised_at.replace(tzinfo=timezone.utc)
     return promised_at.astimezone(IST).date()
@@ -728,7 +728,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
 
     sent = False
     try:
-        if channel == "whatsapp":
+        if channel == "whatsapp" and phone:
             conversation_id = dbmod._open_whatsapp_conversation(conn, promise["customer_id"])
             inside = _inside_service_window(conn, conversation_id)
             # Only the name matters here: this decides whether a template

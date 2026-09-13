@@ -548,7 +548,7 @@ class SandboxTurn:
     bot_turn_index: int = 0
     chat_latency: int = 0
     chunk_ids: list[str] = field(default_factory=list)
-    compiled: dict[str, Any] | None = None
+    compiled: dict[str, Any] = field(default_factory=dict)
     contract_card: dict[str, Any] | None = None
     contract_flow: dict[str, Any] | None = None
     contract_frozen_tools: list[str] = field(default_factory=list)
@@ -567,7 +567,7 @@ class SandboxTurn:
     guardrails: dict[str, Any] = field(default_factory=dict)
     halted: bool = False
     history: list[dict[str, Any]] = field(default_factory=list)
-    intent: str | None = None
+    intent: str = ""
     intent_scores: dict[str, float] | None = None
     latency_ms: int = 0
     max_tokens: int = 0
@@ -580,10 +580,10 @@ class SandboxTurn:
     rehearsal_channel: str = ""
     retrieval: dict[str, Any] = field(default_factory=dict)
     retrieve_latency: int = 0
-    run: dict[str, Any] | None = None
+    run: dict[str, Any] = field(default_factory=dict)
     sent_label: str | None = None
     sentiment: float | None = None
-    skill_prefix: str | None = None
+    skill_prefix: str = ""
     skill_slug: str | None = None
     t0: float = 0.0
     t_after_preflight: float = 0.0
@@ -601,7 +601,7 @@ class SandboxTurn:
     tool_trace: list[dict[str, Any]] = field(default_factory=list)
     turn_count: int = 0
     understanding_llm: bool = False
-    version: dict[str, Any] | None = None
+    version: dict[str, Any] = field(default_factory=dict)
 
 
 def _sandbox_contract(st: SandboxTurn) -> None:
@@ -718,7 +718,7 @@ def _sandbox_contract(st: SandboxTurn) -> None:
     st.enrichment_wait_ms = enrichment_wait_ms
     st.enrichment_wall_ms = enrichment_wall_ms
     st.prior_customers = prior_customers
-    st.run = run
+    st.run = dict(run)
     st.t_turn_start = t_turn_start
     st.turn_count = turn_count
     st.understanding_llm = understanding_llm
@@ -761,11 +761,8 @@ def _sandbox_preflight(st: SandboxTurn) -> None:
         except Exception:
             logger.exception("sandbox: authored flow will not parse — running prompt-only")
             flow_walker = None
-    guardrails = (
-        compiled.get("guardrails")
-        if isinstance(compiled.get("guardrails"), dict)
-        else version["guardrails"] if isinstance(version.get("guardrails"), dict) else {}
-    )
+    # The compiled bundle's section when it has one, else the version's.
+    guardrails = sub(compiled, "guardrails") if "guardrails" in compiled else sub(version, "guardrails")
     max_turns = int(guardrails.get("maxTurns") or 0)
     effective_max = min(_HARD_MAX_TURNS, max_turns) if max_turns else _HARD_MAX_TURNS
     # Cheap fail-fast so we don't pay for an LLM call on an already-capped run.
@@ -773,11 +770,7 @@ def _sandbox_preflight(st: SandboxTurn) -> None:
     if prior_customers >= effective_max:
         raise ValueError(f"sandbox_budget_reached:{effective_max}")
 
-    persona = (
-        compiled.get("persona")
-        if isinstance(compiled.get("persona"), dict)
-        else version["persona"] if isinstance(version.get("persona"), dict) else {}
-    )
+    persona = sub(compiled, "persona") if "persona" in compiled else sub(version, "persona")
     from agent_core.skills.runtime import resolve_mouth
 
     skill_slug = str(payload.get("skillSlug") or payload.get("skill_slug") or "").strip() or None
@@ -816,7 +809,8 @@ def _sandbox_preflight(st: SandboxTurn) -> None:
             if role and hr.get("text"):
                 history.append({"role": role, "text": hr["text"], "turn_index": hr["turn_index"]})
     if not history:
-        history = payload.get("history") if isinstance(payload.get("history"), list) else []
+        given_history = payload.get("history")
+        history = given_history if isinstance(given_history, list) else []
     t_after_preflight = time.perf_counter()
 
     st.effective_max = effective_max
@@ -874,9 +868,8 @@ def _sandbox_assemble(st: SandboxTurn) -> None:
     from agent_core.tuning import normalize_tuning
 
     llm_tuning = normalize_tuning(tuning).get("llm") or {}
-    temperature = float(
-        llm_tuning.get("temperature") if llm_tuning.get("temperature") is not None else CHAT_TEMPERATURE
-    )
+    tuned_temperature = llm_tuning.get("temperature")
+    temperature = float(tuned_temperature if tuned_temperature is not None else CHAT_TEMPERATURE)
     max_tokens = int(llm_tuning.get("max_completion_tokens") or 320)
 
     t_retrieve_start = time.perf_counter()
@@ -936,7 +929,7 @@ def _sandbox_assemble(st: SandboxTurn) -> None:
     )
     t_understanding_end = time.perf_counter()
     messages = assembled["messages"]
-    intent = assembled["intent"]
+    intent = str(assembled["intent"] or "")
     from agent_core.skills.runtime import resolve_mouth
 
     skill_body = resolve_mouth(

@@ -87,8 +87,8 @@ def send(
     logger.info("twilio_sms sent sid=%s to_last4=%s", msg.sid, digits[-4:])
 
     _record_sent(
-        sid=msg.sid,
-        status=msg.status,
+        sid=str(msg.sid or ""),
+        status=str(msg.status) if msg.status is not None else None,
         customer_id=customer_id,
         tenant_id=tenant_id,
         related_id=related_id,

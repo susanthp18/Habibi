@@ -203,7 +203,8 @@ def _hop_to(
     """
     target = ""
     if isinstance(payload, dict):
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        inner = payload.get("data")
+        data = inner if isinstance(inner, dict) else payload
         target = str(data.get("targetBotId") or data.get("target_bot_id") or "")
     if not target:
         try:
@@ -450,15 +451,15 @@ class Turn:
     full_history: list[dict[str, Any]] = field(default_factory=list)
     turn_run_up: list[tuple[str, str]] = field(default_factory=list)
     understanding: Any = None
-    intent: str | None = None
+    intent: str = ""
     intent_scores: dict[str, float] | None = None
-    sentiment: float | None = None
+    sentiment: float = 0.0
     product_hint: str | None = None
     # _run_model / _tool_loop
     final_text: str = ""
     flow_walker: Any = None
     # _send_reply
-    fresh: dict[str, Any] | None = None
+    fresh: dict[str, Any] = field(default_factory=dict)
     msg_id: str | None = None
 
 

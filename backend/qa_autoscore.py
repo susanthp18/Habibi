@@ -330,7 +330,7 @@ def _parse(result: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _validate(
     payload: dict[str, Any], criteria: list[dict[str, Any]]
-) -> dict[str, tuple[float, str | None]]:
+) -> dict[str, tuple[float, str | None]] | None:
     """Drop what we cannot trust, then require most of the rubric to survive."""
     known = {c["id"] for c in criteria}
     out: dict[str, tuple[float, str | None]] = {}

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | None:
     with engine.connect() as conn:
-        return conn.execute(
+        row = conn.execute(
             text(
                 """
                 SELECT cv.id, cv.customer_id, cv.interaction_id, cv.status,
@@ -53,6 +53,7 @@ def load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | 
             ),
             {"id": conversation_id},
         ).mappings().first()
+    return dict(row) if row else None
 
 
 def whatsapp_opted_in(engine: Engine, customer_id: str) -> bool | None:
@@ -264,7 +265,7 @@ def save_bot_state(engine: Engine, conversation_id: str, state: dict[str, Any]) 
 
 def existing_outbound(engine: Engine, job_id: str) -> dict[str, Any] | None:
     with engine.connect() as conn:
-        return conn.execute(
+        row = conn.execute(
             text(
                 """
                 SELECT id, delivery_status, provider_ref, body
@@ -275,6 +276,7 @@ def existing_outbound(engine: Engine, job_id: str) -> dict[str, Any] | None:
             ),
             {"job_id": job_id},
         ).mappings().first()
+    return dict(row) if row else None
 
 
 def persist_outbound_sending(

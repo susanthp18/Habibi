@@ -634,15 +634,18 @@ def process_one(engine: Engine) -> bool:
         if not gated.allowed:
             decision = gated.decision
             # Try again later unless the refusal is about *them* rather than
-            # about now. An opt-out is permanent; a daily cap is not.
-            permanent = decision.reason in {
+            # about now. An opt-out is permanent; a daily cap is not. No
+            # decision (no customer, or reserved by an earlier call) is the
+            # "no customer" refusal: permanent.
+            reason = decision.reason if decision is not None else contact_policy.REASON_NO_CUSTOMER
+            permanent = reason in {
                 contact_policy.REASON_OPTED_OUT,
                 contact_policy.REASON_CHANNEL_DND,
                 contact_policy.REASON_CUSTOMER_DND,
                 contact_policy.REASON_NO_CUSTOMER,
             }
             if permanent:
-                _mark(conn, target["id"], "skipped", note=decision.reason)
+                _mark(conn, target["id"], "skipped", note=reason)
             else:
                 conn.execute(
                     text(

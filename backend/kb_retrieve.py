@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import text
@@ -536,10 +537,10 @@ class Retrieval:
     mark: float
     cache_key: tuple
     chat_model: str | None = None
-    chunk_rows: list[Any] = field(default_factory=list)
+    chunk_rows: Sequence[Any] = ()
     derived_scope: str | None = None
     draft_answer: str | None = None
-    faq_rows: list[Any] = field(default_factory=list)
+    faq_rows: Sequence[Any] = ()
     margin: float = 0.0
     overfetch: int = 0
     product_key_filter: list[str] = field(default_factory=list)

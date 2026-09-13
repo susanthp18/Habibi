@@ -529,8 +529,7 @@ def _tool_recommend_next_offer(ctx: ToolContext, args: dict[str, Any]) -> dict[s
     # promotional series, and consuming campaign quota for something nobody was
     # ever told about is how a campaign reports reach it did not have.
     if result.offers:
-        top = result.top
-        ctx.offered_product_id = top.product_id
+        ctx.offered_product_id = result.offers[0].product_id
         ctx.offered_product_ids.update(o.product_id for o in result.offers)
     return result.to_tool_payload()
 

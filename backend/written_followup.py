@@ -293,7 +293,7 @@ def send(
             result.reason = decision.reason or "not_admitted"
             return result
 
-        if channel == "whatsapp":
+        if channel == "whatsapp" and conversation_id:
             message_id = dbmod._id("MSG")
             conn.execute(
                 text(

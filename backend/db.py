@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
@@ -84,8 +85,9 @@ logger = logging.getLogger(__name__)
 def pool_snapshot() -> dict[str, Any]:
     """QueuePool occupancy for /ready headroom checks (no DB round-trip)."""
     pool = engine.pool
-    checked_out = int(pool.checkedout()) if hasattr(pool, "checkedout") else 0
-    overflow = int(pool.overflow()) if hasattr(pool, "overflow") else 0
+    # QueuePool has these; a NullPool (tests) does not.
+    checked_out = int(getattr(pool, "checkedout", lambda: 0)())
+    overflow = int(getattr(pool, "overflow", lambda: 0)())
     capacity = DB_POOL_SIZE + DB_MAX_OVERFLOW
     return {
         "poolSize": DB_POOL_SIZE,
@@ -272,7 +274,7 @@ _PRESENCE_STATUSES = frozenset({"available", "on_break", "wrap_up", "offline"})
 
 def _map_presence_row(row: dict[str, Any]) -> dict[str, Any]:
     since = row.get("since_at")
-    if hasattr(since, "isoformat"):
+    if isinstance(since, datetime):
         since_at = since.isoformat()
     else:
         since_at = str(since or "")

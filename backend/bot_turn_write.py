@@ -34,10 +34,10 @@ def send_reply(engine: Engine, t: Turn) -> bool:
 
     # Final take-over race check immediately before persist/send.
     fresh = bot_conversation.load_conversation(engine, conversation_id)
-    gate = bot_conversation.policy_gate(engine, fresh) if fresh else "conversation_missing"
-    if gate:
+    gate = "conversation_missing" if fresh is None else bot_conversation.policy_gate(engine, fresh)
+    if fresh is None or gate:
         with engine.begin() as conn:
-            bot_jobs.mark_cancelled(conn, job_id, gate)
+            bot_jobs.mark_cancelled(conn, job_id, gate or "conversation_missing")
         return False
 
     if reuse_outbound_id:

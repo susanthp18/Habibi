@@ -12,9 +12,10 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, LiteralString
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Json
 
 import authz
@@ -92,8 +93,8 @@ def main() -> None:
         _spec = importlib.util.spec_from_file_location(
             "seed_policy_rules", Path(__file__).resolve().parent / "scripts" / "seed_policy_rules.py"
         )
+        assert _spec is not None and _spec.loader is not None
         _mod = importlib.util.module_from_spec(_spec)
-        assert _spec.loader is not None
         _spec.loader.exec_module(_mod)
         _publish_policy_rules = _mod.publish
 
@@ -483,25 +484,47 @@ def upsert(conn: psycopg.Connection, table: str, row: dict[str, Any], pk: str = 
     if table in TENANT_SCOPED_SEED_TABLES and "tenant_id" not in row:
         row = {**row, "tenant_id": TENANT_ID}
     keys = list(row)
-    cols = ", ".join(keys)
-    vals = ", ".join(f"%({k})s" for k in keys)
-    updates = ", ".join(f"{k}=EXCLUDED.{k}" for k in keys if k != pk)
-    conflict = f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
+    comma = sql.SQL(", ")
+    cols = comma.join(sql.Identifier(k) for k in keys)
+    vals = comma.join(sql.Placeholder(k) for k in keys)
+    updates = [k for k in keys if k != pk]
+    conflict = (
+        sql.SQL("DO UPDATE SET {}").format(
+            comma.join(sql.SQL("{0}=EXCLUDED.{0}").format(sql.Identifier(k)) for k in updates)
+        )
+        if updates
+        else sql.SQL("DO NOTHING")
+    )
     arrays = ARRAY_COLUMNS.get(table, frozenset())
     params = {k: (v if k in arrays else jsonable(v)) for k, v in row.items()}
     if table == "customers":
         # A view over customers_pii (the INSTEAD OF triggers encrypt), and
         # Postgres has no ON CONFLICT on a view: update, insert what was not there.
-        assignments = ", ".join(f"{k}=%({k})s" for k in keys if k != pk)
-        updated = conn.execute(f"UPDATE {table} SET {assignments} WHERE {pk}=%({pk})s", params).rowcount
+        assignments = comma.join(
+            sql.SQL("{}={}").format(sql.Identifier(k), sql.Placeholder(k)) for k in updates
+        )
+        updated = conn.execute(
+            sql.SQL("UPDATE {} SET {} WHERE {}={}").format(
+                sql.Identifier(table), assignments, sql.Identifier(pk), sql.Placeholder(pk)
+            ),
+            params,
+        ).rowcount
         if not updated:
-            conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({vals})", params)
+            conn.execute(
+                sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(sql.Identifier(table), cols, vals),
+                params,
+            )
         return
-    conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({vals}) ON CONFLICT ({pk}) {conflict}", params)
+    conn.execute(
+        sql.SQL("INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}").format(
+            sql.Identifier(table), cols, vals, sql.Identifier(pk), conflict
+        ),
+        params,
+    )
 
 
-def insert_ignore(conn: psycopg.Connection, sql: str, params: dict[str, Any]) -> None:
-    conn.execute(sql, {k: jsonable(v) for k, v in params.items()})
+def insert_ignore(conn: psycopg.Connection, statement: LiteralString, params: dict[str, Any]) -> None:
+    conn.execute(statement, {k: jsonable(v) for k, v in params.items()})
 
 
 def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, Any]], leads: list[dict[str, Any]]) -> dict[str, Any]:

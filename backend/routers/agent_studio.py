@@ -775,7 +775,7 @@ def estimate_prompt_tokens(payload: PromptTokenEstimateRequest):
             try:
                 from agent_core.skills.runtime import description_block, packs_from_card
 
-                card = db.get_agent_studio_card(payload.botId).get("agentCard")
+                card = (db.get_agent_studio_card(payload.botId) or {}).get("agentCard")
                 skill_catalog = description_block(packs_from_card(card))
             except Exception:
                 logger.debug("skill catalog unavailable for the estimate", exc_info=True)
