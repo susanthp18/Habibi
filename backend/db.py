@@ -596,19 +596,7 @@ def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> 
             if (mapped := _consent_channel(c["channel"])) is not None
         ]
         if account_id:
-            customer["ledger"] = _rows(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id, posted_at AS date, description, type, amount, invoice_id AS "invoiceId"
-                        FROM ledger_entries
-                        WHERE account_id = :account_id
-                        ORDER BY posted_at DESC
-                        """
-                    ),
-                    {"account_id": account_id},
-                )
-            )
+            customer["ledger"] = _ledger_rows(conn, account_id, MAX_LIST_LIMIT)
             customer["emi"] = [
                 {
                     "id": r["id"],
@@ -672,18 +660,21 @@ def _customer_activity_preview(conn: Any, customer_id: str, limit: int = 8) -> l
         conn.execute(
             text(
                 """
+                -- One typed leg per related table, so each probes the
+                -- (entity_type, entity_id) index; six OR'd IN (subquery) legs
+                -- without the type scanned the whole table per card open.
+                WITH related(entity_type, entity_id) AS (
+                  SELECT 'customer', CAST(:customer_id AS text)
+                  UNION ALL SELECT 'interaction', id FROM interactions WHERE customer_id = :customer_id
+                  UNION ALL SELECT 'promise', id FROM promises WHERE customer_id = :customer_id
+                  UNION ALL SELECT 'dispute', id FROM disputes WHERE customer_id = :customer_id
+                  UNION ALL SELECT 'conversation', id FROM conversations WHERE customer_id = :customer_id
+                  UNION ALL SELECT 'document_request', id FROM document_requests WHERE customer_id = :customer_id
+                )
                 SELECT ae.id, ae.kind, ae.label, ae.note, ae.at, ae.tone
                 FROM activity_events ae
+                JOIN related r ON r.entity_type = ae.entity_type AND r.entity_id = ae.entity_id
                 WHERE ae.tenant_id = :tenant_id
-                  AND (
-                    (ae.entity_type = 'customer' AND ae.entity_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM interactions WHERE customer_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM promises WHERE customer_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM disputes WHERE customer_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM conversations WHERE customer_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM document_requests WHERE customer_id = :customer_id)
-                    OR ae.entity_id IN (SELECT id FROM customer_notes WHERE customer_id = :customer_id)
-                  )
                 ORDER BY ae.at DESC
                 LIMIT :limit
                 """
@@ -702,6 +693,30 @@ def _customer_activity_preview(conn: Any, customer_id: str, limit: int = 8) -> l
         }
         for r in rows
     ]
+
+
+def _ledger_rows(conn: Any, account_id: str, limit: int) -> list[dict[str, Any]]:
+    """Newest first, bounded: the 360 reads up to the list ceiling, a tool a page."""
+    return _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, posted_at AS date, description, type, amount, invoice_id AS "invoiceId"
+                FROM ledger_entries
+                WHERE account_id = :account_id
+                ORDER BY posted_at DESC
+                LIMIT :limit
+                """
+            ),
+            {"account_id": account_id, "limit": limit},
+        )
+    )
+
+
+def list_ledger(account_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+    """The voice/WhatsApp tool's read: a page, not the aggregate get_customer hydrates."""
+    with engine.connect() as conn:
+        return _ledger_rows(conn, account_id, clamp_list_limit(limit, default=8))
 
 
 def get_customer_insights(customer_id: str) -> dict[str, Any] | None:

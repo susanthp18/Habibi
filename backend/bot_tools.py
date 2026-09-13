@@ -188,12 +188,12 @@ def _tool_get_customer_context(ctx: ToolContext, args: dict[str, Any]) -> dict[s
 
 
 def _tool_get_payment_history(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    customer = db.get_customer(ctx.customer_id)
-    if not customer:
+    with db.engine.connect() as conn:
+        account_id = db._first_account_id(conn, ctx.customer_id)
+    if not account_id:
         raise KeyError("customer_not_found")
     limit = int(args.get("limit") or 8)
-    ledger = list(customer.get("ledger") or [])[:limit]
-    return {"accountId": customer.get("accountId"), "entries": ledger}
+    return {"accountId": account_id, "entries": db.list_ledger(account_id, limit=limit)}
 
 
 def _tool_get_emi_schedule(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:

@@ -288,8 +288,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                 0
               )::float AS aht
             FROM interactions
-            WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
-              AND (started_at AT TIME ZONE 'UTC')::date <= :end
+            WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+              AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
               {ix_tenant_sql}
             """
         ),
@@ -304,8 +304,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
             SELECT
               count(*) FILTER (WHERE coalesce(query_resolved, false))::int AS resolved
             FROM interactions
-            WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
-              AND (started_at AT TIME ZONE 'UTC')::date <= :end
+            WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+              AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
               {ix_tenant_sql}
             """
         ),
@@ -330,8 +330,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                              0
                            )::float AS aht
                     FROM interactions
-                    WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
-                      AND (started_at AT TIME ZONE 'UTC')::date <= :end
+                    WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+                      AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
                       AND (:tenant_id = 'all' OR tenant_id = :tenant_id)
                     GROUP BY tenant_id
                     """
@@ -355,8 +355,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                     WHERE service_id = ANY(:services)
                     UNION
                     SELECT DISTINCT tenant_id FROM interactions
-                    WHERE (started_at AT TIME ZONE 'UTC')::date >= :start
-                      AND (started_at AT TIME ZONE 'UTC')::date <= :end
+                    WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+                      AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
                   )
                   OR t.id = :primary
                 )
