@@ -13,6 +13,7 @@ said.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Iterable, Mapping
 
 from sqlalchemy import text
@@ -181,7 +182,7 @@ def _from_decision(row: Mapping[str, Any]) -> dict[str, Any]:
 
     created = row.get("created_at")
     created_iso = (
-        created.isoformat().replace("+00:00", "Z") if hasattr(created, "isoformat") else created
+        created.isoformat().replace("+00:00", "Z") if isinstance(created, datetime) else created
     )
 
     return {

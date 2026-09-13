@@ -32,7 +32,7 @@ formulas still compute the grant themselves; they migrate one at a time.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Literal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Runtime imports stay inside functions: agent_core.cards and
@@ -230,7 +230,7 @@ class ToolGrant:
         *,
         channel: Channel,
         catalog: set[str] | None = None,
-        frozen_connector_tools: list[str] | tuple[str, ...] | None = None,
+        frozen_connector_tools: Iterable[str] | None = None,
         channel_tools: set[str] | frozenset[str] | None = None,
         floor: frozenset[str] | None = None,
     ) -> "ToolGrant":

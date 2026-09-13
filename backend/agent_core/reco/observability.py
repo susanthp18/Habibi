@@ -395,7 +395,7 @@ def _assemble(**parts: Any) -> dict[str, Any]:
             "coverage",
             f"offer coverage fell {abs(coverage_change):.1%} versus the previous window",
         )
-    if top_suppression_share is not None and top_suppression_share > SUPPRESSION_CONCENTRATION_ALERT:
+    if top_suppression is not None and top_suppression_share is not None and top_suppression_share > SUPPRESSION_CONCENTRATION_ALERT:
         alert(
             "suppression",
             f"{top_suppression_share:.0%} of suppressions are a single reason "

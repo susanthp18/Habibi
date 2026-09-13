@@ -521,6 +521,9 @@ def _dial_bot(
             bot_id=bot_id,
             decision=decision,
         )
+        if built is None:
+            # mission.build returns None only when the borrower row is gone.
+            raise NoExecutor("customer_missing")
         built["actionContract"] = contract
         # The contact gate for a voice plan runs *here*, on the row it gates —
         # not in `enact_one` — so a refusal is a suppressed attempt rather

@@ -99,7 +99,7 @@ def grade_ptp_row(fixture: dict[str, Any]) -> dict[str, Any]:
     passed = bool(row.get("id")) and amount not in (None, "") and bool(date)
     if expect_amount is not None:
         try:
-            passed = passed and float(amount) == float(expect_amount)
+            passed = passed and float(amount or 0) == float(expect_amount)
         except (TypeError, ValueError):
             passed = False
     if expect_date:

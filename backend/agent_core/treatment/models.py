@@ -317,9 +317,7 @@ class ModelArtifact:
         moved partly *because* of the decision being scored.
         """
         row = [
-            float(
-                vec.get(n) if vec.get(n) is not None else self.means.get(n, 0.0)
-            )
+            float(v if (v := vec.get(n)) is not None else self.means.get(n, 0.0))
             for n in self.feature_names
         ]
         logit = self.intercept + sum(x * c for x, c in zip(row, self.coefficients))

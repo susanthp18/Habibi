@@ -21,6 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     # and every call dies assembling its prompt. ``from __future__ import
     # annotations`` keeps the reference below a string.
     from agent_core.cards.schema import AgentCard
+    from agent_core.tools.grant import Channel
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ class MouthTurn:
         catalog_names: set[str] | None = None,
         channel_tools: set[str] | None = None,
         floor: frozenset[str] | None = None,
-        channel: str | None = None,
+        channel: "Channel | None" = None,
     ) -> ToolState:
         """What this turn may execute, and what to put in front of the model.
 

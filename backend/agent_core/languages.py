@@ -63,7 +63,7 @@ def tags() -> list[str]:
     return [entry.tag for entry in LANGUAGES]
 
 
-def _normalise_tag(raw: str) -> str:
+def _normalise_tag(raw: str | None) -> str:
     return (raw or "").strip().replace("_", "-").casefold()
 
 

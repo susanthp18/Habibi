@@ -105,6 +105,7 @@ def put_secret(
                 {"t": db._tenant(), "n": name.strip()},
             )
         )
+    assert row is not None  # written two statements above, same transaction
     return _public(row)
 
 

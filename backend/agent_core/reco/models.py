@@ -130,7 +130,7 @@ class ModelArtifact:
         which is the only leakage-free way to evaluate a historical decision.
         """
         row = [
-            float(vec.get(n) if vec.get(n) is not None else self.means.get(n, 0.5))
+            float(v if (v := vec.get(n)) is not None else self.means.get(n, 0.5))
             for n in self.feature_names
         ]
         logit = self.intercept + sum(x * c for x, c in zip(row, self.coefficients))

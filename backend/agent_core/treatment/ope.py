@@ -1245,6 +1245,6 @@ def treatment_effect(
     return TreatmentEffect(
         treated_n=t_n,
         control_n=c_n,
-        treated_rate=(int(treated["cured"]) / t_n) if t_n else 0.0,
-        control_rate=(int(control["cured"]) / c_n) if c_n else 0.0,
+        treated_rate=(int(treated["cured"]) / t_n) if treated and t_n else 0.0,
+        control_rate=(int(control["cured"]) / c_n) if control and c_n else 0.0,
     )

@@ -476,7 +476,7 @@ def _merge(
             and (prior_intent or "") in _PRODUCT_SESSION_INTENTS
             and len((text_for_session or "").split()) <= 12
         ):
-            intent = prior_intent  # type: ignore[assignment]
+            intent = prior_intent or intent
 
         # Callers read intent_scores[intent] as the confidence and several take
         # max(scores) to recover the winner. Both must agree with `intent`.

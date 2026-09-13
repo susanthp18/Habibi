@@ -206,7 +206,7 @@ def classify_intent(text: str) -> tuple[str, dict[str, float]]:
     else:
         for key in scores:
             scores[key] = scores[key] / total
-    top = max(scores, key=scores.get)
+    top = max(scores, key=lambda k: scores[k])
     return top, scores
 
 

@@ -284,8 +284,8 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
                     names.append(tool)
         else:
             for cached in conn.get("toolsCache") or []:
-                raw = cached.get("name") if isinstance(cached, dict) else str(cached)
-                prefixed = raw if str(raw).startswith("ext.") else f"ext.{conn['slug']}.{raw}"
+                raw = str(cached.get("name") or "") if isinstance(cached, dict) else str(cached)
+                prefixed = raw if raw.startswith("ext.") else f"ext.{conn['slug']}.{raw}"
                 if any(prefixed.startswith(p) for p in prefixes):
                     names.append(prefixed)
     return names

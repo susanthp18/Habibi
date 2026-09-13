@@ -545,7 +545,7 @@ class SqlFeatureProvider:
         # parser that agreed with the first on Tuesday is one that disagrees in
         # November, which is why this reads the helper rather than re-deriving.
         parsed_hours = contact_policy.preferred_hours(dict(base))
-        _hours = tuple(parsed_hours) if parsed_hours else None
+        _hours = parsed_hours or None
         parsed_days = contact_policy.parse_allowed_days(base["allowed_days"])
         _days = tuple(parsed_days) if parsed_days else None
 
@@ -1086,16 +1086,16 @@ class SqlFeatureProvider:
         # answers a call rarely.
         hours = sorted(
             {
-                as_utc(r["started_at"]).astimezone(tz).hour
+                started.astimezone(tz).hour
                 for r in connects
-                if as_utc(r["started_at"]) is not None
+                if (started := as_utc(r["started_at"])) is not None
             }
             | set((ledger or {}).get("hours") or ())
             | {
-                as_utc(moment).astimezone(tz).hour
+                read.astimezone(tz).hour
                 for observed in receipts.values()
                 for moment in observed["read_at"]
-                if as_utc(moment) is not None
+                if (read := as_utc(moment)) is not None
             }
         )
 

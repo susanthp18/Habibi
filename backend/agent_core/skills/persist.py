@@ -404,7 +404,8 @@ def create_draft_skill(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("allowed_tools_must_be_list")
     description = str(payload.get("description") or "").strip()
     body = str(payload.get("body") or "").strip()
-    frontmatter = payload.get("frontmatter") if isinstance(payload.get("frontmatter"), dict) else {
+    given = payload.get("frontmatter")
+    frontmatter: dict[str, Any] = dict(given) if isinstance(given, dict) else {
         "name": slug,
         "description": description,
         "allowed-tools": allowed,
@@ -435,7 +436,8 @@ def patch_skill(skill_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         (v for v in (current.get("versions") or []) if v["id"] == current.get("latestVersionId")),
         (current.get("versions") or [None])[0],
     )
-    frontmatter = payload.get("frontmatter") if isinstance(payload.get("frontmatter"), dict) else current.get("frontmatter") or {}
+    given = payload.get("frontmatter")
+    frontmatter: dict[str, Any] = dict(given) if isinstance(given, dict) else dict(current.get("frontmatter") or {})
     if "description" in payload:
         frontmatter = {**frontmatter, "description": payload["description"]}
     if "allowedTools" in payload or "allowed_tools" in payload:
@@ -860,7 +862,7 @@ def ensure_first_party_skills() -> dict[str, int]:
             set_latest=set_latest,
         )
 
-    published = {
+    published: dict[str, dict[str, Any] | None] = {
         "kaia-v2-4": None,
         "intake-v1": None,
         "insurance-v1": None,

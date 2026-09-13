@@ -1129,9 +1129,10 @@ def write_switch_objections(conn: Any, *, tenant_id: str) -> list[str]:
         lambda: _last_result(conn, tenant_id=tenant_id, job=JOB_ALLOCATOR_REGRET)
         or marker,
     )
-    if filed is marker:
-        objections.append("regret_not_measured")
-    elif filed is not None and filed.get("regretInr") is None:
+    if filed is marker or not isinstance(filed, dict):
+        if filed is marker:
+            objections.append("regret_not_measured")
+    elif filed.get("regretInr") is None:
         # Filed, and it says the comparison cannot be made. That satisfies "a
         # measurement with a date" and does NOT open the gate: a null regret
         # does not answer §10.4's question ("if they differ materially, the

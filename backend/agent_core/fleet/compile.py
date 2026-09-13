@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Iterable
 
 import flow_graph as fg
 from agent_core.cards.compile import CompileReport, GateResult, _gate, node_offers
@@ -304,7 +304,7 @@ def parity_report(
     *,
     live_prompt: str,
     live_flow: dict[str, Any] | None,
-    live_tools: list[str] | set[str],
+    live_tools: Iterable[str],
     bundle: CompiledBundle,
     live_persona: dict[str, Any] | None = None,
     live_guardrails: dict[str, Any] | None = None,

@@ -86,7 +86,7 @@ def list_tasks(*, status: str | None = None, limit: int = 50) -> list[dict[str, 
     sql += " ORDER BY created_at DESC LIMIT :lim"
     with db.engine.connect() as conn:
         rows = db._rows(conn.execute(text(sql), params))
-    return [get_task(r["id"]) for r in rows if get_task(r["id"])]
+    return [task for r in rows if (task := get_task(r["id"])) is not None]
 
 
 def reclaim_stale() -> int:

@@ -46,6 +46,7 @@ decision, which is the property the treatment registry holds.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 #: Ledger entries, DPD, NACH return codes, delivery receipts. May enter EV and
@@ -99,10 +100,10 @@ class Registry:
 
     def refuse(
         self,
-        feature_names: object,
+        feature_names: Iterable[object] | None,
         *,
-        declared: object = (),
-        calibration_strata: object = None,
+        declared: Iterable[object] | None = (),
+        calibration_strata: Mapping[str, object] | None = None,
     ) -> str | None:
         """Why this feature set may not enter the EV, or None if it may.
 

@@ -267,7 +267,7 @@ def _post(
         "dispute" if resolved_dispute else "customer",
         resolved_dispute or customer_id,
         "dispute_updated",
-        f"Goodwill waiver {money_inr.inr(amount)}",
+        f"Goodwill waiver {money_inr.inr(float(amount))}",
         desc,
         customer_id,
     )
@@ -285,7 +285,7 @@ def _open_or_create_fee_dispute(
     *,
     customer_id: str,
     account_id: str,
-    amount: float,
+    amount: Decimal,
 ) -> str | None:
     open_row = conn.execute(
         text(

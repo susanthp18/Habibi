@@ -79,6 +79,29 @@ def _escalate(reason: str, *extra: str, cap: float | None = None) -> MatrixDecis
     )
 
 
+def export_matrix() -> dict[str, object]:
+    """The policy as data, for ``policy://authority-matrix``. Every number
+    ``decide`` compares against, read at call time so an env change shows."""
+    return {
+        "engine": "authority",
+        "mode": config.mode(),
+        "feeTypes": sorted(FEE_TYPES),
+        "liveOnly": [FEE_LATE],
+        "alwaysEscalate": [FEE_SETTLEMENT, FEE_RESTRUCTURE, FEE_BOUNCE],
+        "silencingHolds": sorted(SILENCING_HOLDS),
+        "lateFee": {
+            "capInr": config.late_fee_cap(),
+            "midCapInr": config.late_fee_mid_cap(),
+            "midCapFromDpd": 31,
+            "maxDpd": config.late_fee_max_dpd(),
+            "maxOutstandingInr": config.late_fee_max_outstanding(),
+            "minTenureMonths": config.min_tenure_months(),
+            "priorGoodwillWindowMonths": 12,
+        },
+        "profileCeilingsInr": config.profile_ceilings(),
+    }
+
+
 def _round_inr(value: float) -> float:
     """Whole rupees. A waiver of ₹499.73 is a spreadsheet cell, not a sentence."""
     return float(max(0, round(value)))

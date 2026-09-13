@@ -531,8 +531,9 @@ def check(
                 "fitted against it would promote that finding into the score"
             )
 
-    if artifact.age_days() is not None and artifact.age_days() > models._max_age_days() > 0:
-        objections.append(f"artifact is {artifact.age_days():.0f} days old")
+    age = artifact.age_days()
+    if age is not None and age > models._max_age_days() > 0:
+        objections.append(f"artifact is {age:.0f} days old")
 
     return objections
 
