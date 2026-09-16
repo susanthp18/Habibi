@@ -168,6 +168,8 @@ _VALUE_ERROR_STATUS: dict[str, int] = {
     "clone_source_required": 422,
     "unknown_clone_template": 422,
     "agent_required": 422,
+    "unknown_role": 422,
+    "last_admin": 409,
     "title_required": 422,
     "accepted_required": 422,
     "record_ids_required": 422,

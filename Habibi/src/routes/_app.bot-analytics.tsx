@@ -4,7 +4,7 @@ export const Route = createFileRoute("/_app/bot-analytics")({
   head: () => ({
     meta: [
       {
-        title: "Conversation & Bot Analytics — BigBound AI",
+        title: "Conversation & Bot Analytics — PayInt",
       },
       {
         name: "description",

@@ -49,13 +49,21 @@ describe("lintDisplay", () => {
 });
 
 describe("modelBindingSelectable", () => {
-  it("only live models are constructable", () => {
+  it("only a measured no blocks a binding", () => {
     expect(modelBindingSelectable("live")).toBe(true);
     expect(modelBindingSelectable("preview_only")).toBe(false);
     expect(modelBindingSelectable("unavailable")).toBe(false);
     expect(modelBindingLabel("GPT", "preview_only")).toBe("GPT (preview only)");
     expect(modelBindingLabel("GPT", "unavailable")).toBe("GPT (unavailable)");
     expect(modelBindingLabel("GPT", "live")).toBe("GPT");
+  });
+
+  it("an unreported runtime binds, labelled unverified", () => {
+    // Only the voice image can resolve a service class; the API reports what
+    // that runtime last published. Blocking on "it has not said yet" locked the
+    // operator out of every provider on a stack whose calls were running.
+    expect(modelBindingSelectable("unknown")).toBe(true);
+    expect(modelBindingLabel("Azure Neural TTS", "unknown")).toBe("Azure Neural TTS (unverified)");
   });
 });
 

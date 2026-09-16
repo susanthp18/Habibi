@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app/inbox")({
   }),
   head: () => ({
     meta: [
-      { title: "Conversation Inbox — BigBound AI" },
+      { title: "Conversation Inbox — PayInt" },
       {
         name: "description",
         content:

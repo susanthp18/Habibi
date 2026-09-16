@@ -52,15 +52,24 @@ export function lintDisplay(opts: {
   return { kind: "findings" };
 }
 
-export type ModelRuntime = "live" | "preview_only" | "unavailable" | string;
+export type ModelRuntime = "live" | "preview_only" | "unavailable" | "unknown" | string;
 
+/**
+ * "unknown" binds. Only the voice image can resolve a service class, so the API
+ * reports what that runtime last published, and until it has published anything
+ * the answer is nobody knows. Refusing on that is worse than allowing it: a
+ * voice runtime that has never started cannot run a call under any binding, so
+ * the block protects nothing and costs the operator every provider — which is
+ * exactly what happened while the API answered this question for itself.
+ */
 export function modelBindingSelectable(runtime: ModelRuntime | undefined): boolean {
-  return runtime === "live";
+  return runtime !== "preview_only" && runtime !== "unavailable";
 }
 
 export function modelBindingLabel(displayName: string, runtime: ModelRuntime | undefined): string {
   if (runtime === "preview_only") return `${displayName} (preview only)`;
   if (runtime === "unavailable") return `${displayName} (unavailable)`;
+  if (runtime === "unknown") return `${displayName} (unverified)`;
   return displayName;
 }
 

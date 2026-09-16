@@ -1,37 +1,16 @@
 import { Lozenge } from "@/components/ui/lozenge";
 import { gateTone } from "@/lib/gate-status";
-import { Button } from "@/components/ui/button";
-import { useEvalReports, useRunEvalSchedule, type EvalReport } from "@/api/agent-studio";
+import { useEvalReports, type EvalReport } from "@/api/agent-studio";
 
-export function EvalCockpit({ compact = false }: { compact?: boolean }) {
+export function EvalCockpit() {
   const reports = useEvalReports();
-  const schedule = useRunEvalSchedule();
   const rows = reports.data ?? [];
 
   return (
     <div className="space-y-150">
-      <div className="flex items-start justify-between gap-100">
-        <p className="text-body-small text-text-subtle">
-          History of regression, red-team, capability and twin runs. Red-team is never skipped.
-        </p>
-        {!compact ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={schedule.isPending}
-            onClick={() => void schedule.mutateAsync()}
-          >
-            {schedule.isPending ? "Running…" : "Run continuous suite"}
-          </Button>
-        ) : null}
-      </div>
-      {schedule.data ? (
-        <div className="text-body-small text-text-subtle">
-          Last schedule: {schedule.data.status} · {schedule.data.ran - schedule.data.failed}/
-          {schedule.data.ran} suites
-        </div>
-      ) : null}
+      <p className="text-body-small text-text-subtle">
+        History of regression, red-team, capability and twin runs. Red-team is never skipped.
+      </p>
       <ul className="divide-y divide-border rounded-medium border border-border">
         {reports.isError ? (
           // "No reports" is a fact about the suite; "we could not read the

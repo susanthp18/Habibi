@@ -34,7 +34,7 @@ export const Route = createFileRoute("/_app/upsell")({
   },
   head: () => ({
     meta: [
-      { title: "Upsell & Leads Manager — BigBound AI" },
+      { title: "Upsell & Leads Manager — PayInt" },
       {
         name: "description",
         content:

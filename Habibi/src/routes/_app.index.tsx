@@ -8,6 +8,7 @@ import { NeedsAttention } from "@/components/workspace/NeedsAttention";
 import { useMe } from "@/api/me";
 import { useWorkspaceSummary } from "@/api/workspace";
 import { BRAND } from "@/lib/brand";
+import { entraDisplayName } from "@/lib/sso";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({
@@ -16,7 +17,7 @@ export const Route = createFileRoute("/_app/")({
       {
         name: "description",
         content:
-          "Agent shift home base — assigned queue, callbacks, SLA countdowns, and today's stats for the BigBound AI workspace.",
+          "Agent shift home base — assigned queue, callbacks, SLA countdowns, and today's stats for the PayInt workspace.",
       },
     ],
   }),
@@ -93,7 +94,7 @@ function WorkspacePage() {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const { data: summary } = useWorkspaceSummary("me");
-  const name = firstName(me?.name) || "there";
+  const name = firstName(me?.name) || firstName(entraDisplayName());
   const outsideWindowCount = summary?.outsideWindowCount ?? 0;
   const shiftLine = useShiftLine();
 
@@ -104,7 +105,7 @@ function WorkspacePage() {
           <div className="flex flex-wrap items-start justify-between gap-200">
             <div>
               <h1 className="heading-medium text-text">
-                {greeting()}, {name}
+                {name ? `${greeting()}, ${name}` : greeting()}
               </h1>
               <p className="mt-075 text-body text-text-subtle">{shiftLine}</p>
             </div>

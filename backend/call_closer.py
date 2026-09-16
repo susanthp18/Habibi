@@ -977,6 +977,11 @@ def close_one(
     # A partial is authored precisely so it is not scored as a win. Checked
     # first, so a card that lists an outcome under both does not quietly
     # promote it.
+    if objective != "broken_ptp_chase" and "ptp_recommitted" in deterministic:
+        deterministic.discard("ptp_recommitted")
+        deterministic.add("ptp_captured")
+        if business == "ptp_recommitted":
+            business = next((b for b in _BUSINESS_PRECEDENCE if b in deterministic), business)
     objective_met = bool(business and business not in partial and business in success)
 
     escalation = "none"

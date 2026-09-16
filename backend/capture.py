@@ -220,9 +220,6 @@ def rollup_interaction(
     primary = dominant_transcript_intent(conn, interaction_id)
     cust_n, bot_n = _turn_counts(conn, interaction_id)
     ptp = _promise_on_interaction(conn, interaction_id)
-    product_interest = _has_product_interest(conn, interaction_id)
-    # Phase 0 heuristic: product intent + at least one bot reply ⇒ upsell discussed.
-    upsell = product_interest and bot_n > 0
     query_resolved = ptp or (
         primary in RESOLVED_HINT_INTENTS and cust_n > 0 and bot_n > 0
     )
@@ -240,9 +237,11 @@ def rollup_interaction(
     if existing is None:
         return {"ok": False, "reason": "interaction_not_found"}
 
-    # Honour flags already flipped mid-session by tools.
+    # Honour flags already flipped mid-session by tools. A product FAQ is
+    # not an offer presentation — recommend_next_offer suppressed/error must
+    # not still show upsell_presented from a heuristic.
     ptp = ptp or bool(existing.get("ptp_captured"))
-    upsell = upsell or bool(existing.get("upsell_presented"))
+    upsell = bool(existing.get("upsell_presented"))
     query_resolved = query_resolved or bool(existing.get("query_resolved")) or ptp
 
     channel = channel_hint or (existing.get("channel") or "voice")

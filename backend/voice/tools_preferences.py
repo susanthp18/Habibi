@@ -32,6 +32,44 @@ from voice.tool_state import (
 
 logger = logging.getLogger(__name__)
 
+_PRODUCT_QUERY_HINTS = (
+    "insurance",
+    "policy",
+    "exclu",
+    "cover",
+    "premium",
+    "claim",
+    "protect360",
+    "product",
+)
+
+
+def declined_callback_offer(*, bot_text: str, customer_text: str) -> bool:
+    """True when the caller refused a callback that was just offered."""
+    bot = (bot_text or "").lower()
+    cust = (customer_text or "").strip().lower()
+    if not cust:
+        return False
+    offered = any(
+        token in bot
+        for token in ("callback", "call you back", "call back", "specialist will follow")
+    )
+    if not offered:
+        return False
+    if cust in {"no", "nope", "nah", "no thanks", "no thank you"}:
+        return True
+    return cust.startswith("no,") or cust.startswith("no ") or cust.startswith("don't") or cust.startswith("do not")
+
+
+def callback_reason_for_turn(reason: str | None, customer_text: str) -> str | None:
+    """Keep insurance/policy follow-ups off document_query."""
+    raw = (reason or "").strip() or None
+    text = (customer_text or "").lower()
+    if any(h in text for h in _PRODUCT_QUERY_HINTS):
+        if raw in {None, "document_query", "general"}:
+            return "product_query"
+    return raw
+
 
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
@@ -43,6 +81,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
     spoke_this_response = ctx.spoke_this_response
     state = ctx.state
     upsell_node = ctx.upsell_node
+    _sink_call = getattr(ctx, "_sink_call", lambda _n, default=None: default)
 
 
     async def _request_callback_handler(
@@ -56,6 +95,22 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
         args = CATALOG.normalize("request_callback", args)
         scheduled_at = str(args.get("scheduled_at") or "")
+        customer_text = str(_sink_call("last_customer_text", "") or "")
+        recent_bot = ""
+        sink = getattr(ctx, "sink", None)
+        recent = getattr(sink, "_recent_bot_texts", None) or []
+        if recent:
+            recent_bot = str(recent[-1] or "")
+        if declined_callback_offer(bot_text=recent_bot, customer_text=customer_text):
+            return {
+                "ok": False,
+                "error": "declined",
+                "say": (
+                    "acknowledge they do not want a callback; say a specialist "
+                    "can still follow up if they change their mind, without booking one"
+                ),
+            }, None
+        reason = callback_reason_for_turn(args.get("reason"), customer_text)
         # Raw (not parsed) scheduled_at: the key must be derivable before the
         # domain call, and an identical retry carries an identical string.
         #
@@ -77,8 +132,9 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 scheduled_at=scheduled_at,
                 interaction_id=session.interaction_id,
                 account_id=session.account_id,
-                reason=args.get("reason"),
+                reason=reason,
                 window_mins=args.get("window_mins"),
+                transcript_snippet=customer_text[:240] or None,
                 idempotency_key=idem,
             )
             if not result.ok:

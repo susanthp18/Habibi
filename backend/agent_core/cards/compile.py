@@ -1301,11 +1301,23 @@ def _provenance_gate(
     unkeyed = [k for k, r in present.items() if not r.get("content_key")]
     other = [k for k, r in present.items() if r.get("content_key") and r["content_key"] != candidate_key]
     if other:
+        logger.info(
+            "gf14_debug mismatch candidate=%s reports=%s",
+            (candidate_key or "")[:16],
+            [
+                {
+                    "kind": k,
+                    "id": present[k].get("id"),
+                    "ck": str(present[k].get("content_key") or "")[:16],
+                }
+                for k in other
+            ],
+        )
         return _gate(
             "G-F14",
             "eval_provenance",
             "fail",
-            f"{', '.join(other)} report(s) were run against different content",
+            f"{', '.join(other)} judged a previous save — re-run {', '.join(other)} on this content",
             [{"kind": k, "report": present[k].get("id")} for k in other],
         )
     if unkeyed:

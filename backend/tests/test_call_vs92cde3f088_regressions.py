@@ -131,7 +131,8 @@ def test_an_entry_line_lets_a_step_listen_even_after_the_caller_spoke() -> None:
     session.last_speaker = "customer"
     config = _compile(graph, session)
     assert config["respond_immediately"] is False
-    assert config["pre_actions"] == [
+    says = [a for a in config["pre_actions"] if a.get("type") == "tts_say"]
+    assert says == [
         {
             "type": "tts_say",
             "text": "Happy to set that up.",
@@ -140,10 +141,11 @@ def test_an_entry_line_lets_a_step_listen_even_after_the_caller_spoke() -> None:
     ]
 
 
-def test_no_entry_line_means_no_pre_action() -> None:
+def test_no_entry_line_means_no_spoken_pre_action() -> None:
     session = VoiceSession(session_id="VS-DEADAIR04")
     session.last_speaker = "bot"
-    assert "pre_actions" not in _compile(_listen_first_graph(), session)
+    pre = _compile(_listen_first_graph(), session).get("pre_actions") or []
+    assert not any(a.get("type") == "tts_say" for a in pre)
 
 
 def test_the_builtin_graph_keeps_its_bridge_lines() -> None:

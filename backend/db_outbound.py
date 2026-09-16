@@ -92,6 +92,16 @@ def reserve_demo_attempt(
             ),
             {"c": customer_id},
         ).scalar()
+        deployment_id = None
+        try:
+            from agent_core.canary import pick_deployment_id
+            from agent_core.deployment import active_environment
+
+            deployment_id = pick_deployment_id(
+                bot_id, environment=active_environment(), customer_id=customer_id
+            )
+        except Exception:
+            logger.debug("demo reserve: deployment_id lookup failed", exc_info=True)
         built = mission_mod.build(
             conn,
             customer_id=customer_id,
@@ -99,6 +109,7 @@ def reserve_demo_attempt(
             account_id=account_id,
             card=card,
             bot_id=bot_id,
+            deployment_id=deployment_id,
         )
         # Waivable: *when* and *how often* (hours, window, cooling-off, caps).
         # Not waivable at any switch setting: consent, opt-out, DND, registry,
@@ -112,6 +123,7 @@ def reserve_demo_attempt(
             objective=objective,
             account_id=account_id,
             bot_id=bot_id,
+            deployment_id=deployment_id,
             context={"source": "demo_button", "mission": built},
         )
         reason = gated.reason or "contact_policy"

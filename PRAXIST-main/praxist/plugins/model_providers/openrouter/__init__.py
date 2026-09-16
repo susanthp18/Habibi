@@ -1,1 +1,0 @@
-"""OpenRouter model provider plugin."""

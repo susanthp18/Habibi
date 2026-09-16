@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useChangeLog } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
-import { changeVerb, parseLogTimestamp } from "@/lib/change-log-actions";
+import { changeVerb, parseLogTimestamp, actorLabel } from "@/lib/change-log-actions";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 /**
@@ -117,7 +117,7 @@ export function RecentChanges() {
             // ask, which is whether anything moved recently and who moved it.
             <span className="truncate text-body-small text-text-subtle">
               {latest
-                ? `${latest.actorUserId ?? "unknown"} ${changeVerb(latest.action)} ${latest.botId}${
+                ? `${actorLabel(latest.actorUserId)} ${changeVerb(latest.action)} ${latest.botId}${
                     parseLogTimestamp(latest.at)
                       ? ` · ${parseLogTimestamp(latest.at)!.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
                       : ""
@@ -162,7 +162,7 @@ export function RecentChanges() {
               {entries.map((entry) => (
                 <li key={entry.id} className="flex flex-wrap items-baseline gap-100 py-100">
                   <span className="text-body-small font-medium">
-                    {entry.actorUserId ?? "unknown"}
+                    {actorLabel(entry.actorUserId)}
                   </span>
                   <span className="text-body-small text-text-subtle">
                     {changeVerb(entry.action)}

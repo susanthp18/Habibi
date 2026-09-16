@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any, Iterable
 from agent_core.dicts import sub
 
@@ -26,8 +27,37 @@ from agent_core.dicts import sub
 GRADER_VERSION = "graders-v2"
 
 
+def _normalize(value: Any) -> Any:
+    """Drop JSON number-type noise so a browser round-trip is the same content.
+
+    ``json.dumps(1.0)`` is ``1.0`` and ``JSON.stringify(1.0)`` is ``1``. The
+    studio mapper stores ``voice.speed`` as a float; the editor sends it back
+    as an int. Hashing the type tag made G-F14 fail on an unchanged save.
+    """
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return str(value)
+        if value.is_integer():
+            return int(value)
+        return value
+    if isinstance(value, dict):
+        return {str(k): _normalize(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize(v) for v in value]
+    return value
+
+
 def _canon(value: Any) -> str:
-    return json.dumps(value if value is not None else {}, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        _normalize(value if value is not None else {}),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
 
 
 def content_key(

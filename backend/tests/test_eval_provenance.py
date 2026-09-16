@@ -34,6 +34,14 @@ def test_editing_the_persona_changes_the_key() -> None:
     assert _key(prompt="Be kind. ") == _key(), "whitespace at the edges is not content"
 
 
+def test_json_number_types_are_the_same_content() -> None:
+    """The studio mapper stores ``speed: 1.0``; the browser sends ``speed: 1``."""
+    assert _key(voice={"speed": 1.0}) == _key(voice={"speed": 1})
+    assert _key(flow={"nodes": [{"position": {"x": 240.0, "y": 12}}]}) == _key(
+        flow={"nodes": [{"position": {"x": 240, "y": 12}}]}
+    )
+
+
 def test_a_cached_pass_reports_its_report_id(db_tx, monkeypatch) -> None:
     """The same content on another row is a pass that says which report it
     is standing on -- never `skipped`."""
@@ -98,3 +106,57 @@ def test_a_report_for_different_content_does_not_open_the_gate(db_tx, monkeypatc
     )
     gf14 = next(g for g in report["gates"] if g["gate"] == "G-F14")
     assert gf14["status"] == "fail"
+
+
+def _js_ints(value):
+    """JSON.stringify turns 1.0 into 1."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _js_ints(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_js_ints(v) for v in value]
+    return value
+
+
+def test_browser_shaped_overlay_is_the_same_content(db_tx, monkeypatch) -> None:
+    """Publish compiles the editor's JSON; evals hash the mapped row.
+
+    Those used to disagree on integer-valued floats (voice.speed, node
+    positions), so G-F14 failed after a reload and a fresh suite run.
+    """
+    import db
+    from agent_core.eval.provenance import content_key_for_version
+
+    published = db.get_published_prompt_version("kaia-v2-4")
+    if published is None:
+        pytest.skip("no published collections prompt")
+    key = content_key_for_version(published)
+    monkeypatch.setenv("EVAL_GATE_ENABLED", "true")
+    for kind in ("regression", "redteam"):
+        suite = db_tx.execute(
+            __import__("sqlalchemy").text(
+                "SELECT id FROM eval_suites WHERE kind = :k LIMIT 1"
+            ),
+            {"k": kind},
+        ).scalar()
+        if suite is None:
+            pytest.skip(f"no {kind} suite")
+        db.save_eval_report(
+            suite_id=suite,
+            bot_id="kaia-v2-4",
+            status="pass",
+            summary={"failed": 0, "total": 1},
+            prompt_version_id=published["id"],
+            content_key=key,
+        )
+    report = db.compile_agent_studio_card(
+        "kaia-v2-4",
+        prompt_version_id=published["id"],
+        card_raw=_js_ints(published.get("agentCard") or {}),
+        flow=_js_ints(published.get("flow") or {}),
+        voice=_js_ints(published.get("voice") or {}),
+        persona=_js_ints(published.get("persona") or {}),
+    )
+    gf14 = next(g for g in report["gates"] if g["gate"] == "G-F14")
+    assert gf14["status"] in {"pass", "warn"}, gf14

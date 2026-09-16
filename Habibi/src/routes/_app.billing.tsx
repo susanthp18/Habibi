@@ -23,7 +23,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 export const Route = createFileRoute("/_app/billing")({
   head: () => ({
     meta: [
-      { title: "Billing & Usage Analytics — BigBound AI" },
+      { title: "Billing & Usage Analytics — PayInt" },
       {
         name: "description",
         content: "Metered Azure OpenAI and Speech spend with per-tenant unit economics.",

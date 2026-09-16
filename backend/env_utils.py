@@ -21,6 +21,7 @@ __all__ = [
     "env_int",
     "env_float",
     "env_bool",
+    "env_str",
     "as_bool",
     "NON_PROD_ENVS",
     "env_name",
@@ -82,6 +83,15 @@ def as_bool(value: object, default: bool = False) -> bool:
         if raw in _BOOL_FALSE:
             return False
     return default
+
+
+def env_str(name: str, default: str = "") -> str:
+    """Strip a string env var. Unset, blank, or whitespace is ``default``."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    stripped = raw.strip()
+    return stripped if stripped else default
 
 
 def env_bool(name: str, default: bool = False) -> bool:

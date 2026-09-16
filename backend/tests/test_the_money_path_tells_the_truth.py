@@ -194,12 +194,13 @@ def test_the_reminder_drain_refuses_an_expired_intent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_falling_back_to_a_generic_template_is_never_silent(monkeypatch, caplog) -> None:
+def test_an_unset_ptp_template_does_not_send_a_grocery_order(monkeypatch, caplog) -> None:
     """This deployment's fallback is Meta's sample grocery-order template.
 
     Meta validates the parameter count, so arity is guarded for us. The body
     text is not: a template registered for something else sends cleanly and says
-    the wrong thing to a borrower.
+    the wrong thing to a borrower. PTP therefore skips the send when its own
+    template is unset.
     """
     import logging
 
@@ -212,12 +213,13 @@ def test_falling_back_to_a_generic_template_is_never_silent(monkeypatch, caplog)
     caplog.set_level(logging.WARNING, logger=pf.logger.name)
     caplog.clear()
     name, lang = pf.resolve_template("WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG")
-    assert name == "jaspers_market_order_confirmation_v1"
-    warned = [r for r in caplog.records if "fallback in use" in (r.message or "")]
-    assert warned, "an operator must not have to guess that a fallback was used"
-    # getMessage(), not args: once observability's redacting filter is on the
-    # handler (any earlier test that set logging up), it renders the message
-    # and clears args, which is what made this pass alone and fail in a run.
+    assert name == ""
+    warned = [
+        r
+        for r in caplog.records
+        if "unset" in (r.getMessage() or "").lower() or "skipped" in (r.getMessage() or "").lower()
+    ]
+    assert warned, "an operator must not have to guess that the PTP template was skipped"
     assert any("WHATSAPP_PTP_TEMPLATE_NAME" in r.getMessage() for r in warned)
 
 

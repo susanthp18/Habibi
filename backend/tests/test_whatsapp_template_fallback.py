@@ -39,7 +39,16 @@ def _clean_template_env(monkeypatch: pytest.MonkeyPatch):
     from env_loader import load_env
 
     load_env()
-    for name in (PTP_NAME, PTP_LANG, pf.FALLBACK_TEMPLATE_NAME_ENV, pf.FALLBACK_TEMPLATE_LANG_ENV):
+    for name in (
+        PTP_NAME,
+        PTP_LANG,
+        "WHATSAPP_BOUNCE_TEMPLATE_NAME",
+        "WHATSAPP_BOUNCE_TEMPLATE_LANG",
+        "WHATSAPP_TREATMENT_TEMPLATE_NAME",
+        "WHATSAPP_TREATMENT_TEMPLATE_LANG",
+        pf.FALLBACK_TEMPLATE_NAME_ENV,
+        pf.FALLBACK_TEMPLATE_LANG_ENV,
+    ):
         monkeypatch.setenv(name, "")
 
 
@@ -52,11 +61,22 @@ def test_the_purpose_specific_template_wins(monkeypatch: pytest.MonkeyPatch) -> 
     assert pf.resolve_template(PTP_NAME, PTP_LANG) == ("ptp_confirm_v3", "en_IN")
 
 
-def test_the_fallback_fills_an_unset_purpose(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_fallback_fills_an_unset_bounce_purpose(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(pf.FALLBACK_TEMPLATE_NAME_ENV, "generic_fallback")
     monkeypatch.setenv(pf.FALLBACK_TEMPLATE_LANG_ENV, "hi_IN")
 
-    assert pf.resolve_template(PTP_NAME, PTP_LANG) == ("generic_fallback", "hi_IN")
+    assert pf.resolve_template("WHATSAPP_BOUNCE_TEMPLATE_NAME", "WHATSAPP_BOUNCE_TEMPLATE_LANG") == (
+        "generic_fallback",
+        "hi_IN",
+    )
+
+
+def test_ptp_does_not_inherit_the_grocery_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A market-order sample as a promise confirmation is the wrong message."""
+    monkeypatch.setenv(pf.FALLBACK_TEMPLATE_NAME_ENV, "generic_fallback")
+    monkeypatch.setenv(pf.FALLBACK_TEMPLATE_LANG_ENV, "hi_IN")
+
+    assert pf.resolve_template(PTP_NAME, PTP_LANG) == ("", "")
 
 
 def test_neither_set_resolves_to_no_template(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,21 +102,26 @@ def test_a_fallback_without_a_language_defaults_to_en_us(
 ) -> None:
     monkeypatch.setenv(pf.FALLBACK_TEMPLATE_NAME_ENV, "generic_fallback")
 
-    assert pf.resolve_template(PTP_NAME, PTP_LANG) == ("generic_fallback", "en_US")
+    assert pf.resolve_template(
+        "WHATSAPP_BOUNCE_TEMPLATE_NAME", "WHATSAPP_BOUNCE_TEMPLATE_LANG"
+    ) == ("generic_fallback", "en_US")
 
 
 @pytest.mark.parametrize(
     "name_env, lang_env",
     [
-        ("WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG"),
         ("WHATSAPP_BOUNCE_TEMPLATE_NAME", "WHATSAPP_BOUNCE_TEMPLATE_LANG"),
         ("WHATSAPP_TREATMENT_TEMPLATE_NAME", "WHATSAPP_TREATMENT_TEMPLATE_LANG"),
     ],
 )
-def test_every_documented_purpose_honours_the_fallback(
+def test_bounce_and_treatment_honour_the_fallback(
     monkeypatch: pytest.MonkeyPatch, name_env: str, lang_env: str
 ) -> None:
-    """All three purposes .env.example documents, not just the one that was easy."""
+    """Bounce and treatment still fill from the documented fallback.
+
+    PTP is excluded: a grocery-order sample as a promise confirmation is a
+    message about a purchase the borrower never made.
+    """
     monkeypatch.setenv(name_env, "")
     monkeypatch.setenv(lang_env, "")
     monkeypatch.setenv(pf.FALLBACK_TEMPLATE_NAME_ENV, "generic_fallback")
@@ -146,10 +171,56 @@ def test_the_send_path_uses_the_resolved_pair(monkeypatch: pytest.MonkeyPatch) -
         to_phone="+919000000001",
         body="body",
         use_template=True,
-        template_env_name=PTP_NAME,
-        template_env_lang=PTP_LANG,
+        template_env_name="WHATSAPP_BOUNCE_TEMPLATE_NAME",
+        template_env_lang="WHATSAPP_BOUNCE_TEMPLATE_LANG",
         template_params=["2,500", "2026-09-01", "https://pay.example.com/x"],
     )
 
     assert sent["template_name"] == "generic_fallback"
     assert sent["template_lang"] == "en_IN"
+
+
+def test_ptp_send_is_skipped_when_the_purpose_template_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(pf.FALLBACK_TEMPLATE_NAME_ENV, "generic_fallback")
+    monkeypatch.setenv(pf.FALLBACK_TEMPLATE_LANG_ENV, "en_IN")
+
+    sent: dict[str, object] = {}
+
+    class _FakeWaOut:
+        @staticmethod
+        def enqueue_agent_send(conn, **kwargs):
+            sent.update(kwargs)
+
+    class _FakeDb:
+        @staticmethod
+        def _open_whatsapp_conversation(conn, customer_id):
+            return "CONV-UT"
+
+        @staticmethod
+        def _id(prefix):
+            return f"{prefix}-UT"
+
+    class _FakeConn:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "whatsapp_outbound", _FakeWaOut)
+    monkeypatch.setitem(sys.modules, "db", _FakeDb)
+
+    pf.enqueue_whatsapp_paylink(
+        _FakeConn(),
+        customer_id="CUST-UT",
+        intent={"amount": 2500, "pay_url": "https://pay.example.com/x"},
+        to_phone="+919000000001",
+        body="body",
+        use_template=True,
+        template_env_name=PTP_NAME,
+        template_env_lang=PTP_LANG,
+        template_params=["2,500", "2026-09-01", "https://pay.example.com/x"],
+    )
+
+    assert sent == {}

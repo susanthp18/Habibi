@@ -48,7 +48,7 @@ export function useStudioActions({
 }) {
   const navigate = useNavigate();
   const { confirm, confirmDialog } = useConfirm();
-  const { draft, set, effectiveCard, published, nextLabel, draftLabel, dirty, unsaved } = editor;
+  const { draft, set, effectiveCard, published, nextLabel, draftLabel, unsaved } = editor;
   const { adoptVersion, markSaved, flushDraft } = editor;
   const { draftId, prompt, persona, voice, guardrails, flow } = draft;
   const {
@@ -66,6 +66,8 @@ export function useStudioActions({
   const [compileReport, setCompileReport] = useState<CompileReport | null>(null);
   /** Why the last compile produced no report. See `runCompile`. */
   const [compileError, setCompileError] = useState<string | null>(null);
+  /** Flush + compile. Mutation pending alone left the slider live during save. */
+  const [compileBusy, setCompileBusy] = useState(false);
 
   // Commit a preset. Split from the click handler so the confirmation step can
   // sit between them without the write path knowing a dialog exists.
@@ -117,20 +119,21 @@ export function useStudioActions({
   const runCompile = useCallback(() => {
     // Never show the last run's gates for this one.
     setCompileReport(null);
-    return compileMutation
-      .mutateAsync({
-        flow: flow ?? undefined,
-        agentCard: asCard(effectiveCard) ?? undefined,
-        // What Confirm will actually send. Omitting these made the dialog
-        // preview a different publish than the one it runs.
-        trafficPct: ship.trafficPct,
-        autoRollback: ship.autoRollback,
-        // G15 reads the mouth columns, which live here unsaved between
-        // autosaves. Without them the compiler gates the last save while
-        // Publish ships what is on screen.
-        voice,
-        persona,
-      })
+    // Flush first: compile and publish must hash the same row. Sending the
+    // in-memory mouth without writing it made G-F14 compare the editor's JSON
+    // (ints, omitted defaults) to evals that had hashed the mapped draft.
+    setCompileBusy(true);
+    return flushDraft()
+      .then(() =>
+        compileMutation.mutateAsync({
+          flow: flow ?? undefined,
+          agentCard: asCard(effectiveCard) ?? undefined,
+          trafficPct: ship.trafficPct,
+          autoRollback: ship.autoRollback,
+          voice,
+          persona,
+        }),
+      )
       .then((report) => {
         setCompileError(null);
         setCompileReport(report);
@@ -140,8 +143,18 @@ export function useStudioActions({
         // the publish dialog renders a null report as "no gate section".
         setCompileReport(null);
         setCompileError(err instanceof Error ? err.message : "The compiler did not answer.");
-      });
-  }, [compileMutation, flow, effectiveCard, ship.trafficPct, ship.autoRollback, voice, persona]);
+      })
+      .finally(() => setCompileBusy(false));
+  }, [
+    compileMutation,
+    flushDraft,
+    flow,
+    effectiveCard,
+    ship.trafficPct,
+    ship.autoRollback,
+    voice,
+    persona,
+  ]);
 
   const loadDraft = async (v: PromptVersion) => {
     // Up to a full autosave window of authored text used to go with the
@@ -261,7 +274,7 @@ export function useStudioActions({
     try {
       // The same save the debounce makes -- with the draft's own summary, not
       // "sandbox try", which the next autosave then flipped back.
-      const flushed = dirty ? await flushDraft() : null;
+      const flushed = unsaved ? await flushDraft() : null;
       const versionId = flushed?.id ?? draftId ?? published?.id;
       if (!versionId) {
         toast.info("No version to test yet.");
@@ -283,6 +296,7 @@ export function useStudioActions({
     cancelPreset,
     compileReport,
     compileError,
+    compileBusy,
     runCompile,
     loadDraft,
     discardDraft,

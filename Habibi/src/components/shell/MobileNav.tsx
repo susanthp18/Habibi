@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { EqualizerMark } from "@/components/brand/EqualizerMark";
+import { BigtappMark } from "@/components/brand/BigtappMark";
+import { HomeLink } from "@/components/brand/HomeLink";
 import { BRAND } from "@/lib/brand";
 import { NavLinks } from "@/components/shell/Sidebar";
 
@@ -42,6 +44,10 @@ export function MobileNav() {
         <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto px-150 pb-150 pt-100">
           <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
         </nav>
+        <div className="flex items-center gap-100 border-t border-border px-150 py-150 text-body-tiny text-text-subtlest">
+          <BigtappMark size={18} />
+          <HomeLink className="hover:underline">Home</HomeLink>
+        </div>
       </SheetContent>
     </Sheet>
   );

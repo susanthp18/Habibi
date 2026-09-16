@@ -22,7 +22,7 @@ import { newBlankRule } from "@/lib/routing";
 export const Route = createFileRoute("/_app/routing")({
   head: () => ({
     meta: [
-      { title: "Routing & Logic Builder — BigBound AI" },
+      { title: "Routing & Logic Builder — PayInt" },
       {
         name: "description",
         content:

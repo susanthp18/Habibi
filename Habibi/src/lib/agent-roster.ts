@@ -34,7 +34,7 @@ export type ActionAvailability = {
  *  should not have to invent a whole card to exercise one branch. */
 export type ArchivableCard = Pick<
   AgentCardSummary,
-  "archivedAt" | "isFirstParty" | "botId" | "entryBotId" | "deploymentStatus"
+  "archivedAt" | "isFirstParty" | "botId" | "entryBotId" | "deploymentStatus" | "entryBindings"
 >;
 
 /**
@@ -46,8 +46,9 @@ export type ArchivableCard = Pick<
  * - `isFirstParty` comes from the server. Inferring it from `cardSource` was
  *   wrong — a first-party card with a published row reports "published", so
  *   its button enabled and then failed.
- * - The entry bot is refused because inbound traffic would resolve to a
- *   retired card.
+ * - Inbound traffic is refused because it would resolve to a retired card.
+ *   That is the env default (`entryBotId`) *or* any enabled door binding —
+ *   the server checks both, and the fleet already has `entryBindings`.
  * - A live deployment is *not* a blocker. It used to be, on both sides, and
  *   that made the button dead for every card that had ever shipped: publish
  *   always leaves an active deployment and rollback only swaps which one is
@@ -61,7 +62,7 @@ export function archiveAvailability(card: ArchivableCard): ActionAvailability {
   if (card.isFirstParty) {
     return { allowed: false, reason: "First-party cards are re-seeded on API boot" };
   }
-  if (card.botId === card.entryBotId) {
+  if (card.botId === card.entryBotId || (card.entryBindings?.length ?? 0) > 0) {
     return { allowed: false, reason: "This card takes inbound traffic" };
   }
   if (card.deploymentStatus === "live") {

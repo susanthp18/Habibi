@@ -19,6 +19,7 @@ const REASONS: CbReason[] = [
   "payment_discussion",
   "dispute_followup",
   "document_query",
+  "product_query",
   "hardship_review",
   "upsell_interest",
   "general",

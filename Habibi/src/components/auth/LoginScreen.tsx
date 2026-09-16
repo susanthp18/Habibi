@@ -1,29 +1,20 @@
 import { useEffect, useState } from "react";
 import { EqualizerMark } from "@/components/brand/EqualizerMark";
+import { BigtappMark } from "@/components/brand/BigtappMark";
+import { HomeLink } from "@/components/brand/HomeLink";
 import { MicrosoftMark } from "@/components/auth/MicrosoftMark";
 import { Lozenge } from "@/components/ui/lozenge";
-import { signInWithMicrosoft } from "@/lib/sso";
+import { signInWithMicrosoft, entraConfigured, completeRedirect, bounceOffLoopbackIp } from "@/lib/sso";
 
-const VIDEO = "/videos/login-bee.mp4";
-const POSTER = "/videos/login-bee.jpg";
+const BASE = import.meta.env.BASE_URL;
+const VIDEO = `${BASE}videos/login-bee.mp4`;
+const POSTER = `${BASE}videos/login-bee.jpg`;
 
 const CLAIMS = [
-  {
-    k: "Next-best treatment",
-    v: "Which account to work, on which channel, this hour — not a dialer.",
-  },
-  {
-    k: "Every contact is answerable",
-    v: "Policy version, score, gate results and transcript on the same record.",
-  },
-  {
-    k: "On-prem by default",
-    v: "Models, recordings and customer data stay inside the bank perimeter.",
-  },
-  {
-    k: "Microsoft Entra SSO",
-    v: "Signed in through Microsoft. No password is stored on this product.",
-  },
+  { k: "Next-best treatment", v: "Which account to work, on which channel, this hour." },
+  { k: "Every contact is answerable", v: "Policy, score, gates and transcript on one record." },
+  { k: "On-prem by default", v: "Models and recordings stay inside the bank perimeter." },
+  { k: "Microsoft Entra SSO", v: "No password is stored on this product." },
 ];
 
 export function LoginScreen() {
@@ -31,50 +22,68 @@ export function LoginScreen() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    // The bee plate is authored on the light landing ground. Dark mode would
-    // put a navy shell around a pale clip — force light for this route only.
-    const root = document.documentElement;
-    const hadDark = root.classList.contains("dark");
-    root.classList.remove("dark");
+    if (bounceOffLoopbackIp()) return;
+    let cancelled = false;
+    if (!entraConfigured()) return;
+    void (async () => {
+      const account = await completeRedirect();
+      if (cancelled || !account) return;
+      window.location.assign(BASE);
+    })();
     return () => {
-      if (hadDark) root.classList.add("dark");
+      cancelled = true;
     };
   }, []);
 
-  const onSignIn = () => {
+  const onSignIn = async () => {
+    if (!entraConfigured()) {
+      if (import.meta.env.PROD) {
+        setNotice("Microsoft sign-in is not connected on this deployment.");
+        return;
+      }
+      window.location.assign(BASE);
+      return;
+    }
     setBusy(true);
     setNotice(null);
-    const result = signInWithMicrosoft();
-    setBusy(false);
-    if (!result.ok) setNotice(result.reason);
+    const result = await signInWithMicrosoft();
+    if (!result.ok) {
+      setBusy(false);
+      setNotice(result.reason);
+    }
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="relative hidden min-h-screen w-[54%] overflow-hidden lg:block">
+    <div className="flex h-dvh max-h-dvh overflow-hidden bg-background">
+      <aside className="relative hidden h-full w-[54%] overflow-hidden lg:block">
         <BeePlate />
       </aside>
 
-      <main className="relative flex min-h-screen flex-1 flex-col">
+      <main className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         <div className="pointer-events-none absolute inset-0 lg:hidden">
           <BeePlate dimmed />
         </div>
 
-        <div className="relative z-10 flex min-h-screen flex-1 flex-col justify-between px-400 py-400 lg:px-600 lg:py-600">
-          <header className="flex items-center gap-150">
-            <EqualizerMark size={28} />
-            <span className="heading-medium font-semibold text-text">PayInt</span>
+        <div className="relative z-10 flex h-full min-h-0 flex-1 flex-col justify-between px-400 py-300 lg:px-600 lg:py-400">
+          <header className="flex shrink-0 items-center gap-150">
+            <HomeLink className="flex items-center gap-150 text-text">
+              <EqualizerMark size={28} />
+              <span className="heading-medium font-semibold">PayInt</span>
+            </HomeLink>
             <Lozenge tone="information">Beeonix</Lozenge>
+            <HomeLink className="ml-auto text-body-small text-text-subtle hover:underline">
+              Home
+            </HomeLink>
           </header>
 
-          <div className="max-w-md py-600">
+          <div className="min-h-0 max-w-md py-200">
             <p className="text-body-small font-medium uppercase tracking-wide text-text-subtle">
               Autonomous Payment Intelligence
             </p>
-            <h1 className="mt-150 heading-xxlarge text-text">
+            <h1 className="mt-100 heading-xlarge text-text">
               The floor is already working the book.
             </h1>
-            <p className="mt-200 text-body-large text-text-subtle">
+            <p className="mt-150 text-body text-text-subtle lg:text-body-large">
               Sign in with Microsoft to open the floor. A.P.I.S decides which account to work next,
               on which channel, and why.
             </p>
@@ -83,7 +92,7 @@ export function LoginScreen() {
               type="button"
               onClick={() => void onSignIn()}
               disabled={busy}
-              className="mt-400 flex h-12 w-full items-center justify-center gap-150 rounded-medium border border-border bg-surface text-body font-medium text-text transition-colors hover:bg-background-neutral-subtle-hovered focus-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-300 flex h-12 w-full items-center justify-center gap-150 rounded-medium border border-border bg-surface text-body font-medium text-text transition-colors hover:bg-background-neutral-subtle-hovered focus-ring disabled:cursor-not-allowed disabled:opacity-50"
             >
               <MicrosoftMark size={18} />
               {busy ? "Redirecting to Microsoft…" : "Sign in with Microsoft"}
@@ -100,18 +109,20 @@ export function LoginScreen() {
               </p>
             ) : null}
 
-            <ul className="mt-600 space-y-200">
+            <ul className="mt-300 hidden space-y-150 [@media(min-height:800px)]:block">
               {CLAIMS.map((c) => (
                 <li key={c.k}>
-                  <p className="text-body font-medium text-text">{c.k}</p>
-                  <p className="mt-025 text-body-small text-text-subtle">{c.v}</p>
+                  <p className="text-body-small font-medium text-text">{c.k}</p>
+                  <p className="mt-025 hidden text-body-small text-text-subtle [@media(min-height:900px)]:block">
+                    {c.v}
+                  </p>
                 </li>
               ))}
             </ul>
           </div>
 
-          <footer className="flex flex-wrap items-center gap-150 text-body-small text-text-subtlest">
-            <img src="/brand/bigtapp.png" alt="" width={22} height={22} className="rounded-small" />
+          <footer className="flex shrink-0 flex-wrap items-center gap-150 text-body-small text-text-subtlest">
+            <BigtappMark size={22} />
             <span>A Bigtapp product</span>
             <span aria-hidden="true">·</span>
             <span>Restricted to @bigtapp.ai</span>

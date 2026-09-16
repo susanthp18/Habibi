@@ -6,7 +6,6 @@ router of the same name serves these. ``schemas/__init__`` re-exports every name
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
@@ -438,13 +437,17 @@ class PolicyEngineResponse(BaseModel):
 
 
 class EntryBindingUpsert(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     channel: str
-    botId: str
+    botId: str = Field(validation_alias=AliasChoices("botId", "bot_id"))
     address: str | None = None
     note: str = ""
     enabled: bool = True
+    #: GET-row keys. Ignored on write so a round-trip of EntryBindingResponse
+    #: does not 422 extra_forbidden.
+    id: str | None = None
+    updated_at: str | None = None
 
 
 class AgentStudioTemplateResponse(BaseModel):
@@ -773,22 +776,8 @@ class DeploymentExperimentResponse(BaseModel):
     rollbackReason: str | None = None
 
 
-class DeploymentExperimentRollbackResponse(BaseModel):
-    """`rollback_experiment` returns the raw deployment_experiments row plus
-    `baselineRestored` — the one key the Ship tab reads. Row columns stay
-    snake_case as stored; the route excludes unset so the wire mirrors the row."""
+class DeploymentExperimentRollbackResponse(DeploymentExperimentResponse):
+    """Same camelCase projection as ``list_experiments``, plus which of the two
+    rollback outcomes happened. The Ship tab reads ``baselineRestored``."""
 
-    id: str
-    tenant_id: str | None = None
-    bot_id: str | None = None
-    environment: str | None = None
-    canary_deployment_id: str | None = None
-    baseline_deployment_id: str | None = None
-    traffic_pct: int | None = None
-    shadow: bool | None = None
-    auto_rollback: Any = None
-    status: str | None = None
-    rollback_reason: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
     baselineRestored: bool

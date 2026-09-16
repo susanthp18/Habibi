@@ -13,7 +13,7 @@ import appCss from "../styles.css?url";
 import { clearSidebarCollapsedPreference } from "@/components/shell/sidebar-ui";
 import { getServerTheme, getTheme, subscribeTheme } from "@/lib/theme";
 
-const THEME_INIT = `(function(){try{var t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}})()`;
+const THEME_INIT = `(function(){try{var p=location.pathname;var r=document.documentElement;if(p==="/login"||p.endsWith("/login")){r.classList.remove("dark");r.style.colorScheme="light";r.style.overflow="hidden";return}var t=localStorage.getItem("theme");if(t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches))r.classList.add("dark")}catch(e){}})()`;
 
 function NotFoundComponent() {
   return (
@@ -101,12 +101,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "BigBound AI — Collections Workspace for BFSI" },
+      { title: "PayInt — Collections Workspace for BFSI" },
       {
         name: "description",
         content: "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
       },
-      { property: "og:title", content: "BigBound AI — Collections Workspace for BFSI" },
+      { property: "og:title", content: "PayInt — Collections Workspace for BFSI" },
       {
         property: "og:description",
         content: "Voice-first collections AI with an enterprise CRM workspace for BFSI teams.",
@@ -120,9 +120,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "stylesheet", href: appCss },
       // SVG is the source of truth — crisp at every tab and bookmark size. The PNGs
       // exist only for consumers that can't take SVG (iOS home screen, PWA install).
-      { rel: "icon", href: "/favicon.svg?v=eq4", type: "image/svg+xml" },
-      { rel: "apple-touch-icon", href: "/apple-touch-icon.png?v=eq4" },
-      { rel: "manifest", href: "/site.webmanifest" },
+      { rel: "icon", href: `${import.meta.env.BASE_URL}favicon.svg?v=eq4`, type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: `${import.meta.env.BASE_URL}apple-touch-icon.png?v=eq4` },
+      { rel: "manifest", href: `${import.meta.env.BASE_URL}site.webmanifest` },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
@@ -143,8 +143,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getServerTheme);
+  const login =
+    typeof window !== "undefined" &&
+    (window.location.pathname === "/login" || window.location.pathname.endsWith("/login"));
   return (
-    <html lang="en" className={theme === "dark" ? "dark" : ""} suppressHydrationWarning>
+    <html lang="en" className={!login && theme === "dark" ? "dark" : ""} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <HeadContent />

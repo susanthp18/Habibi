@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { apiDelete, apiGet, apiPatch, apiPost } from "./config";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./config";
 
 const rowSchema = z.object({ id: z.string(), amount: z.number() });
 
@@ -24,6 +24,7 @@ const verbs: Array<[string, (schema: typeof rowSchema) => Promise<unknown>]> = [
   ["apiGet", (schema) => apiGet("/rows/1", { schema })],
   ["apiPost", (schema) => apiPost("/rows", {}, { schema })],
   ["apiPatch", (schema) => apiPatch("/rows/1", {}, { schema })],
+  ["apiPut", (schema) => apiPut("/rows/1", {}, { schema })],
   ["apiDelete", (schema) => apiDelete("/rows/1", { schema })],
 ];
 

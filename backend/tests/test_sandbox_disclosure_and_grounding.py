@@ -280,6 +280,44 @@ def test_a_turn_with_real_chunks_reports_those(
     assert [c["chunkId"] for c in bot["chunks"]] == ["kbc-1"]
 
 
+def test_confirm_identity_opening_must_disclose_before_account_facts() -> None:
+    """CL-CAF293FDE9: greeting mentioned the account, then recording in parentheses."""
+    from voice.flow_export import built_in_collections_graph
+    from voice.node_contracts import NODE_DIRECTIVES
+
+    node = next(
+        n for n in built_in_collections_graph()["nodes"] if n["key"] == "confirm_identity"
+    )
+    prompt = node["data"]["instructions"]
+    directive = NODE_DIRECTIVES["confirm_identity"]
+    for text in (prompt, directive):
+        assert "recorded" in text.lower()
+        assert "parentheses" in text.lower()
+        assert "ONLY the greeting, your name, the bank, and the confirmation" not in text
+
+    assert not _opening_mentions_account_before_disclosure(
+        "Good evening, this is Priya from HDFC Bank. This call is recorded "
+        "for quality and compliance. Am I speaking with Susanth?"
+    )
+    assert _opening_mentions_account_before_disclosure(
+        "Good evening, this is Priya from HDFC Bank. This is about your account. "
+        "(For quality and compliance, please note the call is recorded.)"
+    )
+
+
+def _opening_mentions_account_before_disclosure(utterance: str) -> bool:
+    from agent_core.guardrails import mentions_recording_disclosure
+
+    if "(" in utterance or ")" in utterance:
+        return True
+    low = utterance.lower()
+    rec = low.find("recorded")
+    acct = low.find("account")
+    if acct >= 0 and (rec < 0 or acct < rec):
+        return True
+    return not mentions_recording_disclosure(utterance)
+
+
 def test_an_ungrounded_turn_reports_nothing_on_either_side(
     db_tx, prompt_version_id, stub_llm
 ) -> None:

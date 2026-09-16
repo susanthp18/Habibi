@@ -124,22 +124,30 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         actor_header = (request.headers.get("x-actor-user-id") or "").strip() or None
         key_map = actor_context.parse_api_key_map()
         single = (os.getenv("API_KEY") or "").strip()
+        import entra
+
         # Absent credentials are a refusal, not a mode. Production-like
         # environments require a key even if the operator left both unset
         # (the lifespan check should have refused to boot; this is the belt).
-        auth_required = _IS_PROD or bool(single or key_map)
+        # Entra is a third identity source: a browser session with a JWT
+        # must not fall open when API_KEY is unset.
+        auth_required = _IS_PROD or bool(single or key_map) or entra.configured()
 
         if auth_required and not provided:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
 
-        # Off the loop: on a user-cache miss this is a pool checkout and a
-        # SELECT, and it runs on every request that misses -- the same reason
-        # the authz guard resolves grants through the threadpool.
-        ok, actor_id, err = await run_in_threadpool(
-            actor_context.resolve_authenticated_actor,
-            provided_key=provided if auth_required else (provided or ""),
-            actor_header=actor_header,
-        )
+        if entra.looks_like_jwt(provided):
+            # Never treat a JWT as an API key — that is the confused-deputy
+            # hole this middleware used to have. Unconfigured Entra still 401s.
+            if not entra.configured():
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            ok, actor_id, err = await run_in_threadpool(entra.resolve_bearer, provided)
+        else:
+            ok, actor_id, err = await run_in_threadpool(
+                actor_context.resolve_authenticated_actor,
+                provided_key=provided if auth_required else (provided or ""),
+                actor_header=actor_header,
+            )
         if not ok or not actor_id:
             # actor_not_found is a client config error; wrong/missing key is 401.
             status = 400 if err == "actor_not_found" else 401
@@ -515,6 +523,7 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=_CORS_EXPOSE_HEADERS,
+        max_age=86400,
     )
 else:
     # Dev: any localhost port (Vite may fall back to 8081…). Credentials
@@ -526,6 +535,7 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=_CORS_EXPOSE_HEADERS,
+        max_age=86400,
     )
 
 # VOICE_EMBEDDED_HOST=true: serve SmallWebRTC signalling here instead of

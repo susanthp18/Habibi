@@ -45,8 +45,14 @@ export type ProviderModel = {
    * differently — a missing key is fixable from the Integrations screen, a
    * service class that does not import is not. Binding a non-live model used
    * to fall back to Azure silently.
+   *
+   * "unknown" is the honest fourth answer: only the voice image has Pipecat
+   * installed, so the API cannot resolve a service class and must report what
+   * the voice runtime last published. Until it has published anything, nobody
+   * on this side of the wire knows. The API used to answer for itself, which
+   * made every model read "unavailable" on a working stack.
    */
-  runtime: "live" | "preview_only" | "unavailable";
+  runtime: "live" | "preview_only" | "unavailable" | "unknown";
   /** Why, when `runtime` is not "live". Shown as the tooltip. */
   runtimeDetail: string;
   /**

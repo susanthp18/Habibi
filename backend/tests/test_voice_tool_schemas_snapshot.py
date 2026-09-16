@@ -85,6 +85,11 @@ def render() -> dict[str, Any]:
             for k, v in config.items()
             if k in {"respond_immediately", "pre_actions", "post_actions"}
         }
+        if "pre_actions" in nodes[key]:
+            nodes[key]["pre_actions"] = [
+                {sk: sv for sk, sv in action.items() if sk != "handler"}
+                for action in nodes[key]["pre_actions"]
+            ]
         nodes[key]["functions"] = sorted(_name_of(f) for f in config.get("functions", []))
         nodes[key]["task_message_roles"] = [m.get("role") for m in config.get("task_messages", [])]
     return {

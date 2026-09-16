@@ -65,6 +65,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     TextFrame,
+    BotStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -121,6 +122,11 @@ class SpokeThisResponseProbe(FrameProcessor):
                 self._spoke = False
                 self._interrupted = True
             elif isinstance(frame, LLMFullResponseEndFrame):
+                await self._close(interrupted=self._interrupted)
+            elif isinstance(frame, BotStoppedSpeakingFrame):
+                # Hangup can start (endConversation) before the LLM end frame
+                # lands. Flush whatever TTS already produced so the last spoken
+                # turn is not dropped from the transcript.
                 await self._close(interrupted=self._interrupted)
             elif isinstance(frame, TextFrame):
                 text = getattr(frame, "text", "") or ""

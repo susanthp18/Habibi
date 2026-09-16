@@ -35,6 +35,16 @@ def _clean_flag(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_env_bool_is_public_on_the_leaf_module() -> None:
     assert callable(env_utils.env_bool)
     assert "env_bool" in env_utils.__all__
+    assert "env_str" in env_utils.__all__
+
+
+def test_env_str_strips_and_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENV_STR_TEST", raising=False)
+    assert env_utils.env_str("ENV_STR_TEST", "fallback") == "fallback"
+    monkeypatch.setenv("ENV_STR_TEST", "  value  ")
+    assert env_utils.env_str("ENV_STR_TEST") == "value"
+    monkeypatch.setenv("ENV_STR_TEST", "   ")
+    assert env_utils.env_str("ENV_STR_TEST", "fallback") == "fallback"
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "yes", "on", "TRUE", "On", " yes "])

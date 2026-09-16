@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app/documents")({
   validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Document Fulfillment Desk — BigBound AI" },
+      { title: "Document Fulfillment Desk — PayInt" },
       {
         name: "description",
         content:

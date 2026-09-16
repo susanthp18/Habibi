@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy import text
 
 from agent_core.eval.harness import run_suite_fixtures
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID
+
+logger = logging.getLogger(__name__)
 
 _ORIGINS = frozenset({"manual", "scheduled", "canary", "upgrade"})
 
@@ -107,6 +110,14 @@ def run_named_suite(
         origin=origin,
         prompt_version_id=prompt_version_id,
         content_key=key,
+    )
+    logger.info(
+        "gf14_debug eval_saved report=%s suite=%s bot=%s pv=%s key=%s",
+        saved.get("id"),
+        suite_id,
+        bot_id,
+        prompt_version_id,
+        (key or "")[:16],
     )
     return {
         "suiteId": suite_id,

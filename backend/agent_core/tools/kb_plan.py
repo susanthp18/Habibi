@@ -322,6 +322,61 @@ def _call_tool(
         return None
 
 
+_POLICY_FACET_TOKENS = (
+    "exclu",
+    "not covered",
+    "void",
+    "waiting period",
+    "claim",
+    "terms",
+    "policy wording",
+    "conditions",
+)
+
+
+def _named_product_keys(text: str, products: list[dict[str, Any]]) -> list[str]:
+    """Product keys the caller actually named, from the corpus list only."""
+    low = (text or "").lower()
+    if not low:
+        return []
+    found: list[str] = []
+    for product in products:
+        key = str(product.get("productKey") or "").strip().lower()
+        if not key:
+            continue
+        title = str(product.get("title") or "").strip().lower()
+        tokens = {key, *key.replace("_", " ").replace("-", " ").split()}
+        if title:
+            tokens.update(w for w in title.split() if len(w) > 3)
+        if any(tok and tok in low for tok in tokens if len(tok) > 3):
+            found.append(key)
+    return found
+
+
+def _caller_names_product_and_facet(text: str, products: list[dict[str, Any]]) -> bool:
+    if not _named_product_keys(text, products):
+        return False
+    low = (text or "").lower()
+    return any(tok in low for tok in _POLICY_FACET_TOKENS)
+
+
+def _promote_passage_followup(plan: RetrievalPlan, question: str, products: list[dict[str, Any]]) -> RetrievalPlan:
+    """Catalog is the first 'what exists' turn; a named product + facet is not."""
+    if not _caller_names_product_and_facet(question, products):
+        return plan
+    named = _named_product_keys(question, products)
+    if not named:
+        return plan
+    return RetrievalPlan(
+        mode=MODE_PASSAGE,
+        query=plan.query or question,
+        product_keys=named,
+        prefer_policy=True,
+        rationale=plan.rationale or "caller named a product and a policy facet",
+        source=plan.source,
+    )
+
+
 def plan_retrieval(
     *,
     customer_text: str,
@@ -340,7 +395,7 @@ def plan_retrieval(
     base = fallback or RetrievalPlan(query=(tool_query or customer_text or "").strip())
     question = (customer_text or "").strip() or (tool_query or "").strip()
     if not question or not planner_enabled():
-        return base
+        return _promote_passage_followup(base, question, available_products or [])
 
     products = available_products or []
     catalog_lines = "\n".join(
@@ -364,7 +419,7 @@ def plan_retrieval(
         budget=budget,
     )
     if not payload:
-        return base
+        return _promote_passage_followup(base, question, products)
 
     mode = str(payload.get("mode") or "").strip().lower()
     if mode not in _MODES:
@@ -377,7 +432,7 @@ def plan_retrieval(
     # key would filter every row out and look like an empty knowledge base.
     keys = [k for k in keys if k in known] if known else []
 
-    return RetrievalPlan(
+    planned = RetrievalPlan(
         mode=mode,
         query=query,
         product_keys=keys or None,
@@ -385,6 +440,7 @@ def plan_retrieval(
         rationale=(str(payload.get("rationale") or "").strip() or None),
         source=SOURCE_LLM,
     )
+    return _promote_passage_followup(planned, question, products)
 
 
 # The judge is gone.

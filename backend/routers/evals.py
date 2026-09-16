@@ -144,11 +144,13 @@ def list_eval_reports(
     kind: str | None = Query(default=None),
     botId: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
+    perBot: int | None = Query(default=None, ge=1, le=10),
 ):
     """Eval history. botId scopes it to one card — the Studio's Evals tab needs
     this card's runs, not the whole tenant's. `botId=__none__` is the runs the
-    scheduler filed against no card."""
-    return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit)
+    scheduler filed against no card. `perBot` is the fleet index: last N per
+    card, so two busy mouths cannot hide everyone else behind a global 50."""
+    return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit, per_bot=perBot)
 
 @router.get(
     "/eval/reports/{report_id}",

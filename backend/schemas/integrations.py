@@ -61,10 +61,17 @@ class ProviderModelItem(BaseModel):
     #: from the screen.
     configured: bool = True
     #: Whether the model can be constructed for a live call: ``live``,
-    #: ``preview_only`` (auditionable but no streaming integration), or
+    #: ``preview_only`` (auditionable but no streaming integration),
     #: ``unavailable`` (the service class does not import — a missing Pipecat
-    #: extra, or a class that was never written). A key alone does not make a
-    #: model runnable, and binding one that is not silently fell back to Azure.
+    #: extra, or a class that was never written), or ``unknown``. A key alone
+    #: does not make a model runnable, and binding one that is not silently
+    #: fell back to Azure.
+    #:
+    #: ``unknown`` means the voice runtime has not reported since it last
+    #: started. It is a real third state, not a placeholder: this process does
+    #: not have Pipecat, so it cannot answer for the one that does, and the
+    #: alternative to saying so was reporting its own missing dependency as
+    #: every model's.
     runtime: str = "live"
     #: Why, when ``runtime`` is not ``live``. Shown as the tooltip on the chip.
     runtimeDetail: str = ""

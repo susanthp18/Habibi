@@ -29,7 +29,7 @@ const EMPTY_CONSENT: ConsentRecord[] = [];
 export const Route = createFileRoute("/_app/consent")({
   head: () => ({
     meta: [
-      { title: "Consent & Communication Preferences — BigBound AI" },
+      { title: "Consent & Communication Preferences — PayInt" },
       {
         name: "description",
         content:

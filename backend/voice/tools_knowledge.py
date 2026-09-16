@@ -33,6 +33,20 @@ from voice.tool_state import (
 logger = logging.getLogger(__name__)
 
 
+def count_scored_rag_hits(rows: list[dict[str, Any]]) -> int:
+    """Count retrieval rows that are actual passages, not catalog titles."""
+    hits = 0
+    for row in rows:
+        if float(row.get("score") or 0) > 0:
+            hits += 1
+            continue
+        if str(row.get("docType") or "") not in {"", "catalog"} and (
+            row.get("snippet") or ""
+        ).strip():
+            hits += 1
+    return hits
+
+
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
     _gap_sink = ctx._gap_sink
@@ -94,10 +108,11 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             "",
         )
 
+        retrieve_query = (caller_text or query or "").strip()
         result = await asyncio.to_thread(
             partial(
                 kb_tool.search_knowledge_base,
-                query=query or "",
+                query=retrieve_query,
                 channel="voice",
                 customer_text=caller_text,
                 recent=recent or None,
@@ -131,9 +146,9 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
         data = result.data
         rows = data["results"]
-        # Count only what actually reaches the model / RTVI event, so rag_hits
-        # matches the chunk_ids reported below.
-        session.rag_hits += len(rows)
+        # Catalog name-only rows have no retrieval score. Counting them as
+        # rag_hits made a names-only listing look like ten grounded passages.
+        session.rag_hits += count_scored_rag_hits(rows)
         top = float(data["topScore"] or 0)
 
         await rtvi.rag_hits(

@@ -553,18 +553,15 @@ export const DeploymentExperimentResponse = z.object({
 }).passthrough();
 export const DeploymentExperimentRollbackResponse = z.object({
   "id": z.string(),
-  "tenant_id": z.string().nullable().optional(),
-  "bot_id": z.string().nullable().optional(),
+  "botId": z.string(),
   "environment": z.string().nullable().optional(),
-  "canary_deployment_id": z.string().nullable().optional(),
-  "baseline_deployment_id": z.string().nullable().optional(),
-  "traffic_pct": z.number().nullable().optional(),
-  "shadow": z.boolean().nullable().optional(),
-  "auto_rollback": z.unknown().optional(),
+  "canaryDeploymentId": z.string().nullable().optional(),
+  "baselineDeploymentId": z.string().nullable().optional(),
+  "trafficPct": z.number(),
+  "shadow": z.boolean(),
+  "autoRollback": z.array(z.string()),
   "status": z.string().nullable().optional(),
-  "rollback_reason": z.string().nullable().optional(),
-  "created_at": z.string().nullable().optional(),
-  "updated_at": z.string().nullable().optional(),
+  "rollbackReason": z.string().nullable().optional(),
   "baselineRestored": z.boolean(),
 }).passthrough();
 export const PromptLintFinding = z.object({
@@ -1416,7 +1413,7 @@ export const CallbackListResponse = z.object({
   "customerName": z.string(),
   "accountId": z.string(),
   "accountTail": z.string(),
-  "reason": z.enum(["payment_discussion", "dispute_followup", "document_query", "hardship_review", "upsell_interest", "general"]),
+  "reason": z.enum(["payment_discussion", "dispute_followup", "document_query", "product_query", "hardship_review", "upsell_interest", "general"]),
   "scheduledAt": z.string(),
   "windowMins": z.union([z.literal(30), z.literal(60), z.literal(120)]),
   "customerTimezone": z.string(),
@@ -3448,6 +3445,19 @@ export const PresenceResponse = z.object({
   "status": z.enum(["available", "on_break", "wrap_up", "offline"]),
   "sinceAt": z.string(),
 }).passthrough();
+export const DirectoryUserResponse = z.object({
+  "id": z.string(),
+  "name": z.string(),
+  "upn": z.string().nullable().optional(),
+  "status": z.string(),
+  "bootstrapAdmin": z.boolean().optional(),
+  "lastLoginAt": z.string().nullable().optional(),
+  "roleIds": z.array(z.string()).optional(),
+  "roleNames": z.array(z.string()).optional(),
+}).passthrough();
+export const DirectoryUsersResponse = z.object({
+  "users": z.array(DirectoryUserResponse),
+}).passthrough();
 export const PlatformSwitchResponse = z.object({
   "key": z.string(),
   "description": z.string(),
@@ -4151,6 +4161,9 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /me", MeResponse],
   ["GET /me/presence", PresenceResponse],
   ["PATCH /me/presence", PresenceResponse],
+  ["GET /users", DirectoryUsersResponse],
+  ["PUT /users/{user_id}/roles", DirectoryUsersResponse],
+  ["PATCH /users/{user_id}", DirectoryUsersResponse],
   ["GET /platform/switches", PlatformSwitchesResponse],
   ["PATCH /platform/switches/{key}", PlatformSwitchFlipResponse],
   ["GET /routing-rules", z.array(RoutingRuleListResponse)],

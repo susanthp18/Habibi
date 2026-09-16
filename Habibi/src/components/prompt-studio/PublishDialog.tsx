@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import type { Guardrails, PersonaState, VoiceConfig } from "@/api/types/prompt-studio";
 import { diffStudioVersions } from "@/lib/prompt-studio";
 import type { CompileReport } from "@/api/agent-studio";
@@ -60,8 +61,7 @@ export function PublishDialog({
   compileBusy = false,
   busy = false,
 }: Props) {
-  const [confirmText, setConfirmText] = useState("");
-  const [localeConfirm, setLocaleConfirm] = useState("");
+  const [localeConfirmed, setLocaleConfirmed] = useState(false);
   const [note, setNote] = useState("");
   const lines = diffStudioVersions(from, to);
   const added = lines.filter((l) => l.kind === "add").length;
@@ -100,23 +100,24 @@ export function PublishDialog({
    * A voice that speaks a language the card does not claim.
    *
    * G15 warns rather than fails, deliberately: a localisation override is a
-   * real thing an operator does. But "PUBLISH" is already typed on every
-   * publish, so a warning alone would be read past. A second word names *this*
-   * decision, which is the difference between confirming a publish and
-   * confirming a bot that answers in a language its card was not written for.
+   * real thing an operator does. But the publish gesture is made on every
+   * publish, so a warning alone would be read past. A second, separate gesture
+   * names *this* decision, which is the difference between confirming a publish
+   * and confirming a bot that answers in a language its card was not written
+   * for.
+   *
+   * It used to be a second typed word, and the two typed gates did not even
+   * normalize alike — PUBLISH was matched raw and case-sensitively while
+   * LANGUAGE was trimmed and uppercased, so a trailing space (the thing a paste
+   * reliably adds) defeated one and not the other. Neither can drift now:
+   * there is one control and it has one answer.
    */
   const localeWarning = (compileReport?.gates ?? []).find(
     (g) => g.gate === "G15" && g.status === "warn",
   );
   const localeIssue = localeWarning?.issues?.[0] as
     { voice?: string; voiceLocale?: string; cardLocales?: string[] } | undefined;
-  // Both typed gates normalize identically. They did not: PUBLISH was matched
-  // raw and case-sensitively while LANGUAGE was trimmed and uppercased, so a
-  // trailing space — the thing a paste reliably adds — defeated one gate and
-  // not the other, for no reason the author could see.
-  const typed = (value: string) => value.trim().toUpperCase();
-  const localeConfirmed = !localeWarning || typed(localeConfirm) === "LANGUAGE";
-  const publishConfirmed = typed(confirmText) === "PUBLISH";
+  const localeSettled = !localeWarning || localeConfirmed;
 
   /**
    * A confirmation gate is never pre-satisfied when it opens.
@@ -124,20 +125,22 @@ export function PublishDialog({
    * The reset used to live in `onOpenChange`, which Radix calls only for closes
    * *it* initiates — Escape, the overlay, Cancel. A successful publish closes
    * this dialog programmatically (`setPublishOpen(false)`), so that path skipped
-   * the reset entirely and the component stayed mounted holding
-   * `confirmText === "PUBLISH"`, the typed LANGUAGE override, and the previous
-   * change note. Opening it again in the same session presented a Confirm
-   * button that was already enabled, on a publish nobody had typed anything to
-   * confirm, filed under a note describing the *last* publish. That is the whole
-   * gate defeated by the happy path.
+   * the reset entirely and the component stayed mounted holding a satisfied
+   * publish gate, a satisfied language override, and the previous change note.
+   * Opening it again in the same session presented a Confirm button that was
+   * already enabled, on a publish nobody had confirmed, filed under a note
+   * describing the *last* publish. That is the whole gate defeated by the happy
+   * path.
+   *
+   * The publish slider itself unmounts with `DialogContent` and so starts fresh
+   * on its own; `localeConfirmed` lives out here and does not.
    *
    * Resetting on open cannot be skipped by any close path, because it does not
    * depend on one.
    */
   useEffect(() => {
     if (!open) return;
-    setConfirmText("");
-    setLocaleConfirm("");
+    setLocaleConfirmed(false);
     setNote("");
   }, [open]);
 
@@ -265,41 +268,26 @@ export function PublishDialog({
                 Callers hear the voice, not the card. If that is deliberate — a localisation
                 override — say so.
               </p>
-              <label htmlFor="publish-locale-confirm" className="block font-semibold">
-                Type <span className="font-mono">LANGUAGE</span> to confirm
-              </label>
-              <Input
+              <SlideToConfirm
                 id="publish-locale-confirm"
-                value={localeConfirm}
-                onChange={(e) => setLocaleConfirm(e.target.value)}
-                placeholder="LANGUAGE"
+                label="Slide to override the card language"
+                confirmedLabel="Language override accepted"
+                onConfirm={() => setLocaleConfirmed(true)}
               />
             </div>
           )}
-          <div>
-            <label
-              htmlFor="publish-confirm"
-              className="text-body-small font-semibold text-text-subtlest"
-            >
-              Type <span className="font-mono">PUBLISH</span> to confirm
-            </label>
-            <Input
-              id="publish-confirm"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="PUBLISH"
-            />
-          </div>
+          <SlideToConfirm
+            id="publish-confirm"
+            label={`Slide to publish ${toLabel}`}
+            confirmedLabel={`Publishing ${toLabel}`}
+            busy={busy}
+            disabled={blocked || busy || !localeSettled}
+            onConfirm={() => onConfirm(note || `Published ${toLabel}`)}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
-          </Button>
-          <Button
-            disabled={blocked || busy || !publishConfirmed || !localeConfirmed}
-            onClick={() => onConfirm(note || `Published ${toLabel}`)}
-          >
-            {busy ? "Publishing…" : `Publish ${toLabel}`}
           </Button>
         </DialogFooter>
       </DialogContent>

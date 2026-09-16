@@ -123,6 +123,49 @@ def sync_seed() -> dict[str, int]:
     return {"providers": providers, "models": models, "retired": int(retired or 0)}
 
 
+# ------------------------------------------------------- the call host reports
+
+def record_runtime(report: list[dict[str, Any]]) -> int:
+    """Publish what the call host can actually construct, for the API to read.
+
+    Same contract as ``measured_latency_*``: written by the process that knows,
+    never by the seed. The difference is which process — latency comes from a
+    shadow run, this comes from the voice runtime on its way up, because it is
+    the only image with Pipecat installed.
+
+    The API used to answer this by importing the service class itself. It has no
+    Pipecat (``requirements-voice.txt`` is kept out of ``requirements.txt`` on
+    purpose), so every model read ``unavailable`` on a stack whose calls were
+    running perfectly — the Agent Studio refused to bind anything, and the voice
+    inspector showed "ModuleNotFoundError: No module named 'azure'" against
+    Azure itself.
+
+    Best-effort at the call site: a runner that cannot reach the database must
+    still start and serve.
+    """
+    if not report:
+        return 0
+    with db.engine.begin() as conn:
+        for row in report:
+            conn.execute(
+                text(
+                    """
+                    UPDATE provider_models
+                       SET runtime            = :runtime,
+                           runtime_detail     = :runtime_detail,
+                           runtime_checked_at = now(),
+                           updated_at         = now()
+                     WHERE provider_id = :provider_id
+                       AND kind        = :kind
+                       AND model_id    = :model_id
+                    """
+                ),
+                row,
+            )
+    logger.info("provider runtime reported · models=%d", len(report))
+    return len(report)
+
+
 # --------------------------------------------------------------------- reads
 
 

@@ -68,6 +68,7 @@ def test_options_preflight_ok_with_api_key(client: TestClient, api_key: str) -> 
     )
     assert res.status_code in {200, 204}, res.text
     assert res.headers.get("access-control-allow-origin")
+    assert res.headers.get("access-control-max-age") == "86400"
     assert res.status_code != 401
 
 

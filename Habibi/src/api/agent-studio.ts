@@ -59,6 +59,26 @@ export type EntryBinding = {
   updated_at: string | null;
 };
 
+/** PUT /agent-studio/entry-bindings. CamelCase `botId`; GET rows use `bot_id`. */
+export type EntryBindingUpsert = {
+  channel: string;
+  botId: string;
+  address?: string | null;
+  note?: string;
+  enabled?: boolean;
+};
+
+/** Strip GET-only keys so a round-trip body does not 422 extra_forbidden. */
+export function entryBindingUpsertBody(b: EntryBinding): EntryBindingUpsert {
+  return {
+    channel: b.channel,
+    botId: b.bot_id,
+    address: b.address,
+    note: b.note,
+    enabled: b.enabled,
+  };
+}
+
 /** "answers +1937… · whatsapp default" — one chip per binding. */
 export function entryBindingLabel(b: EntryBinding): string {
   return b.address ? `answers ${b.address} · ${b.channel}` : `${b.channel} default`;
@@ -351,13 +371,25 @@ export function useEvalReportDetail(reportId: string | null) {
 /** `botId` that asks for the reports the scheduler filed against no card. */
 export const TENANT_WIDE_REPORTS = "__none__";
 
-export function useEvalReports(kind?: string, botId?: string) {
+export function useEvalReports(
+  kind?: string,
+  botId?: string,
+  opts?: { limit?: number; perBot?: number },
+) {
   return useQuery({
-    queryKey: ["eval-reports", kind ?? "all", botId ?? "all"],
+    queryKey: [
+      "eval-reports",
+      kind ?? "all",
+      botId ?? "all",
+      opts?.limit ?? null,
+      opts?.perBot ?? null,
+    ],
     queryFn: async () => {
       const q = new URLSearchParams();
       if (kind) q.set("kind", kind);
       if (botId) q.set("botId", botId);
+      if (opts?.limit) q.set("limit", String(opts.limit));
+      if (opts?.perBot) q.set("perBot", String(opts.perBot));
       const qs = q.toString();
       return apiGet<EvalReport[]>(`/eval/reports${qs ? `?${qs}` : ""}`);
     },
@@ -371,8 +403,7 @@ export function useRunEvalSchedule() {
     mutationFn: async () =>
       apiPost<{ status: string; ran: number; failed: number }>("/eval/schedule/run", {}),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["eval-reports"] });
-      void qc.invalidateQueries({ queryKey: ["eval-suites"] });
+      invalidateAgentStudio(qc);
     },
   });
 }
@@ -454,7 +485,7 @@ export function useDeploymentExperiments(botId: string) {
  * one. Without a baseline it closes the experiment and reactivates nothing — the
  * canary keeps taking traffic. Both used to look identical from here.
  */
-export type ExperimentRollbackResult = DeploymentExperiment & { baselineRestored?: boolean };
+export type ExperimentRollbackResult = DeploymentExperiment & { baselineRestored: boolean };
 
 export function useRollbackExperiment() {
   const qc = useQueryClient();

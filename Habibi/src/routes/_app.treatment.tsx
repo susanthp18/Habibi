@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/_app/treatment")({
   head: () => ({
     meta: [
-      { title: "Decision Intelligence — BigBound AI" },
+      { title: "Decision Intelligence — PayInt" },
       {
         name: "description",
         content:

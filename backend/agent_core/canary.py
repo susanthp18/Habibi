@@ -177,6 +177,38 @@ def record_experiment(
     return {"id": eid, "trafficPct": pct, "status": "running"}
 
 
+def _experiment_public(row: Any, *, baseline_restored: bool | None = None) -> dict[str, Any]:
+    """CamelCase projection of a ``deployment_experiments`` row.
+
+    ``list_experiments`` and ``rollback_experiment`` used to disagree: list
+    camelCased, rollback returned SQL column names plus ``baselineRestored``.
+    The Ship tab types the rollback as the list shape.
+    """
+    triggers = row.get("auto_rollback") or []
+    if isinstance(triggers, str):
+        import json
+
+        try:
+            triggers = json.loads(triggers)
+        except json.JSONDecodeError:
+            triggers = []
+    out: dict[str, Any] = {
+        "id": row["id"],
+        "botId": row["bot_id"],
+        "environment": row.get("environment"),
+        "canaryDeploymentId": row.get("canary_deployment_id"),
+        "baselineDeploymentId": row.get("baseline_deployment_id"),
+        "trafficPct": int(row.get("traffic_pct") or 0),
+        "shadow": bool(row.get("shadow")),
+        "autoRollback": list(triggers),
+        "status": row.get("status"),
+        "rollbackReason": row.get("rollback_reason"),
+    }
+    if baseline_restored is not None:
+        out["baselineRestored"] = baseline_restored
+    return out
+
+
 def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
     """Swap active back to baseline. Canary is retired.
 
@@ -204,7 +236,7 @@ def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
         if exp["status"] != "running":
             # Already rolled back or finished. Nothing was restored by *this*
             # call, whatever a previous one did.
-            return {**dict(exp), "baselineRestored": False}
+            return _experiment_public(exp, baseline_restored=False)
         baseline = exp.get("baseline_deployment_id")
         canary = exp.get("canary_deployment_id")
         if baseline:
@@ -247,7 +279,7 @@ def rollback_experiment(experiment_id: str, *, reason: str) -> dict[str, Any]:
             )
         except Exception:
             logger.exception("experiment rollback was not written to the change log")
-        return {**dict(row), "baselineRestored": bool(baseline)}
+        return _experiment_public(row, baseline_restored=bool(baseline))
 
 
 def _scope(deployment_id: str | None) -> tuple[str, dict[str, Any]]:
@@ -409,31 +441,7 @@ def list_experiments(*, bot_id: str | None = None, limit: int = 50) -> list[dict
             params["b"] = bot_id
         sql += " ORDER BY created_at DESC LIMIT :n"
         rows = db._rows(conn.execute(text(sql), params))
-    out = []
-    for row in rows:
-        triggers = row.get("auto_rollback") or []
-        if isinstance(triggers, str):
-            import json
-
-            try:
-                triggers = json.loads(triggers)
-            except json.JSONDecodeError:
-                triggers = []
-        out.append(
-            {
-                "id": row["id"],
-                "botId": row["bot_id"],
-                "environment": row.get("environment"),
-                "canaryDeploymentId": row.get("canary_deployment_id"),
-                "baselineDeploymentId": row.get("baseline_deployment_id"),
-                "trafficPct": int(row.get("traffic_pct") or 0),
-                "shadow": bool(row.get("shadow")),
-                "autoRollback": list(triggers),
-                "status": row.get("status"),
-                "rollbackReason": row.get("rollback_reason"),
-            }
-        )
-    return out
+    return [_experiment_public(row) for row in rows]
 
 
 def close_running_experiments(

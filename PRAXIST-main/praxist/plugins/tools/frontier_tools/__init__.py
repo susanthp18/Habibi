@@ -1,1 +1,0 @@
-"""Frontier tool server plugin."""

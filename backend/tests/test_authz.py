@@ -150,6 +150,28 @@ def test_no_role_default_grants_admin_write_except_admin() -> None:
         assert authz.ADMIN_WRITE not in perms, role
 
 
+def test_viewer_can_read_the_demo_book_but_cannot_write() -> None:
+    perms = authz.ROLE_DEFAULTS["viewer"]
+    for needed in (
+        authz.CUSTOMERS_READ,
+        authz.CUSTOMERS_READ_ALL,
+        authz.INTERACTIONS_READ,
+        authz.COLLECTIONS_READ,
+        authz.ANALYTICS_READ,
+        authz.BOT_READ,
+        authz.SUPERVISOR_READ,
+    ):
+        assert needed in perms, needed
+    for forbidden in (
+        authz.COLLECTIONS_WRITE,
+        authz.CUSTOMERS_WRITE,
+        authz.BOT_WRITE,
+        authz.VOICE_OPERATE,
+        authz.ADMIN_WRITE,
+    ):
+        assert forbidden not in perms, forbidden
+
+
 # ---------------------------------------------------------------------------
 # Enforcement switch
 # ---------------------------------------------------------------------------
@@ -169,6 +191,8 @@ def test_enforcement_off_when_no_credentials_configured(monkeypatch) -> None:
     monkeypatch.delenv("AUTHZ_ENFORCE", raising=False)
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.delenv("ENTRA_TENANT_ID", raising=False)
+    monkeypatch.delenv("ENTRA_API_AUDIENCE", raising=False)
     actor_context.reload_api_key_map()
     assert authz.enforcement_enabled() is False
     # ...and check() is therefore a no-op even for a user with no grants.
@@ -549,6 +573,7 @@ def test_role_can_open_its_own_screens(gated_client: TestClient, actor: str) -> 
         ("role-qa", "qa_reviewer"),
         ("role-compliance-officer", "compliance_officer"),
         ("role-dpo", "dpo"),
+        ("role-viewer", "viewer"),
     ],
 )
 def test_stock_role_grants_cover_the_built_in_defaults(db_tx, role_id, role_key) -> None:
@@ -582,15 +607,21 @@ def test_reading_the_work_queue_does_not_require_a_write_permission() -> None:
 
 def test_no_read_route_requires_a_write_permission() -> None:
     """The general form of the bug above."""
+    # Listing operators is an admin action. There is no perm-admin-read, so
+    # the same grant that may change people is the one that may see them.
+    admin_gets = {("GET", "/users")}
     offenders = [
         (method, path)
         for (method, path), permission in authz.ROUTE_PERMISSIONS.items()
-        if method == "GET" and permission.endswith("-write")
+        if method == "GET"
+        and permission.endswith("-write")
+        and (method, path) not in admin_gets
     ]
     assert not offenders, (
         f"GET routes gated on a write permission: {sorted(offenders)}. A read "
         "should not require the right to mutate."
     )
+    assert authz.ROUTE_PERMISSIONS[("GET", "/users")] == authz.ADMIN_WRITE
 
 
 def test_deployment_rollback_requires_agent_publish() -> None:

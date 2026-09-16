@@ -10,7 +10,7 @@ export const getRouter = () => {
       queries: {
         retry: 1,
         staleTime: 15_000,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: false,
       },
       mutations: {
         retry: 0,
@@ -18,9 +18,11 @@ export const getRouter = () => {
     },
   });
 
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || "/";
   const router = createRouter({
     routeTree,
     context: { queryClient },
+    ...(base !== "/" ? { basepath: base } : {}),
     scrollRestoration: true,
     defaultPreload: "intent",
     // Hovering a link preloads; below the QueryClient staleTime it would

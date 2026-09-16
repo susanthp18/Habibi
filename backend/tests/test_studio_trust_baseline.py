@@ -449,7 +449,10 @@ def test_experiment_rollback_writes_an_actor_bearing_entry(db_tx) -> None:
         auto_rollback=["slo_miss"],
     )
     assert recorded is not None
-    rollback_experiment(recorded["id"], reason="slo_miss")
+    rolled = rollback_experiment(recorded["id"], reason="slo_miss")
+    assert rolled["botId"] == COLLECTIONS_BOT_ID
+    assert rolled["baselineRestored"] is True
+    assert "bot_id" not in rolled
     entry = db_tx.execute(
         text(
             """

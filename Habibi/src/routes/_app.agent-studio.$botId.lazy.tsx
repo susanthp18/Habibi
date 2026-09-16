@@ -67,7 +67,6 @@ export function PromptStudioPage({
     cardQuery,
     cardRefused,
     cardStale,
-    compileMutation,
     publishMutation,
     restoreMutation,
     ensureDraftMutation,
@@ -85,6 +84,7 @@ export function PromptStudioPage({
     history,
     card: cardQuery.data,
     cardPending: cardQuery.isPending,
+    historyReady: versionsQuery.isFetched,
     cardRefused,
     publishedRow: publishedQuery.data,
   });
@@ -392,7 +392,8 @@ export function PromptStudioPage({
           priorDeployment={priorDeployment}
           compileReport={compileReport}
           runCompile={() => void actions.runCompile()}
-          compileBusy={compileMutation.isPending}
+          compileBusy={actions.compileBusy}
+          flushDraft={flushDraft}
           applyPreset={actions.applyPreset}
           presets={presets}
           presetsFailed={presetsQuery.isError}
@@ -464,7 +465,7 @@ export function PromptStudioPage({
         flowIssues={flowCheck.issues}
         compileReport={compileReport}
         compileError={actions.compileError}
-        compileBusy={compileMutation.isPending}
+        compileBusy={actions.compileBusy}
         busy={publishMutation.isPending}
         onConfirm={(note) => void actions.publish(note)}
       />

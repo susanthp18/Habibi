@@ -8,6 +8,7 @@ import {
   useCritiqueReport,
   useEvalSuites,
   useRunEvalSuite,
+  useRunEvalSchedule,
   TENANT_WIDE_REPORTS,
   type EvalReport,
 } from "@/api/agent-studio";
@@ -59,11 +60,14 @@ export function EvalsTab({
   card,
   onChange,
   promptVersionId,
+  persistDraft,
 }: {
   botId: string;
   card: AgentCard;
   onChange?: (next: AgentCard) => void;
   promptVersionId?: string;
+  /** Write the open draft before a suite hashes it. */
+  persistDraft?: () => Promise<unknown>;
 }) {
   const suitesQuery = useEvalSuites();
   // Scoped to this card. The tab used to accept botId and drop it, so a card
@@ -72,6 +76,7 @@ export function EvalsTab({
   // Same botId the reports are filtered by, or the run vanishes from the tab
   // that started it.
   const run = useRunEvalSuite(botId, promptVersionId);
+  const schedule = useRunEvalSchedule();
   const editable = Boolean(onChange) && isAuthoredCard(card);
   // What the card actually requires, and nothing else.
   //
@@ -206,6 +211,20 @@ export function EvalsTab({
           );
         })}
       </ul>
+      <div className="flex flex-wrap items-center justify-between gap-100 rounded-medium border border-border px-150 py-100">
+        <p className="text-body-small text-text-subtle">
+          The scheduler files tenant-wide runs against no card. Run it here when the roster chips
+          look stale.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={schedule.isPending}
+          onClick={() => void schedule.mutateAsync()}
+        >
+          {schedule.isPending ? "Running…" : "Run continuous suite"}
+        </Button>
+      </div>
       {openReport ? <EvalTrials reportId={openReport} /> : null}
       <QueryState
         query={suitesQuery}
@@ -235,7 +254,12 @@ export function EvalsTab({
                   type="button"
                   variant="outline"
                   disabled={run.isPending}
-                  onClick={() => run.mutate(suite.id)}
+                  onClick={() => {
+                    void (async () => {
+                      await persistDraft?.();
+                      run.mutate(suite.id);
+                    })();
+                  }}
                 >
                   {running ? "Running…" : "Run"}
                 </Button>

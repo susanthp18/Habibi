@@ -1,1 +1,0 @@
-"""Evaluation tool server plugin."""

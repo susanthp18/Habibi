@@ -27,6 +27,9 @@ from schemas import (
     PresencePatchRequest,
     PresenceResponse,
     ReadinessResponse,
+    DirectoryUsersResponse,
+    UserRolesPutRequest,
+    UserStatusPatchRequest,
 )
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
@@ -107,6 +110,26 @@ def patch_me_presence(payload: PresencePatchRequest):
         return db.patch_agent_presence(payload.status)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@router.get("/users", response_model=DirectoryUsersResponse)
+def list_users():
+    import db_users
+
+    return db_users.list_directory_users()
+
+@router.put("/users/{user_id}/roles", response_model=DirectoryUsersResponse)
+def put_user_roles(user_id: str, payload: UserRolesPutRequest):
+    import db_users
+    from api_support import _handle_write
+
+    return _handle_write(db_users.replace_user_roles, user_id, list(payload.roleIds))
+
+@router.patch("/users/{user_id}", response_model=DirectoryUsersResponse)
+def patch_user(user_id: str, payload: UserStatusPatchRequest):
+    import db_users
+    from api_support import _handle_write
+
+    return _handle_write(db_users.patch_user_status, user_id, payload.status)
 
 @router.get("/platform/switches", response_model=PlatformSwitchesResponse)
 def list_platform_switches():

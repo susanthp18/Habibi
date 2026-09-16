@@ -37,6 +37,7 @@ export const REASON_LABELS: Record<CbReason, string> = {
   payment_discussion: "Payment discussion",
   dispute_followup: "Dispute follow-up",
   document_query: "Document query",
+  product_query: "Product query",
   hardship_review: "Hardship review",
   upsell_interest: "Upsell interest",
   general: "General query",

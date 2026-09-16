@@ -220,6 +220,21 @@ def _warm_before_serving() -> None:
     except Exception:
         logger.warning("startup warm failed — the first call pays it instead", exc_info=True)
 
+    # This process is the only one that can answer "will this model run on a
+    # call?", because it is the only image with Pipecat installed. The API is
+    # asked that question by the Agent Studio and used to answer it by importing
+    # the service class itself — reporting its own missing dependency as the
+    # model's, so every provider read `unavailable: No module named 'azure'`
+    # while calls ran Azure fine and nothing could be bound. Publish the real
+    # answer here, where the imports mean something.
+    try:
+        from agent_core.providers import persist as provider_persist
+        from agent_core.providers.registry import runtime_report
+
+        provider_persist.record_runtime(runtime_report())
+    except Exception:
+        logger.warning("provider runtime not reported — the studio reads unknown", exc_info=True)
+
     # The Postgres side of retrieval is cold too, and nothing warmed it: the
     # first vector query of a process builds a plan and pulls the HNSW index and
     # the TOASTed vectors off disk (182ms cold vs 0.84ms warm on the live
@@ -273,6 +288,7 @@ def _warm_before_serving() -> None:
         ("llm-service", _warm_llm_service),
         ("silero-vad", _warm_silero),
         ("smart-turn", _warm_smart_turn),
+        ("llm-http", _warm_shared_llm_client),
     ):
         started = _time.monotonic()
         try:
@@ -412,6 +428,15 @@ def _warm_smart_turn() -> None:
     from voice.tuning_apply import build_smart_turn_analyzer
 
     build_smart_turn_analyzer({})
+
+
+def _warm_shared_llm_client() -> None:
+    """TLS + a completion on the shared voice client, before the first greeting."""
+    import asyncio
+
+    from voice.llm_pool import prewarm_shared_client
+
+    asyncio.run(prewarm_shared_client())
 
 
 if __name__ == "__main__":

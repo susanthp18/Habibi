@@ -32,6 +32,7 @@ import {
   actionLabel,
   actionTone,
   actionVerbList,
+  actorLabel,
   parseLogTimestamp,
 } from "@/lib/change-log-actions";
 import { partitionGates } from "@/lib/gate-status";
@@ -166,7 +167,7 @@ function EntryRow({ entry }: { entry: ChangeLogEntry }) {
             {entry.versionLabel}
           </span>
         )}
-        <span className="text-body-small text-text-subtle">{entry.actorUserId ?? "unknown"}</span>
+        <span className="text-body-small text-text-subtle">{actorLabel(entry.actorUserId)}</span>
         <span className="ml-auto text-body-small text-text-subtlest">{stamp(entry.at)}</span>
       </div>
       {entry.summary && <p className="mt-050 text-body-small text-text-subtle">{entry.summary}</p>}

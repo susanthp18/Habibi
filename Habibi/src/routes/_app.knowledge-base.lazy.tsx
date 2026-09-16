@@ -234,7 +234,7 @@ export function KnowledgeBasePage({ search: params }: { search: KnowledgeBaseSea
                     onClick={() =>
                       dispatch({
                         type: "confirm",
-                        confirm: { kind: "purge", scope: "uploads", typed: "" },
+                        confirm: { kind: "purge", scope: "uploads" },
                       })
                     }
                   >

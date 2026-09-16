@@ -140,6 +140,35 @@ def _worst_eval_status(bot_id: str, get_latest_eval_report) -> str:
         return "pass"
     return statuses[0] if statuses else "skipped"
 
+
+def _eval_status_for_content(
+    bot_id: str,
+    get_latest_eval_report,
+    version: dict[str, Any] | None,
+) -> str:
+    """Pass only when the latest required suites judged *this* mouth.
+
+    The fleet chip used to read the newest report for the bot, any content.
+    A green unpublished draft then sat next to a Publish dialog that G-F14
+    correctly refused, because the suites had hashed a previous save.
+    """
+    if not version:
+        return _worst_eval_status(bot_id, get_latest_eval_report)
+    from agent_core.eval.provenance import content_key_for_version
+
+    key = content_key_for_version(version)
+    red = get_latest_eval_report(bot_id=bot_id, kind="redteam", content_key=key)
+    reg = get_latest_eval_report(bot_id=bot_id, kind="regression", content_key=key)
+    statuses = [str((r or {}).get("status")) for r in (red, reg) if r]
+    if any(s in {"fail", "error"} for s in statuses):
+        return "fail"
+    if any(s == "pass" for s in statuses):
+        return "pass"
+    if _worst_eval_status(bot_id, get_latest_eval_report) != "skipped":
+        return "stale"
+    return "skipped"
+
+
 def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
     bot_id: str,
     name: str,
@@ -214,7 +243,9 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
             if isinstance(s, dict) and s.get("skill_id")
         ],
         "toolCount": len(tools.get("include") or []),
-        "evalStatus": _worst_eval_status(bot_id, get_latest_eval_report),
+        "evalStatus": _eval_status_for_content(
+            bot_id, get_latest_eval_report, draft or published
+        ),
         # None, not 100: a card with no active deployment takes no traffic, and
         # claiming 100% made every unpublished clone look live on the fleet index.
         "trafficPct": (dep or {}).get("trafficPct") if dep else None,

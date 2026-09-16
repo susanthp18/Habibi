@@ -18,7 +18,15 @@ from loguru import logger
 from voice.bot_handlers_scope import HandlerScope
 from voice.bot_handlers_scope import (
     _IDLE_REFIRE_GUARD_SECS,
+    _QUESTION_IDLE_FLOOR_SECS,
 )
+
+
+def should_defer_question_idle(last_bot: str, silent_s: float, floor_s: float) -> bool:
+    """True when the last bot turn was a question and silence is still a pause."""
+    if silent_s >= floor_s:
+        return False
+    return (last_bot or "").rstrip().endswith("?")
 
 
 def build(scope: HandlerScope) -> None:
@@ -97,6 +105,18 @@ def build(scope: HandlerScope) -> None:
             logger.debug(
                 "idle suppressed · session={} · bot mid-turn",
                 session.session_id,
+            )
+            return
+        last_bot = ""
+        recent = getattr(sink, "_recent_bot_texts", None) or []
+        if recent:
+            last_bot = str(recent[-1] or "")
+        silent_s = bot_turn_state.silent_for() if hasattr(bot_turn_state, "silent_for") else 0.0
+        if should_defer_question_idle(last_bot, silent_s, _QUESTION_IDLE_FLOOR_SECS):
+            logger.debug(
+                "idle suppressed · session={} · last bot turn was a question · silent={:.1f}s",
+                session.session_id,
+                silent_s,
             )
             return
         hs.idle_strikes += 1

@@ -39,7 +39,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EqualizerMark } from "@/components/brand/EqualizerMark";
+import { BigtappMark } from "@/components/brand/BigtappMark";
+import { HomeLink } from "@/components/brand/HomeLink";
 import { BRAND } from "@/lib/brand";
+import { can, useMe } from "@/api/me";
 import { useSidebarUi } from "./sidebar-ui";
 
 type NavItem = {
@@ -48,6 +51,7 @@ type NavItem = {
   icon: LucideIcon;
   to?: string;
   soon?: boolean;
+  permission?: string;
 };
 
 type NavGroup = { label: string; items: NavItem[] };
@@ -98,7 +102,13 @@ const groups: NavGroup[] = [
       { key: "integrations", label: "Integrations", icon: Plug, to: "/integrations" },
       { key: "webhooks", label: "Webhooks", icon: Webhook, to: "/webhooks" },
       { key: "billing", label: "Billing & usage", icon: Receipt, to: "/billing" },
-      { key: "roles", label: "Roles & access", icon: ShieldCheck, to: "/roles" },
+      {
+        key: "roles",
+        label: "Roles & access",
+        icon: ShieldCheck,
+        to: "/roles",
+        permission: "perm-admin-write",
+      },
     ],
   },
 ];
@@ -119,6 +129,7 @@ export function NavLinks({
   onNavigate?: () => void;
   query?: string;
 }) {
+  const { data: me } = useMe();
   const [hovered, setHovered] = useState<string | null>(null);
   const [box, setBox] = useState<{ top: number; height: number } | null>(null);
   const navRef = useRef<HTMLDivElement>(null);
@@ -144,15 +155,21 @@ export function NavLinks({
   }, [pathname]);
 
   const filteredGroups = useMemo(() => {
+    const allowed = groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => !item.permission || can(me, item.permission)),
+      }))
+      .filter((group) => group.items.length > 0);
     const q = query.trim().toLowerCase();
-    if (!q) return groups;
-    return groups
+    if (!q) return allowed;
+    return allowed
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => item.label.toLowerCase().includes(q)),
       }))
       .filter((group) => group.items.length > 0);
-  }, [query]);
+  }, [query, me]);
 
   const highlightKey = hovered ?? activeKey;
 
@@ -428,8 +445,11 @@ export function Sidebar() {
             <ChevronsRight className="h-4 w-4" />
           </button>
         ) : (
-          <div className="mt-100 px-150 pt-100 text-body-tiny text-text-subtlest">
-            {BRAND.shortName} · v0.1
+          <div className="mt-100 flex items-center gap-100 px-150 pt-100 text-body-tiny text-text-subtlest">
+            <BigtappMark size={18} />
+            <HomeLink className="hover:underline">Home</HomeLink>
+            <span aria-hidden="true">·</span>
+            <span>{BRAND.shortName}</span>
           </div>
         )}
       </div>

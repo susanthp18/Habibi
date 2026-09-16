@@ -11,7 +11,7 @@ import type { KbDocType } from "@/api/types/kb";
 
 export type KbConfirm =
   | { kind: "sync" }
-  | { kind: "purge"; scope: KbPurgeScope; typed: string }
+  | { kind: "purge"; scope: KbPurgeScope }
   | { kind: "deleteDoc"; id: string }
   | { kind: "deleteFaq"; id: string };
 
@@ -65,7 +65,6 @@ export type KbAction =
   | { type: "faq"; open: boolean; editing?: FaqPair | null; gapId?: string | null }
   | { type: "filters"; patch: Partial<KbFilters> }
   | { type: "confirm"; confirm: KbConfirm | null }
-  | { type: "purgeTyped"; typed: string }
   | { type: "purgeScope"; scope: KbPurgeScope }
   | { type: "reindexing"; id: string; on: boolean }
   | { type: "reindexingAll"; ids: Iterable<string> }
@@ -93,10 +92,6 @@ export function kbReducer(state: KbState, action: KbAction): KbState {
       return { ...state, filters: { ...state.filters, ...action.patch } };
     case "confirm":
       return { ...state, confirm: action.confirm };
-    case "purgeTyped":
-      return state.confirm?.kind === "purge"
-        ? { ...state, confirm: { ...state.confirm, typed: action.typed } }
-        : state;
     case "purgeScope":
       return state.confirm?.kind === "purge"
         ? { ...state, confirm: { ...state.confirm, scope: action.scope } }

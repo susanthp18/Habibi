@@ -5,6 +5,7 @@
 // hooks and functions (enforced by eslint's no-restricted-imports).
 // -----------------------------------------------------------------------------
 
+import { getAccessToken, entraConfigured } from "@/lib/sso";
 import { parseWire } from "./wire";
 
 const isProd = import.meta.env.PROD;
@@ -33,9 +34,19 @@ const ACTOR_USER_ID = (import.meta.env.VITE_ACTOR_USER_ID as string | undefined)
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-function authHeaders(extra?: HeadersInit): Headers {
+async function authHeaders(extra?: HeadersInit): Promise<Headers> {
   const headers = new Headers(extra);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  if (entraConfigured() && typeof window !== "undefined") {
+    const token = await getAccessToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+      return headers;
+    }
+    const { getMsal } = await import("@/lib/sso");
+    const pca = await getMsal();
+    if (pca && pca.getAllAccounts().length > 0) return headers;
+  }
   if (API_KEY) headers.set("X-API-Key", API_KEY);
   if (ACTOR_USER_ID) headers.set("X-Actor-User-Id", ACTOR_USER_ID);
   return headers;
@@ -167,7 +178,7 @@ export type ApiInit<T> = {
 /** Thin typed GET helper for the live API. */
 export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders(),
+    headers: await authHeaders(),
     credentials: "include",
     signal: requestSignal(init?.signal),
   });
@@ -188,12 +199,12 @@ export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
 }
 
 async function apiSend<T>(
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PATCH" | "DELETE" | "PUT",
   path: string,
   body?: unknown,
   init?: ApiInit<T>,
 ): Promise<T> {
-  const headers = authHeaders(
+  const headers = await authHeaders(
     body !== undefined ? { "Content-Type": "application/json" } : undefined,
   );
   if (init?.headers) {
@@ -230,6 +241,10 @@ export function apiPatch<T>(path: string, body: unknown, init?: ApiInit<T>): Pro
   return apiSend<T>("PATCH", path, body, init);
 }
 
+export function apiPut<T>(path: string, body: unknown, init?: ApiInit<T>): Promise<T> {
+  return apiSend<T>("PUT", path, body, init);
+}
+
 export function apiDelete<T = void>(path: string, init?: ApiInit<T>): Promise<T> {
   return apiSend<T>("DELETE", path, undefined, init);
 }
@@ -237,7 +252,9 @@ export function apiDelete<T = void>(path: string, init?: ApiInit<T>): Promise<T>
 /** GET that returns a binary Blob (skill zip, reports). */
 export async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders({ Accept: "application/zip, application/octet-stream, application/json" }),
+    headers: await authHeaders({
+      Accept: "application/zip, application/octet-stream, application/json",
+    }),
     credentials: "include",
     signal: withTimeout(60_000),
   });
@@ -258,7 +275,7 @@ export async function apiPostBlob(
 ): Promise<{ blob: Blob; headers: Headers }> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: authHeaders({
+    headers: await authHeaders({
       Accept: "audio/mpeg, application/json",
       "Content-Type": "application/json",
     }),
@@ -316,7 +333,7 @@ export async function apiUpload<T>(
   }
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: await authHeaders(),
     credentials: "include",
     body: form,
     signal: withTimeout(120_000),
@@ -334,7 +351,7 @@ export async function apiEventStream(
   init?: { signal?: AbortSignal },
 ): Promise<void> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: authHeaders({ Accept: "text/event-stream" }),
+    headers: await authHeaders({ Accept: "text/event-stream" }),
     credentials: "include",
     signal: init?.signal,
   });

@@ -391,3 +391,66 @@ def test_the_deadline_is_shared_across_both_calls():
 
     assert d.expired() is True
     assert d.remaining() == 0.0
+
+
+def test_naming_a_product_and_facet_promotes_catalog_to_passage(model_on, fake_azure):
+    """CL-CAF293FDE9: after a names-only catalog turn, 'travel exclusions' stayed in catalog."""
+    fake_azure.state["plan"] = _tool_response(
+        kb_plan._PLAN_TOOL_NAME,
+        mode="catalog",
+        query="insurance products",
+        prefer_policy=False,
+    )
+    products = [{"productKey": "travel", "title": "Travel Protect360"}]
+    plan = kb_plan.plan_retrieval(
+        customer_text="what about travel exclusions",
+        tool_query="HDFC Bank inbound collections agent insurance products",
+        available_products=products,
+        budget=5.0,
+    )
+    assert plan.mode == kb_plan.MODE_PASSAGE
+    assert plan.prefer_policy is True
+    assert "travel" in {k.lower() for k in plan.product_keys}
+
+
+def test_a_followup_that_names_travel_exclusions_retrieves_passages(
+    fake_azure, monkeypatch, model_on
+):
+    import kb_retrieve
+
+    retrieve = _FakeRetrieve(rows=_rows(2, top=0.81))
+    monkeypatch.setattr(kb_retrieve, "retrieve", retrieve)
+    monkeypatch.setattr(
+        kb_retrieve,
+        "catalog",
+        lambda **kw: [
+            {
+                "productKey": "travel",
+                "title": "Travel Protect360",
+                "docTypes": ["policy"],
+                "docCount": 2,
+            }
+        ],
+    )
+    fake_azure.state["plan"] = _tool_response(
+        kb_plan._PLAN_TOOL_NAME,
+        mode="catalog",
+        query="insurance products",
+        prefer_policy=False,
+    )
+
+    result = kb.search_knowledge_base(
+        query="HDFC Bank inbound collections agent insurance",
+        channel="voice",
+        customer_text="what about travel exclusions",
+        recent=[
+            ("customer", "any insurance?"),
+            ("bot", "we have several products"),
+            ("customer", "what about travel exclusions"),
+        ],
+        apply_intent_gate=False,
+    )
+
+    assert result.data["mode"] == "passage"
+    assert result.data["results"]
+    assert retrieve.calls, "passage mode must retrieve"

@@ -403,22 +403,41 @@ def _enacted_by_map(conn: Any, entity_ids: list[str]) -> dict[str, str]:
     return out
 
 
+def _assignee_scope(assignee: str | None) -> str | None:
+    """Resolve ``assignee=me`` to the actor, or to the tenant book.
+
+    Entra demo logins are real users with an empty personal queue. Scoping the
+    workspace (and the stats that sit next to it) to that empty queue hid the
+    seeded book from every org presenter who was not already an assigned agent.
+    An actor who *does* have assigned rows still sees only those rows.
+    """
+    if assignee in (None, "", "all"):
+        return None
+    if assignee != "me":
+        return assignee
+    uid = _actor_user_id()
+    if not uid:
+        return None
+    engine = _db().engine
+    with engine.connect() as conn:
+        hit = conn.execute(
+            text("SELECT 1 FROM work_items WHERE assignee_user_id = :uid LIMIT 1"),
+            {"uid": uid},
+        ).first()
+    return uid if hit else None
+
+
 def list_work_items(
     *, assignee: str | None = "me", limit: int | None = None, offset: int | None = None
 ) -> list[dict[str, Any]]:
     """Assigned queue from the work_items view — screen QueueRow + entityType.
 
     assignee='me' (default) scopes to the acting user from /me (ACTOR_USER_ID).
-    Pass assignee=None / 'all' for the unfiltered tenant queue.
+    Pass assignee=None / 'all' for the unfiltered tenant queue. An actor with
+    no personal rows is treated as 'all' so demo logins see the seeded book.
     """
     engine = _db().engine
-    assignee_id: str | None
-    if assignee in (None, "", "all"):
-        assignee_id = None
-    elif assignee == "me":
-        assignee_id = _actor_user_id()
-    else:
-        assignee_id = assignee
+    assignee_id = _assignee_scope(assignee)
 
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
@@ -584,12 +603,7 @@ def _next_lead(conn: Any, assignee_id: str | None) -> dict[str, Any] | None:
 def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
     """Honest rolling-window stats + next callback + SLA countdowns for My Workspace."""
     d = _db()
-    if assignee in (None, "", "all"):
-        assignee_id = None
-    elif assignee == "me":
-        assignee_id = d._actor_user_id()
-    else:
-        assignee_id = assignee
+    assignee_id = _assignee_scope(assignee)
 
     with d.engine.connect() as conn:
         anchor = conn.execute(

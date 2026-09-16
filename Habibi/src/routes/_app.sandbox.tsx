@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_app/sandbox")({
   }),
   head: () => ({
     meta: [
-      { title: "Call Simulation Sandbox — BigBound AI" },
+      { title: "Call Simulation Sandbox — PayInt" },
       {
         name: "description",
         content:

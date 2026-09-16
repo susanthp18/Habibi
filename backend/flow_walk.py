@@ -73,7 +73,11 @@ def entry_node(
     ``start_node`` on its own.
     """
     if entry_key:
-        node = next((n for n in graph.nodes if n.key == entry_key), None)
+        from flow_graph import resolve_key
+
+        keys = [n.key for n in graph.nodes]
+        resolved = resolve_key(keys, entry_key) or entry_key
+        node = next((n for n in graph.nodes if n.key == resolved), None)
         if node is not None:
             return node
         logger.warning("mission names entry node %r which is not in the graph", entry_key)

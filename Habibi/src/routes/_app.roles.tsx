@@ -4,12 +4,13 @@ import { can, useMe } from "@/api/me";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { OutboundControlPanel } from "@/components/platform/OutboundControlPanel";
+import { PeopleSection } from "@/components/roles/PeopleSection";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/roles")({
   head: () => ({
     meta: [
-      { title: "Roles & access — BigBound AI" },
+      { title: "Roles & access — PayInt" },
       {
         name: "description",
         content: "Grant agent.publish, connector.attach, policy.export. Roles are a product.",
@@ -55,6 +56,11 @@ function RolesPage() {
         */}
         <div className="min-h-0 flex-1 space-y-300 overflow-auto p-400">
           <OutboundControlPanel />
+          {canEdit ? (
+            <PeopleSection
+              roles={(data?.roles ?? []).map((role) => ({ id: role.id, name: role.name }))}
+            />
+          ) : null}
           {isLoading && !data ? (
             <div className="grid place-items-center py-400">
               <LoadingState label="Loading roles" />

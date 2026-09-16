@@ -13,6 +13,9 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    // Production on CloudUnity is reverse-proxied at /app so `/` can be the
+    // marketing site. Local unset = `/` as today.
+    base: process.env.HABIBI_BASE || "/",
     server: {
       // Build output is not source. `npm run build` rewrites .output/ and .nitro/
       // under the dev watcher, and chokidar raced an lstat against a file the

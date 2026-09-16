@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 # The authored flow graph is a domain model, not a transport shape — it is
 # shared verbatim by the API, the validator and the voice runtime, so it is
@@ -221,3 +221,39 @@ class PlatformSwitchPatchRequest(BaseModel):
 class PlatformSwitchFlipResponse(BaseModel):
     key: str
     enabled: bool
+
+
+class DirectoryUserResponse(BaseModel):
+    """One operator on the Roles people list. UPN is display, not an auth key."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    upn: str | None = None
+    status: str
+    bootstrapAdmin: bool = False
+    lastLoginAt: str | None = None
+    roleIds: list[str] = Field(default_factory=list)
+    roleNames: list[str] = Field(default_factory=list)
+
+
+class DirectoryUsersResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    users: list[DirectoryUserResponse]
+
+
+class UserRolesPutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roleIds: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("roleIds", "role_ids"),
+    )
+
+
+class UserStatusPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "inactive"]

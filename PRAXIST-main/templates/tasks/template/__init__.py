@@ -1,1 +1,0 @@
-"""Template task project package."""

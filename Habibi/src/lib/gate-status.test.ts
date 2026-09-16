@@ -13,6 +13,7 @@ describe("gateTone", () => {
   it("knows the eval harness's words too", () => {
     expect(gateTone("error")).toBe("danger");
     expect(gateTone("partial")).toBe("warning");
+    expect(gateTone("stale")).toBe("warning");
   });
 
   it("does not invent a verdict for a word nobody computed", () => {

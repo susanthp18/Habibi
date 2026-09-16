@@ -324,7 +324,10 @@ export function VoiceParamsPanel({
  * survive construction, not this panel.
  */
 function PersistenceNotice({ model }: { model: ProviderModel }) {
-  const speaks = model.runtime === "live";
+  // "unknown" is not a no. It means the voice runtime has not reported, and
+  // telling an operator their voice cannot take a call on that basis is the
+  // claim that made every provider on a working stack look broken.
+  const speaks = model.runtime === "live" || model.runtime === "unknown";
   return (
     <div className="flex items-start gap-100 rounded-medium border border-border-information-subtle bg-background-information-subtler px-150 py-100">
       <Info aria-hidden className="mt-025 size-3.5 shrink-0 text-text-information-bolder" />
@@ -371,12 +374,20 @@ function PersistenceNotice({ model }: { model: ProviderModel }) {
 function RuntimeNotice({ model }: { model: ProviderModel }) {
   if (model.runtime === "live") return null;
 
+  // Three states, two of which are claims about the model and one of which is a
+  // claim about us. "unknown" is the third: this API process has no Pipecat, so
+  // it cannot resolve a service class and is reporting what the voice runtime
+  // last published — nothing, yet. It used to import the class itself and print
+  // its own ModuleNotFoundError as the model's verdict, which is how Azure came
+  // to say it could not run a call on a stack that was running Azure.
+  const unknown = model.runtime === "unknown";
   const preview = model.runtime === "preview_only";
+  const tone = unknown || preview ? "warning" : "danger";
   return (
     <div
       className={cn(
         "flex items-start gap-100 rounded-medium border px-150 py-100",
-        preview
+        tone === "warning"
           ? "border-border-warning-subtle bg-background-warning-subtler"
           : "border-border-danger-subtle bg-background-danger-subtler",
       )}
@@ -385,22 +396,28 @@ function RuntimeNotice({ model }: { model: ProviderModel }) {
         aria-hidden
         className={cn(
           "mt-025 size-3.5 shrink-0",
-          preview ? "text-text-warning-bolder" : "text-text-danger-bolder",
+          tone === "warning" ? "text-text-warning-bolder" : "text-text-danger-bolder",
         )}
       />
       <div className="min-w-0">
         <p
           className={cn(
             "text-body-small font-medium",
-            preview ? "text-text-warning-bolder" : "text-text-danger-bolder",
+            tone === "warning" ? "text-text-warning-bolder" : "text-text-danger-bolder",
           )}
         >
-          {preview ? "Audition only — will not run on a call" : "Cannot run on a call"}
+          {unknown
+            ? "Not confirmed against the voice runtime"
+            : preview
+              ? "Audition only — will not run on a call"
+              : "Cannot run on a call"}
         </p>
         <p className="mt-025 text-body-tiny leading-snug text-text-subtle">
-          {preview
-            ? "You can preview this voice here, but it has no streaming integration, so binding it would fall back to the default provider mid-call."
-            : model.runtimeDetail || "The service for this model is not installed."}
+          {unknown
+            ? "The voice runtime has not reported which models it can build since it last started, so this is unverified rather than broken. It can still be bound."
+            : preview
+              ? "You can preview this voice here, but it has no streaming integration, so binding it would fall back to the default provider mid-call."
+              : model.runtimeDetail || "The service for this model is not installed."}
         </p>
       </div>
     </div>

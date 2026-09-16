@@ -33,6 +33,7 @@ Three honesty rules are baked into the seed data:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import logging
 from dataclasses import dataclass, field
@@ -524,9 +525,34 @@ _RUNTIME_CACHE: dict[str, tuple[str, str]] = {}
 RUNTIME_LIVE = "live"
 RUNTIME_PREVIEW_ONLY = "preview_only"
 RUNTIME_UNAVAILABLE = "unavailable"
+#: Asked in a process that does not run calls, before the one that does has
+#: reported. Distinct from ``unavailable``, which is a measured no.
+RUNTIME_UNKNOWN = "unknown"
 
 
-def runtime_status(model: ModelSpec) -> tuple[str, str]:
+def can_host_calls() -> bool:
+    """Whether *this* process could construct a call pipeline at all.
+
+    Only the voice image installs Pipecat. ``requirements-voice.txt`` is kept
+    out of ``requirements.txt`` deliberately — "so CRM API upgrades are not
+    coupled to Pipecat's transitive graph (onnxruntime, aiortc, av, silero)" —
+    so ``collections_api`` and the two batch workers have no ``pipecat`` and no
+    ``azure.cognitiveservices.speech``.
+
+    That matters because importing a service class answers "can *I* build this?"
+    and the screen is asking "can the thing that runs calls build this?". Those
+    are the same question only in the voice process (and under
+    ``VOICE_EMBEDDED_HOST``, where the API *is* the call host). Everywhere else
+    the local import is evidence about the wrong machine, and reading it as an
+    answer is how every model in the studio came to be reported
+    ``unavailable: No module named 'azure'`` while calls ran Azure fine.
+    """
+    return importlib.util.find_spec("pipecat") is not None
+
+
+def runtime_status(
+    model: ModelSpec, reported: tuple[str, str] | None = None
+) -> tuple[str, str]:
     """Whether ``model`` can actually be constructed for a call, and why not.
 
     The registry is a set of claims about what the system can do, and until this
@@ -536,33 +562,67 @@ def runtime_status(model: ModelSpec) -> tuple[str, str]:
     all three were offered in the Agent Studio as freely as the working ones.
     Binding one produced a call that quietly ran Azure instead.
 
-    Imports the module and resolves the class; deliberately does *not*
-    instantiate, because construction needs credentials and, for a preview-only
-    model, is exactly what raises.
+    In a call host this imports the module and resolves the class; it
+    deliberately does *not* instantiate, because construction needs credentials
+    and, for a preview-only model, is exactly what raises.
+
+    Anywhere else the probe is meaningless (see :func:`can_host_calls`), so
+    ``reported`` — what the voice runtime last wrote to ``provider_models`` on
+    its way up — is the answer, and ``unknown`` is the answer when it has not
+    reported yet. Guessing ``live`` there would restore the silent Azure
+    fallback; guessing ``unavailable`` is what made the studio unusable.
     """
+    # Declared, not probed: detecting this means constructing the service, and
+    # construction is exactly what a preview-only model raises on. True in every
+    # process, so it is settled before the host question.
+    if not model.live_capable:
+        return (RUNTIME_PREVIEW_ONLY, "No streaming integration — audition only.")
+
+    if not can_host_calls():
+        return reported or (
+            RUNTIME_UNKNOWN,
+            "The voice runtime has not reported since it last started.",
+        )
+
     cached = _RUNTIME_CACHE.get(model.service_class)
     if cached is not None:
         return cached
 
-    if not model.live_capable:
-        result = (RUNTIME_PREVIEW_ONLY, "No streaming integration — audition only.")
-    else:
-        module_path, _, cls_name = model.service_class.rpartition(".")
-        try:
-            module = importlib.import_module(module_path)
-            getattr(module, cls_name)
-            result = (RUNTIME_LIVE, "")
-        except Exception as exc:  # noqa: BLE001 - any failure is unavailability
-            result = (RUNTIME_UNAVAILABLE, f"{type(exc).__name__}: {exc}"[:200])
-            logger.warning(
-                "model not constructable · provider=%s · model=%s · %s",
-                model.model_id,
-                model.service_class,
-                result[1],
-            )
+    module_path, _, cls_name = model.service_class.rpartition(".")
+    try:
+        module = importlib.import_module(module_path)
+        getattr(module, cls_name)
+        result = (RUNTIME_LIVE, "")
+    except Exception as exc:  # noqa: BLE001 - any failure is unavailability
+        result = (RUNTIME_UNAVAILABLE, f"{type(exc).__name__}: {exc}"[:200])
+        logger.warning(
+            "model not constructable · provider=%s · model=%s · %s",
+            model.model_id,
+            model.service_class,
+            result[1],
+        )
 
     _RUNTIME_CACHE[model.service_class] = result
     return result
+
+
+def runtime_report() -> list[dict[str, str]]:
+    """Probe every seeded model, for the call host to publish on its way up.
+
+    Only meaningful where :func:`can_host_calls` is true; callers that are not
+    call hosts must not write what they get back here.
+    """
+    return [
+        {
+            "provider_id": provider.slug,
+            "kind": model.kind,
+            "model_id": model.model_id,
+            "runtime": status,
+            "runtime_detail": detail,
+        }
+        for provider, model in model_specs()
+        for status, detail in [runtime_status(model)]
+    ]
 
 
 def configured_providers() -> set[str]:

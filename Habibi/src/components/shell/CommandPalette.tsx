@@ -40,6 +40,7 @@ import {
 import { useCustomers } from "@/api/customers";
 import { useAgentStudioCards } from "@/api/agent-studio";
 import { useWorkItems } from "@/api/workspace";
+import { can, useMe } from "@/api/me";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { toggleTheme } from "@/lib/theme";
 
@@ -96,27 +97,29 @@ type Props = {
 
 export function CommandPalette({ open, onOpenChange }: Props) {
   const navigate = useNavigate();
+  const { data: me } = useMe();
   const { data: customers = [] } = useCustomers();
   const { data: workItems = [] } = useWorkItems("me");
   const { data: cards = [] } = useAgentStudioCards();
   // The card inbound traffic resolves to -- the fleet's door, not a literal.
   const entryBotId = cards[0]?.entryBotId;
-  const pages = useMemo(
-    () =>
-      entryBotId
-        ? [
-            ...PAGES,
-            {
-              label: "Open the entry card",
-              to: "/agent-studio/$botId",
-              params: { botId: entryBotId },
-              icon: Bot,
-              keywords: "prompt studio active card door",
-            },
-          ]
-        : PAGES,
-    [entryBotId],
-  );
+  const pages = useMemo(() => {
+    const visible = can(me, "perm-admin-write")
+      ? PAGES
+      : PAGES.filter((page) => page.to !== "/roles");
+    return entryBotId
+      ? [
+          ...visible,
+          {
+            label: "Open the entry card",
+            to: "/agent-studio/$botId",
+            params: { botId: entryBotId },
+            icon: Bot,
+            keywords: "prompt studio active card door",
+          },
+        ]
+      : visible;
+  }, [entryBotId, me]);
 
   const customerHits = useMemo(() => customers.slice(0, 40), [customers]);
   const queueHits = useMemo(() => workItems.slice(0, 30), [workItems]);

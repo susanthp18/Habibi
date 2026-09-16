@@ -23,13 +23,13 @@ import { useConfirm } from "@/components/ui/use-confirm";
 export const Route = createFileRoute("/_app/webhooks")({
   head: () => ({
     meta: [
-      { title: "Webhooks & Event Subscriptions — BigBound AI" },
+      { title: "Webhooks & Event Subscriptions — PayInt" },
       {
         name: "description",
         content:
           "Register downstream endpoints, subscribe them to CRM events, and monitor delivery, retries and signing.",
       },
-      { property: "og:title", content: "Webhooks & Event Subscriptions — BigBound AI" },
+      { property: "og:title", content: "Webhooks & Event Subscriptions — PayInt" },
       {
         property: "og:description",
         content:

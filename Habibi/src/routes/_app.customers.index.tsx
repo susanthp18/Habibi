@@ -33,7 +33,7 @@ export const Route = createFileRoute("/_app/customers/")({
         name: "description",
         content: "Search and open the unified master record for every debtor.",
       },
-      { property: "og:title", content: "Customer 360 — BigBound AI" },
+      { property: "og:title", content: "Customer 360 — PayInt" },
       {
         property: "og:description",
         content: "Unified ledger, EMI schedule, interactions, promises, disputes, and documents.",

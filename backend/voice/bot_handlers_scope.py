@@ -112,6 +112,9 @@ _DEADAIR_GRACE_SECS = 2.0
 #: turn-taking preference; hanging on it as a dead-air threshold would nudge
 #: over ordinary thinking pauses.
 _DEADAIR_MIN_SECS = 6.0
+#: After the bot asked a question, wait at least this long before the first
+#: "are you there?" nudge. 14s of thinking after "what happened?" is not dead air.
+_QUESTION_IDLE_FLOOR_SECS = 28.0
 #: One quiet stretch must not burn two rungs of the ladder just because two
 #: timers noticed it.
 _IDLE_REFIRE_GUARD_SECS = 4.0

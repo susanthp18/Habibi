@@ -42,7 +42,7 @@ export const Route = createFileRoute("/_app/promises")({
   validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Promise-to-Pay & Payment Plans — BigBound AI" },
+      { title: "Promise-to-Pay & Payment Plans — PayInt" },
       {
         name: "description",
         content:

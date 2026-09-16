@@ -7,6 +7,11 @@
           "type": "end_conversation"
         }
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
         "developer"
@@ -18,15 +23,24 @@
         "refuse_verification",
         "verify_identity"
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
-        "developer",
         "developer"
       ]
     },
     "discover_intent": {
       "functions": [
         "capture_call_goal"
+      ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
       ],
       "respond_immediately": false,
       "task_message_roles": [
@@ -39,14 +53,13 @@
         "request_callback",
         "search_knowledge_base"
       ],
-      "post_actions": [
+      "pre_actions": [
         {
-          "type": "end_conversation"
+          "type": "function"
         }
       ],
       "respond_immediately": true,
       "task_message_roles": [
-        "developer",
         "developer"
       ]
     },
@@ -59,6 +72,11 @@
         "recommend_next_offer",
         "return_to_position"
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
         "developer"
@@ -67,6 +85,11 @@
     "greet_disclose": {
       "functions": [
         "disclose_recording"
+      ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
       ],
       "respond_immediately": true,
       "task_message_roles": [
@@ -81,6 +104,9 @@
         "return_to_position"
       ],
       "pre_actions": [
+        {
+          "type": "function"
+        },
         {
           "append_text_to_context": false,
           "text": "I understand, let me note that carefully.",
@@ -103,6 +129,9 @@
       ],
       "pre_actions": [
         {
+          "type": "function"
+        },
+        {
           "append_text_to_context": false,
           "text": "Happy to set that up.",
           "type": "tts_say"
@@ -121,9 +150,13 @@
         "return_to_position",
         "set_contact_preference"
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
-        "developer",
         "developer"
       ]
     },
@@ -138,6 +171,11 @@
         "request_callback",
         "revise_promise_to_pay"
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
         "developer"
@@ -150,6 +188,11 @@
           "type": "end_conversation"
         }
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
         "developer"
@@ -158,6 +201,9 @@
     "third_party": {
       "functions": [],
       "pre_actions": [
+        {
+          "type": "function"
+        },
         {
           "append_text_to_context": false,
           "text": "Thanks for letting me know.",
@@ -175,6 +221,11 @@
         "refuse_verification",
         "verify_identity"
       ],
+      "pre_actions": [
+        {
+          "type": "function"
+        }
+      ],
       "respond_immediately": true,
       "task_message_roles": [
         "developer"
@@ -185,6 +236,11 @@
       "post_actions": [
         {
           "type": "end_conversation"
+        }
+      ],
+      "pre_actions": [
+        {
+          "type": "function"
         }
       ],
       "respond_immediately": true,
@@ -643,6 +699,7 @@
             "payment_discussion",
             "dispute_followup",
             "document_query",
+            "product_query",
             "hardship_review",
             "upsell_interest",
             "general"

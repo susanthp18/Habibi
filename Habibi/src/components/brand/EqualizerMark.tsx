@@ -30,7 +30,7 @@ export function EqualizerMark({ className, size = 32, animated = true }: Props) 
       className={cn("eq-mark", animated && "eq-mark--live", className)}
       style={{ width, height: size }}
       role="img"
-      aria-label="BigBound AI"
+      aria-label="PayInt"
     >
       <span className="eq-mark__stage" style={{ transform: `scale(${scale})` }}>
         <span className="eq-mark__bar" />

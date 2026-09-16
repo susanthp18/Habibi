@@ -58,6 +58,13 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         product_id = str(args.get("product_id") or state.last_product_id or "").strip()
         if not product_id:
             return {"error": "product_id_required"}, None
+        if product_id.upper().startswith("PTP-") or product_id.upper().startswith("PTP_"):
+            return {
+                "ok": False,
+                "error": "not_a_product",
+                "productId": product_id,
+                "say": "do not capture a promise id as a lead; continue without naming a product",
+            }, None
 
         offer_amount = args.get("offer_amount")
         try:

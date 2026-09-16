@@ -509,6 +509,8 @@ from schemas.platform import (
     BotAnalyticsSkillBucketResponse as BotAnalyticsSkillBucketResponse,
     BotAnalyticsTurnsBucketResponse as BotAnalyticsTurnsBucketResponse,
     BotAnalyticsUnansweredQuestionResponse as BotAnalyticsUnansweredQuestionResponse,
+    DirectoryUserResponse as DirectoryUserResponse,
+    DirectoryUsersResponse as DirectoryUsersResponse,
     HealthResponse as HealthResponse,
     MeResponse as MeResponse,
     MinioPingResponse as MinioPingResponse,
@@ -520,6 +522,8 @@ from schemas.platform import (
     PresencePatchRequest as PresencePatchRequest,
     PresenceResponse as PresenceResponse,
     ReadinessResponse as ReadinessResponse,
+    UserRolesPutRequest as UserRolesPutRequest,
+    UserStatusPatchRequest as UserStatusPatchRequest,
 )
 from schemas.routing import (
     RoutingActionKey as RoutingActionKey,

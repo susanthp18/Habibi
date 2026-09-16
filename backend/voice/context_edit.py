@@ -43,6 +43,24 @@ def _is_developer_block(message: Any, prefix: str) -> bool:
     )
 
 
+def evict_developer_blocks(
+    get_messages: Callable[[], list[Any] | None],
+    set_messages: Callable[[list[Any]], None],
+    prefix: str,
+) -> bool:
+    """Drop every developer block starting with ``prefix``. Never raises."""
+    try:
+        messages = list(get_messages() or [])
+        cleaned = [m for m in messages if not _is_developer_block(m, prefix)]
+        if len(cleaned) == len(messages):
+            return False
+        set_messages(cleaned)
+        return True
+    except Exception:
+        logger.debug("developer block evict failed (prefix=%s)", prefix, exc_info=True)
+        return False
+
+
 def replace_developer_block(
     get_messages: Callable[[], list[Any] | None],
     set_messages: Callable[[list[Any]], None],

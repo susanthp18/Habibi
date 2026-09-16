@@ -83,3 +83,9 @@ export function parseLogTimestamp(at: string | null | undefined): Date | null {
   const ms = Date.parse(at.replace(" ", "T"));
   return Number.isNaN(ms) ? null : new Date(ms);
 }
+
+/** `null` on the wire is the platform, not a missing person. */
+export function actorLabel(actorUserId: string | null | undefined): string {
+  const id = actorUserId?.trim();
+  return id || "platform";
+}

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +6,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 
 type Props = {
   open: boolean;
@@ -26,15 +25,8 @@ export function PromoteDialog({
   scenarioLabel,
   onConfirm,
 }: Props) {
-  const [text, setText] = useState("");
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) setText("");
-        onOpenChange(v);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Promote to Production?</DialogTitle>
@@ -52,27 +44,16 @@ export function PromoteDialog({
             Rehearsal turns, simulated tool effects, scenario state, and temporary tuning controls
             reset and are not published.
           </div>
-          <div>
-            <label
-              htmlFor="promote-confirm"
-              className="text-body-small font-semibold text-text-subtlest"
-            >
-              Type <span className="font-mono">PROMOTE</span> to confirm
-            </label>
-            <Input
-              id="promote-confirm"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="PROMOTE"
-            />
-          </div>
+          <SlideToConfirm
+            id="promote-confirm"
+            label="Slide to promote"
+            confirmedLabel="Promoting"
+            onConfirm={onConfirm}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
-          </Button>
-          <Button disabled={text !== "PROMOTE"} onClick={onConfirm}>
-            Promote
           </Button>
         </DialogFooter>
       </DialogContent>

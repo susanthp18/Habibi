@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_app/qa")({
   }),
   head: () => ({
     meta: [
-      { title: "QA Scorecards & Coaching — BigBound AI" },
+      { title: "QA Scorecards & Coaching — PayInt" },
       {
         name: "description",
         content:

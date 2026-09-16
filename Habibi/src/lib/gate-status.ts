@@ -44,7 +44,7 @@ export const GATE_LABEL: Record<GateStatus, string> = {
  */
 export function gateTone(status: string): LozengeTone {
   if (status === "error") return "danger";
-  if (status === "partial") return "warning";
+  if (status === "partial" || status === "stale") return "warning";
   return GATE_TONE[status as GateStatus] ?? "neutral";
 }
 

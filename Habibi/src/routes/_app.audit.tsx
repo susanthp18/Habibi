@@ -6,7 +6,7 @@ export const Route = createFileRoute("/_app/audit")({
   }),
   head: () => ({
     meta: [
-      { title: "Audit Trail — BigBound AI" },
+      { title: "Audit Trail — PayInt" },
       {
         name: "description",
         content:

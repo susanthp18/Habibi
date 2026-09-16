@@ -1,7 +1,7 @@
 /** Product branding — used by shell chrome and document titles. */
 export const BRAND = {
-  name: "BigBound AI",
-  shortName: "BigBound",
+  name: "PayInt",
+  shortName: "PayInt",
   tagline: "Collections workspace",
   /**
    * The tenant strip under the wordmark. Defaults to a neutral demo tenant so
@@ -9,7 +9,6 @@ export const BRAND = {
    * Set VITE_TENANT_LINE in .env.local to dress the app for a specific demo.
    */
   tenantLine:
-    (import.meta.env.VITE_TENANT_LINE as string | undefined)?.trim() ||
-    "Demo tenant · Loans & insurance",
-  titleSuffix: "BigBound AI",
+    (import.meta.env.VITE_TENANT_LINE as string | undefined)?.trim() || "Beeonix · Bigtapp",
+  titleSuffix: "PayInt",
 } as const;

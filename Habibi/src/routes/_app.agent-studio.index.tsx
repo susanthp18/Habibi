@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   useAgentStudioCards,
   useEvalReports,
+  useRunEvalSchedule,
   useAgentStudioTemplates,
   useArchiveAgentCard,
   useCloneAgentCard,
@@ -54,7 +55,8 @@ function FleetIndex() {
   const templates = useAgentStudioTemplates();
   // One request for the whole fleet's eval history; grouped per card below.
   // Reports with a null botId are tenant-wide suite runs, not this card's.
-  const evalReports = useEvalReports();
+  const evalReports = useEvalReports(undefined, undefined, { perBot: 3 });
+  const schedule = useRunEvalSchedule();
   const reportsByBot = new Map<string, EvalReport[]>();
   for (const report of evalReports.data ?? []) {
     if (!report.botId) continue;
@@ -123,6 +125,14 @@ function FleetIndex() {
               />
               Show archived
             </label>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={schedule.isPending}
+              onClick={() => void schedule.mutateAsync()}
+            >
+              {schedule.isPending ? "Running…" : "Run continuous suite"}
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -329,7 +339,11 @@ function FleetIndex() {
                       ) : (
                         <Lozenge
                           tone={gateTone(card.evalStatus)}
-                          title="Eval suite result. 'skipped' means the suite has not run — not a failure."
+                          title={
+                            card.evalStatus === "stale"
+                              ? "Suites passed against a previous save of this card. Re-run regression and redteam on the current draft."
+                              : "Eval suite result. 'skipped' means the suite has not run — not a failure."
+                          }
                         >
                           evals: {card.evalStatus}
                         </Lozenge>

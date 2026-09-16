@@ -42,7 +42,7 @@
       "data": {
         "name": "Confirm Identity",
         "instructionType": "prompt",
-        "instructions": "You placed this call. Open by greeting them, giving your name and the bank, and asking to confirm you are speaking to the account holder by FIRST NAME only.\nUntil they confirm, say NOTHING about: an account, a balance, an amount, a payment, an overdue, a loan, a product, or the word collections. If they ask what it is about before confirming, say it is a personal matter regarding their account with the bank and repeat the confirmation question once.\nDo not call any tool until they have spoken and confirmed they are the account holder. Your first utterance is ONLY the greeting, your name, the bank, and the confirmation question. Never open with a tool acknowledgement such as 'Sure, I can set that up.'\nThey confirm it is them → verify_identity to complete the check, then continue.\nThey say it is not them, they are a relative or colleague, they are evasive, or you are simply not sure → not_account_holder. Being unsure counts as no.\nThey ask to be left alone or say do not call → escalate_to_human(reason='customer_requested').\nNever end your turn on a bare statement of fact. Unless the call is closing, finish with ONE short, specific question that moves things forward — about what they just raised, or what they would like to do next. One question, never a list.",
+        "instructions": "You placed this call. Open in ONE spoken turn: greet them, give your name and the bank, state that the call is recorded for quality and compliance, and ask to confirm you are speaking to the account holder by FIRST NAME only. The recording disclosure belongs in that first sentence — not later, not in parentheses.\nUntil they confirm, say NOTHING about: a balance, an amount, a payment, an overdue, a loan, a product, or the word collections. If they ask what it is about before confirming, say it is a personal matter with the bank and repeat the confirmation question once.\nDo not call any tool until they have spoken and confirmed they are the account holder. Your first utterance is the greeting, your name, the bank, the recording disclosure, and the confirmation question. Never open with a tool acknowledgement such as 'Sure, I can set that up.'\nThey confirm it is them → verify_identity to complete the check, then continue.\nThey say it is not them, they are a relative or colleague, they are evasive, or you are simply not sure → not_account_holder. Being unsure counts as no.\nThey ask to be left alone or say do not call → escalate_to_human(reason='customer_requested').\nNever end your turn on a bare statement of fact. Unless the call is closing, finish with ONE short, specific question that moves things forward — about what they just raised, or what they would like to do next. One question, never a list.",
         "isStart": false,
         "entryFor": [
           "pre_due_reminder",
@@ -225,7 +225,7 @@
       "data": {
         "name": "Gated Upsell",
         "instructionType": "prompt",
-        "instructions": "Call recommend_next_offer first — it chooses the product and applies every eligibility, consent, timing and frequency rule. NEVER name a product it did not return, and never guess a product id.\nIf it returns suppressed=true or no offers, say nothing about products, do not explain why, and call begin_wrap_up.\nOtherwise mention ONE offer in a single short sentence with its indicative amount and ask if they would like a specialist to explain it. Do not pressure.\nOn clear interest call capture_lead with the offerId. If they decline or sound frustrated, call decline_offer then begin_wrap_up. Never promise approval, rates, or limits — capture interest only.\nThe caller may raise something that is not about the offer — a product or policy question, a new request, anything at all. Answer THAT instead: use search_knowledge_base for product and policy questions and say what it returns. Do not qualify them for a lead they did not ask for, and do not offer to transfer them unless they ask. When the new topic needs the account again, call return_to_position; when they are done, call begin_wrap_up so the call closes properly.",
+        "instructions": "Call recommend_next_offer first — it chooses the product and applies every eligibility, consent, timing and frequency rule. NEVER name a product it did not return, and never guess a product id.\nIf it returns suppressed=true or no offers, say nothing about products, do not explain why, and call begin_wrap_up.\nOtherwise mention ONE offer in a single short sentence with its indicative amount and ask if they would like a specialist to explain it. Do not pressure.\nOn clear interest call capture_lead with the offerId returned by recommend_next_offer — never a promise id, never an invented product. If they decline or sound frustrated, call decline_offer then begin_wrap_up. Never promise approval, rates, or limits — capture interest only.\nThe caller may raise something that is not about the offer — a product or policy question, a new request, anything at all. Answer THAT instead: use search_knowledge_base for product and policy questions and say what it returns. Do not qualify them for a lead they did not ask for, and do not offer to transfer them unless they ask. When the new topic needs the account again, call return_to_position; when they are done, call begin_wrap_up so the call closes properly.",
         "isStart": false,
         "entryFor": [],
         "respondImmediately": true,
@@ -322,7 +322,7 @@
       "data": {
         "name": "Escalate Close",
         "instructionType": "prompt",
-        "instructions": "If they asked a product or policy question, call search_knowledge_base. When the result is confident with passages, answer in at most two sentences from those passages, then call end_call. When it is not confident, say a specialist will follow up and call end_call. Never ask which insurer or policy type they have. Do not ask further questions.",
+        "instructions": "If they asked a product or policy question, call search_knowledge_base. If they then name a specific product or policy facet after a catalog or names-only result, search_knowledge_base again before doing anything else. When the result is confident with passages, answer in at most two sentences from those passages. When it is not confident after that second search, say a specialist will follow up. Offer request_callback only if they explicitly agree to a callback — never book one they declined. Never ask which insurer or policy type they have. Speak the close, then call end_call. Do not ask further questions.",
         "isStart": false,
         "entryFor": [],
         "respondImmediately": true,
@@ -333,7 +333,7 @@
           "request_callback"
         ],
         "extractVariables": [],
-        "endConversation": true
+        "endConversation": false
       }
     },
     {

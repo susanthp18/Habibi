@@ -38,11 +38,17 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  entra_oid UUID,
+  entra_tid UUID,
+  entra_upn TEXT,
+  bootstrap_admin boolean NOT NULL DEFAULT false,
+  last_login_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_team_id ON users(team_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_entra_oid ON users (entra_oid) WHERE entra_oid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS bots (
   id TEXT PRIMARY KEY,

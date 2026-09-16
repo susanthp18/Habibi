@@ -97,16 +97,61 @@ def compile_agent_studio_card(
     # content on any row counts, one filed against different content on this
     # row does not.
     from agent_core.eval.provenance import content_key as _content_key
+    from db_prompt_studio.versions import (
+        _prompt_guardrails,
+        _prompt_persona,
+        _prompt_voice,
+    )
 
+    # Same mappers GET /prompt-versions uses. The editor JSON-roundtrips the
+    # mouth; hashing the raw request made G-F14 fail on an unchanged save
+    # because ``1`` and ``1.0`` were different keys, and omitted defaults
+    # (``params``, ``style``) were a second identity.
+    persona_for_key = _prompt_persona(persona if persona is not None else mouth.get("persona"))
+    voice_for_key = _prompt_voice(voice if voice is not None else mouth.get("voice"))
+    guardrails_for_key = _prompt_guardrails(mouth.get("guardrails"))
     candidate_key = _content_key(
         card=card,
         flow=graph,
         prompt=mouth.get("prompt"),
-        persona=persona if persona is not None else mouth.get("persona"),
-        guardrails=mouth.get("guardrails"),
-        voice=voice if voice is not None else mouth.get("voice"),
+        persona=persona_for_key,
+        guardrails=guardrails_for_key,
+        voice=voice_for_key,
         tuning=mouth.get("tuning"),
         skill_packs=attached or [],
+    )
+    # Temporary RCA: identity prefixes only — no prompt text.
+    from agent_core.eval.provenance import _canon, content_key_for_version
+    import hashlib
+
+    def _part(name: str, value: Any) -> str:
+        digest = hashlib.sha256(_canon(value).encode()).hexdigest()[:12]
+        return f"{name}={digest}"
+
+    stored_key = content_key_for_version(mouth) if mouth else None
+    logger.info(
+        "gf14_debug compile bot=%s pv=%s candidate=%s stored=%s match=%s overlay=%s %s",
+        bot_id,
+        version_id,
+        candidate_key[:16],
+        (stored_key or "")[:16],
+        candidate_key == stored_key,
+        {
+            "voice": voice is not None,
+            "persona": persona is not None,
+            "flow": flow is not None,
+            "card": bool(card_raw),
+        },
+        " ".join(
+            [
+                _part("card", card),
+                _part("flow", graph),
+                _part("persona", persona_for_key),
+                _part("voice", voice_for_key),
+                _part("guard", guardrails_for_key),
+                _part("tuning", mouth.get("tuning")),
+            ]
+        ),
     )
 
     def _report(kind: str) -> dict[str, Any] | None:

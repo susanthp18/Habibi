@@ -216,6 +216,9 @@ def twiml_connect_stream(*, custom: dict[str, str] | None = None) -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<Response>\n"
+        '  <Say voice="Polly.Aditi" language="en-IN">'
+        f"{escape('Please stay on the line.')}"
+        "</Say>\n"
         "  <Connect>\n"
         f"    <Stream url={url}{status_attrs}>{params_xml}\n"
         "    </Stream>\n"

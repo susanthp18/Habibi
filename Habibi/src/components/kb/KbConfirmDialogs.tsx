@@ -11,7 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
+import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { Label } from "@/components/ui/label";
 import { SelectField } from "@/components/ui/select";
 import type { FaqPair, KbDocument, KbPurgeScope } from "@/api/kb";
@@ -68,7 +68,7 @@ export function KbConfirmDialogs({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete documents</AlertDialogTitle>
             <AlertDialogDescription>
-              Hard-deletes matching documents and related chunks. Type DELETE to confirm.
+              Hard-deletes matching documents and related chunks. There is no undo.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-150">
@@ -86,29 +86,17 @@ export function KbConfirmDialogs({
                 ]}
               />
             </div>
-            <div>
-              <Label className="text-body-small text-text-subtlest">Type DELETE</Label>
-              <Input
-                className="mt-050"
-                value={purge?.typed ?? ""}
-                onChange={(e) => dispatch({ type: "purgeTyped", typed: e.target.value })}
-                placeholder="DELETE"
-                autoComplete="off"
-              />
-            </div>
+            <SlideToConfirm
+              tone="danger"
+              label="Slide to delete permanently"
+              confirmedLabel="Deleting"
+              busy={busy.purge}
+              disabled={busy.purge}
+              onConfirm={onPurge}
+            />
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-background-danger-bold hover:bg-background-danger-bold-pressed"
-              disabled={(purge?.typed ?? "").trim().toUpperCase() !== "DELETE" || busy.purge}
-              onClick={(e) => {
-                e.preventDefault();
-                onPurge();
-              }}
-            >
-              {busy.purge ? "Deleting…" : "Delete permanently"}
-            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -6,20 +6,55 @@ unsigned until a human signs (G9).
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
 
 import db
-from agent_core.cards.defaults import card_dump
+from agent_core.cards.defaults import (
+    COLLECTIONS_BOT_ID,
+    INSURANCE_BOT_ID,
+    SUPERVISOR_BOT_ID,
+    card_dump,
+)
 from agent_core.cards.templates import template_card, templates
+
+_GRAPHS = Path(__file__).resolve().parent / "graphs"
+_GRAPH_BY_BOT = {
+    COLLECTIONS_BOT_ID: "collections.json",
+    INSURANCE_BOT_ID: "insurance.json",
+    SUPERVISOR_BOT_ID: "supervisor.json",
+}
 
 
 def _slug(value: str) -> str:
     s = re.sub(r"[^a-zA-Z0-9]+", "-", (value or "").strip().lower()).strip("-")
     return s or f"card-{uuid.uuid4().hex[:8]}"
+
+
+def _disk_flow(bot_id: str) -> dict[str, Any]:
+    """First-party conversation graph on disk. Empty when this mouth has none."""
+    name = _GRAPH_BY_BOT.get(bot_id)
+    if not name:
+        return {}
+    path = _GRAPHS / name
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return raw if isinstance(raw, dict) else {}
+
+
+def _source_mouth(source: str) -> dict[str, Any] | None:
+    """Published version, else the newest version of any status."""
+    published = db.get_published_prompt_version(source)
+    if published:
+        return published
+    versions = db.list_prompt_versions(bot_id=source, limit=1)
+    return versions[0] if versions else None
 
 
 def clone_card(
@@ -38,11 +73,11 @@ def clone_card(
     if not source:
         raise ValueError("clone_source_required")
 
-    published = db.get_published_prompt_version(source)
+    mouth = _source_mouth(source)
     if template:
         card = template_card(template)
-    elif published and isinstance(published.get("agentCard"), dict) and published["agentCard"]:
-        card = dict(published["agentCard"])
+    elif mouth and isinstance(mouth.get("agentCard"), dict) and mouth["agentCard"]:
+        card = dict(mouth["agentCard"])
     else:
         try:
             card = card_dump(source)
@@ -67,11 +102,11 @@ def clone_card(
             ),
             {"id": bot_id, "t": tenant, "n": display},
         )
-    flow = (published or {}).get("flow") or {}
-    prompt = (published or {}).get("prompt") or ""
-    persona = (published or {}).get("persona") or db._DEFAULT_PERSONA
-    voice = (published or {}).get("voice") or db._DEFAULT_VOICE
-    guardrails = (published or {}).get("guardrails") or db._DEFAULT_GUARDRAILS
+    flow = (mouth or {}).get("flow") or _disk_flow(source) or {}
+    prompt = (mouth or {}).get("prompt") or ""
+    persona = (mouth or {}).get("persona") or db._DEFAULT_PERSONA
+    voice = (mouth or {}).get("voice") or db._DEFAULT_VOICE
+    guardrails = (mouth or {}).get("guardrails") or db._DEFAULT_GUARDRAILS
     db.create_prompt_version(
         {
             "botId": bot_id,

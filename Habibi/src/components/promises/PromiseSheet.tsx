@@ -104,7 +104,7 @@ export function CreatePromiseSheet({
         <SheetHeader>
           <SheetTitle>New promise-to-pay</SheetTitle>
           <SheetDescription>
-            Capture a commitment and BigBound AI will handle reminders.
+            Capture a commitment and PayInt will handle reminders.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-200 space-y-150">

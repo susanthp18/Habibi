@@ -39,7 +39,7 @@ import { QueryState } from "@/components/ui/query-state";
 export const Route = createFileRoute("/_app/redaction")({
   head: () => ({
     meta: [
-      { title: "Redaction & Export Hub — BigBound AI" },
+      { title: "Redaction & Export Hub — PayInt" },
       {
         name: "description",
         content:

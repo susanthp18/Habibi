@@ -340,3 +340,17 @@ def test_a_double_brace_token_behaves_differently_by_spacing() -> None:
     for text_in in ("Hi {{customer_name}}.", "Hi {{ customer_name }}."):
         codes = {f["code"]: f["severity"] for f in lint_prompt(text_in, {})}
         assert codes.get("flow_syntax_in_prompt") == "error", text_in
+
+
+def test_confirm_identity_opening_must_not_bury_recording_in_parentheses() -> None:
+    """CL-CAF293FDE9: the live opening put recording last, in parentheses."""
+    from voice.flow_export import built_in_collections_graph
+
+    node = next(
+        n for n in built_in_collections_graph()["nodes"] if n["key"] == "confirm_identity"
+    )
+    prompt = node["data"]["instructions"]
+    assert "recorded" in prompt.lower()
+    assert "parentheses" in prompt.lower()
+    findings = lint_prompt(prompt, {"alwaysDiscloseRecording": True})
+    assert not any(f["code"] == "recording_disclosure_unenforced" for f in findings)

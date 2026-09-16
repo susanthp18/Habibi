@@ -35,7 +35,7 @@ export const Route = createFileRoute("/_app/callbacks")({
   validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Callback & Scheduling Manager — BigBound AI" },
+      { title: "Callback & Scheduling Manager — PayInt" },
       {
         name: "description",
         content:

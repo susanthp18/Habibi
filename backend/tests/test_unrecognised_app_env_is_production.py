@@ -43,7 +43,7 @@ def test_is_prod_has_one_owner_and_it_is_an_allowlist(monkeypatch: pytest.Monkey
     middleware_src = src[
         src.index("class ApiKeyMiddleware") : src.index("class RequestIdMiddleware")
     ]
-    assert "auth_required = _IS_PROD or bool(single or key_map)" in middleware_src
+    assert "auth_required = _IS_PROD or bool(single or key_map) or entra.configured()" in middleware_src
 
 
 def test_ci_production_job_freezes_is_prod_without_monkeypatch() -> None:

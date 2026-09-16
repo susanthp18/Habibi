@@ -4,8 +4,7 @@
 // The shell used to render a hardcoded "Priya Shah · Team Delta" while the
 // backend recorded every write against `priya-nair` ("Priya Nair"). Two
 // identities that disagree make the audit trail lie, so both now come from
-// GET /me. Real authentication replaces the server side in Phase 5 (OIDC);
-// this seam does not change when it does.
+// GET /me. Entra authenticates; this payload is who PayInt will authorize.
 // -----------------------------------------------------------------------------
 
 import { useQuery } from "@tanstack/react-query";

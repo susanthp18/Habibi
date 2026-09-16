@@ -1,9 +1,10 @@
 """Request-scoped acting user (audit identity).
 
-Until OIDC/JWT lands, identity is resolved from:
-  1. ``API_KEY_MAP`` JSON ``{"secret":"user-id", ...}`` — per-user keys (preferred)
-  2. Shared ``API_KEY`` + optional ``X-Actor-User-Id`` (when ``ALLOW_ACTOR_HEADER`` is on)
-  3. Fallback ``ACTOR_USER_ID`` env
+Identity is resolved from, in order:
+  1. An Entra access token (JWT) on ``Authorization: Bearer``
+  2. ``API_KEY_MAP`` JSON ``{"secret":"user-id", ...}`` — per-user keys (automation)
+  3. Shared ``API_KEY`` + optional ``X-Actor-User-Id`` (when ``ALLOW_ACTOR_HEADER`` is on)
+  4. Fallback ``ACTOR_USER_ID`` env (non-production only)
 
 ``db._actor_user_id()`` reads the ContextVar set by ApiKeyMiddleware so every
 CRM write attributes the real caller, not a process-wide env spoof.
@@ -146,6 +147,15 @@ _USER_EXISTS_TTL_S = max(1.0, env_float("ACTOR_USER_CACHE_TTL_S", 30.0))
 _USER_EXISTS_MAX = 512
 _user_exists_cache: dict[str, tuple[float, bool]] = {}
 _user_exists_lock = threading.Lock()
+
+
+def invalidate_user_exists(user_id: str | None = None) -> None:
+    """Drop the existence cache after a deactivation so the next request sees it."""
+    with _user_exists_lock:
+        if user_id is None:
+            _user_exists_cache.clear()
+        else:
+            _user_exists_cache.pop(user_id, None)
 
 
 def _user_exists(user_id: str) -> bool:

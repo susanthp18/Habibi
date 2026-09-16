@@ -251,6 +251,32 @@ def test_entry_selection_is_shared(objective, entry_key, expected) -> None:
     assert node is not None and node.key == expected
 
 
+def test_a_bare_entry_key_resolves_a_namespaced_confirm_identity() -> None:
+    """Outbound missions name `confirm_identity`; fleet keys are `botId/confirm_identity`."""
+    graph = parse_graph(
+        {
+            "version": 1,
+            "globalTools": [],
+            "nodes": [
+                {
+                    "id": "kaia-v2-4/n1",
+                    "key": "kaia-v2-4/confirm_identity",
+                    "data": {
+                        "isStart": True,
+                        "name": "confirm",
+                        "instructions": "x",
+                        "tools": [],
+                    },
+                }
+            ],
+            "edges": [],
+        }
+    )
+    node = entry_node(graph, entry_key="confirm_identity")
+    assert node is not None
+    assert node.key == "kaia-v2-4/confirm_identity"
+
+
 # ---------------------------------------------------------------------------
 # A hop crosses into another member, on every mouth
 # ---------------------------------------------------------------------------

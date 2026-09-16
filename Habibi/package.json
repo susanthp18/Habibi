@@ -18,6 +18,7 @@
     "check:spacing": "node scripts/check-spacing-scale.mjs"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.21.0",
     "@pipecat-ai/client-js": "^1.13.0",
     "@pipecat-ai/small-webrtc-transport": "^1.10.6",
     "@radix-ui/react-accordion": "^1.2.12",

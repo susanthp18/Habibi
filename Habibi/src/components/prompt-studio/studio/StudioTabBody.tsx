@@ -51,6 +51,7 @@ export function StudioTabBody({
   setReplaceUnreadable,
   onFlowValidation,
   grantTools,
+  flushDraft,
 }: {
   tab: Tab;
   botId: string;
@@ -85,6 +86,7 @@ export function StudioTabBody({
   setReplaceUnreadable: (v: boolean) => void;
   onFlowValidation: (r: { ok: boolean; issues: FlowIssue[] }) => void;
   grantTools: string[] | undefined;
+  flushDraft?: () => Promise<unknown>;
 }) {
   const { prompt, persona, voice, guardrails, flow } = fields;
   const setCard = set.card;
@@ -138,6 +140,7 @@ export function StudioTabBody({
             card={effectiveCard}
             onChange={(next) => setCard(next)}
             promptVersionId={draftId ?? undefined}
+            persistDraft={flushDraft}
           />
         )}
         {tab === "ship" && (

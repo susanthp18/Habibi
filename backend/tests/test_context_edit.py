@@ -139,3 +139,35 @@ def test_prefix_constant_matches_the_real_card() -> None:
         identity_verified=True,
     )
     assert ctx.crm_card().startswith(CRM_CARD_PREFIX)
+
+
+def test_evict_drops_every_block_with_the_prefix() -> None:
+    from voice.context_edit import evict_developer_blocks
+    from voice.node_contracts import NODE_INSTRUCTIONS_PREFIX
+
+    ctx = _Ctx(
+        [
+            {"role": "developer", "content": f"{NODE_INSTRUCTIONS_PREFIX}\nconfirm_identity"},
+            {"role": "user", "content": "yes it is me"},
+            {"role": "developer", "content": f"{NODE_INSTRUCTIONS_PREFIX}\nstate_position"},
+        ]
+    )
+    assert evict_developer_blocks(ctx.get, ctx.set, NODE_INSTRUCTIONS_PREFIX)
+    leftover = [m for m in ctx.messages if m.get("role") == "developer"]
+    assert leftover == []
+    assert ctx.messages == [{"role": "user", "content": "yes it is me"}]
+
+
+def test_evict_leaves_unrelated_developer_blocks() -> None:
+    from voice.context_edit import evict_developer_blocks
+    from voice.node_contracts import NODE_INSTRUCTIONS_PREFIX
+
+    crm = _card("outstanding 500")
+    ctx = _Ctx(
+        [
+            crm,
+            {"role": "developer", "content": f"{NODE_INSTRUCTIONS_PREFIX}\nconfirm_identity"},
+        ]
+    )
+    evict_developer_blocks(ctx.get, ctx.set, NODE_INSTRUCTIONS_PREFIX)
+    assert ctx.messages == [crm]

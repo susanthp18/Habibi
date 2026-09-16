@@ -221,15 +221,36 @@ def get_eval_report(report_id: str) -> dict[str, Any] | None:
     return out
 
 
+def _iso_ts(value: Any) -> str | None:
+    """ISO, not ``str(datetime)``: Postgres's repr has a space where ISO has a T."""
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def list_eval_reports(
-    *, kind: str | None = None, bot_id: str | None = None, limit: int = 50
+    *,
+    kind: str | None = None,
+    bot_id: str | None = None,
+    limit: int = 50,
+    per_bot: int | None = None,
 ) -> list[dict[str, Any]]:
     clauses = ["r.tenant_id = :tenant"]
     params: dict[str, Any] = {"tenant": _tenant(), "n": max(1, min(int(limit), 200))}
     if kind:
         clauses.append("s.kind = :kind")
         params["kind"] = kind
-    if bot_id == TENANT_WIDE_REPORTS:
+    window = None
+    if per_bot and not bot_id:
+        # Last N per card, for the fleet dots. A global LIMIT of 50 lets two
+        # busy bots hide every other mouth; EvalTrend only draws three.
+        window = max(1, min(int(per_bot), 10))
+        params["per_bot"] = window
+        params["n"] = 200
+        clauses.append("r.bot_id IS NOT NULL")
+    elif bot_id == TENANT_WIDE_REPORTS:
         # The scheduler files tenant-wide runs with no card. Filtering a
         # shared page of fifty client-side lost them the moment fifty newer
         # card-scoped reports existed.
@@ -238,23 +259,34 @@ def list_eval_reports(
         clauses.append("r.bot_id = :bot_id")
         params["bot_id"] = bot_id
     where = " AND ".join(clauses)
-    with _engine().connect() as conn:
-        rows = _rows(
-            conn.execute(
-                text(
-                    f"""
+    inner = f"""
                     SELECT r.id, r.suite_id, r.bot_id, r.status, r.summary, r.created_at, r.origin,
                            s.kind, s.name AS suite_name
                     FROM eval_reports r
                     JOIN eval_suites s ON s.id = r.suite_id
                     WHERE {where}
+    """
+    if window:
+        sql = f"""
+                    SELECT id, suite_id, bot_id, status, summary, created_at, origin, kind, suite_name
+                    FROM (
+                      SELECT inner_r.*,
+                             ROW_NUMBER() OVER (
+                               PARTITION BY inner_r.bot_id ORDER BY inner_r.created_at DESC
+                             ) AS rn
+                      FROM ({inner}) inner_r
+                    ) ranked
+                    WHERE rn <= :per_bot
+                    ORDER BY created_at DESC
+                    LIMIT :n
+        """
+    else:
+        sql = inner + """
                     ORDER BY r.created_at DESC
                     LIMIT :n
-                    """
-                ),
-                params,
-            )
-        )
+        """
+    with _engine().connect() as conn:
+        rows = _rows(conn.execute(text(sql), params))
     out = []
     for r in rows:
         out.append(
@@ -267,7 +299,7 @@ def list_eval_reports(
                 "status": r["status"],
                 "summary": r.get("summary") or {},
                 "origin": r.get("origin") or "manual",
-                "createdAt": str(r["created_at"]) if r.get("created_at") else None,
+                "createdAt": _iso_ts(r.get("created_at")),
             }
         )
     return out

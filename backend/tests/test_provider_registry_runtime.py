@@ -32,12 +32,19 @@ def test_every_service_class_is_importable_or_declared_unavailable(provider, mod
         registry.RUNTIME_LIVE,
         registry.RUNTIME_PREVIEW_ONLY,
         registry.RUNTIME_UNAVAILABLE,
+        # Off a call host this is the only honest answer, and it is the one
+        # every model gets there — see the process-boundary block below.
+        registry.RUNTIME_UNKNOWN,
     }
-    if status == registry.RUNTIME_UNAVAILABLE:
+    if status != registry.RUNTIME_LIVE:
         # Allowed, but only with a reason an operator can act on.
-        assert detail, f"{provider.slug}:{model.model_id} unavailable with no reason"
+        assert detail, f"{provider.slug}:{model.model_id} {status} with no reason"
 
 
+@pytest.mark.skipif(
+    not registry.can_host_calls(),
+    reason="only a call host can resolve a service class; elsewhere the probe answers for the wrong machine",
+)
 def test_the_models_we_ship_as_live_actually_import():
     """The set that must work. A regression here means a binding silently
     falls back to Azure on a real call."""
@@ -76,6 +83,10 @@ def test_preview_only_models_are_declared_not_inferred():
     assert registry.runtime_status(model)[0] == registry.RUNTIME_PREVIEW_ONLY
 
 
+@pytest.mark.skipif(
+    not registry.can_host_calls(),
+    reason="the probe only runs where an import proves something",
+)
 def test_a_live_capable_model_that_raises_on_construction_is_still_a_lie():
     """Guard the guard: the probe must resolve the attribute, not just import
     the module, or a missing class would read as healthy."""
@@ -89,6 +100,65 @@ def test_a_live_capable_model_that_raises_on_construction_is_still_a_lie():
     status, detail = registry.runtime_status(spec)
     assert status == registry.RUNTIME_UNAVAILABLE
     assert "NoSuchService" in detail or "attribute" in detail.lower()
+
+
+# ------------------------------------------ the probe answers for one machine
+
+
+def test_a_non_call_host_never_reports_its_own_missing_dependency(monkeypatch):
+    """The bug: the API answered "can *I* import this?" to a screen asking
+    "can the thing that runs calls import this?".
+
+    Only the voice image installs Pipecat — requirements-voice.txt is kept out
+    of requirements.txt so CRM upgrades are not coupled to onnxruntime / aiortc
+    / av. So collections_api has no ``azure.cognitiveservices.speech``, and
+    every one of the thirteen seeded models read ``unavailable`` there while the
+    voice container reported the same models ``live`` off the same commit. The
+    studio refused to bind any provider and told the operator Azure could not
+    take a call, on a stack whose calls were running Azure.
+    """
+    monkeypatch.setattr(registry, "can_host_calls", lambda: False)
+    model = registry.find_model("azure", "azure-neural")
+    assert model is not None
+
+    status, detail = registry.runtime_status(model)
+    assert status == registry.RUNTIME_UNKNOWN
+    assert detail, "an unknown state still owes the operator a reason"
+    assert "azure" not in detail.lower(), "a local import failure is not the model's verdict"
+
+
+def test_a_non_call_host_reports_what_the_call_host_published(monkeypatch):
+    """Which is the whole point of the column: the answer travels."""
+    monkeypatch.setattr(registry, "can_host_calls", lambda: False)
+    model = registry.find_model("azure", "azure-neural")
+    assert model is not None
+
+    assert registry.runtime_status(model, (registry.RUNTIME_LIVE, "")) == (
+        registry.RUNTIME_LIVE,
+        "",
+    )
+    assert registry.runtime_status(
+        model, (registry.RUNTIME_UNAVAILABLE, "ModuleNotFoundError: No module named 'azure'")
+    )[0] == registry.RUNTIME_UNAVAILABLE
+
+
+def test_preview_only_survives_off_the_call_host(monkeypatch):
+    """It is declared, not probed, so it is the same answer in every process —
+    and it must not be flattened into "unknown" by the host check."""
+    monkeypatch.setattr(registry, "can_host_calls", lambda: False)
+    model = registry.find_model("openrouter", "fish-audio/s2.1-pro")
+    assert model is not None
+    assert registry.runtime_status(model)[0] == registry.RUNTIME_PREVIEW_ONLY
+
+
+def test_the_report_covers_every_seeded_model():
+    """What the call host publishes. A model missing from it keeps whatever the
+    last runtime wrote, which is how a stale verdict would outlive its cause."""
+    report = registry.runtime_report()
+    assert len(report) == len(registry.model_specs())
+    keyed = {(r["provider_id"], r["kind"], r["model_id"]) for r in report}
+    assert keyed == {(p.slug, m.kind, m.model_id) for p, m in registry.model_specs()}
+    assert all(r["runtime"] for r in report)
 
 
 # --------------------------------------------------------- params vs. the API

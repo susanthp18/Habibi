@@ -129,7 +129,7 @@ export function InspectorPanel({
           />
         )}
         {tab === "twin" && <TwinTab />}
-        {tab === "evals" && <EvalCockpit compact />}
+        {tab === "evals" && <EvalCockpit />}
         {tab === "context" && contextAllowed && (
           <div className="space-y-100">
             <p className="text-body-small text-text-warning-bolder">

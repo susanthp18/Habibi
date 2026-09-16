@@ -126,6 +126,7 @@ export default tseslint.config(
                 "apiGet",
                 "apiPost",
                 "apiPatch",
+                "apiPut",
                 "apiDelete",
                 "apiUpload",
                 "apiGetBlob",

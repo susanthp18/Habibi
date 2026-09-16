@@ -370,8 +370,16 @@ def list_provider_models(kind: str | None = Query(default=None, pattern="^(stt|t
         # *runnable*. Both are reported because they fail differently: no key is
         # something the operator can fix from the Integrations screen, a missing
         # service class is not.
+        #
+        # Runnability is the call host's fact, not this process's. This one has
+        # no Pipecat, so `runtime_status` is handed what the voice runtime last
+        # published rather than being left to import the class here and report
+        # its own missing dependency as the model's.
         spec = find_model(row["provider_id"], row["model_id"])
-        runtime, detail = runtime_status(spec) if spec is not None else (RUNTIME_LIVE, "")
+        reported = (row["runtime"], row["runtime_detail"] or "") if row.get("runtime") else None
+        runtime, detail = (
+            runtime_status(spec, reported) if spec is not None else (RUNTIME_LIVE, "")
+        )
         out.append(
             {
                 "id": row["id"],

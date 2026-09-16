@@ -62,6 +62,40 @@ export const INITIAL_STATE: StudioDraftState = {
 };
 
 /**
+ * The editor must not seed until the card read *and* the version list have
+ * settled. `/prompt-versions` starts as `[]`, and hydrating that empty list
+ * writes `hydrated: true` over a blank draft — then the real history arrives
+ * and is ignored.
+ */
+export function studioHydrationBlocked(input: {
+  cardPending: boolean;
+  historyReady: boolean;
+  hydrated: boolean;
+}): boolean {
+  return input.cardPending || !input.historyReady || input.hydrated;
+}
+
+/** True when the row has a system prompt or an authored graph. */
+export function versionHasAuthoring(v: PromptVersion): boolean {
+  if ((v.prompt ?? "").trim()) return true;
+  if (v.flowUnreadable) return false;
+  return Array.isArray(v.flow?.nodes) && v.flow.nodes.length > 0;
+}
+
+/**
+ * Which version the editor should open.
+ *
+ * A blank draft is not "resume work". The empty-hydration race autosaves one
+ * (`summary: "draft autosave"`, prompt length 0) and it then wins forever
+ * because newest-draft is preferred over published.
+ */
+export function hydrationStart(history: PromptVersion[]): PromptVersion | undefined {
+  const draft = history.find((v) => v.status === "draft");
+  if (draft && versionHasAuthoring(draft)) return draft;
+  return history.find((v) => v.status === "published") ?? history[0];
+}
+
+/**
  * The editor fields a version puts on screen.
  *
  * `?? DEFAULT_*`: the three are non-null on every row served today, but a null

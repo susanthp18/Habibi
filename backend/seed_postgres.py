@@ -719,6 +719,7 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         ("role-qa", "QA Reviewer"),
         ("role-compliance-officer", "Compliance Officer"),
         ("role-dpo", "DPO"),
+        ("role-viewer", "Viewer"),
     ]
     for role_id, name in roles:
         upsert(conn, "roles", {"id": role_id, "tenant_id": TENANT_ID, "name": name})
@@ -975,7 +976,7 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
     # pre-0084 text, which is how a database at head served presets that delete
     # half their own lines the moment an author applies one.
     _emp_prompt = (
-        "You are {agent_name}, an inbound collections voice agent for {bank_name}.\n"
+        "You are {agent_name}, a collections voice agent for {bank_name} handling outbound and inbound calls.\n"
         "Greet the caller warmly and acknowledge their situation before discussing dues.\n"
         "Their account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.\n"
         "Speak in {language}. Be patient, empathetic and non-judgemental.\n"

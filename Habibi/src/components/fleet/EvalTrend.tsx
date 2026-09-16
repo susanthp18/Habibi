@@ -1,6 +1,6 @@
 import { type EvalReport } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
-import { Button } from "@/components/ui/button";
+import { parseLogTimestamp } from "@/lib/change-log-actions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,22 +28,25 @@ export function EvalTrend({ reports, failed }: { reports: EvalReport[]; failed?:
   const recent = reports.slice(0, 3).reverse();
   return (
     <span className="inline-flex items-center gap-050" aria-label="Recent eval runs">
-      {recent.map((r) => (
-        <span
-          key={r.id}
-          title={`${r.suiteName ?? r.suiteId} — ${r.status}${
-            r.createdAt ? ` · ${new Date(r.createdAt).toLocaleDateString()}` : ""
-          }`}
-          className={cn(
-            "h-2 w-2 rounded-full",
-            r.status === "pass"
-              ? "bg-background-success-bold"
-              : r.status === "fail"
-                ? "bg-background-danger-bold"
-                : "bg-border",
-          )}
-        />
-      ))}
+      {recent.map((r) => {
+        const when = parseLogTimestamp(r.createdAt);
+        return (
+          <span
+            key={r.id}
+            title={`${r.suiteName ?? r.suiteId} — ${r.status}${
+              when ? ` · ${when.toLocaleDateString()}` : ""
+            }`}
+            className={cn(
+              "h-2 w-2 rounded-full",
+              r.status === "pass"
+                ? "bg-background-success-bold"
+                : r.status === "fail"
+                  ? "bg-background-danger-bold"
+                  : "bg-border",
+            )}
+          />
+        );
+      })}
     </span>
   );
 }

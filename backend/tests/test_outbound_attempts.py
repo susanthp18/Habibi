@@ -663,3 +663,25 @@ def test_a_call_whose_worker_stopped_heartbeating_is_reaped(db_tx) -> None:
     row = outbound.get(db_tx, attempt["id"])
     assert row["state"] == outbound.STATE_FAILED
     assert row["provider_error"] == "voice_session_lost"
+
+
+def test_a_dpd_reminder_ptp_is_captured_not_recommitted(db_tx, monkeypatch) -> None:
+    """CL-CAF293FDE9: enrichment labelled a new PTP as ptp_recommitted, met=False."""
+    monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")
+    attempt = _reserve(db_tx)
+    _place(db_tx, attempt, "CA-TEST-CLOSE-PTPNEW")
+    outbound.apply_provider_status(
+        db_tx, provider_call_id="CA-TEST-CLOSE-PTPNEW", status="completed", duration_sec=140
+    )
+    outbound.mark(db_tx, attempt["id"], right_party=True, answered_by="human")
+    row = dict(
+        db_tx.execute(
+            text("SELECT * FROM call_attempts WHERE id = :id"), {"id": attempt["id"]}
+        ).mappings().first()
+    )
+    evidence = call_closer.gather(db_tx, row)
+    result = call_closer.close_one(
+        db_tx, row, evidence=evidence, enrichment={"business": "ptp_recommitted"}
+    )
+    assert result["business"] == "ptp_captured"
+    assert result["objectiveMet"] is True

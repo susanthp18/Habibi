@@ -229,6 +229,25 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             CUSTOMERS_READ_ALL, PII_RAW_READ,
         }
     ),
+    # First-login default for anyone in the tenant who is not the bootstrap
+    # Admin. Org demo presenters must be able to open every read surface of
+    # the seeded book. Writes, voice placement, and admin grants stay off.
+    "viewer": frozenset(
+        {
+            CUSTOMERS_READ, CUSTOMERS_READ_ALL,
+            INTERACTIONS_READ,
+            COLLECTIONS_READ,
+            LEADS_READ,
+            CONSENT_READ,
+            ANALYTICS_READ, BILLING_READ,
+            QA_REVIEW,
+            COMPLIANCE_READ,
+            POLICY_READ, SUBJECT_RIGHTS_READ, BANK_BOUNDARY_READ,
+            KB_READ, BOT_READ,
+            SUPERVISOR_READ,
+            INTEGRATIONS_READ,
+        }
+    ),
 }
 ROLE_DEFAULTS["dpo"] = ROLE_DEFAULTS["compliance_officer"]
 
@@ -399,6 +418,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/eval/twin-corpus/grow"): EVAL_RUN,
     ("GET", "/roles"): BOT_READ,
     ("PATCH", "/roles/{role_id}/permissions"): ADMIN_WRITE,
+    ("GET", "/users"): ADMIN_WRITE,
+    ("PUT", "/users/{user_id}/roles"): ADMIN_WRITE,
+    ("PATCH", "/users/{user_id}"): ADMIN_WRITE,
     ("GET", "/routing-audit"): BOT_READ,
     ("GET", "/routing-rules"): BOT_READ,
     ("GET", "/routing-rules/{rule_id}/executions"): BOT_READ,
@@ -703,7 +725,13 @@ def enforcement_enabled() -> bool:
     # default — the same contract as ``env_int``. Peeking emptiness and then
     # calling ``env_bool`` with an implicit ``False`` would treat a typo as
     # "off" and leave a production boot with ``API_KEY`` ungated.
-    default = bool((os.getenv("API_KEY") or "").strip() or actor_context.parse_api_key_map())
+    import entra
+
+    default = bool(
+        (os.getenv("API_KEY") or "").strip()
+        or actor_context.parse_api_key_map()
+        or entra.configured()
+    )
     return env_bool("AUTHZ_ENFORCE", default=default)
 
 

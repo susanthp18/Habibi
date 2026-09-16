@@ -34,7 +34,7 @@ export const Route = createFileRoute("/_app/compliance")({
   }),
   head: () => ({
     meta: [
-      { title: "Compliance Risk — BigBound AI" },
+      { title: "Compliance Risk — PayInt" },
       {
         name: "description",
         content:

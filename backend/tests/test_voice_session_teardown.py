@@ -196,10 +196,14 @@ def test_the_llm_service_is_warmed_at_startup() -> None:
         "the LLM service constructor is the largest one-time cost in call setup "
         "and _warm_before_serving does not pay it"
     )
+    assert "_warm_shared_llm_client" in src
     assert callable(bot._warm_llm_service)
+    assert callable(bot._warm_shared_llm_client)
     # It must build the real class — warming anything else warms nothing.
     warm_src = inspect.getsource(bot._warm_llm_service)
     assert "KeepAliveAzureLLMService(" in warm_src
+    client_src = inspect.getsource(bot._warm_shared_llm_client)
+    assert "prewarm_shared_client" in client_src
 
 
 # --- speaking after the caller has gone -------------------------------------

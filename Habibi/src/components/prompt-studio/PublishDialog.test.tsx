@@ -15,7 +15,7 @@
 // -----------------------------------------------------------------------------
 import "@/test/jsdom";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CompileReport } from "@/api/agent-studio";
@@ -89,14 +89,10 @@ describe("PublishDialog", () => {
   });
 
   it("a warn is visible and does not block, a fail blocks", () => {
-    // Confirm is gated by three things — the gates, a typed PUBLISH, and the
-    // locale override. Satisfying the typed one isolates the gate's effect,
-    // which is what this is actually about; asserting on the untyped button
-    // would pass for the wrong reason.
-    const confirmPublish = () =>
-      fireEvent.change(screen.getByPlaceholderText("PUBLISH"), {
-        target: { value: "PUBLISH" },
-      });
+    // The commit is the slider, and `disabled` on it is aria-disabled rather
+    // than the attribute — it is a div with role="slider", so `toBeDisabled`
+    // would report false for anything and pass for the wrong reason.
+    const slider = () => screen.getByRole("slider", { name: /^Slide to publish/ });
 
     const warn = show({
       compileReport: report([
@@ -104,10 +100,9 @@ describe("PublishDialog", () => {
       ]),
     });
     expect(screen.getByText("warn")).toBeInTheDocument();
-    confirmPublish();
     // Warn-first is the repo's stated way to introduce a gate; a warn that
     // silently blocked would make the next gate unadoptable.
-    expect(screen.getByRole("button", { name: /^Publish/ })).toBeEnabled();
+    expect(slider()).not.toHaveAttribute("aria-disabled");
     warn.unmount();
 
     show({
@@ -116,8 +111,7 @@ describe("PublishDialog", () => {
       ]),
     });
     expect(screen.getByText("fail")).toBeInTheDocument();
-    confirmPublish();
-    expect(screen.getByRole("button", { name: /^Publish/ })).toBeDisabled();
+    expect(slider()).toHaveAttribute("aria-disabled", "true");
   });
 
   it("says so when the compiler could not be reached", () => {

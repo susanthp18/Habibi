@@ -411,9 +411,9 @@ def test_say_node_speaks_verbatim_via_pre_action() -> None:
     graph.nodes[0].data.instructions = "This call is recorded."
     _state, _tools, initial, _globals = _build(graph)
     config = initial()
-    assert config["pre_actions"] == [
-        {"type": "tts_say", "text": "This call is recorded."}
-    ]
+    assert config["pre_actions"][0]["type"] == "function"
+    assert {"type": "tts_say", "text": "This call is recorded."} in config["pre_actions"]
+    assert config["task_messages"][0]["content"].startswith("CURRENT NODE:")
     assert "Do not repeat it" in config["task_messages"][0]["content"]
 
 
@@ -429,3 +429,16 @@ def test_end_conversation_flag_on_a_conversation_node() -> None:
     graph.nodes[0].data.endConversation = True
     _state, _tools, initial, _globals = _build(graph)
     assert initial()["post_actions"] == [{"type": "end_conversation"}]
+
+
+def test_node_developer_blocks_are_prefixed_so_a_hop_can_replace_them() -> None:
+    """Flows APPEND stacks task_messages. The prefix is how hops evict the prior node."""
+    from voice.node_contracts import NODE_INSTRUCTIONS_PREFIX
+
+    _state, _tools, initial, _globals = _build(_two_node_graph())
+    start = initial()
+    assert start["task_messages"][0]["content"].startswith(NODE_INSTRUCTIONS_PREFIX)
+    assert start["pre_actions"][0]["type"] == "function"
+    end = _transition_to_end(start)
+    assert end["task_messages"][0]["content"].startswith(NODE_INSTRUCTIONS_PREFIX)
+    assert end["pre_actions"][0]["type"] == "function"

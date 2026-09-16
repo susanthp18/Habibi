@@ -25,13 +25,13 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_app/integrations")({
   head: () => ({
     meta: [
-      { title: "Integrations & API Connections — BigBound AI" },
+      { title: "Integrations & API Connections — PayInt" },
       {
         name: "description",
         content:
           "Manage LLM, STT, TTS, telephony, WhatsApp and core-banking keys that back the Pipecat voice AI stack.",
       },
-      { property: "og:title", content: "Integrations & API Connections — BigBound AI" },
+      { property: "og:title", content: "Integrations & API Connections — PayInt" },
       {
         property: "og:description",
         content:

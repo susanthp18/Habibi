@@ -48,6 +48,10 @@ FALLBACK_TEMPLATE_NAME_ENV = "WHATSAPP_FALLBACK_TEMPLATE_NAME"
 FALLBACK_TEMPLATE_LANG_ENV = "WHATSAPP_FALLBACK_TEMPLATE_LANG"
 
 
+#: Purpose vars that must not inherit the grocery-order sample fallback.
+_NO_FALLBACK_TEMPLATE_ENVS = frozenset({"WHATSAPP_PTP_TEMPLATE_NAME"})
+
+
 def resolve_template(name_env: str, lang_env: str) -> tuple[str, str]:
     """(template_name, language) for a purpose, or ("", "") if neither is set.
 
@@ -60,10 +64,21 @@ def resolve_template(name_env: str, lang_env: str) -> tuple[str, str]:
     parameters as the purpose template it stands in for — the three purposes
     take different params — or Meta rejects the send. That constraint is stated
     in .env.example next to the vars.
+
+    PTP is excluded from the fallback: a market-order sample as a promise
+    confirmation is a message about a purchase the borrower never made. If the
+    purpose template is unset, skip the send (the promise row still persists).
     """
     name = env_str(name_env)
     if name:
         return name, (env_str(lang_env) or "en_US")
+    if name_env in _NO_FALLBACK_TEMPLATE_ENVS:
+        logger.warning(
+            "whatsapp template skipped: %s is unset — not falling back; "
+            "the promise is still persisted",
+            name_env,
+        )
+        return "", ""
     fallback = env_str(FALLBACK_TEMPLATE_NAME_ENV)
     if fallback:
         # Loudly, every time, and naming the variable that would stop it.
@@ -494,6 +509,15 @@ def enqueue_whatsapp_paylink(
 
     conversation_id = dbmod._open_whatsapp_conversation(conn, customer_id)
     message_id = dbmod._id("MSG")
+    template_name, template_lang = (
+        resolve_template(template_env_name, template_env_lang) if use_template else ("", "")
+    )
+    if use_template and not template_name:
+        logger.warning(
+            "whatsapp send skipped: no template resolved for %s — the promise is still persisted",
+            template_env_name,
+        )
+        return
     conn.execute(
         text(
             """
@@ -502,9 +526,6 @@ def enqueue_whatsapp_paylink(
             """
         ),
         {"id": message_id, "conversation_id": conversation_id, "body": body},
-    )
-    template_name, template_lang = (
-        resolve_template(template_env_name, template_env_lang) if use_template else ("", "")
     )
     params = template_params
     if use_template and template_name and params is None:

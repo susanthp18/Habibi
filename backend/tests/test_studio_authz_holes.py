@@ -124,3 +124,24 @@ def test_tenant_wide_reports_are_a_server_side_filter(db_tx) -> None:
     db.save_eval_report(suite_id=suite, bot_id="kaia-v2-4", status="pass", summary={"failed": 0, "total": 1})
     rows = db.list_eval_reports(bot_id=db_evals.TENANT_WIDE_REPORTS, limit=5)
     assert rows and all(r.get("botId") is None for r in rows)
+
+
+def test_per_bot_eval_reports_do_not_starve_quiet_cards(db_tx) -> None:
+    """A global LIMIT of 50 let two busy bots hide everyone else on the fleet."""
+    suite = db_tx.execute(text("SELECT id FROM eval_suites LIMIT 1")).scalar()
+    if suite is None:
+        pytest.skip("no eval suites seeded")
+    for i in range(6):
+        db.save_eval_report(
+            suite_id=suite, bot_id="kaia-v2-4", status="pass", summary={"failed": 0, "total": 1, "n": i}
+        )
+        db.save_eval_report(
+            suite_id=suite, bot_id="insurance-v1", status="fail", summary={"failed": 1, "total": 1, "n": i}
+        )
+    rows = db.list_eval_reports(per_bot=3)
+    by_bot: dict[str, list] = {}
+    for r in rows:
+        by_bot.setdefault(r["botId"], []).append(r)
+        assert r["createdAt"] is None or "T" in str(r["createdAt"])
+    assert len(by_bot["kaia-v2-4"]) == 3
+    assert len(by_bot["insurance-v1"]) == 3

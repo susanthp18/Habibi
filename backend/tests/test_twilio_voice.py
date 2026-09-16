@@ -28,6 +28,10 @@ def test_twiml_connect_stream_uses_voice_public(monkeypatch: pytest.MonkeyPatch)
 
     xml = twilio_ops.twiml_connect_stream(custom={"from": "+15551212", "call_type": "inbound"})
 
+    assert xml.index("<Say") < xml.index("<Stream")
+    assert "Please stay on the line." in xml
+    assert 'voice="Polly.Aditi"' in xml
+    assert 'language="en-IN"' in xml
     assert "wss://voice.example.ngrok-free.dev/ws" in xml
 
     assert "?" not in xml.split("<Stream", 1)[1].split(">", 1)[0]
@@ -86,6 +90,8 @@ def test_media_stream_embeds_proxy_secret_in_path(monkeypatch: pytest.MonkeyPatc
 
     xml = twilio_ops.twiml_connect_stream()
 
+    assert xml.index("<Say") < xml.index("<Stream")
+    assert "Please stay on the line." in xml
     assert "wss://api.example.ngrok-free.dev/ws/s3cret-value" in xml
 
     assert "proxy_secret=" not in xml

@@ -59,7 +59,7 @@ import flow_walk
 from flow_vars import FlowVariables
 from flow_graph import split_key
 from flow_walk import EXTRACT_TOOL, TRANSITION_PREFIX, FlowWalker
-from voice.node_contracts import NODE_DIRECTIVES
+from voice.node_contracts import NODE_DIRECTIVES, NODE_INSTRUCTIONS_PREFIX
 from voice.rtvi_events import RtviEmitter
 from voice.session import VoiceSession
 from voice.tools import (
@@ -336,12 +336,35 @@ def _flow_node_factory(st: FlowBuild) -> None:
             if node.key == entry.key:
                 config["role_message"] = role_message
 
+            def _task_content(body: str, extra: str = "") -> str:
+                parts = [body.strip(), extra.strip()]
+                return NODE_INSTRUCTIONS_PREFIX + "\n" + "\n".join(p for p in parts if p)
+
+            async def _evict_prior_node_block(_action, flow_manager) -> None:
+                # Flows APPEND stacks each node's developer block. Evict the
+                # previous node's prefix so hops replace rather than accumulate.
+                from voice.context_edit import evict_developer_blocks
+
+                agg = getattr(flow_manager, "_context_aggregator", None)
+                user = agg.user() if agg is not None and callable(getattr(agg, "user", None)) else None
+                ctx = getattr(user, "_context", None)
+                if ctx is None:
+                    return
+                evict_developer_blocks(
+                    ctx.get_messages, ctx.set_messages, NODE_INSTRUCTIONS_PREFIX
+                )
+
+            evict_action = {"type": "function", "handler": _evict_prior_node_block}
+
             if node.type == "end":
+                config["pre_actions"] = [evict_action]
                 config["task_messages"] = [
                     {
                         "role": "developer",
-                        "content": variables.render(node.data.instructions)
-                        or "Close the call politely in one short sentence.",
+                        "content": _task_content(
+                            variables.render(node.data.instructions)
+                            or "Close the call politely in one short sentence."
+                        ),
                     }
                 ]
                 config["functions"] = []
@@ -351,33 +374,40 @@ def _flow_node_factory(st: FlowBuild) -> None:
 
             instructions = variables.render(node.data.instructions)
             entry_line = variables.render(node.data.entryLine).strip()
+            directive = NODE_DIRECTIVES.get(split_key(node.key)[1] or node.key) or ""
             if node.data.instructionType == "say" and instructions:
                 # Verbatim delivery: say exactly this, do not improvise.
-                config["pre_actions"] = [{"type": "tts_say", "text": instructions}]
+                config["pre_actions"] = [
+                    evict_action,
+                    {"type": "tts_say", "text": instructions},
+                ]
                 config["task_messages"] = [
                     {
                         "role": "developer",
-                        "content": (
+                        "content": _task_content(
                             "You have just said the scripted line for this step. "
-                            "Do not repeat it. Continue from the caller's reply."
+                            "Do not repeat it. Continue from the caller's reply.",
+                            directive,
                         ),
                     }
                 ]
             else:
+                pre: list[dict[str, Any]] = [evict_action]
                 if entry_line:
                     # Spoken the instant the step is entered, ahead of any
                     # generation. append_text_to_context=False keeps it out of
                     # the transcript the model reasons over, matching how the
                     # built-in script uses its bridge lines.
-                    config["pre_actions"] = [
+                    pre.append(
                         {
                             "type": "tts_say",
                             "text": entry_line,
                             "append_text_to_context": False,
                         }
-                    ]
+                    )
+                config["pre_actions"] = pre
                 config["task_messages"] = [
-                    {"role": "developer", "content": instructions}
+                    {"role": "developer", "content": _task_content(instructions, directive)}
                 ]
 
             functions: list[Any] = []
@@ -412,14 +442,6 @@ def _flow_node_factory(st: FlowBuild) -> None:
                 functions.append(_extract_tool(node))
 
             config["functions"] = functions
-
-            # A directive the runtime attaches by node key, declared in one
-            # place so the editor can show it (`voice/node_contracts.py`).
-            directive = NODE_DIRECTIVES.get(split_key(node.key)[1] or node.key)
-            if directive:
-                config.setdefault("task_messages", []).append(
-                    {"role": "developer", "content": directive}
-                )
 
             # "Listen first" is a claim about whose turn it is, and the graph
             # cannot know that — only the call can. A step entered because the

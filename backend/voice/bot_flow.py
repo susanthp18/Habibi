@@ -483,6 +483,20 @@ async def load_mission(call) -> None:
                 session.extra["mission_briefing"] = mission_mod.briefing(_mission)
             except Exception:
                 logger.exception("mission briefing render failed")
+        instruction = str(getattr(call, "system_instruction", "") or "")
+        if instruction:
+            call.system_instruction = _overlay_outbound_persona(instruction)
+
+
+def _overlay_outbound_persona(instruction: str) -> str:
+    """Published cards still say 'inbound' on a dial we placed."""
+    return instruction.replace(
+        "an inbound collections voice agent",
+        "a collections voice agent handling outbound and inbound calls",
+    ).replace(
+        "inbound collections voice agent",
+        "collections voice agent handling outbound and inbound calls",
+    )
 
 
 def build_flow(call) -> None:

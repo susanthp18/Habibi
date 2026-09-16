@@ -18,6 +18,7 @@ function card(over: Partial<ArchivableCard> = {}): ArchivableCard {
     botId: "clone-abc123",
     entryBotId: ENTRY,
     deploymentStatus: "draft",
+    entryBindings: [],
     ...over,
   };
 }
@@ -37,6 +38,29 @@ describe("archiveAvailability", () => {
 
   it("refuses the card inbound traffic resolves to", () => {
     const a = archiveAvailability(card({ botId: ENTRY, deploymentStatus: "live" }));
+    expect(a.allowed).toBe(false);
+    expect(a.reason).toBe("This card takes inbound traffic");
+  });
+
+  it("refuses a clone that a door binding still points at", () => {
+    // The server checks enabled bindings, not only BOT_ID / entryBotId. A
+    // WhatsApp default or a dialled number on this card used to enable Archive
+    // and then 409 with entry_card_not_archivable.
+    const a = archiveAvailability(
+      card({
+        entryBindings: [
+          {
+            id: "eb-1",
+            channel: "voice",
+            address: "+914412345678",
+            bot_id: "clone-abc123",
+            enabled: true,
+            note: "",
+            updated_at: null,
+          },
+        ],
+      }),
+    );
     expect(a.allowed).toBe(false);
     expect(a.reason).toBe("This card takes inbound traffic");
   });

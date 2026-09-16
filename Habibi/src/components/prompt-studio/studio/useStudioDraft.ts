@@ -4,7 +4,6 @@ import type { useEnsureStudioDraft } from "@/api/prompt-studio";
 import type { FlowGraph } from "@/api/flow";
 import type { PromptVersion } from "@/api/types/prompt-studio";
 import type { AgentCard } from "@/api/agent-card";
-import { at } from "@/lib/arrays";
 import { nextVersionLabel } from "@/lib/prompt-studio";
 import {
   EMPTY_FIELDS,
@@ -12,7 +11,10 @@ import {
   adopted,
   asCard,
   fingerprintOf,
+  hydrationStart,
   studioDraftReducer,
+  studioHydrationBlocked,
+  versionHasAuthoring,
   type EditorFields,
 } from "./studioDraft";
 
@@ -35,6 +37,7 @@ export function useStudioDraft({
   history,
   card: cardRow,
   cardPending,
+  historyReady,
   cardRefused,
   publishedRow: publishedFromQuery,
 }: {
@@ -45,6 +48,8 @@ export function useStudioDraft({
   /** The card read: its resolved (draft-aware) card and the published one. */
   card: { agentCard?: AgentCard; publishedCard?: AgentCard } | null | undefined;
   cardPending: boolean;
+  /** False until `/prompt-versions` has settled, including `200 []`. */
+  historyReady: boolean;
   cardRefused: boolean;
   /** `/prompt-versions/published`, when it answered. */
   publishedRow: PromptVersion | null | undefined;
@@ -129,25 +134,34 @@ export function useStudioDraft({
   // Hydrate the editor once the version list AND the card read have settled.
   // `/prompt-versions` answers `200 []` for any id at all, so hydrating before
   // the card read would produce a fully editable studio for a dead URL, with
-  // autosave pointed at it.
+  // autosave pointed at it. Hydrating before the version list settles is the
+  // other failure: the first paint sees `history=[]`, seeds EMPTY_FIELDS, and
+  // never adopts the published prompt when History 15 lands.
   useEffect(() => {
-    if (cardPending || hydrated) return;
+    if (studioHydrationBlocked({ cardPending, historyReady, hydrated })) return;
     if (!history.length) {
       // A bot row with no prompt version at all. Seed the defaults so the
       // first version can be authored; an empty editor is the baseline, not a
-      // saved state.
+      // saved state. `adoptVersion` already records that fingerprint — do not
+      // `markSaved("")` here: that made the empty seed look unsaved and the
+      // autosave timer created a blank draft (`v1.7` / "draft autosave").
       adoptVersion({ ...EMPTY_FIELDS, card: asCard(cardFromRow) }, { draftId: null });
-      markSaved("");
       return;
     }
-    // Prefer the newest draft if present (resume work after refresh).
-    const newestDraft = history.find((v) => v.status === "draft");
-    const start = newestDraft ?? history.find((v) => v.status === "published") ?? at(history, 0);
+    // Resume a draft only when it has authoring. A blank autosave draft must
+    // not hide the published prompt.
+    const start = hydrationStart(history);
+    if (!start) {
+      adoptVersion({ ...EMPTY_FIELDS, card: asCard(cardFromRow) }, { draftId: null });
+      return;
+    }
+    const resumeDraft =
+      start.status === "draft" && versionHasAuthoring(start) ? start : undefined;
     adoptVersion(adopted(start), {
-      draftId: newestDraft?.id ?? null,
-      summary: newestDraft?.summary,
+      draftId: resumeDraft?.id ?? null,
+      summary: resumeDraft?.summary,
     });
-  }, [history, hydrated, cardFromRow, cardPending, adoptVersion, markSaved]);
+  }, [history, historyReady, hydrated, cardFromRow, cardPending, adoptVersion]);
 
   // Baseline for `dirty`: the live row if there is one, else the newest version
   // of any status — for a clone with only a draft, that draft is the right
@@ -342,33 +356,39 @@ export function useStudioDraft({
     enableBeforeUnload: () => unsavedRef.current,
   });
 
-  // Debounced autosave while dirty.
+  // Debounced autosave while the editor differs from what was last written.
+  // `dirty` is "differs from live" and stays true for the whole life of a
+  // saved draft, so gating the timer on it either skipped a revert-to-live
+  // that still needed writing, or kept offering to save a draft that already
+  // had been.
   useEffect(() => {
     if (!hydrated || skipAutosave.current) return;
     // Never autosave against a card the API could not confirm exists. On a dead
     // URL `/prompt-versions` still answers `200 []`, so hydration succeeds and
     // every keystroke used to PATCH a bot id nothing is registered under.
     if (cardRefused) return;
-    if (!dirty) {
-      // "saved" survives here. The refetch that follows an autosave makes the
-      // draft the newest version, so `dirty` goes false on the very next render
-      // and this line reset the status to "idle" — wiping the "Draft saved"
-      // confirmation before it could paint. It clears on the next edit, when
-      // the unsaved chip takes over.
+    if (!unsaved) {
+      // "saved" survives here. The refetch that follows an autosave used to
+      // make `dirty` (vs live) flicker and reset the status to "idle" —
+      // wiping the "Draft saved" confirmation before it could paint.
       setSaveStatus((s) => (s === "saving" || s === "saved" ? s : "idle"));
       return;
     }
-    if (fingerprintOf(fields) === lastSavedFp.current) return;
 
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = window.setTimeout(() => {
+      const e = editorRef.current;
+      // Same predicate as `flushDraft`. The timer used to call `runSave`
+      // unguarded, so an empty first paint POSTed a blank draft and the next
+      // load adopted it over the published prompt.
+      if (!e.draftId && !e.prompt.trim()) return;
       void runSave();
     }, 1200);
 
     return () => {
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     };
-  }, [fields, dirty, hydrated, autosaveNonce, runSave, cardRefused]);
+  }, [fields, unsaved, hydrated, autosaveNonce, runSave, cardRefused]);
 
   return {
     draft,

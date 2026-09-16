@@ -205,7 +205,12 @@ export function useKbActions({
 
   const runPurge = async () => {
     const confirm = state.confirm;
-    if (confirm?.kind !== "purge" || confirm.typed.trim().toUpperCase() !== "DELETE") return;
+    // The deliberateness gate is the slider in KbConfirmDialogs, which cannot
+    // be crossed by a stray click or keypress (ui/slide-to-confirm.test.tsx).
+    // This used to re-check a typed "DELETE" carried in the state; there is
+    // nothing to re-read now, and a second copy of the gate was never what
+    // made the first one hard to trip by accident.
+    if (confirm?.kind !== "purge") return;
     dispatch({ type: "busy", patch: { purge: true } });
     dispatch({ type: "confirm", confirm: null });
     try {

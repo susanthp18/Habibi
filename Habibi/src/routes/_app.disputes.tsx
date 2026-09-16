@@ -26,7 +26,7 @@ export const Route = createFileRoute("/_app/disputes")({
   validateSearch: parseDeepLinkSearch,
   head: () => ({
     meta: [
-      { title: "Disputes & Exceptions Queue — BigBound AI" },
+      { title: "Disputes & Exceptions Queue — PayInt" },
       {
         name: "description",
         content:

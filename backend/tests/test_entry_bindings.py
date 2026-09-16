@@ -337,3 +337,40 @@ def test_the_fleet_index_reads_the_chip_from_the_table(db_tx, door_on) -> None:
     # The dev database already carries the production voice binding on this card.
     assert ("whatsapp", None) in [(b["channel"], b["address"]) for b in intake["entryBindings"]]
     assert by_id[db.DEFAULT_BOT_ID]["reachability"] == "entry"
+
+
+def test_entry_binding_upsert_accepts_a_get_shaped_body(db_tx, door_on, api_headers) -> None:
+    """GET returns bot_id/id/updated_at; PUT used to 422 extra_forbidden on those."""
+    from fastapi.testclient import TestClient
+
+    import main
+    from schemas.agent_studio import EntryBindingUpsert
+
+    parsed = EntryBindingUpsert.model_validate(
+        {
+            "id": "eb-roundtrip",
+            "channel": "whatsapp",
+            "address": None,
+            "bot_id": "intake-v1",
+            "enabled": True,
+            "note": "",
+            "updated_at": "2026-09-10T12:07:03.187087+00:00",
+        }
+    )
+    assert parsed.botId == "intake-v1"
+
+    client = TestClient(main.app, headers=api_headers)
+    res = client.put(
+        "/agent-studio/entry-bindings",
+        json={
+            "id": "eb-ignored",
+            "channel": "whatsapp",
+            "address": None,
+            "bot_id": "intake-v1",
+            "enabled": True,
+            "note": "round-trip",
+            "updated_at": "2026-09-10T12:07:03.187087+00:00",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["bot_id"] == "intake-v1"

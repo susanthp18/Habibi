@@ -197,3 +197,46 @@ def test_a_binding_to_a_card_that_does_not_answer_the_channel_is_refused(cloned_
 
     with pytest.raises(ValueError, match="entry_binding_channel_not_authored"):
         upsert_entry_binding(channel="whatsapp", bot_id=cloned_bot, address="+910000000001", conn=db_tx)
+
+
+def test_clone_copies_a_draft_when_the_source_is_unpublished(db_tx, monkeypatch) -> None:
+    from agent_core.cards.clone import _disk_flow, clone_card
+
+    monkeypatch.setattr(db, "get_published_prompt_version", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        db,
+        "list_prompt_versions",
+        lambda **_k: [
+            {
+                "prompt": "from draft mouth",
+                "flow": _disk_flow("insurance-v1"),
+                "persona": None,
+                "voice": None,
+                "guardrails": None,
+            }
+        ],
+    )
+    row = clone_card(template_id="lapse", name=f"Draft {uuid.uuid4().hex[:6]}")
+    bot_id = row["botId"]
+    try:
+        draft = db.get_prompt_version(row["draftVersionId"])
+        assert draft["prompt"] == "from draft mouth"
+        assert draft["flow"].get("nodes")
+    finally:
+        with db.engine.begin() as conn:
+            conn.execute(text("DELETE FROM prompt_versions WHERE bot_id = :b"), {"b": bot_id})
+            conn.execute(text("DELETE FROM bots WHERE id = :b"), {"b": bot_id})
+
+
+def test_clone_loads_the_disk_graph_when_the_source_has_no_version(db_tx, monkeypatch) -> None:
+    monkeypatch.setattr(db, "get_published_prompt_version", lambda *_a, **_k: None)
+    monkeypatch.setattr(db, "list_prompt_versions", lambda **_k: [])
+    row = clone_card(template_id="lapse", name=f"Disk {uuid.uuid4().hex[:6]}")
+    bot_id = row["botId"]
+    try:
+        draft = db.get_prompt_version(row["draftVersionId"])
+        assert draft["flow"].get("nodes")
+    finally:
+        with db.engine.begin() as conn:
+            conn.execute(text("DELETE FROM prompt_versions WHERE bot_id = :b"), {"b": bot_id})
+            conn.execute(text("DELETE FROM bots WHERE id = :b"), {"b": bot_id})
