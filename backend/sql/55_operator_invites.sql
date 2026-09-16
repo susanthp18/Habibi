@@ -18,3 +18,14 @@ CREATE INDEX IF NOT EXISTS idx_operator_invites_tenant_id ON operator_invites(te
 CREATE UNIQUE INDEX IF NOT EXISTS uq_operator_invites_pending_email
   ON operator_invites (tenant_id, lower(email))
   WHERE status = 'pending';
+
+-- Same tenant policy rls.py derives for any rooted table. Fresh installs
+-- that apply sql/ without a later `rls.py enable` would otherwise boot with
+-- the hardening gate's missing=1 on this table.
+ALTER TABLE operator_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE operator_invites FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON operator_invites;
+CREATE POLICY tenant_isolation ON operator_invites
+  FOR ALL
+  USING (operator_invites.tenant_id = current_setting('app.tenant_id', true))
+  WITH CHECK (operator_invites.tenant_id = current_setting('app.tenant_id', true));
