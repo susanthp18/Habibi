@@ -34,6 +34,7 @@ import { Route as AppRedactionRouteImport } from './routes/_app.redaction'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
 import { Route as AppRoutingRouteImport } from './routes/_app.routing'
 import { Route as AppSandboxRouteImport } from './routes/_app.sandbox'
+import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppTreatmentRouteImport } from './routes/_app.treatment'
 import { Route as AppUpsellRouteImport } from './routes/_app.upsell'
 import { Route as AppWebhooksRouteImport } from './routes/_app.webhooks'
@@ -172,6 +173,11 @@ const AppSandboxRoute = AppSandboxRouteImport.update({
   path: '/sandbox',
   getParentRoute: () => AppRoute,
 } as any).lazy(() => import('./routes/_app.sandbox.lazy').then((d) => d.Route))
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTreatmentRoute = AppTreatmentRouteImport.update({
   id: '/treatment',
   path: '/treatment',
@@ -251,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/roles': typeof AppRolesRoute
   '/routing': typeof AppRoutingRoute
   '/sandbox': typeof AppSandboxRoute
+  '/settings': typeof AppSettingsRoute
   '/treatment': typeof AppTreatmentRoute
   '/upsell': typeof AppUpsellRoute
   '/webhooks': typeof AppWebhooksRoute
@@ -283,6 +290,7 @@ export interface FileRoutesByTo {
   '/roles': typeof AppRolesRoute
   '/routing': typeof AppRoutingRoute
   '/sandbox': typeof AppSandboxRoute
+  '/settings': typeof AppSettingsRoute
   '/treatment': typeof AppTreatmentRoute
   '/upsell': typeof AppUpsellRoute
   '/webhooks': typeof AppWebhooksRoute
@@ -320,6 +328,7 @@ export interface FileRoutesById {
   '/_app/roles': typeof AppRolesRoute
   '/_app/routing': typeof AppRoutingRoute
   '/_app/sandbox': typeof AppSandboxRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/treatment': typeof AppTreatmentRoute
   '/_app/upsell': typeof AppUpsellRoute
   '/_app/webhooks': typeof AppWebhooksRoute
@@ -358,6 +367,7 @@ export interface FileRouteTypes {
     | '/roles'
     | '/routing'
     | '/sandbox'
+    | '/settings'
     | '/treatment'
     | '/upsell'
     | '/webhooks'
@@ -390,6 +400,7 @@ export interface FileRouteTypes {
     | '/roles'
     | '/routing'
     | '/sandbox'
+    | '/settings'
     | '/treatment'
     | '/upsell'
     | '/webhooks'
@@ -426,6 +437,7 @@ export interface FileRouteTypes {
     | '/_app/roles'
     | '/_app/routing'
     | '/_app/sandbox'
+    | '/_app/settings'
     | '/_app/treatment'
     | '/_app/upsell'
     | '/_app/webhooks'
@@ -620,6 +632,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSandboxRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/treatment': {
       id: '/_app/treatment'
       path: '/treatment'
@@ -741,6 +760,7 @@ interface AppRouteChildren {
   AppRolesRoute: typeof AppRolesRoute
   AppRoutingRoute: typeof AppRoutingRoute
   AppSandboxRoute: typeof AppSandboxRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTreatmentRoute: typeof AppTreatmentRoute
   AppUpsellRoute: typeof AppUpsellRoute
   AppWebhooksRoute: typeof AppWebhooksRoute
@@ -770,6 +790,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRolesRoute: AppRolesRoute,
   AppRoutingRoute: AppRoutingRoute,
   AppSandboxRoute: AppSandboxRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTreatmentRoute: AppTreatmentRoute,
   AppUpsellRoute: AppUpsellRoute,
   AppWebhooksRoute: AppWebhooksRoute,

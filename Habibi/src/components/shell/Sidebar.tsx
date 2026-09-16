@@ -33,6 +33,7 @@ import {
   Plug,
   Webhook,
   Receipt,
+  Settings,
   ShieldAlert,
   ChevronsRight,
   type LucideIcon,
@@ -109,6 +110,7 @@ const groups: NavGroup[] = [
         to: "/roles",
         permission: "perm-admin-write",
       },
+      { key: "settings", label: "Settings", icon: Settings, to: "/settings" },
     ],
   },
 ];

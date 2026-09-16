@@ -230,6 +230,7 @@ class DirectoryUserResponse(BaseModel):
 
     id: str
     name: str
+    email: str | None = None
     upn: str | None = None
     status: str
     bootstrapAdmin: bool = False
@@ -257,3 +258,37 @@ class UserStatusPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["active", "inactive"]
+
+
+class InviteCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    roleId: str = Field(validation_alias=AliasChoices("roleId", "role_id"))
+
+
+class OperatorInviteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    email: str
+    roleId: str
+    roleName: str
+    status: str
+    invitedByUserId: str | None = None
+    invitedByName: str | None = None
+    sentAt: str | None = None
+    acceptedAt: str | None = None
+    lastError: str | None = None
+
+
+class OperatorInvitesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invites: list[OperatorInviteResponse]
+
+
+class OperatorInviteWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invite: OperatorInviteResponse

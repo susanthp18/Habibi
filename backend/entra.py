@@ -318,7 +318,13 @@ def provision_user(claims: dict[str, Any]) -> str:
                 raise EntraAuthError("unauthorized") from None
             return str(existing["id"])
 
-        role_id = _role_id(conn, tenant_id, "role-admin" if bootstrap else "role-viewer")
+        role_wanted = "role-admin" if bootstrap else "role-viewer"
+        import db_invites
+
+        invited = db_invites.consume_pending_invite(conn, tenant_id, upn)
+        if invited and not bootstrap:
+            role_wanted = invited
+        role_id = _role_id(conn, tenant_id, role_wanted)
         if role_id:
             conn.execute(
                 text(

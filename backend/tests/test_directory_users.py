@@ -52,8 +52,11 @@ def _provision(upn: str, name: str, *, bootstrap: bool = False) -> str:
 
 def _inactivate_everyone_else(keep_id: str) -> None:
     for user in db_users.list_directory_users()["users"]:
-        if user["id"] != keep_id and user["status"] == "active":
-            db_users.patch_user_status(user["id"], "inactive")
+        if user["id"] == keep_id or user["status"] != "active":
+            continue
+        if user["bootstrapAdmin"]:
+            continue
+        db_users.patch_user_status(user["id"], "inactive")
 
 
 def test_last_admin_cannot_be_demoted(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +64,7 @@ def test_last_admin_cannot_be_demoted(db_tx, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
     admin_id = _provision("susanth.p@bigtapp.ai", "Susanth P", bootstrap=True)
     _inactivate_everyone_else(admin_id)
-    with pytest.raises(ValueError, match="last_admin"):
+    with pytest.raises(ValueError, match="bootstrap_admin_protected"):
         db_users.replace_user_roles(admin_id, ["role-viewer"])
 
 
@@ -70,11 +73,11 @@ def test_last_admin_cannot_be_deactivated(db_tx, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
     admin_id = _provision("susanth.p@bigtapp.ai", "Susanth P")
     _inactivate_everyone_else(admin_id)
-    with pytest.raises(ValueError, match="last_admin"):
+    with pytest.raises(ValueError, match="bootstrap_admin_protected"):
         db_users.patch_user_status(admin_id, "inactive")
 
 
-def test_second_admin_can_demote_bootstrap(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_second_admin_cannot_demote_bootstrap(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     _ensure_schema(db_tx)
     monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
     bootstrap_id = _provision("susanth.p@bigtapp.ai", "Susanth P")
@@ -82,10 +85,36 @@ def test_second_admin_can_demote_bootstrap(db_tx, monkeypatch: pytest.MonkeyPatc
     db_users.replace_user_roles(other_id, ["role-admin"])
     authz.invalidate_permission_cache()
     assert authz.ADMIN_WRITE in authz.actor_permissions(other_id)
-    db_users.replace_user_roles(bootstrap_id, ["role-viewer"])
+    with pytest.raises(ValueError, match="bootstrap_admin_protected"):
+        db_users.replace_user_roles(bootstrap_id, ["role-viewer"])
     authz.invalidate_permission_cache(bootstrap_id)
-    assert authz.ADMIN_WRITE not in authz.actor_permissions(bootstrap_id)
+    assert authz.ADMIN_WRITE in authz.actor_permissions(bootstrap_id)
     assert authz.ADMIN_WRITE in authz.actor_permissions(other_id)
+
+
+def test_second_admin_cannot_deactivate_bootstrap(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    _ensure_schema(db_tx)
+    monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
+    bootstrap_id = _provision("susanth.p@bigtapp.ai", "Susanth P")
+    other_id = _provision("other@bigtapp.ai", "Other Person")
+    db_users.replace_user_roles(other_id, ["role-admin"])
+    with pytest.raises(ValueError, match="bootstrap_admin_protected"):
+        db_users.patch_user_status(bootstrap_id, "inactive")
+
+
+def test_last_granted_admin_cannot_be_demoted(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    _ensure_schema(db_tx)
+    monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "nobody@example.com")
+    admin_id = _provision("solo-admin@bigtapp.ai", "Solo Admin")
+    db_users.replace_user_roles(admin_id, ["role-admin"])
+    authz.invalidate_permission_cache(admin_id)
+    _inactivate_everyone_else(admin_id)
+    with db_users._db().engine.begin() as conn:
+        holders = db_users._active_admin_ids(conn)
+    if holders - {admin_id}:
+        pytest.skip("other Entra admins already exist in this database")
+    with pytest.raises(ValueError, match="last_admin"):
+        db_users.replace_user_roles(admin_id, ["role-viewer"])
 
 
 def test_list_users_includes_roles_not_extra_pii(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,9 +126,11 @@ def test_list_users_includes_roles_not_extra_pii(db_tx, monkeypatch: pytest.Monk
     assert match["name"] == "Alex Example"
     assert match["upn"] == "alex@bigtapp.ai"
     assert "Viewer" in match["roleNames"]
+    assert match["email"] == "alex@bigtapp.ai"
     assert set(match) <= {
         "id",
         "name",
+        "email",
         "upn",
         "status",
         "bootstrapAdmin",
@@ -107,6 +138,16 @@ def test_list_users_includes_roles_not_extra_pii(db_tx, monkeypatch: pytest.Monk
         "roleIds",
         "roleNames",
     }
+
+
+def test_directory_omits_seed_users_without_entra_oid(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    _ensure_schema(db_tx)
+    monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
+    sso_id = _provision("alex@bigtapp.ai", "Alex Example")
+    body = db_users.list_directory_users()
+    ids = {u["id"] for u in body["users"]}
+    assert sso_id in ids
+    assert "priya-nair" not in ids
 
 
 def test_me_permissions_match_authz(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:

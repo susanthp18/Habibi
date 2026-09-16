@@ -20,7 +20,10 @@ from schemas import (
     BotAnalyticsResponse,
     DashboardResponse,
     HealthResponse,
+    InviteCreateRequest,
     MeResponse,
+    OperatorInviteWriteResponse,
+    OperatorInvitesResponse,
     PlatformSwitchFlipResponse,
     PlatformSwitchPatchRequest,
     PlatformSwitchesResponse,
@@ -130,6 +133,33 @@ def patch_user(user_id: str, payload: UserStatusPatchRequest):
     from api_support import _handle_write
 
     return _handle_write(db_users.patch_user_status, user_id, payload.status)
+
+@router.get("/invites", response_model=OperatorInvitesResponse)
+def list_invites():
+    import db_invites
+
+    return db_invites.list_invites()
+
+@router.post("/invites", response_model=OperatorInviteWriteResponse)
+def create_invite(payload: InviteCreateRequest):
+    import db_invites
+    from api_support import _handle_write
+
+    return _handle_write(db_invites.create_invite, payload.email, payload.roleId)
+
+@router.post("/invites/{invite_id}/resend", response_model=OperatorInviteWriteResponse)
+def resend_invite(invite_id: str):
+    import db_invites
+    from api_support import _handle_write
+
+    return _handle_write(db_invites.resend_invite, invite_id)
+
+@router.post("/invites/{invite_id}/revoke", response_model=OperatorInviteWriteResponse)
+def revoke_invite(invite_id: str):
+    import db_invites
+    from api_support import _handle_write
+
+    return _handle_write(db_invites.revoke_invite, invite_id)
 
 @router.get("/platform/switches", response_model=PlatformSwitchesResponse)
 def list_platform_switches():

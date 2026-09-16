@@ -609,7 +609,7 @@ def test_no_read_route_requires_a_write_permission() -> None:
     """The general form of the bug above."""
     # Listing operators is an admin action. There is no perm-admin-read, so
     # the same grant that may change people is the one that may see them.
-    admin_gets = {("GET", "/users")}
+    admin_gets = {("GET", "/users"), ("GET", "/roles"), ("GET", "/invites")}
     offenders = [
         (method, path)
         for (method, path), permission in authz.ROUTE_PERMISSIONS.items()
@@ -622,6 +622,8 @@ def test_no_read_route_requires_a_write_permission() -> None:
         "should not require the right to mutate."
     )
     assert authz.ROUTE_PERMISSIONS[("GET", "/users")] == authz.ADMIN_WRITE
+    assert authz.ROUTE_PERMISSIONS[("GET", "/roles")] == authz.ADMIN_WRITE
+    assert authz.ROUTE_PERMISSIONS[("GET", "/invites")] == authz.ADMIN_WRITE
 
 
 def test_deployment_rollback_requires_agent_publish() -> None:

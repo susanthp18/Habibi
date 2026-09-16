@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   Plug,
   Receipt,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -88,6 +89,7 @@ const PAGES: {
   { label: "Webhooks", to: "/webhooks", icon: Webhook },
   { label: "Billing & Usage", to: "/billing", icon: Receipt },
   { label: "Roles & access", to: "/roles", icon: ShieldCheck },
+  { label: "Settings", to: "/settings", icon: Settings, keywords: "theme invite appearance" },
 ];
 
 type Props = {

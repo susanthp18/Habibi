@@ -3448,6 +3448,7 @@ export const PresenceResponse = z.object({
 export const DirectoryUserResponse = z.object({
   "id": z.string(),
   "name": z.string(),
+  "email": z.string().nullable().optional(),
   "upn": z.string().nullable().optional(),
   "status": z.string(),
   "bootstrapAdmin": z.boolean().optional(),
@@ -3457,6 +3458,24 @@ export const DirectoryUserResponse = z.object({
 }).passthrough();
 export const DirectoryUsersResponse = z.object({
   "users": z.array(DirectoryUserResponse),
+}).passthrough();
+export const OperatorInviteResponse = z.object({
+  "id": z.string(),
+  "email": z.string(),
+  "roleId": z.string(),
+  "roleName": z.string(),
+  "status": z.string(),
+  "invitedByUserId": z.string().nullable().optional(),
+  "invitedByName": z.string().nullable().optional(),
+  "sentAt": z.string().nullable().optional(),
+  "acceptedAt": z.string().nullable().optional(),
+  "lastError": z.string().nullable().optional(),
+}).passthrough();
+export const OperatorInvitesResponse = z.object({
+  "invites": z.array(OperatorInviteResponse),
+}).passthrough();
+export const OperatorInviteWriteResponse = z.object({
+  "invite": OperatorInviteResponse,
 }).passthrough();
 export const PlatformSwitchResponse = z.object({
   "key": z.string(),
@@ -4164,6 +4183,10 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /users", DirectoryUsersResponse],
   ["PUT /users/{user_id}/roles", DirectoryUsersResponse],
   ["PATCH /users/{user_id}", DirectoryUsersResponse],
+  ["GET /invites", OperatorInvitesResponse],
+  ["POST /invites", OperatorInviteWriteResponse],
+  ["POST /invites/{invite_id}/resend", OperatorInviteWriteResponse],
+  ["POST /invites/{invite_id}/revoke", OperatorInviteWriteResponse],
   ["GET /platform/switches", PlatformSwitchesResponse],
   ["PATCH /platform/switches/{key}", PlatformSwitchFlipResponse],
   ["GET /routing-rules", z.array(RoutingRuleListResponse)],

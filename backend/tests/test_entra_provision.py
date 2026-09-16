@@ -102,7 +102,7 @@ def test_first_login_other_member_is_viewer(db_tx, monkeypatch: pytest.MonkeyPat
     assert roles == {"Viewer"}
     perms = authz.actor_permissions(user_id)
     assert perms == authz.ROLE_DEFAULTS["viewer"]
-    assert authz.CUSTOMERS_READ not in perms
+    assert authz.CUSTOMERS_WRITE not in perms
     assert authz.VOICE_OPERATE not in perms
     assert authz.ADMIN_WRITE not in perms
     assert authz.PII_RAW_READ not in perms

@@ -5,6 +5,7 @@ import { apiGet, apiPatch, apiPut } from "./config";
 export type DirectoryUser = {
   id: string;
   name: string;
+  email: string | null;
   upn: string | null;
   status: string;
   bootstrapAdmin: boolean;

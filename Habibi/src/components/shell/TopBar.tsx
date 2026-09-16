@@ -6,8 +6,10 @@ import {
   LogOut,
   Moon,
   Search,
+  Settings,
   Sun,
 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 
 import { EqualizerMark } from "@/components/brand/EqualizerMark";
 import { BigtappMark } from "@/components/brand/BigtappMark";
@@ -45,6 +47,7 @@ function initialsOf(name: string) {
 function AccountMenu() {
   const theme = useTheme();
   const { data: me } = useMe();
+  const navigate = useNavigate();
   const operatorName = me?.name || entraDisplayName();
   const initials = initialsOf(operatorName);
   const meta = [me?.team, me?.status].filter(Boolean).join(" · ");
@@ -82,6 +85,11 @@ function AccountMenu() {
             ) : null}
           </div>
         </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void navigate({ to: "/settings" })}>
+          <Settings className="h-4 w-4" />
+          Settings
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-body-small font-medium text-text-subtle">
           Appearance

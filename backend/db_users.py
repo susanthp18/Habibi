@@ -30,17 +30,18 @@ def _iso(value: Any) -> str | None:
 
 
 def list_directory_users() -> dict[str, Any]:
-    """Every operator in the tenant: id, display, roles, bootstrap, last login."""
+    """Microsoft-signed-in operators only. Seed CRM roster stays off this list."""
     with _db().engine.connect() as conn:
         rows = conn.execute(
             text(
                 """
-                SELECT u.id, u.name, u.status, u.entra_upn, u.bootstrap_admin,
+                SELECT u.id, u.name, u.email, u.status, u.entra_upn, u.bootstrap_admin,
                        u.last_login_at, r.id AS role_id, r.name AS role_name
                   FROM users u
              LEFT JOIN user_roles ur ON ur.user_id = u.id
              LEFT JOIN roles r ON r.id = ur.role_id
                  WHERE u.tenant_id = :t
+                   AND u.entra_oid IS NOT NULL
                  ORDER BY lower(u.name), u.id, r.name
                 """
             ),
@@ -54,6 +55,7 @@ def list_directory_users() -> dict[str, Any]:
             by_id[uid] = {
                 "id": uid,
                 "name": row["name"],
+                "email": row["email"],
                 "upn": row["entra_upn"],
                 "status": row["status"],
                 "bootstrapAdmin": bool(row["bootstrap_admin"]),
@@ -111,9 +113,19 @@ def _permissions_for_roles(conn: Any, role_ids: list[str]) -> frozenset[str]:
 
 
 def _active_admin_ids(conn: Any) -> set[str]:
-    """Holders of perm-admin-write, computed on this connection (not the cache)."""
+    """SSO holders of perm-admin-write, computed on this connection (not the cache).
+
+    Seed roster rows (no entra_oid) still hold Admin in the demo book so
+    CRM assignees resolve. They are not operators and must not unlock a
+    bootstrap demotion.
+    """
     user_rows = conn.execute(
-        text("SELECT id FROM users WHERE tenant_id = :t AND status = 'active'"),
+        text(
+            """
+            SELECT id FROM users
+             WHERE tenant_id = :t AND status = 'active' AND entra_oid IS NOT NULL
+            """
+        ),
         {"t": _tenant()},
     )
     holders: set[str] = set()
@@ -138,6 +150,14 @@ def _assert_not_last_admin(conn: Any, user_id: str, still_admin: bool) -> None:
         return
     if not (holders - {user_id}):
         raise ValueError("last_admin")
+
+
+def _assert_bootstrap_protected(user: Any, *, still_admin: bool, deactivating: bool) -> None:
+    """The bootstrap Admin cannot be demoted or deactivated by anyone."""
+    if not bool(user["bootstrap_admin"]):
+        return
+    if deactivating or not still_admin:
+        raise ValueError("bootstrap_admin_protected")
 
 
 def replace_user_roles(user_id: str, role_ids: list[str]) -> dict[str, Any]:
@@ -167,6 +187,7 @@ def replace_user_roles(user_id: str, role_ids: list[str]) -> dict[str, Any]:
                 resolved.append(str(role["id"]))
         new_perms = _permissions_for_roles(conn, resolved)
         still_admin = authz.ADMIN_WRITE in new_perms
+        _assert_bootstrap_protected(user, still_admin=still_admin, deactivating=False)
         _assert_not_last_admin(conn, uid, still_admin)
         conn.execute(text("DELETE FROM user_roles WHERE user_id = :id"), {"id": uid})
         for rid in resolved:
@@ -223,6 +244,7 @@ def patch_user_status(user_id: str, status: str) -> dict[str, Any]:
         if user is None:
             raise KeyError("user_not_found")
         if wanted == "inactive":
+            _assert_bootstrap_protected(user, still_admin=False, deactivating=True)
             _assert_not_last_admin(conn, uid, still_admin=False)
         conn.execute(
             text("UPDATE users SET status = :s, updated_at = now() WHERE id = :id"),
