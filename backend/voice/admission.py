@@ -228,10 +228,15 @@ def has_capacity() -> bool:
     Inherently racy: capacity can vanish between this check and the socket
     arriving. That race costs one call the clean busy message and gives it the
     hard refusal in :func:`acquire` instead, which is the acceptable direction.
+
+    Reaps abandoned slots first, the same as :func:`acquire`: otherwise a leaked
+    session makes ``has_capacity`` refuse forever while ``acquire`` would have
+    recovered.
     """
     limit = max_concurrent()
     if limit <= 0:
         return True
+    reap_stale()
     with _lock:
         return len(_active) < limit
 

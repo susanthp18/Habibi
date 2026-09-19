@@ -109,6 +109,12 @@ async def run_bot(transport, runner_args) -> None:
         await shared_runner.add_workers(worker)
         # add_workers starts the worker on an already-running runner; the call
         # then lives until disconnect/idle cancels it above.
+        # Admission is held in bot() until this worker ends — do not wait here:
+        # the run_bot snapshot contract is that this returns after add_workers.
+        try:
+            runner_args.voice_worker = worker
+        except Exception:
+            logger.debug("could not stamp voice_worker on runner_args", exc_info=True)
         return
 
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)
@@ -154,11 +160,41 @@ async def bot(runner_args):
 
     try:
         await _bot_session(runner_args)
+        await _await_embedded_worker(runner_args)
     finally:
         # finally, not after the await: a cancelled session (deploy drain,
         # client vanishing) must return its slot too, or the effective cap
         # ratchets down until the process serves nothing.
         admission.release(slot_token)
+
+
+async def _await_embedded_worker(runner_args) -> None:
+    """Hold the admission slot until the shared-runner worker actually ends.
+
+    ``run_bot`` returns after ``add_workers`` so the pipeline snapshot stays
+    a setup-only contract. The call is still live; ``bot()`` must not release
+    until the worker's runner task finishes.
+    """
+    worker = getattr(runner_args, "voice_worker", None)
+    if worker is None:
+        return
+    shared = getattr(runner_args, "shared_runner", None)
+    name = getattr(worker, "name", None)
+    entries = getattr(shared, "_entries", None) if shared is not None else None
+    if not isinstance(entries, dict) or not name:
+        return
+    while True:
+        entry = entries.get(name)
+        if entry is None:
+            return
+        task = getattr(entry, "runner_task", None)
+        if task is not None:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            return
+        await asyncio.sleep(0.05)
 
 
 async def _bot_session(runner_args):

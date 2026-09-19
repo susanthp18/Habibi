@@ -307,6 +307,10 @@ async def attach_voicemail_handlers(
                 skip,
             )
             _trace("amd.voicemail_skipped", session, reason=skip, verdict="VOICEMAIL", acted=False)
+            # Do not close the classifier. greeting_incomplete is temporary —
+            # the bot has not spoken yet. Closing here would permanently
+            # suppress AMD for the rest of the call. A mute that never ends is
+            # GreetingHold's timeout, not a second AMD fire during the greeting.
             return
 
         session.extra["amd"] = "voicemail"
