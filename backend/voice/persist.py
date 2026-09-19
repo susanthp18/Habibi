@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from env_loader import env_str
 from sqlalchemy import text
 
 import pii_redact
@@ -117,6 +118,7 @@ def start_voice_call(
     bot_id: str | None = None,
     direction: str = "inbound",
     started_at: datetime | None = None,
+    accountable_user_id: str | None = None,
 ) -> dict[str, Any]:
     """INSERT active interaction + voice_sessions row. Returns ids.
 
@@ -137,7 +139,7 @@ def start_voice_call(
     interaction_id = _sid("CL")
     host = socket.gethostname()
     started = started_at or _now()
-    transport_n = transport if transport in ("smallwebrtc", "twilio", "daily") else "smallwebrtc"
+    transport_n = transport if transport in ("smallwebrtc", "twilio", "daily", "asterisk") else "smallwebrtc"
     direction_n = direction if direction in ("inbound", "outbound") else "inbound"
 
     with db.engine.begin() as conn:
@@ -171,7 +173,18 @@ def start_voice_call(
                 "direction": direction_n,
                 "deployment_id": deployment_id,
                 "started": started,
-                "payload": json.dumps({"source": "voice", "transport": transport_n}),
+                "payload": json.dumps(
+                    {
+                        "source": "voice",
+                        "transport": transport_n,
+                        "botCardId": bid,
+                        "accountableUserId": (
+                            (accountable_user_id or "").strip()
+                            or env_str("VOICE_ACCOUNTABLE_USER_ID")
+                            or None
+                        ),
+                    }
+                ),
             },
         )
         try:
@@ -919,11 +932,16 @@ def lookup_customer_for_verify(
     *,
     method: str,
     value: str,
+    prefer_customer_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Resolve a customer for identity verification (phone last-4 / account tail).
 
     Returns {customerId, accountId, name, outstanding, minimumDue, dpd, phoneTail, accountTail}
     or None when no unique match.
+
+    ``prefer_customer_id`` is the outbound bound row: if that customer's tail
+    matches, return them even when another tenant row shares the same last-4.
+    Inbound leaves this empty so a colliding tail still refuses (fail-closed).
     """
     method_n = (method or "").strip().lower()
     raw = (value or "").strip()
@@ -977,7 +995,43 @@ def lookup_customer_for_verify(
                 ).mappings().first()
                 return _pack(row) if row else None
 
-            # Last-4 only when unambiguous.
+            # Last-4 only when unambiguous — unless outbound already bound this
+            # customer and their tail matches what they just spoke.
+            tail4 = digits[-4:]
+            prefer = (prefer_customer_id or "").strip()
+            if prefer:
+                preferred = conn.execute(
+                    text(
+                        """
+                        SELECT c.id AS customer_id, c.name, c.phone_primary,
+                               a.id AS account_id, a.outstanding, a.minimum_due, a.dpd
+                        FROM customers c
+                        LEFT JOIN LATERAL (
+                          SELECT id, outstanding, minimum_due, dpd
+                          FROM accounts
+                          WHERE customer_id = c.id
+                          ORDER BY outstanding DESC NULLS LAST
+                          LIMIT 1
+                        ) a ON true
+                        WHERE c.id = :prefer
+                          AND c.id <> :unknown
+                          AND c.tenant_id = :tenant
+                          AND (
+                            RIGHT(regexp_replace(COALESCE(c.phone_primary, ''), '[^0-9]', '', 'g'), 4) = :tail4
+                            OR RIGHT(regexp_replace(COALESCE(c.phone_alt, ''), '[^0-9]', '', 'g'), 4) = :tail4
+                          )
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "prefer": prefer,
+                        "tail4": tail4,
+                        "unknown": unknown_caller_id(),
+                        "tenant": db.current_tenant(),
+                    },
+                ).mappings().first()
+                if preferred:
+                    return _pack(preferred)
             matches = conn.execute(
                 text(
                     """
@@ -1001,7 +1055,7 @@ def lookup_customer_for_verify(
                     """
                 ),
                 {
-                    "tail4": digits[-4:],
+                    "tail4": tail4,
                     "unknown": unknown_caller_id(),
                     "tenant": db.current_tenant(),
                 },
@@ -1241,7 +1295,9 @@ def record_media(
     size_bytes: int | None,
     content_hash: str | None = None,
 ) -> str:
-    kind_n = kind if kind in ("audio", "voicemail", "transcript_export", "redacted_audio", "waveform") else "audio"
+    kind_n = kind if kind in (
+        "audio", "voicemail", "transcript_export", "redacted_audio", "waveform", "sip_audio"
+    ) else "audio"
     mid = _sid("MED")
     with db.engine.begin() as conn:
         conn.execute(

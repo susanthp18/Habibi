@@ -96,6 +96,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         digits = "".join(ch for ch in raw if ch.isdigit())
         lookup_method = method_n
         lookup_value = value
+        prefer_customer_id: str | None = None
         # Reject hallucinated / placeholder values before burning an attempt.
         if method_n == "phone_match":
             if len(digits) < 4:
@@ -132,6 +133,11 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     }, None
             else:
                 lookup_value = digits[-10:] if len(digits) > 10 else digits
+                outbound = session.extra.get("call_direction") == "outbound" or bool(
+                    session.extra.get("attempt_id")
+                )
+                if outbound:
+                    prefer_customer_id = session.customer_id or None
         elif method_n == "account_tail":
             if len(digits) < 4 and len(raw) < 4:
                 return {
@@ -147,6 +153,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             persist.lookup_customer_for_verify,
             method=lookup_method,
             value=lookup_value,
+            prefer_customer_id=prefer_customer_id,
         )
         if not match:
             await asyncio.to_thread(
