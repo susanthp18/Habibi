@@ -53,6 +53,13 @@ def test_voice_after_hours_is_a_critical_barge() -> None:
     assert worst_action(findings, channel="voice") == ACTION_BARGE
 
 
+def test_inbound_after_hours_is_not_a_contact_attempt() -> None:
+    findings = evaluate_turn(
+        _facts(now_hour=19, direction="inbound", bot_text="Just checking in.")
+    )
+    assert all(f.check_id != "hours-breach" for f in findings)
+
+
 def test_whatsapp_after_hours_is_not_a_calling_hours_breach() -> None:
     findings = evaluate_turn(
         _facts(channel="whatsapp", now_hour=21, bot_text="Your EMI is overdue.")

@@ -23,6 +23,23 @@ from voice.session import VoiceSession
 from agent_core.dicts import sub
 
 
+def resolve_call_direction(session, bundle: dict | None = None) -> str:
+    """Outbound vs inbound for live QA / CRM. Stream params carry ``call_type``."""
+    extra = session.extra if isinstance(getattr(session, "extra", None), dict) else {}
+    existing = str(extra.get("call_direction") or "").strip().lower()
+    if existing in {"inbound", "outbound"}:
+        return existing
+    params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
+    bundle = bundle if isinstance(bundle, dict) else {}
+    raw = str(
+        params.get("call_type")
+        or extra.get("call_type")
+        or bundle.get("callDirection")
+        or ""
+    ).strip().lower()
+    return "outbound" if raw == "outbound" else "inbound"
+
+
 def _persona_context(bundle: dict) -> dict[str, str]:
     """Operator-token values this card implies, for the system-prompt render.
 
@@ -367,10 +384,14 @@ def resolve_call(call) -> None:
     # (calling window, DND) must not judge it — flagging a 20:43 rehearsal as an
     # RBI hours breach cost a high-severity self-correction on turn one.
     is_simulated = isinstance(bundle.get("sandboxPersona"), dict)
+    # Stream parameters carry call_type, not callDirection. Defaulting the sink
+    # to inbound here made outbound live QA skip the RBI hours check.
+    call_direction = resolve_call_direction(session, bundle)
+    session.extra["call_direction"] = call_direction
     sink = CrmSink(
         session,
         guardrails=bundle.get("guardrails") or {},
-        direction=str(bundle.get("callDirection") or "inbound"),
+        direction=call_direction,
         simulated=is_simulated,
     )
     # "Max call duration" from the Guardrails tab. It was authored, published

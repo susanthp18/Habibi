@@ -149,7 +149,9 @@ def handle(sink: "CrmSink", job: _Job) -> None:
             # the hour themselves. Without these the RBI calling-window
             # check fired on turn 1 of a 20:43 sandbox call and spent a
             # high-severity self-correction before anyone had spoken.
-            direction=sink.call_direction,
+            direction=str(
+                (sink.session.extra or {}).get("call_direction") or sink.call_direction
+            ),
             simulated=sink.simulated_call,
             recording_disclosed=bool(p.get("recording_disclosed")),
         )
