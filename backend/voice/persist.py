@@ -72,7 +72,10 @@ def resolve_known_customer(customer_id: str | None) -> str | None:
     try:
         with db.engine.connect() as conn:
             found = conn.execute(
-                text("SELECT id FROM customers WHERE id = :id"), {"id": cid}
+                text(
+                    "SELECT id FROM customers WHERE id = :id AND tenant_id = :tenant"
+                ),
+                {"id": cid, "tenant": db.current_tenant()},
             ).scalar()
         return str(found) if found else None
     except Exception:
