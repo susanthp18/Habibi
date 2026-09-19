@@ -233,20 +233,22 @@ class CrmSink:
         except Exception:
             logger.debug("crm sink trace failed", exc_info=True)
 
-    def _note_dropped(self, kind: str) -> None:
-        """Record one CRM job lost to a missing ``interaction_id``.
+    def _note_dropped(self, kind: str, *, why: str = "no_interaction") -> None:
+        """Record one lost CRM or analysis job, counted by kind.
 
-        The first loss on a session logs at ERROR and names the kind — this is
-        persistence failing, not a debug detail. Every later loss only
-        increments the counter; the per-kind totals go out once at teardown.
-        Keeping the drop itself is deliberate: there is no id to write against,
-        so the choice is between losing the row loudly and losing it silently.
+        ``no_interaction`` is a missing ``interaction_id``: the first such loss
+        on a session logs at ERROR. ``analysis_backlog`` is a bounded-queue drop
+        of an understanding/critique/whisper job — the keyword row stays, and
+        we must not pretend an LLM refinement ran. Those only increment the
+        counter; teardown reports the totals.
         """
         with self._drop_lock:
             self._dropped_jobs[kind] = self._dropped_jobs.get(kind, 0) + 1
+            count = self._dropped_jobs[kind]
+            if why != "no_interaction":
+                return
             already_logged = self._drop_logged
             self._drop_logged = True
-            count = self._dropped_jobs[kind]
         if already_logged:
             return
         logger.error(
@@ -530,6 +532,7 @@ class CrmSink:
             except asyncio.QueueEmpty:
                 break
             if dropped is not None:
+                self._note_dropped(dropped.kind or "understanding", why="analysis_backlog")
                 logger.info(
                     "turn understanding dropped (backlog) · session=%s · turn=%s",
                     self.session.session_id,
@@ -599,6 +602,7 @@ class CrmSink:
             except asyncio.QueueEmpty:
                 break
             if dropped is not None:
+                self._note_dropped(dropped.kind or "understanding", why="analysis_backlog")
                 logger.info(
                     "analysis job dropped (backlog) · session=%s · kind=%s",
                     self.session.session_id,

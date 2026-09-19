@@ -125,3 +125,12 @@ def test_bot_turn_intent_stays_on_the_customer_turn_it_answers(monkeypatch) -> N
             bot = candidate
     assert bot is not None
     assert bot.payload["intent"] == "balance_query"
+
+
+def test_analysis_backlog_drop_is_counted() -> None:
+    """A shed refinement must show up in the drop tally, not as a silent info line."""
+    sink = _sink()
+    for i in range(1, 9):
+        sink.enqueue_understanding(turn_index=i, text=f"turn {i}", prior_intent=None)
+    assert sink._dropped_jobs.get("understanding", 0) >= 4
+    assert sink._analysis_queue.qsize() <= CrmSink._ANALYSIS_MAX_DEPTH
