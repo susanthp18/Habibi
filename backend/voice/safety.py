@@ -19,19 +19,14 @@ LOOP_SIMILARITY = 0.92
 SENTIMENT_WINDOW = 4
 SENTIMENT_COLLAPSE = -0.45
 
-# These patterns moved to agent_core/lexicon.py so the text channel, the
-# guardrail evaluator and the sentiment scorer stop carrying divergent copies —
-# all four feed compliance escalation, and they disagreed. The two narrowings
-# this module contributed (an explicit target for `kill`; police context for
-# `fir`, the Hinglish फिर) survived the merge as the canonical form.
-_ABUSE_RE = lexicon.ABUSE_RE
-_LEGAL_RE = lexicon.LEGAL_RE
-
 _HOLD_RE = re.compile(
     r"\b("
     r"hold\s+on|hang\s+on|one\s+(sec|second|minute|moment)|"
     r"just\s+a\s+(sec|second|minute|moment)|give\s+me\s+a\s+(sec|second|minute)|"
-    r"wait\s+a\s+(sec|second|minute)|ek\s+minute|ek\s+sec"
+    r"wait\s+a\s+(sec|second|minute)|ek\s+minute|ek\s+sec|"
+    r"ruko(?:\s+zara)?|hold\s+karo|wait\s+karo|"
+    r"एक\s+मिनट|रुक\s+जाओ|"
+    r"ஒரு\s+நிமிடம்"
     r")\b",
     re.I,
 )
@@ -82,11 +77,11 @@ def detect_bot_loop(recent_bot_texts: list[str]) -> bool:
 
 
 def detect_abuse(text: str) -> bool:
-    return bool(_ABUSE_RE.search(text or ""))
+    return lexicon.is_abusive(text)
 
 
 def detect_legal(text: str) -> bool:
-    return bool(_LEGAL_RE.search(text or ""))
+    return lexicon.is_legal_threat(text)
 
 
 def detect_hold_request(text: str) -> bool:
@@ -101,17 +96,29 @@ def rolling_sentiment_collapsed(scores: list[float]) -> bool:
     return (sum(window) / len(window)) <= SENTIMENT_COLLAPSE
 
 
+_SCRIPT_TO_TAG: tuple[tuple[str, str], ...] = (
+    (r"[\u0900-\u097F]", "hi-IN"),  # Devanagari (Hindi/Marathi)
+    (r"[\u0B80-\u0BFF]", "ta-IN"),  # Tamil
+    (r"[\u0C00-\u0C7F]", "te-IN"),  # Telugu
+    (r"[\u0C80-\u0CFF]", "kn-IN"),  # Kannada
+    (r"[\u0A80-\u0AFF]", "gu-IN"),  # Gujarati
+    (r"[\u0980-\u09FF]", "bn-IN"),  # Bengali
+    (r"[\u0D00-\u0D7F]", "ml-IN"),  # Malayalam
+)
+
+
 def detect_language_signal(text: str) -> str | None:
     """Return a BCP-47 hint when the caller is clearly not on Latin English.
 
     - ``hi-IN`` for Devanagari or common Hindi-in-Latin
-    - ``other`` for other Indic scripts
+    - ``ta-IN`` / ``te-IN`` / … for other Indic scripts (never a bare ``other``,
+      so a card that authored ``ta-IN`` in fallbacks can actually switch)
     """
     raw = text or ""
+    for pattern, tag in _SCRIPT_TO_TAG:
+        if re.search(pattern, raw):
+            return tag
     if _INDIC_SCRIPT_RE.search(raw):
-        # Devanagari → Hindi; other blocks → other
-        if re.search(r"[\u0900-\u097F]", raw):
-            return "hi-IN"
         return "other"
     markers = {m.group(0).lower() for m in _HINDI_LATIN_RE.finditer(raw)}
     # Require at least two distinct Hindi-Latin markers to avoid English FPs.
@@ -135,9 +142,11 @@ def resolve_language_action(
         return None
     current = (current_language or "en-IN").strip()
     fallbacks = [str(x).strip() for x in (fallback_languages or []) if str(x).strip()]
-    if signal == "hi-IN" and signal != current and signal in fallbacks:
-        return {"action": "switch", "language": "hi-IN", "reason": "hindi_detected"}
-    if signal != current and signal not in fallbacks:
+    if signal == current:
+        return None
+    if signal != "other" and signal in fallbacks:
+        return {"action": "switch", "language": signal, "reason": "language_detected"}
+    if signal not in fallbacks:
         return {
             "action": "offer_agent",
             "language": signal,

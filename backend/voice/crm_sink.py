@@ -786,17 +786,38 @@ class CrmSink:
         ix = self.session.interaction_id
         if not ix:
             self._note_dropped("turn_understanding")
-            return
-        try:
-            persist.update_turn_understanding(
-                interaction_id=ix,
-                turn_index=turn_index,
-                intent=result.intent,
-                intent_score=result.intent_score,
-                sentiment=result.sentiment,
-            )
-        except Exception:
-            logger.debug("turn understanding persist failed", exc_info=True)
+        else:
+            try:
+                persist.update_turn_understanding(
+                    interaction_id=ix,
+                    turn_index=turn_index,
+                    intent=result.intent,
+                    intent_score=result.intent_score,
+                    sentiment=result.sentiment,
+                )
+            except Exception:
+                logger.debug("turn understanding persist failed", exc_info=True)
+
+        # Add-only tripwires: the LLM may raise abuse/legal the regex missed.
+        # It cannot retract a keyword hit — those already fired on the audio path.
+        text = str(p.get("text") or "")
+        if result.abuse and not detect_abuse(text):
+            self._add_understanding_tripwire("compliance", "abuse_detected")
+        if result.legal and not detect_legal(text):
+            self._add_understanding_tripwire("compliance", "legal_mention")
+
+    def _add_understanding_tripwire(self, reason: str, detail: str) -> None:
+        """Schedule an add-only escalation from the analysis worker thread."""
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            try:
+                asyncio.run_coroutine_threadsafe(self._trigger_escalate(reason, detail), loop)
+                return
+            except Exception:
+                logger.debug("threadsafe understanding escalate failed", exc_info=True)
+        if self.session.interaction_id:
+            kind = "escalation"
+            self.enqueue("live_alert", alert_kind=kind, reason=detail or reason)
 
     def enqueue_tool_call(
         self,

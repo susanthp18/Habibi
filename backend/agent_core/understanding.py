@@ -294,7 +294,7 @@ def keyword_understanding(
         sentiment_label=sentiment_label(score),
         abuse=lexicon.is_abusive(text),
         legal=lexicon.is_legal_threat(text),
-        language="en",
+        language=lexicon.spoken_language(text),
         english_gloss=None,
         source=SOURCE_KEYWORD,
     )

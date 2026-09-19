@@ -470,6 +470,18 @@ def test_hindi_payment_alone_not_language_switch() -> None:
 
     assert detect_language_signal("I want to make a payment today") is None
     assert detect_language_signal("haan theek hai") == "hi-IN"
+    assert detect_language_signal("வணக்கம்") == "ta-IN"
+
+
+def test_tamil_script_switches_when_authored_in_fallbacks() -> None:
+    from voice.safety import resolve_language_action
+
+    action = resolve_language_action(
+        "வணக்கம்",
+        current_language="en-IN",
+        fallback_languages=["hi-IN", "ta-IN", "en-IN"],
+    )
+    assert action == {"action": "switch", "language": "ta-IN", "reason": "language_detected"}
 
 
 class _FakeResult:

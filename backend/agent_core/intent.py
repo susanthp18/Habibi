@@ -7,9 +7,9 @@ import re
 INTENT_KEYWORDS: dict[str, list[str]] = {
     "balance_query": ["balance", "outstanding", "how much", "what do i owe", "dues", "emi", "late fee", "penalty"],
     "dispute": ["dispute", "didn't make", "not me", "unauthorised", "unauthorized", "wrong charge", "chargeback"],
-    "hardship": ["job", "lost", "cannot pay", "can't pay", "difficult", "hardship", "defer", "restructure", "tenure"],
+    "hardship": ["job", "lost", "cannot pay", "can't pay", "difficult", "hardship", "defer", "restructure", "tenure", "naukri", "paisa nahi", "nahi de sakta"],
     "waiver_request": ["waive", "waiver", "remove fee", "cancel fee", "goodwill"],
-    "payment_intent": ["pay", "payment", "paying", "settle", "clear", "upi", "link", "net banking", "netbanking"],
+    "payment_intent": ["pay", "payment", "paying", "settle", "clear", "upi", "link", "net banking", "netbanking", "pay karunga", "paise de"],
     "product_faq": [
         "insurance",
         "policy",
@@ -48,6 +48,8 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "real person",
         "human agent",
         "customer care",
+        "vakil",
+        "adalat",
     ],
     "help_capabilities": [
         "what can you do",

@@ -49,6 +49,12 @@ ABUSE_PATTERNS: tuple[str, ...] = (
     # Requires a target. See the module docstring.
     r"kill\s+(?:you|yourself)",
     r"harass",
+    r"madarchod",
+    r"behenchod",
+    r"bhenchod",
+    r"chutiya",
+    r"harami",
+    r"gandu",
 )
 
 # Human-readable surface forms. Kept because it is the documented, importable
@@ -71,6 +77,11 @@ ABUSE_LEXICON: tuple[str, ...] = (
     "damn you",
     "kill yourself",
     "harass",
+    "madarchod",
+    "behenchod",
+    "chutiya",
+    "harami",
+    "gandu",
 )
 
 ABUSE_RE = re.compile(r"\b(?:" + "|".join(ABUSE_PATTERNS) + r")\w*", re.I)
@@ -95,6 +106,19 @@ LEGAL_PATTERNS: tuple[str, ...] = (
     r"(?:file|lodge|register|filing|lodging|registering)\s+(?:an?\s+)?fir\b",
     r"fir\s+(?:against|karunga|karoonga|kar\s+doonga|complaint|lodge|file)\b",
     r"police\s+(?:me[in]?\s+)?fir\b",
+    # Hinglish / Indic legal. ``vakil`` / ``adalat`` are the spoken forms the
+    # English ``lawyer`` / ``court`` patterns miss; courtesy-like substrings
+    # are not listed.
+    r"vakil",
+    r"vakeel",
+    r"adalat",
+    r"nyayalay",
+    r"kacheri",
+    r"वकील",
+    r"अदालत",
+    r"न्यायालय",
+    r"वக்கீல்",
+    r"நீதிமன்றம்",
 )
 
 # No trailing \w* here: "court" must not match "courtesy", and unlike abuse
@@ -138,9 +162,18 @@ OPTOUT_PATTERNS: tuple[str, ...] = (
 #: suffix wildcard on ``opt out`` would match ``opt outside``.
 OPTOUT_RE = re.compile(r"\b(?:" + "|".join(OPTOUT_PATTERNS) + r")\b", re.I)
 
+# Indic scripts do not play well with ``\b`` (virama / matra are ``\w``, but
+# callers type them in combinations the ASCII-oriented wrapper then misses).
+_INDIC_ABUSE_RE = re.compile(r"मादरचोद|भेनचोद|चूतिया|हरामी")
+_INDIC_LEGAL_RE = re.compile(r"वकील|अदालत|न्यायालय|வக்கீல்|நீதிமன்றம்")
+_INDIC_OPTOUT_RE = re.compile(
+    r"कॉल\s+मत\s+कर(?:ो|ना|िए)|फोन\s+मत\s+कर(?:ो|ना|िए)|कॉल\s+बंद\s+कर(?:ो|ना|िए|दो)"
+)
+
 
 def is_abusive(text: str) -> bool:
-    return bool(ABUSE_RE.search(text or ""))
+    raw = text or ""
+    return bool(ABUSE_RE.search(raw) or _INDIC_ABUSE_RE.search(raw))
 
 
 def withdraws_consent(text: str) -> bool:
@@ -151,11 +184,13 @@ def withdraws_consent(text: str) -> bool:
     "stop calling me", and no golden set is needed to justify a regex that can
     only ever suppress.
     """
-    return bool(OPTOUT_RE.search(text or ""))
+    raw = text or ""
+    return bool(OPTOUT_RE.search(raw) or _INDIC_OPTOUT_RE.search(raw))
 
 
 def is_legal_threat(text: str) -> bool:
-    return bool(LEGAL_RE.search(text or ""))
+    raw = text or ""
+    return bool(LEGAL_RE.search(raw) or _INDIC_LEGAL_RE.search(raw))
 
 
 def abuse_hits(text: str) -> int:
@@ -166,3 +201,21 @@ def abuse_hits(text: str) -> int:
     escalation already fired on the first.
     """
     return len({m.group(0).lower() for m in ABUSE_RE.finditer(text or "")})
+
+
+def spoken_language(text: str) -> str:
+    """Keyword-floor language tag for :class:`TurnUnderstanding`.
+
+    ``en`` / ``hi`` / ``other`` — the three values the understanding merge
+    already accepts. Script only: Latin Hinglish stays ``en`` here so a single
+    ``haan`` does not flip the stored language.
+    """
+    raw = text or ""
+    if re.search(r"[\u0900-\u097F]", raw):
+        return "hi"
+    if re.search(
+        r"[\u0980-\u09FF\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F]",
+        raw,
+    ):
+        return "other"
+    return "en"

@@ -31,6 +31,10 @@ _POS = (
     "sure",
     "appreciate",
     "helpful",
+    "shukriya",
+    "dhanyavad",
+    "theek",
+    "accha",
 )
 _NEG = (
     "angry",
@@ -58,6 +62,10 @@ _NEG = (
     "horrible",
     "useless",
     "scam",
+    "gussa",
+    "pareshan",
+    "bakwas",
+    "bekar",
 )
 
 @lru_cache(maxsize=512)

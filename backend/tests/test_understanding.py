@@ -75,16 +75,15 @@ def fake_llm(monkeypatch):
 
 
 def test_hinglish_hardship_is_understood(llm_on, fake_llm):
-    """The keyword classifier scores this out_of_scope / 0.00.
+    """The keyword classifier now catches the Indic hardship floor.
 
-    Which routes a distressed caller to the wrong KB corpus, fires no
-    escalation, and leaves them eligible for an upsell pitch.
+    The LLM still supplies language / gloss when enabled; the regex must not
+    leave a distressed Hindi turn as ``out_of_scope``.
     """
     text = "paisa nahi hai bhai, naukri chali gayi pichle mahine"
 
     baseline = understanding.keyword_understanding(text)
-    assert baseline.intent == "out_of_scope"
-    assert baseline.sentiment == 0.0
+    assert baseline.intent == "hardship"
 
     fake_llm.state["response"] = _tool_response(
         intent="hardship",

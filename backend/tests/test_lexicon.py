@@ -67,6 +67,8 @@ def test_ordinary_speech_is_not_a_legal_threat(text: str) -> None:
         "this is harassment, plain and simple",
         "I will kill you",
         "go to hell",
+        "madarchod",
+        "यह हरामी है",
     ],
 )
 def test_abuse_trips(text: str) -> None:
@@ -82,6 +84,9 @@ def test_abuse_trips(text: str) -> None:
         "see you in court",
         "I'm going to the ombudsman",
         "this is going to the consumer forum",
+        "main vakil se baat karunga",
+        "अदालत जाऊँगा",
+        "எனக்கு வக்கீல் வேணும்",
     ],
 )
 def test_legal_threat_trips(text: str) -> None:
@@ -110,6 +115,7 @@ def test_temporal_deferral_is_not_consent_withdrawal(text: str) -> None:
         "don't call me",
         "do not call me again",
         "please stop calling",
+        "कॉल मत करो",
     ],
 )
 def test_permanent_opt_out_still_withdraws_consent(text: str) -> None:
@@ -225,3 +231,25 @@ def test_abuse_lexicon_still_importable_from_sentiment() -> None:
 
     assert "stfu" in ABUSE_LEXICON
     assert ABUSE_LEXICON is lexicon.ABUSE_LEXICON
+
+
+def test_hold_request_hears_indic_pause() -> None:
+    from voice.safety import detect_hold_request
+
+    assert detect_hold_request("ruko zara") is True
+    assert detect_hold_request("एक मिनट") is True
+    assert detect_hold_request("I will pay tomorrow") is False
+
+
+def test_spoken_language_tags_script_not_latin_hinglish() -> None:
+    assert lexicon.spoken_language("I will pay tomorrow") == "en"
+    assert lexicon.spoken_language("paisa nahi hai bhai") == "en"
+    assert lexicon.spoken_language("पैसा नहीं है") == "hi"
+    assert lexicon.spoken_language("வணக்கம்") == "other"
+
+
+def test_hinglish_sentiment_seeds() -> None:
+    from agent_core.sentiment import estimate_sentiment
+
+    assert estimate_sentiment("shukriya, theek hai") > 0.0
+    assert estimate_sentiment("bahut gussa aa raha hai, bakwas") < 0.0

@@ -326,3 +326,51 @@ def test_second_turn_legal_still_alerts_after_abuse(sink: CrmSink, monkeypatch) 
     assert "abuse_detected" in alerts
     assert "legal_mention" in alerts
     assert len(transferred) == 1
+
+
+def test_llm_abuse_adds_escalation_when_keyword_missed(sink: CrmSink, monkeypatch) -> None:
+    from agent_core.understanding import TurnUnderstanding
+
+    alerts: list[str] = []
+    orig = sink.enqueue
+
+    def _enqueue(kind: str, **payload):
+        if kind == "live_alert":
+            alerts.append(str(payload.get("reason") or ""))
+        return orig(kind, **payload)
+
+    sink.enqueue = _enqueue  # type: ignore[method-assign]
+    monkeypatch.setattr("voice.persist.record_turn_perception", lambda **_k: None)
+    monkeypatch.setattr("voice.persist.update_turn_understanding", lambda **_k: True)
+    monkeypatch.setattr(
+        "agent_core.understanding.analyze_turn",
+        lambda *_a, **_k: TurnUnderstanding(
+            intent="other", abuse=True, legal=False, source="llm"
+        ),
+    )
+    sink._handle_understanding(_job(turn_index=1, text="please wait a moment"))
+    assert alerts.count("abuse_detected") == 1
+
+
+def test_keyword_hit_plus_llm_false_does_not_retract(sink: CrmSink, monkeypatch) -> None:
+    from agent_core.understanding import TurnUnderstanding
+
+    alerts: list[str] = []
+    orig = sink.enqueue
+
+    def _enqueue(kind: str, **payload):
+        if kind == "live_alert":
+            alerts.append(str(payload.get("reason") or ""))
+        return orig(kind, **payload)
+
+    sink.enqueue = _enqueue  # type: ignore[method-assign]
+    monkeypatch.setattr("voice.persist.record_turn_perception", lambda **_k: None)
+    monkeypatch.setattr("voice.persist.update_turn_understanding", lambda **_k: True)
+    monkeypatch.setattr(
+        "agent_core.understanding.analyze_turn",
+        lambda *_a, **_k: TurnUnderstanding(
+            intent="other", abuse=False, legal=False, source="llm"
+        ),
+    )
+    sink._handle_understanding(_job(turn_index=1, text="you idiot"))
+    assert alerts == []
