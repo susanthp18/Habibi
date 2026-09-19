@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from agent_core import classify_intent
+from agent_core import resolve_intent
 from agent_core import turn_critic
 from agent_core.guardrails import mentions_recording_disclosure
 from voice import crm_sink_jobs, crm_sink_observer, persist
@@ -198,6 +198,10 @@ class CrmSink:
         self._on_language: LanguageHandler | None = None
         self._stt_language = "en-IN"
         self._fallback_languages: list[str] = ["hi-IN", "en-IN"]
+        # Intent of the customer turn the next bot reply answers. session.understanding
+        # is the latest analysed turn and can race ahead of the reply.
+        self._intent_for_next_bot: str | None = None
+        self._intent_for_next_bot_turn: int | None = None
 
     def configure_live_handlers(
         self,
@@ -739,6 +743,8 @@ class CrmSink:
         if turn_index >= self.session.understanding_turn_index:
             self.session.understanding = result
             self.session.understanding_turn_index = turn_index
+        if self._intent_for_next_bot_turn == turn_index:
+            self._intent_for_next_bot = result.intent
 
         # W9: keep the classification as provenance-tagged facts, not only as
         # three columns on the transcript. Above the `source != "llm"` return
@@ -928,8 +934,11 @@ class CrmSink:
                 logger.debug("user.turn trace failed", exc_info=True)
             turn_index = self.session.next_turn_index()
             score, label = persist.score_customer_text(text)
-            intent, intent_scores = classify_intent(text)
+            prior = getattr(self.session.understanding, "intent", None)
+            intent, intent_scores = resolve_intent(text, prior_intent=prior)
             top_score = float(intent_scores.get(intent) or 0.0) if intent_scores else None
+            self._intent_for_next_bot = intent
+            self._intent_for_next_bot_turn = turn_index
             self._sentiment_scores.append(score)
             self.enqueue(
                 "customer_turn",
@@ -1057,17 +1066,15 @@ class CrmSink:
         # Both halves of the exchange, so the analyser can see that the
         # caller's next turn repeats a request this reply did not satisfy.
         self._remember_turn("bot", text)
-        # This drives the guardrail evaluator. Reuse the classification the
-        # analysis queue already produced for the customer turn this reply
-        # answers, rather than re-deriving one — free, and on a Hindi turn
-        # the keyword re-derivation returns out_of_scope every time. Falls
-        # back to the keyword path when the refinement has not landed yet;
-        # no Azure call is possible here, this handler is on the pipeline.
-        cached = self.session.understanding
-        if cached is not None:
-            intent = cached.intent
-        else:
-            intent, _ = classify_intent(self._last_customer_text or text)
+        # This drives the guardrail evaluator. Use the intent snapshotted for
+        # the customer turn this reply answers — session.understanding is the
+        # latest analysed turn and can belong to a later utterance still in
+        # flight on the analysis queue. Falls back to resolve_intent when no
+        # customer turn has been classified yet.
+        intent = self._intent_for_next_bot
+        if not intent:
+            prior = getattr(self.session.understanding, "intent", None)
+            intent, _ = resolve_intent(self._last_customer_text or text, prior_intent=prior)
         # Consume the most recent LLM metrics for this bot turn.
         ttfb = self._pending_ttfb_ms
         ttfa = self._pending_ttfa_ms

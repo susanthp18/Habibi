@@ -431,23 +431,33 @@ def update_turn_understanding(
         )
         updated = bool(result.rowcount)
         if updated:
-            # Match on the row this turn wrote rather than by at_sec, which the
-            # sink computes independently and is not a key.
+            # Join the transcript row for this turn_index and rewrite the
+            # sentiment point stamped at the same at_sec. ORDER BY at_sec DESC
+            # LIMIT 1 rewrote the newest sparkline point whenever a later turn
+            # had already landed — the Inbox then plotted turn 3's score on
+            # turn 4's moment.
             conn.execute(
                 text(
                     """
                     UPDATE interaction_sentiment
                        SET score = :score, label = :label
                      WHERE id = (
-                       SELECT id FROM interaction_sentiment
-                        WHERE interaction_id = :interaction_id
-                        ORDER BY at_sec DESC, created_at DESC
+                       SELECT s.id
+                         FROM interaction_sentiment s
+                         INNER JOIN interaction_transcript t
+                           ON t.interaction_id = s.interaction_id
+                          AND t.at_sec = s.at_sec
+                        WHERE t.interaction_id = :interaction_id
+                          AND t.turn_index = :turn_index
+                          AND t.speaker = 'customer'
+                        ORDER BY s.created_at DESC
                         LIMIT 1
                      )
                     """
                 ),
                 {
                     "interaction_id": interaction_id,
+                    "turn_index": int(turn_index),
                     "score": round(float(sentiment), 3),
                     "label": sentiment_label(sentiment),
                 },
