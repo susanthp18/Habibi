@@ -31,6 +31,10 @@ def resolve_call_direction(session, bundle: dict | None = None) -> str:
         return existing
     params = extra.get("twilio_params") if isinstance(extra.get("twilio_params"), dict) else {}
     bundle = bundle if isinstance(bundle, dict) else {}
+    # Truncated HABIBI_CTX used to default inbound and skip the RBI hours check.
+    invalid = str(params.get("ctx_invalid") or extra.get("ctx_invalid") or "").strip().lower()
+    if invalid in {"1", "true", "yes"}:
+        return "outbound"
     raw = str(
         params.get("call_type")
         or extra.get("call_type")
