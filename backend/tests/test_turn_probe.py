@@ -68,12 +68,16 @@ def test_a_complete_response_is_reported_once() -> None:
 
 
 def test_barge_in_still_reports_the_turn_and_flags_it() -> None:
-    """The old path lost this turn entirely — the end frame was discarded."""
+    """The old path lost this turn entirely — the end frame was discarded.
+
+    Post-interrupt tokens are the unspoken remainder; they must not land in CRM.
+    """
     rec, _ = _run(
         [
             LLMFullResponseStartFrame(),
             TextFrame("Thanks, for 5 members you can consider"),
             InterruptionFrame(),
+            TextFrame(" a five-year plan at twelve percent"),
             LLMFullResponseEndFrame(),
         ]
     )
@@ -132,7 +136,7 @@ def test_spoke_flag_tracks_the_in_flight_response() -> None:
         await probe.process_frame(TextFrame("Sure, I can set that up."), FrameDirection.DOWNSTREAM)
         assert probe.spoke_this_response is True
         await probe.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
-        assert probe.spoke_this_response is False
+        assert probe.spoke_this_response is True
 
     asyncio.run(drive())
 

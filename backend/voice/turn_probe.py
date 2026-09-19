@@ -118,8 +118,9 @@ class SpokeThisResponseProbe(FrameProcessor):
                 self._interrupted = False
             elif isinstance(frame, InterruptionFrame):
                 # Barge-in. The response may still emit an end frame (the LLM
-                # keeps streaming); flag it and let _close report it.
-                self._spoke = False
+                # keeps streaming). Do not clear ``_spoke``: the filler reads
+                # it, and talking over the caller is the failure this flag
+                # exists to prevent. Later TextFrames are the unspoken remainder.
                 self._interrupted = True
             elif isinstance(frame, LLMFullResponseEndFrame):
                 await self._close(interrupted=self._interrupted)
@@ -129,19 +130,22 @@ class SpokeThisResponseProbe(FrameProcessor):
                 # turn is not dropped from the transcript.
                 await self._close(interrupted=self._interrupted)
             elif isinstance(frame, TextFrame):
-                text = getattr(frame, "text", "") or ""
-                if text.strip():
-                    self._spoke = True
-                    if not self._first_tts_emitted:
-                        self._first_tts_emitted = True
-                        cb = self._on_first_tts
-                        if cb is not None:
-                            try:
-                                cb(text.strip())
-                            except Exception:
-                                logger.debug("first-tts callback failed", exc_info=True)
-                if self._open and text:
-                    self._parts.append(text)
+                if self._interrupted:
+                    pass
+                else:
+                    text = getattr(frame, "text", "") or ""
+                    if text.strip():
+                        self._spoke = True
+                        if not self._first_tts_emitted:
+                            self._first_tts_emitted = True
+                            cb = self._on_first_tts
+                            if cb is not None:
+                                try:
+                                    cb(text.strip())
+                                except Exception:
+                                    logger.debug("first-tts callback failed", exc_info=True)
+                    if self._open and text:
+                        self._parts.append(text)
         except Exception:
             logger.debug("spoke-probe failed", exc_info=True)
 
