@@ -1053,7 +1053,9 @@ class CrmSink:
         ``TTSService`` clears its pending ``LLMFullResponseEndFrame`` map on
         interruption. See voice/turn_probe.py for the full derivation.
         """
-        text = (text or "").strip()
+        from voice.spoken_text import to_spoken
+
+        text = to_spoken(text or "").strip()
         if not text:
             return
         try:

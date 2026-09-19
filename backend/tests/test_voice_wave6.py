@@ -134,3 +134,23 @@ def test_analysis_backlog_drop_is_counted() -> None:
         sink.enqueue_understanding(turn_index=i, text=f"turn {i}", prior_intent=None)
     assert sink._dropped_jobs.get("understanding", 0) >= 4
     assert sink._analysis_queue.qsize() <= CrmSink._ANALYSIS_MAX_DEPTH
+
+
+def test_bot_turn_persists_spoken_text() -> None:
+    """CRM text must match what TTS speaks, not the pre-filter LLM string."""
+    from voice.spoken_text import to_spoken
+
+    sink = _sink()
+    raw = "Your EMI is due on **14 March**. [quietly] Please pay."
+    asyncio.run(sink.record_bot_turn(raw))
+    bot = None
+    while not sink._queue.empty():
+        candidate = sink._queue.get_nowait()
+        if candidate is not None and candidate.kind == "bot_turn":
+            bot = candidate
+    assert bot is not None
+    spoken = to_spoken(raw).strip()
+    assert bot.payload["text"] == spoken
+    assert "[" not in bot.payload["text"]
+    assert "**" not in bot.payload["text"]
+
