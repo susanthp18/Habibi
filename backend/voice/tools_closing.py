@@ -31,6 +31,23 @@ from voice.tool_state import (
 logger = logging.getLogger(__name__)
 
 
+def compliance_inbox_flag(detail: str | None, last_customer_text: str | None) -> str:
+    """Inbox flag for a ``compliance`` escalation.
+
+    The last utterance is often "okay" after the legal threat; the tool detail
+    (``legal_mention`` / ``abuse_detected``) is what actually fired.
+    """
+    from agent_core import lexicon
+
+    detail_l = str(detail or "").lower()
+    last = str(last_customer_text or "").lower()
+    if "legal" in detail_l or lexicon.is_legal_threat(last):
+        return "legal-threat"
+    if "abuse" in detail_l or lexicon.is_abusive(last):
+        return "abusive-language"
+    return "compliance"
+
+
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
     _node = ctx._node
@@ -186,12 +203,8 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 elif reason_l == "dispute":
                     route_ctx["intent"] = "dispute"
                 elif reason_l == "compliance":
-                    from agent_core import lexicon
-
                     last = str(_sink_call("last_customer_text", "") or "")
-                    route_ctx["guardrail_flag"] = (
-                        "legal-threat" if lexicon.is_legal_threat(last.lower()) else "abusive-language"
-                    )
+                    route_ctx["guardrail_flag"] = compliance_inbox_flag(detail, last)
                 elif reason_l == "sentiment_drop":
                     route_ctx["sentiment"] = "angry"
                 elif reason_l in {"verification_failed", "verify_failed"}:
