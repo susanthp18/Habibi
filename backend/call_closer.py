@@ -634,10 +634,10 @@ def _record_obligations(
                 """
                 INSERT INTO agent_obligations (
                   id, tenant_id, customer_id, interaction_id, attempt_id,
-                  kind, due_at, detail, state, created_at, updated_at
+                  kind, due_at, detail, verbatim, state, created_at, updated_at
                 ) VALUES (
                   :id, :tenant, :customer, :ix, :attempt,
-                  :kind, :due_at, CAST(:detail AS jsonb), 'open', now(), now()
+                  :kind, :due_at, CAST(:detail AS jsonb), :verbatim, 'open', now(), now()
                 )
                 """
             ),
@@ -650,6 +650,7 @@ def _record_obligations(
                 "kind": kind,
                 "due_at": due_at,
                 "detail": json.dumps(detail, default=str),
+                "verbatim": args.get("verbatim") if isinstance(args.get("verbatim"), str) else "",
             },
         )
         applied.append(f"obligation:{kind}:{obligation_id}")
