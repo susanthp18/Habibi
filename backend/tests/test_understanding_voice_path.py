@@ -273,3 +273,56 @@ def _job(*, turn_index: int, text: str):
     from voice.crm_sink import _Job
 
     return _Job("understanding", {"turn_index": turn_index, "text": text, "prior_intent": None})
+
+
+def test_same_turn_abuse_and_legal_both_alert(sink: CrmSink, monkeypatch) -> None:
+    monkeypatch.setattr("voice.persist.score_customer_text", lambda t: (-0.8, "negative"))
+    transferred: list[tuple[str, str]] = []
+    alerts: list[str] = []
+
+    async def _esc(reason: str, detail: str) -> None:
+        transferred.append((reason, detail))
+
+    orig = sink.enqueue
+
+    def _enqueue(kind: str, **payload):
+        if kind == "live_alert":
+            alerts.append(str(payload.get("reason") or ""))
+        return orig(kind, **payload)
+
+    sink.enqueue = _enqueue  # type: ignore[method-assign]
+    sink.configure_live_handlers(on_escalate=_esc)
+    user, _ = _attach(sink)
+    asyncio.run(
+        user.handlers["on_user_turn_stopped"](
+            None, None, _Message("you idiot I will see you in court")
+        )
+    )
+    assert "abuse_detected" in alerts
+    assert "legal_mention" in alerts
+    assert len(transferred) == 1
+
+
+def test_second_turn_legal_still_alerts_after_abuse(sink: CrmSink, monkeypatch) -> None:
+    monkeypatch.setattr("voice.persist.score_customer_text", lambda t: (-0.8, "negative"))
+    transferred: list[tuple[str, str]] = []
+    alerts: list[str] = []
+
+    async def _esc(reason: str, detail: str) -> None:
+        transferred.append((reason, detail))
+
+    orig = sink.enqueue
+
+    def _enqueue(kind: str, **payload):
+        if kind == "live_alert":
+            alerts.append(str(payload.get("reason") or ""))
+        return orig(kind, **payload)
+
+    sink.enqueue = _enqueue  # type: ignore[method-assign]
+    sink.configure_live_handlers(on_escalate=_esc)
+    user, _ = _attach(sink)
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("you idiot")))
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("see you in court")))
+    assert "abuse_detected" in alerts
+    assert "legal_mention" in alerts
+    assert len(transferred) == 1

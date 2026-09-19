@@ -850,9 +850,9 @@ class CrmSink:
         self.enqueue("live_alert", alert_kind=kind, reason=reason)
 
     async def _trigger_escalate(self, reason: str, detail: str) -> None:
-        if self._escalated_live:
-            return
-        self._escalated_live = True
+        # Alerts stay open for the rest of the call: legal after abuse must still
+        # land on the floor. The latch only covers the live transfer so a second
+        # tripwire cannot dial the supervisor twice.
         ix = self.session.interaction_id
         if ix:
             try:
@@ -869,6 +869,9 @@ class CrmSink:
             # one — but the alert that would have told the floor console why is
             # gone. Say so; this is the loss that used to be invisible.
             self._note_dropped("live_alert_escalation")
+        if self._escalated_live:
+            return
+        self._escalated_live = True
         if self._on_escalate is not None:
             try:
                 await self._on_escalate(reason, detail)
@@ -970,9 +973,9 @@ class CrmSink:
             try:
                 if detect_abuse(text):
                     await self._trigger_escalate("compliance", "abuse_detected")
-                elif detect_legal(text):
+                if detect_legal(text):
                     await self._trigger_escalate("compliance", "legal_mention")
-                elif rolling_sentiment_collapsed(self._sentiment_scores):
+                if rolling_sentiment_collapsed(self._sentiment_scores):
                     # Same window the detector used. A hardcoded slice here was
                     # free to drift from SENTIMENT_WINDOW, so the average an
                     # agent reads in the escalation detail would stop matching
