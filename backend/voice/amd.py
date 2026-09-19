@@ -32,6 +32,7 @@ the reason so the gap is visible rather than silent.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any, Awaitable, Callable
 from env_utils import as_bool
@@ -439,13 +440,16 @@ async def _record_voicemail_state(session: Any, *, left: bool, reason: str | Non
                         "UPDATE call_attempts SET context = context || CAST(:patch AS jsonb), "
                         "updated_at = now() WHERE id = :id"
                     ),
-                    {"id": str(attempt_id), "patch": '{"voicemailSkipped": "%s"}' % reason},
+                    {
+                        "id": str(attempt_id),
+                        "patch": json.dumps({"voicemailSkipped": reason}),
+                    },
                 )
 
     try:
         await asyncio.to_thread(_write)
     except Exception:
-        logger.debug("voicemail state write failed", exc_info=True)
+        logger.warning("voicemail state write failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

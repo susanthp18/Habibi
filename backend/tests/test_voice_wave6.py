@@ -154,3 +154,117 @@ def test_bot_turn_persists_spoken_text() -> None:
     assert "[" not in bot.payload["text"]
     assert "**" not in bot.payload["text"]
 
+
+def test_voicemail_skip_reason_survives_quotes(monkeypatch) -> None:
+    """A quoted skip reason must not blow the jsonb patch or roll back the mark."""
+    import json
+
+    from voice import amd
+
+    captured: list[dict] = []
+    marked: list[tuple] = []
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            captured.append(dict(params or {}))
+            return None
+
+    class _Begin:
+        def __enter__(self):
+            return _Conn()
+
+        def __exit__(self, *a):
+            return False
+
+    class _Engine:
+        def begin(self):
+            return _Begin()
+
+    monkeypatch.setattr("db.engine", _Engine())
+    monkeypatch.setattr(
+        "outbound.mark", lambda conn, aid, **kw: marked.append((aid, kw))
+    )
+    session = SimpleNamespace(extra={"attempt_id": "CA-QUOTE"})
+    reason = 'no grievance contact, box said "leave a message"'
+    asyncio.run(amd._record_voicemail_state(session, left=False, reason=reason))
+    assert marked
+    assert marked[0][0] == "CA-QUOTE"
+    assert marked[0][1].get("state") == "voicemail_skipped"
+    patch = json.loads(captured[0]["patch"])
+    assert patch["voicemailSkipped"] == reason
+
+
+def test_obligation_insert_stores_verbatim() -> None:
+    import call_closer
+
+    captured: list[tuple[str, dict]] = []
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            captured.append((str(sql), dict(params or {})))
+            return None
+
+    call_closer._record_obligations(
+        _Conn(),
+        attempt={
+            "id": "CA-OB",
+            "tenant_id": "T1",
+            "customer_id": "C1",
+            "interaction_id": "IX-OB",
+            "ended_at": None,
+        },
+        tools=[
+            {
+                "tool_name": "request_callback",
+                "result_ok": True,
+                "args": {
+                    "preferredAt": "2026-01-06T18:00:00Z",
+                    "verbatim": "I'll call you Tuesday at six",
+                },
+            }
+        ],
+    )
+    sql, params = captured[0]
+    assert "verbatim" in sql.lower()
+    assert params["verbatim"] == "I'll call you Tuesday at six"
+
+
+def test_obligation_insert_uses_empty_verbatim_when_missing() -> None:
+    import call_closer
+
+    captured: list[dict] = []
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            captured.append(dict(params or {}))
+            return None
+
+    call_closer._record_obligations(
+        _Conn(),
+        attempt={
+            "id": "CA-OB2",
+            "tenant_id": "T1",
+            "customer_id": "C1",
+            "interaction_id": "IX-OB2",
+            "ended_at": None,
+        },
+        tools=[
+            {
+                "tool_name": "request_documents",
+                "result_ok": True,
+                "args": {"document": "income_proof"},
+            }
+        ],
+    )
+    assert captured[0]["verbatim"] == ""
+
+
+def test_closer_claim_sql_defers_active_interactions() -> None:
+    import inspect
+
+    import call_closer
+
+    src = inspect.getsource(call_closer.claim_one)
+    assert "status = 'active'" in src
+    assert "NOT EXISTS" in src
+    assert "make_interval(secs => :grace)" in src
