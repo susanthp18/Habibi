@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 INTENT_KEYWORDS: dict[str, list[str]] = {
     "balance_query": ["balance", "outstanding", "how much", "what do i owe", "dues", "emi", "late fee", "penalty"],
     "dispute": ["dispute", "didn't make", "not me", "unauthorised", "unauthorized", "wrong charge", "chargeback"],
     "hardship": ["job", "lost", "cannot pay", "can't pay", "difficult", "hardship", "defer", "restructure", "tenure"],
     "waiver_request": ["waive", "waiver", "remove fee", "cancel fee", "goodwill"],
-    "payment_intent": ["pay", "settle", "clear", "upi", "link", "net banking", "netbanking"],
+    "payment_intent": ["pay", "payment", "paying", "settle", "clear", "upi", "link", "net banking", "netbanking"],
     "product_faq": [
         "insurance",
         "policy",
@@ -139,6 +141,21 @@ def _normalize(text: str) -> str:
     return " ".join((text or "").lower().split()).strip(".,!? ")
 
 
+def _keyword_hit(haystack: str, kw: str) -> bool:
+    """Whole-token match for single words; substring for multi-word phrases.
+
+    ``kw in haystack`` treated ``court`` as a hit inside ``courtesy`` /
+    ``courteous`` and ``covered`` inside ``discovered``, which then auto-escalated
+    a polite borrower. Phrases keep substring match because they already span
+    tokens (``call a human``, ``net banking``).
+    """
+    if not kw:
+        return False
+    if any(ch.isspace() for ch in kw) or "-" in kw:
+        return kw in haystack
+    return bool(re.search(rf"\b{re.escape(kw)}\b", haystack))
+
+
 def is_correction(text: str) -> bool:
     """True when the customer is rejecting the previous bot reply / topic."""
     t = _normalize(text)
@@ -197,7 +214,7 @@ def classify_intent(text: str) -> tuple[str, dict[str, float]]:
     scores: dict[str, float] = {}
     total = 0.0
     for key, kws in INTENT_KEYWORDS.items():
-        s = float(sum(1 for kw in kws if kw in t))
+        s = float(sum(1 for kw in kws if _keyword_hit(t, kw)))
         scores[key] = s
         total += s
     if total <= 0:
