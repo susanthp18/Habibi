@@ -103,7 +103,6 @@ _WAIVER_REFUSAL_RE = re.compile(
     r"unable|isn(?:'|\u2019)?t|aren(?:'|\u2019)?t|doesn(?:'|\u2019)?t|"
     r"don(?:'|\u2019)?t|do\s+not|never|no\s+authority|not\s+authori[sz]ed|"
     r"not\s+able|not\s+permitted|not\s+allowed|not\s+in\s+a\s+position)\b"
-    r"|\bescalat\w*"
     r"|\b(?:supervisor|manager|senior|specialist|team)\s+(?:review|approval|sign-?off)\b"
     r"|\b(?:require|requires|required|need|needs|needed|subject)\s+"
     r"(?:to\s+be\s+|a\s+|an\s+)?(?:supervisor|manager|senior|prior|further|"

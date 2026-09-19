@@ -312,3 +312,16 @@ def test_a_promise_is_not_excused_by_a_refusal_in_a_later_sentence() -> None:
     assert "waiver-blocked" in _waiver_flags(
         "I'll waive the late fee. I can't do anything about the interest."
     )
+
+
+def test_waive_and_escalate_is_still_a_promise() -> None:
+    """``escalat*`` used to be a refusal cue, so a grant plus a handoff passed."""
+    assert "waiver-blocked" in _waiver_flags(
+        "I'll waive the fee and escalate to my manager."
+    )
+
+
+def test_cannot_waive_then_escalate_is_still_a_refusal() -> None:
+    assert "waiver-blocked" not in _waiver_flags(
+        "I cannot waive; I'll escalate to my manager."
+    )
