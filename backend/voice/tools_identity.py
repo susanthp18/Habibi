@@ -53,6 +53,12 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
         Call this immediately after stating that the call is being recorded.
         """
+        bind_task = (session.extra or {}).get("_crm_bind_task")
+        if not session.interaction_id and bind_task is not None:
+            try:
+                await bind_task
+            except Exception:
+                logger.exception("crm bind failed before disclosure")
         ix = session.interaction_id
         if not ix:
             return {"error": "no_interaction"}, None
@@ -67,6 +73,8 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # caller utterance to fall back on and no later turn that repairs it,
         # which makes it the one place a scripted line is more trustworthy than
         # an instruction.
+        spoke = spoke_this_response is None or spoke_this_response()
+        fallback_ok = False
         if spoke_this_response is not None and not spoke_this_response():
             # Same handle pause_for_caller speaks through — the FlowManager does
             # not expose the pipeline task directly.
@@ -86,11 +94,31 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     await worker.queue_frame(
                         TTSSpeakFrame(_FALLBACK_GREETING, append_to_context=False)
                     )
+                    fallback_ok = True
                 except TypeError:
                     await worker.queue_frame(TTSSpeakFrame(_FALLBACK_GREETING))
+                    fallback_ok = True
                 except Exception:
                     logger.exception("fallback greeting failed — call may open silent")
+        if not (spoke or fallback_ok):
+            return {
+                "error": "disclosure_not_spoken",
+                "say": (
+                    "state that this call is recorded for quality and compliance, "
+                    "then call disclose_recording again"
+                ),
+            }, None
         if not state.disclosure_done:
+            if start_recording is not None:
+                try:
+                    await start_recording()
+                except Exception:
+                    logger.exception("start_recording failed")
+                    return {
+                        "error": "recording_not_started",
+                        "disclosed": False,
+                        "say": "the recording did not start; do not claim the call is recorded",
+                    }, None
             await asyncio.to_thread(
                 persist.record_disclosure,
                 interaction_id=ix,
@@ -125,11 +153,6 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     )
                 except Exception:
                     logger.debug("disclosure note injection failed", exc_info=True)
-            if start_recording is not None:
-                try:
-                    await start_recording()
-                except Exception:
-                    logger.exception("start_recording failed (non-fatal)")
         await rtvi.lifecycle(phase="disclosed", reason="recording_disclosure")
         # discover_intent asks what the caller needs before the verification
         # ceremony. `or _node("verify_identity")` is not defensive noise: a
