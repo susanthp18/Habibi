@@ -516,6 +516,43 @@ def test_a_callback_we_offered_becomes_something_somebody_owes(
     assert owed["state"] == "open"
 
 
+def test_callback_obligation_due_follows_scheduled_at(db_tx, monkeypatch) -> None:
+    monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")
+    interaction_id = _an_interaction_for_the_dialled_borrower(db_tx)
+    attempt = _reserve(db_tx)
+    _place(db_tx, attempt, "CA-TEST-CLOSE-CB-AT")
+    outbound.apply_provider_status(
+        db_tx, provider_call_id="CA-TEST-CLOSE-CB-AT", status="completed", duration_sec=95
+    )
+    outbound.bind_interaction(db_tx, attempt_id=attempt["id"], interaction_id=interaction_id)
+    outbound.mark(db_tx, attempt["id"], right_party=True, answered_by="human")
+    when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(microsecond=0)
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO bot_tool_calls (id, interaction_id, channel, tool_name, args,
+                                        result_ok, created_at)
+            VALUES (:id, :ix, 'voice', 'request_callback', CAST(:args AS jsonb), true, now())
+            """
+        ),
+        {
+            "id": "BTC-TEST-CB-AT",
+            "ix": interaction_id,
+            "args": '{"scheduled_at": "%s", "reason": "wants to check with spouse"}'
+            % when.isoformat(),
+        },
+    )
+    result = _close(db_tx, attempt["id"])
+    assert result["business"] == "callback_requested"
+    owed = db_tx.execute(
+        text("SELECT due_at FROM agent_obligations WHERE attempt_id = :a"),
+        {"a": attempt["id"]},
+    ).scalar()
+    assert owed is not None
+    got = owed if getattr(owed, "tzinfo", None) else owed
+    assert abs((got - when).total_seconds()) < 2
+
+
 def test_one_attempt_gets_one_outcome(db_tx, monkeypatch) -> None:
     """The unique constraint is what makes the join safe without a pointer."""
     monkeypatch.setenv("CLOSER_LLM_ENABLED", "false")

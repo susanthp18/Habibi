@@ -614,7 +614,13 @@ def _record_obligations(
         detail: dict[str, Any] = {}
         if name == "request_callback" and call.get("result_ok"):
             kind = "callback"
-            due = args.get("preferredAt") or args.get("preferred_at") or args.get("at")
+            due = (
+                args.get("scheduled_at")
+                or args.get("scheduledAt")
+                or args.get("preferredAt")
+                or args.get("preferred_at")
+                or args.get("at")
+            )
             detail = {"reason": args.get("reason"), "toleranceMinutes": args.get("toleranceMinutes")}
         elif name == "request_documents" and call.get("result_ok"):
             kind = "document"
@@ -719,7 +725,13 @@ def _requested_callback_at(tools: list[dict[str, Any]]) -> datetime | None:
         if str(call.get("tool_name")) != "request_callback":
             continue
         args = _args(call)
-        return _parse_dt(args.get("preferredAt") or args.get("preferred_at") or args.get("at"))
+        return _parse_dt(
+            args.get("scheduled_at")
+            or args.get("scheduledAt")
+            or args.get("preferredAt")
+            or args.get("preferred_at")
+            or args.get("at")
+        )
     return None
 
 
