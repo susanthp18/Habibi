@@ -88,6 +88,34 @@ def test_legal_threat_trips(text: str) -> None:
     assert lexicon.is_legal_threat(text) is True
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "don't call me right now",
+        "do not call me today",
+        "don't call me this evening",
+        "stop calling tomorrow",
+        "don't call me now",
+    ],
+)
+def test_temporal_deferral_is_not_consent_withdrawal(text: str) -> None:
+    assert lexicon.withdraws_consent(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "stop calling me",
+        "never call me",
+        "don't call me",
+        "do not call me again",
+        "please stop calling",
+    ],
+)
+def test_permanent_opt_out_still_withdraws_consent(text: str) -> None:
+    assert lexicon.withdraws_consent(text) is True
+
+
 # ---------------------------------------------------------------------------
 # The three former call sites now agree
 # ---------------------------------------------------------------------------

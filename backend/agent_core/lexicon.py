@@ -110,9 +110,20 @@ LEGAL_RE = re.compile(r"\b(?:" + "|".join(LEGAL_PATTERNS) + r")\b", re.I)
 #: Hinglish included because the deployment is, and because a withdrawal
 #: spoken in Hindi is a withdrawal. ``mat karo`` / ``mat karna`` (don't do it),
 #: ``band karo`` (stop it), ``pareshan mat karo`` (stop bothering me).
+#: A deferral is not a withdrawal. "Don't call me right now / today / this
+#: evening" asks for a pause, not DND. Permanent forms ("stop calling me",
+#: "never call me") still match because they have no temporal tail.
+_NOT_TEMPORAL = (
+    r"(?!\s+(?:right\s+now|now|today|tonight|tomorrow|later|"
+    r"this\s+(?:evening|morning|afternoon|week)|"
+    r"in\s+a\s+(?:bit|minute|while)))"
+)
+
 OPTOUT_PATTERNS: tuple[str, ...] = (
-    r"(?:stop|quit|cease)\s+(?:calling|call|ringing|contacting|messaging|texting)",
-    r"(?:don'?t|do\s+not|never)\s+(?:call|ring|contact|message|text)\s+(?:me|again)",
+    r"(?:stop|quit|cease)\s+(?:calling|call|ringing|contacting|messaging|texting)"
+    + _NOT_TEMPORAL,
+    r"(?:don'?t|do\s+not|never)\s+(?:call|ring|contact|message|text)\s+(?:me|again)"
+    + _NOT_TEMPORAL,
     r"(?:take|remove)\s+me\s+off\s+(?:your\s+)?(?:list|database)",
     r"remove\s+my\s+(?:number|contact)",
     r"unsubscribe",
