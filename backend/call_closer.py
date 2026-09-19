@@ -194,15 +194,20 @@ def claim_one(conn: Any) -> dict[str, Any] | None:
     row = conn.execute(
         text(
             """
-            SELECT * FROM call_attempts
-            WHERE closed_at IS NULL
-              AND state <> 'reserved'
+            SELECT a.* FROM call_attempts a
+            WHERE a.closed_at IS NULL
+              AND a.state <> 'reserved'
               AND (
-                    state = 'suppressed'
-                 OR (ended_at IS NOT NULL
-                     AND ended_at <= now() - make_interval(secs => :grace))
+                    a.state = 'suppressed'
+                 OR (a.ended_at IS NOT NULL
+                     AND a.ended_at <= now() - make_interval(secs => :grace))
               )
-            ORDER BY COALESCE(ended_at, reserved_at) ASC
+              AND NOT EXISTS (
+                    SELECT 1 FROM interactions i
+                    WHERE i.id = a.interaction_id
+                      AND i.status = 'active'
+              )
+            ORDER BY COALESCE(a.ended_at, a.reserved_at) ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
             """

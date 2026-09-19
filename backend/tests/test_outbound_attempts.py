@@ -589,6 +589,27 @@ def test_the_closer_claims_nothing_until_the_transcript_has_settled(db_tx) -> No
     assert claimed is not None
 
 
+def test_the_closer_does_not_claim_while_the_interaction_is_still_active(db_tx) -> None:
+    """Grace is not permission to summarise a call whose interaction is live."""
+    attempt = _reserve(db_tx)
+    _place(db_tx, attempt, "CA-TEST-STILL-LIVE")
+    outbound.apply_provider_status(
+        db_tx, provider_call_id="CA-TEST-STILL-LIVE", status="completed", duration_sec=30
+    )
+    ix = _an_interaction_for_the_dialled_borrower(db_tx)
+    db_tx.execute(
+        text("UPDATE interactions SET status = 'active', ended_at = NULL WHERE id = :ix"),
+        {"ix": ix},
+    )
+    outbound.bind_interaction(db_tx, attempt_id=attempt["id"], interaction_id=ix)
+    db_tx.execute(
+        text("UPDATE call_attempts SET ended_at = :old WHERE id = :id"),
+        {"id": attempt["id"], "old": datetime.now(timezone.utc) - timedelta(minutes=10)},
+    )
+    claimed = call_closer.claim_one(db_tx)
+    assert claimed is None or claimed["id"] != attempt["id"]
+
+
 # ---------------------------------------------------------------------------
 # The number fence
 # ---------------------------------------------------------------------------
