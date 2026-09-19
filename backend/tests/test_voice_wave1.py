@@ -133,11 +133,27 @@ def test_redacted_export_omits_original_when_no_redacted(monkeypatch) -> None:
     assert not any(n.endswith("redacted.wav") for n in names)
 
 
-def test_resolve_known_customer_is_tenant_scoped() -> None:
-    import inspect
-
+def test_resolve_known_customer_is_tenant_scoped(monkeypatch) -> None:
     from voice import persist
 
-    src = inspect.getsource(persist.resolve_known_customer)
-    assert "tenant_id" in src
-    assert "current_tenant" in src
+    captured: list[dict] = []
+
+    class _Result:
+        def scalar(self):
+            return None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, _sql, params):
+            captured.append(dict(params))
+            return _Result()
+
+    monkeypatch.setattr("db.engine.connect", lambda: _Conn())
+    monkeypatch.setattr("db.current_tenant", lambda: "hdfc.retail")
+    assert persist.resolve_known_customer("C-1") is None
+    assert captured == [{"id": "C-1", "tenant": "hdfc.retail"}]

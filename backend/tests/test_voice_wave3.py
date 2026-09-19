@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import time
 from types import SimpleNamespace
 
@@ -110,11 +109,35 @@ def test_inbound_last4_collision_still_refuses(monkeypatch) -> None:
     assert found is None
 
 
-def test_verify_tool_passes_prefer_on_outbound() -> None:
-    from voice import tools_verify
+def test_verify_tool_passes_prefer_on_outbound(monkeypatch) -> None:
+    from voice import persist
+    from voice import tools as voice_tools
+    from voice.session import VoiceSession
 
-    src = inspect.getsource(tools_verify.build)
-    assert "prefer_customer_id" in src
+    captured: list[dict] = []
+
+    def _lookup(**kw):
+        captured.append(kw)
+        return None
+
+    monkeypatch.setattr(persist, "lookup_customer_for_verify", _lookup)
+    monkeypatch.setattr(persist, "record_identity_verification", lambda **_k: None)
+
+    session = VoiceSession(session_id="VS-PREF", customer_id="C-BOUND")
+    session.interaction_id = "IX-PREF"
+    session.extra["call_direction"] = "outbound"
+
+    async def go():
+        _state, tools = voice_tools.build_tools(
+            session, bot_id=None, start_recording=None, nodes={}
+        )
+        return await tools["verify_identity"].handler(
+            {"method": "phone_match", "value": "3210"}, None
+        )
+
+    asyncio.run(go())
+    assert captured
+    assert captured[0].get("prefer_customer_id") == "C-BOUND"
 
 
 def test_invalid_ctx_is_hours_outbound() -> None:
@@ -183,11 +206,37 @@ def test_has_capacity_reaps_stale_slots(monkeypatch) -> None:
 
 
 def test_greeting_incomplete_skip_does_not_close_classifier() -> None:
-    from voice import amd
+    from voice.amd import attach_voicemail_handlers
 
-    src = inspect.getsource(amd.attach_voicemail_handlers)
-    skip_at = src.find("if skip:")
-    return_at = src.find("return", skip_at)
-    close_at = src.find("_close_classifier", skip_at)
-    assert skip_at != -1 and return_at != -1 and close_at != -1
-    assert return_at < close_at
+    class _Det:
+        def event_handler(self, name):
+            def deco(fn):
+                setattr(self, name, fn)
+                return fn
+
+            return deco
+
+    class _Proc:
+        async def push_frame(self, *a, **_k):
+            return None
+
+    async def go():
+        det = _Det()
+        session = SimpleNamespace(session_id="VS-AMD-SKIP", extra={}, interaction_id=None)
+        await attach_voicemail_handlers(
+            voicemail_detector=det,
+            session=session,
+            sink=SimpleNamespace(),
+            worker=SimpleNamespace(),
+            bot_turn_state=SimpleNamespace(
+                speaking=lambda: False,
+                busy=lambda: False,
+                has_spoken=lambda: False,
+            ),
+        )
+        det._habibi_guard = SimpleNamespace(seen_speech=True)
+        await det.on_voicemail_detected(_Proc())
+        assert session.extra.get("amd") != "voicemail"
+        assert session.extra.get("amd_closed") is not True
+
+    asyncio.run(go())

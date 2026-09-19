@@ -801,9 +801,9 @@ class CrmSink:
         # Add-only tripwires: the LLM may raise abuse/legal the regex missed.
         # It cannot retract a keyword hit — those already fired on the audio path.
         text = str(p.get("text") or "")
-        if result.abuse and not detect_abuse(text):
+        if getattr(result, "abuse", False) and not detect_abuse(text):
             self._add_understanding_tripwire("compliance", "abuse_detected")
-        if result.legal and not detect_legal(text):
+        if getattr(result, "legal", False) and not detect_legal(text):
             self._add_understanding_tripwire("compliance", "legal_mention")
 
     def _add_understanding_tripwire(self, reason: str, detail: str) -> None:
