@@ -255,7 +255,7 @@ def _suppress_upsell(ctx: dict[str, Any], arg: str | None) -> str:
                   id, tenant_id, customer_id, kind, reason, source,
                   interaction_id, placed_by_user_id, expires_at
                 ) VALUES (
-                  :id, :tenant, :customer, 'no_upsell', :reason, 'bot',
+                  :id, :tenant, :customer, 'hardship', :reason, 'bot',
                   :ix, NULL, now() + make_interval(days => :days)
                 )
                 ON CONFLICT (customer_id, COALESCE(account_id, ''), kind)
@@ -267,16 +267,15 @@ def _suppress_upsell(ctx: dict[str, Any], arg: str | None) -> str:
                 "id": f"TH-{uuid.uuid4().hex[:10].upper()}",
                 "tenant": ctx["attempt"]["tenant_id"],
                 "customer": ctx["attempt"]["customer_id"],
-                "reason": f"declared {ctx.get('nonpayment_reason') or ctx.get('business')}",
+                "reason": f"suppress_upsell after {ctx.get('nonpayment_reason') or ctx.get('business')}",
                 "ix": ctx["attempt"].get("interaction_id"),
                 "days": max(1, int(window.total_seconds() // 86_400)),
             },
         )
         return f"suppress_upsell:{int(window.total_seconds() // 86_400)}d"
     except Exception:
-        # `no_upsell` may not be a permitted hold kind on this schema version.
         logger.info("suppress_upsell not applied", exc_info=True)
-        return "suppress_upsell:unsupported_kind"
+        return "suppress_upsell:failed"
 
 
 def _record_optout(ctx: dict[str, Any], arg: str | None) -> str:
