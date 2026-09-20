@@ -137,7 +137,35 @@ def _sandbox_session_id_from(runner_args, is_session_id) -> str | None:
     return None
 
 
-def resolve_call(call) -> None:
+def _attempt_cohort(attempt_id: str) -> dict[str, Any] | None:
+    """Blocking call_attempts read — run under ``asyncio.to_thread``."""
+    import db as _db
+    from sqlalchemy import text as _sql_text
+
+    with _db.engine.connect() as _conn:
+        return _db._one(
+            _conn.execute(
+                _sql_text("SELECT customer_id, bot_id FROM call_attempts WHERE id = :id"),
+                {"id": attempt_id},
+            )
+        )
+
+
+def _caller_match(ani: str) -> dict[str, Any] | None:
+    """Blocking ANI lookup — run under ``asyncio.to_thread``."""
+    from voice import twilio_ops
+
+    return twilio_ops.lookup_customer_for_caller(ani)
+
+
+def _entry_bot(address: str | None) -> str | None:
+    """Blocking door/env entry resolve — run under ``asyncio.to_thread``."""
+    from agent_core.cards.routing import resolve_entry
+
+    return resolve_entry("voice", address=address)
+
+
+async def resolve_call(call) -> None:
     """Sandbox session, caller cohort, bundle, session, sink, system prompt."""
     import db as _db
 
@@ -224,40 +252,27 @@ def resolve_call(call) -> None:
                 pre_attempt_id = str(body_params.get("attempt_id") or "").strip() or None
     if pre_attempt_id:
         try:
-            from sqlalchemy import text as _sql_text
-
-            with _db.engine.connect() as _conn:
-                attempt_row = _db._one(
-                    _conn.execute(
-                        _sql_text(
-                            "SELECT customer_id, bot_id FROM call_attempts WHERE id = :id"
-                        ),
-                        {"id": pre_attempt_id},
-                    )
-                )
+            attempt_row = await asyncio.to_thread(_attempt_cohort, pre_attempt_id)
             if attempt_row:
                 cohort_customer_id = attempt_row.get("customer_id")
                 cohort_bot_id = attempt_row.get("bot_id")
         except Exception:
             logger.exception("outbound attempt lookup failed for canary cohort")
+    caller_match: dict[str, Any] | None = None
     if cohort_customer_id is None and is_twilio and pre_from_number:
         try:
-            from voice import twilio_ops
-
-            matched = twilio_ops.lookup_customer_for_caller(pre_from_number)
-            if matched:
-                cohort_customer_id = matched.get("customerId")
+            caller_match = await asyncio.to_thread(_caller_match, pre_from_number)
+            if caller_match:
+                cohort_customer_id = caller_match.get("customerId")
         except Exception:
             logger.exception("Twilio caller lookup failed before bundle load")
     if cohort_bot_id is None:
         try:
-            from agent_core.cards.routing import resolve_entry
-
             # With DOOR_ENABLED unset this is the old env lookup exactly:
             # `resolve_entry` falls back to it on the flag, on the table being
             # absent, and on no row matching. Reversal is unsetting the flag --
             # no restart, no data to undo.
-            cohort_bot_id = resolve_entry("voice", address=pre_to_number)
+            cohort_bot_id = await asyncio.to_thread(_entry_bot, pre_to_number)
         except Exception:
             cohort_bot_id = None
     # Hash on ANI when the caller is unmatched so the split stays deterministic
@@ -371,9 +386,11 @@ def resolve_call(call) -> None:
                 )
     if is_twilio and session.extra.get("from_number"):
         try:
-            from voice import twilio_ops
-
-            matched = twilio_ops.lookup_customer_for_caller(session.extra["from_number"])
+            ani = session.extra["from_number"]
+            if caller_match is not None and ani == pre_from_number:
+                matched = caller_match
+            else:
+                matched = await asyncio.to_thread(_caller_match, ani)
             if matched:
                 session.extra["pstn_customer"] = matched
                 logger.info(

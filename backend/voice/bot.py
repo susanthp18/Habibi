@@ -90,7 +90,7 @@ async def run_bot(transport, runner_args) -> None:
         bg_tasks=bg_tasks,
         _spawn_bg=_spawn_bg,
     )
-    bot_flow.resolve_call(call)
+    await bot_flow.resolve_call(call)
     await bot_flow.load_mission(call)
     bot_pipeline.build_services(call)
     bot_handlers.make_developer_injectors(call)
