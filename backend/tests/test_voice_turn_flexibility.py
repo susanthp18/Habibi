@@ -198,7 +198,7 @@ def test_probe_resets_on_each_new_response() -> None:
 
 
 def test_probe_resets_on_interruption() -> None:
-    """A barge-in abandons the response; what follows has not been spoken."""
+    """Barge-in must not clear spoke_this_response; filler reads that flag."""
 
     async def scenario() -> bool:
         h = _ProbeHarness()
@@ -207,7 +207,7 @@ def test_probe_resets_on_interruption() -> None:
         await h.send(InterruptionFrame())
         return h.probe.spoke_this_response
 
-    assert asyncio.run(scenario()) is False
+    assert asyncio.run(scenario()) is True
 
 
 def test_probe_ignores_whitespace_only_text() -> None:
