@@ -71,3 +71,20 @@ def test_greeting_replay_strategy_ignores_ordinary_speech():
     result = asyncio.run(replay.process_frame(frame))
     assert started == [], "an unmarked speech transcript must not open a turn"
     assert result == ProcessFrameResult.CONTINUE
+
+# --------------------------------------------------------------- 3.5 DTMF flush
+
+
+def test_dtmf_aggregator_flushes_after_one_second():
+    """Without ``#`` the library default slept 2s after the last digit of a last-4.
+
+    ``#`` still flushes immediately. Longer account strings still use ``#``,
+    which the product already asks for. Do not add a blanket transcription
+    start strategy — VS-39B35AC484.
+    """
+    from voice.ivr import build_dtmf_aggregator
+
+    agg = build_dtmf_aggregator()
+    if agg is None:
+        pytest.skip("DTMFAggregator not available in this Pipecat build")
+    assert agg._idle_timeout == 1.0

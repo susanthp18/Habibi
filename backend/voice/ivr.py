@@ -107,7 +107,11 @@ def build_dtmf_aggregator() -> Any | None:
         return None
     # Prefix labels the digits in the transcript so the model can tell "the
     # caller typed 1234" from "the caller said 1234".
-    return DTMFAggregator(prefix="Caller keypad input: ")
+    #
+    # 1.0s is enough for last-4 without `#`. Longer account strings still use
+    # `#`, which flushes immediately. The library default of 2.0s was dead air
+    # after the last digit of a last-4.
+    return DTMFAggregator(prefix="Caller keypad input: ", timeout=1.0)
 
 
 def ivr_goal(session_extra: dict[str, Any] | None) -> str:
