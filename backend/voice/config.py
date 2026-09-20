@@ -285,6 +285,22 @@ def voice_ivr_enabled() -> bool:
     return env_bool("VOICE_IVR_ENABLED", default=False)
 
 
+def voice_stt_segmentation_silence_ms() -> int | None:
+    """Azure ``Speech_SegmentationSilenceTimeoutMs``, or None to keep the SDK default.
+
+    Unset/empty leaves Pipecat's ~500ms SDK default. Operators turn this on
+    after ``turn.e2e`` / ``turn.endpoint`` exist; do not ship a new default.
+    """
+    raw = _optional("VOICE_STT_SEGMENTATION_SILENCE_MS")
+    if raw is None:
+        return None
+    try:
+        value = int(float(raw))
+    except ValueError:
+        return None
+    return max(100, min(2000, value))
+
+
 def voice_dtmf_input_enabled() -> bool:
     """Fold inbound keypad digits into the transcript (telephony only)."""
     return _flag("VOICE_DTMF_INPUT_ENABLED")
