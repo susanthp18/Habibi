@@ -33,6 +33,23 @@ def _enable(monkeypatch, **flags):
 def test_ivr_off_by_default(ivr, monkeypatch):
     monkeypatch.delenv("VOICE_IVR_ENABLED", raising=False)
     assert ivr.should_enable_ivr({"call_type": "outbound"}, is_twilio=True) is False
+    from voice.config import voice_ivr_enabled
+
+    assert voice_ivr_enabled() is False
+
+
+def test_ivr_is_not_enabled_in_example_or_production_compose() -> None:
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    example = (backend / ".env.example").read_text(encoding="utf-8")
+    assert "# VOICE_IVR_ENABLED=false" in example
+    assert "VOICE_IVR_ENABLED=true" not in example.lower()
+    for name in ("docker-compose.yml",):
+        compose = backend / name
+        if compose.exists():
+            text = compose.read_text(encoding="utf-8")
+            assert "VOICE_IVR_ENABLED" not in text
 
 
 def test_ivr_outbound_twilio_only(ivr, monkeypatch):

@@ -278,9 +278,11 @@ def voice_ivr_enabled() -> bool:
     """Navigate a partner/workplace IVR on outbound dials before speaking.
 
     Off by default: on a direct-to-handset campaign the classifier is pure
-    added latency on the first turn.
+    added latency on the first turn. Unset, commented-false in ``.env.example``,
+    and omitted from production compose so it cannot turn on silently.
     """
-    return _flag("VOICE_IVR_ENABLED")
+    load_env()
+    return env_bool("VOICE_IVR_ENABLED", default=False)
 
 
 def voice_dtmf_input_enabled() -> bool:
