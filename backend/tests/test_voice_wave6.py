@@ -260,11 +260,25 @@ def test_obligation_insert_uses_empty_verbatim_when_missing() -> None:
 
 
 def test_closer_claim_sql_defers_active_interactions() -> None:
-    import inspect
-
     import call_closer
 
-    src = inspect.getsource(call_closer.claim_one)
-    assert "status = 'active'" in src
-    assert "NOT EXISTS" in src
-    assert "make_interval(secs => :grace)" in src
+    captured: list[str] = []
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            captured.append(str(sql))
+
+            class _R:
+                def mappings(self):
+                    return self
+
+                def first(self):
+                    return None
+
+            return _R()
+
+    call_closer.claim_one(_Conn())
+    sql = captured[0]
+    assert "status = 'active'" in sql
+    assert "NOT EXISTS" in sql
+    assert "make_interval(secs => :grace)" in sql
