@@ -142,17 +142,29 @@ def build_user_turn_strategies(tuning: dict[str, Any]):
     )
     from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+    from voice.greeting_hold import build_greeting_replay_turn_start_strategy
+
     t = normalize_tuning(tuning)
     barge = t["interaction"]["barge_in"]
 
+    # GreetingHold replay is a TranscriptionFrame with no VAD underneath,
+    # scoped to the hold_replay marker so ordinary speech cannot reintroduce
+    # VS-39B35AC484. Interruptions are always on -- unmute means the
+    # disclosure has already finished.
+    def _start(*strategies):
+        replay = build_greeting_replay_turn_start_strategy()
+        return [s for s in (replay, *strategies) if s is not None]
+
     if barge == "locked":
         return UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(enable_interruptions=False)],
+            start=_start(VADUserTurnStartStrategy(enable_interruptions=False)),
         )
     if barge == "min_words":
         # Transcript-driven start, transcript-driven stop. See the docstring.
         return UserTurnStrategies(
-            start=[MinWordsUserTurnStartStrategy(min_words=int(t["interaction"]["min_words"]))],
+            start=_start(
+                MinWordsUserTurnStartStrategy(min_words=int(t["interaction"]["min_words"]))
+            ),
             stop=[SpeechTimeoutUserTurnStopStrategy()],
         )
     # Default ("on"): VAD start, Smart Turn v3 stop.
@@ -171,7 +183,7 @@ def build_user_turn_strategies(tuning: dict[str, Any]):
     # "mm-hmm") still interrupt in this mode — that is what ``min_words`` is
     # for, and the Tuning Studio exposes it.
     return UserTurnStrategies(
-        start=[VADUserTurnStartStrategy()],
+        start=_start(VADUserTurnStartStrategy()),
         stop=[
             TurnAnalyzerUserTurnStopStrategy(
                 turn_analyzer=build_smart_turn_analyzer(t),
