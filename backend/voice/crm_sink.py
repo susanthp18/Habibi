@@ -1196,15 +1196,16 @@ class CrmSink:
         from agent_core.live_qa.enact import barge_audio
 
         audio = barge_audio(interaction_id, reason=reason)
+        handoff_id = None
         try:
-            persist.record_handoff(
+            handoff_id = persist.record_handoff(
                 interaction_id=interaction_id,
                 reason="compliance",
             )
         except Exception:
             logger.exception("live_qa auto-barge handoff failed for %s", interaction_id)
         pending = live_decisions.pending_auto_barge(interaction_id)
-        if pending:
+        if pending and handoff_id:
             live_decisions.mark_enacted(
                 pending.get("id"),
                 ref=str(audio.get("conference") or audio.get("reason") or ""),
