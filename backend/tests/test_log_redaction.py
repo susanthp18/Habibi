@@ -102,6 +102,28 @@ def test_unspaced_aadhaar_is_masked() -> None:
     assert "9012" in unspaced
 
 
+def test_ifsc_is_masked_after_card_and_pan() -> None:
+    out = pii_redact.redact_text("transfer to HDFC0001234")
+    assert "HDFC0001234" not in out
+    assert "[REDACTED-IFSC]" in out
+    # PAN is 10 chars and must not be stolen by the 11-char IFSC pattern.
+    assert pii_redact.redact_text("ABCDE1234F") == "[REDACTED-PAN]"
+    assert "[REDACTED-IFSC]" not in pii_redact.redact_text("ABCDE1234F")
+
+
+def test_labelled_pin_and_address_are_masked_free_text_is_not() -> None:
+    pin = pii_redact.redact_text("pincode 400001 please")
+    assert "400001" not in pin
+    assert "******" in pin
+    labelled = pii_redact.redact_text("addr: 12 MG Road, Bandra")
+    assert "12 MG Road" not in labelled
+    assert "[REDACTED-ADDRESS]" in labelled
+    spoken = pii_redact.redact_text("I live near the station, last four 4821")
+    assert "I live near the station" in spoken
+    assert "4821" in spoken
+    assert pii_redact.redact_text("account 99887766") == "account 99887766"
+
+
 # --- logs exist at all ------------------------------------------------------
 
 

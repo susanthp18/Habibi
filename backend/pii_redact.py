@@ -9,6 +9,11 @@ interaction and drives the review screen. Free text that lands outside that mode
 (``retrieval_logs.query``, which stores the caller's KB question verbatim) had no
 masking at all, so a card number spoken into a "why was my card declined" query
 was persisted in the clear and indefinitely.
+
+Limitation (F-091 remainder): spoken last-4 and non-HDFC account ids stay
+open. Addresses are only masked when labelled (``address:`` / ``addr:``) or
+as a 6-digit PIN next to ``pin`` / ``pincode`` — there is no free-text
+address regex.
 """
 
 from __future__ import annotations
@@ -49,6 +54,8 @@ PII_DETECTORS: list[tuple[str, re.Pattern[str], Callable[[str], str]]] = [
         _mask_aadhaar,
     ),
     ("pan", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.I), lambda _s: "[REDACTED-PAN]"),
+    # After card/PAN so HDFC0001234 cannot steal a PAN or a 16-digit card.
+    ("ifsc", re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", re.I), lambda _s: "[REDACTED-IFSC]"),
     # Indian mobiles, however they were written down. The previous pattern
     # required a literal "+91", and `customers.phone_primary` does not always
     # carry one -- `outbound.place` passes bare digits as `to_phone`, so a number
@@ -76,6 +83,16 @@ PII_DETECTORS: list[tuple[str, re.Pattern[str], Callable[[str], str]]] = [
         lambda _s: "[REDACTED-DOB]",
     ),
     ("account", re.compile(r"\bHDFC-(?:CC|PL|RL|AL)-\d{4}\b"), _mask_account),
+    (
+        "pincode",
+        re.compile(r"(?i)\b(?:pin(?:\s*code)?|pincode)\b\s*[:\-]?\s*\d{6}\b"),
+        lambda _s: re.sub(r"\d{6}", "******", _s),
+    ),
+    (
+        "address",
+        re.compile(r"(?i)\b(?:address|addr)\s*:\s*[^\n]+"),
+        lambda s: re.sub(r"(?i)^(\s*(?:address|addr)\s*:)\s*.+", r"\1 [REDACTED-ADDRESS]", s),
+    ),
 ]
 
 
