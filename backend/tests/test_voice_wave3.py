@@ -140,6 +140,117 @@ def test_verify_tool_passes_prefer_on_outbound(monkeypatch) -> None:
     assert captured[0].get("prefer_customer_id") == "C-BOUND"
 
 
+def test_inbound_ani_never_verifies_or_unlocks_account_tools(monkeypatch) -> None:
+    """We know who rang; we still ask last-4 before any balance or PTP."""
+    from voice import persist
+    from voice import tools as voice_tools
+    from voice.tools import ALWAYS_ON, CATALOG
+
+    monkeypatch.setattr(persist, "lookup_customer_for_verify", lambda **_k: None)
+    monkeypatch.setattr(persist, "record_identity_verification", lambda **_k: None)
+
+    session = VoiceSession(session_id="VS-ANI", customer_id="C-ANI")
+    session.interaction_id = "IX-ANI"
+    session.identity_verified = False
+    session.extra["call_direction"] = "inbound"
+    session.extra["call_type"] = "inbound"
+    session.extra["pstn_customer"] = {"customerId": "C-ANI", "name": "Asha"}
+    session.extra["attempt_id"] = "CA-SHOULD-NOT-MATTER"
+    session.extra["expected_customer_name"] = "Asha"
+
+    async def go():
+        state, tools = voice_tools.build_tools(
+            session,
+            bot_id=None,
+            start_recording=None,
+            nodes={},
+            allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
+        )
+        state.customer_name = "Asha"
+        position = await tools["get_account_position"].handler({}, None)
+        ptp = await tools["create_promise_to_pay"].handler(
+            {"amount": 100, "date": "2026-10-01"}, None
+        )
+        first_name = await tools["verify_identity"].handler(
+            {"method": "phone_match", "value": "Asha"}, None
+        )
+        return position, ptp, first_name
+
+    position, ptp, first_name = asyncio.run(go())
+    pos_body = position[0] if isinstance(position, tuple) else position
+    ptp_body = ptp[0] if isinstance(ptp, tuple) else ptp
+    name_body = first_name[0] if isinstance(first_name, tuple) else first_name
+    assert pos_body["error"] == "identity_not_verified"
+    assert ptp_body["error"] in {"identity_not_verified", "human_gate_identity"}
+    assert name_body.get("error") == "need_digits"
+    assert session.identity_verified is False
+
+
+def test_inbound_last4_does_not_prefer_the_ani_customer(monkeypatch) -> None:
+    from voice import persist
+    from voice import tools as voice_tools
+
+    captured: list[dict] = []
+
+    def _lookup(**kw):
+        captured.append(kw)
+        return None
+
+    monkeypatch.setattr(persist, "lookup_customer_for_verify", _lookup)
+    monkeypatch.setattr(persist, "record_identity_verification", lambda **_k: None)
+
+    session = VoiceSession(session_id="VS-IN4", customer_id="C-ANI")
+    session.interaction_id = "IX-IN4"
+    session.identity_verified = False
+    session.extra["call_direction"] = "inbound"
+
+    async def go():
+        _state, tools = voice_tools.build_tools(
+            session, bot_id=None, start_recording=None, nodes={}
+        )
+        return await tools["verify_identity"].handler(
+            {"method": "phone_match", "value": "3210"}, None
+        )
+
+    asyncio.run(go())
+    assert captured and captured[0].get("prefer_customer_id") is None
+
+
+def test_inbound_last4_unlocks_account_tools() -> None:
+    from voice import tools as voice_tools
+    from voice.tools import ALWAYS_ON, CATALOG
+
+    session = VoiceSession(session_id="VS-IN4B", customer_id="C-ANI")
+    session.interaction_id = "IX-IN4B"
+    session.identity_verified = False
+    session.extra["call_direction"] = "inbound"
+    allowed = set(CATALOG.specs) | set(ALWAYS_ON)
+
+    async def before():
+        _state, tools = voice_tools.build_tools(
+            session, bot_id=None, start_recording=None, nodes={}, allowed_tool_names=allowed
+        )
+        return await tools["get_account_position"].handler({}, None)
+
+    blocked = asyncio.run(before())
+    blocked_body = blocked[0] if isinstance(blocked, tuple) else blocked
+    assert blocked_body["error"] == "identity_not_verified"
+
+    session.identity_verified = True
+
+    async def after():
+        state, tools = voice_tools.build_tools(
+            session, bot_id=None, start_recording=None, nodes={}, allowed_tool_names=allowed
+        )
+        state.customer_name = "Asha"
+        return await tools["get_account_position"].handler({}, None)
+
+    position = asyncio.run(after())
+    pos_body = position[0] if isinstance(position, tuple) else position
+    assert pos_body.get("error") != "identity_not_verified"
+    assert pos_body.get("customerName") == "Asha"
+
+
 def test_invalid_ctx_is_hours_outbound() -> None:
     session = VoiceSession(session_id="VS-CTX")
     session.extra["twilio_params"] = {"ctx_invalid": "1"}

@@ -50,6 +50,17 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
     session = ctx.session
     state = ctx.state
 
+    def _outbound_leg() -> bool:
+        """ANI identifies an inbound caller; it does not verify them."""
+        direction = str(
+            session.extra.get("call_direction") or session.extra.get("call_type") or ""
+        ).strip().lower()
+        if direction == "inbound":
+            return False
+        if direction == "outbound":
+            return True
+        return bool(session.extra.get("attempt_id"))
+
 
     # ------------------------------------------------------------- identity
 
@@ -104,9 +115,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 # against the mission / bound customer is enough — last-4 is
                 # the inbound second factor, not a ceremony we invented for
                 # someone we called.
-                outbound = session.extra.get("call_direction") == "outbound" or bool(
-                    session.extra.get("attempt_id")
-                )
+                outbound = _outbound_leg()
                 mission = session.extra.get("mission")
                 mission = mission if isinstance(mission, dict) else {}
                 expected = (
@@ -133,10 +142,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     }, None
             else:
                 lookup_value = digits[-10:] if len(digits) > 10 else digits
-                outbound = session.extra.get("call_direction") == "outbound" or bool(
-                    session.extra.get("attempt_id")
-                )
-                if outbound:
+                if _outbound_leg():
                     prefer_customer_id = session.customer_id or None
         elif method_n == "account_tail":
             if len(digits) < 4 and len(raw) < 4:
