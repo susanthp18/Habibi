@@ -333,7 +333,7 @@
           "request_callback"
         ],
         "extractVariables": [],
-        "endConversation": false
+        "endConversation": true
       }
     },
     {
