@@ -41,8 +41,14 @@ def _mask_account(s: str) -> str:
 # partially consumed by the 12-digit aadhaar pattern (see migration _0014).
 PII_DETECTORS: list[tuple[str, re.Pattern[str], Callable[[str], str]]] = [
     ("card", re.compile(r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b"), _mask_card),
-    ("aadhaar", re.compile(r"\b\d{4}\s\d{4}\s\d{4}\b"), _mask_aadhaar),
-    ("pan", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"), lambda _s: "[REDACTED-PAN]"),
+    # Spaced 4-4-4 is how Aadhaar is printed; STT and paste often emit 12
+    # continuous digits. Card already consumed any 16-digit run above.
+    (
+        "aadhaar",
+        re.compile(r"\b(?:\d{4}\s\d{4}\s\d{4}|\d{12})\b"),
+        _mask_aadhaar,
+    ),
+    ("pan", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.I), lambda _s: "[REDACTED-PAN]"),
     # Indian mobiles, however they were written down. The previous pattern
     # required a literal "+91", and `customers.phone_primary` does not always
     # carry one -- `outbound.place` passes bare digits as `to_phone`, so a number

@@ -86,6 +86,22 @@ def test_a_card_is_still_the_card_detectors_job() -> None:
     assert pii_redact.redact_text("4111 1111 1111 1111") == "**** **** **** 1111"
 
 
+def test_lowercase_pan_is_masked() -> None:
+    raw = "pan abcde1234f on file"
+    out = pii_redact.redact_text(raw)
+    assert "abcde1234f" not in out.lower()
+    assert "[REDACTED-PAN]" in out
+    assert pii_redact.redact_text("ABCDE1234F") == "[REDACTED-PAN]"
+
+
+def test_unspaced_aadhaar_is_masked() -> None:
+    spaced = pii_redact.redact_text("aadhaar 1234 5678 9012")
+    unspaced = pii_redact.redact_text("aadhaar 123456789012")
+    assert "1234 5678 9012" not in spaced
+    assert "123456789012" not in unspaced
+    assert "9012" in unspaced
+
+
 # --- logs exist at all ------------------------------------------------------
 
 
