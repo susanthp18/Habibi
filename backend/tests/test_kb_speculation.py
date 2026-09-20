@@ -269,6 +269,44 @@ def test_inline_fallback_retrieves_when_speculation_missed() -> None:
     assert snippets == [{"snippet": "inline"}]
 
 
+
+def test_inline_fallback_does_not_embed_again_when_this_turn_already_speculated() -> None:
+    """A containment miss must not start a second Azure embed on the final.
+
+    The in-flight spec is the wrong question, so its snippets stay out of the
+    turn. Its task is left running so the result can still cache for later.
+    """
+
+    async def scenario() -> tuple:
+        cache = _cache()
+        calls: list[str] = []
+
+        async def slow(query, _product_keys):
+            calls.append(query)
+            await asyncio.sleep(0.05)
+            return [{"snippet": "from spec"}]
+
+        cache._retrieve = slow  # type: ignore[method-assign]
+        cache.note_turn_start()
+        task = cache.start_retrieval("how do i dispute a duplicate charge", None)
+        cache.register_spec("how do i dispute a duplicate charge", ("k",), task)
+
+        snippets, source = await cache.resolve(
+            "what is my outstanding balance",
+            None,
+            timeout_s=0.01,
+            fallback="inline",
+        )
+        still_running = not task.done()
+        return snippets, source, calls, still_running
+
+    snippets, source, calls, still_running = asyncio.run(scenario())
+    assert source == "miss"
+    assert snippets == []
+    assert calls == ["how do i dispute a duplicate charge"]
+    assert still_running is True
+
+
 def test_spec_only_fallback_injects_nothing_on_a_miss() -> None:
     async def scenario() -> tuple:
         cache = _cache()

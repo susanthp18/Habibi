@@ -448,6 +448,14 @@ class KbCache:
                 logger.debug("kb speculation failed", exc_info=True)
 
         if fallback == "inline":
+            # A speculation already paid for an embed this turn. Starting
+            # another on a different key is the VS-92CDE3F088 double-embed:
+            # the first task is still running (or already cached) and a
+            # containment miss is not license to embed the final too. Do not
+            # inject the unmatched spec — wrong-question risk. The shielded
+            # task still completes into the cache for the next turn.
+            if self._turn_specs:
+                return [], "miss"
             task = self.start_retrieval(query, product_keys)
             if task is None:
                 return [], "miss"
