@@ -25,11 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from azure.cognitiveservices.speech import Connection
 
-from pipecat.frames.frames import StartFrame
+from pipecat.frames.frames import Frame, StartFrame
 from pipecat.services.azure.tts import AzureTTSService
 
 from env_utils import env_float
@@ -47,13 +48,20 @@ class KeepAliveAzureTTSService(AzureTTSService):
         # Accept and ignore a legacy keepalive_secs kwarg so callers don't break.
         kwargs.pop("keepalive_secs", None)
         super().__init__(*args, **kwargs)
+        self._preopen_task: asyncio.Task[None] | None = None
 
     async def start(self, frame: StartFrame) -> None:
         await super().start(frame)
-        # Safe: no synthesis has run yet, so open() cannot collide with speech.
+        # Handshake in the background. Awaiting it here sat in front of Flow
+        # init and the first LLM, so the caller heard silence for the full
+        # Connection.open ceiling. run_tts joins the task before synthesis;
+        # never call open() from run_tts — that is the 41s deadlock class.
         synth = getattr(self, "_speech_synthesizer", None)
         if synth is None:
             return
+        self._preopen_task = asyncio.create_task(self._preopen(synth))
+
+    async def _preopen(self, synth: Any) -> None:
         try:
             connection = Connection.from_speech_synthesizer(synth)
             # Bounded: Connection.open is a blocking SDK handshake, and a stalled
@@ -71,3 +79,14 @@ class KeepAliveAzureTTSService(AzureTTSService):
         except Exception:
             # Never fatal — the first synthesis just pays a normal cold start.
             logger.debug("azure tts pre-open failed", exc_info=True)
+
+    async def _await_preopen(self) -> None:
+        task = getattr(self, "_preopen_task", None)
+        if task is None or task.done():
+            return
+        await task
+
+    async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
+        await self._await_preopen()
+        async for frame in super().run_tts(text, context_id):
+            yield frame

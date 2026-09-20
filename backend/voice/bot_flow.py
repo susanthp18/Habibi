@@ -165,6 +165,15 @@ def _entry_bot(address: str | None) -> str | None:
     return resolve_entry("voice", address=address)
 
 
+def _load_mission_row(attempt_id: str) -> dict[str, Any] | None:
+    """Blocking mission read — run under ``asyncio.to_thread``."""
+    import db as _db
+    import mission as mission_mod
+
+    with _db.engine.connect() as conn:
+        return mission_mod.load(conn, str(attempt_id))
+
+
 async def resolve_call(call) -> None:
     """Sandbox session, caller cohort, bundle, session, sink, system prompt."""
     import db as _db
@@ -251,6 +260,12 @@ async def resolve_call(call) -> None:
             if str(body_params.get("call_type") or "").strip().lower() == "outbound":
                 pre_attempt_id = str(body_params.get("attempt_id") or "").strip() or None
     if pre_attempt_id:
+        # Overlap the mission briefing I/O with the rest of setup. load_mission
+        # only awaits this task and validates the contract; treatment still
+        # fail-closed before speech.
+        call._mission_io_task = asyncio.create_task(
+            asyncio.to_thread(_load_mission_row, pre_attempt_id)
+        )
         try:
             attempt_row = await asyncio.to_thread(_attempt_cohort, pre_attempt_id)
             if attempt_row:
@@ -259,14 +274,22 @@ async def resolve_call(call) -> None:
         except Exception:
             logger.exception("outbound attempt lookup failed for canary cohort")
     caller_match: dict[str, Any] | None = None
-    if cohort_customer_id is None and is_twilio and pre_from_number:
+
+    async def _maybe_caller() -> None:
+        nonlocal caller_match, cohort_customer_id
+        if cohort_customer_id is not None or not (is_twilio and pre_from_number):
+            return
         try:
             caller_match = await asyncio.to_thread(_caller_match, pre_from_number)
             if caller_match:
                 cohort_customer_id = caller_match.get("customerId")
         except Exception:
             logger.exception("Twilio caller lookup failed before bundle load")
-    if cohort_bot_id is None:
+
+    async def _maybe_entry() -> None:
+        nonlocal cohort_bot_id
+        if cohort_bot_id is not None:
+            return
         try:
             # With DOOR_ENABLED unset this is the old env lookup exactly:
             # `resolve_entry` falls back to it on the flag, on the table being
@@ -275,6 +298,8 @@ async def resolve_call(call) -> None:
             cohort_bot_id = await asyncio.to_thread(_entry_bot, pre_to_number)
         except Exception:
             cohort_bot_id = None
+
+    await asyncio.gather(_maybe_caller(), _maybe_entry())
     # Hash on ANI when the caller is unmatched so the split stays deterministic
     # without sending every unknown number to the canary.
     cohort_key = cohort_customer_id or pre_from_number
@@ -468,13 +493,13 @@ async def load_mission(call) -> None:
         try:
             import mission as mission_mod
 
-            def _load_mission() -> dict[str, Any] | None:
-                import db as _db
-
-                with _db.engine.connect() as conn:
-                    return mission_mod.load(conn, str(session.extra["attempt_id"]))
-
-            _mission = await asyncio.to_thread(_load_mission)
+            task = getattr(call, "_mission_io_task", None)
+            if task is not None:
+                _mission = await task
+            else:
+                _mission = await asyncio.to_thread(
+                    _load_mission_row, str(session.extra["attempt_id"])
+                )
         except Exception:
             logger.exception("mission load failed")
         if session.extra.get("treatment_decision_id") and not _mission:

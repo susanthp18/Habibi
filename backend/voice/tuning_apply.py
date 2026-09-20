@@ -6,6 +6,8 @@ that imports Pipecat types for those knobs.
 
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from loguru import logger
@@ -386,6 +388,22 @@ async def apply_live_tuning_delta(
     return live
 
 
+def _tts_catalog_warning_off_loop(voice_name: str) -> dict[str, Any] | None:
+    """Stale-voice catalog read, never on the event-loop thread.
+
+    ``build_services`` stays sync, so this cannot ``await to_thread``. A one-shot
+    worker still waits, but the Postgres driver is not on the loop thread.
+    """
+    import db
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return db.get_tts_voice_warning(voice_name)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(db.get_tts_voice_warning, voice_name).result()
+
+
 def resolve_session_tuning(
     raw: dict[str, Any] | None,
     *,
@@ -477,10 +495,8 @@ def resolve_session_tuning(
         fallbacks = authored or [f for f in (stt.get("fallback_languages") or []) if f != persona_tag]
         stt["fallback_languages"] = [persona_tag, *fallbacks]
     try:
-        import db
-
         sn = str((tuning.get("tts") or {}).get("voice") or "").strip()
-        warning = db.get_tts_voice_warning(sn) if sn else None
+        warning = _tts_catalog_warning_off_loop(sn) if sn else None
         if warning and warning.get("fallbackVoice"):
             logger.warning(
                 "stale TTS voice {} ({}) → fallback {}",

@@ -50,6 +50,21 @@ async def _bind_crm_session(
     transport_name = scope.transport_name
 
     try:
+        from voice import persist as _persist
+
+        if mission_customer:
+            mission_customer = await asyncio.to_thread(
+                _persist.resolve_known_customer,
+                mission_customer,
+            )
+            if mission_customer:
+                logger.info(
+                    "{} customer bound · customer={} · objective={} · attempt={}",
+                    "Outbound mission" if direction == "outbound" else "Inbound ANI",
+                    mission_customer,
+                    session.extra.get("objective") or "?",
+                    attempt_id or "?",
+                )
         row = await asyncio.to_thread(
             bind_session_start,
             session,
@@ -309,19 +324,10 @@ def build(scope: HandlerScope) -> None:
                 else None
             ),
         )
-        if raw_customer:
-            mission_customer = await asyncio.to_thread(
-                _persist.resolve_known_customer,
-                raw_customer,
-            )
-            if mission_customer:
-                logger.info(
-                    "{} customer bound · customer={} · objective={} · attempt={}",
-                    "Outbound mission" if direction == "outbound" else "Inbound ANI",
-                    mission_customer,
-                    session.extra.get("objective") or "?",
-                    attempt_id or "?",
-                )
+        # Existence check is a DB round-trip. It used to sit in front of
+        # FlowManager.initialize, so the greeting waited on it. The bind
+        # already runs beside the greeting and is the only consumer.
+        mission_customer = raw_customer
 
         # What this bind resolved, kept where teardown can reach it. If the bind
         # below fails, CrmSink files the minimal row itself and has no other way
