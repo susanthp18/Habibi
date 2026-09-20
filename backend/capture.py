@@ -274,7 +274,12 @@ def rollup_interaction(
     if force_summary or not (existing.get("summary") or "").strip():
         sets.append("summary = :summary")
         params["summary"] = summary[:2000]
-    if force_summary or not (existing.get("disposition") or "").strip():
+    existing_disp = (existing.get("disposition") or "").strip()
+    # A handoff already filed `escalated`. force_summary must not replace it
+    # with disposition_from_flags (completed / query_handled / …).
+    if existing_disp.lower() != "escalated" and (
+        force_summary or not existing_disp
+    ):
         sets.append("disposition = :disposition")
         params["disposition"] = disposition[:120]
 
