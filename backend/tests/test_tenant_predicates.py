@@ -3,12 +3,10 @@
 Every tenant predicate in this codebase is written by hand. ``rls.py`` exists to
 move that last line of defence into Postgres -- it derives 221 policies from the
 foreign-key graph, and CI proves enforcement against a scratch database
-(``.github/workflows/backend-pytest.yml`` sets ``RLS_DATABASE_URL``). But RLS is
-not switched on in any running deployment: the application connects as a
-superuser with BYPASSRLS, so policies would be ignored even if installed.
-Turning it on means provisioning a non-superuser role (``rls.provision_role``)
-and repointing ``DATABASE_URL`` for api, voice and workers -- a deployment
-decision, held separately from this file.
+(``.github/workflows/backend-pytest.yml`` sets ``RLS_DATABASE_URL``). The
+application login is ``NOBYPASSRLS`` (``collections_app``); owner/DDL is
+``MIGRATION_DATABASE_URL`` only. Closer/QA/reaper keep per-tenant GUC /
+``SET LOCAL``, not a god role.
 
 Until then the hand-written predicate is the only thing between two tenants, and
 an audit found seven places it was missing. So these tests do not check that a
@@ -138,7 +136,7 @@ def test_a_rivals_borrower_cannot_be_added_to_my_run(db_tx) -> None:
 
     assert added == 0
     total = db_tx.execute(
-        text("SELECT targets_total FROM campaign_runs WHERE id = :i"), {"i": run["id"]}
+        text("SELECT count(*) FROM campaign_targets WHERE run_id = :i"), {"i": run["id"]}
     ).scalar()
     assert total == 0
 

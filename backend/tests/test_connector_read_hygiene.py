@@ -5,10 +5,10 @@ twice back to back — once to index by id, once to index by slug — on the car
 compile path, which is called per compile and per dry-run.
 
 The second is a leak. ``first_party.paylink_status`` filtered on
-``customer_id`` alone. RLS is opt-in and the app connects as BYPASSRLS, so a
-customer id belonging to another tenant returned that tenant's payment status,
-while every neighbouring read (``lms_balance`` via ``db.get_customer``) is
-tenant-scoped.
+``customer_id`` alone. When the app connected as BYPASSRLS that returned
+another tenant's payment status; neighbouring reads (``lms_balance`` via
+``db.get_customer``) were tenant-scoped. The app login is ``NOBYPASSRLS``
+now, and the predicate still has to be in the query.
 """
 
 from __future__ import annotations

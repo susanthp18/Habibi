@@ -16,10 +16,11 @@ therefore passes the tenant as a libpq *startup parameter*, so it is set before
 the connection can execute anything and no ROLLBACK can revert it.
 
 **The connecting role must not bypass RLS.** Superusers and roles with
-BYPASSRLS ignore policies entirely, and the application currently connects as
-one. Enabling RLS as that role changes nothing at all while looking like it
-worked, which is worse than not enabling it — so :func:`enable` refuses, and
-:func:`status` leads with it.
+BYPASSRLS ignore policies entirely. The application connects as a
+``NOSUPERUSER NOBYPASSRLS`` login (compose ``APP_DB_USER``); owner/DDL is
+``MIGRATION_DATABASE_URL`` only. Enabling RLS as a bypass role would change
+nothing while looking like it worked, which is worse than not enabling it —
+so :func:`enable` refuses, and :func:`status` leads with it.
 
 **Enabling is verified inside the transaction that does it.** DDL is
 transactional in Postgres, so :func:`enable` counts rows, turns policies on,

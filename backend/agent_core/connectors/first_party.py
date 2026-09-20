@@ -22,9 +22,9 @@ def paylink_status(customer_id: str) -> dict[str, Any]:
     """Latest pay-link status for a customer *in the caller's tenant*.
 
     The read is tenant-scoped like every other CRM read behind a connector
-    (``lms_balance`` gets it from ``db.get_customer``). RLS is opt-in and the
-    app connects as BYPASSRLS, so a bare ``customer_id`` predicate made a
-    cross-tenant id return that tenant's payment status.
+    (``lms_balance`` gets it from ``db.get_customer``). The app login is
+    ``NOBYPASSRLS``; a bare ``customer_id`` predicate is still a leak if the
+    query is ever run as owner, so the tenant predicate stays in the SQL.
     """
     with db.engine.connect() as conn:
         row = db._one(

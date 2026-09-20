@@ -241,6 +241,32 @@ def test_provision_role_creates_a_login_that_cannot_bypass_rls(db_tx) -> None:
     assert row == (True, False, False)
 
 
+def test_no_api_voice_or_worker_login_has_bypassrls(db_tx) -> None:
+    """Compose points api, voice and workers at one login. It must not bypass RLS.
+
+    Owner/DDL stays on ``MIGRATION_DATABASE_URL``. A new process role that
+    logs in as a different name belongs in this query, not as a BYPASSRLS
+    exception.
+    """
+    import os
+
+    app = (os.getenv("APP_DB_USER") or "collections_app").strip()
+    rows = db_tx.execute(
+        text(
+            """
+            SELECT rolname, rolbypassrls, rolsuper
+              FROM pg_roles
+             WHERE rolcanlogin AND rolname = :n
+            """
+        ),
+        {"n": app},
+    ).mappings().all()
+    assert rows, f"application login {app!r} is missing"
+    for row in rows:
+        assert row["rolbypassrls"] is False, row
+        assert row["rolsuper"] is False, row
+
+
 # ---------------------------------------------------------------------------
 # Enforcement — opt-in, needs a scratch database
 # ---------------------------------------------------------------------------
