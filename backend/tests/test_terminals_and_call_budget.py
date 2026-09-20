@@ -94,6 +94,9 @@ def test_the_turn_cap_reads_the_published_guardrail() -> None:
     src = handlers_source()
     assert "sink.customer_turns() < cap" in src
     assert '_claim_end("max_turns")' in src
+    assert "We've covered what we can on this call" not in src
+    assert "wrap_up" in src
+    assert "set_node_from_config" in src
 
 
 def test_a_non_numeric_duration_does_not_break_the_call() -> None:

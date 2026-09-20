@@ -25,7 +25,6 @@ from voice.bot_handlers_scope import (
 def build(scope: HandlerScope) -> None:
     """Register this section's handlers on the call's objects."""
     EndFrame = scope.EndFrame
-    TTSSpeakFrame = scope.TTSSpeakFrame
     _claim_end = scope._claim_end
     _live_correction = scope._live_correction
     _live_escalate = scope._live_escalate
@@ -42,6 +41,8 @@ def build(scope: HandlerScope) -> None:
     tuning = scope.tuning
     user_aggregator = scope.user_aggregator
     worker = scope.worker
+    flow_manager = scope.flow_manager
+    _flow_holder = scope._flow_holder
     hs = scope.hs
 
 
@@ -107,17 +108,34 @@ def build(scope: HandlerScope) -> None:
             sink.customer_turns(),
             cap,
         )
+        session.extra["flow_node"] = "wrap_up"
         try:
-            await worker.queue_frame(
-                TTSSpeakFrame(
-                    "We've covered what we can on this call. Thank you, goodbye.",
-                    append_to_context=False,
-                )
-            )
-        except TypeError:
-            await worker.queue_frame(
-                TTSSpeakFrame("We've covered what we can on this call. Thank you, goodbye.")
-            )
+            wrap = None
+            state = (_flow_holder or {}).get("state") if isinstance(_flow_holder, dict) else None
+            nodes = getattr(state, "nodes", None) or {}
+            factory = nodes.get("wrap_up")
+            if callable(factory):
+                wrap = factory()
+            if wrap is None:
+                wrap = {
+                    "name": "wrap_up",
+                    "task_messages": [
+                        {
+                            "role": "developer",
+                            "content": (
+                                "Summarise what was agreed in one short sentence and thank them. "
+                                "Do not ask new questions."
+                            ),
+                        }
+                    ],
+                    "functions": [],
+                    "respond_immediately": True,
+                    "post_actions": [{"type": "end_conversation"}],
+                }
+            await flow_manager.set_node_from_config(wrap)
+            return
+        except Exception:
+            logger.exception("max_turns wrap_up failed")
         await worker.queue_frame(EndFrame())
 
     async def _handle_tune_message(message) -> None:
