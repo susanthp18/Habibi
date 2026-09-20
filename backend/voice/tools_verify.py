@@ -35,6 +35,113 @@ from voice.tool_state import (
 
 logger = logging.getLogger(__name__)
 
+PREFETCH_ID_KEY = "_crm_prefetch_id"
+PREFETCH_TASK_KEY = "_crm_prefetch_task"
+
+
+def load_context_and_memory(
+    *,
+    channel: str,
+    customer_id: str,
+    interaction_id: str | None,
+    account_id: str | None,
+    session_id: str | None,
+    kb_snapshot_id: str | None,
+    bot_id: str | None,
+    persona: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """CRM spine + cross-call memory. One thread hop. Does not inject."""
+    loaded = CallContext.load_for_customer(
+        channel=channel,
+        customer_id=customer_id,
+        interaction_id=interaction_id,
+        account_id=account_id,
+        session_id=session_id,
+        kb_snapshot_id=kb_snapshot_id,
+        bot_id=bot_id,
+        persona=persona,
+        # The load is gated on this flag; the *injection* is gated on a
+        # matching verify. Prefetch is not proof (D3: ANI identifies, last-4
+        # verifies).
+        identity_verified=True,
+    )
+    mem = None
+    try:
+        from voice import config as voice_config
+        from voice import memory as voice_memory
+
+        if voice_config.voice_memory():
+            mem = voice_memory.load_memory(customer_id)
+    except Exception:
+        logger.debug("customer_memory read failed (non-fatal)", exc_info=True)
+    return loaded, mem
+
+
+def start_crm_prefetch(
+    session: Any,
+    *,
+    customer_id: str,
+    channel: str,
+    interaction_id: str | None,
+    account_id: str | None,
+    kb_snapshot_id: str | None,
+    bot_id: str | None,
+    persona: dict[str, Any] | None,
+) -> None:
+    """Begin the card load for a known customer. Never injects."""
+    cid = (customer_id or "").strip()
+    if not cid:
+        return
+    drop_crm_prefetch(session)
+    session.extra[PREFETCH_ID_KEY] = cid
+    session.extra[PREFETCH_TASK_KEY] = asyncio.create_task(
+        asyncio.to_thread(
+            load_context_and_memory,
+            channel=channel,
+            customer_id=cid,
+            interaction_id=interaction_id,
+            account_id=account_id,
+            session_id=session.session_id,
+            kb_snapshot_id=kb_snapshot_id,
+            bot_id=bot_id,
+            persona=persona,
+        )
+    )
+
+
+def drop_crm_prefetch(session: Any) -> None:
+    """Forget a prefetch so a wrong-party card cannot be injected later."""
+    extra = getattr(session, "extra", None)
+    if not isinstance(extra, dict):
+        return
+    task = extra.pop(PREFETCH_TASK_KEY, None)
+    extra.pop(PREFETCH_ID_KEY, None)
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def take_crm_prefetch(session: Any, customer_id: str) -> tuple[Any, Any] | None:
+    """Return the prefetched card only if it is this customer and the load worked."""
+    extra = getattr(session, "extra", None)
+    if not isinstance(extra, dict):
+        return None
+    pref_id = extra.get(PREFETCH_ID_KEY)
+    task = extra.get(PREFETCH_TASK_KEY)
+    if pref_id != customer_id or task is None:
+        drop_crm_prefetch(session)
+        return None
+    try:
+        result = await task
+    except Exception:
+        logger.debug("crm prefetch failed", exc_info=True)
+        drop_crm_prefetch(session)
+        return None
+    extra.pop(PREFETCH_TASK_KEY, None)
+    extra.pop(PREFETCH_ID_KEY, None)
+    if not isinstance(result, tuple) or len(result) != 2:
+        return None
+    return result
+
 
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
@@ -171,6 +278,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 attempt_count=state.verify_attempts,
                 failure_reason="no_match",
             )
+            drop_crm_prefetch(session)
             if state.verify_attempts >= 3:
                 await asyncio.to_thread(
                     persist.record_handoff,
@@ -254,8 +362,12 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # Cross-call memory is read in the SAME thread hop: it is one extra
         # query against an already-open pool, and a second to_thread would add a
         # round-trip class to the verification turn for no benefit.
-        def _load_context_and_memory():
-            loaded = CallContext.load_for_customer(
+        prefetched = await take_crm_prefetch(session, match["customerId"])
+        if prefetched is not None:
+            ctx, mem_row = prefetched
+        else:
+            ctx, mem_row = await asyncio.to_thread(
+                load_context_and_memory,
                 channel=channel,
                 customer_id=match["customerId"],
                 interaction_id=ix,
@@ -264,22 +376,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 kb_snapshot_id=kb_snapshot_id,
                 bot_id=bot_id,
                 persona=persona,
-                # Set before the load, not after: load_for_customer only reads
-                # the CRM for a verified identity.
-                identity_verified=True,
             )
-            mem = None
-            try:
-                from voice import config as voice_config
-                from voice import memory as voice_memory
-
-                if voice_config.voice_memory():
-                    mem = voice_memory.load_memory(match["customerId"])
-            except Exception:
-                logger.debug("customer_memory read failed (non-fatal)", exc_info=True)
-            return loaded, mem
-
-        ctx, mem_row = await asyncio.to_thread(_load_context_and_memory)
         state.call_context = ctx
         if inject_developer:
             try:

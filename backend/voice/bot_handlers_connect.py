@@ -188,6 +188,7 @@ def build(scope: HandlerScope) -> None:
     _store = scope._store
     bot_id = scope.bot_id
     bot_turn_state = scope.bot_turn_state
+    bundle = scope.bundle
     emitter = scope.emitter
     flow_manager = scope.flow_manager
     initial_node = scope.initial_node
@@ -328,6 +329,24 @@ def build(scope: HandlerScope) -> None:
         # FlowManager.initialize, so the greeting waited on it. The bind
         # already runs beside the greeting and is the only consumer.
         mission_customer = raw_customer
+
+        if raw_customer:
+            from voice.tools_verify import start_crm_prefetch
+
+            mission = session.extra.get("mission")
+            mission = mission if isinstance(mission, dict) else {}
+            start_crm_prefetch(
+                session,
+                customer_id=raw_customer,
+                channel="sandbox_live" if sandbox_session else "voice",
+                interaction_id=session.interaction_id,
+                account_id=mission.get("accountId"),
+                kb_snapshot_id=(bundle.get("kbSnapshotId") if isinstance(bundle, dict) else None),
+                bot_id=bot_id,
+                persona=sandbox_persona if isinstance(sandbox_persona, dict) else (
+                    (bundle.get("persona") if isinstance(bundle, dict) else None)
+                ),
+            )
 
         # What this bind resolved, kept where teardown can reach it. If the bind
         # below fails, CrmSink files the minimal row itself and has no other way

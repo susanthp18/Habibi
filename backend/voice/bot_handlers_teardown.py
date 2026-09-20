@@ -98,6 +98,13 @@ def build(scope: HandlerScope) -> None:
                 except Exception:
                     logger.exception("crm bind failed before teardown")
 
+            try:
+                from voice.tools_verify import drop_crm_prefetch
+
+                drop_crm_prefetch(session)
+            except Exception:
+                logger.debug("crm prefetch drop failed", exc_info=True)
+
             # Every step is guarded, including the first two. The RTVI transport is
             # usually already gone by the time this runs, so an unguarded lifecycle
             # emit raised straight out of the handler and skipped worker.cancel() /
