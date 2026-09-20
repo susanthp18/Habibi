@@ -89,6 +89,7 @@ STATE_INVALID_NUMBER = "invalid_number"
 STATE_CANCELED = "canceled"
 STATE_TRANSFERRED = "transferred"
 STATE_ABANDONED = "abandoned"
+STATE_BOT_UNREACHABLE = "bot_unreachable"
 
 #: An attempt in one of these is still holding a slot in the fleet gate.
 IN_FLIGHT: frozenset[str] = frozenset(
@@ -109,6 +110,7 @@ TERMINAL: frozenset[str] = frozenset(
         STATE_CANCELED,
         STATE_TRANSFERRED,
         STATE_ABANDONED,
+        STATE_BOT_UNREACHABLE,
     }
 )
 
@@ -120,7 +122,14 @@ TERMINAL: frozenset[str] = frozenset(
 UNAVAILABLE_REASONS: frozenset[str] = frozenset({"fleet_busy", "outbound_disabled"})
 
 RETRYABLE: frozenset[str] = frozenset(
-    {STATE_NO_ANSWER, STATE_BUSY, STATE_VOICEMAIL_LEFT, STATE_VOICEMAIL_SKIPPED, STATE_REJECTED}
+    {
+        STATE_NO_ANSWER,
+        STATE_BUSY,
+        STATE_VOICEMAIL_LEFT,
+        STATE_VOICEMAIL_SKIPPED,
+        STATE_REJECTED,
+        STATE_BOT_UNREACHABLE,
+    }
 )
 
 #: Twilio can deliver status callbacks out of order, and it retries them. Rank
@@ -149,6 +158,9 @@ _TWILIO_STATUS: dict[str, str] = {
     "no-answer": STATE_NO_ANSWER,
     "failed": STATE_FAILED,
     "canceled": STATE_CANCELED,
+    # Not a Twilio status: Asterisk's controller reports a declined call (Q.850 21).
+    "rejected": STATE_REJECTED,
+    "bot-unreachable": STATE_BOT_UNREACHABLE,
 }
 
 #: Twilio error codes that mean the number itself is wrong, as opposed to a
@@ -166,6 +178,10 @@ _INVALID_NUMBER_CODES: frozenset[str] = frozenset(
         "21401",  # Invalid phone number
         "21421",  # Phone number is not a valid E.164
         "21614",  # 'To' number is not a mobile
+        # Asterisk: the ARI controller reports the SIP leg's Q.850 hangup cause.
+        "q850:1",  # Unallocated (unassigned) number
+        "q850:3",  # No route to destination
+        "q850:28",  # Invalid number format
     }
 )
 
@@ -360,6 +376,16 @@ def reserve(
     if not tenant:
         logger.warning("outbound.reserve: no such customer %s", customer_id)
         return None
+
+    # A dial is always about one account. Sites that know which (a campaign
+    # target, a decision) say so; the rest get the same account `mission.build`
+    # and the live call's session resolve, so the attempt row, the contact gate
+    # and the briefing never disagree. Resolved here, not in `gate`, so a dial
+    # that reserves directly (operator tooling, tests) cannot record NULL.
+    if not account_id:
+        import db
+
+        account_id = db._first_account_id(conn, customer_id)
 
     # The caller ID the card names, resolved here rather than at each dial
     # site. Campaigns passed it and the treatment engine and the cadence did
@@ -608,7 +634,7 @@ def gate(
     params.setdefault("channel", "voice")
     params.setdefault("purpose", "outreach")
     params.setdefault("customer_id", reserve_kwargs.get("customer_id") or None)
-    params.setdefault("account_id", reserve_kwargs.get("account_id"))
+    params.setdefault("account_id", (attempt or {}).get("accountId") or reserve_kwargs.get("account_id"))
     params["session_key"] = attempt["id"] if attempt else None
     params["related_id"] = attempt["id"] if attempt else reserve_kwargs.get("to_phone")
     params["endpoint"] = reserve_kwargs.get("to_phone")
@@ -708,6 +734,9 @@ def _carrier_failure_reason(exc: BaseException) -> str:
     Twilio and the answer not reaching us -- the call may exist. A connection
     that was refused or never resolved never reached Twilio at all.
     """
+    # ARI originate is synchronous: any reply means the channel was not created.
+    if getattr(exc, "definitive", None) is not None:
+        return "dial_failed" if exc.definitive else AMBIGUOUS_REASON
     # A 4xx surfaces as CarrierRejected with the Twilio exception as its cause.
     cause = exc.__cause__ if type(exc).__name__ == "CarrierRejected" else exc
     status = getattr(cause, "status", None)
@@ -832,7 +861,7 @@ def place(
         return _failed(attempt_id, "fleet_gate_unavailable")
 
     try:
-        from voice import twilio_ops
+        from voice import telephony, twilio_ops
     except _BUG_EXCEPTIONS:
         raise
     except Exception as exc:
@@ -881,6 +910,12 @@ def place(
         _fail_quietly(engine, attempt_id, f"invalid_number: {exc}")
         return _failed(attempt_id, "invalid_number")
 
+    # Softphone extensions are 3–6 digits; E.164 would turn 1001 into +1001.
+    if telephony.provider_name() == "asterisk":
+        ext = digits(to_phone)
+        if 2 <= len(ext) <= 6:
+            dial_to = ext
+
     # `to_e164` leaves anything it does not recognise untouched rather than
     # mangling it, which for a value with no digits in it at all means an empty
     # string. Dialling that is a guaranteed carrier rejection with a worse error
@@ -918,7 +953,7 @@ def place(
             logger.exception("outbound %s: number pool lookup failed", attempt_id)
 
     try:
-        result = twilio_ops.start_outbound_call(
+        result = telephony.originate(
             to=dial_to,
             custom=params,
             # The env flag is the platform default; the card may turn it on for
@@ -997,7 +1032,7 @@ def place(
 
     call_sid = str(result.get("callSid") or "")
     try:
-        _mark_dialing(engine, attempt_id, result, pool_name, twilio_ops)
+        _mark_dialing(engine, attempt_id, result, pool_name, telephony)
     except _BUG_EXCEPTIONS:
         raise
     except Exception as exc:
@@ -1033,7 +1068,7 @@ def _mark_dialing(
     attempt_id: str,
     result: dict[str, Any],
     pool_name: str | None,
-    twilio_ops: Any,
+    provider: Any,
 ) -> None:
     """Bind the carrier's call id to the reserved row."""
     call_sid = str(result.get("callSid") or "")
@@ -1045,7 +1080,7 @@ def _mark_dialing(
                 SET state = 'dialing', placed_at = now(),
                     provider_call_id = :sid, provider_status = :status,
                     from_number = :from_number, number_pool = :number_pool,
-                    updated_at = now()
+                    provider = :provider, updated_at = now()
                 WHERE id = :id AND state = 'reserved'
                 """
             ),
@@ -1053,24 +1088,35 @@ def _mark_dialing(
                 "id": attempt_id,
                 "sid": call_sid or None,
                 "status": str(result.get("status") or "") or None,
-                "from_number": result.get("from") or twilio_ops.twilio_phone() or None,
+                "from_number": result.get("from") or provider.default_from_number() or None,
                 "number_pool": pool_name,
+                "provider": str(result.get("provider") or "twilio"),
             },
         )
 
 
 def fail(conn: Any, attempt_id: str, *, reason: str, release_key: bool = False) -> None:
+    from voice import telephony
+
+    # Stamp the provider too: a dial that fails before the carrier is reached
+    # never runs `_mark_dialing`, so the row kept the column default and an
+    # Asterisk deployment's failures read as Twilio's in every report.
     conn.execute(
         text(
             """
             UPDATE call_attempts
-            SET state = 'failed', provider_error = :reason,
+            SET state = 'failed', provider_error = :reason, provider = :provider,
                 idempotency_key = CASE WHEN :release THEN NULL ELSE idempotency_key END,
                 ended_at = now(), updated_at = now()
             WHERE id = :id AND state IN ('reserved','dialing','ringing')
             """
         ),
-        {"id": attempt_id, "reason": reason[:400], "release": bool(release_key)},
+        {
+            "id": attempt_id,
+            "reason": reason[:400],
+            "release": bool(release_key),
+            "provider": telephony.provider_name(),
+        },
     )
 
 

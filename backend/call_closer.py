@@ -127,6 +127,7 @@ _CONNECTION_BY_STATE: dict[str, str] = {
     outbound.STATE_INVALID_NUMBER: "invalid_number",
     outbound.STATE_VOICEMAIL_LEFT: "voicemail",
     outbound.STATE_VOICEMAIL_SKIPPED: "voicemail",
+    outbound.STATE_BOT_UNREACHABLE: "bot_unreachable",
 }
 
 #: Precedence when several signals are true at once. A payment beats a promise

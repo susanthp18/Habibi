@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS call_attempts (
   state             TEXT NOT NULL CHECK (state IN (
     'reserved','suppressed','dialing','ringing','answered','live','completed',
     'voicemail_left','voicemail_skipped','no_answer','busy','rejected','failed',
-    'invalid_number','canceled','transferred','abandoned'
+    'invalid_number','canceled','transferred','abandoned','bot_unreachable'
   )),
   -- Set when contact_policy refused. A refused attempt is still a row: that is
   -- what turns "our denial rate is 14%" from a log-grep into a query.
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS call_outcomes (
   objective            TEXT,
   connection           TEXT NOT NULL CHECK (connection IN (
     'no_answer','busy','rejected','failed','invalid_number','voicemail',
-    'wrong_party','ivr_only','connected','suppressed'
+    'wrong_party','ivr_only','connected','suppressed','bot_unreachable'
   )),
   business             TEXT CHECK (business IS NULL OR business IN (
     'ptp_captured','ptp_recommitted','paid_in_call','part_payment_agreed',
