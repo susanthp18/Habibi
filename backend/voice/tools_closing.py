@@ -111,6 +111,7 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         redirect the live call into a conference and dial SUPERVISOR_CALLBACK_PHONE.
         """
         args = CATALOG.normalize("escalate_to_human", args)
+        session.extra.pop("escalate_nudge_pending", None)
         # The spec marks reason required, but escalation is the one path that
         # must never fail closed on a missing argument — an un-escalated abusive
         # or legal-threat call is worse than a mis-labelled one.
@@ -233,10 +234,10 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         warm_meta: dict[str, Any] = {}
         if warm_ok:
             try:
-                from voice import twilio_ops
+                from voice import telephony
 
                 warm_meta = await asyncio.to_thread(
-                    twilio_ops.warm_transfer_to_supervisor,
+                    telephony.warm_transfer,
                     str(call_sid),
                     reason=reason,
                 )

@@ -374,3 +374,56 @@ def test_keyword_hit_plus_llm_false_does_not_retract(sink: CrmSink, monkeypatch)
     )
     sink._handle_understanding(_job(turn_index=1, text="you idiot"))
     assert alerts == []
+
+
+def test_ignored_escalate_nudge_records_handoff_on_next_turn(
+    sink: CrmSink, monkeypatch
+) -> None:
+    """Swearing files an alert; if the model skips escalate_to_human, the
+    next customer turn still writes the handoff and closes."""
+    handoffs: list[dict] = []
+    forced: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "voice.persist.record_handoff",
+        lambda **kw: handoffs.append(kw) or "HO-FORCE",
+    )
+    monkeypatch.setattr("voice.persist.score_customer_text", lambda t: (-0.9, "negative"))
+
+    async def _esc(reason: str, detail: str) -> None:
+        return None
+
+    async def _force(reason: str, detail: str) -> None:
+        forced.append((reason, detail))
+
+    sink.configure_live_handlers(on_escalate=_esc, on_force_escalate=_force)
+    user, _ = _attach(sink)
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("you idiot")))
+    assert sink.session.extra.get("escalate_nudge_pending")
+    assert handoffs == []
+    assert forced == []
+
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("fine whatever")))
+    assert handoffs and handoffs[0]["reason"] == "compliance"
+    assert forced == [("compliance", "abuse_detected")]
+    assert sink.session.extra.get("escalate_nudge_pending") is None
+
+
+def test_escalate_tool_clears_nudge_so_next_turn_does_not_force(
+    sink: CrmSink, monkeypatch
+) -> None:
+    handoffs: list[dict] = []
+    monkeypatch.setattr(
+        "voice.persist.record_handoff",
+        lambda **kw: handoffs.append(kw) or "HO-FORCE",
+    )
+    monkeypatch.setattr("voice.persist.score_customer_text", lambda t: (-0.9, "negative"))
+
+    async def _esc(reason: str, detail: str) -> None:
+        return None
+
+    sink.configure_live_handlers(on_escalate=_esc)
+    user, _ = _attach(sink)
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("you idiot")))
+    sink.session.extra.pop("escalate_nudge_pending", None)
+    asyncio.run(user.handlers["on_user_turn_stopped"](None, None, _Message("okay")))
+    assert handoffs == []

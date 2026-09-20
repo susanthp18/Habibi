@@ -45,6 +45,7 @@ def build(scope: HandlerScope) -> None:
     tuning = scope.tuning
     user_aggregator = scope.user_aggregator
     worker = scope.worker
+    flow_manager = scope.flow_manager
     hs = scope.hs
 
 
@@ -229,6 +230,38 @@ def build(scope: HandlerScope) -> None:
         }
         await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
 
+    async def _live_force_escalate(reason: str, detail: str) -> None:
+        """The nudge was ignored: speak escalate_close and hang up."""
+        if not _claim_end("escalate_close"):
+            return
+        session.extra["flow_node"] = "escalate_close"
+        logger.info(
+            "Force escalate close · session={} · reason={} · detail={}",
+            session.session_id,
+            reason,
+            detail,
+        )
+        try:
+            from voice.node_contracts import NODE_DIRECTIVES
+
+            node = {
+                "name": "escalate_close",
+                "task_messages": [
+                    {
+                        "role": "developer",
+                        "content": NODE_DIRECTIVES["escalate_close"],
+                    }
+                ],
+                "functions": [],
+                "respond_immediately": True,
+                "post_actions": [{"type": "end_conversation"}],
+            }
+            await flow_manager.set_node_from_config(node)
+            return
+        except Exception:
+            logger.exception("force escalate_close node failed")
+        await worker.queue_frame(EndFrame())
+
     async def _live_hold() -> None:
         """Caller said hold on — acknowledge + relax idle (edge #17)."""
         from pipecat.frames.frames import UserIdleTimeoutUpdateFrame
@@ -316,6 +349,7 @@ def build(scope: HandlerScope) -> None:
     scope._claim_end = _claim_end
     scope._live_correction = _live_correction
     scope._live_escalate = _live_escalate
+    scope._live_force_escalate = _live_force_escalate
     scope._live_hold = _live_hold
     scope._live_language = _live_language
     scope._live_turn = _live_turn

@@ -295,6 +295,11 @@ def test_a_second_escalation_on_one_call_writes_nothing(monkeypatch: pytest.Monk
 
     session = VoiceSession(session_id="VS-TURNTEST1")
     session.interaction_id = "CL-ESCALATE-PROBE"
+    session.extra["escalate_nudge_pending"] = {
+        "reason": "compliance",
+        "detail": "abuse_detected",
+        "after_turn": 1,
+    }
     nodes: dict = {}
     from voice.tools import ALWAYS_ON, CATALOG, build_tools
 
@@ -316,6 +321,7 @@ def test_a_second_escalation_on_one_call_writes_nothing(monkeypatch: pytest.Monk
 
     first, node = asyncio.run(tools["escalate_to_human"].handler({"reason": "hardship"}, None))
     assert first["escalated"] is True and node["name"] == "escalate_close"
+    assert "escalate_nudge_pending" not in session.extra
     second, node = asyncio.run(tools["escalate_to_human"].handler({"reason": "hardship"}, None))
     assert second["already_escalated"] is True and node["name"] == "escalate_close"
     assert writes == ["hardship"]

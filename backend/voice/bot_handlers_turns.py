@@ -29,6 +29,7 @@ def build(scope: HandlerScope) -> None:
     _claim_end = scope._claim_end
     _live_correction = scope._live_correction
     _live_escalate = scope._live_escalate
+    _live_force_escalate = scope._live_force_escalate
     _live_hold = scope._live_hold
     _live_language = scope._live_language
     _live_turn = scope._live_turn
@@ -46,6 +47,7 @@ def build(scope: HandlerScope) -> None:
 
     sink.configure_live_handlers(
         on_escalate=_live_escalate,
+        on_force_escalate=_live_force_escalate,
         on_hold=_live_hold,
         on_language=_live_language,
         on_correction=_live_correction,

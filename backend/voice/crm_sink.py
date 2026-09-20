@@ -194,6 +194,7 @@ class CrmSink:
         self._completed = False
         self._escalated_live = False
         self._on_escalate: EscalateHandler | None = None
+        self._on_force_escalate: EscalateHandler | None = None
         self._on_hold: HoldHandler | None = None
         self._on_language: LanguageHandler | None = None
         self._stt_language = "en-IN"
@@ -207,6 +208,7 @@ class CrmSink:
         self,
         *,
         on_escalate: EscalateHandler | None = None,
+        on_force_escalate: EscalateHandler | None = None,
         on_hold: HoldHandler | None = None,
         on_language: LanguageHandler | None = None,
         on_correction: CorrectionHandler | None = None,
@@ -215,6 +217,7 @@ class CrmSink:
         fallback_languages: list[str] | None = None,
     ) -> None:
         self._on_escalate = on_escalate
+        self._on_force_escalate = on_force_escalate
         self._on_hold = on_hold
         self._on_language = on_language
         self._on_correction = on_correction
@@ -736,6 +739,7 @@ class CrmSink:
             prior_intent=p.get("prior_intent"),
             channel="voice",
             recent=list(p.get("recent") or []),
+            already_engaged=turn_index > 0,
         )
         # Publish even when the LLM was skipped or shed: a keyword result on the
         # session is what the offer engine and lead capture read, and it is
@@ -903,6 +907,13 @@ class CrmSink:
         if self._escalated_live:
             return
         self._escalated_live = True
+        # Record of truth: a developer nudge is not the handoff. If the model
+        # skips escalate_to_human, the next customer turn still closes.
+        self.session.extra["escalate_nudge_pending"] = {
+            "reason": reason,
+            "detail": detail,
+            "after_turn": self._customer_exchanges,
+        }
         if self._on_escalate is not None:
             try:
                 await self._on_escalate(reason, detail)
@@ -1022,6 +1033,33 @@ class CrmSink:
                     )
             except Exception:
                 logger.exception("customer-turn tripwire failed")
+
+            await self._force_escalate_if_nudge_ignored()
+
+    async def _force_escalate_if_nudge_ignored(self) -> None:
+        """Close to a human one turn after an escalate nudge the model ignored."""
+        pending = self.session.extra.get("escalate_nudge_pending")
+        if not isinstance(pending, dict):
+            return
+        try:
+            after = int(pending.get("after_turn") or 0)
+        except (TypeError, ValueError):
+            after = 0
+        if self._customer_exchanges <= after:
+            return
+        self.session.extra.pop("escalate_nudge_pending", None)
+        reason = str(pending.get("reason") or "compliance")
+        ix = self.session.interaction_id
+        if ix:
+            try:
+                persist.record_handoff(interaction_id=ix, reason=reason)
+            except Exception:
+                logger.exception("forced escalate handoff persist failed")
+        if self._on_force_escalate is not None:
+            try:
+                await self._on_force_escalate(reason, str(pending.get("detail") or ""))
+            except Exception:
+                logger.exception("on_force_escalate handler failed")
 
     async def _emit_turn(self, **payload: Any) -> None:
         """Hand one turn's analysis to the live UI. Never raises, never blocks."""
@@ -1365,6 +1403,7 @@ def bind_session_start(
     transport: str = "smallwebrtc",
     provider_call_id: str | None = None,
     customer_id: str | None = None,
+    account_id: str | None = None,
     bot_id: str | None = None,
     direction: str = "inbound",
 ) -> dict[str, Any]:
@@ -1380,8 +1419,12 @@ def bind_session_start(
         transport=transport,
         provider_call_id=provider_call_id,
         customer_id=customer_id,
+        account_id=account_id,
         bot_id=bot_id,
         direction=direction,
+        accountable_user_id=session.extra.get("accountable_user_id")
+        if isinstance(getattr(session, "extra", None), dict)
+        else None,
     )
     session.interaction_id = row["interactionId"]
     session.customer_id = row["customerId"]
