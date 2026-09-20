@@ -435,11 +435,10 @@ def test_a_fact_observed_after_the_decision_instant_is_not_read(db_tx) -> None:
     _require(db_tx)
     from agent_core.treatment.features import SqlFeatureProvider
 
-    interaction_id, tenant_id, customer_id = _interaction(db_tx)
-    db_tx.execute(
-        text("DELETE FROM perception_facts WHERE customer_id = :c"),
-        {"c": customer_id},
-    )
+    interaction_id, tenant_id, _seeded = _interaction(db_tx)
+    # A real book customer already has hardship_claimed rows. Facts are
+    # append-only, so we cannot DELETE them; a dedicated id keeps the bound.
+    customer_id = f"CU-W9-BOUND-{uuid.uuid4().hex[:10].upper()}"
     now = datetime.now(timezone.utc)
     db_tx.execute(
         text(
@@ -448,7 +447,7 @@ def test_a_fact_observed_after_the_decision_instant_is_not_read(db_tx) -> None:
               tenant_id, id, customer_id, interaction_id, turn_index,
               fact_key, fact_value, provenance, source_model, observed_at
             ) VALUES (
-              :tenant, :id, :customer, :ix, 9003,
+              :tenant, :id, :customer, :ix, 91003,
               'hardship_claimed', 'true'::jsonb, 'borrower_utterance', 'keyword', :seen
             )
             """

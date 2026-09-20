@@ -97,11 +97,17 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
         )
     # Published tenant rules may only lower the env cap. Seeded books often
     # ship daily_cap=1, which would make CONTACT_DAILY_CAP=3 unreachable.
+    # DELETE is a no-op under RLS / a different kind spelling; the accessors
+    # are what admit() actually reads.
     db_tx.execute(
         text("DELETE FROM policy_rules WHERE kind IN ('daily_cap', 'weekly_cap')")
     )
     import policy_rules
 
+    monkeypatch.setattr(policy_rules.RuleSet, "daily_cap", lambda self: None)
+    monkeypatch.setattr(
+        policy_rules.RuleSet, "weekly_cap", lambda self, channel=None: None
+    )
     policy_rules.reset_cache()
     return cid
 
