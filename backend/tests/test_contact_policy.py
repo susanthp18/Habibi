@@ -54,22 +54,30 @@ def _customer(db_tx) -> str:
     return row["id"]
 
 
-def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
+def _prep(
+    db_tx, monkeypatch: pytest.MonkeyPatch, *, cid: str | None = None
+) -> str:
     _require_ledger(db_tx)
     monkeypatch.setenv("CONTACT_DAILY_CAP", "3")
     monkeypatch.setenv("CONTACT_WEEKLY_CAP", "8")
     monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
     monkeypatch.setenv("CONTACT_SESSION_WINDOW_MINUTES", "30")
-    cid = f"CU-CP-{uuid4().hex[:10].upper()}"
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO customers (id, tenant_id, name, risk, timezone)
-            VALUES (:id, :t, 'contact-policy', 'low', 'Asia/Kolkata')
-            """
-        ),
-        {"id": cid, "t": db.current_tenant()},
-    )
+    if cid is None:
+        cid = f"CU-CP-{uuid4().hex[:10].upper()}"
+        db_tx.execute(
+            text(
+                """
+                INSERT INTO customers (id, tenant_id, name, risk, timezone)
+                VALUES (:id, :t, 'contact-policy', 'low', 'Asia/Kolkata')
+                """
+            ),
+            {"id": cid, "t": db.current_tenant()},
+        )
+    else:
+        db_tx.execute(
+            text("UPDATE customers SET timezone = 'Asia/Kolkata' WHERE id = :id"),
+            {"id": cid},
+        )
     for ch in ("voice", "whatsapp", "sms", "email"):
         db_tx.execute(
             text(
@@ -619,7 +627,7 @@ def test_prep_does_not_null_dnd_or_window_columns(
     """The fixture used to wipe the columns the rest of this file is testing."""
     cid = _customer(db_tx)
     before = _consent_columns(db_tx, cid)
-    prepared = _prep(db_tx, monkeypatch)
+    prepared = _prep(db_tx, monkeypatch, cid=cid)
     assert prepared == cid
     assert _consent_columns(db_tx, cid) == before
 
@@ -714,7 +722,7 @@ def test_a_settled_borrower_is_refused_outreach(db_tx, monkeypatch: pytest.Monke
     """WS8: no paid/settled refusal existed, so cadence kept dialling a
     cured borrower to exhaustion. Outreach is refused `settled`; a statutory
     notice still goes."""
-    cid = _prep(db_tx, monkeypatch)
+    cid = _prep(db_tx, monkeypatch, cid=_customer(db_tx))
     db_tx.execute(text("UPDATE accounts SET outstanding = 0 WHERE customer_id = :id"), {"id": cid})
     refused = _admit(db_tx, cid, session_key="settled-1", related_id="settled-1")
     assert refused.allowed is False
