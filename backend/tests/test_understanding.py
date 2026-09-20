@@ -156,6 +156,11 @@ def test_flag_off_makes_no_azure_call(fake_llm, monkeypatch):
     assert fake_llm.calls == []
 
 
+def test_llm_enabled_defaults_on_when_unset(monkeypatch):
+    monkeypatch.delenv("UNDERSTANDING_LLM_ENABLED", raising=False)
+    assert understanding.llm_enabled() is True
+
+
 def test_allow_llm_false_makes_no_azure_call(llm_on, fake_llm):
     """For any caller that finds itself on a latency-critical path."""
     result = analyze_turn("paisa nahi hai", allow_llm=False)

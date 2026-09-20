@@ -228,7 +228,7 @@ class TurnUnderstanding:
 
 def llm_enabled() -> bool:
     """Read at call time so the flag flips without a redeploy."""
-    return env_bool("UNDERSTANDING_LLM_ENABLED")
+    return env_bool("UNDERSTANDING_LLM_ENABLED", default=True)
 
 
 #: Wall-clock budget for the enrichment call, per turn.
