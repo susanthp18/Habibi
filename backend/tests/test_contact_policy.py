@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from agent_core import clock
+import db
 import pytest
 from sqlalchemy import text
 
@@ -58,13 +60,15 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
     monkeypatch.setenv("CONTACT_WEEKLY_CAP", "8")
     monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
     monkeypatch.setenv("CONTACT_SESSION_WINDOW_MINUTES", "30")
-    cid = _customer(db_tx)
-    # Timezone only. Nulling ``dnd``, ``dnd_registry``, ``allowed_days``,
-    # ``allowed_hours`` and ``preferred_window`` was how this file's own
-    # fixture disarmed the statutory branches it exists to pin.
+    cid = f"CU-CP-{uuid4().hex[:10].upper()}"
     db_tx.execute(
-        text("UPDATE customers SET timezone = 'Asia/Kolkata' WHERE id = :id"),
-        {"id": cid},
+        text(
+            """
+            INSERT INTO customers (id, tenant_id, name, risk, timezone)
+            VALUES (:id, :t, 'contact-policy', 'low', 'Asia/Kolkata')
+            """
+        ),
+        {"id": cid, "t": db.current_tenant()},
     )
     for ch in ("voice", "whatsapp", "sms", "email"):
         db_tx.execute(
@@ -90,7 +94,8 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
                 VALUES
                   (:id, :cr, :ch, 'opted_in', 8, 0, now())
                 ON CONFLICT (consent_id, channel, purpose)
-                DO UPDATE SET status = 'opted_in', weekly_frequency_cap = 8, captured_at = now()
+                DO UPDATE SET status = 'opted_in', weekly_frequency_cap = 8,
+                              used_this_week = 0, captured_at = now()
                 """
             ),
             {"id": f"{cr['id']}-{ch}", "cr": cr["id"], "ch": ch},

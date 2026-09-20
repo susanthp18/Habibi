@@ -439,6 +439,15 @@ def test_a_fact_observed_after_the_decision_instant_is_not_read(db_tx) -> None:
     # A real book customer already has hardship_claimed rows. Facts are
     # append-only, so we cannot DELETE them; a dedicated id keeps the bound.
     customer_id = f"CU-W9-BOUND-{uuid.uuid4().hex[:10].upper()}"
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO customers (id, tenant_id, name, risk)
+            VALUES (:id, :t, 'w9-time-bound', 'low')
+            """
+        ),
+        {"id": customer_id, "t": tenant_id},
+    )
     now = datetime.now(timezone.utc)
     db_tx.execute(
         text(
