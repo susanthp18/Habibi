@@ -237,6 +237,8 @@ def test_unrecognised_enforce_follows_credentials(monkeypatch) -> None:
 
     monkeypatch.setenv("API_KEY", "some-key")
     monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.delenv("ENTRA_TENANT_ID", raising=False)
+    monkeypatch.delenv("ENTRA_API_AUDIENCE", raising=False)
     actor_context.reload_api_key_map()
     monkeypatch.setenv("AUTHZ_ENFORCE", "banana")
     assert authz.enforcement_enabled() is True

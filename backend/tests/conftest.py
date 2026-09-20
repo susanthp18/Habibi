@@ -496,20 +496,21 @@ def card_and_packs():
 
 @pytest.fixture(scope="session")
 def api_headers() -> dict[str, str]:
-    """Auth headers, but only when the environment is enforcing them.
+    """Auth headers whenever route permissions are actually checked.
 
-    ``authz.enforcement_enabled()`` keys off API_KEY / API_KEY_MAP. A dev machine
-    sets neither, so every request is answered and a bare ``client.get(...)``
-    reads as a pass. CI sets API_KEY -- and several test modules built a
-    TestClient and sent no key at all, so they returned 401 on the first CI run
-    that ever reached pytest, having looked green locally since they were
-    written.
-
-    Reading the ambient key rather than monkeypatching one keeps this usable from
-    module- and session-scoped fixtures, and keeps the tests honest in both
-    environments: enforcing where enforcement is on, silent where it is off.
+    ``authz.enforcement_enabled()`` keys off API_KEY / API_KEY_MAP **or Entra**.
+    A laptop with none of those set leaves CRM public and this fixture returns
+    ``{}``. The voice container inherits Entra from the deployed service, so
+    enforcement is on even when ``API_KEY`` is empty — TestClient calls then
+    401 at the middleware because ``auth_required`` is true and no key was
+    sent. Mint a shared test key in that case so the suite matches CI.
     """
+    import authz
+
     key = (os.getenv("API_KEY") or "").strip()
+    if not key and authz.enforcement_enabled():
+        key = "pytest-voice-suite-key"
+        os.environ["API_KEY"] = key
     if not key:
         return {}
     actor = (os.getenv("ACTOR_USER_ID") or "priya-nair").strip()
