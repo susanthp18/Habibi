@@ -94,7 +94,7 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
     ? 6
     : idle <= 0
       ? 0
-      : Math.min(30, Math.max(2, idle));
+      : Math.min(20, Math.max(2, idle));
   const muteAllowed = [
     "until_first_bot_complete",
     "during_function_calls",

@@ -21,4 +21,12 @@ describe("clampAgentTuning", () => {
   it("defaults idle timeout to the collections preset when missing", () => {
     expect(DEFAULT_AGENT_TUNING.interaction.idle_timeout_secs).toBe(12);
   });
+
+  it("clamps idle timeout to 20", () => {
+    expect(
+      clampAgentTuning({
+        interaction: { ...DEFAULT_AGENT_TUNING.interaction, idle_timeout_secs: 28 },
+      }).interaction.idle_timeout_secs,
+    ).toBe(20);
+  });
 });

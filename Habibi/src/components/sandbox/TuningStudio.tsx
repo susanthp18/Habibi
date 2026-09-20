@@ -471,7 +471,7 @@ export function TuningStudio({
           <SliderRow
             label="Idle timeout (s)"
             min={0}
-            max={30}
+            max={20}
             step={1}
             value={value.interaction.idle_timeout_secs}
             disabled={disabled}

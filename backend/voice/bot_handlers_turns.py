@@ -154,7 +154,13 @@ def build(scope: HandlerScope) -> None:
             # Keep session snapshot in sync for logging / next-call restart path.
             from agent_core.tuning import merge_tuning_delta
 
-            session.extra["tuning"] = merge_tuning_delta(session.extra.get("tuning") or tuning, applied)
+            clamps: list = []
+            session.extra["tuning"] = merge_tuning_delta(
+                session.extra.get("tuning") or tuning, applied, out_clamps=clamps
+            )
+            if clamps:
+                session.extra["tuning_clamp"] = clamps
+                applied = {**applied, "tuning_clamp": clamps}
             logger.info("Live tuning applied · session={} · delta={}", session.session_id, applied)
 
     # Prefer worker.rtvi (PipelineWorker enable_rtvi=True) — unwraps

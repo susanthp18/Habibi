@@ -383,6 +383,7 @@ def resolve_session_tuning(
     warmth: int | None = None,
     persona_language: str | None = None,
     persona_fallback_languages: list[str] | None = None,
+    out_clamps: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize deployment/session tuning; optionally overlay Prompt Studio voice.
 
@@ -439,7 +440,7 @@ def resolve_session_tuning(
             persona_tag,
         )
     tuning = apply_voice_config_overlay(
-        normalize_tuning(raw),
+        normalize_tuning(raw, out_clamps=out_clamps),
         voice_name=None if explicit else voice_name,
         speed=speed,
         pitch=pitch,

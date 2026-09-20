@@ -107,6 +107,28 @@ def customer_id_for_bind(
     return None
 
 
+def _voice_source_payload(
+    *,
+    transport: str,
+    bot_id: str,
+    accountable_user_id: str | None,
+    tuning_clamp: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": "voice",
+        "transport": transport,
+        "botCardId": bot_id,
+        "accountableUserId": (
+            (accountable_user_id or "").strip()
+            or env_str("VOICE_ACCOUNTABLE_USER_ID")
+            or None
+        ),
+    }
+    if tuning_clamp:
+        payload["tuningClamp"] = list(tuning_clamp)
+    return payload
+
+
 def start_voice_call(
     *,
     session_id: str,
@@ -119,6 +141,7 @@ def start_voice_call(
     direction: str = "inbound",
     started_at: datetime | None = None,
     accountable_user_id: str | None = None,
+    tuning_clamp: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """INSERT active interaction + voice_sessions row. Returns ids.
 
@@ -174,16 +197,12 @@ def start_voice_call(
                 "deployment_id": deployment_id,
                 "started": started,
                 "payload": json.dumps(
-                    {
-                        "source": "voice",
-                        "transport": transport_n,
-                        "botCardId": bid,
-                        "accountableUserId": (
-                            (accountable_user_id or "").strip()
-                            or env_str("VOICE_ACCOUNTABLE_USER_ID")
-                            or None
-                        ),
-                    }
+                    _voice_source_payload(
+                        transport=transport_n,
+                        bot_id=bid,
+                        accountable_user_id=accountable_user_id,
+                        tuning_clamp=tuning_clamp,
+                    )
                 ),
             },
         )

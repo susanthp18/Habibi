@@ -306,6 +306,7 @@ class CrmSink:
                 bot_id=str(extra.get("bot_id") or "").strip() or None,
                 direction=str(extra.get("call_direction") or self.call_direction),
                 started_at=self.session.call_started_at,
+                tuning_clamp=extra.get("tuning_clamp") if isinstance(extra, dict) else None,
             )
         except Exception:
             logger.exception(
@@ -1413,6 +1414,7 @@ def bind_session_start(
     default: an outbound dial recorded as ``inbound`` is not a cosmetic error,
     it inverts every contact-attempt and answer-rate report built on the column.
     """
+    extra = session.extra if isinstance(getattr(session, "extra", None), dict) else {}
     row = persist.start_voice_call(
         session_id=session.session_id,
         deployment_id=deployment_id,
@@ -1422,9 +1424,8 @@ def bind_session_start(
         account_id=account_id,
         bot_id=bot_id,
         direction=direction,
-        accountable_user_id=session.extra.get("accountable_user_id")
-        if isinstance(getattr(session, "extra", None), dict)
-        else None,
+        accountable_user_id=extra.get("accountable_user_id"),
+        tuning_clamp=extra.get("tuning_clamp"),
     )
     session.interaction_id = row["interactionId"]
     session.customer_id = row["customerId"]

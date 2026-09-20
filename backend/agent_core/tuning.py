@@ -206,6 +206,25 @@ def _clamp_int(value: Any, lo: int, hi: int, default: int) -> int:
     return max(lo, min(hi, n))
 
 
+def _append_clamp(
+    notes: list[dict[str, Any]] | None,
+    field: str,
+    requested: Any,
+    clamped: Any,
+) -> None:
+    """Record a field that normalize moved, for the tuning-apply payload."""
+    if notes is None or requested is None:
+        return
+    if requested == clamped:
+        return
+    try:
+        if float(requested) == float(clamped):
+            return
+    except (TypeError, ValueError):
+        pass
+    notes.append({"field": field, "requested": requested, "clamped": clamped})
+
+
 #: Ceilings on ``tts.params``. Not a schema — the whole point of the bag is that
 #: it carries settings this module has never heard of — but an unbounded dict
 #: read straight off a jsonb column and splatted into a constructor is a way to
@@ -261,8 +280,18 @@ def normalize_tts_params(raw: Any) -> dict[str, Any]:
     return out
 
 
-def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Fill defaults + clamp to doc-legal ranges. Always returns a full AgentTuning."""
+def normalize_tuning(
+    raw: dict[str, Any] | None = None,
+    *,
+    out_clamps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fill defaults + clamp to doc-legal ranges. Always returns a full AgentTuning.
+
+    When ``out_clamps`` is passed, fields the input named that this pass moved
+    are appended as ``{field, requested, clamped}`` — that list is what the
+    voice runtime stamps on ``session.extra["tuning_clamp"]`` and the
+    interaction ``source_payload``.
+    """
     t = _deep_merge(default_tuning(), raw if isinstance(raw, dict) else None)
 
     llm = t["llm"]
@@ -340,7 +369,15 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
         idle_f = float(idle)
     except (TypeError, ValueError):
         idle_f = 6.0
-    ix["idle_timeout_secs"] = 0.0 if idle_f <= 0 else _clamp_float(idle_f, 2.0, 30.0, 6.0)
+    # Voice idle is 2–20s (0 disables). 30s used to look like "attentive" and
+    # left the caller in dead air past a collections pause.
+    ix["idle_timeout_secs"] = 0.0 if idle_f <= 0 else _clamp_float(idle_f, 2.0, 20.0, 6.0)
+    raw_idle = None
+    if isinstance(raw, dict):
+        ix_raw = raw.get("interaction")
+        if isinstance(ix_raw, dict) and "idle_timeout_secs" in ix_raw:
+            raw_idle = ix_raw.get("idle_timeout_secs")
+    _append_clamp(out_clamps, "idle_timeout_secs", raw_idle, ix["idle_timeout_secs"])
     ladder = ix.get("idle_ladder") or ["nudge", "direct", "close"]
     if not isinstance(ladder, list) or not ladder:
         ladder = ["nudge", "direct", "close"]
@@ -351,9 +388,17 @@ def normalize_tuning(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     return t
 
 
-def merge_tuning_delta(base: dict[str, Any] | None, delta: dict[str, Any] | None) -> dict[str, Any]:
+def merge_tuning_delta(
+    base: dict[str, Any] | None,
+    delta: dict[str, Any] | None,
+    *,
+    out_clamps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Deep-merge a Studio delta onto a full AgentTuning, then re-normalize."""
-    return normalize_tuning(_deep_merge(normalize_tuning(base), delta if isinstance(delta, dict) else None))
+    return normalize_tuning(
+        _deep_merge(normalize_tuning(base), delta if isinstance(delta, dict) else None),
+        out_clamps=out_clamps,
+    )
 
 
 def apply_voice_config_overlay(

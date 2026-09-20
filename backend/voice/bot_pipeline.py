@@ -81,6 +81,7 @@ def _bind_providers(call: Any) -> None:
     # AgentTuning.tts owns style/rate/pitch (Tuning Studio). Prompt Studio only
     # supplies the voice name at runtime — prosody was folded into tuning at
     # publish/save via apply_voice_config_overlay.
+    tuning_clamps: list = []
     tuning = resolve_session_tuning(
         bundle.get("tuning"),
         voice_name=vparams.get("voiceName"),
@@ -96,8 +97,11 @@ def _bind_providers(call: Any) -> None:
             if isinstance(bundle.get("persona"), dict)
             else None
         ),
+        out_clamps=tuning_clamps,
     )
     session.extra["tuning"] = tuning
+    if tuning_clamps:
+        session.extra["tuning_clamp"] = tuning_clamps
 
     deployment = voice_config.azure_openai_voice_deployment()
     speech_key = voice_config.azure_speech_key()

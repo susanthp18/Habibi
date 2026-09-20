@@ -241,3 +241,56 @@ def test_the_voice_column_sanitizes_what_it_keeps():
     is folded into the deployment cannot disagree about what a param is."""
     stored = db._prompt_voice({"params": {"ok": 1, "nested": {"no": True}, "voice": "hijack"}})
     assert stored["params"] == {"ok": 1}
+
+
+def test_idle_timeout_clamps_to_20_and_records_the_move():
+    notes: list = []
+    t = normalize_tuning({"interaction": {"idle_timeout_secs": 28}}, out_clamps=notes)
+    assert t["interaction"]["idle_timeout_secs"] == 20.0
+    assert notes == [
+        {"field": "idle_timeout_secs", "requested": 28, "clamped": 20.0},
+    ]
+
+
+def test_idle_presets_stay_inside_the_clamp():
+    from agent_core.tuning import (
+        PRESET_BRISK_VERIFICATION,
+        PRESET_EMPATHETIC_COLLECTIONS,
+        PRESET_FIRM_LEGAL,
+    )
+
+    for preset, expected in (
+        (PRESET_EMPATHETIC_COLLECTIONS, 12.0),
+        (PRESET_BRISK_VERIFICATION, 10.0),
+        (PRESET_FIRM_LEGAL, 15.0),
+    ):
+        notes: list = []
+        t = normalize_tuning(preset, out_clamps=notes)
+        assert t["interaction"]["idle_timeout_secs"] == expected
+        assert notes == []
+
+
+def test_source_payload_carries_the_idle_clamp_note():
+    from voice.persist import _voice_source_payload
+
+    payload = _voice_source_payload(
+        transport="twilio",
+        bot_id="BOT-1",
+        accountable_user_id=None,
+        tuning_clamp=[{"field": "idle_timeout_secs", "requested": 28, "clamped": 20.0}],
+    )
+    assert payload["tuningClamp"] == [
+        {"field": "idle_timeout_secs", "requested": 28, "clamped": 20.0},
+    ]
+
+
+def test_merge_tuning_delta_records_idle_clamp():
+    from agent_core.tuning import merge_tuning_delta
+
+    notes: list = []
+    t = merge_tuning_delta(
+        None, {"interaction": {"idle_timeout_secs": 28}}, out_clamps=notes
+    )
+    assert t["interaction"]["idle_timeout_secs"] == 20.0
+    assert any(n["field"] == "idle_timeout_secs" and n["clamped"] == 20.0 for n in notes)
+
