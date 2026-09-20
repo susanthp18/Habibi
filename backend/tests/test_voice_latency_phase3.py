@@ -259,3 +259,23 @@ def test_tts_start_does_not_wait_on_handshake_and_run_tts_opens_once(tts_stubs, 
 
 async def _drain(svc, text):
     return [f async for f in svc.run_tts(text, "ctx")]
+
+
+# --------------------------------------------------------------- 3.7 first.llm_text
+
+
+def test_first_llm_text_is_emitted_alongside_first_tts():
+    """Keep ``first.tts`` for existing greps; ``first.llm_text`` is the honest name."""
+    from voice.bot_pipeline import emit_first_token_traces
+
+    seen: list[tuple[str, dict]] = []
+
+    def trace(name: str, **fields):
+        seen.append((name, fields))
+
+    emit_first_token_traces(trace, text="Hello there", waited_s=1.2345)
+    assert [name for name, _ in seen] == ["first.tts", "first.llm_text"]
+    for _name, fields in seen:
+        assert fields["stage"] == "llm_text"
+        assert fields["preview"] == "Hello there"
+        assert fields["waited_s"] == 1.234

@@ -35,6 +35,20 @@ from voice.tuning_apply import (
 # Worker-level silence backstop under the aggregator idle ladder.
 _WORKER_IDLE_TIMEOUT_SECS = 180
 
+
+def emit_first_token_traces(trace, *, text: str, waited_s: float | None) -> None:
+    """Keep ``first.tts`` for existing greps; ``first.llm_text`` is the honest name."""
+    from voice.call_trace import preview as _preview
+
+    fields = {
+        "stage": "llm_text",
+        "preview": _preview(text),
+        "waited_s": round(waited_s, 3) if waited_s is not None else None,
+    }
+    trace("first.tts", **fields)
+    trace("first.llm_text", **fields)
+
+
 # In-call context summarisation prompt. Pipecat's default is generic and, in
 # session VS-0D653BF9C3, produced a summary asserting the account was
 # unresolved while a get_account_position result saying otherwise was still in
@@ -259,15 +273,9 @@ def _build_context(call: Any) -> None:
     # record_bot_turn only enqueues, so awaiting it on the pipeline task is
     # safe; the CRM write happens on the sink's own drain.
     def _on_first_tts_text(text: str) -> None:
-        from voice.call_trace import preview as _preview
-
         origin = getattr(runner_args, "setup_started_at", None)
         waited = (time.monotonic() - origin) if origin else None
-        _setup_trace(
-            "first.tts",
-            preview=_preview(text),
-            waited_s=round(waited, 3) if waited is not None else None,
-        )
+        emit_first_token_traces(_setup_trace, text=text, waited_s=waited)
 
     spoke_probe = SpokeThisResponseProbe(
         on_bot_turn=sink.record_bot_turn,
