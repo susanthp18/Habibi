@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AuditFilterState, CallRecord } from "@/api/types/audit";
-import { DISPOSITIONS, listAgents } from "@/lib/audit";
+import { DISPOSITIONS, DISPOSITION_LABELS, listAgents } from "@/lib/audit";
 
 interface Props {
   calls: CallRecord[];
@@ -116,7 +116,7 @@ export function AuditFilters({
             <SelectItem value="all">All dispositions</SelectItem>
             {DISPOSITIONS.map((d) => (
               <SelectItem key={d} value={d}>
-                {d}
+                {DISPOSITION_LABELS[d]}
               </SelectItem>
             ))}
           </SelectContent>

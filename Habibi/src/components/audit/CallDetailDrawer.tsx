@@ -26,6 +26,7 @@ import { TranscriptView } from "./TranscriptView";
 import type { CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
 import { fmtDateTime } from "@/lib/format";
+import { dispositionLabel } from "@/lib/audit";
 
 interface Props {
   call: CallRecord | null;
@@ -122,7 +123,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
                 ) : null}
               </div>
               <div className="mt-075 flex flex-wrap items-center gap-100 text-body-small">
-                <Lozenge tone="selected">{call.disposition ?? "—"}</Lozenge>
+                <Lozenge tone="selected">{dispositionLabel(call.disposition)}</Lozenge>
                 {call.handledBy.kind === "bot" && (
                   <span className="inline-flex items-center gap-050 text-text-subtle">
                     <Bot className="h-3.5 w-3.5" /> {call.handledBy.bot}

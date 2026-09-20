@@ -20,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { CallFlag, CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
-import { sentimentColor } from "@/lib/audit";
+import { dispositionLabel, sentimentColor } from "@/lib/audit";
 import { fmtDateTime } from "@/lib/format";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 import {
@@ -109,15 +109,14 @@ function HandlerChip({ c }: { c: CallRecord }) {
 }
 
 const DISPOSITION_TONE: Record<string, LozengeTone> = {
-  "PTP Captured": "success",
-  "Payment Made": "success",
-  "Info Query Resolved": "selected",
-  "Dispute Raised": "danger",
-  "Callback Scheduled": "neutral",
-  Escalated: "warning",
-  "No Answer": "neutral",
-  Voicemail: "neutral",
-  "DND — Not Contacted": "neutral",
+  ptp_captured: "success",
+  upsell_interest: "selected",
+  query_handled: "selected",
+  completed: "success",
+  escalated: "warning",
+  crm_degraded: "danger",
+  voicemail: "neutral",
+  no_answer: "neutral",
 };
 
 export function CallsTable({
@@ -232,7 +231,7 @@ export function CallsTable({
         sortValue: (c) => c.disposition ?? "",
         cell: (c) => (
           <Lozenge tone={DISPOSITION_TONE[c.disposition ?? ""] ?? "neutral"}>
-            {c.disposition || "—"}
+            {dispositionLabel(c.disposition)}
           </Lozenge>
         ),
       },

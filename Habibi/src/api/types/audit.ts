@@ -12,15 +12,14 @@ export type HandlerKind = "bot" | "human" | "handoff";
 export type Speaker = "bot" | "agent" | "customer" | "system";
 export type SentimentBucket = "positive" | "neutral" | "negative";
 export type Disposition =
-  | "PTP Captured"
-  | "Payment Made"
-  | "Info Query Resolved"
-  | "Dispute Raised"
-  | "Callback Scheduled"
-  | "Escalated"
-  | "No Answer"
-  | "Voicemail"
-  | "DND — Not Contacted";
+  | "ptp_captured"
+  | "upsell_interest"
+  | "query_handled"
+  | "completed"
+  | "escalated"
+  | "crm_degraded"
+  | "voicemail"
+  | "no_answer";
 export type CallFlag =
   "compliance-miss" | "sentiment-drop" | "escalation" | "silence" | "abuse-detected" | "high-value";
 export interface DisclosureCheck {

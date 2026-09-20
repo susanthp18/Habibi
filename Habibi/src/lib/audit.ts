@@ -1,16 +1,32 @@
 import type { AuditFilterState, CallRecord, Disposition, SentimentBucket } from "@/api/types/audit";
 
+/** Runtime `interactions.disposition` values — the Audit filter must match these. */
 export const DISPOSITIONS: Disposition[] = [
-  "PTP Captured",
-  "Payment Made",
-  "Info Query Resolved",
-  "Dispute Raised",
-  "Callback Scheduled",
-  "Escalated",
-  "No Answer",
-  "Voicemail",
-  "DND — Not Contacted",
+  "ptp_captured",
+  "upsell_interest",
+  "query_handled",
+  "completed",
+  "escalated",
+  "crm_degraded",
+  "voicemail",
+  "no_answer",
 ];
+
+export const DISPOSITION_LABELS: Record<Disposition, string> = {
+  ptp_captured: "PTP captured",
+  upsell_interest: "Upsell interest",
+  query_handled: "Query handled",
+  completed: "Completed",
+  escalated: "Escalated",
+  crm_degraded: "CRM degraded",
+  voicemail: "Voicemail",
+  no_answer: "No answer",
+};
+
+export function dispositionLabel(value: string | null | undefined): string {
+  if (!value) return "—";
+  return DISPOSITION_LABELS[value as Disposition] ?? value;
+}
 
 // ---------- filters ----------
 
