@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from capture import PRODUCT_INTENTS, mark_upsell_presented, touch_primary_intent
+from pii_redact import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -372,13 +373,14 @@ def record_product_interest(
     if intent not in PRODUCT_INTENTS:
         return
     touch_primary_intent(conn, interaction_id, intent)
+    masked = redact_text(snippet)[:240] if snippet else None
     emit_commercial_event(
         conn,
         entity_type="interaction",
         entity_id=interaction_id,
         kind="product_interest",
         label=f"Product interest | {intent}",
-        note=(snippet or "")[:240] or None,
+        note=masked or None,
         # `topics` is what the offer engine reads back as kb_topics_queried.
         payload={"intent": intent, "topics": list(topics or [])},
         actor_bot_id=actor_bot_id,

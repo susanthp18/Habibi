@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from pii_redact import redact_text
 from voice import persist
 
 if TYPE_CHECKING:
@@ -102,7 +103,7 @@ def handle(sink: "CrmSink", job: _Job) -> None:
                             conn,
                             interaction_id=ix,
                             intent=str(p["intent"]),
-                            snippet=str(p.get("text") or "")[:240],
+                            snippet=redact_text(str(p.get("text") or ""))[:240],
                         )
             except Exception:
                 logger.exception("touch_primary_intent failed")
