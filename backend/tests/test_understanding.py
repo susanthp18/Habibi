@@ -164,6 +164,21 @@ def test_allow_llm_false_makes_no_azure_call(llm_on, fake_llm):
     assert fake_llm.calls == []
 
 
+def test_exact_hi_does_not_spend_the_analysis_llm(llm_on, fake_llm):
+    result = analyze_turn("Hi")
+    assert result.intent == "greeting"
+    assert result.source == "keyword"
+    assert fake_llm.calls == []
+
+
+def test_engaged_hi_keeps_product_session(llm_on, fake_llm):
+    result = analyze_turn(
+        "Hi", prior_intent="product_faq", already_engaged=True
+    )
+    assert result.intent == "product_faq"
+    assert fake_llm.calls == []
+
+
 def test_empty_turn_makes_no_azure_call(llm_on, fake_llm):
     analyze_turn("   ")
     assert fake_llm.calls == []
@@ -252,7 +267,12 @@ def test_product_thread_survives_an_ambiguous_followup(llm_on, fake_llm):
     """"and the excess?" reads as out_of_scope alone; dropping the thread there
     gates the KB off mid-answer. The LLM sees one turn, not the thread."""
     fake_llm.state["response"] = _tool_response(
-        intent="out_of_scope", sentiment=0.0, abuse=False, legal=False, language="en"
+        intent="out_of_scope",
+        confidence=0.88,
+        sentiment=0.0,
+        abuse=False,
+        legal=False,
+        language="en",
     )
 
     result = analyze_turn("and the excess?", prior_intent="product_faq")
@@ -262,7 +282,12 @@ def test_product_thread_survives_an_ambiguous_followup(llm_on, fake_llm):
 
 def test_long_ambiguous_turn_does_not_inherit_the_thread(llm_on, fake_llm):
     fake_llm.state["response"] = _tool_response(
-        intent="out_of_scope", sentiment=0.0, abuse=False, legal=False, language="en"
+        intent="out_of_scope",
+        confidence=0.88,
+        sentiment=0.0,
+        abuse=False,
+        legal=False,
+        language="en",
     )
 
     long_turn = " ".join(["word"] * 20)
@@ -397,6 +422,71 @@ def test_confidence_stays_a_probability(llm_on, fake_llm):
     assert all(0.0 <= v <= 1.0 for v in result.intent_scores.values())
     # The chosen intent must still win max(), which several callers rely on.
     assert result.intent_scores[result.intent] == max(result.intent_scores.values())
+
+
+def test_missing_confidence_abstains_to_keyword(llm_on, fake_llm):
+    """An LLM intent with no usable confidence must not invent 0.9."""
+    fake_llm.state["response"] = _tool_response(
+        intent="hardship",
+        sentiment=-0.4,
+        abuse=False,
+        legal=False,
+        language="en",
+        english_gloss="Caller cannot pay.",
+    )
+    text = "what is my balance"
+    keyword = understanding.keyword_understanding(text)
+    result = analyze_turn(text)
+
+    assert result.source == "keyword"
+    assert result.fail_closed_reason == "no_confidence"
+    assert result.intent == keyword.intent
+    assert result.intent_scores == keyword.intent_scores
+    assert all(v != 0.9 for v in result.intent_scores.values()) or keyword.intent_score == 0.9
+
+
+def test_unparseable_confidence_abstains_to_keyword(llm_on, fake_llm):
+    fake_llm.state["response"] = _tool_response(
+        intent="hardship",
+        confidence="not-a-number",
+        sentiment=-0.4,
+        abuse=False,
+        legal=False,
+        language="en",
+    )
+    result = analyze_turn("what is my balance")
+    assert result.source == "keyword"
+    assert result.fail_closed_reason == "no_confidence"
+
+
+def test_valid_confidence_still_wins(llm_on, fake_llm):
+    fake_llm.state["response"] = _tool_response(
+        intent="hardship",
+        confidence=0.92,
+        sentiment=-0.4,
+        abuse=False,
+        legal=False,
+        language="en",
+    )
+    result = analyze_turn("what is my balance")
+    assert result.source == "llm"
+    assert result.intent == "hardship"
+    assert result.intent_score == 0.92
+    assert result.fail_closed_reason is None
+
+
+def test_abstention_marks_perception_facts():
+    from agent_core.perception import facts as perception_facts
+
+    u = TurnUnderstanding(
+        intent="balance_query",
+        intent_scores={"balance_query": 0.7},
+        source="keyword",
+        fail_closed_reason="no_confidence",
+    )
+    observed = perception_facts.from_understanding(u)
+    intent_fact = next(f for f in observed if f.key == "intent")
+    assert intent_fact.abstained is True
 
 
 def test_run_up_is_passed_to_the_model(llm_on, fake_llm):

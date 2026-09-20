@@ -67,8 +67,12 @@ def from_understanding(understanding: Any, *, text: str = "") -> list[Fact]:
     It is never stored.
     """
     facts: list[Fact] = [
-        Fact("intent", str(getattr(understanding, "intent", "") or "unknown"),
-             confidence=_confidence(understanding)),
+        Fact(
+            "intent",
+            str(getattr(understanding, "intent", "") or "unknown"),
+            confidence=_confidence(understanding),
+            abstained=bool(getattr(understanding, "fail_closed_reason", None)),
+        ),
         # The band, not the float. A signed sentiment to three decimal places
         # is a number somebody will eventually put in a model.
         Fact("sentiment_band", str(getattr(understanding, "sentiment_label", "") or "neutral")),

@@ -43,7 +43,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent_core import lexicon
-from agent_core.intent import INTENT_KEYWORDS, resolve_intent
+from agent_core.intent import (
+    INTENT_KEYWORDS,
+    NON_GOAL_INTENTS,
+    is_correction,
+    is_greeting,
+    is_help_capabilities,
+    resolve_intent,
+)
 from agent_core.sentiment import estimate_sentiment, sentiment_label
 from env_utils import env_bool
 
@@ -204,6 +211,9 @@ class TurnUnderstanding:
     english_gloss: str | None = None
     source: str = SOURCE_KEYWORD
     latency_ms: int | None = None
+    #: Set when the LLM returned an intent but no usable confidence. Callers
+    #: must keep the keyword scores; never invent a probability.
+    fail_closed_reason: str | None = None
 
     @property
     def intent_score(self) -> float:
@@ -279,13 +289,16 @@ def keyword_understanding(
     text: str,
     *,
     prior_intent: str | None = None,
+    already_engaged: bool = False,
 ) -> TurnUnderstanding:
     """Today's behaviour, unchanged, as a TurnUnderstanding.
 
     This is the fallback for every failure mode below, and the only path when
     ``UNDERSTANDING_LLM_ENABLED`` is off. It must never raise.
     """
-    intent, scores = resolve_intent(text, prior_intent=prior_intent)
+    intent, scores = resolve_intent(
+        text, prior_intent=prior_intent, already_engaged=already_engaged
+    )
     score = estimate_sentiment(text)
     return TurnUnderstanding(
         intent=intent,
@@ -449,6 +462,34 @@ def _coerce_confidence(raw: Any) -> float | None:
     return max(0.0, min(1.0, round(value, 3)))
 
 
+def _keyword_is_decisive(baseline: TurnUnderstanding, text: str) -> bool:
+    """True when the keyword path already settled the turn.
+
+    The analysis LLM sits on the critical path of a live reply. A bare hello,
+    a correction, a capabilities ask, an explicit human request, or a
+    high-confidence product FAQ does not need a second model to confirm what
+    the substring match already knows. Hindi / ambiguous turns stay on the
+    LLM path — those are the cases this module exists for.
+    """
+    if is_greeting(text) or is_correction(text) or is_help_capabilities(text):
+        return True
+    if baseline.intent == "escalation" and baseline.intent_score >= 0.85:
+        return True
+    if baseline.intent == "product_faq" and baseline.intent_score >= 0.85:
+        return True
+    return False
+
+
+def _keep_engaged_goal(intent: str, *, prior_intent: str | None, already_engaged: bool) -> str:
+    """A mid-thread greeting must not wipe a live goal the keyword path kept."""
+    if not already_engaged or intent != "greeting":
+        return intent
+    prior = (prior_intent or "").strip()
+    if prior and prior not in NON_GOAL_INTENTS:
+        return prior
+    return intent
+
+
 def _merge(
     baseline: TurnUnderstanding,
     payload: dict[str, Any],
@@ -456,11 +497,13 @@ def _merge(
     prior_intent: str | None,
     text_for_session: str,
     latency_ms: int | None,
+    already_engaged: bool = False,
 ) -> TurnUnderstanding:
     """Field-by-field merge. Every field falls back to the baseline on its own."""
     intent = baseline.intent
     scores = baseline.intent_scores
     used_llm = False
+    fail_closed_reason: str | None = None
 
     raw_intent = str(payload.get("intent") or "").strip()
     if raw_intent in ALLOWED_INTENTS:
@@ -477,6 +520,9 @@ def _merge(
             and len((text_for_session or "").split()) <= 12
         ):
             intent = prior_intent or intent
+        intent = _keep_engaged_goal(
+            intent, prior_intent=prior_intent, already_engaged=already_engaged
+        )
 
         # Callers read intent_scores[intent] as the confidence and several take
         # max(scores) to recover the winner. Both must agree with `intent`.
@@ -487,10 +533,18 @@ def _merge(
         # already at 1.0, and shipped 1.01 into intent_score — a numeric(5,3)
         # column every consumer reads as a probability.
         confidence = _coerce_confidence(payload.get("confidence"))
-        chosen = confidence if confidence is not None else 0.9
-        ceiling = max(0.0, chosen - 0.01)
-        scores = {k: min(v, ceiling) for k, v in baseline.intent_scores.items()}
-        scores[intent] = chosen
+        if confidence is None:
+            # Missing or junk confidence is an abstention, not a 0.9. Keep the
+            # keyword intent and its scores; persist fail_closed_reason.
+            intent = baseline.intent
+            scores = baseline.intent_scores
+            used_llm = False
+            fail_closed_reason = "no_confidence"
+        else:
+            chosen = confidence
+            ceiling = max(0.0, chosen - 0.01)
+            scores = {k: min(v, ceiling) for k, v in baseline.intent_scores.items()}
+            scores[intent] = chosen
     elif raw_intent:
         logger.warning(
             "turn understanding returned unregistered intent %r — keeping keyword %r",
@@ -525,8 +579,11 @@ def _merge(
         unresolved_repeat=bool(payload.get("unresolved_repeat")),
         language=language,
         english_gloss=gloss,
-        source=SOURCE_LLM if used_llm else SOURCE_KEYWORD,
+        source=SOURCE_KEYWORD if fail_closed_reason else (
+            SOURCE_LLM if used_llm else SOURCE_KEYWORD
+        ),
         latency_ms=latency_ms,
+        fail_closed_reason=fail_closed_reason,
     )
 
 
@@ -542,6 +599,7 @@ def analyze_turn(
     channel: str = "text",
     allow_llm: bool = True,
     recent: list[tuple[str, str]] | None = None,
+    already_engaged: bool = False,
 ) -> TurnUnderstanding:
     """Classify one customer turn. Never raises, always returns a full result.
 
@@ -552,9 +610,16 @@ def analyze_turn(
     so existing callers keep working, but without it sentiment is judged from a
     single sentence and a caller repeating an unanswered question scores neutral
     — see :func:`_format_context`.
+
+    ``already_engaged`` is true when this thread already has a bot (or agent)
+    reply since the last dialog reset — a mid-thread "Hi" must not session-break.
     """
-    baseline = keyword_understanding(text, prior_intent=prior_intent)
+    baseline = keyword_understanding(
+        text, prior_intent=prior_intent, already_engaged=already_engaged
+    )
     if not allow_llm or not llm_enabled() or not (text or "").strip():
+        return baseline
+    if _keyword_is_decisive(baseline, text):
         return baseline
 
     payload, latency_ms = _ask_llm(text, recent)
@@ -568,6 +633,7 @@ def analyze_turn(
             prior_intent=prior_intent,
             text_for_session=text,
             latency_ms=latency_ms,
+            already_engaged=already_engaged,
         )
     except Exception:
         # A merge bug must degrade to the baseline, not take down a live turn.

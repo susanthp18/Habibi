@@ -153,6 +153,8 @@ def _write(
     if source_model == "keyword":
         source_model = KEYWORD_BASELINE
 
+    guard_verdict = str(getattr(understanding, "fail_closed_reason", "") or "") or None
+
     observed = facts_mod.from_understanding(understanding, text=turn_text)
 
     run_id = f"PR-{uuid.uuid4().hex[:12].upper()}"
@@ -215,11 +217,13 @@ def _write(
                 INSERT INTO perception_facts (
                   tenant_id, id, customer_id, interaction_id, turn_index,
                   fact_key, fact_value, provenance, input_provenance,
-                  confidence, abstained, source_model, schema_version
+                  confidence, abstained, source_model, schema_version,
+                  guard_verdict
                 ) VALUES (
                   :tenant, :id, :customer, :ix, :turn,
                   :key, CAST(:value AS jsonb), :provenance, :inputs,
-                  :confidence, :abstained, :model, :schema
+                  :confidence, :abstained, :model, :schema,
+                  :guard
                 )
                 """
             ),
@@ -237,6 +241,7 @@ def _write(
                 "abstained": fact.abstained,
                 "model": source_model,
                 "schema": facts_mod.SCHEMA_VERSION,
+                "guard": guard_verdict if fact.abstained else None,
             },
         )
         written += 1
