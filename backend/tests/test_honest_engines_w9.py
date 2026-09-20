@@ -436,6 +436,10 @@ def test_a_fact_observed_after_the_decision_instant_is_not_read(db_tx) -> None:
     from agent_core.treatment.features import SqlFeatureProvider
 
     interaction_id, tenant_id, customer_id = _interaction(db_tx)
+    db_tx.execute(
+        text("DELETE FROM perception_facts WHERE customer_id = :c"),
+        {"c": customer_id},
+    )
     now = datetime.now(timezone.utc)
     db_tx.execute(
         text(

@@ -95,6 +95,14 @@ def _prep(db_tx, monkeypatch: pytest.MonkeyPatch) -> str:
             ),
             {"id": f"{cr['id']}-{ch}", "cr": cr["id"], "ch": ch},
         )
+    # Published tenant rules may only lower the env cap. Seeded books often
+    # ship daily_cap=1, which would make CONTACT_DAILY_CAP=3 unreachable.
+    db_tx.execute(
+        text("DELETE FROM policy_rules WHERE kind IN ('daily_cap', 'weekly_cap')")
+    )
+    import policy_rules
+
+    policy_rules.reset_cache()
     return cid
 
 
