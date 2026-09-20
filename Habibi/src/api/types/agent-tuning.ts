@@ -46,7 +46,11 @@ export type AgentTuningTurn = {
 };
 
 export type BargeInMode = "on" | "min_words" | "locked";
-export type MuteStrategyId = "until_first_bot_complete" | "during_function_calls";
+export type MuteStrategyId =
+  | "until_first_bot_complete"
+  | "during_function_calls"
+  | "always"
+  | "first_speech";
 export type IdleLadderStep = "nudge" | "direct" | "close";
 
 export type AgentTuningInteraction = {

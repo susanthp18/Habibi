@@ -380,8 +380,8 @@ export function TuningStudio({
           />
           <SliderRow
             label="Max tokens"
-            min={40}
-            max={400}
+            min={32}
+            max={1024}
             step={10}
             value={value.llm.max_completion_tokens}
             disabled={disabled}
@@ -471,7 +471,7 @@ export function TuningStudio({
           <SliderRow
             label="Idle timeout (s)"
             min={0}
-            max={20}
+            max={30}
             step={1}
             value={value.interaction.idle_timeout_secs}
             disabled={disabled}

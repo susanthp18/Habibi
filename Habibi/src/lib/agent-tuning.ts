@@ -52,7 +52,7 @@ export const DEFAULT_AGENT_TUNING: AgentTuning = {
     barge_in: "on",
     min_words: 3,
     mute: ["until_first_bot_complete", "during_function_calls"],
-    idle_timeout_secs: 6.0,
+    idle_timeout_secs: 12.0,
     idle_ladder: ["nudge", "direct", "close"],
   },
 };
@@ -70,7 +70,10 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
   llm.top_p = Math.min(1, Math.max(0, Number(llm.top_p) || 0));
   llm.frequency_penalty = Math.min(2, Math.max(-2, Number(llm.frequency_penalty) || 0));
   llm.presence_penalty = Math.min(2, Math.max(-2, Number(llm.presence_penalty) || 0));
-  llm.max_completion_tokens = Math.min(800, Math.max(40, Number(llm.max_completion_tokens) || 220));
+  llm.max_completion_tokens = Math.min(
+    1024,
+    Math.max(32, Number(llm.max_completion_tokens) || 220),
+  );
 
   const deg = Number(tts.style_degree);
   tts.style_degree = String(Math.min(2, Math.max(0.01, Number.isFinite(deg) ? deg : 1.4)));
@@ -86,16 +89,24 @@ export function clampAgentTuning(raw: Partial<AgentTuning> | null | undefined): 
 
   if (!["on", "min_words", "locked"].includes(interaction.barge_in)) interaction.barge_in = "on";
   interaction.min_words = Math.min(10, Math.max(1, Number(interaction.min_words) || 3));
-  interaction.idle_timeout_secs = Math.min(
-    30,
-    Math.max(
-      0,
-      Number(interaction.idle_timeout_secs) || DEFAULT_AGENT_TUNING.interaction.idle_timeout_secs,
-    ),
-  );
+  const idle = Number(interaction.idle_timeout_secs);
+  interaction.idle_timeout_secs = !Number.isFinite(idle)
+    ? 6
+    : idle <= 0
+      ? 0
+      : Math.min(30, Math.max(2, idle));
+  const muteAllowed = [
+    "until_first_bot_complete",
+    "during_function_calls",
+    "always",
+    "first_speech",
+  ];
   interaction.mute = (Array.isArray(interaction.mute) ? interaction.mute : []).filter((m) =>
-    ["until_first_bot_complete", "during_function_calls"].includes(m),
+    muteAllowed.includes(m),
   );
+  if (interaction.mute.length === 0) {
+    interaction.mute = ["until_first_bot_complete", "during_function_calls"];
+  }
   interaction.idle_ladder = (
     Array.isArray(interaction.idle_ladder) ? interaction.idle_ladder : []
   ).filter((s) => ["nudge", "direct", "close"].includes(s));
