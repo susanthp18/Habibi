@@ -75,8 +75,12 @@ def test_on_still_allows_interruptions() -> None:
 
 def test_locked_never_interrupts() -> None:
     s = build_user_turn_strategies(_tuning("locked"))
-    assert _names(s.start) == ["VADUserTurnStartStrategy"]
-    assert all(x._enable_interruptions is False for x in s.start)
+    assert "VADUserTurnStartStrategy" in _names(s.start)
+    assert "TranscriptionUserTurnStartStrategy" not in _names(s.start)
+    # Greeting replay starts after unmute, when the disclosure is already
+    # complete -- that start may barge. The live-speech starts must not.
+    live = [x for x in s.start if type(x).__name__ != "GreetingReplayUserTurnStartStrategy"]
+    assert live and all(x._enable_interruptions is False for x in live)
 
 
 # --- min_words: a matched pair, not an oversight -----------------------------
