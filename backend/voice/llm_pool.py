@@ -59,13 +59,19 @@ def _build_client() -> AsyncAzureOpenAI:
     return _guard_completions(_unguarded_client())
 
 
+def _client_timeouts() -> tuple[httpx.Timeout, int]:
+    """Voice-turn timeouts. Analysis profile stays 8s×0 in azure_openai."""
+    return httpx.Timeout(connect=3.0, read=15.0, write=5.0, pool=2.0), 1
+
+
 def _unguarded_client() -> AsyncAzureOpenAI:
+    timeout, max_retries = _client_timeouts()
     return AsyncAzureOpenAI(
         api_key=voice_config.azure_openai_voice_api_key(),
         api_version=voice_config.azure_openai_voice_api_version(),
         azure_endpoint=voice_config.azure_openai_voice_endpoint().rstrip("/") + "/",
-        max_retries=2,
-        timeout=httpx.Timeout(30.0, connect=10.0),
+        max_retries=max_retries,
+        timeout=timeout,
         http_client=DefaultAsyncHttpxClient(
             limits=httpx.Limits(
                 max_keepalive_connections=20,

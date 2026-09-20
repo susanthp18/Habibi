@@ -49,3 +49,14 @@ def test_the_voice_llm_client_sits_behind_the_breaker() -> None:
 
     client = llm_pool._build_client()
     assert client.chat.completions.create.__name__ == "guarded"
+
+
+def test_voice_llm_timeouts_are_the_voice_profile() -> None:
+    from voice import llm_pool
+
+    timeout, retries = llm_pool._client_timeouts()
+    assert retries == 1
+    assert timeout.connect == 3.0
+    assert timeout.read == 15.0
+    assert timeout.write == 5.0
+    assert timeout.pool == 2.0
