@@ -195,13 +195,13 @@ def test_idle_ladder_waits_after_a_question() -> None:
     assert not should_defer_question_idle("I'll wait.", 14.8, _QUESTION_IDLE_FLOOR_SECS)
 
 
-def test_escalate_close_does_not_end_the_conversation_before_end_call() -> None:
+def test_escalate_close_ends_the_conversation() -> None:
     from voice.flow_export import built_in_collections_graph
 
     node = next(
         n for n in built_in_collections_graph()["nodes"] if n["key"] == "escalate_close"
     )
-    assert node["data"]["endConversation"] is False
+    assert node["data"]["endConversation"] is True
     assert "search_knowledge_base again" in node["data"]["instructions"]
     assert "refused" in NODE_DIRECTIVES["escalate_close"]
 
