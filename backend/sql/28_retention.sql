@@ -151,6 +151,12 @@ CREATE INDEX IF NOT EXISTS idx_retention_runs_recent
 -- Stamped at write, never recomputed at purge time. `retention_class` moves
 -- exactly once per row, identified -> pseudonymous, when the free text is
 -- redacted in place; the second clock then runs from that moment.
+--
+-- Rows written before the stamp must be backfilled (Alembic 0154 /
+-- agent_core.retention.backfill: created_at/started_at/occurred_at + policy
+-- days). NULL retain_until is a bug, not forever: the reaper deletes only
+-- retain_until <= now() and ignores NULL, so an unstamped row would never
+-- expire.
 ALTER TABLE treatment_decisions
   ADD COLUMN IF NOT EXISTS retention_class TEXT,
   ADD COLUMN IF NOT EXISTS retain_until timestamptz;

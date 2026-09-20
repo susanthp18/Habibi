@@ -336,6 +336,71 @@ def test_the_expiry_is_stamped_at_write(db_tx):
     assert row["retain_until"] > datetime.now(timezone.utc) + timedelta(days=360)
 
 
+def test_stamp_for_interaction_is_never_null():
+    class _Conn:
+        def execute(self, *a, **k):
+            raise RuntimeError("no retention_rules")
+
+    started = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    from voice.persist import _interaction_retention_params
+
+    params = _interaction_retention_params(_Conn(), tenant_id="t", started_at=started)
+    assert params["retention_class"] == retention.IDENTIFIED
+    assert params["retain_until"] == started + timedelta(days=365)
+
+
+def test_sweep_ignores_null_retain_until_until_backfill_stamps_it(db_tx):
+    """NULL is not forever: after backfill the row is on the reaper's clock."""
+    _require(db_tx)
+    tenant, customer = _subject(db_tx)
+    interaction_id = f"IN-NULL-{uuid.uuid4().hex[:10].upper()}"
+    bot_id = db_tx.execute(
+        text("SELECT id FROM bots WHERE tenant_id = :t ORDER BY id LIMIT 1"),
+        {"t": tenant},
+    ).scalar()
+    if not bot_id:
+        pytest.skip("no seeded bot")
+    db_tx.execute(
+        text(
+            """
+            INSERT INTO interactions (
+              id, tenant_id, customer_id, handler_kind, handler_bot_id,
+              channel, direction, status, summary, started_at
+            ) VALUES (
+              :id, :t, :c, 'bot', :bot, 'voice', 'outbound', 'completed',
+              'unstamped row',
+              now() - make_interval(days => 500)
+            )
+            """
+        ),
+        {"id": interaction_id, "t": tenant, "c": customer, "bot": bot_id},
+    )
+    retention.sweep(db_tx, tenant_id=tenant)
+    unstamped = db_tx.execute(
+        text("SELECT retain_until, summary FROM interactions WHERE id = :id"),
+        {"id": interaction_id},
+    ).mappings().first()
+    assert unstamped["retain_until"] is None
+    assert unstamped["summary"] is not None
+    stamped = retention.backfill(db_tx, tenant_id=tenant, record_kind="interaction")
+    assert stamped >= 1
+    until = db_tx.execute(
+        text("SELECT retain_until FROM interactions WHERE id = :id"),
+        {"id": interaction_id},
+    ).scalar()
+    assert until is not None
+    due = db_tx.execute(
+        text(
+            """
+            SELECT id FROM interactions
+             WHERE id = :id AND retain_until IS NOT NULL AND retain_until <= now()
+            """
+        ),
+        {"id": interaction_id},
+    ).scalar()
+    assert due == interaction_id
+
+
 def test_backfill_stamps_older_rows_and_is_idempotent(db_tx):
     _require(db_tx)
     tenant, customer = _subject(db_tx)

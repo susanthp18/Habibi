@@ -129,6 +129,24 @@ def _voice_source_payload(
     return payload
 
 
+def _interaction_retention_params(
+    conn: Any, *, tenant_id: str, started_at: datetime
+) -> dict[str, Any]:
+    """``retain_until`` is stamped at write. NULL is a bug, not forever."""
+    from agent_core import retention
+
+    stamp = retention.stamp_for(
+        conn,
+        tenant_id=tenant_id,
+        record_kind="interaction",
+        anchor_at=started_at,
+    )
+    if stamp is None:
+        raise RuntimeError("interaction retain_until stamp missing")
+    cls, until = stamp
+    return {"retention_class": cls, "retain_until": until}
+
+
 def start_voice_call(
     *,
     session_id: str,
@@ -171,6 +189,10 @@ def start_voice_call(
         if not acct and not is_unknown_caller(cid):
             acct = db._first_account_id(conn, cid)
 
+        tenant = db.current_tenant()
+        retention_params = _interaction_retention_params(
+            conn, tenant_id=tenant, started_at=started
+        )
         conn.execute(
             text(
                 """
@@ -178,18 +200,20 @@ def start_voice_call(
                   id, tenant_id, customer_id, account_id,
                   handler_kind, handler_user_id, handler_bot_id,
                   channel, direction, status, deployment_id,
-                  started_at, source_payload, created_at, updated_at
+                  started_at, source_payload, created_at, updated_at,
+                  retention_class, retain_until
                 ) VALUES (
                   :id, :tenant, :customer_id, :account_id,
                   'bot', NULL, :bot_id,
                   'voice', :direction, 'active', :deployment_id,
-                  :started, CAST(:payload AS jsonb), now(), now()
+                  :started, CAST(:payload AS jsonb), now(), now(),
+                  :retention_class, :retain_until
                 )
                 """
             ),
             {
                 "id": interaction_id,
-                "tenant": db.current_tenant(),
+                "tenant": tenant,
                 "customer_id": cid,
                 "account_id": acct,
                 "bot_id": bid,
@@ -204,6 +228,7 @@ def start_voice_call(
                         tuning_clamp=tuning_clamp,
                     )
                 ),
+                **retention_params,
             },
         )
         try:
