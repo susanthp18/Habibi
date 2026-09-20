@@ -129,6 +129,7 @@ _CONNECTION_BY_STATE: dict[str, str] = {
     outbound.STATE_VOICEMAIL_LEFT: "voicemail",
     outbound.STATE_VOICEMAIL_SKIPPED: "voicemail",
     outbound.STATE_BOT_UNREACHABLE: "bot_unreachable",
+    outbound.STATE_RECORDING_UNAVAILABLE: "recording_unavailable",
 }
 
 #: Precedence when several signals are true at once. A payment beats a promise
@@ -1137,7 +1138,7 @@ def _next_action_hint(connection: str, business: str | None, reason: str | None)
         return "mandate_reregistration"
     if reason == "forgot":
         return "cheapest_digital_next_time"
-    if connection in {"no_answer", "busy"}:
+    if connection in {"no_answer", "busy", "bot_unreachable", "recording_unavailable"}:
         return "retry_different_hour"
     if connection == "invalid_number":
         return "try_alternate_number"

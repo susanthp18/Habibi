@@ -120,22 +120,62 @@ def test_disclosure_without_speech_or_fallback_does_not_write(monkeypatch) -> No
     assert state.disclosure_done is False
 
 
-def test_start_recording_failure_is_not_disclosed(monkeypatch) -> None:
+def test_start_recording_failure_discloses_then_ends(monkeypatch) -> None:
     monkeypatch.setattr(
         "voice.persist.record_disclosure",
         lambda **kw: (_ for _ in ()).throw(AssertionError("proof row despite recording failure")),
     )
+    spoken: list[str] = []
+
+    class _Worker:
+        async def queue_frame(self, frame) -> None:
+            spoken.append(type(frame).__name__ + ":" + str(getattr(frame, "text", "")))
 
     async def _fail():
         raise RuntimeError("media down")
 
-    ctx, _session, state = _ctx(start_recording=_fail)
+    ctx, session, state = _ctx(start_recording=_fail)
 
     async def go():
-        return await _handler(ctx)(SimpleNamespace())
+        return await _handler(ctx)(SimpleNamespace(worker=_Worker()))
 
     result, nxt = asyncio.run(go())
-    assert result["error"] == "recording_not_started"
-    assert result.get("disclosed") is False
+    assert result["error"] == "recording_unavailable"
+    assert result.get("disclosed") is True
     assert nxt is None
     assert state.disclosure_done is False
+    assert session.extra.get("ending_reason") == "recording_unavailable"
+    assert any("cannot continue this call" in s.lower() for s in spoken)
+    assert any(s.startswith("EndFrame:") for s in spoken)
+
+
+def test_start_recording_failure_still_speaks_the_notice_when_the_model_did_not(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "voice.persist.record_disclosure",
+        lambda **kw: (_ for _ in ()).throw(AssertionError("proof row despite recording failure")),
+    )
+    spoken: list[str] = []
+
+    class _Worker:
+        async def queue_frame(self, frame) -> None:
+            spoken.append(str(getattr(frame, "text", "") or type(frame).__name__))
+
+    async def _fail():
+        raise RuntimeError("media down")
+
+    ctx, session, _state = _ctx(spoke=False, start_recording=_fail)
+
+    async def go():
+        return await _handler(ctx)(SimpleNamespace(worker=_Worker()))
+
+    result, nxt = asyncio.run(go())
+    assert result["error"] == "recording_unavailable"
+    assert nxt is None
+    assert session.extra.get("ending_reason") == "recording_unavailable"
+    joined = " ".join(spoken).lower()
+    assert "recorded" in joined
+    assert "call us back" in joined
+    assert "EndFrame" in spoken
+

@@ -41,6 +41,8 @@ MEDIA_ENDPOINT = "Local/bot@to-bot/n"
 #: Pre-recorded apology+callback played when the bot's media leg never comes up.
 #: Not TTS: the caller must hear a human recording, then the line drops.
 UNREACHABLE_SOUND = "sound:habibi/bot-unreachable"
+#: Pre-recorded disclosure+callback when the call cannot be taped. Not TTS.
+RECORDING_UNAVAILABLE_SOUND = "sound:habibi/recording-unavailable"
 #: The pjsip endpoint render_config.py writes for the carrier leg.
 TRUNK_ENDPOINT = "trunk"
 #: Outbound SIP legs get this prefix plus the attempt id, so the controller can
@@ -60,6 +62,7 @@ __all__ = [
     "MEDIA_ENDPOINT",
     "OUTBOUND_ID_PREFIX",
     "UNREACHABLE_SOUND",
+    "RECORDING_UNAVAILABLE_SOUND",
     "bridge_id",
     "configured",
     "default_from_number",

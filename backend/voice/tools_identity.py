@@ -31,6 +31,63 @@ from voice.tool_state import (
 
 logger = logging.getLogger(__name__)
 
+_RECORDING_UNAVAILABLE_CALLBACK = (
+    "We cannot continue this call. Please call us back, and we will try you again."
+)
+
+
+async def _fail_closed_recording(
+    flow_manager: Any,
+    *,
+    session: Any,
+    greeting: str,
+    already_spoke: bool,
+) -> None:
+    """The tape never started: they still hear the notice and a callback, then we hang up."""
+    from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+
+    session.mark_ending("recording_unavailable")
+    worker = getattr(flow_manager, "worker", None) or getattr(flow_manager, "_worker", None)
+    if worker is not None:
+        if not already_spoke:
+            try:
+                await worker.queue_frame(TTSSpeakFrame(greeting, append_to_context=False))
+            except TypeError:
+                await worker.queue_frame(TTSSpeakFrame(greeting))
+            except Exception:
+                logger.exception("recording-unavailable disclosure failed")
+        try:
+            await worker.queue_frame(
+                TTSSpeakFrame(_RECORDING_UNAVAILABLE_CALLBACK, append_to_context=False)
+            )
+        except TypeError:
+            await worker.queue_frame(TTSSpeakFrame(_RECORDING_UNAVAILABLE_CALLBACK))
+        except Exception:
+            logger.exception("recording-unavailable callback failed")
+        try:
+            await worker.queue_frame(EndFrame())
+        except Exception:
+            logger.exception("recording-unavailable EndFrame failed")
+    attempt_id = (session.extra or {}).get("attempt_id")
+    if not attempt_id:
+        return
+
+    def _mark() -> None:
+        import db as dbmod
+        import outbound
+
+        with dbmod.engine.begin() as conn:
+            outbound.mark(
+                conn,
+                str(attempt_id),
+                state=outbound.STATE_RECORDING_UNAVAILABLE,
+            )
+
+    try:
+        await asyncio.to_thread(_mark)
+    except Exception:
+        logger.exception("recording_unavailable attempt mark failed")
+
 
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
@@ -114,11 +171,13 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     await start_recording()
                 except Exception:
                     logger.exception("start_recording failed")
-                    return {
-                        "error": "recording_not_started",
-                        "disclosed": False,
-                        "say": "the recording did not start; do not claim the call is recorded",
-                    }, None
+                    await _fail_closed_recording(
+                        flow_manager,
+                        session=session,
+                        greeting=_FALLBACK_GREETING,
+                        already_spoke=bool(spoke or fallback_ok),
+                    )
+                    return {"error": "recording_unavailable", "disclosed": True}, None
             await asyncio.to_thread(
                 persist.record_disclosure,
                 interaction_id=ix,

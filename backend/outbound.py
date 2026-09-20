@@ -90,6 +90,7 @@ STATE_CANCELED = "canceled"
 STATE_TRANSFERRED = "transferred"
 STATE_ABANDONED = "abandoned"
 STATE_BOT_UNREACHABLE = "bot_unreachable"
+STATE_RECORDING_UNAVAILABLE = "recording_unavailable"
 
 #: An attempt in one of these is still holding a slot in the fleet gate.
 IN_FLIGHT: frozenset[str] = frozenset(
@@ -111,6 +112,7 @@ TERMINAL: frozenset[str] = frozenset(
         STATE_TRANSFERRED,
         STATE_ABANDONED,
         STATE_BOT_UNREACHABLE,
+        STATE_RECORDING_UNAVAILABLE,
     }
 )
 
@@ -129,6 +131,7 @@ RETRYABLE: frozenset[str] = frozenset(
         STATE_VOICEMAIL_SKIPPED,
         STATE_REJECTED,
         STATE_BOT_UNREACHABLE,
+        STATE_RECORDING_UNAVAILABLE,
     }
 )
 
@@ -161,6 +164,7 @@ _TWILIO_STATUS: dict[str, str] = {
     # Not a Twilio status: Asterisk's controller reports a declined call (Q.850 21).
     "rejected": STATE_REJECTED,
     "bot-unreachable": STATE_BOT_UNREACHABLE,
+    "recording-unavailable": STATE_RECORDING_UNAVAILABLE,
 }
 
 #: Twilio error codes that mean the number itself is wrong, as opposed to a

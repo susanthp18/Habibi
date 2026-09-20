@@ -93,6 +93,8 @@ class Call:
     recorded: bool = False
     #: Bot media never came up; apology played and the attempt is retryable.
     bot_unreachable: bool = False
+    #: Bridge recording never started; disclosure+callback then hangup.
+    recording_unavailable: bool = False
     #: Q.850 cause, which only ChannelHangupRequest carries.
     hangup_cause: int | None = None
 
@@ -291,9 +293,12 @@ class Controller:
             elif kind == "RecordingFailed":
                 name = str((event.get("recording") or {}).get("name") or "")
                 logger.error("recording failed for %s: %s", name, event.get("recording"))
-                if name in self.calls:
-                    self.calls[name].recorded = True
-                    self._release_if_done(self.calls[name])
+                call = self.calls.get(name)
+                if call is not None and not call.finished:
+                    await self._recording_failed(call)
+                elif call is not None:
+                    call.recorded = True
+                    self._release_if_done(call)
         except Exception:
             logger.exception("controller: %s for %s failed", kind, channel_id or "?")
 
@@ -417,6 +422,30 @@ class Controller:
         await self._quiet("DELETE", f"/channels/{call.sip_id}", query={"reason": "normal"})
         await self._finish(call, cause=None)
 
+    async def _recording_failed(self, call: Call) -> None:
+        """Tape never started. Disclose, offer a callback, hang up. No collections.
+
+        Do not leave the caller in an unrecorded negotiation, and do not dump
+        them to agents. Outbound stamps retryable ``recording_unavailable``.
+        """
+        if call.finished:
+            return
+        call.recording_unavailable = True
+        await self._teardown_media(call)
+        try:
+            if call.answered_at is None:
+                await self._quiet("POST", f"/channels/{call.sip_id}/answer")
+                call.answered_at = time.monotonic()
+            await self._quiet(
+                "POST",
+                f"/channels/{call.sip_id}/play",
+                query={"media": ops.RECORDING_UNAVAILABLE_SOUND},
+            )
+        except Exception:
+            logger.exception("recording-unavailable playback failed for %s", call.sip_id)
+        await self._quiet("DELETE", f"/channels/{call.sip_id}", query={"reason": "normal"})
+        await self._finish(call, cause=None)
+
     async def _bridge(self, call: Call) -> None:
         if call.direction == "inbound":
             await self._call_ari("POST", f"/channels/{call.sip_id}/answer")
@@ -430,11 +459,16 @@ class Controller:
             await self._call_ari("POST", f"/bridges/{bridge}/addChannel", query={"channel": channel_id})
         call.bridged = True
         # Recording starts with the conversation, so a refused call leaves no empty file.
-        await self._quiet(
-            "POST",
-            f"/bridges/{bridge}/record",
-            query={"name": call.sip_id, "format": "wav", "ifExists": "overwrite"},
-        )
+        # A failed start is fail-closed: disclose, callback, hang up — never collect off-tape.
+        try:
+            await self._call_ari(
+                "POST",
+                f"/bridges/{bridge}/record",
+                query={"name": call.sip_id, "format": "wav", "ifExists": "overwrite"},
+            )
+        except Exception:
+            logger.exception("bridge recording did not start for %s", call.sip_id)
+            await self._recording_failed(call)
 
     async def _teardown_media(self, call: Call) -> None:
         await self._quiet("DELETE", f"/channels/{ops.media_channel_id(call.sip_id)}")
@@ -498,14 +532,20 @@ class Controller:
             code = None
         answered = call.answered_at is not None
         duration = int(time.monotonic() - call.answered_at) if answered else None
-        status = "bot-unreachable" if call.bot_unreachable else status_for(code, answered=answered)
+        if call.bot_unreachable:
+            status = "bot-unreachable"
+            error_code = "bot_unreachable"
+        elif call.recording_unavailable:
+            status = "recording-unavailable"
+            error_code = "recording_unavailable"
+        else:
+            status = status_for(code, answered=answered)
+            error_code = f"q850:{code}" if code is not None else None
         await self._status(
             call,
             status,
             duration_sec=duration,
-            error_code="bot_unreachable" if call.bot_unreachable else (
-                f"q850:{code}" if code is not None else None
-            ),
+            error_code=error_code,
         )
         await self._teardown_media(call)
         self._release_if_done(call)

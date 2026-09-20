@@ -322,3 +322,34 @@ def test_a_recording_that_finishes_first_does_not_rewrite_the_outcome(world) -> 
     )
     assert statuses[-1]["status"] == "completed"
     assert controller.calls == {}
+
+
+def test_recording_start_failure_plays_notice_then_hangs_up(world) -> None:
+    controller, ari, *_ = world
+    sip = "1789.8"
+    ari.fail[f"/bridges/br-{sip}/record"] = ops.AriError(500, "record failed")
+    run(
+        controller,
+        ev("StasisStart", sip, args=["inbound"], channel={}),
+        ev("StasisStart", f"{sip}-m"),
+    )
+    paths = ari.paths()
+    assert ("POST", f"/channels/{sip}/continue") not in paths
+    play = next(c for c in ari.calls if c[1] == f"/channels/{sip}/play")
+    assert play[2]["media"] == ops.RECORDING_UNAVAILABLE_SOUND
+    hangup = next(c for c in ari.calls if c[:2] == ("DELETE", f"/channels/{sip}"))
+    assert hangup[2] == {"reason": "normal"}
+
+
+def test_recording_start_failure_marks_outbound_recording_unavailable(world) -> None:
+    controller, ari, statuses, _t, _s = world
+    sip = "att-CA-13"
+    ari.fail[f"/bridges/br-{sip}/record"] = ops.AriError(500, "record failed")
+    run(
+        controller,
+        ev("StasisStart", sip, args=["outbound"]),
+        ev("StasisStart", f"{sip}-m"),
+    )
+    assert statuses[-1]["status"] == "recording-unavailable"
+    assert statuses[-1]["error_code"] == "recording_unavailable"
+    assert ("POST", f"/channels/{sip}/continue") not in ari.paths()
