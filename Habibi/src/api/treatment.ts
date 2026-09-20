@@ -263,7 +263,14 @@ export type TreatmentModels = {
 // /treatment/holds
 // ---------------------------------------------------------------------------
 
-export const HOLD_KINDS = ["hardship", "dispute", "complaint", "bereavement", "legal"] as const;
+export const HOLD_KINDS = [
+  "hardship",
+  "dispute",
+  "complaint",
+  "bereavement",
+  "legal",
+  "no_upsell",
+] as const;
 
 export type HoldKind = (typeof HOLD_KINDS)[number];
 

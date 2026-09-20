@@ -59,6 +59,7 @@ HOLD_KINDS = (
     "legal",
     "cease_and_desist",
     "deceased",
+    "no_upsell",
 )
 HOLD_SOURCES = ("manual", "bot", "system", "regulator", "feedback", "consent_event")
 TWO_PERSON_RELEASE = frozenset({"legal", "cease_and_desist", "deceased", "bereavement"})

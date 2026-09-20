@@ -34,6 +34,7 @@ describe("audit disposition filter", () => {
   it("includes the runtime vocab the closer writes", () => {
     expect(DISPOSITIONS).toContain("ptp_captured");
     expect(DISPOSITIONS).toContain("escalated");
+    expect(DISPOSITIONS).toContain("no_upsell");
     expect(DISPOSITIONS).not.toContain("PTP Captured");
   });
 

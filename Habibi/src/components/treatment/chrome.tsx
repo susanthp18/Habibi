@@ -166,6 +166,7 @@ export const HOLD_TONE: Record<string, LozengeTone> = {
   complaint: "warning",
   bereavement: "discovery",
   legal: "danger",
+  no_upsell: "warning",
 };
 
 export const SERVING_TONE: Record<string, LozengeTone> = {

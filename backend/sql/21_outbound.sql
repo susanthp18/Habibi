@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS call_outcomes (
     'ptp_captured','ptp_recommitted','paid_in_call','part_payment_agreed',
     'plan_agreed','dispute_raised','hardship_declared','refused',
     'callback_requested','wrong_number','deceased','opt_out_requested',
-    'escalated','no_resolution','abandoned_by_customer'
+    'escalated','no_resolution','abandoned_by_customer','no_upsell'
   )),
   objective_met        boolean NOT NULL DEFAULT false,
   -- A dictionary, not free text. The value is in segmenting the book by it, and

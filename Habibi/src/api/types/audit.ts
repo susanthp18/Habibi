@@ -19,7 +19,8 @@ export type Disposition =
   | "escalated"
   | "crm_degraded"
   | "voicemail"
-  | "no_answer";
+  | "no_answer"
+  | "no_upsell";
 export type CallFlag =
   "compliance-miss" | "sentiment-drop" | "escalation" | "silence" | "abuse-detected" | "high-value";
 export interface DisclosureCheck {

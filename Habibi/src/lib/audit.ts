@@ -10,6 +10,7 @@ export const DISPOSITIONS: Disposition[] = [
   "crm_degraded",
   "voicemail",
   "no_answer",
+  "no_upsell",
 ];
 
 export const DISPOSITION_LABELS: Record<Disposition, string> = {
@@ -21,6 +22,7 @@ export const DISPOSITION_LABELS: Record<Disposition, string> = {
   crm_degraded: "CRM degraded",
   voicemail: "Voicemail",
   no_answer: "No answer",
+  no_upsell: "No upsell",
 };
 
 export function dispositionLabel(value: string | null | undefined): string {

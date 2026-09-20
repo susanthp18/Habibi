@@ -578,7 +578,7 @@ def _contact_veto(
 #: half it could not see — a hold placed by a supervisor last Tuesday, or a
 #: borrower the treatment ladder has escalated past the point where a cross-sell
 #: is anything but tone-deaf.
-UPSELL_BLOCKING_HOLDS = frozenset({"hardship", "complaint", "bereavement", "legal"})
+UPSELL_BLOCKING_HOLDS = frozenset({"hardship", "complaint", "bereavement", "legal", "no_upsell"})
 UPSELL_BLOCKING_BUCKETS = frozenset({A.B_61_90, A.B_90_PLUS})
 
 

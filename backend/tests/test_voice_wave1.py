@@ -39,7 +39,7 @@ def test_compliance_label_uses_detail_not_last_okay() -> None:
     assert compliance_inbox_flag("compliance", "okay") == "compliance"
 
 
-def test_suppress_upsell_inserts_hardship_kind() -> None:
+def test_suppress_upsell_inserts_no_upsell_kind() -> None:
     import post_call_actions
 
     captured: dict = {}
@@ -56,8 +56,8 @@ def test_suppress_upsell_inserts_hardship_kind() -> None:
         "business": "hardship_declared",
     }
     post_call_actions._suppress_upsell(ctx, "90d")
-    assert "hardship" in captured["sql"]
-    assert "no_upsell" not in captured["sql"]
+    assert captured["params"]["kind"] == "no_upsell"
+    assert captured["params"]["reason"] == "hardship_declared"
 
 
 def test_media_for_interaction_keeps_newest_audio(monkeypatch) -> None:

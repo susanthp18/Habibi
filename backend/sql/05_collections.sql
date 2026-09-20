@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS treatment_holds (
   account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK (kind IN (
     'hardship','dispute','complaint','bereavement','legal',
-    'cease_and_desist','deceased'
+    'cease_and_desist','deceased','no_upsell'
   )),
   reason TEXT,
   source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN (

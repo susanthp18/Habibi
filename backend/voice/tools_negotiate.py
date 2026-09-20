@@ -28,7 +28,6 @@ from voice.session import to_money
 
 from voice.tool_state import (
     ToolBuildContext,
-    HARDSHIP_UPSELL_REASONS,
     _transfer_mode,
 )
 
@@ -132,11 +131,6 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             # gated_upsell reachable only from here; under hub the flag is the
             # enforcement (see _check_eligibility_handler).
             state.commitment_secured = True
-            # Hardship still latches the pitch until they commit — that is the
-            # conduct rule. Once a PTP is on the book the offer node may run.
-            # Mission-level forbids stay; those are not hardship.
-            if session.extra.get("upsell_blocked") in HARDSHIP_UPSELL_REASONS:
-                session.extra.pop("upsell_blocked", None)
             return (
                 {
                     "ok": True,

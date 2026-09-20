@@ -312,6 +312,44 @@ def test_process_one_uses_the_run_bot_not_only_the_default(
     assert stored == str(bot)
 
 
+def test_a_placed_dial_is_in_progress_until_its_attempt_closes(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``targets_done`` was bumped on *placing* the call, so a run whose dials
+    all rang out read as done. Progress is the targets' own state now."""
+    import campaigns
+    import db as dbmod
+    import db_outbound
+
+    monkeypatch.setattr(campaigns, "enabled", lambda: True)
+    monkeypatch.setenv("CONTACT_DAILY_CAP", "99")
+    monkeypatch.setenv("CONTACT_WEEKLY_CAP", "99")
+    monkeypatch.setenv("CONTACT_COOLING_OFF_MINUTES", "0")
+    _admit_at_noon(monkeypatch)
+
+    cust = _a_campaign_borrower(db_tx)
+    _opt_borrower_in(db_tx, cust["id"])
+    bot = db_tx.execute(text("SELECT id FROM bots LIMIT 1")).scalar() or dbmod.DEFAULT_BOT_ID
+    run = _running_campaign(db_tx, cust, bot_id=str(bot))
+    monkeypatch.setattr("outbound.place", _Dialler())
+
+    assert campaigns.process_one(dbmod.engine) is True
+    placed = db_outbound.get_campaign_run(run["id"], tenant_id=cust["tenant_id"])
+    assert placed is not None
+    assert placed["progress"]["done"] == 0
+    assert placed["progress"]["dialing"] == 1
+
+    attempt = db_tx.execute(
+        text("SELECT id, customer_id, campaign_run_id FROM call_attempts WHERE campaign_run_id = :run"),
+        {"run": run["id"]},
+    ).mappings().first()
+    campaigns.on_attempt_closed(db_tx, dict(attempt), "no_answer")
+    closed = db_outbound.get_campaign_run(run["id"], tenant_id=cust["tenant_id"])
+    assert closed is not None
+    assert closed["progress"]["done"] == 1
+    assert closed["progress"]["total"] == 1
+
+
 def test_process_one_suppresses_an_opted_out_borrower_instead_of_dialling(
     db_tx, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -461,7 +499,7 @@ def test_demo_call_product_fixes_are_wired() -> None:
     assert "query_looks_product(query)" in tools
     assert 'session.extra["upsell_blocked"] = reason' in tools
     assert 'blocked = session.extra.get("upsell_blocked")' in tools
-    assert 'session.extra.pop("upsell_blocked", None)' in tools
+    assert 'session.extra.pop("upsell_blocked", None)' not in tools
     assert "first_names_match" in tools
     assert "AFTER the caller has spoken" in natural
     assert "first words of the call" in natural

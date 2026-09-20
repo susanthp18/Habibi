@@ -32,6 +32,7 @@ OUTCOME_CODES: frozenset[str] = frozenset(
         "escalated",
         "no_resolution",
         "abandoned_by_customer",
+        "no_upsell",
     }
 )
 

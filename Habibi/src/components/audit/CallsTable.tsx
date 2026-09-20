@@ -117,6 +117,7 @@ const DISPOSITION_TONE: Record<string, LozengeTone> = {
   crm_degraded: "danger",
   voicemail: "neutral",
   no_answer: "neutral",
+  no_upsell: "warning",
 };
 
 export function CallsTable({
