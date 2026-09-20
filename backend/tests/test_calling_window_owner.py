@@ -78,6 +78,25 @@ def test_the_scheduler_plans_inside_the_published_window(narrow) -> None:
     assert timing._window_for(voice_action, replace(features, allowed_hours=(10, 20))) == (10, 18)
 
 
+def test_voice_floor_never_widens_past_08_19() -> None:
+    from agent_core.treatment import actions as A
+    from agent_core.treatment import timing
+    from agent_core.treatment.features import AccountFeatures
+
+    voice_action = next(a for a in A.SPECS if A.spec(a).channel == "voice")
+    sms = next(a for a in A.SPECS if A.spec(a).channel != "voice")
+    published_wide = AccountFeatures(customer_id="c", tenant_id="t", calling_window=(7, 21))
+    assert timing._window_for(voice_action, published_wide) == (8, 19)
+    campaign = AccountFeatures(customer_id="c", tenant_id="t", calling_window=(10, 18))
+    assert timing._window_for(voice_action, campaign) == (10, 18)
+    preference = AccountFeatures(
+        customer_id="c", tenant_id="t", calling_window=(8, 19), allowed_hours=(12, 19)
+    )
+    assert timing._window_for(voice_action, preference) == (12, 19)
+    assert timing._window_for(sms, published_wide) == (0, 24)
+    assert timing._window_for(sms, replace(published_wide, allowed_hours=(12, 22))) == (12, 22)
+
+
 def test_the_detector_judges_against_the_published_window() -> None:
     from agent_core.compliance.detectors import DETECTORS
     from tests.test_compliance_detectors import ctx

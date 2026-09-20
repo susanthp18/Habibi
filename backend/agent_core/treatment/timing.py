@@ -53,6 +53,10 @@ FIELD_VISIT_HOUR = 10
 #: Sunday. Not a calling day for field work, and a poor one for dunning calls.
 _SUNDAY = 0
 
+#: RBI voice floor. Published or campaign windows may only narrow this;
+#: they must not schedule a call before 08:00 or at/after 19:00 local.
+_VOICE_FLOOR = (8, 19)
+
 
 @dataclass(frozen=True)
 class Slot:
@@ -82,8 +86,12 @@ def _window_for(action: str, features: AccountFeatures) -> tuple[int, int]:
     consented = features.allowed_hours
     if A.spec(action).channel == "voice":
         # RBI DOR.ORG.REC.65/21.04.158/2022-23 as the tenant published it,
-        # resolved with the features (policy_rules.calling_window).
+        # resolved with the features (policy_rules.calling_window) — then the
+        # statutory 08:00–19:00 floor, which a published 07–21 cannot widen.
         start, end = features.calling_window
+        floor_start, floor_end = _VOICE_FLOOR
+        start = max(start, floor_start)
+        end = min(end, floor_end)
         if consented:
             start = max(start, consented[0])
             end = min(end, consented[1])
