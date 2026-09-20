@@ -1,7 +1,7 @@
 """Proxy Twilio / Pipecat WebSocket ``/ws`` from the API (:8000) to the voice runner (:7860).
 
-Lets a single ngrok tunnel (WhatsApp + Twilio) reach Media Streams without a
-second tunnel. Voice still listens on 7860 locally; the API bridges the socket.
+Dev-only: one ngrok for WhatsApp + Twilio. Asterisk / PSTN media hits the
+voice runner directly and must not go through this proxy. Unset is off.
 """
 
 from __future__ import annotations
@@ -32,8 +32,14 @@ def voice_ws_upstream() -> str:
 
 
 def ws_proxy_enabled() -> bool:
+    """True only when a laptop/dev tunnel needs WhatsApp and Twilio on one origin.
+
+    Default False: production PSTN media (Asterisk, or Twilio pointed at the
+    voice runner) must not bounce through the API. Enable in
+    ``docker-compose.dev.yml``, not the shipping compose file.
+    """
     load_env()
-    return env_bool("VOICE_WS_VIA_API", default=True)
+    return env_bool("VOICE_WS_VIA_API", default=False)
 
 
 async def proxy_voice_websocket(client: WebSocket) -> None:

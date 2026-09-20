@@ -80,8 +80,9 @@ def handoff_mode() -> str:
 def voice_public_base_url() -> str:
     """HTTPS origin for Media Streams.
 
-    When ``VOICE_WS_VIA_API`` is on (default), Twilio Stream hits the *API*
+    When ``VOICE_WS_VIA_API`` is on (dev only), Twilio Stream hits the *API*
     ngrok (``PUBLIC_BASE_URL``) and FastAPI proxies ``/ws`` → voice :7860.
+    Unset is off: Asterisk/PSTN media hits the voice runner directly.
     Otherwise set ``VOICE_PUBLIC_BASE_URL`` to a dedicated ngrok on :7860.
     """
     from voice.ws_proxy import ws_proxy_enabled

@@ -20,6 +20,9 @@ services:
       # The console sends X-Actor-User-Id behind the shared API_KEY. Off by
       # default everywhere (WP-070); the laptop stack opts in here.
       ALLOW_ACTOR_HEADER: "true"
+      # One ngrok for WhatsApp + Twilio on the laptop. PSTN/Asterisk media
+      # still hits the voice runner directly.
+      VOICE_WS_VIA_API: "true"
     volumes:
       - .:/app
       - /app/__pycache__

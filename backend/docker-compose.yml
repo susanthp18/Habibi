@@ -98,7 +98,6 @@ services:
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
       VOICE_RUNNER_URL: http://voice:7860
-      VOICE_WS_VIA_API: "true"
       # Corpus on host at ../source_db — required for /kb/ingest/source-db + reindex.
       SOURCE_DB_ROOT: /source_db
       # Single worker — connection budget assumes 1× pool.

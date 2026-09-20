@@ -133,3 +133,21 @@ def test_handoff_mode_defaults_callback(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("VOICE_HANDOFF_MODE", "warm")
 
     assert twilio_ops.handoff_mode() == "warm"
+
+
+def test_ws_proxy_is_off_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("voice.ws_proxy.load_env", lambda: None)
+    monkeypatch.delenv("VOICE_WS_VIA_API", raising=False)
+    from voice.ws_proxy import ws_proxy_enabled
+
+    assert ws_proxy_enabled() is False
+
+
+def test_ws_proxy_is_dev_compose_only() -> None:
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    prod = (backend / "docker-compose.yml").read_text(encoding="utf-8")
+    dev = (backend / "docker-compose.dev.yml").read_text(encoding="utf-8")
+    assert "VOICE_WS_VIA_API" not in prod
+    assert "VOICE_WS_VIA_API" in dev
