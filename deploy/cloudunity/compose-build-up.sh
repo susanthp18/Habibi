@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT=/home/azureuser/beeonix-payint
 cd "$ROOT/backend"
-COMPOSE=(docker-compose --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml)
+COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml)
 
 echo "== rebuild api+voice =="
 "${COMPOSE[@]}" build api voice

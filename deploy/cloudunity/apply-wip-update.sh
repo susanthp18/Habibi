@@ -43,14 +43,14 @@ fi
 test -f "$ROOT/backend/.env"
 test -f "$ROOT/Habibi/vite.config.ts"
 test -f "$ROOT/backend/voice/telephony.py"
-echo "20260918-laptop-wip no-asterisk-overlay no-alembic" > "$ROOT/DEPLOYED_SHA"
+echo "$(date -u +%Y%m%dT%H%M%SZ) overlay no-asterisk-overlay no-alembic (schema NOT migrated by this script)" > "$ROOT/DEPLOYED_SHA"
 
 echo "== rebuild images (Twilio path, no telephony overlay) =="
 cd "$ROOT/backend"
-docker compose --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml build api voice
+docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml build api voice
 
 echo "== recreate app containers =="
-docker compose --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
+docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
   api voice bot_worker worker wk_batch
 
 echo "== restart UI (keep node_modules; npm ci if lock changed) =="

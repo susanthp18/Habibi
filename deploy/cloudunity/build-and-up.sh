@@ -11,10 +11,10 @@ docker run --rm --cpus=1.5 --memory=2g --memory-swap=2g \
 
 echo "== rebuild api+voice =="
 cd "$ROOT/backend"
-docker compose --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml build api voice
+docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml build api voice
 
 echo "== recreate app containers =="
-docker compose --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
+docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
   api voice bot_worker worker wk_batch
 
 echo "== restart UI =="
