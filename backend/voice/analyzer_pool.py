@@ -141,13 +141,14 @@ def vad_key(params: Any) -> tuple:
     )
 
 
-def turn_key(params: Any) -> tuple:
+def turn_key(params: Any, *, cpu_count: int = 1) -> tuple:
     """Every Smart Turn field that changes the object's behaviour."""
     return (
         "turn",
         round(float(params.stop_secs), 4),
         round(float(params.pre_speech_ms), 4),
         round(float(params.max_duration_secs), 4),
+        int(cpu_count),
     )
 
 

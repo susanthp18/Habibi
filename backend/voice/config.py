@@ -288,15 +288,20 @@ def voice_ivr_enabled() -> bool:
 def voice_stt_segmentation_silence_ms() -> int | None:
     """Azure ``Speech_SegmentationSilenceTimeoutMs``, or None to keep the SDK default.
 
-    Unset/empty leaves Pipecat's ~500ms SDK default. Operators turn this on
-    after ``turn.e2e`` / ``turn.endpoint`` exist; do not ship a new default.
+    Unset/empty ships 150ms. ``false`` / ``0`` leaves Pipecat's ~500ms SDK
+    default. Clamp 100–2000.
     """
     raw = _optional("VOICE_STT_SEGMENTATION_SILENCE_MS")
     if raw is None:
+        return 150
+    lowered = raw.strip().lower()
+    if lowered in ("0", "false", "no", "off"):
         return None
     try:
         value = int(float(raw))
     except ValueError:
+        return 150
+    if value == 0:
         return None
     return max(100, min(2000, value))
 
@@ -304,16 +309,11 @@ def voice_stt_segmentation_silence_ms() -> int | None:
 def voice_tts_phrase_cache() -> bool:
     """Replay cached audio for the fixed filler phrases instead of re-synthesising.
 
-    OFF by default, deliberately. The saving is the smallest of its phase --
-    the filler plays *while* the tool runs, so its TTS round trip overlaps the
-    latency it masks rather than adding to it -- and the risk lands on the
-    word-boundary sequencer, which has had a duplication bug before. The cache
-    advances the cumulative audio offset itself to keep later word timings
-    honest, but that correction wants real `tts_ttfb_ms` / `leading_silence_ms`
-    evidence behind it before it is on by default.
+    On by default. ``VOICE_TTS_PHRASE_CACHE=0`` is the kill switch. The cache
+    advances the cumulative audio offset itself so a hit does not offset the
+    next real synthesis's word timings.
     """
-    load_env()
-    return env_bool("VOICE_TTS_PHRASE_CACHE", default=False)
+    return _flag_default_on("VOICE_TTS_PHRASE_CACHE")
 
 
 def voice_analyzer_pool() -> bool:

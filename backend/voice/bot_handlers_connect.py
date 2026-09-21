@@ -232,6 +232,11 @@ def build(scope: HandlerScope) -> None:
                 "pipeline.ready",
                 session=session.session_id,
                 waited_s=round(setup_secs, 2),
+                waited_from=(
+                    "ws"
+                    if getattr(runner_args, "ws_arrived_at", None) is not None
+                    else "setup"
+                ),
                 objective=session.extra.get("objective") or "inbound",
                 attempt=session.extra.get("attempt_id"),
                 over_budget=setup_secs > _SLOW_SETUP_WARN_SECS,

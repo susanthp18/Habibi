@@ -524,16 +524,22 @@ async def _voice_media_stream_entry(
     from voice.call_trace import event
     from voice.host import embedded_host_enabled, run_websocket_session
     from voice.ws_proxy import proxy_voice_websocket, ws_proxy_enabled
+    import time as _time
 
     # First line of the socket's story. Without it, "Twilio never connected" and
     # "we refused Twilio" are the same absence of a log line — and they were,
     # for two answered calls that played silence.
     peer = getattr(getattr(websocket, "client", None), "host", None)
+    arrived = _time.monotonic()
     event(
         "ws.arrived",
         peer=peer,
         secret="path" if path_secret else "header-or-query",
     )
+    try:
+        websocket.state.ws_arrived_at = arrived
+    except Exception:
+        pass
 
     embedded = embedded_host_enabled()
     if not embedded and not ws_proxy_enabled():

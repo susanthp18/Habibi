@@ -142,8 +142,8 @@ def build_smart_turn_analyzer(tuning: dict[str, Any]):
     # 215 ms warm, 386 ms cold, per call, on the loop. Same class, same params,
     # never shared between calls -- see voice/analyzer_pool.py.
     return analyzer_pool.take(
-        analyzer_pool.turn_key(params),
-        lambda: LocalSmartTurnAnalyzerV3(params=params),
+        analyzer_pool.turn_key(params, cpu_count=2),
+        lambda: LocalSmartTurnAnalyzerV3(params=params, cpu_count=2),
     )
 
 

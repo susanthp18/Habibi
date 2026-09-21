@@ -165,3 +165,4 @@ def test_turn_key_covers_every_field_that_changes_behaviour():
     ):
         other = SmartTurnParams(**{**kw, field: value})
         assert analyzer_pool.turn_key(other) != key, f"{field} is not in the key"
+    assert analyzer_pool.turn_key(SmartTurnParams(**kw), cpu_count=2) != key

@@ -4,7 +4,7 @@ The filler exists to mask tool latency, so paying an Azure round trip to make
 it audible is dead weight in the gap it was invented to fill. The risk is that
 cached audio fires no Azure word-boundary callbacks, and the word-timing
 sequencer has had a duplication bug before -- so the cache advances the
-cumulative offset itself, and ships default-off.
+cumulative offset itself. On by default; ``VOICE_TTS_PHRASE_CACHE=0`` is the kill switch.
 """
 
 from __future__ import annotations
@@ -74,9 +74,9 @@ def svc():
 FILLER = next(iter(next(iter(_FILLERS.values()))))
 
 
-def test_the_flag_is_off_by_default(monkeypatch):
+def test_the_flag_is_on_by_default(monkeypatch):
     monkeypatch.delenv("VOICE_TTS_PHRASE_CACHE", raising=False)
-    assert voice_tts_phrase_cache() is False
+    assert voice_tts_phrase_cache() is True
 
 
 def test_only_the_fixed_phrases_are_cacheable():

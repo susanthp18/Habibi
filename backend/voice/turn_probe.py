@@ -99,6 +99,11 @@ class SpokeThisResponseProbe(FrameProcessor):
     def spoke_this_response(self) -> bool:
         return self._spoke
 
+    @property
+    def interrupted_this_response(self) -> bool:
+        """True after barge-in until the next LLM response starts."""
+        return self._interrupted
+
     def set_bot_turn_handler(self, handler: BotTurnHandler | None) -> None:
         """Wired after construction — the sink is built before the pipeline."""
         self._on_bot_turn = handler

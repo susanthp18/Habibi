@@ -1,7 +1,7 @@
-"""Optional Azure STT segmentation-silence knob (Phase 3.6).
+"""Azure STT end-of-utterance silence (Phase 3.6 / remaining cluster 6).
 
-Unset keeps Pipecat's SDK default (~500ms). Operators turn this on after
-``turn.e2e`` / ``turn.endpoint`` exist; do not ship a new default of 150.
+Unset/empty ships 150ms. ``false`` / ``0`` leaves Pipecat's SDK default (~500).
+Clamp 100-2000.
 """
 
 from __future__ import annotations
@@ -15,14 +15,16 @@ from voice.stt_service import OverlappedAzureSTTService
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        (None, None),
-        ("", None),
+        (None, 150),
+        ("", 150),
         ("150", 150),
         ("150.9", 150),
         ("50", 100),
         ("2000", 2000),
         ("2001", 2000),
-        ("nope", None),
+        ("0", None),
+        ("false", None),
+        ("nope", 150),
     ],
 )
 def test_segmentation_silence_ms_parses_clamps_and_stays_unset(monkeypatch, raw, expected):

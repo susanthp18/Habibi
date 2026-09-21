@@ -40,6 +40,35 @@ from voice import (
 )
 
 
+def _tts_busy(tts: Any) -> bool:
+    """True while TTS is still synthesising or draining a stop.
+
+    After barge-in the previous utterance can still be in ``stop_speaking``.
+    Queuing a filler then talks over the caller. Do not call ``Connection.open``
+    here — that is the 41s deadlock class.
+    """
+    if getattr(tts, "_processing_text", False):
+        return True
+    if getattr(tts, "_playing_context_id", None):
+        return True
+    has_ctx = getattr(tts, "has_active_audio_context", None)
+    if callable(has_ctx):
+        try:
+            return bool(has_ctx())
+        except Exception:
+            return False
+    return False
+
+
+def should_skip_filler(spoke_probe: Any, tts: Any) -> bool:
+    """Whether the automatic tool-latency filler would talk over someone."""
+    if spoke_probe.spoke_this_response:
+        return True
+    if spoke_probe.interrupted_this_response:
+        return True
+    return _tts_busy(tts)
+
+
 def make_developer_injectors(call) -> None:
     """The two ways a fact reaches the model between turns."""
     from pipecat.frames.frames import LLMMessagesAppendFrame
@@ -129,7 +158,7 @@ def register_handlers(call) -> None:
     # caller is already hearing something and this filler would talk over it.
     @llm.event_handler("on_function_calls_started")
     async def _on_function_calls_started(service, function_calls):
-        if spoke_probe.spoke_this_response:
+        if should_skip_filler(spoke_probe, tts):
             return
         names = []
         for call in function_calls or []:

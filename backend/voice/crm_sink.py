@@ -1010,16 +1010,18 @@ class CrmSink:
                 recent=list(self._recent_turns),
             )
             self._remember_turn("customer", text)
-            await self._emit_turn(
-                turnIndex=turn_index,
-                speaker="customer",
-                text=text,
-                atSec=self.session.at_sec(),
-                sentiment=score,
-                sentimentLabel=label,
-                intent=intent,
-                intentScores=intent_scores or None,
-                source="keyword",
+            self._spawn_live(
+                self._emit_turn(
+                    turnIndex=turn_index,
+                    speaker="customer",
+                    text=text,
+                    atSec=self.session.at_sec(),
+                    sentiment=score,
+                    sentimentLabel=label,
+                    intent=intent,
+                    intentScores=intent_scores or None,
+                    source="keyword",
+                )
             )
 
             # Live tripwires (edges 13/14/17/16/22) — never block the audio path
@@ -1040,7 +1042,7 @@ class CrmSink:
                     fallback_languages=self._fallback_languages,
                 )
                 if lang and self._on_language is not None:
-                    await self._on_language(lang)
+                    self._spawn_live(self._on_language(lang))
             except Exception:
                 logger.exception("language tripwire failed")
 
@@ -1089,6 +1091,13 @@ class CrmSink:
                 await self._on_force_escalate(reason, str(pending.get("detail") or ""))
             except Exception:
                 logger.exception("on_force_escalate handler failed")
+
+    def _spawn_live(self, coro: Any) -> None:
+        """Enqueue a live-path coroutine so it cannot stall the aggregator."""
+        try:
+            asyncio.get_running_loop().create_task(coro)
+        except Exception:
+            logger.debug("live spawn failed", exc_info=True)
 
     async def _emit_turn(self, **payload: Any) -> None:
         """Hand one turn's analysis to the live UI. Never raises, never blocks."""

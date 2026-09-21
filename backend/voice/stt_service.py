@@ -43,12 +43,21 @@ reconnect itself, delete this module.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
+from azure.cognitiveservices.speech import Connection
+from pipecat.frames.frames import StartFrame
 from pipecat.services.azure.stt import AzureSTTService
 
+from env_utils import env_float
+
 logger = logging.getLogger(__name__)
+
+# Same ceiling as TTS. The pre-open is a latency optimisation; a timeout is
+# just a slower first transcript, never a refused call.
+_PREOPEN_TIMEOUT_S = env_float("AZURE_STT_PREOPEN_TIMEOUT_S", 5.0)
 
 
 class OverlappedAzureSTTService(AzureSTTService):
@@ -60,6 +69,44 @@ class OverlappedAzureSTTService(AzureSTTService):
         # same config and a new recogniser, so the knob survives a switch.
         # Pipecat upgrade must re-read this private attribute.
         self._apply_segmentation_silence()
+        self._preopen_task: asyncio.Task[None] | None = None
+
+    async def start(self, frame: StartFrame) -> None:
+        await super().start(frame)
+        # Parent start() builds the recogniser. Handshake in the background so
+        # Flow init is not sitting behind the Azure connect; run_stt joins
+        # before writing audio. Never call open() from run_stt — that is the
+        # TTS 41s deadlock class, applied to the recogniser.
+        rec = getattr(self, "_speech_recognizer", None)
+        if rec is None:
+            return
+        self._preopen_task = asyncio.create_task(self._preopen(rec))
+
+    async def _preopen(self, rec: Any) -> None:
+        try:
+            connection = Connection.from_recognizer(rec)
+            await asyncio.wait_for(
+                asyncio.to_thread(connection.open, False), timeout=_PREOPEN_TIMEOUT_S
+            )
+            logger.info("azure stt websocket pre-opened at start")
+        except asyncio.TimeoutError:
+            logger.warning(
+                "azure stt pre-open timed out after %.1fs — continuing cold",
+                _PREOPEN_TIMEOUT_S,
+            )
+        except Exception:
+            logger.debug("azure stt pre-open failed", exc_info=True)
+
+    async def _await_preopen(self) -> None:
+        task = getattr(self, "_preopen_task", None)
+        if task is None or task.done():
+            return
+        await task
+
+    async def run_stt(self, audio: bytes):
+        await self._await_preopen()
+        async for frame in super().run_stt(audio):
+            yield frame
 
     def _apply_segmentation_silence(self) -> None:
         from voice import config as voice_config

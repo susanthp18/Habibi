@@ -8,6 +8,7 @@ and the PipelineWorker. Each step reads and writes the per-call namespace that
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any
@@ -36,7 +37,9 @@ from voice.tuning_apply import (
 _WORKER_IDLE_TIMEOUT_SECS = 180
 
 
-def emit_first_token_traces(trace, *, text: str, waited_s: float | None) -> None:
+def emit_first_token_traces(
+    trace, *, text: str, waited_s: float | None, waited_from: str | None = None
+) -> None:
     """Keep ``first.tts`` for existing greps; ``first.llm_text`` is the honest name."""
     from voice.call_trace import preview as _preview
 
@@ -44,6 +47,7 @@ def emit_first_token_traces(trace, *, text: str, waited_s: float | None) -> None
         "stage": "llm_text",
         "preview": _preview(text),
         "waited_s": round(waited_s, 3) if waited_s is not None else None,
+        "waited_from": waited_from,
     }
     trace("first.tts", **fields)
     trace("first.llm_text", **fields)
@@ -70,6 +74,76 @@ _CONTEXT_SUMMARY_PROMPT = (
     "Drop one-word or garbled STT fragments — they are not facts.\n"
     "Be factual and brief. Do not add advice or next steps."
 )
+
+_SUMMARY_MAX_MESSAGES = 36
+_SUMMARY_MAX_TOKENS = 8000
+_SUMMARY_KEEP = 6
+
+
+def context_needs_summary(context) -> bool:
+    """Same 36 / 8000 thresholds the aggregator used, but never mid-tool."""
+    from pipecat.utils.context.llm_context_summarization import LLMContextSummarizationUtil
+
+    messages = list(getattr(context, "messages", []) or [])
+    if not messages:
+        return False
+    pending = LLMContextSummarizationUtil._get_earliest_function_call_not_resolved_in_range(
+        messages, 0, len(messages)
+    )
+    if pending != -1:
+        return False
+    if len(messages) >= _SUMMARY_MAX_MESSAGES:
+        return True
+    return LLMContextSummarizationUtil.estimate_context_tokens(context) >= _SUMMARY_MAX_TOKENS
+
+
+def _run_collections_summary(transcript: str) -> str:
+    import azure_openai
+
+    return azure_openai.chat_complete(
+        [
+            {"role": "system", "content": _CONTEXT_SUMMARY_PROMPT},
+            {"role": "user", "content": transcript},
+        ],
+        temperature=0.1,
+        max_completion_tokens=400,
+    ) or ""
+
+
+async def summarise_context_after_assistant_turn(context) -> None:
+    """Apply the collections summary off the aggregator, after the assistant turn.
+
+    Auto-summarise on the aggregator fired mid-``get_account_position``
+    (VS-0D653BF9C3). This runs after the turn has stopped, on a session task,
+    so a tool-heavy turn cannot summarise over an in-flight result.
+    """
+    from pipecat.utils.context.llm_context_summarization import LLMContextSummarizationUtil
+
+    if not context_needs_summary(context):
+        return
+    messages = list(context.messages)
+    keep_n = min(_SUMMARY_KEEP, len(messages))
+    to_summarise = messages[:-keep_n] if keep_n else messages
+    if not to_summarise:
+        return
+    transcript = LLMContextSummarizationUtil.format_messages_for_summary(to_summarise)
+    try:
+        summary = await asyncio.to_thread(_run_collections_summary, transcript)
+    except Exception:
+        logger.debug("off-turn context summary failed", exc_info=True)
+        return
+    if not str(summary).strip():
+        return
+    system = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"][:1]
+    keep = messages[-keep_n:]
+    context.set_messages(
+        [
+            *system,
+            {"role": "user", "content": f"Conversation summary: {summary.strip()}"},
+            *keep,
+        ]
+    )
+
 
 
 def _bind_providers(call: Any) -> None:
@@ -161,7 +235,7 @@ def _bind_providers(call: Any) -> None:
         locale=bind_locale,
         session_id=session.session_id,
         settings=stt_settings_kwargs(tuning),
-        ctor={"ttfs_p99_latency": 1.15},
+        ctor={"ttfs_p99_latency": 1.80},
         # OverlappedAzureSTTService, not AzureSTTService: identical recogniser,
         # identical settings, but its language switch starts the new recogniser
         # before retiring the old one. Stock Pipecat closes the push stream
@@ -172,7 +246,7 @@ def _bind_providers(call: Any) -> None:
             api_key=speech_key,
             region=speech_region,
             settings=build_stt_settings(tuning),
-            ttfs_p99_latency=1.15,
+            ttfs_p99_latency=1.80,
         ),
     )
     provider_bind.record(session, stt_prov)
@@ -263,10 +337,6 @@ def _build_context(call: Any) -> None:
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
-    from pipecat.utils.context.llm_context_summarization import (
-        LLMAutoContextSummarizationConfig,
-        LLMContextSummaryConfig,
-    )
 
 
 
@@ -279,7 +349,14 @@ def _build_context(call: Any) -> None:
     def _on_first_tts_text(text: str) -> None:
         origin = getattr(runner_args, "setup_started_at", None)
         waited = (time.monotonic() - origin) if origin else None
-        emit_first_token_traces(_setup_trace, text=text, waited_s=waited)
+        waited_from = (
+            "ws"
+            if getattr(runner_args, "ws_arrived_at", None) is not None
+            else ("setup" if origin else None)
+        )
+        emit_first_token_traces(
+            _setup_trace, text=text, waited_s=waited, waited_from=waited_from
+        )
 
     spoke_probe = SpokeThisResponseProbe(
         on_bot_turn=sink.record_bot_turn,
@@ -337,29 +414,22 @@ def _build_context(call: Any) -> None:
         user_params=LLMUserAggregatorParams(**user_params_kwargs),
         assistant_params=LLMAssistantAggregatorParams(
             add_tool_change_messages=voice_config.voice_tool_change_messages(),
-            enable_auto_context_summarization=True,
-            auto_context_summarization_config=LLMAutoContextSummarizationConfig(
-                max_context_tokens=8000,
-                max_unsummarized_messages=36,
-                summary_config=LLMContextSummaryConfig(
-                    target_context_tokens=4000,
-                    min_messages_after_summary=6,
-                    # A collections-specific prompt, for the same reason
-                    # customer_memory has one: the generic summariser is what
-                    # produced the VS-0D653BF9C3 contradiction. Open
-                    # commitments must survive verbatim, and the summary must
-                    # never editorialise about whether anything was resolved —
-                    # the CRM card and live tool results are authoritative and
-                    # the summary sits in the same window as both.
-                    summarization_prompt=_CONTEXT_SUMMARY_PROMPT,
-                ),
-            ),
+            enable_auto_context_summarization=False,
         ),
     )
     user_aggregator = context_aggregator.user()
     assistant_aggregator = context_aggregator.assistant()
     sink.attach_aggregators(user_aggregator, assistant_aggregator)
     _setup_trace("setup.vad")
+
+    @assistant_aggregator.event_handler("on_assistant_turn_stopped")
+    async def _on_assistant_turn_stopped(*_a):
+        from voice.tool_state import spawn_session_task
+
+        spawn_session_task(
+            call.session.session_id,
+            summarise_context_after_assistant_turn(context),
+        )
 
     call.context = context
     call.context_aggregator = context_aggregator
@@ -428,7 +498,16 @@ def _build_kb_and_recording(call: Any) -> None:
         session.extra["first_bot_speech_done"] = True
         origin = getattr(runner_args, "setup_started_at", None) or bot_turn_state._call_started_at
         waited = (time.monotonic() - origin) if origin else None
-        _setup_trace("first.speech", waited_s=round(waited, 3) if waited is not None else None)
+        waited_from = (
+            "ws"
+            if getattr(runner_args, "ws_arrived_at", None) is not None
+            else ("setup" if origin else None)
+        )
+        _setup_trace(
+            "first.speech",
+            waited_s=round(waited, 3) if waited is not None else None,
+            waited_from=waited_from,
+        )
 
     bot_turn_state = BotTurnStateObserver(on_first_speech=_on_first_speech)
 

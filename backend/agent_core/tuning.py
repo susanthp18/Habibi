@@ -46,7 +46,7 @@ PRESET_EMPATHETIC_COLLECTIONS: dict[str, Any] = {
         "min_volume": 0.6,
     },
     "turn": {
-        "stop_secs": 3.0,
+        "stop_secs": 1.5,
         "pre_speech_ms": 0,
         "max_duration_secs": 8.0,
     },
@@ -346,7 +346,7 @@ def normalize_tuning(
     vad["min_volume"] = _clamp_float(vad.get("min_volume"), 0.0, 1.0, 0.6)
 
     turn = t["turn"]
-    turn["stop_secs"] = _clamp_float(turn.get("stop_secs"), 0.5, 10.0, 3.0)
+    turn["stop_secs"] = _clamp_float(turn.get("stop_secs"), 0.5, 10.0, 1.5)
     turn["pre_speech_ms"] = _clamp_float(turn.get("pre_speech_ms"), 0.0, 2000.0, 0.0)
     turn["max_duration_secs"] = _clamp_float(turn.get("max_duration_secs"), 2.0, 30.0, 8.0)
 

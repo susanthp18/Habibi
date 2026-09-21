@@ -221,6 +221,9 @@ async def run_websocket_session(websocket: Any) -> None:
 
     await websocket.accept()
     runner_args = WebSocketRunnerArguments(websocket=websocket)
+    arrived = getattr(getattr(websocket, "state", None), "ws_arrived_at", None)
+    if arrived is not None:
+        runner_args.ws_arrived_at = arrived
     await _dispatch(runner_args, "media-stream")
 
 

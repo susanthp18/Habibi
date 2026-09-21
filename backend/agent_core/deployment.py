@@ -6,8 +6,11 @@ resolve runtime config through this module so they cannot drift.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
+import threading
+from collections import OrderedDict
 from typing import Any
 
 import db
@@ -15,6 +18,10 @@ from agent_core.tuning import default_tuning, normalize_tuning
 from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
+
+_BUNDLE_CACHE: "OrderedDict[tuple, dict[str, Any]]" = OrderedDict()
+_BUNDLE_CACHE_LOCK = threading.Lock()
+_BUNDLE_CACHE_MAX = 32
 
 
 def active_environment() -> str:
@@ -82,6 +89,7 @@ def load_active_bundle(
             break
     if not deployment:
         raise KeyError("active_deployment_not_found")
+    resolved_env = env
 
     prompt_version_id = deployment.get("promptVersionId")
     if not prompt_version_id:
@@ -129,13 +137,58 @@ def load_active_bundle(
         "compiled": compiled,
         "bundleHash": deployment.get("bundleHash"),
     }
-    _dual_compute_parity(bundle)
+    _install_compiled(bundle, bot_id=resolved_bot, environment=resolved_env)
     if channel:
         from agent_core.cards.schema import authors_channel
 
         if not authors_channel(bundle["agentCard"], channel):
             raise ChannelNotAuthored(f"channel_not_authored:{bundle.get('botId') or bot_id}:{channel}")
     return bundle
+
+
+def _bundle_cache_key(
+    *,
+    bot_id: str,
+    environment: str,
+    deployment_id: str,
+    bundle_hash: str | None,
+) -> tuple | None:
+    hashed = str(bundle_hash or "").strip()
+    if not hashed:
+        return None
+    return (str(bot_id), str(environment), str(deployment_id), hashed)
+
+
+def _install_compiled(bundle: dict[str, Any], *, bot_id: str, environment: str) -> None:
+    """Parity on a miss; skip the pydantic+hash walk when this exact bundle is cached."""
+    key = _bundle_cache_key(
+        bot_id=str(bundle.get("botId") or bot_id),
+        environment=environment,
+        deployment_id=str(bundle.get("deploymentId") or ""),
+        bundle_hash=bundle.get("bundleHash"),
+    )
+    if key is not None:
+        with _BUNDLE_CACHE_LOCK:
+            cached = _BUNDLE_CACHE.get(key)
+            if cached is not None:
+                _BUNDLE_CACHE.move_to_end(key)
+                bundle.clear()
+                bundle.update(copy.deepcopy(cached))
+                return
+    _dual_compute_parity(bundle)
+    if key is None:
+        return
+    with _BUNDLE_CACHE_LOCK:
+        _BUNDLE_CACHE[key] = copy.deepcopy(bundle)
+        _BUNDLE_CACHE.move_to_end(key)
+        while len(_BUNDLE_CACHE) > _BUNDLE_CACHE_MAX:
+            _BUNDLE_CACHE.popitem(last=False)
+
+
+def clear_bundle_cache() -> None:
+    """Drop every cached compiled bundle. For tests."""
+    with _BUNDLE_CACHE_LOCK:
+        _BUNDLE_CACHE.clear()
 
 
 def _dual_compute_parity(bundle: dict[str, Any]) -> None:

@@ -69,6 +69,14 @@ class KeepAliveAzureTTSService(AzureTTSService):
         kwargs.pop("keepalive_secs", None)
         super().__init__(*args, **kwargs)
         self._preopen_task: asyncio.Task[None] | None = None
+        # First-clause flush in front of Azure TTS. TOKEN demo preset keeps
+        # TOKEN; collections stays SENTENCE for the rest of the utterance.
+        from pipecat.services.tts_service import TextAggregationMode
+
+        from voice.first_clause import FirstClauseTextAggregator
+
+        if getattr(self, "_text_aggregation_mode", None) != TextAggregationMode.TOKEN:
+            self._text_aggregator = FirstClauseTextAggregator()
 
     async def start(self, frame: StartFrame) -> None:
         await super().start(frame)

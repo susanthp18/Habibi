@@ -173,4 +173,8 @@ def test_it_subclasses_the_real_service_so_settings_stay_identical():
         "_swap_recognizer",
         "__init__",
         "_apply_segmentation_silence",
+        "start",
+        "run_stt",
+        "_preopen",
+        "_await_preopen",
     }, overridden

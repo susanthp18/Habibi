@@ -207,14 +207,17 @@ async def _bot_session(runner_args):
         "eval": lambda: EvalTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
         ),
         "twilio": lambda: FastAPIWebsocketParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            audio_out_end_silence_secs=0,
         ),
     }
     transport = await create_transport(runner_args, transport_params)
@@ -484,7 +487,7 @@ def _warm_smart_turn() -> None:
     # default-tuning key in one build.
     build_smart_turn_analyzer({})
     analyzer_pool.seed(
-        analyzer_pool.turn_key(_default_turn_params()),
+        analyzer_pool.turn_key(_default_turn_params(), cpu_count=2),
         lambda: build_smart_turn_analyzer({}),
     )
 
