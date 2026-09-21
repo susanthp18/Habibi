@@ -269,7 +269,6 @@ def test_inline_fallback_retrieves_when_speculation_missed() -> None:
     assert snippets == [{"snippet": "inline"}]
 
 
-
 def test_inline_fallback_does_not_embed_again_when_this_turn_already_speculated() -> None:
     """A containment miss must not start a second Azure embed on the final.
 
@@ -419,5 +418,107 @@ def test_stats_shape_is_what_the_complete_job_logs() -> None:
     assert cache.stats() == {
         "kb_spec_attempts": 3,
         "kb_spec_hits": 2,
+        "kb_late_wait_timeouts": 0,
         "kb_wait_ms_p50": 20,
     }
+
+
+def test_late_wait_is_bounded_and_the_embed_still_lands_in_cache() -> None:
+    """The ``inline`` fallback kept waiting on the in-flight embed with no
+    ceiling of its own, so it inherited the Azure acquire timeout (10s) and a
+    20s request timeout with max_retries=2 — a saturated process could hold one
+    turn, and therefore the caller, far past anything the 400ms budget implied.
+
+    The bound must stop the *waiting* without stopping the *work*: the shield
+    stays, so the retrieval still completes into the cache for the next turn.
+    """
+
+    async def scenario() -> tuple:
+        cache = _cache()
+        finished = asyncio.Event()
+
+        async def slow(query, product_keys):
+            await asyncio.sleep(0.3)
+            cache.cache_put(cache.key_for(query, product_keys), [{"snippet": "fee"}])
+            finished.set()
+            return [{"snippet": "fee"}]
+
+        cache._retrieve = slow  # type: ignore[method-assign]
+        cache.note_turn_start()
+        task = cache.start_retrieval("what is the late payment fee", None)
+        cache.register_spec("what is the late payment fee", ("k",), task)
+
+        snippets, source = await cache.resolve(
+            "what is the late payment fee",
+            None,
+            timeout_s=0.01,
+            fallback="inline",
+            late_timeout_s=0.05,
+        )
+        cancelled = task.cancelled()
+
+        await asyncio.wait_for(finished.wait(), timeout=2)
+        cached = cache.cache_get(cache.key_for("what is the late payment fee", None))
+        return snippets, source, cancelled, cached, cache.late_wait_timeouts
+
+    snippets, source, cancelled, cached, timeouts = asyncio.run(scenario())
+
+    # The turn gave up waiting and proceeded ungrounded...
+    assert snippets == []
+    assert source == "late_timeout"
+    assert timeouts == 1
+    # ...but the paid embed was never cancelled and still serves the next turn.
+    assert cancelled is False
+    assert cached == [{"snippet": "fee"}]
+
+
+def test_late_wait_still_returns_a_speculation_that_lands_in_time() -> None:
+    """The bound is a ceiling, not a second budget: a retrieval that finishes
+    inside it is served exactly as before."""
+
+    async def scenario() -> tuple:
+        cache = _cache()
+
+        async def slow(query, product_keys):
+            await asyncio.sleep(0.05)
+            return [{"snippet": "fee"}]
+
+        cache._retrieve = slow  # type: ignore[method-assign]
+        cache.note_turn_start()
+        task = cache.start_retrieval("what is the late payment fee", None)
+        cache.register_spec("what is the late payment fee", ("k",), task)
+
+        return await cache.resolve(
+            "what is the late payment fee",
+            None,
+            timeout_s=0.01,
+            fallback="inline",
+            late_timeout_s=2.0,
+        )
+
+    snippets, source = asyncio.run(scenario())
+    assert source == "speculative_late"
+    assert snippets == [{"snippet": "fee"}]
+
+
+def test_resolve_records_how_the_turn_was_grounded() -> None:
+    """``resolve`` always computed the source and the caller always dropped it,
+    so "is speculation winning" could not be answered from a log."""
+
+    async def scenario() -> tuple:
+        cache = _cache()
+        cache.note_turn_start()
+        assert cache.last_source is None, "a new turn must not inherit the last one"
+
+        cache.cache_put(cache.key_for("what is the fee", None), [{"snippet": "fee"}])
+        await cache.resolve("what is the fee", None, timeout_s=0.01, fallback="inline")
+        exact = (cache.last_source, cache.last_wait_ms)
+
+        cache.note_turn_start()
+        reset = (cache.last_source, cache.last_wait_ms)
+        return exact, reset
+
+    (source, wait_ms), reset = asyncio.run(scenario())
+    assert source == "exact"
+    assert wait_ms is not None and wait_ms >= 0
+    assert reset == (None, None)

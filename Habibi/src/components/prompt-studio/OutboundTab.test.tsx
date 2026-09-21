@@ -87,3 +87,26 @@ describe("OutboundTab · failed reads", () => {
     expect(screen.queryByText(/these figures are not zero/i)).toBeNull();
   });
 });
+
+describe("OutboundTab · campaign progress", () => {
+  it("counts a parked or ringing target as neither done nor pending", () => {
+    // targets_done used to be bumped on placing a call, so a run whose dials
+    // all rang out read as done. Progress is the targets' own state now.
+    const run = {
+      id: "CR-1",
+      name: "August bounce cure",
+      objective: "bounce_cure",
+      status: "running",
+      window_start_hour: 10,
+      window_end_hour: 18,
+      max_concurrent: 5,
+      created_at: "2026-09-17T00:00:00Z",
+      progress: { total: 10, pending: 2, dialing: 1, done: 4, skipped: 1, failed: 0, parked: 2 },
+    };
+    show("Cadence", { campaigns: { data: [run] } });
+
+    expect(
+      screen.getByText(/4 done · 1 skipped · 2 parked · 3 in progress of 10/),
+    ).toBeInTheDocument();
+  });
+});

@@ -317,9 +317,17 @@ def test_write_helper_maps_value_error_codes_by_table() -> None:
     assert not hasattr(main, "_handoff_call")
     import api_support
 
-    assert all(status == 422 for status in api_support._VALUE_ERROR_STATUS.values())
+    assert all(status in (422, 409, 502, 503) for status in api_support._VALUE_ERROR_STATUS.values())
+    assert all(
+        status == 422
+        for key, status in api_support._VALUE_ERROR_STATUS.items()
+        if key.endswith("_required") or key.startswith("invalid_") or "must_be" in key
+    )
     assert "publish_conflict" not in api_support._VALUE_ERROR_STATUS
     assert "handoff_already_claimed" not in api_support._VALUE_ERROR_STATUS
+    assert api_support._VALUE_ERROR_STATUS["last_admin"] == 409
+    assert api_support._VALUE_ERROR_STATUS["smtp_failed"] == 502
+    assert api_support._VALUE_ERROR_STATUS["access_requests_unavailable"] == 503
 
     cases = [
         ("bot_id_required", 422),

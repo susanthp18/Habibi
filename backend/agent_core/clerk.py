@@ -145,8 +145,8 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
         raise _Parked()
     if wf == "a2a_remote":
         return _finish_a2a_remote(payload)
-    if wf in {DOC_SLA, CALLBACK}:
-        return {"noted": True, "workflowType": wf, "ref": payload.get("triggerRef")}
+    if wf in {DOC_SLA, CALLBACK, "field_visit", "legal_notice"}:
+        return {"noted": True, "workflowType": wf, "ref": payload.get("triggerRef") or payload.get("decisionId")}
 
     action = str(payload.get("action") or "")
     if action in HITL_ACTIONS or wf == AUTHORITY_HITL:

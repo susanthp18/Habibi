@@ -5,7 +5,8 @@
 each one long function of queries followed by an assembly. Splitting them into
 a reads phase and a shape phase must not drop a section or a key. Values move
 with the dev database, so what is pinned is the key tree with the type at
-every leaf (``tests/snapshots/reader_shapes.json``); the behaviour tests
+every leaf (``tests/snapshots/reader_shapes.json``); occupancy maps such as
+``daily.values`` pin as ``<scalar-map>``. The behaviour tests
 beside this one (test_dashboard_live, test_floor, test_phase6) pin the values.
 
 Regenerate deliberately, never to make a red run green:
@@ -25,10 +26,25 @@ import pytest
 SNAPSHOT = Path(__file__).resolve().parent / "snapshots" / "reader_shapes.json"
 
 
-def _shape(value: Any) -> Any:
-    """The key tree; a list is the shape of its first item (or ``[]``)."""
+def _shape(value: Any, key: str | None = None) -> Any:
+    """The key tree; a list is the shape of its first item (or ``[]``).
+
+    ``daily.values`` / ``serviceTenantSpend.<service>`` are occupancy maps
+    (which Azure service, which tenant). Pin them as ``<scalar-map>`` so today's
+    spend is not a schema change. Named metric objects (``stats``, ``spendByEnv``,
+    ``sentiment``) keep their keys.
+    """
+    occupancy = key == "values" or (
+        isinstance(key, str) and key.startswith(("llm_", "stt_", "tts_"))
+    )
+    if key == "delta" and (
+        value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
+    ):
+        return "number|null"
     if isinstance(value, dict):
-        return {k: _shape(v) for k, v in sorted(value.items())}
+        if occupancy and all(not isinstance(v, (dict, list)) for v in value.values()):
+            return "<scalar-map>"
+        return {k: _shape(v, k) for k, v in sorted(value.items())}
     if isinstance(value, list):
         return [_shape(value[0])] if value else []
     if value is None:

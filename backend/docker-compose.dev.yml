@@ -41,6 +41,20 @@ services:
   bot_worker:
     environment:
       HABIBI_DEPLOYED: "0"
+    # It dials (cadence, campaigns, treatment): without the mount it ran the
+    # image's stale outbound code while api and voice ran the working tree.
+    volumes:
+      - .:/app
+      - /app/__pycache__
+
+  # Only exists with docker-compose.telephony.yml; harmless when that file is
+  # not in play. Compose merges this into that definition by service name.
+  asterisk_controller:
+    environment:
+      HABIBI_DEPLOYED: "0"
+    volumes:
+      - .:/app
+      - /app/__pycache__
 
   voice:
     build:

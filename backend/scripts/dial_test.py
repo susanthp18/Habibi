@@ -18,11 +18,11 @@ What to watch after it runs
     SELECT state, provider_status, ring_sec, talk_sec, answered_by, right_party
     FROM call_attempts ORDER BY reserved_at DESC LIMIT 5;
 
-The states arrive over the Twilio status callback, so the API must be reachable
-from the internet — ``PUBLIC_BASE_URL`` has to be the live ngrok, or the row
-will sit at ``dialing`` until ``outbound.sweep_stale`` reaps it. That is the
-single most common reason this appears not to work, so the script checks it
-before dialling rather than after.
+The states arrive from the selected telephony provider (``TELEPHONY_PROVIDER``):
+Twilio's status callback, which needs ``PUBLIC_BASE_URL`` to be the live ngrok,
+or the Asterisk controller's ARI events, which need ``asterisk_controller``
+running. Without them the row sits at ``dialing`` until ``outbound.sweep_stale``
+reaps it, so the script checks the provider before dialling rather than after.
 """
 
 from __future__ import annotations
@@ -70,22 +70,9 @@ def _customer(conn, customer_id: str) -> dict:
 
 def _preflight() -> list[str]:
     """Everything that makes a dial silently useless rather than loudly broken."""
-    from voice import twilio_ops
+    from voice import telephony
 
-    problems: list[str] = []
-    if not twilio_ops.configured():
-        problems.append("TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER missing")
-    if not twilio_ops.call_status_callback_url():
-        problems.append(
-            "no status callback URL (PUBLIC_BASE_URL unset or not https) — the call "
-            "would place but its outcome would never be recorded, which is the one "
-            "thing this release exists to fix"
-        )
-    try:
-        twilio_ops.media_stream_wss_url()
-    except RuntimeError as exc:
-        problems.append(f"media stream URL unavailable: {exc}")
-    return problems
+    return telephony.preflight()
 
 
 def _show(attempt_id: str) -> None:

@@ -117,6 +117,14 @@ def test_bot_runtime_declares_its_channel() -> None:
     assert "## WhatsApp behaviour" in src
 
 
+def test_text_reply_opener_allows_policy_bullets() -> None:
+    from agent_core.prompt import _reply_opener
+
+    opener = _reply_opener("whatsapp")
+    assert "No markdown, no bullet lists" not in opener
+    assert "Bullet lists are allowed" in opener
+
+
 # --- the analysis lane must honour its own budget ---------------------------
 
 
@@ -187,3 +195,42 @@ def test_the_keyword_baseline_is_what_a_timeout_degrades_to(
     out = understanding.analyze_turn("i want to pay my emi next week", channel="text")
     assert out.intent
     assert out.sentiment_label
+
+
+def test_mark_read_with_typing_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import urllib.request
+
+    import whatsapp as wa
+
+    captured: dict[str, object] = {}
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _open(req, timeout=10):
+        captured["url"] = req.full_url
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _Resp()
+
+    monkeypatch.setenv("WHATSAPP_TOKEN", "tok")
+    monkeypatch.setenv("WHATSAPP_PHONE_NUMBER_ID", "123")
+    monkeypatch.setenv("HABIBI_ALLOW_LIVE_CARRIER_IN_TEST", "1")
+    monkeypatch.setattr(urllib.request, "urlopen", _open)
+
+    wa.mark_read_with_typing(message_id="wamid.IN")
+    assert captured["body"] == {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": "wamid.IN",
+        "typing_indicator": {"type": "text"},
+    }
+    wa.mark_read_with_typing(message_id="")
+    assert captured["body"]["message_id"] == "wamid.IN"

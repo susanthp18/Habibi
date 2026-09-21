@@ -171,21 +171,41 @@ def build_user_turn_strategies(tuning: dict[str, Any]):
     from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
     from voice.greeting_hold import build_greeting_replay_turn_start_strategy
+    from voice.ivr import build_keypad_turn_start_strategy
 
     t = normalize_tuning(tuning)
     barge = t["interaction"]["barge_in"]
 
-    # GreetingHold replay is a TranscriptionFrame with no VAD underneath,
-    # scoped to the hold_replay marker so ordinary speech cannot reintroduce
-    # VS-39B35AC484. Interruptions are always on -- unmute means the
-    # disclosure has already finished.
+    # Keypad input opens a turn in every mode. It is inert unless DTMF is on --
+    # it matches only the prefix DTMFAggregator writes -- so it costs a call
+    # that never sees a keypress nothing, and threading the transport flag down
+    # here to gate it would buy nothing back.
+    #
+    # GreetingHold replay is the same shape: a TranscriptionFrame with no VAD
+    # underneath, scoped to the hold_replay marker so ordinary speech cannot
+    # reintroduce VS-39B35AC484. Interruptions are always on -- unmute means
+    # the disclosure has already finished.
     def _start(*strategies):
+        keypad = build_keypad_turn_start_strategy(
+            enable_interruptions=barge != "locked",
+        )
         replay = build_greeting_replay_turn_start_strategy()
-        return [s for s in (replay, *strategies) if s is not None]
+        return [s for s in (keypad, replay, *strategies) if s is not None]
 
     if barge == "locked":
+        # ``stop`` is stated, not omitted. UserTurnStrategies.__post_init__
+        # fills an omitted stop list with a BRAND-NEW LocalSmartTurnAnalyzerV3()
+        # at Pipecat's defaults (stop_secs=3, pre_speech_ms=500), so leaving it
+        # out built a second ONNX session during setup -- pure added silence for
+        # the caller -- and then ran the strictest compliance preset with the one
+        # end-pointing config that ignores its own card's ``turn`` block.
         return UserTurnStrategies(
             start=_start(VADUserTurnStartStrategy(enable_interruptions=False)),
+            stop=[
+                TurnAnalyzerUserTurnStopStrategy(
+                    turn_analyzer=build_smart_turn_analyzer(t),
+                )
+            ],
         )
     if barge == "min_words":
         # Transcript-driven start, transcript-driven stop. See the docstring.
@@ -356,6 +376,16 @@ def user_idle_timeout(tuning: dict[str, Any]) -> float | None:
     return None if secs <= 0 else secs
 
 
+def user_turn_stop_timeout(tuning: dict[str, Any]) -> float:
+    """The aggregator's backstop when no stop strategy fires at all.
+
+    A safety net, not a target. Read from tuning like every other end-pointing
+    knob so an operator who shortens Smart Turn's ``stop_secs`` can shorten the
+    ceiling above it too; it used to be a literal in bot_pipeline.
+    """
+    return float(normalize_tuning(tuning)["turn"]["stop_timeout_secs"])
+
+
 async def apply_live_tuning_delta(
     worker: Any,
     delta: dict[str, Any] | None,
@@ -384,6 +414,17 @@ async def apply_live_tuning_delta(
             logger.exception("LLMUpdateSettingsFrame failed · delta={}", llm_delta)
 
     if "tts" in live and live["tts"]:
+        # Any TTS edit can change the voice, style, rate or prosody, so every
+        # cached clip is now the wrong voice. The cache key is the SSML hash and
+        # would miss on its own, but clearing is what bounds a process that
+        # accumulates a generation of clips per Studio edit.
+        try:
+            from voice.tts_pool import clear_phrase_cache
+
+            clear_phrase_cache()
+        except Exception:
+            logger.debug("tts phrase cache clear failed", exc_info=True)
+
         tts_delta = dict(live["tts"])
         # `params` is a nested bag, not a setting. Flattening it here is what
         # lets a mid-call Studio edit change a Fish temperature; leaving it

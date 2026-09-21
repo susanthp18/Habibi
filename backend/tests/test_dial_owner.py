@@ -128,6 +128,39 @@ def test_a_refused_gate_is_a_suppressed_row(db_tx, monkeypatch) -> None:
     assert row["suppressed_reason"] == "customer_dnd"
 
 
+def test_a_dial_that_names_no_account_is_reserved_against_one(db_tx, monkeypatch) -> None:
+    """The operator dial and every cadence retry reserved with NULL here, so the
+    attempt could not be joined to the ledger it was about."""
+    cust = _a_customer(db_tx)
+    _open_the_gate(db_tx, monkeypatch, cust["id"])
+
+    gated = outbound.gate(
+        db_tx,
+        admit={"source": "test", "actor_kind": "human", "now": _noon()},
+        customer_id=cust["id"],
+        to_phone=TEST_PHONE,
+        objective="dpd_reminder",
+    )
+
+    stored = db_tx.execute(
+        text("SELECT account_id FROM call_attempts WHERE id = :id"), {"id": gated.attempt["id"]}
+    ).scalar()
+    assert stored is not None
+    assert stored == db._first_account_id(db_tx, cust["id"])
+
+
+def test_a_mission_that_names_no_account_is_briefed_on_one(db_tx) -> None:
+    """Same resolver as the gate: the briefing and the attempt agree."""
+    import mission
+
+    cust = _a_customer(db_tx)
+
+    built = mission.build(db_tx, customer_id=cust["id"], objective="dpd_reminder")
+
+    assert built["accountId"] == db._first_account_id(db_tx, cust["id"])
+    assert built["context"]["position"], "a briefing with no balance in it"
+
+
 def test_the_same_key_is_one_attempt(db_tx, monkeypatch) -> None:
     cust = _a_customer(db_tx)
     _open_the_gate(db_tx, monkeypatch, cust["id"])

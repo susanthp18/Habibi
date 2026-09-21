@@ -386,7 +386,8 @@ def claim_due(conn: Any) -> dict[str, Any] | None:
         text(
             """
             SELECT s.*, c.phone_primary, c.phone_alt, c.tenant_id AS cust_tenant,
-                   r.status AS run_status, a.bot_id AS last_attempt_bot_id
+                   r.status AS run_status, a.bot_id AS last_attempt_bot_id,
+                   a.account_id AS last_attempt_account_id
             FROM call_cadence_state s
             JOIN customers c ON c.id = s.customer_id
             LEFT JOIN campaign_runs r ON r.id = s.campaign_run_id
@@ -511,6 +512,9 @@ def process_one(engine: Engine) -> bool:
             conn,
             customer_id=case["customer_id"],
             objective=objective,
+            # The rung dials about the account the ladder was opened for; a
+            # ladder whose first attempt had none falls back in the gate.
+            account_id=case.get("last_attempt_account_id"),
             card=card,
             bot_id=bot_id,
             campaign_run_id=case.get("campaign_run_id"),
@@ -539,6 +543,7 @@ def process_one(engine: Engine) -> bool:
             customer_id=case["customer_id"],
             to_phone=phone,
             objective=objective,
+            account_id=case.get("last_attempt_account_id"),
             decision_id=case["case_ref"] if str(case["case_ref"] or "").startswith("TD-") else None,
             campaign_run_id=case.get("campaign_run_id"),
             bot_id=bot_id,

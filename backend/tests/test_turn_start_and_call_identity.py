@@ -38,19 +38,64 @@ def _names(strategies) -> list[str]:
     return [type(s).__name__ for s in strategies]
 
 
+#: A plain sentence -- no keypad prefix, no replay marker.
+_ORDINARY_SPEECH = "I will pay on Friday"
+
+
+def _opens_a_turn_on(strategy, text: str) -> bool:
+    """Whether this strategy would open a user turn for that transcript."""
+    import asyncio
+
+    from pipecat.frames.frames import TranscriptionFrame
+
+    fired: list[bool] = []
+    strategy.add_event_handler("on_user_turn_started", lambda *a, **k: fired.append(True))
+    asyncio.run(
+        strategy.process_frame(TranscriptionFrame(text=text, user_id="", timestamp=""))
+    )
+    return bool(fired)
+
+
 # --- barge_in="on": VAD may interrupt, a stale transcript may not ------------
 
 
 def test_on_states_its_start_strategy_instead_of_inheriting_the_default() -> None:
     """The regression. An unset ``start`` is not the same as a chosen one."""
     s = build_user_turn_strategies(_tuning("on"))
-    assert _names(s.start) == ["VADUserTurnStartStrategy"]
+    assert "VADUserTurnStartStrategy" in _names(s.start)
+    assert "TranscriptionUserTurnStartStrategy" not in _names(s.start)
 
 
 def test_on_does_not_let_transcripts_start_a_turn() -> None:
     """A transcript describes the past; interrupting on it interrupts on the past."""
     s = build_user_turn_strategies(_tuning("on"))
     assert "TranscriptionUserTurnStartStrategy" not in _names(s.start)
+
+
+@pytest.mark.parametrize("mode", ["on", "locked", "min_words"])
+def test_keypad_start_cannot_be_opened_by_speech(mode: str) -> None:
+    """The keypad strategy is the ONE narrow re-admission of a transcript-driven
+    start, and the VS-39B35AC484 lesson survives it only because it matches the
+    DTMF prefix and nothing else. If that scoping ever widens, this fails."""
+    import asyncio
+
+    from pipecat.frames.frames import TranscriptionFrame
+
+    from voice.ivr import DTMF_TRANSCRIPT_PREFIX
+
+    s = build_user_turn_strategies(_tuning(mode))
+    keypad = next(x for x in s.start if type(x).__name__ == "KeypadUserTurnStartStrategy")
+
+    started: list[str] = []
+    keypad.add_event_handler("on_user_turn_started", lambda *a, **k: started.append("x"))
+
+    speech = TranscriptionFrame(text="I will pay on Friday", user_id="", timestamp="")
+    asyncio.run(keypad.process_frame(speech))
+    assert started == [], f"speech opened a keypad turn in barge_in={mode!r}"
+
+    digits = TranscriptionFrame(text=f"{DTMF_TRANSCRIPT_PREFIX}9", user_id="", timestamp="")
+    asyncio.run(keypad.process_frame(digits))
+    assert started == ["x"], f"keypad turn never opened in barge_in={mode!r}"
 
 
 def test_on_keeps_smart_turn_v3_for_end_of_turn() -> None:
@@ -78,7 +123,7 @@ def test_locked_never_interrupts() -> None:
     assert "VADUserTurnStartStrategy" in _names(s.start)
     assert "TranscriptionUserTurnStartStrategy" not in _names(s.start)
     # Greeting replay starts after unmute, when the disclosure is already
-    # complete -- that start may barge. The live-speech starts must not.
+    # complete — that start may barge. The live-speech starts must not.
     live = [x for x in s.start if type(x).__name__ != "GreetingReplayUserTurnStartStrategy"]
     assert live and all(x._enable_interruptions is False for x in live)
 
@@ -95,13 +140,16 @@ def test_min_words_pairs_a_transcript_start_with_a_transcript_stop() -> None:
     that already happened and the turn would never end.
     """
     s = build_user_turn_strategies(_tuning("min_words", min_words=3))
-    assert _names(s.start) == ["MinWordsUserTurnStartStrategy"]
+    assert "MinWordsUserTurnStartStrategy" in _names(s.start)
     assert _names(s.stop) == ["SpeechTimeoutUserTurnStopStrategy"]
 
 
 def test_min_words_carries_the_configured_threshold() -> None:
     s = build_user_turn_strategies(_tuning("min_words", min_words=5))
-    assert getattr(s.start[0], "_min_words") == 5
+    min_words = next(
+        x for x in s.start if type(x).__name__ == "MinWordsUserTurnStartStrategy"
+    )
+    assert getattr(min_words, "_min_words") == 5
 
 
 def test_every_mode_supplies_both_halves() -> None:
@@ -141,6 +189,33 @@ def test_the_bot_actually_supplies_both() -> None:
     src = handlers_source()
     assert "provider_call_id=provider_call_id" in src
     assert "direction=direction" in src
+
+
+def test_the_call_session_uses_the_account_the_dial_was_reserved_for(monkeypatch) -> None:
+    """Left to resolve on its own, the session picked the borrower's first
+    account while a campaign had briefed and reserved against their most
+    overdue one, so the bot's tools wrote to a different ledger."""
+    from voice import crm_sink, persist
+    from voice.session import VoiceSession
+
+    seen: dict = {}
+
+    def _start(**kw):
+        seen.update(kw)
+        return {"interactionId": "INT-T", "customerId": kw["customer_id"], "accountId": kw["account_id"]}
+
+    monkeypatch.setattr(persist, "start_voice_call", _start)
+    session = VoiceSession(session_id="VS-ACCT")
+    crm_sink.bind_session_start(
+        session, deployment_id=None, customer_id="CUST-T", account_id="AC-MOST-OVERDUE"
+    )
+
+    assert seen["account_id"] == "AC-MOST-OVERDUE"
+    assert session.account_id == "AC-MOST-OVERDUE"
+
+    from tests.voice_tools_source import handlers_source
+
+    assert 'account_id=(session.extra.get("mission") or {}).get("accountId")' in handlers_source()
 
 
 def test_a_sandbox_call_with_no_carrier_id_passes_none_not_empty_string() -> None:
@@ -183,3 +258,25 @@ def test_status_does_not_raise_on_a_typo(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setenv("VOICE_HANDOFF_MODE", "warn")
     assert twilio_ops.handoff_mode() == "callback_queue"
+
+
+@pytest.mark.parametrize("mode", ["on", "locked"])
+def test_no_start_strategy_opens_a_turn_on_ordinary_speech(mode: str) -> None:
+    """The VS-39B35AC484 lesson, stated so it cannot drift.
+
+    Habibi re-admits transcript-driven starts, but only scoped ones: keypad
+    digits match the DTMF prefix, greeting replay matches the hold marker.
+    Asserting the exact contents of ``start`` made this a hand-kept list that
+    broke every time a scoped strategy was added. What actually matters is that
+    none of them -- however many there are -- can be opened by a sentence the
+    caller simply said. ``min_words`` is excluded because it is transcript-driven
+    by design; that is what the mode is.
+    """
+    s = build_user_turn_strategies(_tuning(mode))
+    assert s.start, mode
+    for strategy in s.start:
+        assert not _opens_a_turn_on(strategy, _ORDINARY_SPEECH), (
+            f"{type(strategy).__name__} opened a turn on ordinary speech in "
+            f"barge_in={mode!r} -- a transcript describes audio from hundreds of "
+            "milliseconds ago, which is how the bot was cut off three times"
+        )

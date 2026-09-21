@@ -9,7 +9,6 @@ handler body below is byte-for-byte what it was -- a move, pinned by
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -25,6 +24,7 @@ from agent_core.tools.catalog import (
 from voice.tool_state import (
     ToolBuildContext,
     _account_tail,
+    customer_snapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,9 +97,10 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         if err:
             return err, None
         try:
-            import db
-
-            customer = await asyncio.to_thread(db.get_customer, cid)
+            # Shared with the other CRM reads of this turn: get_customer
+            # is a 360-degree fan-out, not a row read, and a normal
+            # "explain my dues" turn calls two or three of these tools.
+            customer = await customer_snapshot(state, cid)
         except Exception:
             logger.exception("get_customer_context failed")
             return {"error": "crm_read_failed"}, None
@@ -133,9 +134,10 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # normalize applies the spec default (limit=8) and drops unknown keys.
         args = CATALOG.normalize("get_payment_history", args)
         try:
-            import db
-
-            customer = await asyncio.to_thread(db.get_customer, cid)
+            # Shared with the other CRM reads of this turn: get_customer
+            # is a 360-degree fan-out, not a row read, and a normal
+            # "explain my dues" turn calls two or three of these tools.
+            customer = await customer_snapshot(state, cid)
         except Exception:
             logger.exception("get_payment_history failed")
             return {"error": "crm_read_failed"}, None
@@ -164,9 +166,10 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             return err, None
         args = CATALOG.normalize("get_emi_schedule", args)
         try:
-            import db
-
-            customer = await asyncio.to_thread(db.get_customer, cid)
+            # Shared with the other CRM reads of this turn: get_customer
+            # is a 360-degree fan-out, not a row read, and a normal
+            # "explain my dues" turn calls two or three of these tools.
+            customer = await customer_snapshot(state, cid)
         except Exception:
             logger.exception("get_emi_schedule failed")
             return {"error": "crm_read_failed"}, None

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { AlertCircle } from "lucide-react";
 
+import { isForbidden, isUnauthorized } from "@/api/config";
+import { NoAccess } from "@/components/access/NoAccess";
 import { LoadingState } from "@/components/ui/loading-state";
 
 /**
@@ -25,6 +27,9 @@ import { LoadingState } from "@/components/ui/loading-state";
  */
 /** Canonical copy for a failed list read. Tables render this in the empty slot. */
 export function QueryErrorBanner({ label, error }: { label: string; error?: unknown }) {
+  if (isForbidden(error) || isUnauthorized(error)) {
+    return <NoAccess label={label} error={error} />;
+  }
   return (
     <div className="flex items-start gap-075 rounded-medium border border-border-danger bg-background-danger-subtler p-150 text-body-small text-text-danger-bolder">
       <AlertCircle className="mt-025 h-4 w-4 shrink-0" />

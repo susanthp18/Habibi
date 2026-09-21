@@ -292,3 +292,50 @@ class OperatorInviteWriteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     invite: OperatorInviteResponse
+
+
+class AccessRequestCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pagePath: str = Field(validation_alias=AliasChoices("pagePath", "page_path"))
+    reason: str
+    permission: str | None = None
+
+
+class AccessRequestApproveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    roleId: str = Field(validation_alias=AliasChoices("roleId", "role_id"))
+
+
+class AccessRequestResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    userId: str
+    userName: str
+    userEmail: str | None = None
+    pagePath: str
+    permission: str | None = None
+    permissionLabel: str | None = None
+    reason: str
+    status: str
+    grantedRoleId: str | None = None
+    grantedRoleName: str | None = None
+    requestedAt: str | None = None
+    reviewedAt: str | None = None
+    reviewedByUserId: str | None = None
+    reviewedByName: str | None = None
+    lastError: str | None = None
+
+
+class AccessRequestsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requests: list[AccessRequestResponse]
+
+
+class AccessRequestWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request: AccessRequestResponse

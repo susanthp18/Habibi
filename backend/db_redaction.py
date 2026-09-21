@@ -13,10 +13,13 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+import logging
 
 from sqlalchemy import text
 import json
 from db_core import _actor_user_id, _one, _rows, _speaker_screen, _tenant
+
+logger = logging.getLogger(__name__)
 
 
 def _db():
@@ -613,15 +616,28 @@ def _parse_scope_blob(raw: Any) -> dict[str, Any]:
         except json.JSONDecodeError:
             raw = {}
     if not isinstance(raw, dict):
-        return {"parts": [], "actorRole": "", "downloadCount": 0, "entitiesRedacted": 0}
+        return {
+            "parts": [],
+            "actorRole": "",
+            "downloadCount": 0,
+            "entitiesRedacted": 0,
+            "kind": "redaction",
+        }
     parts = raw.get("parts") or raw.get("scope") or []
     if not isinstance(parts, list):
         parts = []
+    kind = raw.get("kind") if raw.get("kind") in {"redaction", "dashboard"} else "redaction"
     return {
         "parts": [p for p in parts if p in _EXPORT_SCOPES],
         "actorRole": str(raw.get("actorRole") or ""),
         "downloadCount": int(raw.get("downloadCount") or 0),
         "entitiesRedacted": int(raw.get("entitiesRedacted") or 0),
+        "kind": kind,
+        "range": str(raw.get("range") or "30d"),
+        "segment": str(raw.get("segment") or "all"),
+        "team": str(raw.get("team") or "all"),
+        "emailTo": str(raw.get("emailTo") or ""),
+        "mailStatus": raw.get("mailStatus"),
     }
 
 
@@ -633,18 +649,179 @@ def _map_export_job(row: dict[str, Any], record_ids: list[str]) -> dict[str, Any
     if status not in _EXPORT_STATUSES:
         status = "queued"
     at = row.get("created_at")
+    kind = row.get("kind") if row.get("kind") in {"redaction", "dashboard"} else meta["kind"]
+    fmt = row["format"] if row.get("format") in _EXPORT_FORMATS else ("csv" if kind == "dashboard" else "pdf")
+    mail = meta.get("mailStatus")
     return {
         "id": row["id"],
         "at": at.isoformat() if isinstance(at, (datetime, date)) else str(at),
         "actor": row.get("actor_name") or "Unknown",
-        "actorRole": meta["actorRole"] or "Compliance Officer",
+        "actorRole": meta["actorRole"] or ("Leadership" if kind == "dashboard" else "Compliance Officer"),
         "recordIds": record_ids,
-        "format": row["format"] if row.get("format") in _EXPORT_FORMATS else "pdf",
-        "scope": meta["parts"] or ["transcript"],
+        "format": fmt,
+        "scope": meta["parts"] or (["metadata"] if kind == "dashboard" else ["transcript"]),
         "watermark": row.get("watermark") or "",
         "status": status,
         "downloadCount": meta["downloadCount"],
         "entitiesRedacted": meta["entitiesRedacted"],
+        "kind": kind,
+        "mailStatus": str(mail) if mail else None,
+    }
+
+
+def _export_jobs_has_kind_column(conn: Any) -> bool:
+    return bool(
+        conn.execute(
+            text(
+                """
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'export_jobs'
+                   AND column_name = 'kind'
+                """
+            )
+        ).scalar()
+    )
+
+
+def _materialize_export_zip(
+    job_id: str, record_ids: list[str], scope_parts: list[str], fmt: str
+) -> tuple[str | None, str]:
+    """Write the zip to MinIO (or local fallback). Returns (storage_ref, status)."""
+    from pathlib import Path
+
+    from voice.redaction_export import build_export_zip, write_redacted_wav
+
+    d = _db()
+    try:
+        with d.engine.connect() as conn:
+            for rid in record_ids:
+                rec = d._one(
+                    conn.execute(
+                        text(
+                            """
+                            SELECT r.id, r.interaction_id
+                            FROM redaction_records r
+                            JOIN interactions i ON i.id = r.interaction_id
+                            WHERE r.id = :id AND i.tenant_id = :tenant
+                            """
+                        ),
+                        {"id": rid, "tenant": d.current_tenant()},
+                    )
+                )
+                if rec is None:
+                    continue
+                muted = conn.execute(
+                    text(
+                        """
+                        SELECT count(*) FROM redaction_audio_segments
+                        WHERE redaction_id = :id AND muted = true
+                        """
+                    ),
+                    {"id": rid},
+                ).scalar()
+                if int(muted or 0) > 0 or "audio" in scope_parts:
+                    try:
+                        write_redacted_wav(rec["interaction_id"], rid)
+                    except Exception:
+                        logger.exception("redacted wav for %s failed", rid)
+        blob = build_export_zip(job_id, record_ids, scope_parts)
+        key = f"export-bundles/{d.current_tenant()}/{job_id}.zip"
+        storage_ref: str | None = None
+        try:
+            import storage
+
+            if storage.is_configured():
+                storage_ref = storage.put_bytes(
+                    key, blob, "application/zip", bucket=storage.RECORDINGS_BUCKET
+                )
+        except Exception:
+            logger.exception("export zip minio upload failed")
+        if not storage_ref:
+            local_dir = Path(__file__).resolve().parent / ".cache" / "export-bundles"
+            local_dir.mkdir(parents=True, exist_ok=True)
+            (local_dir / f"{job_id}.zip").write_bytes(blob)
+            storage_ref = f"local://export-bundles/{job_id}.zip"
+        _ = fmt
+        return storage_ref, "ready"
+    except Exception:
+        logger.exception("export zip failed job=%s", job_id)
+        return None, "failed"
+
+
+def download_export_job(job_id: str) -> dict[str, Any]:
+    """Bytes + filename for GET /export-jobs/{id}/download. Bumps download count."""
+    d = _db()
+    with d.engine.begin() as conn:
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.id, ej.storage_ref, ej.status, ej.scope, ej.format
+                    FROM export_jobs ej
+                    WHERE ej.id = :id
+                      AND ej.tenant_id = :tenant
+                      AND (
+                        coalesce(ej.scope->>'kind', 'redaction') = 'dashboard'
+                        OR EXISTS (
+                          SELECT 1
+                          FROM export_job_records ejr
+                          JOIN redaction_records r ON r.id = ejr.redaction_id
+                          JOIN interactions i ON i.id = r.interaction_id
+                          WHERE ejr.export_job_id = ej.id
+                            AND i.tenant_id = :tenant
+                        )
+                      )
+                    FOR UPDATE OF ej
+                    """
+                ),
+                {"id": job_id, "tenant": d.current_tenant()},
+            )
+        )
+        if row is None:
+            raise KeyError("export_job_not_found")
+        if row["status"] != "ready" or not row.get("storage_ref"):
+            raise ValueError("export_not_ready")
+        meta = _parse_scope_blob(row["scope"])
+        meta["downloadCount"] = int(meta["downloadCount"]) + 1
+        conn.execute(
+            text(
+                """
+                UPDATE export_jobs
+                SET scope = CAST(:scope AS jsonb), updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job_id, "scope": json.dumps(meta)},
+        )
+        d._activity(
+            conn,
+            "export_job",
+            job_id,
+            "downloaded",
+            "Export bundle downloaded",
+            note=str(row["storage_ref"]),
+        )
+        ref = str(row["storage_ref"])
+        kind = meta.get("kind") or "redaction"
+        fmt = row.get("format") or ("csv" if kind == "dashboard" else "pdf")
+        if kind != "dashboard":
+            import authz
+
+            if not authz.has_permission(d._actor_user_id(), authz.COMPLIANCE_READ):
+                raise PermissionError("forbidden")
+    from voice.recordings import _load_bytes
+
+    if kind == "dashboard" or fmt == "csv":
+        return {
+            "bytes": _load_bytes(ref),
+            "filename": f"{job_id}.csv",
+            "mimeType": "text/csv",
+        }
+    return {
+        "bytes": _load_bytes(ref),
+        "filename": f"{job_id}.zip",
+        "mimeType": "application/zip",
     }
 
 
@@ -695,7 +872,137 @@ def list_export_jobs(*, limit: int | None = None, offset: int | None = None) -> 
         return [_map_export_job(r, by_job.get(r["id"], [])) for r in rows]
 
 
+def _actor_mailbox(conn: Any, user_id: str) -> str | None:
+    row = _one(
+        conn.execute(
+            text(
+                """
+                SELECT coalesce(nullif(trim(u.email), ''), nullif(trim(u.entra_upn), '')) AS email
+                  FROM users u
+                 WHERE u.id = :id
+                """
+            ),
+            {"id": user_id},
+        )
+    )
+    email = (row or {}).get("email") if row else None
+    if not email or "@" not in str(email):
+        return None
+    return str(email).strip().lower()
+
+
+def _create_dashboard_export_job(payload: dict[str, Any]) -> dict[str, Any]:
+    """Leadership CSV. No export_job_records rows — those require a redaction id."""
+    import invite_mail
+    from pathlib import Path
+
+    d = _db()
+    range_key = str(payload.get("range") or "30d")
+    segment = str(payload.get("segment") or "all")
+    team = str(payload.get("team") or "all")
+    csv_body = d.get_dashboard_csv(range_key, segment, team)
+    blob = csv_body.encode("utf-8")
+    job_id = d._id("EX")
+    actor_id = d._actor_user_id()
+    with d.engine.begin() as conn:
+        email_to = _actor_mailbox(conn, actor_id)
+        if not email_to:
+            raise ValueError("actor_email_missing")
+        meta = {
+            "kind": "dashboard",
+            "parts": ["metadata"],
+            "actorRole": payload.get("actorRole") or "Leadership",
+            "downloadCount": 0,
+            "entitiesRedacted": 0,
+            "range": range_key,
+            "segment": segment,
+            "team": team,
+            "emailTo": email_to,
+        }
+        has_kind = _export_jobs_has_kind_column(conn)
+        cols = "id, tenant_id, actor_user_id, format, scope, watermark, status, storage_ref"
+        vals = ":id, :tenant_id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'queued', NULL"
+        params: dict[str, Any] = {
+            "id": job_id,
+            "tenant_id": d.current_tenant(),
+            "uid": actor_id,
+            "fmt": "csv",
+            "scope": json.dumps(meta),
+            "wm": payload.get("watermark") or "",
+        }
+        if has_kind:
+            cols = cols.replace("format,", "kind, format,")
+            vals = vals.replace(":fmt,", "'dashboard', :fmt,")
+        conn.execute(
+            text(f"INSERT INTO export_jobs ({cols}) VALUES ({vals})"),
+            params,
+        )
+        d._activity(conn, "export_job", job_id, "created", "Dashboard export created")
+
+    storage_ref: str | None = None
+    status = "failed"
+    try:
+        import storage
+
+        key = f"export-bundles/{d.current_tenant()}/{job_id}.csv"
+        if storage.is_configured():
+            storage_ref = storage.put_bytes(key, blob, "text/csv", bucket=storage.RECORDINGS_BUCKET)
+    except Exception:
+        logger.exception("dashboard csv minio upload failed")
+    if not storage_ref:
+        local_dir = Path(__file__).resolve().parent / ".cache" / "export-bundles"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / f"{job_id}.csv").write_bytes(blob)
+        storage_ref = f"local://export-bundles/{job_id}.csv"
+        status = "ready"
+    else:
+        status = "ready"
+
+    origin = invite_mail.public_origin()
+    download_url = f"{origin}/export-jobs/{job_id}/download"
+    mail_status = invite_mail.send_dashboard_report_email(
+        to_email=email_to, download_url=download_url, range_key=range_key
+    )
+    meta["mailStatus"] = mail_status or "sent"
+
+    with d.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE export_jobs
+                   SET status = :status, storage_ref = :ref,
+                       scope = CAST(:scope AS jsonb), updated_at = now()
+                 WHERE id = :id
+                """
+            ),
+            {
+                "id": job_id,
+                "status": status,
+                "ref": storage_ref,
+                "scope": json.dumps(meta),
+            },
+        )
+        row = d._one(
+            conn.execute(
+                text(
+                    """
+                    SELECT ej.*, u.name AS actor_name
+                    FROM export_jobs ej
+                    LEFT JOIN users u ON u.id = ej.actor_user_id
+                    WHERE ej.id = :id
+                    """
+                ),
+                {"id": job_id},
+            )
+        )
+        assert row is not None
+        return _map_export_job(row, [])
+
+
 def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
+    kind = payload.get("kind") or "redaction"
+    if kind == "dashboard":
+        return _create_dashboard_export_job(payload)
     d = _db()
     with d.engine.begin() as conn:
         record_ids = list(payload.get("recordIds") or [])
@@ -741,7 +1048,6 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
             "downloadCount": 0,
             "entitiesRedacted": int(entities or 0),
         }
-        # Demo: mark ready immediately (no real zip/pdf pipeline yet)
         conn.execute(
             text(
                 """
@@ -749,7 +1055,7 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
                   id, tenant_id, actor_user_id, format, scope, watermark, status,
                   storage_ref
                 ) VALUES (
-                  :id, :tenant_id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'ready', :ref
+                  :id, :tenant_id, :uid, :fmt, CAST(:scope AS jsonb), :wm, 'queued', NULL
                 )
                 """
             ),
@@ -760,7 +1066,6 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
                 "fmt": fmt,
                 "scope": json.dumps(meta),
                 "wm": payload.get("watermark") or "",
-                "ref": f"minio://export-bundles/{d.current_tenant()}/{job_id}.{fmt}",
             },
         )
         for rid in record_ids:
@@ -781,6 +1086,18 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
             "created",
             "Export job created",
             note=f"{len(record_ids)} records",
+        )
+    storage_ref, status = _materialize_export_zip(job_id, record_ids, scope_parts, fmt)
+    with d.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE export_jobs
+                SET status = :status, storage_ref = :ref, updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": job_id, "status": status, "ref": storage_ref},
         )
         row = d._one(
             conn.execute(

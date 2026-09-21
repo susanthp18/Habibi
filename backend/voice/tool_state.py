@@ -212,6 +212,10 @@ class ToolState:
         self.nodes: dict[str, Any] = {}
         # Populated at verify; the authoritative CRM snapshot for this call.
         self.call_context: CallContext | None = None
+        # One shared read of the 360-degree customer contract per short window,
+        # instead of one per tool. See :func:`customer_snapshot`.
+        self._customer_row: tuple[str, float, Any] | None = None
+        self._customer_lock: asyncio.Lock | None = None
         # Product last discussed on the upsell node, for lead capture defaults.
         self.last_product_id: str | None = None
         self.upsell_presented = False
@@ -282,6 +286,65 @@ class ToolState:
         return True if grant is None else name in grant
 
 
+
+
+#: How long one customer read may serve the tools of a turn. Short on purpose:
+#: this exists to collapse the three-reads-per-turn fan-out, not to hold a
+#: balance across a conversation. Any write tool invalidates it outright.
+_SNAPSHOT_TTL_S = 3.0
+
+
+def invalidate_customer_snapshot(state: "ToolState") -> None:
+    """Drop the shared read. Called by every write that changes the customer."""
+    state._customer_row = None
+
+
+async def customer_snapshot(state: "ToolState", customer_id: str) -> Any:
+    """``db.get_customer`` once per short window, shared by the turn's tools.
+
+    Each of ``get_customer_context``, ``get_payment_history`` and
+    ``get_emi_schedule`` called ``db.get_customer`` in its own thread hop, and
+    that call is not a row read: it fans out to consent, ledger, *every* EMI
+    installment, 25 interaction contracts, promises, disputes, documents and
+    notes, then validates a ``CustomerResponse`` -- holding one of the voice
+    container's five pooled connections for the whole fan-out. A normal
+    "explain my dues" turn calls two or three of them and paid for the same
+    fan-out each time, while the model waited.
+
+    Also more coherent than what it replaces, not less: three staggered reads
+    could report three different balances inside one turn. One snapshot cannot.
+
+    Single-flight: concurrent tools in the same turn await one read rather than
+    starting three. Never shared across calls -- the state object is per-call --
+    and never held long: balances move, so the TTL is seconds and any write
+    tool drops it (``invalidate_customer_snapshot``).
+    """
+    import time as _time
+
+    if state._customer_lock is None:
+        state._customer_lock = asyncio.Lock()
+
+    cached = state._customer_row
+    now = _time.monotonic()
+    if cached is not None and cached[0] == customer_id and (now - cached[1]) < _SNAPSHOT_TTL_S:
+        return cached[2]
+
+    async with state._customer_lock:
+        # Re-check: the tool that held the lock may have just filled it.
+        cached = state._customer_row
+        now = _time.monotonic()
+        if (
+            cached is not None
+            and cached[0] == customer_id
+            and (now - cached[1]) < _SNAPSHOT_TTL_S
+        ):
+            return cached[2]
+
+        import db
+
+        customer = await asyncio.to_thread(db.get_customer, customer_id)
+        state._customer_row = (customer_id, _time.monotonic(), customer)
+        return customer
 
 
 class ToolBuildContext(SimpleNamespace):

@@ -220,7 +220,7 @@ def resolve_bearer(token: str, *, signing_key: Any | None = None) -> tuple[bool,
 
 
 def provision_user(claims: dict[str, Any]) -> str:
-    """Bind ``oid`` to a users row. First login assigns Viewer or bootstrap Admin.
+    """Bind ``oid`` to a users row. Bootstrap Admin, else invite role, else none.
 
     Uses ``db.engine`` so the ``db_tx`` test proxy wraps the transaction.
     Known users are a read. The advisory lock only serialises first-login
@@ -235,6 +235,8 @@ def provision_user(claims: dict[str, Any]) -> str:
     name = _claim_str(claims, "name") or upn or "Operator"
     tenant_id = _tenant()
 
+    import db_invites
+
     with db.engine.begin() as conn:
         row = conn.execute(
             text(
@@ -246,9 +248,12 @@ def provision_user(claims: dict[str, Any]) -> str:
             {"oid": oid},
         ).mappings().first()
         if row is not None:
-            if str(row["status"] or "") != "active":
-                raise EntraAuthError("unauthorized")
-            if (row["name"] or "") != name or (row["entra_upn"] or "") != (upn or ""):
+            # Inactive operators still authenticate so GET /me and
+            # POST /access-requests work. Grants are emptied in authz
+            # unless a pending invite restores them below.
+            if (row["name"] or "") != name or (row["entra_upn"] or "") != (upn or "") or str(
+                row["status"] or ""
+            ) != "active":
                 conn.execute(
                     text(
                         """
@@ -263,6 +268,17 @@ def provision_user(claims: dict[str, Any]) -> str:
                     ),
                     {"id": row["id"], "name": name, "upn": upn or None, "tid": tid},
                 )
+            invited = db_invites.consume_pending_invite(conn, tenant_id, upn)
+            if invited:
+                db_invites.apply_invite_role(
+                    conn,
+                    str(row["id"]),
+                    invited,
+                    activate=str(row["status"] or "") != "active",
+                )
+                import authz
+
+                authz.invalidate_permission_cache(str(row["id"]))
             return str(row["id"])
 
         conn.execute(
@@ -274,8 +290,6 @@ def provision_user(claims: dict[str, Any]) -> str:
             {"oid": oid},
         ).mappings().first()
         if raced is not None:
-            if str(raced["status"] or "") != "active":
-                raise EntraAuthError("unauthorized")
             return str(raced["id"])
 
         bootstrap = upn.lower() in _bootstrap_upns()
@@ -311,31 +325,32 @@ def provision_user(claims: dict[str, Any]) -> str:
         except IntegrityError:
             nested.rollback()
             existing = conn.execute(
-                text("SELECT id, status FROM users WHERE entra_oid = CAST(:oid AS uuid)"),
+                text("SELECT id FROM users WHERE entra_oid = CAST(:oid AS uuid)"),
                 {"oid": oid},
             ).mappings().first()
-            if existing is None or str(existing["status"] or "") != "active":
+            if existing is None:
                 raise EntraAuthError("unauthorized") from None
             return str(existing["id"])
 
-        role_wanted = "role-admin" if bootstrap else "role-viewer"
-        import db_invites
-
+        # Uninvited first login gets a users row and no role. The console
+        # then asks them to request access; an admin grants a role.
+        role_wanted = "role-admin" if bootstrap else None
         invited = db_invites.consume_pending_invite(conn, tenant_id, upn)
         if invited and not bootstrap:
             role_wanted = invited
-        role_id = _role_id(conn, tenant_id, role_wanted)
-        if role_id:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO user_roles (user_id, role_id)
-                    VALUES (:uid, :rid)
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {"uid": user_id, "rid": role_id},
-            )
+        if role_wanted:
+            role_id = _role_id(conn, tenant_id, role_wanted)
+            if role_id:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO user_roles (user_id, role_id)
+                        VALUES (:uid, :rid)
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {"uid": user_id, "rid": role_id},
+                )
         return user_id
 
 

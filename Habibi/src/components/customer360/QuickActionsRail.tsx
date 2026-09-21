@@ -12,7 +12,6 @@ import {
   PanelRight,
   Sparkles,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { Customer } from "@/api/types/customer360";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -25,7 +24,8 @@ type Handlers = {
   onRaiseDispute: () => void;
   onSendStatement: () => void;
   onLogCall: () => void;
-  onNbaAction?: (action: NbaActionKind) => void;
+  onNbaAction?: (item: NbaItem) => void;
+  onPlaceCall?: () => void;
 };
 
 export function QuickActionsRail({
@@ -45,16 +45,18 @@ export function QuickActionsRail({
     (d) => d.status !== "resolved" && d.status !== "rejected",
   );
 
-  const runAction = (action: NbaActionKind) => {
+  const runAction = (item: NbaItem) => {
     if (handlers.onNbaAction) {
-      handlers.onNbaAction(action);
+      handlers.onNbaAction(item);
       return;
     }
-    if (action === "ptp") handlers.onCreatePtp();
-    else if (action === "dispute" || action === "review") handlers.onRaiseDispute();
-    else if (action === "statement") handlers.onSendStatement();
-    else if (action === "call") handlers.onLogCall();
-    else toast.info("Opens Callback Manager — coming soon.");
+    if (item.action === "ptp") handlers.onCreatePtp();
+    else if (item.action === "dispute" || item.action === "review") handlers.onRaiseDispute();
+    else if (item.action === "statement") handlers.onSendStatement();
+    else if (item.action === "call") {
+      if (handlers.onPlaceCall) handlers.onPlaceCall();
+      else handlers.onLogCall();
+    }
   };
 
   const ranked = nba.length
@@ -118,7 +120,7 @@ export function QuickActionsRail({
                   "h-9 w-full justify-start gap-100 text-xs",
                   i === 0 && "bg-background-brand-bold hover:bg-background-brand-bold-hovered",
                 )}
-                onClick={() => runAction(item.action)}
+                onClick={() => runAction(item)}
               >
                 <ActionIcon action={item.action} />
                 <span className="truncate">{item.title}</span>
@@ -128,7 +130,16 @@ export function QuickActionsRail({
               variant="ghost"
               size="sm"
               className="h-400 w-full justify-start gap-100 text-xs text-text-subtle"
-              onClick={() => toast.info("Opens Callback Manager — coming soon.")}
+              onClick={() =>
+                runAction({
+                  id: "qa-callback",
+                  rank: 99,
+                  title: "Schedule callback",
+                  reason: "",
+                  action: "callback",
+                  priority: "medium",
+                })
+              }
             >
               <CalendarClock className="h-3.5 w-3.5" />
               Schedule callback

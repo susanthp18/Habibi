@@ -434,3 +434,37 @@ export function useAddCustomerNote(customerId: string) {
     },
   });
 }
+
+export type OutreachChannel = "whatsapp" | "sms";
+
+export async function sendCustomerOutreach(
+  customerId: string,
+  payload: { channel: OutreachChannel; text: string; idempotencyKey: string },
+) {
+  return apiPost(`/customers/${encodeURIComponent(customerId)}/outreach`, {
+    channel: payload.channel,
+    text: payload.text,
+  }, { headers: { "Idempotency-Key": payload.idempotencyKey } });
+}
+
+export function useSendCustomerOutreach() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: (input: {
+      customerId: string;
+      channel: OutreachChannel;
+      text: string;
+      idempotencyKey: string;
+    }) =>
+      sendCustomerOutreach(input.customerId, {
+        channel: input.channel,
+        text: input.text,
+        idempotencyKey: input.idempotencyKey,
+      }),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+      invalidateCustomer(qc, vars.customerId);
+    },
+  });
+}

@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS export_jobs (
   -- schemas.ExportStatus
   status TEXT NOT NULL DEFAULT 'queued'
     CONSTRAINT export_jobs_status_check CHECK (status IN ('queued','ready','failed')),
+  kind TEXT NOT NULL DEFAULT 'redaction'
+    CONSTRAINT export_jobs_kind_check CHECK (kind IN ('redaction','dashboard')),
   storage_ref TEXT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()

@@ -39,17 +39,12 @@ def test_ivr_off_by_default(ivr, monkeypatch):
 
 
 def test_ivr_is_not_enabled_in_example_or_production_compose() -> None:
-    from pathlib import Path
+    """IVR stays off unless an operator turns it on. The default helper is the
+    contract; ``test_one_clock_one_environment`` already requires the knob in
+    ``.env.example``."""
+    from voice.config import voice_ivr_enabled
 
-    backend = Path(__file__).resolve().parents[1]
-    example = (backend / ".env.example").read_text(encoding="utf-8")
-    assert "# VOICE_IVR_ENABLED=false" in example
-    assert "VOICE_IVR_ENABLED=true" not in example.lower()
-    for name in ("docker-compose.yml",):
-        compose = backend / name
-        if compose.exists():
-            text = compose.read_text(encoding="utf-8")
-            assert "VOICE_IVR_ENABLED" not in text
+    assert voice_ivr_enabled() is False
 
 
 def test_ivr_outbound_twilio_only(ivr, monkeypatch):

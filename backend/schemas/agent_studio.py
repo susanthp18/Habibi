@@ -400,6 +400,14 @@ class AgentStudioCardResponse(BaseModel):
     #: The enabled entry bindings that land on this card -- "answers +1937…"
     #: -- read from the table, not the env.
     entryBindings: list["EntryBindingResponse"] = []
+    #: Whether archiving is refused because inbound traffic lands here -- the
+    #: env default or any enabled binding (``routing.entry_card_ids``). Sent,
+    #: not derived: ``entryBotId`` is a different card once the door routes
+    #: voice elsewhere.
+    takesInbound: bool
+    #: The reachable cards whose handoff allowlist names this one, sorted.
+    #: Empty unless ``reachability`` is ``handoff``.
+    handoffFrom: list[str]
     reachability: AgentStudioReachability
     archivedAt: str | None
     isFirstParty: bool

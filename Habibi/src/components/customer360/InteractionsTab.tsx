@@ -15,12 +15,13 @@ import {
   Sparkles,
   User2,
 } from "lucide-react";
-import { toast } from "sonner";
+import { Link } from "@tanstack/react-router";
 import type { ContactChannel, Customer, Interaction, Sentiment } from "@/api/types/customer360";
 import { fmtDateTime, fmtRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
+import { CallAttemptsSection } from "./CallAttemptsSection";
 
 const CHANNEL_ICON: Record<ContactChannel, React.ComponentType<{ className?: string }>> = {
   voice: PhoneCall,
@@ -63,6 +64,7 @@ export function InteractionsTab({ customer }: { customer: Customer }) {
 
   return (
     <div className="space-y-200">
+      <CallAttemptsSection customer={customer} />
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-100 rounded-medium border border-border bg-surface p-100 text-xs">
         <FilterGroup label="ContactChannel">
@@ -194,12 +196,13 @@ function InteractionCard({
             </div>
             <div className="mt-100 flex items-center justify-between text-body-small text-text-subtle">
               <span>{fmtDateTime(i.startedAt)}</span>
-              <button
-                onClick={() => toast.info("Opens transcript in Audit Trail — coming soon.")}
+              <Link
+                to="/audit"
+                search={{ id: i.id }}
                 className="inline-flex items-center gap-050 font-medium text-text-brand hover:underline"
               >
                 <Sparkles className="h-3 w-3" /> Open transcript
-              </button>
+              </Link>
             </div>
           </div>
         )}

@@ -18,17 +18,21 @@ from env_utils import env_bool
 logger = logging.getLogger(__name__)
 
 
-def voice_ws_upstream() -> str:
+def voice_ws_upstream(path: str = "/ws") -> str:
     load_env()
     # Prefer explicit override; docker compose sets VOICE_RUNNER_URL=http://voice:7860
     base = (os.getenv("VOICE_WS_UPSTREAM") or os.getenv("VOICE_RUNNER_URL") or "http://127.0.0.1:7860").rstrip("/")
+    if not path.startswith("/"):
+        path = "/" + path
+    if base.endswith("/ws") and path != "/ws":
+        base = base[: -len("/ws")]
     if base.startswith("https://"):
-        return "wss://" + base[len("https://") :] + "/ws"
+        return "wss://" + base[len("https://") :] + path
     if base.startswith("http://"):
-        return "ws://" + base[len("http://") :] + "/ws"
+        return "ws://" + base[len("http://") :] + path
     if base.startswith("wss://") or base.startswith("ws://"):
-        return base if base.endswith("/ws") else base + "/ws"
-    return f"ws://{base}/ws"
+        return base if base.endswith(path) else base + path
+    return f"ws://{base}{path}"
 
 
 def ws_proxy_enabled() -> bool:
@@ -42,7 +46,7 @@ def ws_proxy_enabled() -> bool:
     return env_bool("VOICE_WS_VIA_API", default=False)
 
 
-async def proxy_voice_websocket(client: WebSocket) -> None:
+async def proxy_voice_websocket(client: WebSocket, *, upstream_path: str = "/ws") -> None:
     """Bidirectional byte/text bridge between Twilio (via ngrok→API) and Pipecat."""
     import websockets
     from websockets.exceptions import ConnectionClosed
@@ -50,7 +54,7 @@ async def proxy_voice_websocket(client: WebSocket) -> None:
     from voice.call_trace import Stopwatch, event, redact_url
 
     await client.accept()
-    upstream = voice_ws_upstream()
+    upstream = voice_ws_upstream(upstream_path)
     logger.info("Voice WS proxy → %s", upstream)
     watch = Stopwatch()
 

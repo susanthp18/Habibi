@@ -9,6 +9,7 @@ import { LiveTable } from "@/components/floor/LiveTable";
 import { Inspector } from "@/components/floor/Inspector";
 import { ApprovalsQueue } from "@/components/floor/ApprovalsQueue";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import {
   useAckFloorAlert,
   useFloor,
@@ -41,8 +42,8 @@ function FloorPage() {
           <LoadingState label="Loading floor" />
         </div>
       ) : isError && !data ? (
-        <div className="grid h-full place-items-center text-body text-text-danger">
-          {error instanceof Error ? error.message : "Failed to load floor"}
+        <div className="grid h-full place-items-center p-400">
+          <QueryErrorBanner label="the floor" error={error} />
         </div>
       ) : data ? (
         <FloorLive initial={data} />

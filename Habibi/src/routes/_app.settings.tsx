@@ -3,6 +3,7 @@ import { Check, Moon, Sun } from "lucide-react";
 import { can, useMe } from "@/api/me";
 import { Button } from "@/components/ui/button";
 import { OutboundControlPanel } from "@/components/platform/OutboundControlPanel";
+import { AccessRequestsSection } from "@/components/settings/AccessRequestsSection";
 import { InvitesSection } from "@/components/settings/InvitesSection";
 import { setTheme, useTheme } from "@/lib/theme";
 
@@ -26,7 +27,8 @@ function SettingsPage() {
       <header className="border-b border-border bg-surface px-400 py-200">
         <h1 className="heading-medium font-semibold">Settings</h1>
         <p className="text-body-small text-text-subtle">
-          Appearance for this browser, plus invites and the outbound gate for admins.
+          Appearance for this browser. Admins also invite people, review access requests, and
+          control the outbound gate.
         </p>
       </header>
       <div className="min-h-0 flex-1 space-y-400 overflow-auto p-400">
@@ -59,6 +61,7 @@ function SettingsPage() {
 
         {isAdmin ? (
           <>
+            <AccessRequestsSection />
             <InvitesSection />
             <section>
               <h2 className="mb-200 text-body font-semibold">Outbound</h2>

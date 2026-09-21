@@ -237,7 +237,12 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
         if not criteria:
             return None
 
-    hours_fail = _hours_fail(row, policy_rules.calling_window(conn, "voice", tenant_id=db.current_tenant()))
+        # Inside the block: read after it, this ran on a closed connection, so
+        # `resolve` degraded to the empty rule set and the hours check could never
+        # fail. Every Asterisk test call logged the ResourceClosedError at teardown.
+        window = policy_rules.calling_window(conn, "voice", tenant_id=db.current_tenant())
+
+    hours_fail = _hours_fail(row, window)
     if hours_fail and "hours-breach" not in flags:
         flags.append("hours-breach")
 

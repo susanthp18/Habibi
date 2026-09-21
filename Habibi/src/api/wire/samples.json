@@ -5014,6 +5014,7 @@
     ],
     "entryBotId": "intake-v1",
     "evalStatus": "pass",
+    "handoffFrom": [],
     "hasDraft": false,
     "isFirstParty": true,
     "lastPublish": "2026-09-11T18:42:28.628401+00:00",
@@ -5125,6 +5126,7 @@
      "verify-and-disclose"
     ],
     "slug": "intake",
+    "takesInbound": true,
     "toolCount": 8,
     "trafficPct": 100,
     "version": "1.0"
@@ -5392,6 +5394,10 @@
     "entryBindings": [],
     "entryBotId": "intake-v1",
     "evalStatus": "pass",
+    "handoffFrom": [
+     "insurance-v1",
+     "intake-v1"
+    ],
     "hasDraft": false,
     "isFirstParty": true,
     "lastPublish": "2026-09-11T18:42:28.141112+00:00",
@@ -5655,6 +5661,7 @@
      "hardship-intake"
     ],
     "slug": "collections",
+    "takesInbound": true,
     "toolCount": 23,
     "trafficPct": 100,
     "version": "2.4"
@@ -5800,6 +5807,10 @@
     "entryBindings": [],
     "entryBotId": "intake-v1",
     "evalStatus": "pass",
+    "handoffFrom": [
+     "intake-v1",
+     "kaia-v2-4"
+    ],
     "hasDraft": false,
     "isFirstParty": true,
     "lastPublish": "2026-09-11T18:42:23.570580+00:00",
@@ -5941,6 +5952,7 @@
      "doc-fulfil"
     ],
     "slug": "insurance",
+    "takesInbound": false,
     "toolCount": 16,
     "trafficPct": 100,
     "version": "1.0"
@@ -6288,6 +6300,10 @@
    "entryBindings": [],
    "entryBotId": "intake-v1",
    "evalStatus": "pass",
+   "handoffFrom": [
+    "insurance-v1",
+    "intake-v1"
+   ],
    "hasDraft": false,
    "isFirstParty": true,
    "lastPublish": "2026-09-11T18:42:28.141112+00:00",
@@ -6551,6 +6567,7 @@
     "hardship-intake"
    ],
    "slug": "collections",
+   "takesInbound": true,
    "toolCount": 23,
    "trafficPct": 100,
    "version": "2.4"
@@ -12589,7 +12606,7 @@
    "phone": "919655282324",
    "policyReason": "suppressed",
    "policyWaived": null,
-   "twilioConfigured": true
+   "telephonyConfigured": true
   },
   "key": "GET /demo/outbound-call",
   "path": "/demo/outbound-call"

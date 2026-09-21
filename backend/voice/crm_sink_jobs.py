@@ -218,6 +218,13 @@ def handle(sink: "CrmSink", job: _Job) -> None:
         except Exception:
             logger.exception("transcript export failed · interaction=%s", ix)
 
+        try:
+            from voice.redaction_export import ensure_redaction_record
+
+            ensure_redaction_record(ix)
+        except Exception:
+            logger.exception("redaction record upsert failed · interaction=%s", ix)
+
         # Cross-call memory. Deliberately AFTER complete_voice_call, in its
         # own try/except, so a slow or failing summariser can never block
         # call closure. This whole handler already runs in asyncio.to_thread

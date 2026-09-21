@@ -6,7 +6,7 @@
 // one-line change (see fetchDashboard below).
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import type {
   AtRiskAccount,
@@ -19,7 +19,8 @@ import type {
   TeamFilter,
   Trend,
 } from "@/api/types/dashboard";
-import { apiGet } from "./config";
+import type { ExportJob } from "@/api/types/redaction";
+import { apiGet, apiGetBlob, apiPost } from "./config";
 
 export type DashboardParams = { range: Range; segment: Segment; team: TeamFilter };
 
@@ -54,5 +55,25 @@ export function useDashboard(params: DashboardParams) {
     queryKey: ["dashboard", params],
     queryFn: () => fetchDashboard(params),
     staleTime: 30_000,
+  });
+}
+
+export async function fetchDashboardCsv(params: DashboardParams): Promise<{ blob: Blob; filename: string }> {
+  const qs = new URLSearchParams(params).toString();
+  const { blob, headers } = await apiGetBlob(`/dashboard.csv?${qs}`);
+  const filename =
+    headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ||
+    `dashboard-${params.range}-${params.segment}-${params.team}.csv`;
+  return { blob, filename };
+}
+
+export async function emailDashboardExport(params: DashboardParams): Promise<ExportJob> {
+  return apiPost<ExportJob>("/export-jobs", { kind: "dashboard", ...params, format: "csv" });
+}
+
+export function useEmailDashboardExport() {
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: emailDashboardExport,
   });
 }

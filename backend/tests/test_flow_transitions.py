@@ -172,3 +172,30 @@ def test_a_handoff_is_an_exit_and_an_ending_step_is_not_stuck() -> None:
     # Without a handoff to make, the route node is where the thread stops.
     _reachable, stuck = walker.text_reachable(granted=granted, handoffs=False)
     assert stuck == ["state_position"]
+
+
+def test_text_skips_voice_identity_when_the_customer_is_bound() -> None:
+    import bot_runtime
+
+    walker = _walker(
+        [
+            _node("verify_identity", tools=["verify_identity"], start=True),
+            _node("discover_intent", tools=["capture_call_goal"]),
+            _node("state_position"),
+        ]
+    )
+    bot_runtime._skip_voice_identity_on_text(walker, {"customer_id": "CU-1"})
+    assert walker.current.key == "discover_intent"
+
+
+def test_text_keeps_voice_identity_when_unbound() -> None:
+    import bot_runtime
+
+    walker = _walker(
+        [
+            _node("verify_identity", tools=["verify_identity"], start=True),
+            _node("discover_intent"),
+        ]
+    )
+    bot_runtime._skip_voice_identity_on_text(walker, {"customer_id": None})
+    assert walker.current.key == "verify_identity"

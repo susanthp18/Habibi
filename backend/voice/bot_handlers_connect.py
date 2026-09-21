@@ -72,6 +72,11 @@ async def _bind_crm_session(
             transport=transport_name,
             provider_call_id=provider_call_id,
             customer_id=mission_customer,
+            # The account the dial was reserved and briefed for. Left to
+            # resolve on its own, the session picked the customer's first
+            # account, and a campaign that targeted their most overdue one
+            # ran its tools against a different ledger than it briefed on.
+            account_id=(session.extra.get("mission") or {}).get("accountId"),
             direction=direction,
             bot_id=bot_id,
         )

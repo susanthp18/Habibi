@@ -31,28 +31,25 @@ from voice.turn_probe import SpokeThisResponseProbe
 
 
 def test_transport_params_send_no_silence_after_endframe():
-    import inspect
-
     from pipecat.evals.transport import EvalTransportParams
     from pipecat.transports.base_transport import TransportParams
     from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 
-    from voice import asterisk_ws, bot
+    from voice.asterisk_ws import asterisk_transport_params
+    from voice.bot import transport_params
 
-    eval_p = EvalTransportParams(
-        audio_in_enabled=True, audio_out_enabled=True, audio_out_end_silence_secs=0
-    )
-    twilio_p = FastAPIWebsocketParams(
-        audio_in_enabled=True, audio_out_enabled=True, audio_out_end_silence_secs=0
-    )
-    webrtc_p = TransportParams(
-        audio_in_enabled=True, audio_out_enabled=True, audio_out_end_silence_secs=0
-    )
+    ctors = transport_params()
+    eval_p = ctors["eval"]()
+    twilio_p = ctors["twilio"]()
+    webrtc_p = ctors["webrtc"]()
+    assert isinstance(eval_p, EvalTransportParams)
+    assert isinstance(twilio_p, FastAPIWebsocketParams)
+    assert isinstance(webrtc_p, TransportParams)
     assert eval_p.audio_out_end_silence_secs == 0
     assert twilio_p.audio_out_end_silence_secs == 0
     assert webrtc_p.audio_out_end_silence_secs == 0
-    assert "audio_out_end_silence_secs=0" in inspect.getsource(bot._bot_session)
-    assert "audio_out_end_silence_secs=0" in inspect.getsource(asterisk_ws.build_asterisk_transport)
+    asterisk_p = asterisk_transport_params(SimpleNamespace(optimal_frame_size=640))
+    assert asterisk_p.audio_out_end_silence_secs == 0
 
 
 # --------------------------------------------------------------- cluster 2 STT pre-open

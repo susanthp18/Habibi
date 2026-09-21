@@ -76,7 +76,7 @@ function PoolBlock({ pool }: { pool: NumberPool }) {
               <th className="px-150 py-100 text-left font-semibold">Number</th>
               <th className="px-150 py-100 text-left font-semibold">State</th>
               <th className="px-150 py-100 text-right font-semibold">Dials · 7d</th>
-              <th className="px-150 py-100 text-right font-semibold">Answered · 7d</th>
+              <th className="px-150 py-100 text-right font-semibold">Answer rate · 7d</th>
               <th className="px-150 py-100 text-right font-semibold">State changed</th>
               <th className="px-150 py-100 text-right font-semibold">Last used</th>
             </tr>

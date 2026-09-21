@@ -68,6 +68,7 @@ _SELF_SCOPED_PUBLIC = frozenset(
         ("GET", "/me"),
         ("GET", "/me/presence"),
         ("PATCH", "/me/presence"),
+        ("POST", "/access-requests"),
     }
 )
 # ApiKeyMiddleware special-cases POST /a2a before the prefix list.
@@ -611,7 +612,12 @@ def test_no_read_route_requires_a_write_permission() -> None:
     """The general form of the bug above."""
     # Listing operators is an admin action. There is no perm-admin-read, so
     # the same grant that may change people is the one that may see them.
-    admin_gets = {("GET", "/users"), ("GET", "/roles"), ("GET", "/invites")}
+    admin_gets = {
+        ("GET", "/users"),
+        ("GET", "/roles"),
+        ("GET", "/invites"),
+        ("GET", "/access-requests"),
+    }
     offenders = [
         (method, path)
         for (method, path), permission in authz.ROUTE_PERMISSIONS.items()
@@ -626,6 +632,7 @@ def test_no_read_route_requires_a_write_permission() -> None:
     assert authz.ROUTE_PERMISSIONS[("GET", "/users")] == authz.ADMIN_WRITE
     assert authz.ROUTE_PERMISSIONS[("GET", "/roles")] == authz.ADMIN_WRITE
     assert authz.ROUTE_PERMISSIONS[("GET", "/invites")] == authz.ADMIN_WRITE
+    assert authz.ROUTE_PERMISSIONS[("GET", "/access-requests")] == authz.ADMIN_WRITE
 
 
 def test_deployment_rollback_requires_agent_publish() -> None:

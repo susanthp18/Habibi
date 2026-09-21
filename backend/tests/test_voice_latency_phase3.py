@@ -147,15 +147,19 @@ def test_mission_io_starts_during_resolve_and_load_mission_does_not_reload(monke
 
 def test_initialize_does_not_await_resolve_known_customer() -> None:
     """The existence check used to sit in front of FlowManager.initialize."""
-    from tests.voice_tools_source import handlers_source
+    from voice.bot_handlers_connect import _bind_crm_session, build
 
-    src = handlers_source()
-    start = src.index("async def on_client_connected")
-    init = src.index("await flow_manager.initialize", start)
-    connect = src[start:init]
-    assert "resolve_known_customer" not in connect
-    bind = src[src.index("async def _bind_crm_session(") : start]
-    assert "resolve_known_customer" in bind
+    assert "resolve_known_customer" in _bind_crm_session.__code__.co_names
+    nested = [
+        c
+        for c in build.__code__.co_consts
+        if hasattr(c, "co_name") and c.co_name == "on_client_connected"
+    ]
+    assert nested, "on_client_connected is not nested in build"
+    names = set(nested[0].co_names)
+    assert "create_task" in names
+    assert "initialize" in names
+    assert "resolve_known_customer" not in names
 
 
 # --------------------------------------------------------------- 3.3 TTS interlock

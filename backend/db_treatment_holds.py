@@ -17,9 +17,11 @@ from db_core import (
     _assert_tenant_owns,
     _assert_tenant_owns_customer,
     _id,
+    _idempotent_response,
     _one,
     _rows,
     _sql,
+    _store_idempotent_response,
     _tenant,
     _vis_params,
     clamp_list_limit,
@@ -451,6 +453,151 @@ def list_treatment_cases(
         }
         for r in rows
     ]
+
+
+_OPS_ACTIONS = {
+    "mandates": "represent_mandate",
+    "field": "field_visit",
+    "legal": "legal_notice",
+}
+
+
+def list_treatment_ops(
+    *,
+    kind: str,
+    customer_id: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[dict[str, Any]]:
+    """Operator queues for mandate presentment, field dispatch, and legal notice."""
+    action = _OPS_ACTIONS.get(kind)
+    if action is None:
+        raise ValueError("unknown_ops_kind")
+    engine = _db().engine
+    page, skip = clamp_list_limit(limit), clamp_offset(offset)
+    where = ["c.tenant_id = :tenant_id", "td.chosen_action = :action"]
+    params: dict[str, Any] = {
+        "tenant_id": _tenant(),
+        "action": action,
+        "limit": page,
+        "offset": skip,
+        **_vis_params(),
+    }
+    if customer_id:
+        where.append("td.customer_id = :customer_id")
+        params["customer_id"] = customer_id
+    # Cancelled clerk deferrals are noise; enacted rows stay so the queue can
+    # show "already carried out" after a confirm.
+    where.append("(td.outcome IS NULL OR td.enacted IS TRUE)")
+    clause = " AND ".join(where)
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                _sql(
+                    f"""
+                    SELECT td.id AS decision_id, td.customer_id, c.name AS customer_name,
+                           td.account_id, td.chosen_action, td.expected_value,
+                           td.scheduled_at, td.mode, td.enacted, td.enacted_ref,
+                           td.rationale, mp.id AS presentation_id, mp.status AS presentation_status
+                    FROM treatment_decisions td
+                    JOIN customers c ON c.id = td.customer_id
+                     /*VISIBILITY*/
+                    LEFT JOIN LATERAL (
+                      SELECT p.id, p.status
+                      FROM mandate_presentations p
+                      WHERE p.decision_id = td.id
+                      ORDER BY p.created_at DESC
+                      LIMIT 1
+                    ) mp ON true
+                    WHERE {clause}
+                    ORDER BY td.enacted ASC, td.scheduled_at DESC NULLS LAST, td.id
+                    LIMIT :limit OFFSET :offset
+                    """
+                ),
+                params,
+            )
+        )
+    return [
+        {
+            "decisionId": r["decision_id"],
+            "customerId": r["customer_id"],
+            "customerName": r["customer_name"],
+            "accountId": r["account_id"],
+            "action": r["chosen_action"],
+            "expectedValueInr": float(r["expected_value"]) if r["expected_value"] is not None else None,
+            "scheduledAt": r["scheduled_at"],
+            "mode": r["mode"],
+            "enacted": bool(r["enacted"]),
+            "enactedRef": r["enacted_ref"],
+            "rationale": r["rationale"],
+            "presentationId": r["presentation_id"],
+            "presentationStatus": r["presentation_status"],
+        }
+        for r in rows
+    ]
+
+
+def _enact_http_result(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("acted"):
+        return result
+    raise ValueError(str(result.get("note") or "enact_refused"))
+
+
+def enact_treatment_decision(
+    decision_id: str,
+    payload: dict[str, Any] | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Supervisor confirm-and-enact. Same executor as the clerk, enacted_by=human."""
+    from agent_core.treatment import enact as treatment_enact
+
+    body = payload or {}
+    endpoint = f"POST /treatment/decisions/{decision_id}/enact"
+    engine = _db().engine
+    with engine.begin() as conn:
+        cached = _idempotent_response(conn, idempotency_key, endpoint)
+        if cached:
+            return _enact_http_result(cached)
+        row = conn.execute(
+            text(
+                """
+                SELECT td.*
+                FROM treatment_decisions td
+                JOIN customers c ON c.id = td.customer_id
+                WHERE td.id = :id AND c.tenant_id = :tenant_id
+                FOR NO KEY UPDATE OF td
+                """
+            ),
+            {"id": decision_id, "tenant_id": _tenant()},
+        ).mappings().first()
+        if row is None:
+            raise KeyError("decision_not_found")
+        decision = dict(row)
+        ops = {
+            key: body[key]
+            for key in ("agency", "scheduledDate", "servedAt", "method")
+            if body.get(key)
+        }
+        decision["_ops"] = ops
+        acted, note = treatment_enact.enact_one(conn, decision, enacted_by="human")
+        enacted_ref = decision.get("enacted_ref")
+        if acted:
+            fresh = conn.execute(
+                text("SELECT enacted_ref FROM treatment_decisions WHERE id = :id"),
+                {"id": decision_id},
+            ).mappings().first()
+            if fresh:
+                enacted_ref = fresh.get("enacted_ref")
+        elif str(note).startswith("already_enacted:"):
+            enacted_ref = str(note).split(":", 1)[1] or enacted_ref
+        result = {
+            "decisionId": decision_id,
+            "acted": acted,
+            "note": note,
+            "enactedRef": enacted_ref,
+        }
+        _store_idempotent_response(conn, idempotency_key, endpoint, result)
+        return _enact_http_result(result)
 
 
 def treatment_insights(days: int = 14) -> dict[str, Any]:

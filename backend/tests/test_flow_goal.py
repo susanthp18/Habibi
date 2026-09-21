@@ -165,6 +165,21 @@ def test_capture_call_goal_refuses_a_question_about_the_call_itself() -> None:
     assert node is None
 
 
+def test_asking_for_a_person_sends_the_model_to_escalation() -> None:
+    """On an Asterisk test call "I want to speak to a human agent" was refused as
+    meta; the model asked the caller why they rang and then fell silent."""
+    session, _state, tools, _initial = _flow()
+    handler = tools["capture_call_goal"].handler
+
+    result, node = asyncio.run(handler({"goal_summary": "speak to a human agent"}, None))
+
+    assert result["ok"] is False
+    assert result["reason"] == "wants_a_human"
+    assert "escalate_to_human" in result["say"]
+    assert session.call_goal is None
+    assert node is None
+
+
 def test_capture_call_goal_refuses_an_empty_goal() -> None:
     """The model must not be able to advance the call by inventing a reason."""
     session, _state, tools, _initial = _flow()

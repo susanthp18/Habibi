@@ -54,12 +54,19 @@ export function entityTypeFromSlaLabel(label: string): WorkItemEntityType | null
   return null;
 }
 
-export type DeepLinkSearch = { id?: string; new?: boolean };
+export type DeepLinkSearch = { id?: string; new?: boolean; customerId?: string; plan?: boolean };
 
 export function parseDeepLinkSearch(search: Record<string, unknown>): DeepLinkSearch {
   const id = typeof search.id === "string" && search.id.length > 0 ? search.id : undefined;
   const rawNew = search.new;
   const isNew =
     rawNew === true || rawNew === "1" || rawNew === "true" || rawNew === 1 ? true : undefined;
-  return { id, new: isNew };
+  const customerId =
+    typeof search.customerId === "string" && search.customerId.length > 0
+      ? search.customerId
+      : undefined;
+  const rawPlan = search.plan;
+  const isPlan =
+    rawPlan === true || rawPlan === "1" || rawPlan === "true" || rawPlan === 1 ? true : undefined;
+  return { id, new: isNew, customerId, plan: isPlan };
 }

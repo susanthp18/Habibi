@@ -13,6 +13,8 @@ interface Props {
   onPlayPause: () => void;
   onSpeedChange: (s: number) => void;
   seedForBars: string;
+  /** Object URL for the real WAV. When set, playback is driven by <audio>. */
+  src?: string | null;
 }
 
 const SPEEDS = [1, 1.5, 2];
@@ -26,10 +28,11 @@ export function AudioPlayer({
   onPlayPause,
   onSpeedChange,
   seedForBars,
+  src,
 }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Deterministic waveform bars from a seed
   const bars = useMemo(() => {
     let h = 2166136261;
     for (let i = 0; i < seedForBars.length; i++) {
@@ -48,7 +51,7 @@ export function AudioPlayer({
     return out;
   }, [seedForBars]);
 
-  const pct = Math.max(0, Math.min(1, currentTime / duration));
+  const pct = Math.max(0, Math.min(1, currentTime / Math.max(duration, 0.001)));
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!barRef.current) return;
@@ -60,9 +63,6 @@ export function AudioPlayer({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
-      // A window-level Space toggled playback while the operator typed a
-      // space into any field on the page. Only when focus is on the body or
-      // inside the player.
       const target = e.target as HTMLElement | null;
       const inField = Boolean(
         target?.closest("input, textarea, select, [contenteditable=true], button, [role=button]"),
@@ -75,8 +75,38 @@ export function AudioPlayer({
     return () => window.removeEventListener("keydown", handler);
   }, [onPlayPause]);
 
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !src) return;
+    el.playbackRate = speed;
+    if (playing) {
+      void el.play().catch(() => undefined);
+    } else {
+      el.pause();
+    }
+  }, [playing, speed, src]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el || !src) return;
+    if (Math.abs(el.currentTime - currentTime) > 0.4) {
+      el.currentTime = currentTime;
+    }
+  }, [currentTime, src]);
+
   return (
     <div className="rounded-medium border border-border bg-surface p-150">
+      {src ? (
+        <audio
+          ref={audioRef}
+          src={src}
+          className="sr-only"
+          onTimeUpdate={(e) => onSeek(e.currentTarget.currentTime)}
+          onEnded={() => {
+            if (playing) onPlayPause();
+          }}
+        />
+      ) : null}
       <div className="flex items-center gap-100">
         <Button
           variant="outline"

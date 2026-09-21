@@ -1,0 +1,23 @@
+# Superset of agent_core.understanding._TOOL_SCHEMA. Harness-only; not imported by the runtime.
+# Key order is canonical so GBNF stays deterministic. llama-cli --json-schema-file is preferred.
+
+ws ::= [ \t\n]*
+root ::= "{" ws members ws "}"
+members ::= intent-kv "," ws sentiment-kv "," ws abuse-kv "," ws legal-kv "," ws unresolved-kv "," ws language-kv ("," ws confidence-kv)? ("," ws gloss-kv)?
+
+intent-kv ::= "\"intent\"" ws ":" ws intent
+intent ::= "\"balance_query\"" | "\"correction\"" | "\"dispute\"" | "\"escalation\"" | "\"greeting\"" | "\"hardship\"" | "\"help_capabilities\"" | "\"out_of_scope\"" | "\"payment_intent\"" | "\"product_faq\"" | "\"upsell_opportunity\"" | "\"waiver_request\""
+
+sentiment-kv ::= "\"sentiment\"" ws ":" ws number
+abuse-kv ::= "\"abuse\"" ws ":" ws boolean
+legal-kv ::= "\"legal\"" ws ":" ws boolean
+unresolved-kv ::= "\"unresolved_repeat\"" ws ":" ws boolean
+language-kv ::= "\"language\"" ws ":" ws language
+language ::= "\"en\"" | "\"hi\"" | "\"hinglish\"" | "\"other\""
+confidence-kv ::= "\"confidence\"" ws ":" ws number
+gloss-kv ::= "\"english_gloss\"" ws ":" ws string
+
+boolean ::= "true" | "false"
+number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)?
+string ::= "\"" string-char* "\""
+string-char ::= [^"\\\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])

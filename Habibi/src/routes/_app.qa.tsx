@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ClipboardCheck, Scale, SlidersHorizontal } from "lucide-react";
@@ -35,14 +35,15 @@ import type {
   CoachingStatus,
   Rubric,
 } from "@/api/types/qa";
-import { agentStats } from "@/lib/qa";
+import { agentStats, matchQaAgent } from "@/lib/qa";
 import { QueryState } from "@/components/ui/query-state";
 
 type Tab = "queue" | "trends" | "calibration" | "disagreements" | "coaching";
 
 export const Route = createFileRoute("/_app/qa")({
-  validateSearch: (search: Record<string, unknown>): { callId?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { callId?: string; agent?: string } => ({
     callId: typeof search.callId === "string" ? search.callId : undefined,
+    agent: typeof search.agent === "string" && search.agent.length > 0 ? search.agent : undefined,
   }),
   head: () => ({
     meta: [
@@ -73,7 +74,7 @@ function QaPage() {
 }
 
 function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
-  const { callId } = Route.useSearch();
+  const { callId, agent } = Route.useSearch();
   const {
     data: remoteScorecards,
     isPending: scorecardsPending,
@@ -141,6 +142,17 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
     () => stats.find((s) => s.agentId === (activeAgent ?? stats[0]?.agentId)) ?? null,
     [stats, activeAgent],
   );
+
+  const appliedAgent = useRef<string | null>(null);
+  useEffect(() => {
+    if (!agent) return;
+    if (appliedAgent.current !== agent) {
+      setTab("trends");
+      appliedAgent.current = agent;
+    }
+    const hit = matchQaAgent(stats, agent);
+    if (hit) setActiveAgent(hit.agentId);
+  }, [agent, stats]);
 
   const updateEntries = (id: string, entries: ScorecardEntry[]) => {
     setDraftEntries((prev) => ({ ...prev, [id]: entries }));

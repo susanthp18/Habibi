@@ -296,3 +296,41 @@ def extract_wamid(send_response: dict[str, Any]) -> str | None:
     if not messages:
         return None
     return messages[0].get("id")
+
+
+def mark_read_with_typing(*, message_id: str) -> None:
+    """Mark an inbound WhatsApp as read and show a typing indicator (~25s).
+
+    Best-effort: a missing wamid or a Graph error must not fail the turn.
+    """
+    wamid = (message_id or "").strip()
+    if not wamid:
+        return
+    cfg = config()
+    token = cfg["token"]
+    phone_number_id = cfg["phone_number_id"]
+    version = cfg["api_version"] or "v25.0"
+    if not token or not phone_number_id:
+        return
+    url = f"https://graph.facebook.com/{version}/{phone_number_id}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": wamid,
+        "typing_indicator": {"type": "text"},
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    from agent_core.carrier_guard import refuse_real_carrier
+
+    refuse_real_carrier("whatsapp.meta")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        resp.read()

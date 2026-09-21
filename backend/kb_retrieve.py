@@ -13,6 +13,7 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from sqlalchemy import text
@@ -106,9 +107,32 @@ atexit.register(flush_chunk_hits)
 # hit counters above are.
 _LOG_FLUSH_INTERVAL_S = 5.0
 _LOG_FLUSH_MAX_ROWS = 100
+#: Hard ceiling on the buffer. The flush is off-thread now, so a dead database
+#: no longer blocks the caller -- it backs rows up here instead. These are
+#: analytics: drop the oldest rather than grow without bound inside the process
+#: that is also carrying live audio.
+_LOG_BUFFER_MAX_ROWS = 5000
 _log_buffer: list[dict[str, Any]] = []
 _log_lock = threading.Lock()
 _log_last_flush = 0.0
+_log_flush_pending = False
+
+#: One worker, on purpose. It serialises flushes (two concurrent executemany
+#: batches would race the same table for no gain) and it is deliberately NOT
+#: the default executor: every asyncio.to_thread in this process shares that
+#: one, and an analytics INSERT must never queue in front of a live tool's DB
+#: read.
+_log_flush_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kb-retrieval-log")
+
+
+def _flush_retrieval_logs_off_thread() -> None:
+    """Drain the buffer on the log pool, coalescing concurrent requests."""
+    global _log_flush_pending
+    try:
+        flush_retrieval_logs()
+    finally:
+        with _log_lock:
+            _log_flush_pending = False
 
 
 def _log_buffering_enabled() -> bool:
@@ -156,18 +180,33 @@ def record_retrieval_log(row: dict[str, Any], *, defer: bool = True) -> None:
         except Exception:
             logger.warning("retrieval log write failed id=%s", row.get("id"), exc_info=True)
         return
-    global _log_last_flush
+    global _log_last_flush, _log_flush_pending
     now = time.monotonic()
     with _log_lock:
         _log_buffer.append(row)
+        if len(_log_buffer) > _LOG_BUFFER_MAX_ROWS:
+            dropped = len(_log_buffer) - _LOG_BUFFER_MAX_ROWS
+            del _log_buffer[:dropped]
+            logger.warning("retrieval log buffer full; dropped %d oldest rows", dropped)
         due = (
             len(_log_buffer) >= _LOG_FLUSH_MAX_ROWS
             or (now - _log_last_flush) >= _LOG_FLUSH_INTERVAL_S
         )
-        if not due:
+        if not due or _log_flush_pending:
             return
         _log_last_flush = now
-    flush_retrieval_logs()
+        _log_flush_pending = True
+    # Off this thread. record_retrieval_log runs on the worker thread doing the
+    # KB retrieval, inside the window the turn is waiting on, so draining the
+    # buffer here meant one turn in N paid a synchronous executemany INSERT --
+    # and paid it again through pool contention when the DB was busy.
+    try:
+        _log_flush_pool.submit(_flush_retrieval_logs_off_thread)
+    except RuntimeError:
+        # Interpreter shutdown: the pool is closed. Write it here or lose it.
+        with _log_lock:
+            _log_flush_pending = False
+        flush_retrieval_logs()
 
 
 def flush_retrieval_logs() -> int:

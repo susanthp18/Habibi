@@ -17,6 +17,10 @@ from fastapi import APIRouter
 from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
 from fastapi import HTTPException, Response
 from schemas import (
+    AccessRequestApproveRequest,
+    AccessRequestCreateRequest,
+    AccessRequestWriteResponse,
+    AccessRequestsResponse,
     BotAnalyticsResponse,
     DashboardResponse,
     HealthResponse,
@@ -86,6 +90,18 @@ def metrics():
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all"):
     return db.get_dashboard(range, segment, team)
+
+
+# CSV download by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/dashboard.csv", response_class=Response)
+def export_dashboard_csv(range: str = "30d", segment: str = "all", team: str = "all"):
+    csv_body = db.get_dashboard_csv(range, segment, team)
+    filename = f"dashboard-{range}-{segment}-{team}.csv"
+    return Response(
+        content=csv_body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/bot-analytics", response_model=BotAnalyticsResponse)
 def get_bot_analytics(range: str = "30d", channel: str = "all"):
@@ -160,6 +176,42 @@ def revoke_invite(invite_id: str):
     from api_support import _handle_write
 
     return _handle_write(db_invites.revoke_invite, invite_id)
+
+
+@router.get("/access-requests", response_model=AccessRequestsResponse)
+def list_access_requests():
+    import db_access_requests
+
+    return db_access_requests.list_access_requests()
+
+
+@router.post("/access-requests", response_model=AccessRequestWriteResponse)
+def create_access_request(payload: AccessRequestCreateRequest):
+    import db_access_requests
+    from api_support import _handle_write
+
+    return _handle_write(
+        db_access_requests.create_access_request,
+        payload.pagePath,
+        payload.reason,
+        payload.permission,
+    )
+
+
+@router.post("/access-requests/{request_id}/approve", response_model=AccessRequestWriteResponse)
+def approve_access_request(request_id: str, payload: AccessRequestApproveRequest):
+    import db_access_requests
+    from api_support import _handle_write
+
+    return _handle_write(db_access_requests.approve_access_request, request_id, payload.roleId)
+
+
+@router.post("/access-requests/{request_id}/deny", response_model=AccessRequestWriteResponse)
+def deny_access_request(request_id: str):
+    import db_access_requests
+    from api_support import _handle_write
+
+    return _handle_write(db_access_requests.deny_access_request, request_id)
 
 @router.get("/platform/switches", response_model=PlatformSwitchesResponse)
 def list_platform_switches():

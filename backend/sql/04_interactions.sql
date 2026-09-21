@@ -168,7 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_interaction_disclosures_interaction_id ON interac
 CREATE TABLE IF NOT EXISTS interaction_media (
   id TEXT PRIMARY KEY,
   interaction_id TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('audio','voicemail','transcript_export','redacted_audio','waveform')),
+  kind TEXT NOT NULL CHECK (kind IN ('audio','voicemail','transcript_export','redacted_audio','waveform','sip_audio')),
   storage_ref TEXT NOT NULL,
   duration_sec INTEGER,
   mime_type TEXT NOT NULL,

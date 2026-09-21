@@ -15,7 +15,7 @@ import { EqualizerMark } from "@/components/brand/EqualizerMark";
 import { BigtappMark } from "@/components/brand/BigtappMark";
 import { HomeLink } from "@/components/brand/HomeLink";
 import { BRAND } from "@/lib/brand";
-import { entraConfigured, entraDisplayName, signOut } from "@/lib/sso";
+import { entraDisplayName, signOut } from "@/lib/sso";
 import { useMe } from "@/api/me";
 import { CommandPalette, useCommandPalette } from "@/components/shell/CommandPalette";
 import { NotificationsPopover } from "@/components/shell/NotificationsPopover";
@@ -114,18 +114,14 @@ function AccountMenu() {
           Dark
           {theme === "dark" ? <Check className="ml-auto h-4 w-4" /> : null}
         </DropdownMenuItem>
-        {entraConfigured() ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => void signOut()}
-              className="text-text-danger focus:text-text-danger-bolder"
-            >
-              <LogOut className="h-4 w-4" />
-              Sign out
-            </DropdownMenuItem>
-          </>
-        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => void signOut()}
+          className="text-text-danger focus:text-text-danger-bolder"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -25,6 +25,7 @@ import whatsapp as wa
 from agent_core import lexicon
 from agent_core.compaction import run_up
 from agent_core.deployment import ChannelNotAuthored, load_active_bundle
+from agent_core.intent import NON_GOAL_INTENTS, is_greeting
 from agent_core.prompt import build_system_prompt, default_context
 from agent_core.sentiment import sentiment_label
 from agent_core.understanding import analyze_turn
@@ -73,7 +74,23 @@ def _hard_max_turns() -> int:
     return max(1, env_int("BOT_HARD_MAX_TURNS", 12))
 
 
-def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recording: bool) -> str:
+_ESCALATE_NOTICE = "I'm connecting you to a colleague who can take this from here."
+
+_TEXT_SKIP_IDENTITY = frozenset({"verify_identity", "confirm_identity"})
+
+
+def _thread_already_engaged(history: list[dict[str, Any]]) -> bool:
+    """True when a bot or agent has already replied in this reset window."""
+    return any(h.get("role") == "assistant" for h in history)
+
+
+def _dialog_control_block(
+    *,
+    intent: str,
+    customer_text: str,
+    disclosed_recording: bool,
+    already_engaged: bool = False,
+) -> str:
     """Per-turn dialog rules so stale EMI/PTP history cannot override the latest ask."""
     lines = [
         "## Dialog control (this turn)",
@@ -104,7 +121,20 @@ def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recordin
         lines.append(
             "- Recording disclosure was already given in this session — do not repeat it."
         )
-    if intent == "greeting":
+    closing = _looks_like_closing(customer_text)
+    engaged_ack = already_engaged and not closing and (
+        is_greeting(customer_text) or intent in {"out_of_scope", "smalltalk", "greeting"}
+    )
+    if engaged_ack:
+        # Wins over the greeting menu AND over a remapped product_faq "search
+        # the KB" line — a mid-thread "Hi" is an ack, not a new opener and not
+        # a reason to retrieve policy.
+        lines.append(
+            "- Already in this thread: acknowledge in one short line. "
+            "Do not re-introduce yourself, do not list what you can help with, "
+            "and do not call search_knowledge_base unless the latest message asked a question."
+        )
+    elif intent == "greeting":
         lines.append(
             "- Greeting: reply with a short hello and one line on how you can help "
             "(account dues / PTP, payment guidance, insurance product FAQs, or connect to a human). "
@@ -131,7 +161,7 @@ def _dialog_control_block(*, intent: str, customer_text: str, disclosed_recordin
             "- Product FAQ: use search_knowledge_base and answer the product question. "
             "Do not pivot to EMI/PTP unless they also ask about the loan."
         )
-    if _looks_like_closing(customer_text):
+    if closing:
         # The text-channel equivalent of the voice close probe. ONE question,
         # asked once. W12 removed its offer half: §9.7 forbids a promotional
         # utterance inside a servicing conversation, so the engine is still
@@ -184,6 +214,57 @@ def _looks_like_closing(text: str) -> bool:
     return t in {"thanks", "thank you", "ty", "cool", "great"}
 
 
+def notify_then_escalate(
+    engine: Engine,
+    t: Turn | None = None,
+    *,
+    reason: str,
+    conversation_id: str | None = None,
+    job_id: str | None = None,
+    mark_job: bool = True,
+) -> None:
+    """Send the connecting-you line while status is still bot, then escalate.
+
+    ``escalate_conversation_to_human`` cancels running jobs and flips
+    ``needs_human``, so a send after it would fail the policy gate. Dead-letter
+    callers pass conversation_id/job_id without a Turn.
+    """
+    cid = conversation_id or (t.conversation_id if t is not None else "")
+    jid = job_id or (t.job_id if t is not None else None)
+    if t is not None:
+        t.final_text = _ESCALATE_NOTICE
+        try:
+            bot_turn_write.send_reply(engine, t)
+        except Exception:
+            logger.exception("escalate notice send failed conversation=%s", cid)
+    elif cid and jid:
+        try:
+            bot_turn_write.send_notice(
+                engine, conversation_id=cid, job_id=jid, body=_ESCALATE_NOTICE
+            )
+        except Exception:
+            logger.exception("escalate notice send failed conversation=%s", cid)
+    if cid:
+        db.escalate_conversation_to_human(cid, reason=reason)
+    if t is not None:
+        t.state.update(
+            {
+                "turn_count": t.turn_count,
+                "last_intent": t.session_intent or t.intent,
+                "last_sentiment": sentiment_label(t.sentiment),
+                "escalated": True,
+                "escalate_reason": reason,
+            }
+        )
+        bot_conversation.save_bot_state(engine, t.conversation_id, t.state)
+        if mark_job:
+            with engine.begin() as conn:
+                bot_jobs.mark_succeeded(conn, t.job_id, outbound_message_id=t.msg_id)
+    elif mark_job and jid:
+        with engine.begin() as conn:
+            bot_jobs.mark_succeeded(conn, jid)
+
+
 def _hop_to(
     walker: Any,
     tool_ctx: Any,
@@ -222,6 +303,41 @@ def _hop_to(
         logger.info("text handoff to %s: no entry node %r in the graph", target, entry)
         return
     walker.move_to(node)
+
+
+def _skip_voice_identity_on_text(walker: Any, conv: dict[str, Any]) -> None:
+    """WhatsApp already bound the customer by phone — do not sit on verify_identity."""
+    if walker is None or walker.current is None:
+        return
+    if not conv.get("customer_id"):
+        return
+    from flow_graph import local_key
+
+    key = local_key(walker.current.key)
+    if key not in _TEXT_SKIP_IDENTITY:
+        return
+    target = walker.node("discover_intent") or walker.node("state_position")
+    if target is None:
+        return
+    logger.info("bot_turn: skipped voice identity %s → %s on text", key, target.key)
+    walker.move_to(target)
+
+
+def _inbound_wamid(engine: Engine, message_id: str | None) -> str | None:
+    """Meta wamid on the inbound customer row, if the ingest stored one."""
+    if not message_id:
+        return None
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        row = conn.execute(
+            sql_text("SELECT provider_ref FROM messages WHERE id = :id"),
+            {"id": message_id},
+        ).first()
+    if not row:
+        return None
+    ref = (row[0] or "").strip()
+    return ref or None
 
 
 def _flow_walker(bundle: dict[str, Any], state: dict[str, Any]) -> Any | None:
@@ -293,6 +409,7 @@ def _build_messages(
     prior_summary: str | None = None,
     skill_prefix: str = "",
     active_skill_message: dict[str, str] | None = None,
+    already_engaged: bool = False,
 ) -> list[dict[str, Any]]:
     ctx = default_context(
         {
@@ -362,7 +479,7 @@ def _build_messages(
         "unrelated products.\n"
         f"- Account context in the prompt template is reference data only — do not pitch it "
         f"unless the customer's latest message is about dues, EMI, payment, or PTP.\n"
-        f"\n{_dialog_control_block(intent=intent, customer_text=customer_text, disclosed_recording=disclosed)}\n"
+        f"\n{_dialog_control_block(intent=intent, customer_text=customer_text, disclosed_recording=disclosed, already_engaged=already_engaged)}\n"
     )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
@@ -455,6 +572,8 @@ class Turn:
     intent_scores: dict[str, float] | None = None
     sentiment: float = 0.0
     product_hint: str | None = None
+    already_engaged: bool = False
+    session_intent: str = ""
     # _run_model / _tool_loop
     final_text: str = ""
     flow_walker: Any = None
@@ -575,6 +694,11 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
             bot_jobs.mark_cancelled(conn, job_id, "no_customer_text")
         return None
 
+    try:
+        wa.mark_read_with_typing(message_id=_inbound_wamid(engine, latest_msg_id) or "")
+    except Exception:
+        logger.info("whatsapp typing indicator failed job=%s", job_id, exc_info=True)
+
     state = bot_conversation.bot_state(conv)
 
     # Stale reuse: regenerate unless the reserved body was generated against the
@@ -632,7 +756,7 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
         max_completion_tokens=max_completion_tokens,
     )
     _understand_turn(engine, t)
-    intent, sentiment = t.intent, t.sentiment
+    intent = t.intent
 
     # Hard escalate on abuse / human-request before spending Azure.
     from agent_core.guardrails import evaluate_guardrails
@@ -659,19 +783,7 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
             reason = "Customer requested a human agent"
         else:
             reason = "Guardrail auto-escalate"
-        db.escalate_conversation_to_human(conversation_id, reason=reason)
-        state.update(
-            {
-                "turn_count": turn_count,
-                "last_intent": intent,
-                "last_sentiment": sentiment_label(sentiment),
-                "escalated": True,
-                "escalate_reason": reason,
-            }
-        )
-        bot_conversation.save_bot_state(engine, conversation_id, state)
-        with engine.begin() as conn:
-            bot_jobs.mark_succeeded(conn, job_id)
+        notify_then_escalate(engine, t, reason=reason)
         logger.info("bot_turn early-escalate job=%s reason=%s", job_id, reason)
         return None
 
@@ -688,9 +800,7 @@ def _prepare_turn(engine: Engine, job: dict[str, Any]) -> Turn | None:
         max_turns = _hard_max_turns()
     max_turns = min(max_turns, _hard_max_turns())
     if turn_count > max_turns:
-        db.escalate_conversation_to_human(conversation_id, reason="max_turns_exceeded")
-        with engine.begin() as conn:
-            bot_jobs.mark_cancelled(conn, job_id, "max_turns_exceeded")
+        notify_then_escalate(engine, t, reason="max_turns_exceeded")
         return None
     return t
 
@@ -743,6 +853,7 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
         prior_intent=str(state.get("last_intent") or "") or None,
         channel="text",
         recent=turn_run_up,
+        already_engaged=_thread_already_engaged(full_history),
     )
     intent = understanding.intent
     intent_scores = understanding.intent_scores
@@ -820,6 +931,13 @@ def _understand_turn(engine: Engine, t: Turn) -> None:
     t.intent_scores = intent_scores
     t.sentiment = sentiment
     t.product_hint = product_hint
+    already_engaged = _thread_already_engaged(full_history)
+    t.already_engaged = already_engaged
+    prior_goal = str(state.get("last_intent") or "").strip()
+    if already_engaged and is_greeting(customer_text) and prior_goal and prior_goal not in NON_GOAL_INTENTS:
+        t.session_intent = prior_goal
+    else:
+        t.session_intent = intent
 
 
 def _run_model(engine: Engine, t: Turn) -> bool:
@@ -848,7 +966,10 @@ def _run_model(engine: Engine, t: Turn) -> bool:
     # rather than issuing its own query; the newest `hist_limit * 4` rows
     # are the same rows either way.
     hist_limit = _history_limit()
-    if intent in {"help_capabilities", "greeting", "correction"}:
+    squeeze = intent in {"help_capabilities", "correction"} or (
+        intent == "greeting" and not t.already_engaged
+    )
+    if squeeze:
         hist_limit = min(hist_limit, 6)
     history = full_history[-(hist_limit * 4) :]
     from agent_core.compaction import bound_history
@@ -917,6 +1038,7 @@ def _run_model(engine: Engine, t: Turn) -> bool:
         )
         if passed:
             logger.info("bot_turn: passed through %s on text", ", ".join(passed))
+        _skip_voice_identity_on_text(flow_walker, conv)
     messages = _build_messages(
         bundle=bundle,
         conv=conv,
@@ -926,6 +1048,7 @@ def _run_model(engine: Engine, t: Turn) -> bool:
         prior_summary=summary,
         skill_prefix=skill_prompt.prefix,
         active_skill_message=skill_prompt.body_message,
+        already_engaged=t.already_engaged,
     )
 
     tool_ctx = bot_tools.ToolContext(
@@ -998,12 +1121,8 @@ def _tool_loop(
 
     job_id = t.job_id
     conversation_id = t.conversation_id
-    state = t.state
-    turn_count = t.turn_count
     temperature = t.temperature
     max_completion_tokens = t.max_completion_tokens
-    intent = t.intent
-    sentiment = t.sentiment
     flow_walker = t.flow_walker
     final_text = ""
     _specialist_grants = specialist_grants
@@ -1171,32 +1290,21 @@ def _tool_loop(
                         )
                     )
             if tool_ctx.escalated:
-                with engine.begin() as conn:
-                    bot_jobs.mark_succeeded(conn, job_id)
-                state.update(
-                    {
-                        "turn_count": turn_count,
-                        "last_intent": intent,
-                        "last_sentiment": sentiment_label(sentiment),
-                        "escalated": True,
-                        "escalate_reason": tool_ctx.escalate_reason,
-                    }
+                notify_then_escalate(
+                    engine,
+                    t,
+                    reason=tool_ctx.escalate_reason or "escalated_by_bot",
                 )
-                bot_conversation.save_bot_state(engine, conversation_id, state)
                 logger.info("bot_turn escalated job=%s reason=%s", job_id, tool_ctx.escalate_reason)
                 return False
 
         if tool_failures >= 3:
-            db.escalate_conversation_to_human(conversation_id, reason="repeated_tool_failure")
-            with engine.begin() as conn:
-                bot_jobs.mark_cancelled(conn, job_id, "repeated_tool_failure")
+            notify_then_escalate(engine, t, reason="repeated_tool_failure")
             return False
     else:
         # Hit iteration ceiling without a final text — escalate rather than silence.
         if not final_text:
-            db.escalate_conversation_to_human(conversation_id, reason="tool_loop_exhausted")
-            with engine.begin() as conn:
-                bot_jobs.mark_cancelled(conn, job_id, "tool_loop_exhausted")
+            notify_then_escalate(engine, t, reason="tool_loop_exhausted")
             return False
 
     t.final_text = final_text

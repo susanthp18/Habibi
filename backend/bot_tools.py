@@ -426,7 +426,9 @@ def _tool_set_contact_preference(ctx: ToolContext, args: dict[str, Any]) -> dict
 
 def _tool_escalate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     reason = (args.get("reason") or "escalated_by_bot").strip()
-    db.escalate_conversation_to_human(ctx.conversation_id, reason=reason)
+    # The runtime sends a customer-facing notice first, then escalates.
+    # Calling db here would flip needs_human and cancel the running job,
+    # so the notice could not send.
     ctx.escalated = True
     ctx.escalate_reason = reason
     return {"ok": True, "status": "needs_human", "reason": reason}

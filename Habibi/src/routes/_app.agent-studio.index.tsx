@@ -10,6 +10,7 @@ import {
   entryBindingLabel,
   type AgentCardSummary,
   type EvalReport,
+  type EvalScheduleRun,
 } from "@/api/agent-studio";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
@@ -20,7 +21,12 @@ import { ReasonedAction } from "@/components/ui/reasoned-action";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SelectField } from "@/components/ui/select";
-import { archiveAvailability, groupRoster, sandboxAvailability } from "@/lib/agent-roster";
+import {
+  archiveAvailability,
+  groupRoster,
+  nextCloneName,
+  sandboxAvailability,
+} from "@/lib/agent-roster";
 import { cn } from "@/lib/utils";
 import { ROUTING } from "@/lib/agent-roster";
 import { Bot } from "lucide-react";
@@ -47,11 +53,27 @@ function routing(card: AgentCardSummary) {
   return ROUTING[card.reachability] ?? ROUTING.unreachable;
 }
 
+/** Why the chip says what it says. The words are the server's `eval_readiness`. */
+const EVAL_STATUS_HELP: Record<string, string> = {
+  stale:
+    "Suites passed against a previous save of this card. Re-run regression and redteam on the current draft.",
+  incomplete:
+    "Some required suites passed on this save, but not all of them have run. Publish refuses until every required suite passes.",
+  fail: "A required suite failed on this save. Publish refuses until it passes.",
+  pass: "Every required suite passed on this save.",
+};
+
+/** Says what the continuous suite did. Before, the button just stopped spinning. */
+function announceScheduleRun(run: EvalScheduleRun): void {
+  if (run.ran === 0) toast.info("No suites are scheduled to run");
+  else if (run.failed > 0) toast.warning(`${run.failed} of ${run.ran} suites failed`);
+  else toast.success(`${run.ran} ${run.ran === 1 ? "suite" : "suites"} passed`);
+}
+
 function FleetIndex() {
   const navigate = Route.useNavigate();
   const [showArchived, setShowArchived] = useState(false);
-  const { data, isLoading, isError, error, refetch, isFetching } =
-    useAgentStudioCards(showArchived);
+  const { data, isLoading, isError, error } = useAgentStudioCards(showArchived);
   const templates = useAgentStudioTemplates();
   // One request for the whole fleet's eval history; grouped per card below.
   // Reports with a null botId are tenant-wide suite runs, not this card's.
@@ -96,6 +118,13 @@ function FleetIndex() {
   // cloned a template the user never picked — or 409'd on an unknown id.
   const [templateId, setTemplateId] = useState("");
   const [name, setName] = useState("");
+  // Closing the form forgets it; the seeding effect below refills both on the
+  // next open, so a cancelled half-typed draft does not come back.
+  const closeCloneForm = () => {
+    setOpen(false);
+    setTemplateId("");
+    setName("");
+  };
 
   useEffect(() => {
     const rows = templates.data ?? [];
@@ -129,7 +158,8 @@ function FleetIndex() {
               type="button"
               variant="outline"
               disabled={schedule.isPending}
-              onClick={() => void schedule.mutateAsync()}
+              // Failures toast through the mutation's `errors: "toast"` meta.
+              onClick={() => void schedule.mutateAsync().then(announceScheduleRun, () => {})}
             >
               {schedule.isPending ? "Running…" : "Run continuous suite"}
             </Button>
@@ -172,7 +202,7 @@ function FleetIndex() {
                     .mutateAsync({ templateId, name })
                     .then((row) => {
                       toast.success(`Draft ${row.name} created — compile before publish`);
-                      setOpen(false);
+                      closeCloneForm();
                       void navigate({ to: "/agent-studio/$botId", params: { botId: row.botId } });
                     })
                     .catch((err: Error) => toast.error(err.message));
@@ -185,9 +215,10 @@ function FleetIndex() {
                     className="ml-075 w-[12.5rem]"
                     value={templateId}
                     onChange={(v) => {
+                      const rows = templates.data ?? [];
+                      const label = (id: string) => rows.find((x) => x.id === id)?.label;
+                      setName(nextCloneName(name, label(templateId), label(v)));
                       setTemplateId(v);
-                      const t = (templates.data ?? []).find((x) => x.id === v);
-                      if (t) setName(t.label);
                     }}
                     options={(templates.data ?? []).map((t) => ({ value: t.id, label: t.label }))}
                   />
@@ -204,7 +235,7 @@ function FleetIndex() {
                 <Button type="submit" disabled={clone.isPending || !templateId}>
                   {clone.isPending ? "Creating…" : "Create draft"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                <Button type="button" variant="outline" onClick={closeCloneForm}>
                   Cancel
                 </Button>
               </form>
@@ -216,20 +247,8 @@ function FleetIndex() {
             <LoadingState label="Loading fleet" />
           </div>
         ) : isError ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-100 p-400">
-            <p className="text-body text-text-subtle">Couldn’t load the fleet.</p>
-            <p className="text-body-small text-text-danger">
-              {error instanceof Error ? error.message : "Failed to load cards"}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              loading={isFetching}
-              disabled={isFetching}
-              onClick={() => void refetch()}
-            >
-              Retry
-            </Button>
+          <div className="flex flex-1 items-center justify-center p-400">
+            <QueryErrorBanner label="the fleet" error={error} />
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 content-start gap-200 overflow-y-auto p-400 md:grid-cols-2">
@@ -315,7 +334,7 @@ function FleetIndex() {
                     </div>
                     <p className="mt-150 text-body-small text-text-subtle">{card.purpose}</p>
                     <div className="mt-100 text-body-tiny text-text-subtlest">
-                      {routing(card).help(card.entryBotId)}
+                      {routing(card).help(card)}
                     </div>
                     <div className="mt-150 flex flex-wrap gap-100">
                       {card.channels.map((ch) => (
@@ -340,9 +359,8 @@ function FleetIndex() {
                         <Lozenge
                           tone={gateTone(card.evalStatus)}
                           title={
-                            card.evalStatus === "stale"
-                              ? "Suites passed against a previous save of this card. Re-run regression and redteam on the current draft."
-                              : "Eval suite result. 'skipped' means the suite has not run — not a failure."
+                            EVAL_STATUS_HELP[card.evalStatus] ??
+                            "Eval suite result. 'skipped' means the suite has not run — not a failure."
                           }
                         >
                           evals: {card.evalStatus}

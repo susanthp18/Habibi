@@ -106,6 +106,8 @@ def _seed(conn, body: str) -> dict[str, Any]:
 
 def _rows(conn, job: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
     def alias(value: Any) -> Any:
+        if isinstance(value, str) and value.startswith("wamid.SENT"):
+            return "<wamid.sent>"
         return aliases.get(value, value) if isinstance(value, str) else value
 
     cid = job["conversation_id"]
@@ -197,10 +199,17 @@ def render(monkeypatch: pytest.MonkeyPatch, conn) -> dict[str, Any]:
     # The gate is its own function and not what is being moved; a fresh number
     # has no consent on file and the policy would refuse before the turn ran.
     monkeypatch.setattr(bot_conversation, "policy_gate", lambda _engine, _conv: None)
+    sent = {"n": 0}
+
+    def _send(*, to_phone, body):
+        sent["n"] += 1
+        return {"messages": [{"id": f"wamid.SENT{sent['n']}"}]}
+
+    monkeypatch.setattr(bot_runtime.wa, "send_text_message", _send)
     monkeypatch.setattr(
         bot_runtime.wa,
-        "send_text_message",
-        lambda *, to_phone, body: {"messages": [{"id": "wamid.SENT"}]},
+        "mark_read_with_typing",
+        lambda *, message_id: None,
     )
     out: dict[str, Any] = {}
     for name, body in SCENARIOS.items():

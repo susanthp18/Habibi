@@ -49,6 +49,13 @@ PRESET_EMPATHETIC_COLLECTIONS: dict[str, Any] = {
         "stop_secs": 1.5,
         "pre_speech_ms": 0,
         "max_duration_secs": 8.0,
+        # The aggregator's backstop: the turn ends here if no stop strategy
+        # fired at all. It is a safety net, never a target -- shortening it to
+        # mask a missing end-of-turn signal cuts off genuinely slow speakers.
+        # It lives here so an operator who shortens ``stop_secs`` can also
+        # shorten the ceiling above it; it was hardcoded in bot_pipeline while
+        # every one of its siblings was tunable.
+        "stop_timeout_secs": 5.0,
     },
     "interaction": {
         "barge_in": "on",
@@ -349,6 +356,9 @@ def normalize_tuning(
     turn["stop_secs"] = _clamp_float(turn.get("stop_secs"), 0.5, 10.0, 1.5)
     turn["pre_speech_ms"] = _clamp_float(turn.get("pre_speech_ms"), 0.0, 2000.0, 0.0)
     turn["max_duration_secs"] = _clamp_float(turn.get("max_duration_secs"), 2.0, 30.0, 8.0)
+    # Floor of 2.0: below the Smart Turn stop_secs ceiling the backstop stops
+    # being a backstop and starts truncating callers.
+    turn["stop_timeout_secs"] = _clamp_float(turn.get("stop_timeout_secs"), 2.0, 15.0, 5.0)
 
     ix = t["interaction"]
     barge = str(ix.get("barge_in") or "on").strip().lower()

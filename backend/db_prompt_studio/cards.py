@@ -38,7 +38,13 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import entry_bindings_by_bot, reachability, resolve_entry
+    from agent_core.cards.routing import (
+        entry_bindings_by_bot,
+        entry_card_ids,
+        inbound_sources,
+        reachability,
+        resolve_entry,
+    )
 
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -75,24 +81,29 @@ def list_agent_studio_cards(*, include_archived: bool = False) -> list[dict[str,
     bound = entry_bindings_by_bot()
     # A retired card cannot carry traffic, so its handoffs are not a path: leaving
     # them in made a card look reachable through an agent that no longer answers.
-    routes = reachability(
-        [
+    walk = {
+        "cards": [
             (c["botId"], c.get("publishedCard") or {})
             for c in out
             if not c.get("archivedAt")
         ],
-        entry=entry,
-        entries=bound,
+        "entry": entry,
+        "entries": bound,
         # A card holding its own active deployment is addressable by bot_id, so
         # it seeds the walk too. deploymentStatus is already computed per card.
-        deployed=[c["botId"] for c in out if c.get("deploymentStatus") == "live"],
-    )
+        "deployed": [c["botId"] for c in out if c.get("deploymentStatus") == "live"],
+    }
+    routes = reachability(**walk)
+    sources = inbound_sources(**walk)
+    inbound = entry_card_ids([b for rows in bound.values() for b in rows])
     for card in out:
         card["entryBotId"] = entry
         card["entryBindings"] = bound.get(card["botId"], [])
         card["reachability"] = (
             "archived" if card.get("archivedAt") else routes.get(card["botId"], "unreachable")
         )
+        card["handoffFrom"] = [] if card.get("archivedAt") else sources.get(card["botId"], [])
+        card["takesInbound"] = card["botId"] in inbound
     return out
 
 def _studio_card_versions(bot_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -130,43 +141,50 @@ def _studio_card_versions(bot_id: str) -> tuple[dict[str, Any] | None, dict[str,
         _map_prompt_version(draft) if draft else None,
     )
 
-def _worst_eval_status(bot_id: str, get_latest_eval_report) -> str:
-    red = (get_latest_eval_report(bot_id=bot_id, kind="redteam") or {}).get("status")
-    reg = (get_latest_eval_report(bot_id=bot_id, kind="regression") or {}).get("status")
-    statuses = [str(s) for s in (red, reg) if s]
-    if any(s in {"fail", "error"} for s in statuses):
-        return "fail"
-    if any(s == "pass" for s in statuses):
-        return "pass"
-    return statuses[0] if statuses else "skipped"
+def latest_eval_gate_report(
+    bot_id: str, kind: str, *, version_id: str | None, content_key: str | None
+) -> dict[str, Any] | None:
+    """The report the eval gates read for ``kind``: one run against this
+    content on any row (``cached`` when that row is not ``version_id``), else
+    one filed against ``version_id`` itself.
+
+    Compile preview, publish and the fleet chip all ask this. Each used to hold
+    its own copy, and the chip's copy had dropped the version fallback.
+    """
+    get_latest_eval_report = _db().get_latest_eval_report
+    by_content = get_latest_eval_report(bot_id=bot_id, kind=kind, content_key=content_key)
+    if by_content is not None:
+        if by_content.get("prompt_version_id") != version_id:
+            by_content = {**by_content, "cached": True}
+        return by_content
+    return get_latest_eval_report(bot_id=bot_id, kind=kind, prompt_version_id=version_id)
 
 
-def _eval_status_for_content(
-    bot_id: str,
-    get_latest_eval_report,
-    version: dict[str, Any] | None,
-) -> str:
-    """Pass only when the latest required suites judged *this* mouth.
+def _eval_status_for_content(bot_id: str, version: dict[str, Any] | None) -> str:
+    """Whether G7/G8 would let *this* content ship -- see ``eval_readiness``.
 
-    The fleet chip used to read the newest report for the bot, any content.
-    A green unpublished draft then sat next to a Publish dialog that G-F14
-    correctly refused, because the suites had hashed a previous save.
+    The fleet chip used to read the newest report for the bot, any content,
+    and then said ``pass`` when either suite passed. Both are the publish
+    compiler's questions, so it asks them the compiler's way.
     """
     if not version:
-        return _worst_eval_status(bot_id, get_latest_eval_report)
+        return "skipped"  # nothing authored, nothing a suite could have judged
+    from agent_core.cards.compile import _READINESS_SUITES, eval_readiness
     from agent_core.eval.provenance import content_key_for_version
 
     key = content_key_for_version(version)
-    red = get_latest_eval_report(bot_id=bot_id, kind="redteam", content_key=key)
-    reg = get_latest_eval_report(bot_id=bot_id, kind="regression", content_key=key)
-    statuses = [str((r or {}).get("status")) for r in (red, reg) if r]
-    if any(s in {"fail", "error"} for s in statuses):
-        return "fail"
-    if any(s == "pass" for s in statuses):
-        return "pass"
-    if _worst_eval_status(bot_id, get_latest_eval_report) != "skipped":
-        return "stale"
-    return "skipped"
+    kinds = [kind for _, kind in _READINESS_SUITES]
+    reports = {
+        kind: latest_eval_gate_report(bot_id, kind, version_id=version.get("id"), content_key=key)
+        for kind in kinds
+    }
+    get_latest_eval_report = _db().get_latest_eval_report
+    earlier = {
+        kind
+        for kind in kinds
+        if reports[kind] is None and get_latest_eval_report(bot_id=bot_id, kind=kind)
+    }
+    return eval_readiness(version.get("agentCard"), reports, earlier=earlier)
 
 
 def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
@@ -177,8 +195,6 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
     *,
     versions: tuple[dict[str, Any] | None, dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
-    _mod = _db()
-    get_latest_eval_report = _mod.get_latest_eval_report
     from agent_core.cards.defaults import FIRST_PARTY_BOT_IDS
 
     published, draft = versions if versions is not None else _studio_card_versions(bot_id)
@@ -243,9 +259,7 @@ def _agent_studio_card_summary(  # noqa: PLR0913 - one row of a wide summary
             if isinstance(s, dict) and s.get("skill_id")
         ],
         "toolCount": len(tools.get("include") or []),
-        "evalStatus": _eval_status_for_content(
-            bot_id, get_latest_eval_report, draft or published
-        ),
+        "evalStatus": _eval_status_for_content(bot_id, draft or published),
         # None, not 100: a card with no active deployment takes no traffic, and
         # claiming 100% made every unpublished clone look live on the fleet index.
         "trafficPct": (dep or {}).get("trafficPct") if dep else None,
@@ -340,7 +354,13 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     _tenant = _mod._tenant
     _iso_ts = _mod._iso_ts
     from agent_core.cards.defaults import FIRST_PARTY_BOTS, card_dump
-    from agent_core.cards.routing import entry_bindings_by_bot, reachability, resolve_entry
+    from agent_core.cards.routing import (
+        entry_bindings_by_bot,
+        entry_card_ids,
+        inbound_sources,
+        reachability,
+        resolve_entry,
+    )
 
     bid = (bot_id or "").strip()
     if not bid:
@@ -378,15 +398,19 @@ def get_agent_studio_card(bot_id: str) -> dict[str, Any] | None:
     bound = entry_bindings_by_bot()
     edges = {b: c for b, c in _handoff_edges()}
     edges[bid] = summary["agentCard"]  # unsaved-but-loaded card wins for this one
+    walk = {
+        "cards": list(edges.items()),
+        "entry": entry,
+        "entries": bound,
+        "deployed": _live_deployment_bot_ids(),
+    }
     summary["entryBotId"] = entry
     summary["entryBindings"] = bound.get(bid, [])
     summary["reachability"] = (
-        "archived"
-        if archived_at
-        else reachability(
-            list(edges.items()), entry=entry, entries=bound, deployed=_live_deployment_bot_ids()
-        ).get(bid, "unreachable")
+        "archived" if archived_at else reachability(**walk).get(bid, "unreachable")
     )
+    summary["handoffFrom"] = [] if archived_at else inbound_sources(**walk).get(bid, [])
+    summary["takesInbound"] = bid in entry_card_ids([b for rows in bound.values() for b in rows])
     return summary
 
 def policy_engines() -> list[dict[str, Any]]:

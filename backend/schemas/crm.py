@@ -525,6 +525,22 @@ class CustomerNoteCreateRequest(BaseModel):
     pinned: bool = False
 
 
+class CustomerOutreachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Literal["whatsapp", "sms"]
+    text: str = Field(min_length=1)
+
+
+class CustomerOutreachResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversationId: str
+    messageId: str
+    channel: Literal["whatsapp", "sms"]
+    createdConversation: bool
+
+
 class ContactPolicyBindingEntryResponse(BaseModel):
     """One rule the gate consulted for this decision (policy_binding.pair)."""
 

@@ -418,7 +418,6 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
     _mod = _db()
     _jsonb = _mod._jsonb
     _latest_twin_gate_report = _mod._latest_twin_gate_report
-    get_latest_eval_report = _mod.get_latest_eval_report
     version_id, target, bot_id, card_raw = f.version_id, f.target, f.bot_id, f.card_raw
     known_bots, attached, pct, triggers = f.known_bots, f.attached, f.pct, f.triggers
     candidate_key, cert_ok, has_publish = f.candidate_key, f.cert_ok, f.has_publish
@@ -429,13 +428,10 @@ def _compile(conn: Any, f: _Frozen) -> _Compiled:
     from agent_core.cards.compile import compile_card, assert_publishable as _assert_card
     from agent_core.tools.catalog import CATALOG as _CATALOG
 
+    from db_prompt_studio.cards import latest_eval_gate_report
+
     def _report(kind: str) -> dict[str, Any] | None:
-        by_content = get_latest_eval_report(bot_id=bot_id, kind=kind, content_key=candidate_key)
-        if by_content is not None:
-            if by_content.get("prompt_version_id") != version_id:
-                by_content = {**by_content, "cached": True}
-            return by_content
-        return get_latest_eval_report(bot_id=bot_id, kind=kind, prompt_version_id=version_id)
+        return latest_eval_gate_report(bot_id, kind, version_id=version_id, content_key=candidate_key)
 
     report = compile_card(
         bot_id=bot_id,

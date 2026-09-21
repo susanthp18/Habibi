@@ -16,8 +16,8 @@ from typing import Any
 from loguru import logger
 
 from agent_core import voice_params_from_config
-from voice import config as voice_config
-from voice.llm_pool import KeepAliveAzureLLMService, prewarm_shared_client
+from voice import admission, config as voice_config
+from voice.llm_pool import KeepAliveAzureLLMService, ensure_keep_warm, warm_state
 from voice.recording import attach_recording_handlers
 from voice.spoken_text import SpokenTextFilter
 from voice.turn_probe import SpokeThisResponseProbe
@@ -31,6 +31,7 @@ from voice.tuning_apply import (
     resolve_session_tuning,
     text_aggregation_mode,
     user_idle_timeout,
+    user_turn_stop_timeout,
 )
 
 # Worker-level silence backstop under the aggregator idle ladder.
@@ -51,7 +52,6 @@ def emit_first_token_traces(
     }
     trace("first.tts", **fields)
     trace("first.llm_text", **fields)
-
 
 # In-call context summarisation prompt. Pipecat's default is generic and, in
 # session VS-0D653BF9C3, produced a summary asserting the account was
@@ -143,7 +143,6 @@ async def summarise_context_after_assistant_turn(context) -> None:
             *keep,
         ]
     )
-
 
 
 def _bind_providers(call: Any) -> None:
@@ -347,6 +346,15 @@ def _build_context(call: Any) -> None:
     # record_bot_turn only enqueues, so awaiting it on the pipeline task is
     # safe; the CRM write happens on the sink's own drain.
     def _on_first_tts_text(text: str) -> None:
+        """``first.tts`` fires at the LLM->TTS boundary, not at audio.
+
+        The name has misled every reader of it: the callback runs on the first
+        non-empty TextFrame of the *call*, so it is time-to-first-token measured
+        from setup, before aggregation and before Azure synthesises anything.
+        ``first.speech`` is the audio-side marker, and per-turn latency belongs
+        to ``turn.e2e``. The event keeps its name so existing greps and
+        dashboards keep working; ``stage`` is what disambiguates it on the line.
+        """
         origin = getattr(runner_args, "setup_started_at", None)
         waited = (time.monotonic() - origin) if origin else None
         waited_from = (
@@ -363,7 +371,14 @@ def _build_context(call: Any) -> None:
         on_first_tts=_on_first_tts_text,
     )
 
-    _spawn_bg(prewarm_shared_client())
+    # Starts the idle re-warm loop once per process; it sleeps before its first
+    # ping so this call never competes with its own greeting. The old
+    # _spawn_bg(prewarm_shared_client()) here was a no-op after boot (_prewarmed
+    # latches) except in a process that skipped the boot warmers -- where it
+    # fired a real Azure completion concurrently with the pipeline build and the
+    # greeting, on the same shared client and breaker. Both warmers are now
+    # reachable at startup in every topology, so that case is gone too.
+    _spawn_bg(ensure_keep_warm())
 
     idle_timeout = user_idle_timeout(tuning)
     # Timed separately because these two are the largest measured item in call
@@ -387,7 +402,7 @@ def _build_context(call: Any) -> None:
         # LLM context (seen in logs as assistant content '◐'). Enable via
         # VOICE_FILTER_INCOMPLETE_TURNS=1 after India-EN prompt soak tests.
         "filter_incomplete_user_turns": voice_config.voice_filter_incomplete_turns(),
-        "user_turn_stop_timeout": 5.0,
+        "user_turn_stop_timeout": user_turn_stop_timeout(tuning),
         # A Flows node transition swaps the advertised tool set, and the model
         # otherwise gets no signal that its capabilities changed — it can keep
         # reaching for a tool the previous node had. This appends a developer
@@ -420,7 +435,7 @@ def _build_context(call: Any) -> None:
     user_aggregator = context_aggregator.user()
     assistant_aggregator = context_aggregator.assistant()
     sink.attach_aggregators(user_aggregator, assistant_aggregator)
-    _setup_trace("setup.vad")
+    _setup_trace("setup.vad", **getattr(call, "_analyzer_build_ms", {}))
 
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def _on_assistant_turn_stopped(*_a):
@@ -762,6 +777,14 @@ async def build_pipeline(call) -> None:
         pipeline_stages.append(dtmf_aggregator)
     if voicemail_detector is not None:
         pipeline_stages.append(voicemail_detector.detector())
+    from agent_core.tuning import normalize_tuning
+
+    if "until_first_bot_complete" in normalize_tuning(tuning)["interaction"]["mute"]:
+        # Holds what the caller says over the greeting instead of letting the
+        # mute drop it; see voice/greeting_hold.py.
+        from voice.greeting_hold import GreetingHold
+
+        pipeline_stages.append(GreetingHold())
     pipeline_stages.extend(
         [
             # Must precede the user aggregator: LLMUserAggregator consumes
@@ -901,8 +924,9 @@ async def build_pipeline(call) -> None:
         "enable_usage_metrics": True,
     }
     if is_twilio:
-        pipeline_kwargs["audio_in_sample_rate"] = 8000
-        pipeline_kwargs["audio_out_sample_rate"] = 8000
+        rate = 16000 if getattr(call, "is_asterisk", False) else 8000
+        pipeline_kwargs["audio_in_sample_rate"] = rate
+        pipeline_kwargs["audio_out_sample_rate"] = rate
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(**pipeline_kwargs),

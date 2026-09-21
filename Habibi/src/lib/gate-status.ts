@@ -44,7 +44,10 @@ export const GATE_LABEL: Record<GateStatus, string> = {
  */
 export function gateTone(status: string): LozengeTone {
   if (status === "error") return "danger";
-  if (status === "partial" || status === "stale") return "warning";
+  // `stale` and `incomplete` are the fleet chip's: suites that judged another
+  // save, and required suites only some of which have run. Neither blocks yet;
+  // both mean publish will.
+  if (status === "partial" || status === "stale" || status === "incomplete") return "warning";
   return GATE_TONE[status as GateStatus] ?? "neutral";
 }
 

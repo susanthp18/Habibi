@@ -31,7 +31,10 @@ export function useCreateInvite() {
     meta: { errors: "caller" },
     mutationFn: async (body: { email: string; roleId: string }) =>
       apiPost<OperatorInviteWrite>("/invites", body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["invites"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["invites"] });
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
   });
 }
 

@@ -207,3 +207,33 @@ def test_the_intent_label_no_longer_outranks_the_customer() -> None:
     assert "do not reply with a list of capabilities instead" in block
     # The thread is for resolving what was meant, not for answering old asks.
     assert "REFERS to" in block
+
+
+def test_an_engaged_greeting_does_not_reintroduce() -> None:
+    import bot_runtime
+
+    block = bot_runtime._dialog_control_block(
+        intent="product_faq",
+        customer_text="Hi",
+        disclosed_recording=False,
+        already_engaged=True,
+    )
+    assert "acknowledge in one short line" in block
+    assert "Do not re-introduce yourself" in block
+    assert "do not call search_knowledge_base unless" in block
+    assert "reply with a short hello and one line on how you can help" not in block
+    assert "use search_knowledge_base and answer the product question" not in block
+
+
+def test_an_engaged_ping_does_not_reopen_the_menu() -> None:
+    import bot_runtime
+
+    block = bot_runtime._dialog_control_block(
+        intent="out_of_scope",
+        customer_text="Nothing just tested if you're working lol",
+        disclosed_recording=False,
+        already_engaged=True,
+    )
+    assert "Do not re-introduce yourself" in block
+    assert "do not list what you can help with" in block
+    assert "reply with a short hello and one line on how you can help" not in block

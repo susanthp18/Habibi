@@ -96,9 +96,38 @@ def list_export_jobs(
 
 @router.post("/export-jobs", response_model=ExportJobResponse)
 def create_export_job(payload: ExportJobCreateRequest):
+    import authz
+
+    actor = db._actor_user_id()
+    if payload.kind == "dashboard":
+        if not authz.has_permission(actor, authz.ANALYTICS_READ):
+            raise HTTPException(status_code=403, detail="forbidden")
+    elif not authz.has_permission(actor, authz.COMPLIANCE_WRITE):
+        raise HTTPException(status_code=403, detail="forbidden")
     return _handle_write(db.create_export_job, payload.model_dump(exclude_unset=True))
 
 @router.patch("/export-jobs/{job_id}", response_model=ExportJobResponse)
 def patch_export_job(job_id: str, payload: ExportJobPatchRequest):
     return _handle_write(db.patch_export_job, job_id, payload.model_dump(exclude_unset=True))
+
+
+# Zip download by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/export-jobs/{job_id}/download", response_class=Response)
+def download_export_job(job_id: str):
+    try:
+        payload = db.download_export_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(
+        content=payload["bytes"],
+        media_type=payload.get("mimeType") or "application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{payload["filename"]}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 

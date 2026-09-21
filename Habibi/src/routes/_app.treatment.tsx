@@ -1,6 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+const TABS = ["insights", "models", "cases", "holds", "mandates", "field", "legal"] as const;
+
+export type TreatmentSearch = {
+  tab?: (typeof TABS)[number];
+  customerId?: string;
+};
+
 export const Route = createFileRoute("/_app/treatment")({
+  validateSearch: (search: Record<string, unknown>): TreatmentSearch => {
+    const tab = TABS.find((t) => t === search.tab);
+    const customerId =
+      typeof search.customerId === "string" && search.customerId.length > 0
+        ? search.customerId
+        : undefined;
+    return { tab, customerId };
+  },
   head: () => ({
     meta: [
       { title: "Decision Intelligence — PayInt" },

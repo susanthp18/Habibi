@@ -272,7 +272,7 @@ def test_a_skill_name_with_a_comma_stays_one_allowed_skill(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_eval_report_is_not_readable_across_tenants(db_tx) -> None:
+def test_an_eval_report_is_not_readable_across_tenants(db_tx, api_headers) -> None:
     from fastapi.testclient import TestClient
 
     import main
@@ -299,7 +299,7 @@ def test_an_eval_report_is_not_readable_across_tenants(db_tx) -> None:
             {"t": OTHER, "s": json.dumps({"passed": 9})},
         )
 
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=api_headers) as client:
         resp = client.get("/eval/reports/rep-rival")
 
     assert resp.status_code == 404, resp.text
@@ -528,13 +528,13 @@ def test_a_ledger_entry_carries_its_tenant_by_default(db_tx) -> None:
     )
 
 
-def test_billing_answers_for_the_callers_tenant_only(db_tx) -> None:
+def test_billing_answers_for_the_callers_tenant_only(db_tx, api_headers) -> None:
     from fastapi.testclient import TestClient
 
     import main
 
     _other_tenant(db_tx)
-    with TestClient(main.app) as client:
+    with TestClient(main.app, headers=api_headers) as client:
         resp = client.get("/billing", params={"tenantId": OTHER})
 
     assert resp.status_code == 200, resp.text

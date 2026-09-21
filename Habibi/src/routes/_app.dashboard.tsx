@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { FiltersBar } from "@/components/dashboard/FiltersBar";
 import { HeroKpiCard } from "@/components/dashboard/HeroKpiCard";
@@ -12,8 +12,10 @@ import { AgentLeaderboard } from "@/components/dashboard/AgentLeaderboard";
 import { AtRiskAccounts } from "@/components/dashboard/AtRiskAccounts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorBanner } from "@/components/ui/query-state";
-import { useDashboard } from "@/api/dashboard";
-import type { Range, Segment, TeamFilter } from "@/api/types/dashboard";
+import { useDashboard, useEmailDashboardExport, fetchDashboardCsv } from "@/api/dashboard";
+import { dashboardFilename, dashboardToCsv, triggerCsvDownload } from "@/lib/dashboard-export";
+import { mutationErrorMessage } from "@/lib/mutation-errors";
+import type { LeaderRow, Range, Segment, TeamFilter } from "@/api/types/dashboard";
 
 export const Route = createFileRoute("/_app/dashboard")({
   head: () => ({
@@ -35,15 +37,52 @@ export const Route = createFileRoute("/_app/dashboard")({
 });
 
 function DashboardPage() {
+  const navigate = useNavigate();
   const [range, setRange] = useState<Range>("30d");
   const [segment, setSegment] = useState<Segment>("all");
   const [team, setTeam] = useState<TeamFilter>("all");
 
   const { data, isPending, isError, error } = useDashboard({ range, segment, team });
+  const emailExport = useEmailDashboardExport();
 
-  const handleExport = () => toast.success("Report queued — you'll get an email when it's ready.");
-  const handleAgent = () => toast.info("Opens agent scorecard (QA module) — coming soon.");
-  const handleAccount = () => toast.info("Opens Customer 360 — coming soon.");
+  const handleDownloadCsv = async () => {
+    try {
+      const { blob, filename } = await fetchDashboardCsv({ range, segment, team });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV downloaded");
+    } catch {
+      if (data) {
+        triggerCsvDownload(dashboardToCsv(data), dashboardFilename({ range, segment, team }));
+        toast.success("CSV downloaded");
+        return;
+      }
+      toast.error("Could not download the dashboard CSV");
+    }
+  };
+
+  const handleEmailReport = () => {
+    emailExport.mutate(
+      { range, segment, team },
+      {
+        onSuccess: (job) => {
+          if (job.mailStatus === "smtp_disabled") {
+            toast.success("Report is ready — mail was skipped (SMTP is not configured).");
+            return;
+          }
+          toast.success("Report emailed");
+        },
+        onError: (err) => toast.error(mutationErrorMessage(err)),
+      },
+    );
+  };
+  const handleAgent = (row: LeaderRow) => {
+    void navigate({ to: "/qa", search: { agent: row.name } });
+  };
 
   return (
     <>
@@ -55,7 +94,9 @@ function DashboardPage() {
           onRange={setRange}
           onSegment={setSegment}
           onTeam={setTeam}
-          onExport={handleExport}
+          onDownloadCsv={() => void handleDownloadCsv()}
+          onEmailReport={handleEmailReport}
+          emailPending={emailExport.isPending}
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -112,7 +153,7 @@ function DashboardPage() {
                     />
                   </div>
                   <div className="h-[25rem]">
-                    <AtRiskAccounts accounts={data.atRiskAccounts} onOpen={handleAccount} />
+                    <AtRiskAccounts accounts={data.atRiskAccounts} />
                   </div>
                 </section>
               </>

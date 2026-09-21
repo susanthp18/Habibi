@@ -15,6 +15,8 @@ import { DisputesTab } from "@/components/customer360/DisputesTab";
 import { DocumentsTab } from "@/components/customer360/DocumentsTab";
 import { NotesTab } from "@/components/customer360/NotesTab";
 import { ActionSheets } from "@/components/customer360/ActionSheets";
+import { PlaceCallSheet } from "@/components/customer360/PlaceCallSheet";
+import { OutreachSheet } from "@/components/customer360/OutreachSheet";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { Customer } from "@/api/types/customer360";
 import type { DisputeType } from "@/api/types/disputes";
@@ -25,8 +27,10 @@ import {
   useLogInteraction,
   useAddCustomerNote,
 } from "@/api/customers";
+import { fetchConversations } from "@/api/inbox";
 import { QueryState } from "@/components/ui/query-state";
-import type { NbaActionKind } from "@/api/types/customer-insights";
+import type { NbaItem } from "@/api/types/customer-insights";
+import { nbaDestination } from "@/lib/nba-destinations";
 import { cn } from "@/lib/utils";
 import { useCreatePromise } from "@/api/promises";
 import { ApiError } from "@/api/config";
@@ -95,6 +99,8 @@ function CustomerDetail() {
   });
   const customer: Customer = customerQuery.data ?? initial;
   const [sheet, setSheet] = useState<"ptp" | "dispute" | "statement" | "call" | null>(null);
+  const [placeCallOpen, setPlaceCallOpen] = useState(false);
+  const [outreachOpen, setOutreachOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
 
   const setTab = (t: Tab) => navigate({ search: { tab: t }, replace: true });
@@ -117,25 +123,51 @@ function CustomerDetail() {
   const callMutation = useLogInteraction(customer);
   const noteMutation = useAddCustomerNote(customer.id);
 
-  const onNbaAction = (action: NbaActionKind) => {
-    if (action === "ptp") setSheet("ptp");
-    else if (action === "dispute") setSheet("dispute");
-    else if (action === "review") {
+  const onNbaAction = (item: NbaItem) => {
+    const dest = nbaDestination(item, customer.id);
+    if (dest.kind === "none") return;
+    if (dest.kind === "ptp") setSheet("ptp");
+    else if (dest.kind === "dispute") setSheet("dispute");
+    else if (dest.kind === "review") {
       setTab("disputes");
       setRailOpen(false);
-    } else if (action === "statement") setSheet("statement");
-    else if (action === "call") setSheet("call");
-    else if (action === "offer") {
-      const leadId =
-        insights?.offerPolicy?.leadId ?? insights?.nba.find((i) => i.action === "offer")?.leadId;
-      // `leadId ? {id} : {}` produced `{id: string} | {}`, and the route's
-      // search type is `{id: string | undefined}` — an absent key and an
-      // undefined one are different types even though they serialise the same.
-      // `/upsell` already clears the param this way after it consumes it.
-      // `?? undefined` because the lead id is nullable at source and the search
-      // schema takes `string | undefined`: a null would serialise into the URL.
-      void navigate({ to: "/upsell", search: { id: leadId ?? undefined } });
-    } else toast.info("Opens Callback Manager — coming soon.");
+    } else if (dest.kind === "statement") setSheet("statement");
+    else if (dest.kind === "place_call") setPlaceCallOpen(true);
+    else if (dest.kind === "offer") {
+      void navigate({ to: "/upsell", search: { id: dest.leadId ?? undefined } });
+    } else if (dest.kind === "callbacks") {
+      void navigate({
+        to: "/callbacks",
+        search: { new: true, customerId: dest.customerId },
+      });
+    } else if (dest.kind === "emi") {
+      setTab("emi");
+      setRailOpen(false);
+    } else if (dest.kind === "plan") {
+      void navigate({
+        to: "/promises",
+        search: { plan: true, customerId: dest.customerId },
+      });
+    } else if (dest.kind === "view_decision") {
+      void navigate({
+        to: "/treatment",
+        search: { tab: dest.tab, customerId: dest.customerId },
+      });
+    } else if (dest.kind === "ops") {
+      void navigate({
+        to: "/treatment",
+        search: { tab: dest.tab, customerId: dest.customerId },
+      });
+    } else if (dest.kind === "inbox_or_sheet") {
+      void fetchConversations().then((threads) => {
+        const thread = threads.find((t) => t.customerId === dest.customerId);
+        if (thread) {
+          void navigate({ to: "/inbox", search: { conversationId: thread.id } });
+          return;
+        }
+        setOutreachOpen(true);
+      });
+    }
   };
 
   const handlers = useMemo(
@@ -144,10 +176,11 @@ function CustomerDetail() {
       onRaiseDispute: () => setSheet("dispute"),
       onSendStatement: () => setSheet("statement"),
       onLogCall: () => setSheet("call"),
+      onPlaceCall: () => setPlaceCallOpen(true),
       onNbaAction,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [insights?.offerPolicy?.leadId],
+    [insights?.offerPolicy?.leadId, customer.id],
   );
 
   const addNote = (text: string) => {
@@ -220,7 +253,11 @@ function CustomerDetail() {
 
   const mainPane = (
     <div className="flex h-full min-h-0 flex-col">
-      <CustomerHeader customer={customer} onOpenRail={() => setRailOpen(true)} />
+      <CustomerHeader
+        customer={customer}
+        onOpenRail={() => setRailOpen(true)}
+        onPlaceCall={() => setPlaceCallOpen(true)}
+      />
 
       <div className="flex items-center gap-0 overflow-x-auto border-b border-border bg-surface px-200">
         {TABS.map((t) => {
@@ -309,6 +346,8 @@ function CustomerDetail() {
         onOpenChange={(open) => !open && setSheet(null)}
         onSubmit={submitSheet}
       />
+      <PlaceCallSheet customer={customer} open={placeCallOpen} onOpenChange={setPlaceCallOpen} />
+      <OutreachSheet customer={customer} open={outreachOpen} onOpenChange={setOutreachOpen} />
     </>
   );
 }

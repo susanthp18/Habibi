@@ -23,6 +23,7 @@ import {
   useSetCampaignStatus,
   REASON_LABEL,
   type CampaignSelector,
+  type MissionSummary,
 } from "@/api/outbound";
 import { isAuthoredCard, type AgentCard } from "@/api/agent-card";
 import { useCompilePreview } from "@/api/agent-studio";
@@ -133,9 +134,19 @@ function OutboundGates({ botId, card, flow }: { botId: string; card: AgentCard; 
  *  regardless of which card was open. `tsc --noEmit` was red on it at HEAD and
  *  nothing ran that check.
  */
-function CohortBuilder({ botId, objectives }: { botId: string; objectives: string[] }) {
+function CohortBuilder({
+  botId,
+  objectives,
+}: {
+  botId: string;
+  objectives: Pick<MissionSummary, "key" | "cadence">[];
+}) {
   const [name, setName] = useState("");
-  const [objective, setObjective] = useState(objectives[0] ?? "");
+  const [picked, setObjective] = useState(objectives[0]?.key ?? "");
+  // Derived, not synced: a publish that drops the picked mission refetches the
+  // list under this form, and a stale pick would create a run the API refuses.
+  const mission = objectives.find((o) => o.key === picked) ?? objectives[0];
+  const objective = mission?.key ?? "";
   const [dpdMin, setDpdMin] = useState("1");
   const [dpdMax, setDpdMax] = useState("");
   const [minOutstanding, setMinOutstanding] = useState("");
@@ -225,8 +236,14 @@ function CohortBuilder({ botId, objectives }: { botId: string; objectives: strin
             value={objective}
             onChange={setObjective}
             size="compact"
-            options={objectives.map((o) => ({ value: o, label: o }))}
+            options={objectives.map((o) => ({ value: o.key, label: o.key }))}
           />
+          {mission ? (
+            <p className="text-body-tiny text-text-subtlest">
+              Retries follow this card&rsquo;s <span className="font-mono">{mission.cadence}</span>{" "}
+              ladder.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -410,7 +427,7 @@ export function OutboundTab({
   // Deliberately the *published* card's missions, not the draft's. A campaign
   // run is created against what is live: offering an objective that exists only
   // in an unsaved edit would be offering a button the create endpoint refuses.
-  const objectiveKeys = (config?.objectives ?? []).map((o) => o.key);
+  const objectives = config?.objectives ?? [];
 
   return (
     <div className="space-y-150">
@@ -549,8 +566,8 @@ export function OutboundTab({
             <QueryErrorBanner label="the published missions" error={missions.error} />
           ) : missions.isPending ? (
             <LoadingState label="Loading the published missions" />
-          ) : objectiveKeys.length > 0 ? (
-            <CohortBuilder botId={botId} objectives={objectiveKeys} />
+          ) : objectives.length > 0 ? (
+            <CohortBuilder botId={botId} objectives={objectives} />
           ) : (
             <p className="rounded-medium border border-border px-150 py-100 text-body-small text-text-subtle">
               No published mission on this card — a run is created against what is live, so publish
@@ -594,11 +611,15 @@ export function OutboundTab({
                     {/* Skipped targets (DND, no consent, wrong window) are not
                         done and not pending; folding them into either is how a
                         campaign reads as "3/10" forever, or as finished with
-                        seven borrowers it never reached. */}
+                        seven borrowers it never reached. Parked dials may have
+                        rung and wait for a person, so they are neither either. */}
                     <span className="text-body-tiny tabular-nums text-text-subtle">
-                      {r.done ?? r.targets_done} done
-                      {r.skipped ? ` · ${r.skipped} skipped` : ""}
-                      {r.pending != null ? ` · ${r.pending} pending` : ""} of {r.targets_total} ·{" "}
+                      {r.progress.done} done
+                      {r.progress.skipped ? ` · ${r.progress.skipped} skipped` : ""}
+                      {r.progress.parked ? ` · ${r.progress.parked} parked` : ""}
+                      {r.progress.failed ? ` · ${r.progress.failed} failed` : ""}
+                      {` · ${r.progress.pending + r.progress.dialing} in progress`} of{" "}
+                      {r.progress.total} ·{" "}
                       {r.window_start_hour}:00–{r.window_end_hour}:00 · max {r.max_concurrent} at
                       once
                     </span>

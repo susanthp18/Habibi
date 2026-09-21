@@ -53,6 +53,11 @@
         "request_callback",
         "search_knowledge_base"
       ],
+      "post_actions": [
+        {
+          "type": "end_conversation"
+        }
+      ],
       "pre_actions": [
         {
           "type": "function"

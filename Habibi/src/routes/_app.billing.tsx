@@ -19,6 +19,7 @@ import {
 import type { BudgetRule, Env, Period, Service } from "@/api/types/billing";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 
 export const Route = createFileRoute("/_app/billing")({
   head: () => ({
@@ -44,7 +45,7 @@ function BillingPage() {
   const [env, setEnv] = useState<Env>("production");
   const [drawerService, setDrawerService] = useState<Service | null>(null);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useBilling(period, env);
+  const { data, isLoading, isError, error, isFetching } = useBilling(period, env);
   const { save, remove } = useBudgetRuleMutations();
 
   const services = data?.services ?? [];
@@ -101,18 +102,8 @@ function BillingPage() {
             <LoadingState label="Loading billing data" />
           </div>
         ) : isError && !data ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
-            <p>Couldn’t load billing data.</p>
-            <p className="text-body-small text-text-danger">
-              {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-            <button
-              type="button"
-              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse"
-              onClick={() => void refetch()}
-            >
-              Retry
-            </button>
+          <div className="flex flex-1 items-center justify-center p-400">
+            <QueryErrorBanner label="billing" error={error} />
           </div>
         ) : data ? (
           <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-250 py-200">

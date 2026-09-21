@@ -200,6 +200,39 @@ def test_a_due_ladder_under_a_running_campaign_still_fires(db_tx, monkeypatch) -
     assert [a["state"] for a in _attempts_for(db_tx, case_id)] == ["reserved"]
 
 
+def test_a_retry_dials_about_the_account_its_ladder_opened_for(db_tx, monkeypatch) -> None:
+    """Every rung after the first reserved with no account, so the briefing had
+    no balance in it and the attempt could not be joined to the ledger."""
+    cust = _a_customer(db_tx)
+    account = db_tx.execute(
+        text("SELECT id FROM accounts WHERE customer_id = :c ORDER BY id LIMIT 1"),
+        {"c": cust["id"]},
+    ).scalar()
+    case_id = _only_due_case(db_tx, cust, case_ref="CASE-CAD-ACCOUNT", attempts=1)
+    first = outbound.reserve(
+        db_tx,
+        customer_id=cust["id"],
+        to_phone="919000000001",
+        objective="dpd_reminder",
+        account_id=account,
+    )
+    db_tx.execute(
+        text("UPDATE call_cadence_state SET last_attempt_id = :a WHERE id = :id"),
+        {"a": first["id"], "id": case_id},
+    )
+    # The gate's fallback would find an account too; only the ladder's may.
+    monkeypatch.setattr(dbmod, "_first_account_id", lambda conn, customer_id: None)
+    monkeypatch.setattr(outbound, "place", _Dialler())
+
+    assert cadence.process_one(dbmod.engine) is True
+
+    [placed] = _attempts_for(db_tx, case_id)
+    stored = db_tx.execute(
+        text("SELECT account_id FROM call_attempts WHERE id = :id"), {"id": placed["id"]}
+    ).scalar()
+    assert stored == account
+
+
 # ---------------------------------------------------------------------------
 # A pause holds the ladders the campaign already opened
 # ---------------------------------------------------------------------------

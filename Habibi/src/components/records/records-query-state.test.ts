@@ -17,6 +17,15 @@ function read(rel: string): string {
   return readFileSync(join(srcRoot, rel), "utf8");
 }
 
+describe("QueryErrorBanner names a 403 as no access", () => {
+  it("branches on isForbidden instead of treating it as a failed read", () => {
+    const banner = read("components/ui/query-state.tsx");
+    expect(banner).toContain("isForbidden");
+    expect(banner).toContain("isUnauthorized");
+    expect(banner).toContain("NoAccess");
+  });
+});
+
 describe("RecordsTable error slot", () => {
   const table = read("components/records/RecordsTable.tsx");
 
@@ -79,5 +88,19 @@ describe("compliance surfaces thread the error", () => {
     const table = read("components/promises/PaymentPlansTable.tsx");
     expect(table).toContain('errorLabel="payment plans"');
     expect(table).toContain("isError={isError}");
+  });
+
+  it("assigned queue routes a failed read through QueryErrorBanner", () => {
+    const queue = read("components/workspace/AssignedQueue.tsx");
+    expect(queue).toContain('<QueryErrorBanner label="your queue" error={error} />');
+    expect(queue).not.toContain("Couldn&rsquo;t load your queue.");
+  });
+
+  it("the signed-in shell asks first-login and inactive operators to request access", () => {
+    const shell = read("routes/_app.tsx");
+    expect(shell).toContain("AccessGate");
+    expect(read("components/access/AccessGate.tsx")).toContain("needsAccessRequest");
+    expect(read("components/access/NoAccess.tsx")).toContain("Request access");
+    expect(read("components/access/NoAccess.tsx")).not.toContain("refusedSignIn ? null");
   });
 });

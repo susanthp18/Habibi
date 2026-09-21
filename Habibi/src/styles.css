@@ -1411,13 +1411,23 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
 /*
  * Scrollbars — unlayered so they win over Tailwind preflight / @layer base.
  */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--icon-subtlest) var(--background-brand-subtlest);
+/* Chromium ≥121 drops every ::-webkit-scrollbar rule once scrollbar-width /
+   scrollbar-color are set, leaving the native thin bar with arrow buttons.
+   So the standard props go only to engines without the webkit pseudo-elements. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--icon-subtlest) var(--background-brand-subtlest);
+  }
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+}
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 *::-webkit-scrollbar-track {
   background-color: var(--background-brand-subtlest);

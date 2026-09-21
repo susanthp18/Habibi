@@ -14,6 +14,7 @@ import asyncio
 import logging
 import threading
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -32,9 +33,17 @@ from voice.safety import (
     rolling_sentiment_collapsed,
 )
 from voice.session import VoiceSession
+from voice.tool_state import spawn_session_task
 from voice.usage import VoiceUsageMeter
 
 logger = logging.getLogger(__name__)
+
+_ANALYSIS_THREADS = ThreadPoolExecutor(max_workers=2, thread_name_prefix="voice-analysis")
+
+
+async def _in_analysis_thread(fn, *args):
+    """``asyncio.to_thread`` for analysis work, off the shared default pool."""
+    return await asyncio.get_running_loop().run_in_executor(_ANALYSIS_THREADS, fn, *args)
 
 #: Disposition filed on the minimal interaction row written for a call whose
 #: CRM bind failed at connect. Deliberately not one of
@@ -645,7 +654,7 @@ class CrmSink:
                 elif job.kind == "critique":
                     await self._handle_critique(job)
                 else:
-                    await asyncio.to_thread(self._handle_understanding, job)
+                    await _in_analysis_thread(self._handle_understanding, job)
             except Exception:
                 logger.exception(
                     "turn analysis failed · session=%s · kind=%s",
@@ -665,7 +674,7 @@ class CrmSink:
         if self._corrections_sent >= turn_critic.MAX_CORRECTIONS_PER_CALL:
             return
         p = job.payload
-        correction = await asyncio.to_thread(
+        correction = await _in_analysis_thread(
             lambda: turn_critic.critique_turn(
                 bot_text=str(p.get("bot_text") or ""),
                 user_text=str(p.get("user_text") or ""),
@@ -965,6 +974,11 @@ class CrmSink:
             try:
                 from voice.call_trace import preview as _preview
 
+                # The strategy name says WHICH end-of-turn signal bound this
+                # turn; the Smart Turn fields say what it decided and what
+                # deciding cost. That attribution is what settles whether the 3s
+                # incomplete ceiling is a per-turn cost or a rare tail. Read,
+                # not popped -- turn.e2e owns the clearing.
                 self._trace(
                     "user.turn",
                     n=self._customer_exchanges,
@@ -1010,7 +1024,8 @@ class CrmSink:
                 recent=list(self._recent_turns),
             )
             self._remember_turn("customer", text)
-            self._spawn_live(
+            spawn_session_task(
+                self.session.session_id,
                 self._emit_turn(
                     turnIndex=turn_index,
                     speaker="customer",
@@ -1042,7 +1057,7 @@ class CrmSink:
                     fallback_languages=self._fallback_languages,
                 )
                 if lang and self._on_language is not None:
-                    self._spawn_live(self._on_language(lang))
+                    spawn_session_task(self.session.session_id, self._on_language(lang))
             except Exception:
                 logger.exception("language tripwire failed")
 
@@ -1083,7 +1098,13 @@ class CrmSink:
         ix = self.session.interaction_id
         if ix:
             try:
-                persist.record_handoff(interaction_id=ix, reason=reason)
+                # to_thread: Pipecat awaits on_user_turn_stopped on the
+                # pipeline task, so a bare INSERT here held the caller's
+                # LLMContextFrame for a pool checkout plus a round trip -- on
+                # the turn where someone is already being escalated to a human.
+                await asyncio.to_thread(
+                    persist.record_handoff, interaction_id=ix, reason=reason
+                )
             except Exception:
                 logger.exception("forced escalate handoff persist failed")
         if self._on_force_escalate is not None:
@@ -1091,13 +1112,6 @@ class CrmSink:
                 await self._on_force_escalate(reason, str(pending.get("detail") or ""))
             except Exception:
                 logger.exception("on_force_escalate handler failed")
-
-    def _spawn_live(self, coro: Any) -> None:
-        """Enqueue a live-path coroutine so it cannot stall the aggregator."""
-        try:
-            asyncio.get_running_loop().create_task(coro)
-        except Exception:
-            logger.debug("live spawn failed", exc_info=True)
 
     async def _emit_turn(self, **payload: Any) -> None:
         """Hand one turn's analysis to the live UI. Never raises, never blocks."""
@@ -1339,6 +1353,16 @@ class CrmSink:
         """User-stopped-speaking → bot-started-speaking, the number a caller feels."""
         if ms and ms > 0:
             self._user_bot_latency_ms.append(float(ms))
+
+    @property
+    def last_user_bot_latency_ms(self) -> float | None:
+        """This turn's measurement, for the trace that runs right after it.
+
+        Pipecat emits ``on_latency_measured`` before ``on_latency_breakdown``
+        for the same BotStartedSpeakingFrame, so by the time the trace is
+        assembled this is the current turn and not the previous one.
+        """
+        return self._user_bot_latency_ms[-1] if self._user_bot_latency_ms else None
 
     def record_latency_breakdown(self, breakdown: Any) -> None:
         """Stash Pipecat's per-service LatencyBreakdown for the next bot turn.

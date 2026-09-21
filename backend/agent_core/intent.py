@@ -45,6 +45,8 @@ INTENT_KEYWORDS: dict[str, list[str]] = {
         "call a human",
         "talk to human",
         "speak to human",
+        "speak to a human",
+        "talk to a human",
         "real person",
         "human agent",
         "customer care",
@@ -256,14 +258,23 @@ def resolve_intent(
     text: str,
     *,
     prior_intent: str | None = None,
+    already_engaged: bool = False,
 ) -> tuple[str, dict[str, float]]:
     """Classify intent, carrying forward product FAQ across short follow-ups."""
     intent, scores = classify_intent(text)
+    prior = (prior_intent or "").strip()
+    # A bare "Hi" mid-thread is not a new conversation. Session-break on
+    # greeting would drop a live product/collections goal and the mouth would
+    # re-welcome. First-turn greetings (and post-dialog-reset) still break.
+    if intent == "greeting" and already_engaged:
+        if prior and prior not in NON_GOAL_INTENTS:
+            scores = dict(scores)
+            scores[prior] = max(float(scores.get(prior) or 0.0), 0.85)
+            return prior, scores
+        return intent, scores
     # Session-break intents always win — never inherit product/collections.
     if intent in _SESSION_BREAK_INTENTS:
         return intent, scores
-
-    prior = (prior_intent or "").strip()
     if prior in _PRODUCT_SESSION_INTENTS and is_detail_followup(text):
         # Keep the product thread alive so KB retrieve is not gated off.
         scores = dict(scores)

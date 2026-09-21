@@ -2,6 +2,8 @@ import type { AudioSegment, RedactionRecord, RedactionRules } from "@/api/types/
 import { ENTITY_COLORS } from "@/lib/redaction";
 import { Volume2, VolumeX, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
+import { apiGetBlob } from "@/api/config";
 
 interface Props {
   record: RedactionRecord;
@@ -11,8 +13,24 @@ interface Props {
 
 export function AudioBeepTimeline({ record, rules, onToggleSegment }: Props) {
   const total = record.durationSec || 1;
+  const [src, setSrc] = useState<string | null>(null);
 
-  // Deterministic mock waveform bars
+  useEffect(() => {
+    let revoked = false;
+    let objectUrl: string | null = null;
+    void apiGetBlob(`/interactions/${encodeURIComponent(record.callId)}/recording`)
+      .then(({ blob }) => {
+        if (revoked) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => undefined);
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [record.callId]);
+
   const bars = Array.from({ length: 80 }, (_, i) => {
     const h = 20 + ((i * 37 + record.id.length * 13) % 60);
     return h;
@@ -20,6 +38,7 @@ export function AudioBeepTimeline({ record, rules, onToggleSegment }: Props) {
 
   return (
     <div className="rounded-large border border-border bg-surface-sunken p-150">
+      {src ? <audio src={src} className="mb-100 w-full" controls preload="metadata" /> : null}
       <div className="mb-100 flex items-center justify-between">
         <div className="flex items-center gap-100 text-body-small font-semibold text-text">
           <Play className="h-3.5 w-3.5" />

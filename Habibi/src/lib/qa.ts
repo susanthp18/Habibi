@@ -112,3 +112,16 @@ export function agentStats(
   }
   return out.sort((a, b) => b.avg - a.avg);
 }
+
+export function matchQaAgent<T extends { agentId: string }>(
+  stats: readonly T[],
+  agent: string | undefined | null,
+): T | undefined {
+  const needle = agent?.trim().toLowerCase();
+  if (!needle) return undefined;
+  const slug = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "-");
+  return (
+    stats.find((s) => s.agentId.toLowerCase() === needle) ??
+    stats.find((s) => slug(s.agentId) === slug(needle))
+  );
+}

@@ -8,6 +8,8 @@ and a name bound from ``db_core`` bypasses that proxy.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,7 +18,7 @@ from sqlalchemy import text
 
 import money_inr
 from schemas import DashboardResponse
-from db_core import _dump, _duration, _one, _rows, _short_product, _tenant
+from db_core import MAX_LIST_LIMIT, _dump, _duration, _one, _rows, _short_product, _tenant
 
 
 def _db():
@@ -140,6 +142,7 @@ class DashboardBuild:
     ttft_n: int
     until_cur: str
     until_prior: str
+    list_limit: int = 6
     at_risk: list[dict[str, Any]] = field(default_factory=list)
     leaderboard_rows: list[dict[str, Any]] = field(default_factory=list)
     leads_cur: dict[str, Any] = field(default_factory=dict)
@@ -170,6 +173,7 @@ def _dashboard_reads(st: DashboardBuild) -> None:
     ttft_n = st.ttft_n
     until_cur = st.until_cur
     until_prior = st.until_prior
+    list_limit = st.list_limit
 
     def _ix_window(since: str, until: str) -> str:
         return ix_where.replace(":since", since).replace(":until", until)
@@ -347,9 +351,10 @@ def _dashboard_reads(st: DashboardBuild) -> None:
                     JOIN products p ON p.id = a.product_id
                     WHERE c.risk IN ('critical','high','medium')
                     ORDER BY a.dpd DESC, a.outstanding DESC
-                    LIMIT 6
+                    LIMIT :list_limit
                     """
-                )
+                ),
+                {**params, "list_limit": list_limit},
             )
         )
         # Reps ranked over the same window as everything else, with a real
@@ -381,10 +386,10 @@ def _dashboard_reads(st: DashboardBuild) -> None:
                           AND i.started_at >= {since_cur} AND i.started_at < {until_cur}
                     GROUP BY u.id, u.name, t.name
                     ORDER BY calls DESC, u.name
-                    LIMIT 6
+                    LIMIT :list_limit
                     """
                 ),
-                params,
+                {**params, "list_limit": list_limit},
             )
         )
 
@@ -669,7 +674,76 @@ def _dashboard_shape(st: DashboardBuild) -> dict[str, Any]:
     return _dump(DashboardResponse(**dashboard))
 
 
-def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -> dict[str, Any]:
+def dashboard_to_csv(payload: dict[str, Any]) -> str:
+    """Serialize a dashboard payload to CSV. Widget JSON stays capped; this is the full lists."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["section", "key", "label", "value", "delta"])
+    for row in payload.get("heroKpis") or []:
+        w.writerow(["hero", "", row.get("label") or "", row.get("value") or "", row.get("delta")])
+    for row in payload.get("kpis") or []:
+        w.writerow(
+            ["kpi", row.get("key") or "", row.get("label") or "", row.get("value") or "", row.get("delta")]
+        )
+    w.writerow([])
+    w.writerow(
+        ["section", "id", "name", "account", "outstanding", "daysPastDue", "risk", "lastContact", "product"]
+    )
+    for row in payload.get("atRiskAccounts") or []:
+        w.writerow(
+            [
+                "at_risk",
+                row.get("id") or "",
+                row.get("name") or "",
+                row.get("account") or "",
+                row.get("outstanding"),
+                row.get("daysPastDue"),
+                row.get("risk") or "",
+                row.get("lastContact") or "",
+                row.get("product") or "",
+            ]
+        )
+    w.writerow([])
+    w.writerow(["section", "rank", "name", "team", "calls", "aht", "upsell", "csat"])
+    for row in payload.get("leaderboard") or []:
+        w.writerow(
+            [
+                "leaderboard",
+                row.get("rank"),
+                row.get("name") or "",
+                row.get("team") or "",
+                row.get("calls"),
+                row.get("aht") or "",
+                row.get("upsell"),
+                row.get("csat"),
+            ]
+        )
+    w.writerow([])
+    w.writerow(["section", "date", "voice", "whatsapp", "chat"])
+    for row in payload.get("callVolumeStacked") or []:
+        w.writerow(
+            ["volume", row.get("date") or "", row.get("voice"), row.get("whatsapp"), row.get("chat")]
+        )
+    w.writerow([])
+    w.writerow(["section", "date", "value"])
+    for row in payload.get("recoveryTrend") or []:
+        w.writerow(["recovery", row.get("date") or "", row.get("value")])
+    return buf.getvalue()
+
+
+def get_dashboard_csv(range: str = "30d", segment: str = "all", team: str = "all") -> str:
+    """Uncapped lists for leadership export. Does not change GET /dashboard widget caps."""
+    payload = get_dashboard(range, segment, team, list_limit=MAX_LIST_LIMIT)
+    return dashboard_to_csv(payload)
+
+
+def get_dashboard(
+    range: str = "30d",
+    segment: str = "all",
+    team: str = "all",
+    *,
+    list_limit: int = 6,
+) -> dict[str, Any]:
     engine = _db().engine
     window = _dashboard_window(range, segment, team)
     days = window["days"]
@@ -731,6 +805,7 @@ def get_dashboard(range: str = "30d", segment: str = "all", team: str = "all") -
         ttft_n=ttft_n,
         until_cur=until_cur,
         until_prior=until_prior,
+        list_limit=max(1, min(int(list_limit), MAX_LIST_LIMIT)),
     )
     _dashboard_reads(st)
     return _dashboard_shape(st)

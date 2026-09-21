@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useChangeLog } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,7 @@ export function RecentChanges() {
   // lands. `if (isLoading) return null` used to render nothing, then 317px,
   // and every card jumped up a third of a screen on load.
   const [open, setOpen] = useState(false);
+  const panelId = useId();
   useEffect(() => {
     setOpen(readChangeLogOpen());
   }, []);
@@ -100,6 +101,7 @@ export function RecentChanges() {
           type="button"
           onClick={toggle}
           aria-expanded={open}
+          aria-controls={panelId}
           className="focus-ring flex flex-1 flex-wrap items-center gap-100 px-400 py-150 text-left hover:bg-surface-sunken"
         >
           {open ? (
@@ -146,7 +148,10 @@ export function RecentChanges() {
           nobody goes looking. Requiring a click to find that out is the same
           failure with an extra step. */}
       {open || isError ? (
-        <div className="max-h-[14rem] overflow-y-auto border-t border-border px-400 py-150">
+        <div
+          id={panelId}
+          className="max-h-[14rem] overflow-y-auto border-t border-border px-400 py-150"
+        >
           {isError ? (
             <p className="text-body-small text-text-danger">
               The change log could not be read, so this is not a record of nothing happening — it is

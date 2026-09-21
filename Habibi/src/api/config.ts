@@ -146,6 +146,25 @@ export function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
 }
 
+/** True only for a real 403 from the API — the caller is signed in, but the route is gated. */
+export function isForbidden(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
+/** True only for a real 401 from the API — the token was missing or the account is refused. */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
+/** Permission id from `forbidden:perm-…`, or null when the 403 did not name one. */
+export function forbiddenPermission(error: unknown): string | null {
+  if (!isForbidden(error)) return null;
+  const detail = (error as ApiError).detail;
+  if (!detail.startsWith("forbidden:")) return null;
+  const perm = detail.slice("forbidden:".length).trim();
+  return perm || null;
+}
+
 /**
  * React-Query `retry` for endpoints whose 4xx answers are deterministic.
  *
@@ -253,7 +272,7 @@ export function apiDelete<T = void>(path: string, init?: ApiInit<T>): Promise<T>
 export async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: await authHeaders({
-      Accept: "application/zip, application/octet-stream, application/json",
+      Accept: "application/zip, application/octet-stream, text/csv, application/json",
     }),
     credentials: "include",
     signal: withTimeout(60_000),

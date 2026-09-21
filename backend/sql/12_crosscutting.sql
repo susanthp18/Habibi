@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS voice_sessions (
   interaction_id  TEXT NOT NULL REFERENCES interactions(id) ON DELETE CASCADE,
   deployment_id   TEXT REFERENCES bot_deployments(id),
   transport       TEXT NOT NULL
-    CHECK (transport IN ('smallwebrtc','twilio','daily')),
+    CHECK (transport IN ('smallwebrtc','twilio','daily','asterisk')),
   provider_call_id TEXT,
   worker_host     TEXT,
   status          TEXT NOT NULL

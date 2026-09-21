@@ -43,7 +43,7 @@ export function PersonSheet({
     if (next === "inactive") {
       const ok = await confirm({
         title: "Deactivate this operator?",
-        description: `${user.name} will not be able to sign in until you activate them again. The last Admin cannot be deactivated.`,
+        description: `${user.name} keeps a directory row with no grants. Send a new invite from Settings to restore a role and email them. The last Admin cannot be deactivated.`,
         confirmLabel: "Deactivate",
         cancelLabel: "Keep active",
       });

@@ -10,6 +10,7 @@ handler body below is byte-for-byte what it was -- a move, pinned by
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from typing import Any
 
@@ -110,12 +111,39 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
         Call this immediately after stating that the call is being recorded.
         """
+        # Joining the CRM bind, not re-serialising it.
+        #
+        # The bind used to sit in front of the greeting and cost 5.92s of
+        # silence; it was moved beside it, and it is genuinely concurrent with
+        # the greeting's LLM turn and TTS. By the time the model emits this tool
+        # call, the bind has had all of that to finish, so the residual wait is
+        # usually zero -- and it cannot simply be dropped, because the
+        # compliance record this tool writes is keyed on the interaction_id the
+        # bind produces. Timing out would trade an audible pause for a missing
+        # disclosure record, which is the wrong way round.
+        #
+        # So: measure it. If `bind_wait_ms` turns out to be non-trivial in
+        # production, the fix is to start the bind earlier, not to abandon it.
         bind_task = (session.extra or {}).get("_crm_bind_task")
         if not session.interaction_id and bind_task is not None:
+            waited_t0 = time.monotonic()
             try:
                 await bind_task
             except Exception:
                 logger.exception("crm bind failed before disclosure")
+            waited_ms = (time.monotonic() - waited_t0) * 1000.0
+            if waited_ms >= 100:
+                try:
+                    from voice.call_trace import event as _trace_event
+                    from voice.call_trace import session_fields
+
+                    _trace_event(
+                        "disclose.bind_wait",
+                        **session_fields(session),
+                        bind_wait_ms=int(waited_ms),
+                    )
+                except Exception:
+                    logger.debug("bind wait trace failed", exc_info=True)
         ix = session.interaction_id
         if not ix:
             return {"error": "no_interaction"}, None
@@ -255,6 +283,19 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # classifier already running on every turn rather than pattern-matching
         # the phrasing: whatever it labels as meta stays unrecorded, the model
         # answers it, and discover_intent keeps listening for the real reason.
+        # Asking for a person is not a question to answer and move past: it is the
+        # request. Treated as meta, the tool told the model to "ask what they
+        # actually need" and a caller who said "I want to speak to a human agent"
+        # was asked why they called, then left in silence.
+        if intent == "escalation":
+            return (
+                {
+                    "ok": False,
+                    "reason": "wants_a_human",
+                    "say": "acknowledge in one short sentence, then call escalate_to_human now",
+                },
+                None,
+            )
         if intent in NON_GOAL_INTENTS:
             return (
                 {

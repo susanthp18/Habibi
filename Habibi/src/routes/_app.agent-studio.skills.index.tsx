@@ -9,6 +9,7 @@ import {
   useDeleteSkill,
 } from "@/api/skills";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -284,8 +285,8 @@ export function SkillsIndexPage() {
             <LoadingState label="Loading skills" />
           </div>
         ) : isError && !data ? (
-          <div className="p-400 text-text-danger">
-            {error instanceof Error ? error.message : "Failed to load skills"}
+          <div className="p-400">
+            <QueryErrorBanner label="skills" error={error} />
           </div>
         ) : (data ?? []).length === 0 ? (
           <div className="grid flex-1 place-items-center p-400 text-center">

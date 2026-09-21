@@ -229,9 +229,9 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             CUSTOMERS_READ_ALL, PII_RAW_READ,
         }
     ),
-    # First-login default for anyone in the tenant who is not the bootstrap
-    # Admin. Org demo presenters must be able to open every read surface of
-    # the seeded book. Writes, voice placement, and admin grants stay off.
+    # Assigned when an admin (or an invite) grants Viewer. Not auto-applied
+    # on first login — uninvited SSO users request access instead. Writes,
+    # voice placement, and admin grants stay off.
     "viewer": frozenset(
         {
             CUSTOMERS_READ, CUSTOMERS_READ_ALL,
@@ -294,6 +294,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/me"),
         ("GET", "/me/presence"),
         ("PATCH", "/me/presence"),
+        # Any signed-in operator may ask for a page they cannot open.
+        ("POST", "/access-requests"),
         ("GET", "/.well-known/agent-card.json"),
         ("POST", "/a2a"),
     }
@@ -313,6 +315,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # --- analytics ---------------------------------------------------------
     ("GET", "/bot-analytics"): ANALYTICS_READ,
     ("GET", "/dashboard"): ANALYTICS_READ,
+    ("GET", "/dashboard.csv"): ANALYTICS_READ,
     ("GET", "/offers/health"): ANALYTICS_READ,
     ("GET", "/workspace/summary"): ANALYTICS_READ,
     # Reading the queue is a read. This was WORKQUEUE_WRITE, which meant an
@@ -425,6 +428,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/invites"): ADMIN_WRITE,
     ("POST", "/invites/{invite_id}/resend"): ADMIN_WRITE,
     ("POST", "/invites/{invite_id}/revoke"): ADMIN_WRITE,
+    ("GET", "/access-requests"): ADMIN_WRITE,
+    ("POST", "/access-requests/{request_id}/approve"): ADMIN_WRITE,
+    ("POST", "/access-requests/{request_id}/deny"): ADMIN_WRITE,
     ("GET", "/routing-audit"): BOT_READ,
     ("GET", "/routing-rules"): BOT_READ,
     ("GET", "/routing-rules/{rule_id}/executions"): BOT_READ,
@@ -516,6 +522,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/treatment/holds"): COLLECTIONS_WRITE,
     ("POST", "/treatment/holds/{hold_id}/release"): COLLECTIONS_WRITE,
     ("POST", "/treatment/decisions/{decision_id}/feedback"): COLLECTIONS_WRITE,
+    ("POST", "/treatment/decisions/{decision_id}/enact"): COLLECTIONS_WRITE,
+    ("GET", "/treatment/ops/{kind}"): COLLECTIONS_READ,
     # --- outbound attempt ledger (O0) --------------------------------------
     # Reach figures are an analytics read; the dial log names borrowers and is
     # a collections read. Splitting them means a floor analyst can be shown the
@@ -556,6 +564,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/customers/{customer_id}/insights"): CUSTOMERS_READ,
     ("GET", "/customers/{customer_id}/contact-policy"): CONSENT_READ,
     ("POST", "/customers/{customer_id}/notes"): CUSTOMERS_WRITE,
+    ("POST", "/customers/{customer_id}/outreach"): INTERACTIONS_WRITE,
     ("GET", "/staff"): CUSTOMERS_READ,
     ("GET", "/teams"): CUSTOMERS_READ,
     ("GET", "/products"): CUSTOMERS_READ,
@@ -576,6 +585,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/interactions/{interaction_id}/wrap-up"): INTERACTIONS_WRITE,
     ("GET", "/interactions/{interaction_id}/cost"): BILLING_READ,
     ("GET", "/interactions/{interaction_id}/export"): INTERACTIONS_READ,
+    ("GET", "/interactions/{interaction_id}/recording"): INTERACTIONS_READ,
     ("GET", "/interactions/{interaction_id}/trace"): INTERACTIONS_READ,
     ("GET", "/handoff/active"): INTERACTIONS_READ,
     ("GET", "/handoff/queue"): INTERACTIONS_READ,
@@ -585,8 +595,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/handoff/{interaction_id}/suggestions/{suggestion_id}/accept"): INTERACTIONS_WRITE,
     # --- compliance / redaction --------------------------------------------
     ("GET", "/export-jobs"): COMPLIANCE_READ,
-    ("POST", "/export-jobs"): COMPLIANCE_WRITE,
+    # ANALYTICS_READ is the floor so leadership can email a dashboard CSV.
+    # Redaction ZIPs still require COMPLIANCE_WRITE inside the handler.
+    ("POST", "/export-jobs"): ANALYTICS_READ,
     ("PATCH", "/export-jobs/{job_id}"): COMPLIANCE_WRITE,
+    # Dashboard CSVs are an analytics read; redaction bundles still need
+    # COMPLIANCE_READ, checked in the handler from the job's kind.
+    ("GET", "/export-jobs/{job_id}/download"): ANALYTICS_READ,
     ("GET", "/redaction-records"): COMPLIANCE_READ,
     ("GET", "/redaction-records/{redaction_id}"): COMPLIANCE_READ,
     ("PATCH", "/redaction-records/{redaction_id}"): COMPLIANCE_WRITE,
@@ -803,6 +818,12 @@ def _load_grants(user_id: str) -> frozenset[str]:
     import db
 
     with db.engine.connect() as conn:
+        status = conn.execute(
+            text("SELECT status FROM users WHERE id = :uid"),
+            {"uid": user_id},
+        ).scalar()
+        if str(status or "") != "active":
+            return frozenset()
         rows = conn.execute(
             text(
                 """

@@ -43,8 +43,8 @@ from kb_corpus_manifest import (  # noqa: E402
 from kb_ingest import (  # noqa: E402
     drain_queue,
     enqueue_index_job,
-    job_statuses,
     upsert_document,
+    wait_for_index_jobs,
 )
 
 logging.basicConfig(
@@ -146,18 +146,14 @@ def ingest_product(product: CorpusProduct, paths: dict[str, Path]) -> dict[str, 
 
     # drain_queue swallows per-job failures (they are recorded on the job row),
     # so a failed embed would otherwise leave FAQs pointing at an unindexed
-    # document and the run would report success.
-    with db.engine.connect() as conn:
-        statuses = job_statuses(conn, [policy_job, benefits_job])
-    failed = {
-        jid: statuses.get(jid, "missing")
-        for jid in (policy_job, benefits_job)
-        if statuses.get(jid) != "succeeded"
-    }
-    if failed:
+    # document and the run would report success. queued/running is the kb
+    # worker owning the other job — wait, don't 502.
+    try:
+        wait_for_index_jobs(db.engine, [policy_job, benefits_job])
+    except RuntimeError as exc:
         raise RuntimeError(
-            f"index jobs did not succeed for product={product.product_key}: {failed}"
-        )
+            f"index jobs did not succeed for product={product.product_key}: {exc}"
+        ) from exc
 
     with db.engine.begin() as conn:
         faq_count = _upsert_faqs(

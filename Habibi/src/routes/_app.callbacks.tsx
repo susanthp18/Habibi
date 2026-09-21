@@ -69,6 +69,7 @@ function CallbacksPage() {
   const [filters, setFilters] = useState<CallbackFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [newCustomerId, setNewCustomerId] = useState<string | undefined>();
   const [view, setView] = useState<CbView>("week");
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date());
   const autoMarked = useRef(false);
@@ -135,17 +136,23 @@ function CallbacksPage() {
   const patchFilters = (p: Partial<CallbackFilters>) => setFilters((f) => ({ ...f, ...p }));
 
   useEffect(() => {
-    if (!search.id && !search.new) return;
-    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}`;
+    if (!search.id && !search.new && !search.customerId) return;
+    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}|${search.customerId ?? ""}`;
     if (deepLinkKey.current === key) return;
     deepLinkKey.current = key;
     if (search.id) {
       setOpenId(search.id);
       setView("list");
     }
-    if (search.new) setShowNew(true);
-    void navigate({ search: {}, replace: true });
-  }, [search.id, search.new, navigate]);
+    if (search.new || search.customerId) {
+      setShowNew(true);
+      setNewCustomerId(search.customerId);
+    }
+    void navigate({
+      search: { id: undefined, new: undefined, customerId: undefined },
+      replace: true,
+    });
+  }, [search.id, search.new, search.customerId, navigate]);
 
   const rescheduleMutation = useRescheduleCallback();
   const startMutation = useStartCallback();
@@ -198,7 +205,14 @@ function CallbacksPage() {
             <div className="text-body-small text-text-subtlest">
               Showing {filtered.length} of {callbacksData.length}
             </div>
-            <Button size="sm" className="h-400 text-body-small" onClick={() => setShowNew(true)}>
+            <Button
+              size="sm"
+              className="h-400 text-body-small"
+              onClick={() => {
+                setNewCustomerId(undefined);
+                setShowNew(true);
+              }}
+            >
               <Plus className="mr-050 h-3.5 w-3.5" /> New callback
             </Button>
           </div>
@@ -284,11 +298,15 @@ function CallbacksPage() {
         )}
         {showNew && (
           <NewCallbackSheet
-            onClose={() => setShowNew(false)}
+            onClose={() => {
+              setShowNew(false);
+              setNewCustomerId(undefined);
+            }}
             onCreated={invalidate}
             customers={sheetCustomers}
             assignees={assignees}
             queues={queues}
+            initialCustomerId={newCustomerId}
           />
         )}
       </div>

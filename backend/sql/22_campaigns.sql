@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS campaign_runs (
   deployment_id      TEXT,
   name               TEXT NOT NULL,
   objective          TEXT NOT NULL,
-  cadence            TEXT NOT NULL DEFAULT 'default',
   -- 'list' is an explicit set of borrowers; 'segment' a saved filter; 'engine'
   -- means the treatment engine authorised each member individually and this run
   -- only paces them. A run never decides that somebody who should not be called
@@ -36,8 +35,6 @@ CREATE TABLE IF NOT EXISTS campaign_runs (
   window_end_hour    INTEGER NOT NULL DEFAULT 18,
   max_concurrent     INTEGER NOT NULL DEFAULT 5,
   max_attempts_total INTEGER,
-  targets_total      INTEGER NOT NULL DEFAULT 0,
-  targets_done       INTEGER NOT NULL DEFAULT 0,
   created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   started_at         timestamptz,
   paused_at          timestamptz,

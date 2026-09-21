@@ -10,18 +10,13 @@ from sqlalchemy import text
 import authz
 import db_users
 import entra
+from tests.entra_columns import ensure_entra_user_columns
 
 TID = "9f2e2b7d-6081-4b3a-b7f5-433b581f6a5f"
 
 
 def _ensure_schema(conn) -> None:
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_oid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_tid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_upn TEXT"))
-    conn.execute(
-        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bootstrap_admin boolean NOT NULL DEFAULT false")
-    )
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at timestamptz"))
+    ensure_entra_user_columns(conn)
     tenant = conn.execute(text("SELECT id FROM tenants ORDER BY created_at LIMIT 1")).scalar()
     if tenant:
         conn.execute(
@@ -125,7 +120,8 @@ def test_list_users_includes_roles_not_extra_pii(db_tx, monkeypatch: pytest.Monk
     match = next(u for u in body["users"] if u["id"] == user_id)
     assert match["name"] == "Alex Example"
     assert match["upn"] == "alex@bigtapp.ai"
-    assert "Viewer" in match["roleNames"]
+    assert match["roleNames"] == []
+    assert match["status"] == "active"
     assert match["email"] == "alex@bigtapp.ai"
     assert set(match) <= {
         "id",
@@ -164,4 +160,4 @@ def test_me_permissions_match_authz(db_tx, monkeypatch: pytest.MonkeyPatch) -> N
         actor_context.reset_actor_user_id(token)
     assert me["name"] == "Alex Example"
     assert set(me["permissions"]) == set(authz.actor_permissions(user_id))
-    assert set(me["permissions"]) == set(authz.ROLE_DEFAULTS["viewer"])
+    assert me["permissions"] == []

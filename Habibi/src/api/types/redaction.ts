@@ -68,6 +68,8 @@ export interface ExportJob {
   status: "queued" | "ready" | "failed";
   downloadCount: number;
   entitiesRedacted: number;
+  kind?: "redaction" | "dashboard";
+  mailStatus?: string | null;
 }
 export interface RuleConfig {
   enabled: boolean;

@@ -85,6 +85,11 @@ def ivr_budget_sec(session_extra: dict[str, Any] | None) -> int:
         return 90
 
 
+#: Labels keypad digits in the transcript. Shared by the aggregator that writes
+#: it and the start strategy that matches on it.
+DTMF_TRANSCRIPT_PREFIX = "Caller keypad input: "
+
+
 def should_enable_dtmf_input(*, is_twilio: bool) -> bool:
     """Inbound keypad capture — telephony only, behind its own flag."""
     if not is_twilio:
@@ -106,12 +111,69 @@ def build_dtmf_aggregator() -> Any | None:
         logger.warning("DTMFAggregator unavailable in this Pipecat build — keypad input off")
         return None
     # Prefix labels the digits in the transcript so the model can tell "the
-    # caller typed 1234" from "the caller said 1234".
+    # caller typed 1234" from "the caller said 1234". It is also the signal
+    # KeypadUserTurnStartStrategy matches on -- keep the two in step.
     #
     # 1.0s is enough for last-4 without `#`. Longer account strings still use
     # `#`, which flushes immediately. The library default of 2.0s was dead air
     # after the last digit of a last-4.
-    return DTMFAggregator(prefix="Caller keypad input: ", timeout=1.0)
+    return DTMFAggregator(prefix=DTMF_TRANSCRIPT_PREFIX, timeout=1.0)
+
+
+def build_keypad_turn_start_strategy(*, enable_interruptions: bool = True) -> Any | None:
+    """Start a user turn on keypad input, so a digits-only entry gets answered.
+
+    Without this a caller who presses a key and says nothing is never replied
+    to. ``DTMFAggregator`` flushes a bare ``TranscriptionFrame`` and nothing
+    else -- no VAD event exists for a keypress -- and Habibi's default start
+    strategy is VAD-only, so ``UserTurnController`` never opens a turn. The
+    digits land in the aggregator's buffer and sit there: no ``LLMContextFrame``
+    is pushed, the model never runs, and the caller hears silence until the idle
+    ladder fires (12s) or they speak, at which point the digits are prepended to
+    *that* turn. The committed e2e scenario passes for exactly that reason --
+    ``SendDTMF(1)``, ``Wait(8)``, then speech -- so it proves the fold-in, not
+    the keypad turn.
+
+    Scoped to the DTMF prefix on purpose. The blanket
+    ``TranscriptionUserTurnStartStrategy`` was removed for a measured reason
+    (VS-39B35AC484, three bot cut-offs): a *speech* transcript describes audio
+    from hundreds of milliseconds ago, so a final landing mid-sentence
+    interrupts the bot on words the caller finished before it started talking.
+    A keypress transcript has no such lag -- it describes an event that just
+    happened -- so that hazard does not apply here.
+
+    The turn then *ends* through Pipecat's own no-VAD fallback: the controller
+    resets the stop strategy on turn start (clearing ``_vad_stopped_time``),
+    and the same ``TranscriptionFrame`` reaching
+    ``TurnAnalyzerUserTurnStopStrategy`` takes its "transcripts arrived without
+    VAD firing" branch, which marks the turn complete and closes it after the
+    STT safety net (~0.95s at today's hint). Do NOT instead synthesise
+    ``VADUserStoppedSpeakingFrame``: Smart Turn would analyse an empty audio
+    buffer, return INCOMPLETE, and ``_maybe_trigger_user_turn_stopped`` returns
+    early on that -- the turn would then wait out the full 5s backstop.
+    """
+    try:
+        from pipecat.frames.frames import Frame, TranscriptionFrame
+        from pipecat.turns.types import ProcessFrameResult
+        from pipecat.turns.user_start.base_user_turn_start_strategy import (
+            BaseUserTurnStartStrategy,
+        )
+    except ImportError:
+        logger.warning("turn start strategy base unavailable — keypad turns off")
+        return None
+
+    class KeypadUserTurnStartStrategy(BaseUserTurnStartStrategy):
+        """Opens a user turn on a DTMF-prefixed transcript, and nothing else."""
+
+        async def process_frame(self, frame: Frame) -> Any:
+            if isinstance(frame, TranscriptionFrame) and str(frame.text or "").startswith(
+                DTMF_TRANSCRIPT_PREFIX
+            ):
+                await self.trigger_user_turn_started()
+                return ProcessFrameResult.STOP
+            return ProcessFrameResult.CONTINUE
+
+    return KeypadUserTurnStartStrategy(enable_interruptions=enable_interruptions)
 
 
 def ivr_goal(session_extra: dict[str, Any] | None) -> str:

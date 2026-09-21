@@ -222,5 +222,11 @@ def test_every_crm_create_route_reads_the_idempotency_header() -> None:
 
     from routers import crm, payments
 
-    for fn in (crm.create_callback, crm.create_document_request, crm.create_dispute, payments.create_promise):
+    for fn in (
+        crm.create_callback,
+        crm.create_document_request,
+        crm.create_dispute,
+        crm.send_customer_outreach,
+        payments.create_promise,
+    ):
         assert "idempotency_key" in inspect.signature(fn).parameters, fn.__name__

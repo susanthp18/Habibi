@@ -83,7 +83,6 @@ from db_prompt_studio.cards import (  # noqa: F401
     _handoff_edges as _handoff_edges,
     _live_deployment_bot_ids as _live_deployment_bot_ids,
     _studio_card_versions as _studio_card_versions,
-    _worst_eval_status as _worst_eval_status,
     agent_change_log as agent_change_log,
     archive_agent_studio_card as archive_agent_studio_card,
     get_agent_studio_card as get_agent_studio_card,

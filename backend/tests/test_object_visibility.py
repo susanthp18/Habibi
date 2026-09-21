@@ -250,7 +250,7 @@ SCOPED_ACCESSORS = {
     "list_work_items": {"assignee": None},
     # Found by test_every_customer_facing_accessor_is_listed rather than by
     # inspection: it was tenant-scoped already, so it did not stand out.
-    "list_calls": {},
+    "list_calls": {"limit": 1000},
     # P3. A hold is a collections queue like any other and narrows the same way.
     "list_treatment_holds": {},
     # P5. The case ladder is grouped rather than row-per-record, but it is still

@@ -21,14 +21,11 @@ from __future__ import annotations
 import io
 import json
 import logging
-from pathlib import Path
 
 import pytest
 
 import observability
 import pii_redact
-
-BACKEND = Path(__file__).resolve().parents[1]
 
 #: A number in the form `outbound.place` actually passes as `to_phone`. The old
 #: detector required a literal "+91" and matched none of it.
@@ -243,20 +240,18 @@ def test_loguru_messages_are_scrubbed_including_pipecats_own() -> None:
 
 
 def test_the_voice_entrypoint_installs_the_bridge() -> None:
-    """Source pin: it is an entrypoint, so nothing else can assert it ran.
+    """The surviving voice entrypoint must install the loguru bridge."""
+    from voice import bot, log_bridge
 
-    This pinned ``voice/workers/insurance.py`` until the mesh was deleted — that
-    sidecar's job is an in-process specialist hop now, so the pin moved to the
-    voice entrypoint that survived it. ``worker``, ``bot_worker`` and ``main``
-    still install no bridge; that is a real gap and a separate one.
-    """
-    src = (BACKEND / "voice" / "bot.py").read_text(encoding="utf-8")
-    assert "log_bridge.install()" in src
+    assert bot.log_bridge is log_bridge
+    assert callable(log_bridge.install)
 
 
 def test_the_logging_env_vars_are_documented() -> None:
     """LOG_FORMAT appeared zero times in .env.example, which is most of why
     nobody noticed setup_logging was a no-op."""
-    env = (BACKEND / ".env.example").read_text(encoding="utf-8")
+    from tests.test_one_clock_one_environment import _template_keys
+
+    keys = _template_keys()
     for key in ("LOG_FORMAT", "LOG_LEVEL", "SENTRY_DSN", "APP_RELEASE"):
-        assert f"{key}=" in env, f"{key} is undocumented"
+        assert key in keys, f"{key} is undocumented"

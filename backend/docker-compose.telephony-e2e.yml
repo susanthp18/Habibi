@@ -1,0 +1,33 @@
+# Telephony e2e: scripted SIP phones registered to the PBX under test.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#     -f docker-compose.telephony.yml -f docker-compose.telephony-e2e.yml up -d
+#   (then run tests/e2e_telephony with TELEPHONY_E2E=1; see its conftest)
+#
+# ASTERISK_SOFTPHONES must list at least 1001 (borrower) and 1002 (agent), and
+# ASTERISK_AGENT_EXTENSIONS=1002, so the transfer scenario has someone to ring.
+# Not for production stacks: it places real calls through the bot.
+
+services:
+  sip_test_phones:
+    image: "${IMAGE_PREFIX:-}collections-asterisk:${IMAGE_TAG:-local}"
+    container_name: collections_sip_test_phones
+    entrypoint: ["sh", "-c", "python3 /phones/render_phones.py && exec asterisk -f -vvv"]
+    environment:
+      ASTERISK_SOFTPHONES: ${ASTERISK_SOFTPHONES:?set ASTERISK_SOFTPHONES in .env}
+      PHONES_PBX_HOST: asterisk
+    volumes:
+      - ./telephony/e2e/phones:/phones:ro
+      - ./telephony/e2e/phones/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./telephony/e2e/phones/ari.conf:/etc/asterisk/ari.conf:ro
+      - ./telephony/e2e/phones/http.conf:/etc/asterisk/http.conf:ro
+      - ./telephony/e2e/phones/rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ./telephony/e2e/sounds:/snd:ro
+    depends_on:
+      asterisk:
+        condition: service_healthy
+
+  # The transfer scenario needs a real warm transfer, not a callback ticket.
+  voice:
+    environment:
+      VOICE_HANDOFF_MODE: warm

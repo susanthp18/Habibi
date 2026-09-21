@@ -5,7 +5,7 @@ import { ConversationList } from "@/components/inbox/ConversationList";
 import { ChatThread } from "@/components/inbox/ChatThread";
 import { Composer } from "@/components/inbox/Composer";
 import { ContextRail } from "@/components/inbox/ContextRail";
-import { QueryState } from "@/components/ui/query-state";
+import { QueryState, QueryErrorBanner } from "@/components/ui/query-state";
 import { SplitPanes } from "@/components/shared/SplitPanes";
 import {
   refreshConversationSuggestions,
@@ -361,8 +361,8 @@ function InboxPage() {
             </div>
           )}
           {fatalError && (
-            <div className="grid flex-1 place-items-center text-body text-text-danger">
-              Failed to load inbox: {(error as Error)?.message ?? "unknown error"}
+            <div className="grid flex-1 place-items-center p-400">
+              <QueryErrorBanner label="the inbox" error={error} />
             </div>
           )}
           {!isPending && !fatalError && deadLink && (

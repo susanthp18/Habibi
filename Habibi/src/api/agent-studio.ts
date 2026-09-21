@@ -33,6 +33,14 @@ export type AgentCardSummary = {
    */
   entryBindings: EntryBinding[];
   /**
+   * Archiving is refused because inbound traffic lands here: the env default,
+   * or any enabled binding. The server's own guard, not re-derivable from
+   * `entryBotId`, which is the voice channel's resolved card.
+   */
+  takesInbound: boolean;
+  /** The reachable cards whose handoff allowlist names this one, sorted. */
+  handoffFrom: string[];
+  /**
    * Routing, not deployment. `entry` is the bot BOT_ID resolves to; `handoff`
    * is reached through some live card's allowlist; `direct` holds its own
    * active deployment so it is addressable by bot_id even though nothing hands
@@ -396,12 +404,13 @@ export function useEvalReports(
   });
 }
 
+export type EvalScheduleRun = { status: "pass" | "fail"; ran: number; failed: number };
+
 export function useRunEvalSchedule() {
   const qc = useQueryClient();
   return useMutation({
     meta: { errors: "toast" },
-    mutationFn: async () =>
-      apiPost<{ status: string; ran: number; failed: number }>("/eval/schedule/run", {}),
+    mutationFn: async () => apiPost<EvalScheduleRun>("/eval/schedule/run", {}),
     onSuccess: () => {
       invalidateAgentStudio(qc);
     },

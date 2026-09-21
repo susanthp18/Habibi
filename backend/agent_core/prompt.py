@@ -132,7 +132,11 @@ def _channel_framing(channel: str) -> str:
 def _reply_opener(channel: str) -> str:
     """First reply rule, in the register of the actual channel."""
     if (channel or "").strip().lower() in _TEXT_CHANNELS:
-        return "- Write one to three short chat messages. No markdown, no bullet lists.\n"
+        return (
+            "- Write one to three short chat messages. No markdown. "
+            "Bullet lists are allowed for product / policy / exclusions answers; "
+            "keep money and collections turns as short sentences.\n"
+        )
     return "- Speak as the voice collections agent in one to three short spoken sentences.\n"
 
 

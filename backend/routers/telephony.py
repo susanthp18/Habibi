@@ -413,11 +413,14 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
     something to attach to. That is what turns the eleven ``contact_policy``
     denial reasons into a queryable denial rate instead of a log line, and it
     is the record that answers "why did nobody call this borrower on Tuesday".
-    """
-    from voice import twilio_ops
 
-    if not twilio_ops.configured():
-        raise HTTPException(status_code=503, detail="twilio_not_configured")
+    The path says Twilio for wire compatibility; the dial goes to whichever
+    provider ``TELEPHONY_PROVIDER`` selects.
+    """
+    from voice import telephony
+
+    if not telephony.configured():
+        raise HTTPException(status_code=503, detail="telephony_not_configured")
     to = payload.to.strip()
     if not to:
         raise HTTPException(status_code=400, detail="to_required")
@@ -466,12 +469,10 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
     # customer row to satisfy a foreign key would be worse than the gap.
     if attempt is None:
         try:
-            return await asyncio.to_thread(
-                twilio_ops.start_outbound_call, to=to, custom=custom or None
-            )
+            return await asyncio.to_thread(telephony.originate, to=to, custom=custom or None)
         except Exception as exc:
-            logger.exception("Twilio outbound failed")
-            raise HTTPException(status_code=502, detail="twilio_outbound_failed") from exc
+            logger.exception("outbound dial failed")
+            raise HTTPException(status_code=502, detail="dial_failed") from exc
 
     result = await asyncio.to_thread(
         outbound.place, db.engine, attempt, to_phone=to, custom=custom or None

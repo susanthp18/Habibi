@@ -8,6 +8,7 @@ import { Empty } from "@/components/ui/empty";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { useRolesCatalog } from "@/api/agent-studio";
+import { ApiError } from "@/api/config";
 import {
   useCreateInvite,
   useInvites,
@@ -61,13 +62,21 @@ export function InvitesSection() {
           toast.success("Invite sent");
         }
       })
-      .catch((err: Error) => toast.error(err.message));
+      .catch((err: Error) => {
+        if (err instanceof ApiError && err.detail === "already_signed_in") {
+          toast.error(
+            "This person already has access. Change their role under Roles & access, or deactivate them and send a new invite.",
+          );
+          return;
+        }
+        toast.error(err.message);
+      });
   };
 
   const onRevoke = async (row: OperatorInvite) => {
     const ok = await confirm({
       title: "Revoke this invite?",
-      description: `${row.email} will still be able to sign in with Microsoft as Viewer if they are in the tenant. They will not receive the starting role from this invite.`,
+      description: `${row.email} can still sign in with Microsoft and will land on the request-access form. They will not receive the starting role from this invite.`,
       confirmLabel: "Revoke invite",
       cancelLabel: "Keep invite",
     });
@@ -155,9 +164,9 @@ export function InvitesSection() {
       <div>
         <h2 className="text-body font-semibold">Invites</h2>
         <p className="mt-025 text-body-small text-text-subtle">
-          Send a branded email to a @bigtapp.ai address. They still sign in with Microsoft. The
-          starting role applies only on first login. Default is Viewer so the demo book stays
-          readable.
+          Send a branded email to a @bigtapp.ai address. They still sign in with Microsoft. A new
+          person, or someone you deactivated, gets the starting role from this invite. Operators
+          stay on the directory after deactivation — send a new invite instead of deleting them.
         </p>
       </div>
       <form

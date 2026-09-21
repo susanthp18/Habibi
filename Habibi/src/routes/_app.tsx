@@ -1,7 +1,13 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { AccessGate } from "@/components/access/AccessGate";
 import { AppShell } from "@/components/shell/AppShell";
-import { bounceOffLoopbackIp, completeRedirect, entraConfigured, loginRedirectUri } from "@/lib/sso";
+import {
+  bounceOffLoopbackIp,
+  completeRedirect,
+  entraConfigured,
+  loginRedirectUri,
+} from "@/lib/sso";
 
 /**
  * The application shell as a pathless layout route. Every signed-in page is a
@@ -35,7 +41,9 @@ function GatedShell() {
   if (!ready) return null;
   return (
     <AppShell>
-      <Outlet />
+      <AccessGate>
+        <Outlet />
+      </AccessGate>
     </AppShell>
   );
 }

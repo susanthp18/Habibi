@@ -14,13 +14,10 @@ every enactment calls ``contact_policy.admit`` — the reserving, fail-closed
 version — immediately before the send. That is also the call that books the
 touch, so the treatment engine cannot spend budget it did not account for.
 
-Field visits and statutory notices have no executor here, and that is the
-roadmap's sequencing rather than an omission: dispatch is P8 and the legal
-clocks are P9. The engine still *recommends* them, which is what makes the
-shadow log tell a collections head how much field work the ladder would
-generate before anybody builds the dispatcher. Until then they are recorded as
-cancelled with the executor named, so they show up in the scoreboard rather
-than silently retrying forever.
+Field visits and statutory notices have no clerk auto-executor. The clerk still
+cancels them with ``no_executor``. A supervisor confirm-and-enact path runs the
+handlers with ``enacted_by="human"`` so those queues can dispatch without a
+second debit.
 """
 
 from __future__ import annotations
@@ -84,6 +81,10 @@ def enact_one(
     decision_id = decision["id"]
     action = str(decision.get("chosen_action") or A.WAIT)
 
+    if decision.get("enacted") is True:
+        ref = str(decision.get("enacted_ref") or "")
+        return False, f"already_enacted:{ref}"
+
     if config.mode() != config.MODE_LIVE:
         # Belt and braces: claim_due should not have returned this, but a
         # shadow decision must not become a real contact through any path.
@@ -98,7 +99,7 @@ def enact_one(
             )
             return False, "plan_expired"
 
-    if action in DEFERRED:
+    if action in DEFERRED and enacted_by != "human":
         decisions.record_outcome(
             decision_id, "cancelled", conn=conn, cancel_reason=cancel.NO_EXECUTOR
         )
@@ -1120,6 +1121,72 @@ def _outbox_send(
         raise NoExecutor(f"outbox_failed:{code}") from exc
 
 
+    return _enqueue_work(
+        conn,
+        workflow_type="self_service_plan",
+        customer_id=customer["id"],
+        payload={
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+            "actionContractId": contract.get("contract_id") if contract else None,
+            "actionContractDigest": contract.get("digest") if contract else None,
+        },
+        idempotency_key=f"self-service-plan:{decision['id']}",
+    )
+
+
+def _dispatch_field_visit(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
+    """Operator-confirmed field dispatch. Clerk auto-enact still defers this."""
+    ops = decision.get("_ops") or {}
+    return _enqueue_work(
+        conn,
+        workflow_type="field_visit",
+        customer_id=customer["id"],
+        payload={
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "agency": ops.get("agency"),
+            "scheduledDate": ops.get("scheduledDate"),
+            "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+        },
+        idempotency_key=f"field-visit:{decision['id']}",
+    )
+
+
+def _record_legal_notice(
+    conn: Any,
+    *,
+    decision: dict[str, Any],
+    customer: dict[str, Any],
+    contract: dict[str, Any] | None = None,
+) -> str:
+    """Operator-recorded statutory notice. Not a collections hold."""
+    ops = decision.get("_ops") or {}
+    return _enqueue_work(
+        conn,
+        workflow_type="legal_notice",
+        customer_id=customer["id"],
+        payload={
+            "decisionId": decision["id"],
+            "accountId": decision.get("account_id"),
+            "servedAt": ops.get("servedAt"),
+            "method": ops.get("method") or "registered_post",
+            "rationale": (decision.get("rationale") or "")[:500],
+            "contractVersion": contract.get("version") if contract else None,
+        },
+        idempotency_key=f"legal-notice:{decision['id']}",
+    )
+
+
 _HANDLERS = {
     A.WHATSAPP: _send_whatsapp,
     A.SMS: _send_sms,
@@ -1128,6 +1195,8 @@ _HANDLERS = {
     A.REPRESENT_MANDATE: _represent_mandate,
     A.EMI_DATE_CHANGE: _change_emi_date,
     A.SELF_SERVICE_PLAN: _open_self_service_plan,
+    A.FIELD_VISIT: _dispatch_field_visit,
+    A.LEGAL_NOTICE: _record_legal_notice,
 }
 
 

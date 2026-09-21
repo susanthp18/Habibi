@@ -1,4 +1,4 @@
-"""First-login provision: bootstrap Admin vs Viewer. Requires entra columns."""
+"""First-login provision: bootstrap Admin, invite role, or no role."""
 
 from __future__ import annotations
 
@@ -9,24 +9,13 @@ from sqlalchemy import text
 
 import authz
 import entra
+from tests.entra_columns import ensure_entra_user_columns
 
 TID = "9f2e2b7d-6081-4b3a-b7f5-433b581f6a5f"
 
 
 def _ensure_schema(conn) -> None:
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_oid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_tid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_upn TEXT"))
-    conn.execute(
-        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bootstrap_admin boolean NOT NULL DEFAULT false")
-    )
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at timestamptz"))
-    conn.execute(
-        text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_entra_oid "
-            "ON users (entra_oid) WHERE entra_oid IS NOT NULL"
-        )
-    )
+    ensure_entra_user_columns(conn, unique_index=True)
     tenant = conn.execute(text("SELECT id FROM tenants ORDER BY created_at LIMIT 1")).scalar()
     if tenant:
         conn.execute(
@@ -82,9 +71,10 @@ def test_first_login_bootstrap_upn_becomes_admin(db_tx, monkeypatch: pytest.Monk
     assert authz.ADMIN_WRITE in authz.actor_permissions(user_id)
 
 
-def test_first_login_other_member_is_viewer(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_first_login_uninvited_member_has_no_role(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     _ensure_schema(db_tx)
     monkeypatch.setenv("ENTRA_BOOTSTRAP_ADMIN_UPNS", "susanth.p@bigtapp.ai")
+    monkeypatch.setenv("AUTHZ_ENFORCE", "1")
     oid = str(uuid.uuid4())
     user_id = entra.provision_user(
         _claims(oid=oid, upn="alex@bigtapp.ai", name="Alex Example")
@@ -99,13 +89,10 @@ def test_first_login_other_member_is_viewer(db_tx, monkeypatch: pytest.MonkeyPat
             {"id": user_id},
         )
     }
-    assert roles == {"Viewer"}
-    perms = authz.actor_permissions(user_id)
-    assert perms == authz.ROLE_DEFAULTS["viewer"]
-    assert authz.CUSTOMERS_WRITE not in perms
-    assert authz.VOICE_OPERATE not in perms
-    assert authz.ADMIN_WRITE not in perms
-    assert authz.PII_RAW_READ not in perms
+    assert roles == set()
+    assert authz.actor_permissions(user_id) == frozenset()
+    with pytest.raises(authz.PermissionDenied):
+        authz.check("GET", "/workspace/summary", user_id)
 
 
 def test_second_login_does_not_change_roles(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,13 +114,21 @@ def test_second_login_does_not_change_roles(db_tx, monkeypatch: pytest.MonkeyPat
             {"id": oid},
         )
     ]
-    assert roles == ["role-viewer"] or all("viewer" in r.lower() for r in roles)
+    assert roles == []
 
 
-def test_inactive_oid_is_refused(db_tx) -> None:
+def test_inactive_oid_still_authenticates_without_grants(
+    db_tx, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _ensure_schema(db_tx)
+    monkeypatch.setenv("AUTHZ_ENFORCE", "1")
     oid = str(uuid.uuid4())
     entra.provision_user(_claims(oid=oid, upn="parked@bigtapp.ai", name="Parked"))
     db_tx.execute(text("UPDATE users SET status = 'inactive' WHERE id = :id"), {"id": oid})
-    with pytest.raises(entra.EntraAuthError):
-        entra.provision_user(_claims(oid=oid, upn="parked@bigtapp.ai", name="Parked"))
+    authz.invalidate_permission_cache(oid)
+    user_id = entra.provision_user(_claims(oid=oid, upn="parked@bigtapp.ai", name="Parked"))
+    assert user_id == oid
+    assert authz.actor_permissions(oid) == frozenset()
+    with pytest.raises(authz.PermissionDenied) as exc:
+        authz.check("GET", "/workspace/summary", oid)
+    assert exc.value.permission == authz.ANALYTICS_READ

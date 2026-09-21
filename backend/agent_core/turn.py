@@ -78,6 +78,9 @@ def assemble_turn_messages(
             customer_text,
             channel="sandbox_text",
             recent=run_up(history, customer_text, last_n=history_limit),
+            already_engaged=any(
+                (h.get("role") == "bot") for h in (history or []) if isinstance(h, dict)
+            ),
         )
     intent = understanding.intent
     intent_scores = understanding.intent_scores

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # The authored flow graph is a domain model, not a transport shape — it is
 # shared verbatim by the API, the validator and the voice runtime, so it is
@@ -190,6 +190,9 @@ ExportScope = Literal["transcript", "audio", "metadata"]
 ExportStatus = Literal["queued", "ready", "failed"]
 
 
+ExportKind = Literal["redaction", "dashboard"]
+
+
 class ExportJobResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -204,16 +207,30 @@ class ExportJobResponse(BaseModel):
     status: ExportStatus
     downloadCount: int
     entitiesRedacted: int
+    kind: ExportKind = "redaction"
+    mailStatus: str | None = None
 
 
 class ExportJobCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    recordIds: list[str] = Field(min_length=1)
+    kind: ExportKind = "redaction"
+    recordIds: list[str] = Field(default_factory=list)
     format: ExportFormat = "pdf"
     scope: list[ExportScope] = Field(default_factory=lambda: ["transcript"])
     watermark: str = ""
     actorRole: str = "Compliance Officer"
+    range: str = "30d"
+    segment: str = "all"
+    team: str = "all"
+
+    @model_validator(mode="after")
+    def _redaction_needs_records(self) -> "ExportJobCreateRequest":
+        if self.kind == "redaction" and not self.recordIds:
+            raise ValueError("record_ids_required")
+        if self.kind == "dashboard":
+            self.format = "csv"
+        return self
 
 
 class ExportJobPatchRequest(BaseModel):

@@ -1,9 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Copy, Headphones, PhoneCall } from "lucide-react";
-import { useRef } from "react";
 import { toast } from "sonner";
-import { idempotencyKey } from "@/lib/utils";
-import { usePlaceCall } from "@/api/outbound";
 import { Button } from "@/components/ui/button";
 import { RiskBadge } from "./RiskBadge";
 import { ContactabilityPill } from "./ContactabilityPill";
@@ -30,15 +27,13 @@ function str(value: string | null | undefined, fallback = "") {
 export function CustomerHeader({
   customer,
   onOpenRail,
+  onPlaceCall,
 }: {
   customer: Customer;
   /** Shown on <lg when context rail is collapsed */
   onOpenRail?: () => void;
+  onPlaceCall?: () => void;
 }) {
-  const placeCall = usePlaceCall();
-  // One key per intended call: a retried click (network blip, double tap)
-  // lands on the same call_attempts row instead of dialing twice.
-  const dialKey = useRef(idempotencyKey(`crm-dial-${customer.id}`));
   const dpdTone =
     customer.account.dpd > 60 ? "danger" : customer.account.dpd > 30 ? "warning" : "success";
 
@@ -123,33 +118,11 @@ export function CustomerHeader({
           <Button
             size="sm"
             className="h-9 bg-background-brand-bold hover:bg-background-brand-bold-hovered"
-            disabled={placeCall.isPending || !customer.contact.phonePrimary}
-            onClick={() =>
-              // This button used to toast "Dialing…" and dial nothing. It now
-              // goes through the dial owner; a refusal is shown as what it is.
-              placeCall.mutate(
-                {
-                  customerId: customer.id,
-                  phone: customer.contact.phonePrimary,
-                  idempotencyKey: dialKey.current,
-                },
-                {
-                  onSuccess: (r) => {
-                    dialKey.current = idempotencyKey(`crm-dial-${customer.id}`);
-                    toast.success(`Dialing ${customer.contact.phonePrimary}…`, {
-                      description: r.attemptId ? `attempt ${r.attemptId}` : undefined,
-                    });
-                  },
-                  onError: (e) =>
-                    toast.error("Call not placed", {
-                      description: e instanceof Error ? e.message : "refused",
-                    }),
-                },
-              )
-            }
+            disabled={!customer.contact.phonePrimary}
+            onClick={() => onPlaceCall?.()}
           >
             <PhoneCall className="h-3.5 w-3.5" />
-            {placeCall.isPending ? "Dialing…" : "Start call"}
+            Start call
           </Button>
         </div>
       </div>

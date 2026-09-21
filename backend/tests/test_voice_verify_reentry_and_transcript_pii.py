@@ -262,7 +262,7 @@ def test_a_whatsapp_turn_is_masked_at_rest(db_tx, interaction: str) -> None:
     )
     stored = _stored(db_tx, interaction, 0)
     assert "123456789012" not in stored, stored
-    assert "[REDACTED-ID]" in stored, stored
+    assert "•••• •••• 9012" in stored, stored
 
 
 def test_a_manual_transcript_is_masked_at_rest(db_tx) -> None:
@@ -283,4 +283,4 @@ def test_a_manual_transcript_is_masked_at_rest(db_tx) -> None:
     ).all()
     assert [r[0] for r in rows] == [0], rows
     assert "123456789012" not in rows[0][1]
-    assert "[REDACTED-ID]" in rows[0][1]
+    assert "•••• •••• 9012" in rows[0][1]

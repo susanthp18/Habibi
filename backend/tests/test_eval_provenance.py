@@ -160,3 +160,36 @@ def test_browser_shaped_overlay_is_the_same_content(db_tx, monkeypatch) -> None:
     )
     gf14 = next(g for g in report["gates"] if g["gate"] == "G-F14")
     assert gf14["status"] in {"pass", "warn"}, gf14
+
+
+@pytest.mark.parametrize(
+    ("reports", "earlier", "require", "expected"),
+    [
+        ({"regression": "pass", "redteam": "pass"}, set(), None, "pass"),
+        # The bug: one of two required suites passing read `pass` on the fleet
+        # while publish refused on the other.
+        ({"regression": "pass"}, set(), None, "incomplete"),
+        ({"regression": "pass"}, {"redteam"}, None, "stale"),
+        ({"regression": "pass", "redteam": "error"}, set(), None, "fail"),
+        ({"redteam": "fail"}, set(), None, "fail"),
+        ({}, {"regression", "redteam"}, None, "stale"),
+        ({}, set(), None, "skipped"),
+        # Only what the card requires counts, exactly as G7/G8 read it.
+        ({"regression": "pass"}, set(), ["regression"], "pass"),
+        ({"redteam": "fail"}, set(), [], "skipped"),
+    ],
+)
+def test_the_fleet_chip_reads_the_suites_the_way_publish_does(
+    monkeypatch, reports, earlier, require, expected
+) -> None:
+    from agent_core.cards.compile import eval_readiness
+    from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
+
+    # The chip reports what the suites found whether or not the gates block.
+    monkeypatch.delenv("EVAL_GATE_ENABLED", raising=False)
+    monkeypatch.delenv("REDTEAM_GATE_ENABLED", raising=False)
+    card = card_dump(COLLECTIONS_BOT_ID)
+    if require is not None:
+        card["eval"] = {"require": require}
+    rows = {kind: {"id": f"EVR-{kind}", "status": status} for kind, status in reports.items()}
+    assert eval_readiness(card, rows, earlier=earlier) == expected

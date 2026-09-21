@@ -44,6 +44,25 @@ Wave 10:
 - RC-TUNE-CLAMP: `clampAgentTuning` keeps `always` / `first_speech`, token cap 32–1024, idle default 12s
 - F-109: Audit filter/labels use runtime vocab (`ptp_captured`, `escalated`, …)
 
+Decision packet D1–D17 (one commit each; D2+D8 shared). Schema files only — not applied to `collections_db`.
+
+- D13 `158b322` understanding: missing LLM confidence abstains (`source=keyword`, `fail_closed_reason=no_confidence`); persist `abstained` + `guard_verdict`
+- D11 `dd9304a` voice: LLM client timeouts 3/15/5/2, `max_retries=1` (Azure analysis client and A-021 spoken fallback unchanged)
+- D15 `f1b3667` understanding: `UNDERSTANDING_LLM_ENABLED` defaults True
+- D16 `00638d3` voice: one ignored escalate nudge still closes to a human
+- D5 `59a7691` voice: max-turns goes through `wrap_up`, not a hardcoded English goodbye
+- D9 `9db506d` voice: apology WAV then hangup when the bot is unreachable (`connection=bot_unreachable`)
+- D3 `cc95292` voice: inbound ANI identifies; last-4 verifies
+- D2+D8 `5a18314` collections: hardship latches `no_upsell`; PTP no longer clears it
+- D4 `c46f0cb` voice: idle timeout clamp 2–20s, persisted on the tuning-apply record
+- D1 `d704505` voice: disclose and callback when recording cannot start (`recording_unavailable`)
+- D12 `affd341` voice: stamp `retain_until` when a call interaction is written (backfill file only)
+- D7 `7c6749d` redact: mask IFSC, labelled PIN and address lines (spoken last-4 / non-HDFC accounts remain open)
+- D14 `39946bd` voice: pin IVR off unless explicitly enabled
+- D10 `a5ea1e3` voice: WS proxy is a dev flag, not PSTN media
+- D17 `a5980cb` rls: no api/voice/worker login may bypass row security
+- D6 `cfb845e` timing: 08:00–19:00 is a voice floor published windows may only narrow
+
 ## INTENDED
 
 - C-110 tool-proof closer
@@ -71,11 +90,9 @@ Findings that name the same mechanism as a FIXED id above are closed with that f
 - Cursor F-001–F-083
 - Qoder Q-028–Q-039, Q-052–Q-054, Q-091–Q-092, Q-124
 
-## OPEN — decision-gated (D1–D17). Do not implement until answered
+## OPEN — decision-gated (D1–D17)
 
-D1 Asterisk record vs disclose · D2 hardship PTP upsell · D3 inbound last-4 · D4 28s idle · D5 max-turns hangup vs copy · D6 temporal DND product · D7 IFSC/address · D8 `no_upsell` CHECK · D9 dead-bot media · D10 WS proxy PSTN · **D11 voice LLM 30s×2** · D12 `retain_until` · D13 fabricated 0.9 · D14 IVR default-on · D15 understanding LLM default · D16 voice escalate nudge · D17 BYPASSRLS
-
-Original latency Wave 6 (D11 / `llm_pool.py` 30s×2) stays skipped.
+All answered and FIXED above. A-021 spoken fallback and Azure analysis-client lock remain product/latency-gated, not D11.
 
 ## OPEN — product-gated (not this close)
 
@@ -84,7 +101,7 @@ RC-KB-WAIT · RC-MIN-WORDS · RC-LOCKED-STOP · Q-097 buffer · Q-099 clock orig
 ## KNOWN (not closed here)
 
 - **O-074 CONFIRMED-DIFFERENT**: Studio campaign Start is `COLLECTIONS_WRITE`, not admin.
-- F-091 remainder: spoken PAN/Aadhaar/card last-4, non-HDFC account ids.
-- Container pytest remaining ERRORs: access-requests / invites / entra_oid ALTER / uncommitted routing — blocked on orchestrator schema apply, not this wave.
-
-Answering **D11 / D14 / D5 / D9** unblocks the largest remaining caller-visible clusters.
+- F-091 remainder: spoken last-4 / non-HDFC account ids (IFSC + labelled PIN/address closed in D7 `7c6749d`).
+- Container pytest remaining ERRORs: access-requests / invites / entra_oid ALTER / uncommitted routing — blocked on orchestrator schema apply, not this packet.
+- Alembic `0151`–`0154` (and untracked `0147`–`0149`) are files only; do not apply to `collections_db`.
+- D1–D17 close-out suite (`docker exec collections_voice python -m pytest tests/ -q`): **32 failed · 4,987 passed · 80 skipped · 14 errors** in 17:42. Packet tests themselves are not in the red list. Reds: Entra 401s, `entra_oid` ALTER (app role is not table owner), untracked access-requests/invites schema, other-stream `bot_flow` source-pins, untracked `0149` + committed `0154` as two Alembic heads. Packet-adjacent ratchets: `bot_handlers_idle.build` 325 lines (D16), `persist.py` 1507 lines (D12). Aadhaar `[REDACTED-ID]` vs bullet mask is the Wave 9 F-091 remainder, not D7.

@@ -1053,12 +1053,12 @@ def test_a_deferred_action_is_terminal_not_a_retry_loop(db_tx, account, monkeypa
         rationale="probe",
         latency_ms=1,
     )
-    claimed = decisions.claim_due(db_tx, limit=50)
+    claimed = decisions.claim_due(db_tx, limit=5000)
     row = next(r for r in claimed if r["id"] == decision_id)
     acted, note = enact.enact_one(db_tx, row)
     assert acted is False
     assert note == f"no_executor:{A.FIELD_VISIT}"
-    assert decision_id not in {r["id"] for r in decisions.claim_due(db_tx, limit=50)}
+    assert decision_id not in {r["id"] for r in decisions.claim_due(db_tx, limit=5000)}
 
 
 def test_a_borrower_who_already_paid_is_not_dunned(db_tx, account, monkeypatch) -> None:
@@ -1178,3 +1178,77 @@ def test_every_action_is_either_executable_or_explicitly_deferred() -> None:
     covered = set(enact._HANDLERS) | enact.DEFERRED | {A.WAIT}
     missing = set(A.ALL) - covered
     assert not missing, f"these actions can be recommended but never carried out: {sorted(missing)}"
+
+
+def test_enact_one_already_enacted_does_not_double_fire(monkeypatch) -> None:
+    monkeypatch.setenv("TREATMENT_MODE", "live")
+    acted, note = enact.enact_one(
+        None,
+        {
+            "id": "TD-DONE",
+            "enacted": True,
+            "enacted_ref": "work:1",
+            "chosen_action": A.FIELD_VISIT,
+        },
+    )
+    assert acted is False
+    assert note == "already_enacted:work:1"
+
+
+def test_human_confirm_enacts_field_visit_once(db_tx, account, monkeypatch) -> None:
+    """Clerk still has no executor; a supervisor confirm runs the handler once."""
+    monkeypatch.setenv("TREATMENT_MODE", "live")
+    monkeypatch.setattr(enact, "_enqueue_work", lambda *a, **k: "work:WK-FIELD")
+    monkeypatch.setattr(enact, "_consume_contract", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "agent_core.treatment.contract.require_for_enactment",
+        lambda *a, **k: {"version": "x", "decision_id": "x"},
+    )
+
+    class _Ok:
+        allowed = True
+        reason = None
+
+    monkeypatch.setattr(contact_policy, "admit", lambda *a, **k: _Ok())
+    decision_id = decisions.record(
+        conn=db_tx,
+        tenant_id="hdfc.retail",
+        customer_id=account["customer_id"],
+        account_id=account["id"],
+        interaction_id=None,
+        trigger_kind="dpd_tick",
+        trigger_ref=None,
+        mode="live",
+        variant=None,
+        recommender="ev",
+        recommender_version="1.0.0",
+        feature_schema_version="v1",
+        features={},
+        candidates=[],
+        excluded={},
+        chosen_action=A.FIELD_VISIT,
+        chosen_channel="field",
+        scheduled_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        expected_value=100.0,
+        suppression_reason=None,
+        rationale="probe",
+        latency_ms=1,
+    )
+    row = dict(
+        db_tx.execute(
+            text("SELECT * FROM treatment_decisions WHERE id = :id"),
+            {"id": decision_id},
+        ).mappings().first()
+    )
+    acted, note = enact.enact_one(db_tx, row, enacted_by="human")
+    assert acted is True
+    assert note == "work:WK-FIELD"
+    row2 = dict(
+        db_tx.execute(
+            text("SELECT * FROM treatment_decisions WHERE id = :id"),
+            {"id": decision_id},
+        ).mappings().first()
+    )
+    second_acted, second_note = enact.enact_one(db_tx, row2, enacted_by="human")
+    assert second_acted is False
+    assert second_note.startswith("already_enacted")

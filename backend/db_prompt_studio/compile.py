@@ -26,6 +26,7 @@ from db_prompt_studio.versions import (
 )
 from db_prompt_studio.cards import (
     _studio_card_versions,
+    latest_eval_gate_report,
 )
 from agent_core.dicts import sub
 
@@ -45,7 +46,6 @@ def compile_agent_studio_card(
     _mod = _db()
     list_bot_ids = _mod.list_bot_ids
     _latest_twin_gate_report = _mod._latest_twin_gate_report
-    get_latest_eval_report = _mod.get_latest_eval_report
     from agent_core.cards.compile import compile_card
     from agent_core.tools.catalog import CATALOG
 
@@ -155,12 +155,7 @@ def compile_agent_studio_card(
     )
 
     def _report(kind: str) -> dict[str, Any] | None:
-        by_content = get_latest_eval_report(bot_id=bot_id, kind=kind, content_key=candidate_key)
-        if by_content is not None:
-            if by_content.get("prompt_version_id") != version_id:
-                by_content = {**by_content, "cached": True}
-            return by_content
-        return get_latest_eval_report(bot_id=bot_id, kind=kind, prompt_version_id=version_id)
+        return latest_eval_gate_report(bot_id, kind, version_id=version_id, content_key=candidate_key)
 
     report = compile_card(
         bot_id=bot_id,

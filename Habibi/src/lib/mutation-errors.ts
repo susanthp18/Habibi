@@ -22,6 +22,9 @@ declare module "@tanstack/react-query" {
 }
 
 export function mutationErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 403) {
+    return "You don’t have permission to do that.";
+  }
   if (error instanceof ApiError) return error.detail || error.message;
   if (error instanceof Error) return error.message;
   return "The request failed.";

@@ -38,7 +38,7 @@
       "daily": [
         {
           "date": "str",
-          "values": {}
+          "values": "<scalar-map>"
         }
       ],
       "env": "str",
@@ -69,23 +69,15 @@
       "previousDaily": [
         {
           "date": "str",
-          "values": {}
+          "values": "<scalar-map>"
         }
       ],
       "resolvedCalls": "int",
       "serviceTenantSpend": {
-        "llm_chat": {
-          "hdfc.retail": "float"
-        },
-        "llm_embed": {
-          "hdfc.retail": "float"
-        },
-        "stt_az": {
-          "hdfc.retail": "float"
-        },
-        "tts_az": {
-          "hdfc.retail": "float"
-        }
+        "llm_chat": "<scalar-map>",
+        "llm_embed": "<scalar-map>",
+        "stt_az": "<scalar-map>",
+        "tts_az": "<scalar-map>"
       },
       "services": [
         {
@@ -167,10 +159,7 @@
       "daily": [
         {
           "date": "str",
-          "values": {
-            "llm_chat": "float",
-            "llm_embed": "float"
-          }
+          "values": "<scalar-map>"
         }
       ],
       "env": "str",
@@ -201,28 +190,15 @@
       "previousDaily": [
         {
           "date": "str",
-          "values": {
-            "llm_chat": "float",
-            "llm_embed": "float",
-            "stt_az": "float",
-            "tts_az": "float"
-          }
+          "values": "<scalar-map>"
         }
       ],
       "resolvedCalls": "int",
       "serviceTenantSpend": {
-        "llm_chat": {
-          "hdfc.retail": "float"
-        },
-        "llm_embed": {
-          "hdfc.retail": "float"
-        },
-        "stt_az": {
-          "hdfc.retail": "float"
-        },
-        "tts_az": {
-          "hdfc.retail": "float"
-        }
+        "llm_chat": "<scalar-map>",
+        "llm_embed": "<scalar-map>",
+        "stt_az": "<scalar-map>",
+        "tts_az": "<scalar-map>"
       },
       "services": [
         {
@@ -380,7 +356,7 @@
       ],
       "heroKpis": [
         {
-          "delta": "null",
+          "delta": "number|null",
           "deltaGood": "str",
           "label": "str",
           "raw": "int",
@@ -393,7 +369,7 @@
       ],
       "kpis": [
         {
-          "delta": "null",
+          "delta": "number|null",
           "deltaGood": "str",
           "key": "str",
           "label": "str",
@@ -450,7 +426,7 @@
       ],
       "heroKpis": [
         {
-          "delta": "null",
+          "delta": "number|null",
           "deltaGood": "str",
           "label": "str",
           "raw": "int",
@@ -463,7 +439,7 @@
       ],
       "kpis": [
         {
-          "delta": "float",
+          "delta": "number|null",
           "deltaGood": "str",
           "key": "str",
           "label": "str",
@@ -520,7 +496,7 @@
       "callVolumeStacked": [],
       "heroKpis": [
         {
-          "delta": "null",
+          "delta": "number|null",
           "deltaGood": "str",
           "label": "str",
           "raw": "int",
@@ -531,7 +507,7 @@
       ],
       "kpis": [
         {
-          "delta": "null",
+          "delta": "number|null",
           "deltaGood": "str",
           "key": "str",
           "label": "str",

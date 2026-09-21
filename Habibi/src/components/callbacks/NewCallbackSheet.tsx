@@ -50,11 +50,19 @@ interface Props {
   customers: CustomerOption[];
   assignees: string[];
   queues: string[];
+  initialCustomerId?: string;
 }
 
-export function NewCallbackSheet({ onClose, onCreated, customers, assignees, queues }: Props) {
+export function NewCallbackSheet({
+  onClose,
+  onCreated,
+  customers,
+  assignees,
+  queues,
+  initialCustomerId,
+}: Props) {
   const custs = customers;
-  const [customerId, setCustomerId] = useState(custs[0]?.id ?? "");
+  const [customerId, setCustomerId] = useState(() => initialCustomerId || custs[0]?.id || "");
   const [reason, setReason] = useState<CbReason>("payment_discussion");
   const [scheduledAt, setScheduledAt] = useState(localTomorrowAt(11, 0));
   const [windowMins, setWindowMins] = useState<30 | 60 | 120>(30);

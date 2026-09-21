@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from functools import partial
 from typing import Any
 
 from loguru import logger
@@ -174,15 +175,9 @@ def _load_mission_row(attempt_id: str) -> dict[str, Any] | None:
         return mission_mod.load(conn, str(attempt_id))
 
 
-async def resolve_call(call) -> None:
-    """Sandbox session, caller cohort, bundle, session, sink, system prompt."""
-    import db as _db
-
+def _attach_transport(call) -> tuple[Any, bool, str | None]:
+    """Transport flags and the sandbox session, if this call has one."""
     runner_args = call.runner_args
-
-    # Prefer Sandbox Live session config (written by POST /voice/sandbox/start).
-    # Session id arrives via SmallWebRTC request_data → runner_args.body. Never
-    # use a shared "latest" pointer — that races between concurrent calls.
     sandbox_session = None
     _store = None
     call_data = getattr(runner_args, "call_data", None)
@@ -193,7 +188,11 @@ async def resolve_call(call) -> None:
     )
     if not transport_type and call_data is not None:
         transport_type = "twilio"
-    is_twilio = str(transport_type).lower() in {"twilio", "telnyx", "plivo", "exotel"}
+    transport_key = str(transport_type or "").lower()
+    is_asterisk = transport_key == "asterisk"
+    is_twilio = transport_key in {"twilio", "telnyx", "plivo", "exotel"} or is_asterisk
+    call.transport_type = transport_key or None
+    call.is_asterisk = is_asterisk
     sandbox_load_error: str | None = None
     try:
         import voice_session_store as _store
@@ -207,8 +206,6 @@ async def resolve_call(call) -> None:
             try:
                 sandbox_session = _store.read(sid)
                 if not sandbox_session:
-                    # The API minted this id, so an empty read means the two
-                    # processes are not looking at the same store.
                     sandbox_load_error = "session_not_found"
                     logger.error(
                         "voice sandbox session {} not found in {} store — Live call will "
@@ -220,8 +217,6 @@ async def resolve_call(call) -> None:
                 sandbox_load_error = "store_unavailable"
                 logger.exception("voice sandbox session store unavailable for {}", sid)
             except ValueError:
-                # Guarded by is_session_id above; only reachable if the two
-                # validators ever diverge.
                 sandbox_load_error = "invalid_session_id"
                 logger.exception("rejected malformed sandbox session id {}", sid)
         elif not is_twilio:
@@ -231,6 +226,21 @@ async def resolve_call(call) -> None:
                 "webrtcRequestParams.requestData = {{sessionId}}. Falling back to the "
                 "production bundle; persona / KB snapshot / tuning will not apply."
             )
+    call._store = _store
+    return sandbox_session, is_twilio, sandbox_load_error
+
+
+async def resolve_call(call) -> None:
+    """Sandbox session, caller cohort, bundle, session, sink, system prompt."""
+    import db as _db
+
+    runner_args = call.runner_args
+    sandbox_session, is_twilio, sandbox_load_error = _attach_transport(call)
+    call_data = getattr(runner_args, "call_data", None)
+
+    # Prefer Sandbox Live session config (written by POST /voice/sandbox/start).
+    # Session id arrives via SmallWebRTC request_data → runner_args.body. Never
+    # use a shared "latest" pointer — that races between concurrent calls.
 
     # Resolve caller identity BEFORE canary selection. Loading the bundle first
     # with no customer_id used to send every unmatched inbound call to the
@@ -308,10 +318,18 @@ async def resolve_call(call) -> None:
         if sandbox_session and sandbox_session.get("promptVersionId"):
             from agent_core.deployment import resolve_prompt_bundle
 
-            bundle = resolve_prompt_bundle(
-                prompt_version_id=sandbox_session["promptVersionId"],
-                environment="sandbox",
-                fallback_environments=("production",),
+            # to_thread like every neighbouring read above. Both bundle loads
+            # are several DB round trips plus a full CompiledBundle validation
+            # and a hash recompute; run bare on the loop they are the caller's
+            # own silence in the standalone runner, and under
+            # VOICE_EMBEDDED_HOST they stall every other live call's audio task.
+            bundle = await asyncio.to_thread(
+                partial(
+                    resolve_prompt_bundle,
+                    prompt_version_id=sandbox_session["promptVersionId"],
+                    environment="sandbox",
+                    fallback_environments=("production",),
+                )
             )
             # Prefer version tuning when present; session tuning overlays.
             ver_tuning = (bundle.get("promptVersion") or {}).get("tuning")
@@ -331,11 +349,14 @@ async def resolve_call(call) -> None:
         else:
             # ChannelNotAuthored is a RuntimeError, not a KeyError: it passes
             # this handler and refuses the call, like a missing graph.
-            bundle = load_active_bundle(
-                fallback_environments=("sandbox",),
-                bot_id=cohort_bot_id,
-                customer_id=cohort_key,
-                channel="voice",
+            bundle = await asyncio.to_thread(
+                partial(
+                    load_active_bundle,
+                    fallback_environments=("sandbox",),
+                    bot_id=cohort_bot_id,
+                    customer_id=cohort_key,
+                    channel="voice",
+                )
             )
     except KeyError:
         logger.warning("No active deployment — using minimal fallback instruction")
@@ -365,7 +386,7 @@ async def resolve_call(call) -> None:
         session_id = str(sandbox_session["sessionId"])
     else:
         session_id = f"VS-{uuid.uuid4().hex[:10].upper()}"
-    transport_name = "twilio" if is_twilio else "smallwebrtc"
+    transport_name = "asterisk" if call.is_asterisk else ("twilio" if is_twilio else "smallwebrtc")
     session = VoiceSession(
         session_id=session_id,
         deployment_id=bundle.get("deploymentId"),
@@ -391,6 +412,7 @@ async def resolve_call(call) -> None:
             session.extra["from_number"] = session.extra.get("from_number") or body_params.get(
                 "from"
             )
+            session.extra["to_number"] = session.extra.get("to_number") or body_params.get("to")
             # The mission has to be known *here*, not in on_client_connected:
             # the flow graph is compiled further down this function and the
             # objective is what chooses which node the call starts at. Reading
@@ -463,7 +485,6 @@ async def resolve_call(call) -> None:
     system_instruction = _system_instruction_from_bundle(bundle)
 
     call.sandbox_session = sandbox_session
-    call._store = _store
     call.is_twilio = is_twilio
     call.sandbox_load_error = sandbox_load_error
     call.bundle = bundle

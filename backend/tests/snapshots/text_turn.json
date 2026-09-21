@@ -19,7 +19,7 @@
     },
     "job": {
       "error": "escalated:Customer requested a human agent",
-      "outbound_message_id": null,
+      "outbound_message_id": "<outbound>",
       "status": "succeeded"
     },
     "messages": [
@@ -29,6 +29,13 @@
         "id": "<inbound>",
         "provider_ref": "<wamid>",
         "sender": "customer"
+      },
+      {
+        "body": "I'm connecting you to a colleague who can take this from here.",
+        "delivery_status": "sent",
+        "id": "<outbound>",
+        "provider_ref": "<wamid.sent>",
+        "sender": "bot"
       }
     ],
     "tool_calls": [],
@@ -117,7 +124,7 @@
         "body": "Thanks -- I can see your account. Shall we set up a payment today?",
         "delivery_status": "sent",
         "id": "<outbound>",
-        "provider_ref": "wamid.SENT",
+        "provider_ref": "<wamid.sent>",
         "sender": "bot"
       }
     ],

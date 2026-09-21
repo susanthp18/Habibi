@@ -8,14 +8,14 @@ import { authorityPolicyFromNext, useApplyAuthority, useAuthorityNext } from "@/
 import { useCaptureLeadFromPolicy } from "@/api/upsell";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
-import type { CustomerInsights, NbaActionKind } from "@/api/types/customer-insights";
+import type { CustomerInsights, NbaItem } from "@/api/types/customer-insights";
 
 export function OverviewTab({
   insights,
   onNbaAction,
 }: {
   insights: CustomerInsights;
-  onNbaAction: (action: NbaActionKind) => void;
+  onNbaAction: (item: NbaItem) => void;
 }) {
   const navigate = useNavigate();
   // The allowed move comes from the engine that owns it (GET /authority/next).

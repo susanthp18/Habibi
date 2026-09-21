@@ -116,6 +116,7 @@ const outboundVocabularySchema = z.object({
 /**
  * CampaignRunResponse — list / create / status all set response_model_exclude_unset,
  * so every defaulted field may be absent; `status` is campaign_runs' CHECK list.
+ * `progress` is counted from campaign_targets on every endpoint.
  */
 const campaignRunSchema = z.object({
   id: z.string(),
@@ -124,7 +125,6 @@ const campaignRunSchema = z.object({
   deployment_id: z.string().nullable().optional(),
   name: z.string(),
   objective: z.string(),
-  cadence: z.string(),
   source: z.string(),
   selector: z.record(z.unknown()).optional(),
   status: z.enum(["draft", "running", "paused", "finished", "cancelled"]),
@@ -132,28 +132,21 @@ const campaignRunSchema = z.object({
   window_end_hour: z.number(),
   max_concurrent: z.number(),
   max_attempts_total: z.number().nullable().optional(),
-  targets_total: z.number(),
-  targets_done: z.number(),
   created_by_user_id: z.string().nullable().optional(),
   started_at: isoDateOrNull.optional(),
   paused_at: isoDateOrNull.optional(),
   finished_at: isoDateOrNull.optional(),
   created_at: isoDate,
   updated_at: isoDate,
-  pending: z.number().nullable().optional(),
-  done: z.number().nullable().optional(),
-  skipped: z.number().nullable().optional(),
-  progress: z
-    .object({
-      total: z.number(),
-      pending: z.number(),
-      dialing: z.number(),
-      done: z.number(),
-      skipped: z.number(),
-      failed: z.number(),
-    })
-    .nullable()
-    .optional(),
+  progress: z.object({
+    total: z.number(),
+    pending: z.number(),
+    dialing: z.number(),
+    done: z.number(),
+    skipped: z.number(),
+    failed: z.number(),
+    parked: z.number(),
+  }),
 });
 
 /** CampaignCohortPreviewResponse — POST /outbound/campaigns/preview. */
@@ -368,16 +361,20 @@ export type CampaignRun = {
   id: string;
   name: string;
   objective: string;
-  cadence: string;
   status: "draft" | "running" | "paused" | "finished" | "cancelled";
   window_start_hour: number;
   window_end_hour: number;
   max_concurrent: number;
-  targets_total: number;
-  targets_done: number;
-  pending?: number | null;
-  done?: number | null;
-  skipped?: number | null;
+  /** Counted from the run's targets; `parked` dials may have rung and wait for a person. */
+  progress: {
+    total: number;
+    pending: number;
+    dialing: number;
+    done: number;
+    skipped: number;
+    failed: number;
+    parked: number;
+  };
   started_at?: string | null;
   created_at: string;
 };
@@ -563,10 +560,16 @@ export function useReachStats(days = 14) {
   return useQuery({ queryKey: ["outbound", "stats", days], queryFn: () => fetchReachStats(days) });
 }
 
+/** An attempt in one of these can still change state on its own. */
+const IN_FLIGHT_ATTEMPT = new Set(["reserved", "dialing", "ringing", "answered", "live"]);
+
 export function useOutboundAttempts(customerId?: string) {
   return useQuery({
     queryKey: ["outbound", "attempts", customerId ?? "all"],
     queryFn: () => fetchAttempts({ customerId }),
+    // A dial moves through ringing to an outcome in seconds; poll only while one is.
+    refetchInterval: (q) =>
+      q.state.data?.some((a) => IN_FLIGHT_ATTEMPT.has(a.state)) ? 5_000 : false,
   });
 }
 
@@ -579,12 +582,23 @@ export function useMissions(botId?: string) {
   });
 }
 
+/** Polled while a run is dialling: bot_worker moves its targets with nobody clicking. */
 export function useCampaigns() {
-  return useQuery({ queryKey: ["outbound", "campaigns"], queryFn: fetchCampaigns });
+  return useQuery({
+    queryKey: ["outbound", "campaigns"],
+    queryFn: fetchCampaigns,
+    refetchInterval: (q) =>
+      q.state.data?.some((r) => r.status === "running" || r.progress.dialing > 0) ? 5_000 : false,
+  });
 }
 
+/** Polled: retry rungs fire on the worker's clock, hours apart, not on a click. */
 export function useCadenceCases() {
-  return useQuery({ queryKey: ["outbound", "cadence"], queryFn: fetchCadenceCases });
+  return useQuery({
+    queryKey: ["outbound", "cadence"],
+    queryFn: fetchCadenceCases,
+    refetchInterval: 60_000,
+  });
 }
 
 export function useNonpaymentReasons(days = 30) {
@@ -618,7 +632,6 @@ export function useCreateCampaign() {
       name: string;
       objective: string;
       botId?: string;
-      cadence?: string;
       selector?: CampaignSelector;
       windowStartHour?: number;
       windowEndHour?: number;
@@ -638,29 +651,36 @@ export type PlacedCall = z.infer<typeof placedCallSchema>;
  * refusal is the product working. The key makes a retried click one attempt.
  */
 export function usePlaceCall() {
+  const qc = useQueryClient();
   return useMutation({
     meta: { errors: "caller" },
     mutationFn: ({
       customerId,
+      accountId,
       phone,
       idempotencyKey,
     }: {
       customerId: string;
+      /** The account on screen: the briefing, the attempt and the call's tools all use it. */
+      accountId?: string;
       phone: string;
       idempotencyKey: string;
     }) =>
       apiPost<PlacedCall>(
         "/twilio/voice/outbound",
-        { customerId, to: phone, objective: "manual_outbound" },
+        { customerId, accountId, to: phone, objective: "manual_outbound" },
         { headers: { "Idempotency-Key": idempotencyKey }, schema: placedCallSchema },
       ),
+    // A refusal leaves a suppressed attempt too, so both outcomes refresh the log.
+    onSettled: () => qc.invalidateQueries({ queryKey: ["outbound", "attempts"] }),
   });
 }
 
 export function useSetCampaignStatus() {
   const qc = useQueryClient();
   return useMutation({
-    meta: { errors: "toast" },
+    // OutboundTab renders `campaignStatusError` inline; a toast too said it twice.
+    meta: { errors: "caller" },
     mutationFn: async ({ runId, status }: { runId: string; status: string }) =>
       apiPost(`/outbound/campaigns/${runId}/status`, { status }, { schema: campaignRunSchema }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["outbound", "campaigns"] }),

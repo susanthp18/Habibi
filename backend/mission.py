@@ -259,6 +259,12 @@ def build(
     customer = _customer(conn, customer_id)
     if customer is None:
         return None
+    if not account_id:
+        import db as dbmod
+
+        # Same resolver as `outbound.gate`, in the same transaction: a caller
+        # that names no account still gets a briefing with a position in it.
+        account_id = dbmod._first_account_id(conn, customer_id)
 
     objective_spec = None
     outbound_cfg = getattr(card, "outbound", None) if card is not None else None

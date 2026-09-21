@@ -105,7 +105,6 @@ def create(
     name: str,
     objective: str,
     bot_id: str | None = None,
-    cadence: str = "default",
     source: str = "list",
     selector: dict[str, Any] | None = None,
     window_start_hour: int = 10,
@@ -121,11 +120,11 @@ def create(
         text(
             """
             INSERT INTO campaign_runs (
-              id, tenant_id, bot_id, name, objective, cadence, source, selector,
+              id, tenant_id, bot_id, name, objective, source, selector,
               status, window_start_hour, window_end_hour, max_concurrent,
               created_by_user_id, created_at, updated_at
             ) VALUES (
-              :id, :tenant, :bot, :name, :objective, :cadence, :source,
+              :id, :tenant, :bot, :name, :objective, :source,
               CAST(:selector AS jsonb), 'draft', :ws, :we, :conc, :actor, now(), now()
             )
             RETURNING *
@@ -137,7 +136,6 @@ def create(
             "bot": bot_id,
             "name": name,
             "objective": objective,
-            "cadence": cadence,
             "source": source,
             "selector": json.dumps(selector or {}),
             "ws": int(window_start_hour),
@@ -193,17 +191,6 @@ def add_targets(conn: Any, run_id: str, customer_ids: list[str], *, tenant_id: s
             {"run": run_id, "cids": ids, "tids": [_tid() for _ in ids], "t": tenant},
         )
         added = int(result.rowcount or 0)
-    conn.execute(
-        text(
-            """
-            UPDATE campaign_runs
-            SET targets_total = (SELECT count(*) FROM campaign_targets WHERE run_id = :run),
-                updated_at = now()
-            WHERE id = :run AND tenant_id = :t
-            """
-        ),
-        {"run": run_id, "t": tenant},
-    )
     return added
 
 
@@ -439,25 +426,6 @@ def set_status(
         {"id": run_id, "status": status, "t": tenant_id},
     ).mappings().first()
     return dict(row) if row else None
-
-
-def progress(conn: Any, run_id: str) -> dict[str, Any]:
-    row = conn.execute(
-        text(
-            """
-            SELECT
-              count(*)                                          AS total,
-              count(*) FILTER (WHERE state = 'pending')         AS pending,
-              count(*) FILTER (WHERE state = 'dialing')         AS dialing,
-              count(*) FILTER (WHERE state = 'done')            AS done,
-              count(*) FILTER (WHERE state = 'skipped')         AS skipped,
-              count(*) FILTER (WHERE state = 'failed')          AS failed
-            FROM campaign_targets WHERE run_id = :run
-            """
-        ),
-        {"run": run_id},
-    ).mappings().first()
-    return {k: int(v or 0) for k, v in dict(row or {}).items()}
 
 
 # ---------------------------------------------------------------------------
@@ -711,14 +679,6 @@ def process_one(engine: Engine) -> bool:
                     ),
                     {"id": target_id},
                 )
-        else:
-            conn.execute(
-                text(
-                    "UPDATE campaign_runs SET targets_done = targets_done + 1, "
-                    "updated_at = now() WHERE id = :run"
-                ),
-                {"run": run_id},
-            )
     logger.info(
         "campaign %s · target=%s · placed=%s", run_id, target_id, result.get("placed")
     )

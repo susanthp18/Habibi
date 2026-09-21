@@ -1,0 +1,22 @@
+[
+  {"id": "en-hardship-01", "language_hint": "en", "text": "I lost my job last month and I cannot pay this EMI."},
+  {"id": "hi-hardship-01", "language_hint": "hinglish", "text": "paisa nahi hai bhai, naukri chali gayi pichle mahine"},
+  {"id": "ta-pay-01", "language_hint": "other", "text": "enakku salary innum credit aagala, next week pay panren"},
+  {"id": "en-dispute-01", "language_hint": "en", "text": "This charge is not mine, I want to raise a dispute."},
+  {"id": "en-balance-01", "language_hint": "en", "text": "How much do I owe on the loan right now?"},
+  {"id": "hi-balance-01", "language_hint": "hinglish", "text": "kitna baki hai mera outstanding, batao na"},
+  {"id": "en-pay-01", "language_hint": "en", "text": "Send me a UPI link, I will pay today."},
+  {"id": "en-escalate-01", "language_hint": "en", "text": "I want to speak to a supervisor right now."},
+  {"id": "en-legal-01", "language_hint": "en", "text": "My lawyer sent a notice, do not call me, this is a legal matter."},
+  {"id": "en-abuse-01", "language_hint": "en", "text": "Stop calling you idiot, I will kill you if you ring again."},
+  {"id": "en-faq-01", "language_hint": "en", "text": "What does Travel Protect360 cover for medical expenses?"},
+  {"id": "en-waiver-01", "language_hint": "en", "text": "Can you waive the late fee this one time as goodwill?"},
+  {"id": "en-greet-01", "language_hint": "en", "text": "Hello, who is this?"},
+  {"id": "en-help-01", "language_hint": "en", "text": "What can you do for me on this call?"},
+  {"id": "hi-pay-01", "language_hint": "hinglish", "text": "theek hai, aaj shaam ko UPI se settle kar dunga"},
+  {"id": "ta-hardship-01", "language_hint": "other", "text": "job poiruchu, kaasu illa, later-aa settle panren"},
+  {"id": "en-correction-01", "language_hint": "en", "text": "No I did not say I will pay tomorrow, I said next month."},
+  {"id": "en-wrongnum-01", "language_hint": "en", "text": "Wrong number, I do not have any loan with you."},
+  {"id": "hi-escalate-01", "language_hint": "hinglish", "text": "manager se baat karao, ombudsman complaint karunga"},
+  {"id": "en-repeat-01", "language_hint": "en", "text": "I already asked for the outstanding amount twice, please just tell me the number."}
+]

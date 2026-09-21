@@ -48,6 +48,37 @@ def twilio_phone() -> str:
     return env_str("TWILIO_PHONE_NUMBER")
 
 
+def default_from_number() -> str:
+    return twilio_phone()
+
+
+def originate(
+    *,
+    to: str,
+    custom: dict[str, str] | None = None,
+    machine_detection: bool = False,
+    from_number: str | None = None,
+) -> dict[str, Any]:
+    """TelephonyProvider surface — delegates to the existing REST dial."""
+    return start_outbound_call(
+        to=to,
+        custom=custom,
+        machine_detection=machine_detection,
+        from_number=from_number,
+    )
+
+
+def hangup(channel_id: str) -> None:
+    if not channel_id:
+        return
+    client = rest_client()
+    client.calls(channel_id).update(status="completed")
+
+
+def warm_transfer(channel_id: str, *, reason: str = "customer_requested") -> dict[str, Any]:
+    return warm_transfer_to_supervisor(channel_id, reason=reason)
+
+
 def supervisor_phone() -> str:
     return env_str("SUPERVISOR_CALLBACK_PHONE")
 
@@ -186,6 +217,23 @@ def call_status_callback_url() -> str | None:
 
 def configured() -> bool:
     return bool(account_sid() and auth_token() and twilio_phone())
+
+
+def preflight() -> list[str]:
+    """Everything that makes a Twilio dial silently useless rather than loudly broken."""
+    problems: list[str] = []
+    if not configured():
+        problems.append("TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_PHONE_NUMBER missing")
+    if not call_status_callback_url():
+        problems.append(
+            "no status callback URL (PUBLIC_BASE_URL unset or not https) -- the call "
+            "would place but its outcome would never be recorded"
+        )
+    try:
+        media_stream_wss_url()
+    except RuntimeError as exc:
+        problems.append(f"media stream URL unavailable: {exc}")
+    return problems
 
 
 def digits_only(phone: str | None) -> str:

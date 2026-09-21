@@ -140,6 +140,53 @@ def send_reply(engine: Engine, t: Turn) -> bool:
     return True
 
 
+def send_notice(
+    engine: Engine,
+    *,
+    conversation_id: str,
+    job_id: str,
+    body: str,
+) -> bool:
+    """Persist-then-send a notice without a full Turn (dead-letter escalate)."""
+    fresh = bot_conversation.load_conversation(engine, conversation_id)
+    if fresh is None or bot_conversation.policy_gate(engine, fresh):
+        return False
+    msg_id = bot_conversation.persist_outbound_sending(
+        engine,
+        conversation_id=conversation_id,
+        job_id=job_id,
+        body=body,
+    )
+    to_phone = wa.normalize_phone(fresh.get("phone_primary"))
+    if not to_phone:
+        bot_conversation.finalize_outbound(
+            engine,
+            message_id=msg_id,
+            provider_ref=None,
+            delivery_status="failed",
+            customer_id=fresh.get("customer_id"),
+            conversation_id=conversation_id,
+            body=body,
+        )
+        return False
+    try:
+        send_resp = wa.send_text_message(to_phone=to_phone, body=body)
+        provider_ref = wa.extract_wamid(send_resp)
+        bot_conversation.finalize_outbound(
+            engine,
+            message_id=msg_id,
+            provider_ref=provider_ref,
+            delivery_status="sent",
+            customer_id=fresh.get("customer_id"),
+            conversation_id=conversation_id,
+            body=body,
+        )
+    except Exception:
+        logger.exception("escalate notice send failed conversation=%s", conversation_id)
+        return False
+    return True
+
+
 def persist_turn(engine: Engine, t: Turn) -> None:
     """The state save, both transcript turns, the trace backfill, live QA, and the job's close."""
     job_id = t.job_id
@@ -163,7 +210,7 @@ def persist_turn(engine: Engine, t: Turn) -> None:
     state.update(
         {
             "turn_count": turn_count,
-            "last_intent": intent,
+            "last_intent": t.session_intent or intent,
             "last_intent_scores": intent_scores,
             "last_sentiment": sentiment_label(sentiment),
             "last_trigger_message_id": latest_msg_id,

@@ -54,6 +54,14 @@ def build(sink: "CrmSink") -> Any | None:
         LLMUsageMetricsData = None  # type: ignore
         TTSUsageMetricsData = None  # type: ignore
 
+    # Smart Turn already times its own inference and reports it here; nothing
+    # read it, so "how long does end-pointing cost" had no answer and the
+    # single-threaded ONNX session could not be argued about with a number.
+    try:
+        from pipecat.metrics.metrics import TurnMetricsData
+    except Exception:  # pragma: no cover - depends on pipecat version
+        TurnMetricsData = None  # type: ignore
+
     def _as_ms(value: Any) -> float | None:
         """Pipecat latency metrics are seconds — convert, don't guess.
 
@@ -72,11 +80,32 @@ def build(sink: "CrmSink") -> Any | None:
             return None
         return v * 1000.0
 
+    # An observer is called for every hop a frame makes between processors, so one
+    # MetricsFrame reached this code once per downstream stage -- seven times on a
+    # phone pipeline, and every token, TTS character and latency sample was billed
+    # and averaged seven times over. Each frame is counted once, by its id.
+    seen: dict[int, None] = {}
+
+    def _first_sighting(frame: Any) -> bool:
+        frame_id = getattr(frame, "id", None)
+        if frame_id is None:
+            return True
+        if frame_id in seen:
+            return False
+        seen[frame_id] = None
+        if len(seen) > 1024:
+            seen.pop(next(iter(seen)))
+        return True
+
     class _MetricsObserver(BaseObserver):  # type: ignore[misc,valid-type]
         async def on_push_frame(self, data):  # noqa: ANN001
             try:
                 frame = getattr(data, "frame", None) or data
-                if MetricsFrame is not None and isinstance(frame, MetricsFrame):
+                if (
+                    MetricsFrame is not None
+                    and isinstance(frame, MetricsFrame)
+                    and _first_sighting(frame)
+                ):
                     for item in getattr(frame, "data", None) or []:
                         name = str(getattr(item, "name", "") or "").lower()
                         cls = type(item).__name__.lower()
@@ -97,15 +126,28 @@ def build(sink: "CrmSink") -> Any | None:
 
                         # leading_silence (new on TTFAMetricsData in 1.6.0)
                         # separates real TTS latency from padding at the
-                        # head of the audio. Logged, deliberately not a
-                        # column — it tunes the voice, it isn't a per-turn
-                        # business metric.
+                        # head of the audio. Still not a column — it tunes the
+                        # voice, it isn't a per-turn business metric — but it
+                        # now reaches the turn trace instead of a DEBUG line
+                        # nobody sees: it is the term that says whether a slow
+                        # first syllable is Azure or our own aggregation.
                         lead = _as_ms(getattr(item, "leading_silence", None))
                         if lead is not None:
-                            logger.debug(
-                                "tts leading silence %.0fms · session=%s",
-                                lead,
-                                sink.session.session_id,
+                            sink.record_turn_metric(leading_silence_ms=int(lead))
+
+                        # Which end-of-turn decision this turn actually got,
+                        # and what it cost to make.
+                        if TurnMetricsData is not None and isinstance(item, TurnMetricsData):
+                            sink.record_turn_metric(
+                                smart_turn_ms=int(
+                                    float(getattr(item, "e2e_processing_time_ms", 0) or 0)
+                                ),
+                                smart_turn_prob=round(
+                                    float(getattr(item, "probability", 0) or 0), 3
+                                ),
+                                smart_turn_complete=int(
+                                    bool(getattr(item, "is_complete", False))
+                                ),
                             )
 
                         # Token usage. This previously read `item.tokens` /
@@ -133,6 +175,24 @@ def build(sink: "CrmSink") -> Any | None:
                                     sink.record_tokens(total)
                                 elif prompt or completion:
                                     sink.record_tokens(prompt + completion)
+                                cached = _cached_input_tokens(usage)
+                                # Its own trace line, NOT folded into turn.e2e.
+                                # LLM usage is pushed when the response
+                                # finishes, and the bot starts speaking while it
+                                # is still streaming -- so by the time turn.e2e
+                                # is assembled (BotStartedSpeakingFrame) these
+                                # may not have arrived, and stashing them would
+                                # report them against the following turn. The
+                                # prompt-cache hit rate is the evidence for the
+                                # system-prompt reorder; attributing it to the
+                                # wrong turn would make that unreadable.
+                                sink._trace(
+                                    "llm.turn",
+                                    prompt_tokens=prompt or None,
+                                    cached_tokens=cached,
+                                    completion_tokens=completion or None,
+                                    model=getattr(item, "model", None),
+                                )
                                 sink.usage.record_llm(
                                     prompt_tokens=prompt,
                                     completion_tokens=completion,
@@ -142,7 +202,7 @@ def build(sink: "CrmSink") -> Any | None:
                                     # prompt_tokens_details.cached_tokens. Only the
                                     # first was read, against an Azure deployment,
                                     # so no voice call had ever recorded a hit.
-                                    cached_input_tokens=_cached_input_tokens(usage),
+                                    cached_input_tokens=cached,
                                     reasoning_tokens=getattr(
                                         usage, "reasoning_tokens", None
                                     ),

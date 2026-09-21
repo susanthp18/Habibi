@@ -150,7 +150,7 @@ class DemoOutboundTargetResponse(BaseModel):
     demoIgnoresWindow: bool
     policyReason: str | None = None
     policyWaived: str | None = None
-    twilioConfigured: bool
+    telephonyConfigured: bool
 
 
 class DemoOutboundCallResponse(BaseModel):
@@ -245,7 +245,6 @@ class CampaignRunCreateRequest(BaseModel):
     name: str | None = None
     objective: str | None = None
     botId: str | None = None
-    cadence: str | None = None
     source: str | None = None
     selector: CampaignSelectorRequest | None = None
     windowStartHour: int | None = None
@@ -281,11 +280,12 @@ class CampaignProgressResponse(BaseModel):
     done: int
     skipped: int
     failed: int
+    parked: int
 
 
 class CampaignRunResponse(BaseModel):
-    """campaign_runs row-star. The list adds pending/done/skipped, the detail
-    adds ``progress``; create and status return the bare row."""
+    """campaign_runs row-star plus ``progress``, counted from campaign_targets
+    on every endpoint that returns a run."""
 
     id: str
     tenant_id: str
@@ -293,7 +293,6 @@ class CampaignRunResponse(BaseModel):
     deployment_id: str | None = None
     name: str
     objective: str
-    cadence: str
     source: str
     selector: dict[str, Any] = {}
     status: str
@@ -301,18 +300,13 @@ class CampaignRunResponse(BaseModel):
     window_end_hour: int
     max_concurrent: int
     max_attempts_total: int | None = None
-    targets_total: int
-    targets_done: int
     created_by_user_id: str | None = None
     started_at: datetime | None = None
     paused_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
-    pending: int | None = None
-    done: int | None = None
-    skipped: int | None = None
-    progress: CampaignProgressResponse | None = None
+    progress: CampaignProgressResponse
 
 
 class CohortMemberResponse(BaseModel):
@@ -500,6 +494,42 @@ class TreatmentCaseResponse(BaseModel):
     rationale: str | None = None
     lastDecidedAt: datetime | None = None
     lastAttemptAt: datetime | None = None
+
+
+class TreatmentEnactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agency: str | None = None
+    scheduledDate: str | None = None
+    servedAt: str | None = None
+    method: str | None = None
+
+
+class TreatmentEnactResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisionId: str
+    acted: bool
+    note: str
+    enactedRef: str | None = None
+
+
+class TreatmentOpsRowResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decisionId: str
+    customerId: str
+    customerName: str
+    accountId: str | None = None
+    action: str
+    expectedValueInr: float | None = None
+    scheduledAt: datetime | None = None
+    mode: str
+    enacted: bool
+    enactedRef: str | None = None
+    rationale: str | None = None
+    presentationId: str | None = None
+    presentationStatus: str | None = None
 
 
 class TreatmentActionContractResponse(BaseModel):

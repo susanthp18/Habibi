@@ -29,6 +29,7 @@ interface Props {
   onSubmit: (input: PlanInput) => void;
   owners: string[];
   customers: CustomerOption[];
+  initialCustomerId?: string;
 }
 
 const startDefault = () => {
@@ -37,7 +38,14 @@ const startDefault = () => {
   return d.toISOString().slice(0, 10);
 };
 
-export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, customers }: Props) {
+export function PlanBuilderSheet({
+  open,
+  onOpenChange,
+  onSubmit,
+  owners,
+  customers,
+  initialCustomerId,
+}: Props) {
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [total, setTotal] = useState("30000");
   const [installments, setInstallments] = useState(4);
@@ -47,7 +55,8 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
 
   useEffect(() => {
     if (open) {
-      const c = customers[0];
+      const c =
+        customers.find((row) => row.id === initialCustomerId) ?? customers[0];
       if (c) {
         setCustomerId(c.id);
         setTotal(String(Math.max(20000, Math.round((c.outstanding || 30000) / 100) * 100)));
@@ -57,7 +66,7 @@ export function PlanBuilderSheet({ open, onOpenChange, onSubmit, owners, custome
       setStartDate(startDefault());
       setOwner(owners[0] ?? "AI Bot");
     }
-  }, [open, customers, owners]);
+  }, [open, customers, owners, initialCustomerId]);
 
   const cust = customers.find((c) => c.id === customerId);
   useEffect(() => {

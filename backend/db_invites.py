@@ -89,20 +89,52 @@ def _load_one(conn: Any, invite_id: str) -> Any:
     ).mappings().first()
 
 
-def _signed_in(conn: Any, email: str) -> bool:
-    row = conn.execute(
+def _operator_for_email(conn: Any, email: str) -> Any:
+    return conn.execute(
         text(
             """
-            SELECT 1 FROM users
-             WHERE tenant_id = :t
-               AND entra_oid IS NOT NULL
-               AND lower(coalesce(entra_upn, email, '')) = :email
+            SELECT u.id, u.status,
+                   EXISTS (
+                       SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id
+                   ) AS has_role
+              FROM users u
+             WHERE u.tenant_id = :t
+               AND u.entra_oid IS NOT NULL
+               AND lower(coalesce(u.entra_upn, u.email, '')) = :email
              LIMIT 1
             """
         ),
         {"t": _tenant(), "email": email},
-    ).first()
-    return row is not None
+    ).mappings().first()
+
+
+def _invite_blocked(row: Any) -> bool:
+    """Active operators who already hold a role cannot be invited again."""
+    if row is None:
+        return False
+    if str(row["status"] or "") != "active":
+        return False
+    return bool(row["has_role"])
+
+
+def apply_invite_role(conn: Any, user_id: str, role_id: str, *, activate: bool) -> None:
+    """Grant the invite role. Inactive operators are a fresh grant, not a merge."""
+    if activate:
+        conn.execute(
+            text("UPDATE users SET status = 'active', updated_at = now() WHERE id = :id"),
+            {"id": user_id},
+        )
+        conn.execute(text("DELETE FROM user_roles WHERE user_id = :id"), {"id": user_id})
+    conn.execute(
+        text(
+            """
+            INSERT INTO user_roles (user_id, role_id)
+            VALUES (:uid, :rid)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"uid": user_id, "rid": role_id},
+    )
 
 
 def _send(email: str, role_name: str, inviter_name: str | None) -> str | None:
@@ -117,8 +149,10 @@ def create_invite(email: str, role_id: str) -> dict[str, Any]:
     wanted_email = normalize_invite_email(email)
     role_ref = (role_id or "").strip()
     actor = _actor_user_id()
+    existing_id: str | None = None
     with _db().engine.begin() as conn:
-        if _signed_in(conn, wanted_email):
+        operator = _operator_for_email(conn, wanted_email)
+        if _invite_blocked(operator):
             raise ValueError("already_signed_in")
         role = db_users._load_role(conn, role_ref)
         if role is None:
@@ -128,7 +162,7 @@ def create_invite(email: str, role_id: str) -> dict[str, Any]:
             {"id": actor},
         ).mappings().first()
         inviter_name = str(inviter["name"]) if inviter else None
-        existing = conn.execute(
+        pending = conn.execute(
             text(
                 """
                 SELECT id FROM operator_invites
@@ -138,8 +172,8 @@ def create_invite(email: str, role_id: str) -> dict[str, Any]:
             ),
             {"t": _tenant(), "email": wanted_email},
         ).mappings().first()
-        invite_id = str(existing["id"]) if existing else _id("INV")
-        if existing is None:
+        invite_id = str(pending["id"]) if pending else _id("INV")
+        if pending is None:
             conn.execute(
                 text(
                     """
@@ -205,7 +239,31 @@ def create_invite(email: str, role_id: str) -> dict[str, Any]:
                 ),
             },
         )
+        if operator is not None:
+            existing_id = str(operator["id"])
+            apply_invite_role(
+                conn,
+                existing_id,
+                str(role["id"]),
+                activate=str(operator["status"] or "") != "active",
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE operator_invites
+                       SET status = 'accepted', accepted_at = now(), updated_at = now()
+                     WHERE id = :id
+                    """
+                ),
+                {"id": invite_id},
+            )
         row = _load_one(conn, invite_id)
+    if existing_id:
+        import actor_context
+        import authz
+
+        authz.invalidate_permission_cache(existing_id)
+        actor_context.invalidate_user_exists(existing_id)
     return {"invite": _row(row)}
 
 
@@ -218,7 +276,7 @@ def resend_invite(invite_id: str) -> dict[str, Any]:
             raise KeyError("invite_not_found")
         if str(row["status"]) != "pending":
             raise ValueError("invite_not_pending")
-        if _signed_in(conn, str(row["email"]).lower()):
+        if _invite_blocked(_operator_for_email(conn, str(row["email"]).lower())):
             raise ValueError("already_signed_in")
         err = _send(str(row["email"]), str(row["role_name"]), row["invited_by_name"])
         conn.execute(

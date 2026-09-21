@@ -11,6 +11,7 @@ Prewarm and the Pipecat LLM service must share the same client.
 from __future__ import annotations
 
 from typing import Any
+import asyncio
 import logging
 import threading
 import time
@@ -34,6 +35,26 @@ _client: AsyncAzureOpenAI | None = None
 _lock = threading.Lock()
 _prewarmed = False
 _last_prewarm_ms: float | None = None
+#: When the last real warm-up completion actually ran. ``_prewarmed`` only says
+#: it happened once; this says how long ago, which is the difference between a
+#: warm process and one that has been idle past the deployment's cold threshold.
+_last_prewarm_at: float | None = None
+
+
+def warm_state() -> dict[str, Any]:
+    """Whether this process is warm, and how stale that claim is.
+
+    The cheapest possible detector for the two prewarming gaps: boot warmers
+    that never ran in this process at all, and a process warmed at boot that
+    has since gone cold. Both are invisible today -- ``_prewarmed`` latches
+    True forever and the per-call prewarm returns without doing anything.
+    """
+    age = (time.monotonic() - _last_prewarm_at) if _last_prewarm_at else None
+    return {
+        "prewarmed": 1 if _prewarmed else 0,
+        "prewarm_age_s": round(age, 1) if age is not None else None,
+        "prewarm_ms": int(_last_prewarm_ms) if _last_prewarm_ms else None,
+    }
 
 
 def _guard_completions(client: AsyncAzureOpenAI) -> AsyncAzureOpenAI:
@@ -184,12 +205,87 @@ def _is_unsupported_token_param(exc: BaseException, param: str) -> bool:
     return str(error.get("param") or "") == param
 
 
+#: How long the process may sit idle before the keep-warm loop pings again.
+#: Mirrors azure_openai.PREWARM_IDLE_SECONDS, which exists for the same reason:
+#: httpx reaps keep-alive connections after a few minutes and Azure lets a
+#: deployment go cold, so an outbound campaign runner that spends most of its
+#: life between dials is cold nearly every time it is needed.
+_KEEP_WARM_INTERVAL_S = 180.0
+
+_keep_warm_task: Any = None
+
+
+async def ensure_keep_warm() -> None:
+    """Start the idle re-warm loop once per process. Idempotent.
+
+    ``_prewarmed`` latches True at boot and never clears, so the per-call
+    ``prewarm_shared_client()`` returned without doing any work and the voice
+    process had no idle re-warm at all -- the text path has had one since it
+    shipped (``azure_openai.PREWARM_IDLE_SECONDS``, re-called per idle tick by
+    ``bot_worker.warm_while_idle``). The first caller after a quiet stretch paid
+    a cold deployment inside their silent line.
+
+    Deliberately NOT a re-warm on the call path. Warming when a cold call
+    arrives just moves the cost into that call -- a real Azure completion
+    competing with the same shared client and the same breaker, on the greeting
+    least able to afford it. This loop sleeps first and pings only while the
+    process is idle, so the ping is always paid by nobody.
+    """
+    global _keep_warm_task
+    if _keep_warm_task is not None and not _keep_warm_task.done():
+        return
+    _keep_warm_task = asyncio.create_task(_keep_warm_loop())
+
+
+def _calls_in_flight() -> int:
+    try:
+        from voice import admission
+
+        return int(admission.snapshot().get("activeCalls") or 0)
+    except Exception:
+        # Unknown means "assume busy": skipping a warm costs a slow turn,
+        # pinging mid-call costs the turn the caller is in.
+        return 1
+
+
+def _warm_text_path() -> None:
+    """The chat+embedding deployment the KB path uses, not the voice one.
+
+    ``azure_openai.prewarm`` is called once at boot by the voice runner and
+    never again, so the first KB retrieval after a quiet stretch pays the cold
+    connection the module documents at ~1.2s. It is synchronous and guards
+    itself with its own idle window, so calling it bare each tick is the same
+    shape as bot_worker's on_idle hook.
+    """
+    try:
+        import azure_openai
+
+        azure_openai.prewarm()
+    except Exception:
+        logger.debug("text-path idle warm failed", exc_info=True)
+
+
+async def _keep_warm_loop() -> None:
+    while True:
+        try:
+            # Sleep first: the call that started this loop must never pay for it.
+            await asyncio.sleep(_KEEP_WARM_INTERVAL_S)
+            if _calls_in_flight() > 0:
+                continue
+            await prewarm_shared_client(force=True)
+            await asyncio.to_thread(_warm_text_path)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("keep-warm tick failed", exc_info=True)
+
+
 async def prewarm_shared_client(*, force: bool = False) -> float:
     """Warm TLS + HTTP on the shared client. Does NOT close it.
 
     Returns elapsed ms of the warm-up completion (0 on failure).
     """
-    global _prewarmed, _last_prewarm_ms
+    global _prewarmed, _last_prewarm_ms, _last_prewarm_at
     if _prewarmed and not force:
         return float(_last_prewarm_ms or 0.0)
 
@@ -201,6 +297,7 @@ async def prewarm_shared_client(*, force: bool = False) -> float:
         ms = (time.perf_counter() - t0) * 1000.0
         _prewarmed = True
         _last_prewarm_ms = ms
+        _last_prewarm_at = time.monotonic()
         logger.info(
             "voice LLM prewarm OK · deployment=%s · %.0f ms (shared client kept open)",
             deployment,

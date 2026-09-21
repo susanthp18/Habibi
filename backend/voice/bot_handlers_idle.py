@@ -29,6 +29,71 @@ def should_defer_question_idle(last_bot: str, silent_s: float, floor_s: float) -
     return (last_bot or "").rstrip().endswith("?")
 
 
+async def live_hold(scope: HandlerScope) -> None:
+    """Caller said hold on — acknowledge + relax idle (edge #17)."""
+    from pipecat.frames.frames import UserIdleTimeoutUpdateFrame
+
+    session = scope.session
+    worker = scope.worker
+    TTSSpeakFrame = scope.TTSSpeakFrame
+    session.extra["on_hold"] = True
+    try:
+        await worker.queue_frame(
+            TTSSpeakFrame("Of course, take your time.", append_to_context=False)
+        )
+    except TypeError:
+        await worker.queue_frame(TTSSpeakFrame("Of course, take your time."))
+    await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=45.0))
+
+
+async def live_language(scope: HandlerScope, action: dict) -> None:
+    """Mid-call language handling within AgentTuning.stt.fallback_languages (edge #16)."""
+    from pipecat.frames.frames import STTUpdateSettingsFrame
+
+    from voice.tuning_apply import normalize_language
+
+    session = scope.session
+    worker = scope.worker
+    sink = scope.sink
+    stt = scope.stt
+    user_aggregator = scope.user_aggregator
+    LLMMessagesAppendFrame = scope.LLMMessagesAppendFrame
+    if action.get("action") == "switch" and action.get("language"):
+        requested = str(action["language"])
+        lang = normalize_language(requested)
+        try:
+            await worker.queue_frame(
+                STTUpdateSettingsFrame(delta=type(stt).Settings(language=lang))
+            )
+            sink.set_stt_language(lang)
+            logger.info(
+                "STT language switched · session={} · requested={} · lang={}",
+                session.session_id,
+                requested,
+                lang,
+            )
+        except Exception:
+            logger.exception("STT language switch failed")
+            msg = {
+                "role": "developer",
+                "content": (
+                    "Caller may be speaking another language. Briefly ask if they "
+                    "can continue in English, or call escalate_to_human."
+                ),
+            }
+            await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
+        return
+    msg = {
+        "role": "developer",
+        "content": (
+            "Caller appears to be speaking a language outside the configured "
+            "fallbacks. Briefly offer to connect them to a human agent "
+            "(escalate_to_human) or continue in English."
+        ),
+    }
+    await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
+
+
 def build(scope: HandlerScope) -> None:
     """Register this section's handlers on the call's objects."""
     EndFrame = scope.EndFrame
@@ -40,7 +105,6 @@ def build(scope: HandlerScope) -> None:
     emitter = scope.emitter
     session = scope.session
     sink = scope.sink
-    stt = scope.stt
     tts = scope.tts
     tuning = scope.tuning
     user_aggregator = scope.user_aggregator
@@ -263,66 +327,10 @@ def build(scope: HandlerScope) -> None:
         await worker.queue_frame(EndFrame())
 
     async def _live_hold() -> None:
-        """Caller said hold on — acknowledge + relax idle (edge #17)."""
-        from pipecat.frames.frames import UserIdleTimeoutUpdateFrame
-
-        session.extra["on_hold"] = True
-        try:
-            await worker.queue_frame(
-                TTSSpeakFrame("Of course, take your time.", append_to_context=False)
-            )
-        except TypeError:
-            await worker.queue_frame(TTSSpeakFrame("Of course, take your time."))
-        await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=45.0))
+        await live_hold(scope)
 
     async def _live_language(action: dict) -> None:
-        """Mid-call language handling within AgentTuning.stt.fallback_languages (edge #16)."""
-        from pipecat.frames.frames import STTUpdateSettingsFrame
-
-        from voice.tuning_apply import normalize_language
-
-        if action.get("action") == "switch" and action.get("language"):
-            requested = str(action["language"])
-            # The sink stores what STT was actually set to. Storing the raw
-            # request instead made the next resolve_language_action compare an
-            # un-normalised current_language against normalised fallbacks and
-            # re-trigger a switch that had already happened.
-            lang = normalize_language(requested)
-            try:
-                # The *bound* recogniser's Settings class, not Azure's. Once STT
-                # can be bound to Deepgram or Speechmatics, hardcoding Azure here
-                # would hand a foreign settings object to the running service and
-                # turn a language switch into a mid-call failure.
-                await worker.queue_frame(
-                    STTUpdateSettingsFrame(delta=type(stt).Settings(language=lang))
-                )
-                sink.set_stt_language(lang)
-                logger.info(
-                    "STT language switched · session={} · requested={} · lang={}",
-                    session.session_id,
-                    requested,
-                    lang,
-                )
-            except Exception:
-                logger.exception("STT language switch failed")
-                msg = {
-                    "role": "developer",
-                    "content": (
-                        "Caller may be speaking another language. Briefly ask if they "
-                        "can continue in English, or call escalate_to_human."
-                    ),
-                }
-                await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
-            return
-        msg = {
-            "role": "developer",
-            "content": (
-                "Caller appears to be speaking a language outside the configured "
-                "fallbacks. Briefly offer to connect them to a human agent "
-                "(escalate_to_human) or continue in English."
-            ),
-        }
-        await user_aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
+        await live_language(scope, action)
 
     async def _live_correction(correction) -> None:
         """Inject one self-correction directive for the next turn.

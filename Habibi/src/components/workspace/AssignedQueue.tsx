@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, ChevronRight, Filter, Inbox, Search, X } from "lucide-react";
+import { ChevronRight, Filter, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { bucketWorkItems, enactedByLabel, useWorkItems, type WorkItem } from "@/api/workspace";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import type { SlaLevel } from "@/api/types/workspace";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -41,7 +42,7 @@ const SLA_RANK: Record<SlaLevel, number> = { breach: 3, warn: 2, ok: 1 };
 
 export function AssignedQueue() {
   const navigate = useNavigate();
-  const { data: items, isLoading, isError, refetch } = useWorkItems("me");
+  const { data: items, isLoading, isError, error } = useWorkItems("me");
   const [active, setActive] = useState<TabKey>("disputes");
   const [q, setQ] = useState("");
   const [slaFilter, setSlaFilter] = useState<Set<SlaLevel>>(new Set());
@@ -51,7 +52,7 @@ export function AssignedQueue() {
 
   const tabs: { key: TabKey; label: string; rows: WorkItem[] }[] = TAB_META.map((t) => ({
     ...t,
-    rows: buckets[t.key] as WorkItem[],
+    rows: buckets[t.key],
   }));
 
   const current = tabs.find((t) => t.key === active) ?? tabs[0]!;
@@ -61,7 +62,7 @@ export function AssignedQueue() {
   useEffect(() => {
     if (!items?.length) return;
     if ((buckets[active] as WorkItem[] | undefined)?.length) return;
-    const first = TAB_META.find((t) => (buckets[t.key] as WorkItem[]).length > 0);
+    const first = TAB_META.find((t) => buckets[t.key].length > 0);
     if (first) setActive(first.key);
   }, [items, buckets, active]);
 
@@ -366,17 +367,7 @@ export function AssignedQueue() {
           className="mt-0 min-h-[16rem] overflow-hidden bg-surface-sunken/25 p-100"
         >
           {isError && !isLoading ? (
-            <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
-              <AlertTriangle className="h-5 w-5 text-text-danger" />
-              <div className="text-body text-text-subtle">Couldn&rsquo;t load your queue.</div>
-              <button
-                type="button"
-                onClick={() => void refetch()}
-                className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text transition-colors hover:bg-surface-sunken"
-              >
-                Retry
-              </button>
-            </div>
+            <QueryErrorBanner label="your queue" error={error} />
           ) : !isLoading && filteredRows.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-150 text-center">
               <Inbox className="h-5 w-5 text-text-subtlest" />

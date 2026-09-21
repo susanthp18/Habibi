@@ -619,7 +619,9 @@ def resolve(
             conn, tenant_id=tenant_id, at=instant, product_id=product_id
         )
     except Exception:
-        logger.exception("policy rule resolution failed for tenant=%s", tenant_id)
+        # stack_info: the failure is usually the caller's (a closed connection
+        # handed in at call teardown), and the traceback alone stops at this frame.
+        logger.exception("policy rule resolution failed for tenant=%s", tenant_id, stack_info=True)
         return EMPTY
 
     _cache_put(key, resolved)

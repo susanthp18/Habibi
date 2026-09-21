@@ -252,7 +252,13 @@ class KbCache:
         # justify flipping KB_ENRICH_FALLBACK to spec_only later.
         self.spec_attempts = 0
         self.spec_hits = 0
+        self.late_wait_timeouts = 0
         self.wait_samples_ms: list[float] = []
+        #: How this turn's grounding was obtained, and what it cost the turn.
+        #: ``resolve`` has always computed the source and the caller has always
+        #: dropped it, so "is speculation winning" was unanswerable from a log.
+        self.last_source: str | None = None
+        self.last_wait_ms: float | None = None
 
     # ------------------------------------------------------------------ policy
 
@@ -402,9 +408,43 @@ class KbCache:
         return task
 
     async def resolve(
-        self, query: str, product_keys: list[str] | None, *, timeout_s: float, fallback: str
+        self,
+        query: str,
+        product_keys: list[str] | None,
+        *,
+        timeout_s: float,
+        fallback: str,
+        late_timeout_s: float | None = None,
     ) -> tuple[list[dict[str, Any]], str]:
-        """Snippets for the final transcript, plus how they were obtained."""
+        """Snippets for the final transcript, plus how they were obtained.
+
+        Wraps :meth:`_resolve` so the source is recorded once, at the single
+        exit, rather than at each of its eight returns -- a future return that
+        forgets to record is the failure mode this shape removes.
+        """
+        started = time.monotonic()
+        snippets, source = await self._resolve(
+            query,
+            product_keys,
+            timeout_s=timeout_s,
+            fallback=fallback,
+            late_timeout_s=late_timeout_s,
+        )
+        self.last_source = source
+        self.last_wait_ms = (time.monotonic() - started) * 1000.0
+        return snippets, source
+
+    async def _resolve(
+        self,
+        query: str,
+        product_keys: list[str] | None,
+        *,
+        timeout_s: float,
+        fallback: str,
+        late_timeout_s: float | None = None,
+    ) -> tuple[list[dict[str, Any]], str]:
+        if late_timeout_s is None:
+            late_timeout_s = voice_config.kb_enrich_late_wait_ms() / 1000.0
         key = self.key_for(query, product_keys)
 
         cached = self.cache_get(key)
@@ -435,9 +475,28 @@ class KbCache:
                 # out of 6 attempts for exactly this reason: an embed takes
                 # 350-1900ms and the wait was 120ms, so the speculation could
                 # never win and its result was thrown away every time.
+                #
+                # Bounded, because "keep waiting on the paid embed" had no
+                # ceiling of its own: it inherited the Azure acquire timeout
+                # (10s) and a 20s request timeout with max_retries=2, so a
+                # saturated process could hold this turn far past anything the
+                # 400ms budget implied. Still shielded -- exceeding the outer
+                # bound means stop waiting, never stop working, and the task
+                # completes into the cache for the next turn.
                 if fallback == "inline":
                     try:
-                        snippets = await asyncio.shield(spec.task)
+                        snippets = await asyncio.wait_for(
+                            asyncio.shield(spec.task), late_timeout_s
+                        )
+                    except asyncio.TimeoutError:
+                        self.late_wait_timeouts += 1
+                        logger.warning(
+                            "kb speculation exceeded the late bound (%.0fms) -- "
+                            "proceeding ungrounded; the retrieval still lands in "
+                            "the cache",
+                            late_timeout_s * 1000,
+                        )
+                        return [], "late_timeout"
                     except Exception:
                         logger.debug("kb speculation failed after wait", exc_info=True)
                     else:
@@ -473,6 +532,8 @@ class KbCache:
         results still land in the cache and may serve a later turn."""
         self._turn_specs = []
         self._spec_count = 0
+        self.last_source = None
+        self.last_wait_ms = None
 
     def can_speculate(self) -> bool:
         if self._spec_count >= voice_config.kb_spec_max_per_turn():
@@ -514,6 +575,7 @@ class KbCache:
         return {
             "kb_spec_attempts": self.spec_attempts,
             "kb_spec_hits": self.spec_hits,
+            "kb_late_wait_timeouts": self.late_wait_timeouts,
             "kb_wait_ms_p50": int(waits[len(waits) // 2]) if waits else None,
         }
 
@@ -678,6 +740,7 @@ class KbEnrichProcessor(FrameProcessor):
             product_keys,
             timeout_s=voice_config.kb_enrich_wait_ms() / 1000.0,
             fallback=voice_config.kb_enrich_fallback(),
+            late_timeout_s=voice_config.kb_enrich_late_wait_ms() / 1000.0,
         )
         if not snippets:
             return

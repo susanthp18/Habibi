@@ -516,9 +516,12 @@ def _flow_assemble(st: FlowBuild) -> tuple[Any, dict[str, Any], Callable[[], dic
         len(global_functions),
     )
     if not graph.edges:
-        logger.warning(
-            "authored flow has zero compiled edges · nodes=%s · entry=%s — "
-            "transitions will only happen when a tool returns a node",
+        # A tool-driven graph (intake-v1 and every card built from the fleet
+        # templates) is authored with no edges on purpose; reachability is checked
+        # at publish time. Logged for context, not as a fault on every call.
+        logger.info(
+            "authored flow has no edges · nodes=%s · entry=%s — "
+            "transitions happen when a tool returns a node",
             len(graph.nodes),
             entry.key,
         )

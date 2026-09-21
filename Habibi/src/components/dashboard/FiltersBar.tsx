@@ -1,5 +1,11 @@
-import { CalendarDays, Download, Filter, Users2 } from "lucide-react";
+import { CalendarDays, ChevronDown, Download, Filter, Mail, Users2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -16,7 +22,9 @@ type Props = {
   onRange: (r: Range) => void;
   onSegment: (s: Segment) => void;
   onTeam: (t: TeamFilter) => void;
-  onExport: () => void;
+  onDownloadCsv: () => void;
+  onEmailReport: () => void;
+  emailPending?: boolean;
 };
 
 const rangeOptions: { value: Range; label: string }[] = [
@@ -26,7 +34,17 @@ const rangeOptions: { value: Range; label: string }[] = [
   { value: "qtd", label: "Quarter to date" },
 ];
 
-export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, onExport }: Props) {
+export function FiltersBar({
+  range,
+  segment,
+  team,
+  onRange,
+  onSegment,
+  onTeam,
+  onDownloadCsv,
+  onEmailReport,
+  emailPending,
+}: Props) {
   return (
     <div className="flex flex-wrap items-center gap-100 border-b border-border bg-surface px-300 py-150">
       <div className="mr-auto">
@@ -85,10 +103,31 @@ export function FiltersBar({ range, segment, team, onRange, onSegment, onTeam, o
         </SelectContent>
       </Select>
 
-      <Button variant="outline" size="sm" onClick={onExport} className="h-400 gap-075">
-        <Download className="h-3.5 w-3.5" />
-        Export
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-400 gap-075">
+            <Download className="h-3.5 w-3.5" />
+            Export
+            <ChevronDown className="h-3 w-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuItem onSelect={onDownloadCsv}>
+            <Download className="h-3.5 w-3.5" />
+            <div>
+              <div className="font-medium">Download CSV</div>
+              <div className="text-body-small text-text-subtlest">The lists on this screen, now</div>
+            </div>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onEmailReport} disabled={emailPending}>
+            <Mail className="h-3.5 w-3.5" />
+            <div>
+              <div className="font-medium">Email me</div>
+              <div className="text-body-small text-text-subtlest">A link to the full CSV</div>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

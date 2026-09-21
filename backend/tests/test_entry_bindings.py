@@ -374,3 +374,30 @@ def test_entry_binding_upsert_accepts_a_get_shaped_body(db_tx, door_on, api_head
     )
     assert res.status_code == 200, res.text
     assert res.json()["bot_id"] == "intake-v1"
+
+
+def test_the_fleet_ships_the_archive_guards_own_answer(db_tx, door_on, monkeypatch) -> None:
+    """The browser used to rebuild this from `entryBotId`, which is
+    `resolve_entry("voice")`. Point BOT_ID at a clone and bind voice elsewhere
+    and the two differ: Archive enabled, then 409'd."""
+    from agent_core.cards.clone import clone_card
+    from agent_core.cards.routing import is_entry_card, upsert_entry_binding
+
+    clone = clone_card(template_id="lapse", name="Door guard probe")["botId"]
+    try:
+        monkeypatch.setenv("BOT_ID", clone)
+        upsert_entry_binding(channel="voice", bot_id="insurance-v1")
+
+        fleet = {c["botId"]: c for c in db.list_agent_studio_cards()}
+        assert fleet[clone]["entryBotId"] == "insurance-v1"
+        for bot_id in (clone, "insurance-v1", "intake-v1"):
+            expected = is_entry_card(bot_id)
+            assert fleet[bot_id]["takesInbound"] == expected, bot_id
+            assert db.get_agent_studio_card(bot_id)["takesInbound"] == expected, bot_id
+        assert fleet[clone]["takesInbound"] is True
+        with pytest.raises(ValueError, match="entry_card_not_archivable"):
+            db.archive_agent_studio_card(clone)
+    finally:
+        with db.engine.begin() as conn:
+            conn.execute(text("DELETE FROM prompt_versions WHERE bot_id = :b"), {"b": clone})
+            conn.execute(text("DELETE FROM bots WHERE id = :b"), {"b": clone})

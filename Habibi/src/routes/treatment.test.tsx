@@ -30,6 +30,7 @@ beforeEach(() => {
       id: "hold-test",
       ...(call.body as object),
     }),
+    "GET /treatment/ops/{kind}": [],
   });
 });
 
@@ -55,6 +56,9 @@ describe("/treatment", () => {
       mount();
       // Radix tabs activate on pointer-down, not click
       const holdsTab = await screen.findByRole("tab", { name: /holds/i }, { timeout: 15_000 });
+      expect(screen.getByRole("tab", { name: /mandates/i })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: /^field$/i })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: /^legal$/i })).toBeTruthy();
       fireEvent.mouseDown(holdsTab, { button: 0 });
       fireEvent.click(holdsTab);
       // the row names the borrower, and the reason the hold was placed for

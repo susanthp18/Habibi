@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -140,6 +142,44 @@ def job_statuses(conn: Connection, job_ids: list[str]) -> dict[str, str]:
         {"ids": list(job_ids)},
     ).mappings().all()
     return {str(r["id"]): str(r["status"]) for r in rows}
+
+
+_IN_FLIGHT = frozenset({"queued", "running"})
+
+
+def wait_for_index_jobs(
+    engine: Engine,
+    job_ids: list[str],
+    *,
+    timeout_s: float = 180.0,
+    poll_s: float = 0.4,
+    sleeper: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, str]:
+    """Block until every job succeeded.
+
+    ``drain_queue`` in the HTTP process races ``collections_kb_worker``:
+    SKIP LOCKED lets the worker own the second job, so a single status read
+    sees ``running`` and source-db ingest used to 502. queued/running wait.
+    failed/dead/missing fail immediately.
+    """
+    ids = [str(j) for j in job_ids if j]
+    if not ids:
+        return {}
+    deadline = clock() + timeout_s
+    last: dict[str, str] = {}
+    while True:
+        with engine.connect() as conn:
+            last = job_statuses(conn, ids)
+        unfinished = {jid: last.get(jid, "missing") for jid in ids if last.get(jid) != "succeeded"}
+        if not unfinished:
+            return last
+        fatal = {jid: st for jid, st in unfinished.items() if st not in _IN_FLIGHT}
+        if fatal:
+            raise RuntimeError(f"index jobs did not succeed: {fatal}")
+        if clock() >= deadline:
+            raise RuntimeError(f"index jobs still in flight after {timeout_s:.0f}s: {unfinished}")
+        sleeper(poll_s)
 
 
 def claim_next_job(conn: Connection) -> dict[str, Any] | None:

@@ -8,8 +8,12 @@ import { CallDetailDrawer } from "@/components/audit/CallDetailDrawer";
 import type { AuditFilterState } from "@/api/types/audit";
 import { defaultFilters, filterCalls } from "@/lib/audit";
 import { useCalls } from "@/api/audit";
+import { createExportJob, fetchRedactionRecords } from "@/api/redaction";
+import { planAuditExport } from "@/lib/audit-export";
+import { mutationErrorMessage } from "@/lib/mutation-errors";
 import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 
 export const Route = createLazyFileRoute("/_app/audit")({
   component: AuditPage,
@@ -21,7 +25,7 @@ function AuditPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(id ?? null);
 
-  const { data: calls = [], isLoading, isError, error, refetch } = useCalls();
+  const { data: calls = [], isLoading, isError, error } = useCalls();
 
   useEffect(() => {
     if (id) setOpenId(id);
@@ -34,10 +38,39 @@ function AuditPage() {
   );
 
   const handleExport = () => {
-    const count = selected.size || rows.length;
-    toast.success(`Exporting ${count} call${count === 1 ? "" : "s"}`, {
-      description: "PII redaction applied. A watermarked ZIP will be ready in ~30 seconds.",
-    });
+    const ids = selected.size > 0 ? Array.from(selected) : rows.map((r) => r.id);
+    if (ids.length === 0) {
+      toast.error("Nothing to export");
+      return;
+    }
+    void fetchRedactionRecords()
+      .then((records) => {
+        const plan = planAuditExport(ids, records);
+        if (!plan.ok) {
+          toast.error("No redaction record for some calls", {
+            description: `${plan.missingCallIds.join(", ")} — open Redaction to create them.`,
+            action: {
+              label: "Redaction",
+              onClick: () => {
+                window.location.assign("/redaction");
+              },
+            },
+          });
+          return;
+        }
+        return createExportJob({
+          recordIds: plan.recordIds,
+          format: "pdf",
+          scope: ["transcript", "audio", "metadata"],
+          watermark: "AUDIT TRAIL",
+          actorRole: "Compliance Officer",
+        }).then((job) => {
+          toast.success(`${job.id} queued`, {
+            description: `${plan.recordIds.length} redacted record(s)`,
+          });
+        });
+      })
+      .catch((err: unknown) => toast.error(mutationErrorMessage(err)));
   };
 
   return (
@@ -70,18 +103,8 @@ function AuditPage() {
             <LoadingState label="Loading calls" />
           </div>
         ) : isError && calls.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
-            <p>Couldn’t load audit calls.</p>
-            <p className="text-body-small text-text-danger">
-              {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-            <button
-              type="button"
-              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse"
-              onClick={() => void refetch()}
-            >
-              Retry
-            </button>
+          <div className="flex flex-1 items-center justify-center p-400">
+            <QueryErrorBanner label="audit calls" error={error} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-hidden p-150">

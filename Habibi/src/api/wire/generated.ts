@@ -260,6 +260,8 @@ export const AgentStudioCardResponse = z.object({
   "cardSource": z.enum(["draft", "published", "default", "scaffold"]),
   "entryBotId": z.string(),
   "entryBindings": z.array(EntryBindingResponse).optional(),
+  "takesInbound": z.boolean(),
+  "handoffFrom": z.array(z.string()),
   "reachability": z.enum(["entry", "handoff", "direct", "unreachable", "archived"]),
   "archivedAt": z.string().nullable(),
   "isFirstParty": z.boolean(),
@@ -2630,7 +2632,7 @@ export const DemoOutboundTargetResponse = z.object({
   "demoIgnoresWindow": z.boolean(),
   "policyReason": z.string().nullable().optional(),
   "policyWaived": z.string().nullable().optional(),
-  "twilioConfigured": z.boolean(),
+  "telephonyConfigured": z.boolean(),
 }).passthrough();
 export const DemoOutboundCallResponse = z.object({
   "placed": z.boolean(),
@@ -3034,6 +3036,7 @@ export const CampaignProgressResponse = z.object({
   "done": z.number(),
   "skipped": z.number(),
   "failed": z.number(),
+  "parked": z.number(),
 }).passthrough();
 export const CampaignRunResponse = z.object({
   "id": z.string(),
@@ -3042,7 +3045,6 @@ export const CampaignRunResponse = z.object({
   "deployment_id": z.string().nullable().optional(),
   "name": z.string(),
   "objective": z.string(),
-  "cadence": z.string(),
   "source": z.string(),
   "selector": z.record(z.string(), z.unknown()).optional(),
   "status": z.string(),
@@ -3050,18 +3052,13 @@ export const CampaignRunResponse = z.object({
   "window_end_hour": z.number(),
   "max_concurrent": z.number(),
   "max_attempts_total": z.number().nullable().optional(),
-  "targets_total": z.number(),
-  "targets_done": z.number(),
   "created_by_user_id": z.string().nullable().optional(),
   "started_at": z.string().nullable().optional(),
   "paused_at": z.string().nullable().optional(),
   "finished_at": z.string().nullable().optional(),
   "created_at": z.string(),
   "updated_at": z.string(),
-  "pending": z.number().nullable().optional(),
-  "done": z.number().nullable().optional(),
-  "skipped": z.number().nullable().optional(),
-  "progress": CampaignProgressResponse.nullable().optional(),
+  "progress": CampaignProgressResponse,
 }).passthrough();
 export const CohortMemberResponse = z.object({
   "customer_id": z.string(),
@@ -3476,6 +3473,30 @@ export const OperatorInvitesResponse = z.object({
 }).passthrough();
 export const OperatorInviteWriteResponse = z.object({
   "invite": OperatorInviteResponse,
+}).passthrough();
+export const AccessRequestResponse = z.object({
+  "id": z.string(),
+  "userId": z.string(),
+  "userName": z.string(),
+  "userEmail": z.string().nullable().optional(),
+  "pagePath": z.string(),
+  "permission": z.string().nullable().optional(),
+  "permissionLabel": z.string().nullable().optional(),
+  "reason": z.string(),
+  "status": z.string(),
+  "grantedRoleId": z.string().nullable().optional(),
+  "grantedRoleName": z.string().nullable().optional(),
+  "requestedAt": z.string().nullable().optional(),
+  "reviewedAt": z.string().nullable().optional(),
+  "reviewedByUserId": z.string().nullable().optional(),
+  "reviewedByName": z.string().nullable().optional(),
+  "lastError": z.string().nullable().optional(),
+}).passthrough();
+export const AccessRequestsResponse = z.object({
+  "requests": z.array(AccessRequestResponse),
+}).passthrough();
+export const AccessRequestWriteResponse = z.object({
+  "request": AccessRequestResponse,
 }).passthrough();
 export const PlatformSwitchResponse = z.object({
   "key": z.string(),
@@ -4187,6 +4208,10 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /invites", OperatorInviteWriteResponse],
   ["POST /invites/{invite_id}/resend", OperatorInviteWriteResponse],
   ["POST /invites/{invite_id}/revoke", OperatorInviteWriteResponse],
+  ["GET /access-requests", AccessRequestsResponse],
+  ["POST /access-requests", AccessRequestWriteResponse],
+  ["POST /access-requests/{request_id}/approve", AccessRequestWriteResponse],
+  ["POST /access-requests/{request_id}/deny", AccessRequestWriteResponse],
   ["GET /platform/switches", PlatformSwitchesResponse],
   ["PATCH /platform/switches/{key}", PlatformSwitchFlipResponse],
   ["GET /routing-rules", z.array(RoutingRuleListResponse)],

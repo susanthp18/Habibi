@@ -1283,6 +1283,56 @@ def _eval_gate(
     return _gate(gate, name, "fail", status or "eval_fail", [report])
 
 
+#: The suites the fleet chip summarises, and the gate that enforces each.
+_READINESS_SUITES = (("G7", "regression"), ("G8", "redteam"))
+
+
+def eval_readiness(
+    card_raw: Any,
+    reports: dict[str, dict[str, Any] | None],
+    *,
+    earlier: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    """One word for "would G7/G8 let this content ship", for the fleet chip.
+
+    Built from ``_eval_gate`` so the chip and the publish compiler cannot
+    disagree about what a required suite is or what a passing report looks
+    like. The fleet summarised the suites itself and said ``pass`` when one of
+    two required suites had passed; publish then refused on the other.
+
+    The gate flags are deliberately not consulted: they decide whether a missing
+    or failed suite *blocks*, not what the suites found, and they default off --
+    reading them would turn every chip into ``skipped``.
+
+    ``reports`` holds the reports for this content, by kind; ``earlier`` names
+    the kinds with a report on some other content of the same bot.
+    """
+    card: AgentCard | None = None
+    if is_authored(card_raw):
+        try:
+            card = AgentCard.model_validate(card_raw)
+        except ValidationError:
+            card = None  # compile_card gates an invalid card as a legacy one too
+    required: list[str] = []
+    missing: list[str] = []
+    for gate, kind in _READINESS_SUITES:
+        result = _eval_gate(gate, kind, True, reports.get(kind), card)
+        if result.status == "skipped":
+            continue
+        required.append(kind)
+        if reports.get(kind) is None:
+            missing.append(kind)
+        elif result.status == "fail":
+            return "fail"
+    if not required:
+        return "skipped"
+    if not missing:
+        return "pass"
+    if any(kind in earlier for kind in missing):
+        return "stale"
+    return "incomplete" if len(missing) < len(required) else "skipped"
+
+
 def _provenance_gate(
     card: AgentCard | None,
     reports: dict[str, dict[str, Any] | None],

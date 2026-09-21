@@ -14,7 +14,7 @@ import db_outbound
 import os
 
 from fastapi import APIRouter
-from fastapi import HTTPException, Query
+from fastapi import Header, HTTPException, Query
 from schemas import (
     AgentObligationResponse,
     AuthorityApplyRequest,
@@ -42,6 +42,8 @@ from schemas import (
     OutboundCardVocabularyResponse,
     ReachStatsResponse,
     TreatmentCaseResponse,
+    TreatmentEnactRequest,
+    TreatmentEnactResponse,
     TreatmentHoldCreateRequest,
     TreatmentHoldReleaseRequest,
     TreatmentHoldResponse,
@@ -50,6 +52,7 @@ from schemas import (
     TreatmentModelHealthResponse,
     TreatmentModelsResponse,
     TreatmentNextResponse,
+    TreatmentOpsRowResponse,
 )
 from typing import Any
 
@@ -178,7 +181,7 @@ def demo_outbound_target():
     somebody's hand.
     """
     import platform_switches
-    from voice import twilio_ops
+    from voice import telephony
 
     phone = _demo_outbound_phone()
     digits = "".join(ch for ch in phone if ch.isdigit())
@@ -237,7 +240,7 @@ def demo_outbound_target():
         "demoIgnoresWindow": platform_switches.demo_ignores_window(),
         "policyReason": policy_reason,
         "policyWaived": policy_waived,
-        "twilioConfigured": twilio_ops.configured(),
+        "telephonyConfigured": telephony.configured(),
     }
 
 @router.post("/demo/outbound-call", response_model=DemoOutboundCallResponse)
@@ -254,12 +257,12 @@ async def demo_outbound_call():
     import mission as mission_mod
     import outbound
     import platform_switches
-    from voice import twilio_ops
+    from voice import telephony
 
     if not platform_switches.outbound_enabled():
         raise HTTPException(status_code=409, detail="outbound_disabled")
-    if not twilio_ops.configured():
-        raise HTTPException(status_code=503, detail="twilio_not_configured")
+    if not telephony.configured():
+        raise HTTPException(status_code=503, detail="telephony_not_configured")
 
     phone = _demo_outbound_phone()
     digits = "".join(ch for ch in phone if ch.isdigit())
@@ -434,6 +437,24 @@ def treatment_decision_feedback(decision_id: str, body: DecisionFeedbackRequest)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+@router.post(
+    "/treatment/decisions/{decision_id}/enact",
+    response_model=TreatmentEnactResponse,
+    response_model_exclude_unset=True,
+)
+def treatment_decision_enact(
+    decision_id: str,
+    body: TreatmentEnactRequest | None = None,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Carry out one live decision. Same executor as the clerk; enacted_by=human."""
+    return _handle_write(
+        db.enact_treatment_decision,
+        decision_id,
+        body.model_dump(exclude_none=True) if body else {},
+        idempotency_key,
+    )
+
 @router.get("/treatment/cases", response_model=list[TreatmentCaseResponse])
 def list_treatment_cases(
     customerId: str | None = Query(default=None),
@@ -449,6 +470,20 @@ def list_treatment_cases(
     """
     return db.list_treatment_cases(
         customer_id=customerId, open_only=openOnly, limit=limit, offset=offset
+    )
+
+@router.get("/treatment/ops/{kind}", response_model=list[TreatmentOpsRowResponse])
+def list_treatment_ops(
+    kind: str,
+    customerId: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+):
+    """Mandate / field / legal operator queues. Distinct from Holds."""
+    if kind not in {"mandates", "field", "legal"}:
+        raise HTTPException(status_code=404, detail="unknown_ops_kind")
+    return db.list_treatment_ops(
+        kind=kind, customer_id=customerId, limit=limit, offset=offset
     )
 
 @router.get("/outbound/stats", response_model=ReachStatsResponse)

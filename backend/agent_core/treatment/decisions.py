@@ -492,6 +492,15 @@ def claim_due(conn: Any, *, limit: int = 1, owner: str | None = None) -> list[di
     return claimed
 
 
+def get(conn: Any, decision_id: str) -> dict[str, Any] | None:
+    """Load one plan. None if the id is unknown."""
+    row = conn.execute(
+        text("SELECT * FROM treatment_decisions WHERE id = :id"),
+        {"id": decision_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
 def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
     """Lock one plan for the clerk. None if already enacted or claimed elsewhere."""
     row = conn.execute(

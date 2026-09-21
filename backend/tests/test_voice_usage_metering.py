@@ -128,6 +128,31 @@ def test_llm_usage_is_metered_with_prompt_completion_split(sink, events) -> None
     assert sink.usage.llm_turns == 1
 
 
+def test_a_metrics_frame_is_counted_once_however_many_hops_it_makes(sink, events) -> None:
+    """The observer sees a frame at every processor boundary. On a live call that
+    billed 35 turns and 82,824 prompt tokens for 7 real completions."""
+    observer = sink.build_observer()
+    frame = MetricsFrame(
+        data=[
+            LLMUsageMetricsData(
+                processor="KeepAliveAzureLLMService#0",
+                model="gpt-5-mini",
+                value=LLMTokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110),
+            )
+        ]
+    )
+
+    async def _hops() -> None:
+        for _ in range(7):
+            await observer.on_push_frame(frame)
+
+    asyncio.run(_hops())
+
+    assert sink.usage.llm_turns == 1
+    assert sink.usage.prompt_tokens == 100
+    events.of("llm_chat")  # exactly one billed event
+
+
 def test_cached_prompt_tokens_are_counted_by_deployment(sink, events) -> None:
     """`prompt_tokens_details.cached_tokens` used to reach a debug log and stop.
     The counter is what says whether the stable-prefix layout hits the cache."""

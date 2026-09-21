@@ -12,6 +12,7 @@ import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
 import { analyticsKpis, useBotAnalytics } from "@/api/bot-analytics";
 import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
 import { LoadingState } from "@/components/ui/loading-state";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { CardSkillAnalytics } from "@/components/bot-analytics/CardSkillAnalytics";
 
 export const Route = createLazyFileRoute("/_app/bot-analytics")({
@@ -23,7 +24,7 @@ function BotAnalyticsPage() {
   const [channel, setChannel] = useState<ChannelKey>("all");
   const [activeIntent, setActiveIntent] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error, refetch } = useBotAnalytics(range, channel);
+  const { data, isLoading, isError, error } = useBotAnalytics(range, channel);
   const points = data?.dailySeries ?? [];
   const intentAggs = data?.intentAggs ?? [];
   const kpis = useMemo(() => analyticsKpis(points, channel), [points, channel]);
@@ -43,18 +44,8 @@ function BotAnalyticsPage() {
             <LoadingState label="Loading bot analytics" />
           </div>
         ) : isError && !data ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-100 text-body text-text-subtle">
-            <p>Couldn’t load bot analytics.</p>
-            <p className="text-body-small text-text-danger">
-              {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-            <button
-              type="button"
-              className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse"
-              onClick={() => void refetch()}
-            >
-              Retry
-            </button>
+          <div className="flex flex-1 items-center justify-center p-400">
+            <QueryErrorBanner label="bot analytics" error={error} />
           </div>
         ) : (
           <>

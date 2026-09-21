@@ -57,6 +57,29 @@ def test_detail_followup_keeps_product_session():
     assert intent == "product_faq"
 
 
+def test_engaged_hi_keeps_product_session():
+    intent, _ = resolve_intent(
+        "Hi",
+        prior_intent="product_faq",
+        already_engaged=True,
+    )
+    assert intent == "product_faq"
+
+
+def test_first_turn_hi_is_still_a_greeting():
+    intent, _ = resolve_intent("Hi", prior_intent="product_faq")
+    assert intent == "greeting"
+
+
+def test_engaged_hi_keeps_collections_goal():
+    intent, _ = resolve_intent(
+        "hello",
+        prior_intent="payment_intent",
+        already_engaged=True,
+    )
+    assert intent == "payment_intent"
+
+
 def test_help_capabilities_detector():
     assert is_help_capabilities("what can u do")
     assert is_help_capabilities("How can you help me?")

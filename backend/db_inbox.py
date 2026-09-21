@@ -30,10 +30,13 @@ from db_core import (
     _activity,
     _actor_user_id,
     _assert_tenant_owns,
+    _assert_tenant_owns_customer,
     _db,
     _id,
+    _idempotent_response,
     _one,
     _rows,
+    _store_idempotent_response,
     _tenant,
     _vis_params,
     clamp_list_limit,
@@ -1366,3 +1369,211 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
     if result is None:
         raise KeyError("conversation_not_found")
     return result
+
+
+def send_customer_outreach(
+    customer_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Admit, create a thread if missing, then the inbox send path.
+
+    WhatsApp first-touch uses purpose=outreach (no 24h session window). The
+    provider is still ``whatsapp_outbound.enqueue_agent_send``.
+    """
+    channel = str(payload.get("channel") or "").strip()
+    text_value = (payload.get("text") or "").strip()
+    if channel not in {"whatsapp", "sms"}:
+        raise ValueError("unsupported_outreach_channel")
+    if not text_value:
+        raise ValueError("empty_message")
+
+    endpoint = f"POST /customers/{customer_id}/outreach"
+    me_id = _actor_user_id()
+    now = utc_now()
+
+    with _engine().begin() as conn:
+        cached = _idempotent_response(conn, idempotency_key, endpoint)
+        if cached:
+            return cached
+        _assert_tenant_owns_customer(conn, customer_id)
+        existing = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT cv.id, cv.customer_id, cv.status, cv.assigned_user_id, cv.channel,
+                           c.phone_primary, c.phone_alt
+                    FROM conversations cv
+                    JOIN customers c ON c.id = cv.customer_id
+                    WHERE cv.customer_id = :cid AND cv.channel = :channel
+                    ORDER BY cv.updated_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"cid": customer_id, "channel": channel},
+            )
+        )
+        created = False
+        if existing is None:
+            account = _one(
+                conn.execute(
+                    text(
+                        """
+                        SELECT id FROM accounts
+                        WHERE customer_id = :cid
+                        ORDER BY id
+                        LIMIT 1
+                        """
+                    ),
+                    {"cid": customer_id},
+                )
+            )
+            phones = _one(
+                conn.execute(
+                    text(
+                        "SELECT phone_primary, phone_alt FROM customers WHERE id = :cid"
+                    ),
+                    {"cid": customer_id},
+                )
+            )
+            interaction_id = _id("IX")
+            conversation_id = _id("CV")
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO interactions
+                      (id, tenant_id, customer_id, account_id, handler_kind, handler_user_id,
+                       channel, direction, status, sentiment_label, avg_sentiment, started_at)
+                    VALUES
+                      (:id, :tenant_id, :customer_id, :account_id, 'human', :user_id,
+                       :channel, 'outbound', 'active', 'neutral', 0, :started_at)
+                    """
+                ),
+                {
+                    "id": interaction_id,
+                    "tenant_id": _tenant(),
+                    "customer_id": customer_id,
+                    "account_id": account["id"] if account else None,
+                    "user_id": me_id,
+                    "channel": channel,
+                    "started_at": now,
+                },
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO conversations
+                      (id, interaction_id, customer_id, assigned_user_id, status, channel, created_at, updated_at)
+                    VALUES
+                      (:id, :interaction_id, :customer_id, :user_id, 'assigned', :channel, :now, :now)
+                    """
+                ),
+                {
+                    "id": conversation_id,
+                    "interaction_id": interaction_id,
+                    "customer_id": customer_id,
+                    "user_id": me_id,
+                    "channel": channel,
+                    "now": now,
+                },
+            )
+            existing = {
+                "id": conversation_id,
+                "customer_id": customer_id,
+                "status": "assigned",
+                "assigned_user_id": me_id,
+                "channel": channel,
+                "phone_primary": (phones or {}).get("phone_primary"),
+                "phone_alt": (phones or {}).get("phone_alt"),
+            }
+            created = True
+
+        conversation_id = existing["id"]
+        msg_id = _id("MSG")
+        import contact_policy
+
+        contact_policy.require_admit(
+            conn,
+            customer_id=customer_id,
+            channel=channel,
+            purpose="outreach",
+            session_key=conversation_id,
+            source="customer_outreach",
+            related_id=msg_id,
+            actor_kind="human",
+            actor_user_id=me_id,
+            endpoint=contact_policy.chosen_phone(existing),
+        )
+        if channel == "whatsapp":
+            import whatsapp as wa
+            import whatsapp_outbound as wa_out
+
+            to_phone = wa.normalize_phone(contact_policy.chosen_phone(existing))
+            if not to_phone:
+                raise ValueError("whatsapp_missing_recipient")
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                    VALUES (:id, :conversation_id, 'agent', :body, 'sending', NULL, :sent_at)
+                    """
+                ),
+                {
+                    "id": msg_id,
+                    "conversation_id": conversation_id,
+                    "body": text_value,
+                    "sent_at": now,
+                },
+            )
+            wa_out.enqueue_agent_send(
+                conn,
+                message_id=msg_id,
+                conversation_id=conversation_id,
+                customer_id=customer_id,
+                to_phone=to_phone,
+                body=text_value,
+                purpose="outreach",
+                source="customer_outreach",
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, sent_at)
+                    VALUES (:id, :conversation_id, 'agent', :body, 'sent', :sent_at)
+                    """
+                ),
+                {
+                    "id": msg_id,
+                    "conversation_id": conversation_id,
+                    "body": text_value,
+                    "sent_at": now,
+                },
+            )
+        conn.execute(
+            text(
+                """
+                UPDATE conversations
+                SET status = 'assigned', assigned_user_id = :user_id, updated_at = now()
+                WHERE id = :id
+                """
+            ),
+            {"id": conversation_id, "user_id": me_id},
+        )
+        _activity(
+            conn,
+            "conversation",
+            conversation_id,
+            "message_sent",
+            "Outreach sent",
+            text_value[:120],
+            customer_id,
+        )
+        result = {
+            "conversationId": conversation_id,
+            "messageId": msg_id,
+            "channel": channel,
+            "createdConversation": created,
+        }
+        _store_idempotent_response(conn, idempotency_key, endpoint, result)
+        return result

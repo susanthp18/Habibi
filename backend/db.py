@@ -912,6 +912,7 @@ from db_inbox import (  # noqa: E402
     return_conversation_to_bot as return_conversation_to_bot,
     save_context_summary as save_context_summary,
     send_conversation_message as send_conversation_message,
+    send_customer_outreach as send_customer_outreach,
     takeover_conversation as takeover_conversation,
 )
 from db_inbox_rag import (  # noqa: E402
@@ -975,8 +976,10 @@ from db_treatment_holds import (  # noqa: E402
     HOLD_SOURCES as HOLD_SOURCES,
     apply_authority as apply_authority,
     create_treatment_hold as create_treatment_hold,
+    enact_treatment_decision as enact_treatment_decision,
     list_treatment_cases as list_treatment_cases,
     list_treatment_holds as list_treatment_holds,
+    list_treatment_ops as list_treatment_ops,
     next_authority as next_authority,
     next_treatment as next_treatment,
     release_treatment_hold as release_treatment_hold,
@@ -988,7 +991,9 @@ from db_treatment_holds import (  # noqa: E402
 
 from db_dashboard import (  # noqa: E402
     _inr_compact as _inr_compact,
+    dashboard_to_csv as dashboard_to_csv,
     get_dashboard as get_dashboard,
+    get_dashboard_csv as get_dashboard_csv,
 )
 
 from db_workspace import (  # noqa: E402
@@ -1027,6 +1032,7 @@ from db_routing import (  # noqa: E402
 from db_redaction import (  # noqa: E402
     actor_is_admin as actor_is_admin,
     create_export_job as create_export_job,
+    download_export_job as download_export_job,
     get_redaction_record as get_redaction_record,
     get_redaction_rule as get_redaction_rule,
     list_export_jobs as list_export_jobs,

@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import deque
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable
 
@@ -272,6 +273,24 @@ def entry_bindings_by_bot() -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+def entry_card_ids(bindings: Iterable[dict[str, Any]] | None = None) -> set[str]:
+    """Every card inbound traffic can land on: the env default, plus each card
+    an enabled binding points at while the door is on.
+
+    The archive guard's set, computed once so the fleet index can ship it per
+    card instead of the browser re-deriving it from ``entryBotId`` -- which is
+    ``resolve_entry("voice")``, a different card from the env default once the
+    door routes voice elsewhere. ``bindings`` lets a caller that already read
+    the table pass it in. Raises if the table cannot be read; the caller
+    decides which way to fail.
+    """
+    ids = {_env_default_bot_id()}
+    if door_enabled():
+        rows = list_entry_bindings() if bindings is None else bindings
+        ids.update(str(b["bot_id"]) for b in rows if b.get("enabled"))
+    return ids
+
+
 def is_entry_card(bot_id: str) -> bool:
     """Does anything inbound land on this card?
 
@@ -282,12 +301,8 @@ def is_entry_card(bot_id: str) -> bool:
     bid = (bot_id or "").strip()
     if not bid:
         return False
-    if bid == _env_default_bot_id():
-        return True
-    if not door_enabled():
-        return False
     try:
-        return any(b["bot_id"] == bid and b["enabled"] for b in list_entry_bindings())
+        return bid in entry_card_ids()
     except Exception:
         _logger.exception("entry binding scan failed · bot=%s", bid)
         # Refuse the archive rather than allow one we could not check.
@@ -378,6 +393,54 @@ def reachability(
     entry in its own right -- a WhatsApp default is not "via handoff" from the
     voice default just because the fleet index asked about voice first.
     """
+    walk = _walk(cards, entry=entry, deployed=deployed, entries=entries)
+    out: dict[str, str] = {}
+    for bot_id in walk.bot_ids:
+        if bot_id in walk.entry_ids:
+            out[bot_id] = "entry"
+        elif walk.sources.get(bot_id):
+            out[bot_id] = "handoff"
+        elif bot_id in walk.deployed_ids:
+            out[bot_id] = "direct"
+        else:
+            out[bot_id] = "unreachable"
+    return out
+
+
+def inbound_sources(
+    cards: Iterable[tuple[str, Any]],
+    *,
+    entry: str | None = None,
+    deployed: Iterable[str] = (),
+    entries: Iterable[str] = (),
+) -> dict[str, list[str]]:
+    """bot_id → the reachable cards whose ``handoffs`` name it, sorted.
+
+    What ``handoff`` in :func:`reachability` means, spelled out. The fleet
+    index used to explain every handoff as coming from the entry card, which
+    named the wrong bot whenever the edge started anywhere else -- Supervisor
+    is reached from Collections and Insurance, never from Intake.
+    """
+    walk = _walk(cards, entry=entry, deployed=deployed, entries=entries)
+    return {bot_id: sorted(walk.sources.get(bot_id, ())) for bot_id in walk.bot_ids}
+
+
+@dataclass(frozen=True)
+class _Walk:
+    bot_ids: list[str]
+    entry_ids: set[str]
+    deployed_ids: set[str]
+    #: target → the nodes in the closure with an edge to it.
+    sources: dict[str, set[str]]
+
+
+def _walk(
+    cards: Iterable[tuple[str, Any]],
+    *,
+    entry: str | None,
+    deployed: Iterable[str],
+    entries: Iterable[str],
+) -> _Walk:
     rows = list(cards)
     entry_ids = {entry or _env_default_bot_id(), *(e for e in entries if e)}
     deployed_ids = {b for b in deployed if b}
@@ -385,15 +448,8 @@ def reachability(
     closure = reachable_from({*entry_ids, *deployed_ids}, edges)
     # Reached *through an edge*, rather than merely present in the closure —
     # a seed is in its own closure without anything routing to it.
-    inbound = {target for node in closure for target in edges.get(node, ())}
-    out: dict[str, str] = {}
-    for bot_id, _ in rows:
-        if bot_id in entry_ids:
-            out[bot_id] = "entry"
-        elif bot_id in inbound:
-            out[bot_id] = "handoff"
-        elif bot_id in deployed_ids:
-            out[bot_id] = "direct"
-        else:
-            out[bot_id] = "unreachable"
-    return out
+    sources: dict[str, set[str]] = {}
+    for node in closure:
+        for target in edges.get(node, ()):
+            sources.setdefault(target, set()).add(node)
+    return _Walk([bot_id for bot_id, _ in rows], entry_ids, deployed_ids, sources)

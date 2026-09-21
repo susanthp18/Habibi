@@ -30,11 +30,14 @@ _UNTYPED_BY_DESIGN = frozenset(
         "POST /twilio/sms/status",  # Twilio status callback: 204, no body
         "GET /floor/copilot/{interaction_id}/stream",  # SSE (text/event-stream)
         "GET /interactions/{interaction_id}/export",  # JSON/Markdown file download
+        "GET /interactions/{interaction_id}/recording",  # WAV stream
         "GET /agent-studio/skills/{skill_id}/export",  # zip download
         "GET /metrics",  # Prometheus text exposition
         "GET /pay/{token}",  # hosted checkout HTML
         "POST /tts/preview",  # audio bytes, vendor content type
         "GET /billing/export.csv",  # CSV download
+        "GET /dashboard.csv",  # CSV download
+        "GET /export-jobs/{job_id}/download",  # zip download
         "DELETE /kb/faqs/{faq_id}",  # 204, no body
         "DELETE /billing/budgets/{budget_id}/rules/{rule_id}",  # 204, no body
     }

@@ -9,7 +9,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { apiGet } from "./config";
+import { apiGet, retryUnlessClientError } from "./config";
 
 export interface Me {
   id: string;
@@ -27,12 +27,24 @@ export function can(me: Me | undefined, permission: string): boolean {
   return Boolean(me?.permissions?.includes(permission));
 }
 
+/** Signed in, but PayInt has not granted a role (or the account is parked). */
+export function needsAccessRequest(me: Me | undefined): boolean {
+  if (!me) return false;
+  if ((me.status || "").toLowerCase() === "inactive") return true;
+  return (me.permissions?.length ?? 0) === 0;
+}
+
 export async function fetchMe(): Promise<Me> {
   return apiGet<Me>("/me");
 }
 
 export function useMe() {
-  return useQuery({ queryKey: ["me"], queryFn: fetchMe, staleTime: 5 * 60_000 });
+  return useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    staleTime: 5 * 60_000,
+    retry: retryUnlessClientError,
+  });
 }
 
 let meCache: Promise<Me> | null = null;

@@ -57,9 +57,9 @@ def barge_audio(interaction_id: str, *, reason: str = "supervisor_barge") -> dic
     if not call_sid:
         return {"audio": False, "reason": "no_call_sid"}
     try:
-        from voice import twilio_ops
+        from voice import telephony
 
-        meta = twilio_ops.warm_transfer_to_supervisor(call_sid, reason=reason)
+        meta = telephony.warm_transfer(call_sid, reason=reason)
         return {"audio": True, "reason": None, **meta}
     except Exception as exc:
         logger.exception("live_qa barge audio failed for %s", interaction_id)

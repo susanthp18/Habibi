@@ -224,3 +224,23 @@ def test_a_card_with_no_version_and_no_deployment_is_still_unreachable(db_tx) ->
         pytest.skip("fleet has no empty cards to check")
     for card in empty:
         assert card["reachability"] == "unreachable", card["botId"]
+
+
+def test_a_handoff_names_the_cards_that_actually_hand_off() -> None:
+    """The fleet explained every handoff as coming from the entry card. With
+    Intake at the door, Supervisor read "from intake-v1's allowlist" -- but
+    Intake only lists Collections and Insurance, and they list Supervisor."""
+    from agent_core.cards.routing import inbound_sources
+
+    cards = [
+        ("intake-v1", _card("kaia-v2-4", "insurance-v1")),
+        ("kaia-v2-4", _card("insurance-v1", "supervisor-brief")),
+        ("insurance-v1", _card("kaia-v2-4", "supervisor-brief")),
+        ("supervisor-brief", _card()),
+        ("orphan", _card("supervisor-brief")),  # unreachable, so not a source
+    ]
+    sources = inbound_sources(cards, entry="intake-v1")
+    assert sources["supervisor-brief"] == ["insurance-v1", "kaia-v2-4"]
+    assert sources["kaia-v2-4"] == ["insurance-v1", "intake-v1"]
+    assert sources["intake-v1"] == []
+    assert sources["orphan"] == []

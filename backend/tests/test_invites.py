@@ -9,18 +9,14 @@ from sqlalchemy import text
 
 import db_invites
 import entra
+from tests.entra_columns import ensure_entra_user_columns, ensure_relation
 
 TID = "9f2e2b7d-6081-4b3a-b7f5-433b581f6a5f"
 
 
 def _ensure_schema(conn) -> None:
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_oid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_tid UUID"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_upn TEXT"))
-    conn.execute(
-        text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bootstrap_admin boolean NOT NULL DEFAULT false")
-    )
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at timestamptz"))
+    ensure_entra_user_columns(conn)
+    ensure_relation(conn, "public.operator_invites")
     tenant = conn.execute(text("SELECT id FROM tenants ORDER BY created_at LIMIT 1")).scalar()
     if tenant:
         conn.execute(
@@ -43,35 +39,6 @@ def _ensure_schema(conn) -> None:
             ),
             {"t": tenant},
         )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS operator_invites (
-              id TEXT PRIMARY KEY,
-              tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-              email TEXT NOT NULL,
-              role_id TEXT NOT NULL REFERENCES roles(id),
-              invited_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-              status TEXT NOT NULL DEFAULT 'pending'
-                CHECK (status IN ('pending','accepted','revoked')),
-              sent_at timestamptz NOT NULL DEFAULT now(),
-              accepted_at timestamptz,
-              last_error TEXT,
-              created_at timestamptz NOT NULL DEFAULT now(),
-              updated_at timestamptz NOT NULL DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_operator_invites_pending_email
-              ON operator_invites (tenant_id, lower(email))
-              WHERE status = 'pending'
-            """
-        )
-    )
 
 
 def _claims(*, oid: str, upn: str, name: str) -> dict:
@@ -114,8 +81,109 @@ def test_create_invite_pending_without_smtp(invites_ready) -> None:
 def test_invite_refused_when_already_signed_in(invites_ready) -> None:
     oid = str(uuid.uuid4())
     entra.provision_user(_claims(oid=oid, upn="alex@bigtapp.ai", name="Alex"))
+    invites_ready.execute(
+        text("INSERT INTO user_roles (user_id, role_id) VALUES (:id, 'role-viewer')"),
+        {"id": oid},
+    )
     with pytest.raises(ValueError, match="already_signed_in"):
         db_invites.create_invite("alex@bigtapp.ai", "role-agent")
+
+
+def test_invite_uninvited_operator_grants_role_and_emails(invites_ready) -> None:
+    oid = str(uuid.uuid4())
+    entra.provision_user(_claims(oid=oid, upn="alex@bigtapp.ai", name="Alex"))
+    body = db_invites.create_invite("alex@bigtapp.ai", "role-agent")
+    assert body["invite"]["status"] == "accepted"
+    roles = {
+        r[0]
+        for r in invites_ready.execute(
+            text(
+                "SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+                "WHERE ur.user_id = :id"
+            ),
+            {"id": oid},
+        )
+    }
+    assert roles == {"Agent"}
+
+
+def test_invite_inactive_operator_emails_and_restores(invites_ready) -> None:
+    oid = str(uuid.uuid4())
+    entra.provision_user(_claims(oid=oid, upn="alex@bigtapp.ai", name="Alex"))
+    invites_ready.execute(
+        text("INSERT INTO user_roles (user_id, role_id) VALUES (:id, 'role-viewer')"),
+        {"id": oid},
+    )
+    invites_ready.execute(text("UPDATE users SET status = 'inactive' WHERE id = :id"), {"id": oid})
+    body = db_invites.create_invite("alex@bigtapp.ai", "role-agent")
+    assert body["invite"]["status"] == "accepted"
+    assert body["invite"]["roleName"] == "Agent"
+    status = invites_ready.execute(
+        text("SELECT status FROM users WHERE id = :id"), {"id": oid}
+    ).scalar()
+    assert status == "active"
+    roles = {
+        r[0]
+        for r in invites_ready.execute(
+            text(
+                "SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+                "WHERE ur.user_id = :id"
+            ),
+            {"id": oid},
+        )
+    }
+    assert roles == {"Agent"}
+
+
+def test_inactive_login_consumes_pending_invite(invites_ready, monkeypatch: pytest.MonkeyPatch) -> None:
+    from db_core import _tenant
+
+    monkeypatch.setenv("AUTHZ_ENFORCE", "1")
+    oid = str(uuid.uuid4())
+    entra.provision_user(_claims(oid=oid, upn="parked@bigtapp.ai", name="Parked"))
+    invites_ready.execute(
+        text("INSERT INTO user_roles (user_id, role_id) VALUES (:id, 'role-viewer')"),
+        {"id": oid},
+    )
+    invites_ready.execute(text("UPDATE users SET status = 'inactive' WHERE id = :id"), {"id": oid})
+    invite_id = f"INV-{uuid.uuid4().hex[:12]}"
+    invites_ready.execute(
+        text(
+            """
+            INSERT INTO operator_invites (
+                id, tenant_id, email, role_id, status, sent_at
+            ) VALUES (
+                :id, :t, 'parked@bigtapp.ai', 'role-agent', 'pending', now()
+            )
+            """
+        ),
+        {"t": _tenant(), "id": invite_id},
+    )
+    import authz
+
+    authz.invalidate_permission_cache(oid)
+    entra.provision_user(_claims(oid=oid, upn="parked@bigtapp.ai", name="Parked"))
+    status = invites_ready.execute(
+        text("SELECT status FROM users WHERE id = :id"), {"id": oid}
+    ).scalar()
+    assert status == "active"
+    roles = {
+        r[0]
+        for r in invites_ready.execute(
+            text(
+                "SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+                "WHERE ur.user_id = :id"
+            ),
+            {"id": oid},
+        )
+    }
+    assert roles == {"Agent"}
+    invite_status = invites_ready.execute(
+        text("SELECT status FROM operator_invites WHERE id = :id"),
+        {"id": invite_id},
+    ).scalar()
+    assert invite_status == "accepted"
+    assert authz.ANALYTICS_READ in authz.actor_permissions(oid)
 
 
 def test_first_login_consumes_invite_role(invites_ready) -> None:
@@ -177,6 +245,9 @@ def test_invite_mail_body_carries_brand(monkeypatch: pytest.MonkeyPatch) -> None
     assert subject == "You're invited to PayInt"
     assert "Viewer" in text
     assert "https://beeonixpayint.bigtapp.net/app/login" in text
+    assert "https://beeonixpayint.bigtapp.net/" in text
+    assert "Product page" in html
+    assert 'href="https://beeonixpayint.bigtapp.net/"' in html
     assert "PayInt" in html
     assert "Beeonix" in html
     assert "Open PayInt" in html

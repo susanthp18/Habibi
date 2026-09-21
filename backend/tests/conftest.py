@@ -414,6 +414,19 @@ def _kb_model_path_off(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _telephony_provider_is_twilio_unless_a_test_says_otherwise(monkeypatch):
+    """Pin the carrier adapter the dial tests patch.
+
+    The suite runs in a container whose env comes from the deployed voice
+    service, and the telephony overlay sets ``TELEPHONY_PROVIDER=asterisk``
+    there. The carrier-contract tests patch ``voice.twilio_ops`` directly, so
+    with that inherited they exercised the Asterisk adapter instead and failed
+    on a missing trunk. Tests about the seam itself set the variable explicitly.
+    """
+    monkeypatch.setenv("TELEPHONY_PROVIDER", "twilio")
+
+
+@pytest.fixture(autouse=True)
 def _eval_gates_off_unless_a_test_says_otherwise(monkeypatch):
     """The dev stack ships with EVAL_GATE_ENABLED / REDTEAM_GATE_ENABLED on
     (WS6). A test that publishes a fresh clone has no eval report for it

@@ -1,0 +1,106 @@
+# Asterisk PSTN overlay: Asterisk 23.4.1 + the ARI call controller, with every
+# dialling process switched to TELEPHONY_PROVIDER=asterisk.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.telephony.yml \
+#     up -d asterisk asterisk_controller voice api bot_worker
+#
+# Per-site facts (softphones, trunk, credentials) come from .env; see
+# telephony/render_config.py and .env.example. There are no default passwords:
+# Asterisk refuses to start without ASTERISK_ARI_* and ASTERISK_WS_*.
+#
+# Windows / Docker Desktop: SIP is published on localhost only and
+# telephony/sip_lan_relay.py forwards LAN/hotspot SIP to it. Do not use
+# network_mode: host here.
+
+x-telephony-env: &telephony-env
+  TELEPHONY_PROVIDER: asterisk
+  ASTERISK_ARI_URL: http://asterisk:8088
+  ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:?set ASTERISK_ARI_USER in .env}
+  ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:?set ASTERISK_ARI_PASSWORD in .env}
+  ASTERISK_WS_USER: ${ASTERISK_WS_USER:?set ASTERISK_WS_USER in .env}
+  ASTERISK_WS_PASSWORD: ${ASTERISK_WS_PASSWORD:?set ASTERISK_WS_PASSWORD in .env}
+  ASTERISK_FROM_NUMBER: ${ASTERISK_FROM_NUMBER:-1000}
+  ASTERISK_TRUNK_HOST: ${ASTERISK_TRUNK_HOST:-}
+  ASTERISK_AGENT_EXTENSIONS: ${ASTERISK_AGENT_EXTENSIONS:-}
+  ASTERISK_RING_TIMEOUT: ${ASTERISK_RING_TIMEOUT:-45}
+
+services:
+  asterisk:
+    build:
+      context: ./telephony
+      dockerfile: Dockerfile
+    image: "${IMAGE_PREFIX:-}collections-asterisk:${IMAGE_TAG:-local}"
+    container_name: collections_asterisk
+    restart: unless-stopped
+    environment:
+      <<: *telephony-env
+      ASTERISK_MEDIA_WS_URI: ws://voice:7860/ws/asterisk
+      ASTERISK_BOT_EXTENSION: ${ASTERISK_BOT_EXTENSION:-1000}
+      ASTERISK_SOFTPHONES: ${ASTERISK_SOFTPHONES:-}
+      ASTERISK_EXTERNAL_IP: ${ASTERISK_EXTERNAL_IP:-}
+      ASTERISK_TRUNK_PORT: ${ASTERISK_TRUNK_PORT:-}
+      ASTERISK_TRUNK_MATCH: ${ASTERISK_TRUNK_MATCH:-}
+      ASTERISK_TRUNK_TRANSPORT: ${ASTERISK_TRUNK_TRANSPORT:-udp}
+      ASTERISK_TRUNK_SRTP: ${ASTERISK_TRUNK_SRTP:-}
+      ASTERISK_TLS_CERT: ${ASTERISK_TLS_CERT:-}
+      ASTERISK_TLS_KEY: ${ASTERISK_TLS_KEY:-}
+      ASTERISK_RTP_START: ${ASTERISK_RTP_START:-10000}
+      ASTERISK_RTP_END: ${ASTERISK_RTP_END:-10050}
+    ports:
+      # Docker Desktop does not deliver LAN SIP into the container;
+      # telephony/sip_lan_relay.py binds 0.0.0.0:5060 on the host and forwards here.
+      - "127.0.0.1:15060:5060/udp"
+      - "127.0.0.1:15060:5060/tcp"
+      - "${ASTERISK_RTP_START:-10000}-${ASTERISK_RTP_END:-10050}:${ASTERISK_RTP_START:-10000}-${ASTERISK_RTP_END:-10050}/udp"
+    depends_on:
+      voice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "asterisk -rx 'core show version' | grep -q Asterisk"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # One per PBX: owns every call (media leg, bridge, recording, attempt status).
+  asterisk_controller:
+    image: "${IMAGE_PREFIX:-}collections-api:${IMAGE_TAG:-local}"
+    container_name: collections_asterisk_controller
+    restart: unless-stopped
+    cap_drop: [ALL]
+    env_file:
+      - .env
+    environment:
+      <<: *telephony-env
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: voice
+      ASTERISK_CONTROLLER_LOG_LEVEL: ${ASTERISK_CONTROLLER_LOG_LEVEL:-INFO}
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "2"
+    command: ["python", "-m", "voice.asterisk_controller"]
+    depends_on:
+      asterisk:
+        condition: service_healthy
+    healthcheck:
+      # 503 until the ARI app is registered and Asterisk has loaded the bot's
+      # websocket_client -- a bad websocket_client.conf fails here, not on a call.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  voice:
+    environment:
+      <<: *telephony-env
+
+  api:
+    environment:
+      <<: *telephony-env
+
+  # Cadence, campaigns, bounce and treatment dials run here, not in api.
+  bot_worker:
+    environment:
+      <<: *telephony-env

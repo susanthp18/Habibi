@@ -55,6 +55,10 @@ def embedded_host_enabled() -> bool:
     return env_bool("VOICE_EMBEDDED_HOST")
 
 
+#: The one-shot warm-up task, so a second call does not start a second warm.
+_warm_task: Any = None
+
+
 async def get_runner() -> Any:
     """The process-wide runner, started on first use."""
     global _runner, _runner_task
@@ -73,7 +77,29 @@ async def get_runner() -> Any:
         await asyncio.sleep(0)
         _runner = runner
         logger.info("Embedded voice host runner started")
-        return runner
+
+    # Outside the lock: warming takes seconds and holding the lock would make
+    # every concurrent first-call wait for it serially, which is the problem
+    # rather than the fix. Spawned rather than awaited so the runner is usable
+    # immediately -- a call that beats the warm pays what it pays today, and
+    # every call after it does not.
+    #
+    # Under VOICE_EMBEDDED_HOST none of _warm_before_serving ran at all:
+    # bot.py calls it only from __main__, and _dispatch goes straight to
+    # bot(runner_args). log_bridge.install() had the same single call site, so
+    # the warm timings and the latency observer's INFO lines were absent in
+    # exactly the mode where they were most needed.
+    global _warm_task
+    if _warm_task is None:
+        from voice import bot as _bot, log_bridge
+
+        try:
+            log_bridge.install()
+        except Exception:
+            logger.debug("log bridge install failed", exc_info=True)
+        _warm_task = asyncio.create_task(_bot.warm_before_serving_async())
+
+    return runner
 
 
 async def shutdown() -> None:

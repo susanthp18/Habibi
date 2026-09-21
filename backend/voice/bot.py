@@ -197,13 +197,13 @@ async def _await_embedded_worker(runner_args) -> None:
         await asyncio.sleep(0.05)
 
 
-async def _bot_session(runner_args):
+def transport_params() -> dict:
+    """Pipecat transport ctors for this process. Hangup sends no trailing silence."""
     from pipecat.evals.transport import EvalTransportParams
-    from pipecat.runner.utils import create_transport
     from pipecat.transports.base_transport import TransportParams
     from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 
-    transport_params = {
+    return {
         "eval": lambda: EvalTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
@@ -220,7 +220,19 @@ async def _bot_session(runner_args):
             audio_out_end_silence_secs=0,
         ),
     }
-    transport = await create_transport(runner_args, transport_params)
+
+
+async def _bot_session(runner_args):
+    from pipecat.runner.utils import create_transport
+
+    params = transport_params()
+    transport = getattr(runner_args, "prebuilt_transport", None)
+    if transport is None and str(getattr(runner_args, "transport_type", "")).lower() == "asterisk":
+        from voice.asterisk_ws import build_asterisk_transport
+
+        transport = build_asterisk_transport(runner_args)
+    if transport is None:
+        transport = await create_transport(runner_args, params)
     await run_bot(transport, runner_args)
 
 
@@ -235,7 +247,7 @@ def _ensure_utf8_stdio() -> None:
                 pass
 
 
-def _warm_before_serving() -> None:
+def _warm_before_serving(*, skip_shared_llm_client: bool = False) -> None:
     """Pay the cold-start before a caller can arrive, not during their call.
 
     The first call after a restart runs every one-time cost inside the window
@@ -323,12 +335,21 @@ def _warm_before_serving() -> None:
         warmed, len(_RUN_BOT_MODULES), (_time.monotonic() - started) * 1000,
     )
 
-    for label, build in (
+    builders = [
         ("llm-service", _warm_llm_service),
         ("silero-vad", _warm_silero),
         ("smart-turn", _warm_smart_turn),
         ("llm-http", _warm_shared_llm_client),
-    ):
+    ]
+    if skip_shared_llm_client:
+        # The embedded host awaits prewarm_shared_client on its own live loop
+        # instead. _warm_shared_llm_client uses asyncio.run, which raises inside
+        # a running loop -- and even in a worker thread it would open TLS on a
+        # throwaway loop that is closed immediately after, warming nothing the
+        # call will actually use.
+        builders = [b for b in builders if b[0] != "llm-http"]
+
+    for label, build in builders:
         started = _time.monotonic()
         try:
             build()
@@ -342,6 +363,36 @@ def _warm_before_serving() -> None:
             logger.warning(
                 "startup warm for {} failed — every call pays it instead", label
             )
+
+
+async def warm_before_serving_async() -> None:
+    """The same warm-up, reachable from inside a running event loop.
+
+    :func:`_warm_before_serving` has exactly one call site -- the ``__main__``
+    block -- so under ``VOICE_EMBEDDED_HOST`` none of it ran and the first
+    caller paid the whole bill inside their silent line: the module set this
+    file measures at 32.7s, the 2.46s LLM service construction, and both cold
+    ONNX builds. ``pipeline.ready`` would report it; nothing prevented it.
+
+    The synchronous half goes to a worker thread so the API process keeps
+    serving while it warms. The shared-client ping is awaited here, on the loop
+    that will actually carry calls.
+    """
+    import asyncio as _asyncio
+
+    try:
+        await _asyncio.to_thread(_warm_before_serving, skip_shared_llm_client=True)
+    except Exception:
+        logger.warning("embedded host warm failed — the first call pays it", exc_info=True)
+
+    try:
+        from voice.llm_pool import prewarm_shared_client
+
+        ms = await prewarm_shared_client()
+        if ms:
+            logger.info("voice runner warm · llm-http {:.0f} ms", ms)
+    except Exception:
+        logger.warning("embedded host llm-http warm failed", exc_info=True)
 
 
 #: Every module :func:`run_bot` imports on entry -- through :mod:`voice.bot_flow`,
@@ -388,6 +439,7 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "agent_core.tools.catalog",
     "agent_core.tools.schema",
     "agent_core.tuning",
+    "azure_openai",
     "bank_boundary",
     "bank_boundary.snapshots",
     "db",
@@ -396,13 +448,17 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "sqlalchemy",
     "voice",
     "voice.amd",
+    "voice.analyzer_pool",
     "voice.bot_turn_state",
     "voice.call_trace",
     "voice.flows_dynamic",
+    "voice.greeting_hold",
     "voice.host",
     "voice.ivr",
     "voice.kb_enrich",
     "voice.rtvi_events",
+    "voice.stt_service",
+    "voice.tool_state",
     "voice.tools",
     "voice.tts_pool",
     "voice.tuning_apply",
@@ -531,6 +587,9 @@ if __name__ == "__main__":
 
     observability.serve_metrics()
     _warm_before_serving()
+    from voice.asterisk_ws import install_runner_hook
+
+    install_runner_hook()
     from pipecat.runner.run import main
 
     main()

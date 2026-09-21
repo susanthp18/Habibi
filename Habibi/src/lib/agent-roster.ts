@@ -34,7 +34,7 @@ export type ActionAvailability = {
  *  should not have to invent a whole card to exercise one branch. */
 export type ArchivableCard = Pick<
   AgentCardSummary,
-  "archivedAt" | "isFirstParty" | "botId" | "entryBotId" | "deploymentStatus" | "entryBindings"
+  "archivedAt" | "isFirstParty" | "deploymentStatus" | "takesInbound"
 >;
 
 /**
@@ -47,8 +47,10 @@ export type ArchivableCard = Pick<
  *   wrong — a first-party card with a published row reports "published", so
  *   its button enabled and then failed.
  * - Inbound traffic is refused because it would resolve to a retired card.
- *   That is the env default (`entryBotId`) *or* any enabled door binding —
- *   the server checks both, and the fleet already has `entryBindings`.
+ *   `takesInbound` is the server's own guard (`routing.entry_card_ids`), sent
+ *   rather than rebuilt here. Rebuilding it from `entryBotId` was wrong: that
+ *   is `resolve_entry("voice")`, not the env default the server refuses, so
+ *   with the door routing voice elsewhere the button enabled and then 409'd.
  * - A live deployment is *not* a blocker. It used to be, on both sides, and
  *   that made the button dead for every card that had ever shipped: publish
  *   always leaves an active deployment and rollback only swaps which one is
@@ -62,7 +64,7 @@ export function archiveAvailability(card: ArchivableCard): ActionAvailability {
   if (card.isFirstParty) {
     return { allowed: false, reason: "First-party cards are re-seeded on API boot" };
   }
-  if (card.botId === card.entryBotId || (card.entryBindings?.length ?? 0) > 0) {
+  if (card.takesInbound) {
     return { allowed: false, reason: "This card takes inbound traffic" };
   }
   if (card.deploymentStatus === "live") {
@@ -163,7 +165,11 @@ export function groupRoster<T extends GroupableCard>(cards: readonly T[]): Roste
  */
 export const ROUTING: Record<
   AgentCardSummary["reachability"],
-  { label: string; tone: LozengeTone; help: (entry: string) => string }
+  {
+    label: string;
+    tone: LozengeTone;
+    help: (card: Partial<Pick<AgentCardSummary, "handoffFrom">>) => string;
+  }
 > = {
   entry: {
     label: "takes inbound",
@@ -173,19 +179,27 @@ export const ROUTING: Record<
   handoff: {
     label: "via handoff",
     tone: "information",
-    help: (entry) => `Reached mid-conversation from ${entry}'s handoff allowlist.`,
+    // The cards whose allowlist names this one, from the server's walk. It
+    // used to name the entry card for every handoff, which was wrong whenever
+    // the edge started anywhere else -- Supervisor "from intake-v1", when only
+    // Collections and Insurance list it. A caller without the list (the graph
+    // tab's nodes) gets the claim without a name rather than a wrong one.
+    help: ({ handoffFrom }) =>
+      handoffFrom?.length
+        ? `Reached mid-conversation from the handoff allowlist of ${handoffFrom.join(", ")}.`
+        : "Reached mid-conversation through another card's handoff allowlist.",
   },
   direct: {
     label: "direct only",
     tone: "information",
-    help: (entry) =>
-      `Addressed directly by bot id — it has its own live deployment — but nothing hands off to it, including ${entry}.`,
+    help: () =>
+      "Addressed directly by bot id — it has its own live deployment — but no reachable card hands off to it.",
   },
   unreachable: {
     label: "unreachable",
     tone: "warning",
-    help: (entry) =>
-      `Nothing routes here — no deployment of its own, and not on any allowlist from ${entry}.`,
+    help: () =>
+      "Nothing routes here — no deployment of its own, and not on any reachable card's allowlist.",
   },
   archived: {
     label: "archived",
@@ -193,5 +207,21 @@ export const ROUTING: Record<
     help: () => "Retired. Kept for audit; takes no traffic.",
   },
 };
+
+/**
+ * The Name field when the template changes. A name the user typed survives;
+ * one the form filled in (empty, or still the previous template's label)
+ * follows the new template. Picking a template used to overwrite whatever was
+ * typed.
+ */
+export function nextCloneName(
+  current: string,
+  previousTemplateLabel: string | undefined,
+  nextTemplateLabel: string | undefined,
+): string {
+  if (nextTemplateLabel === undefined) return current;
+  const untouched = current.trim() === "" || current === previousTemplateLabel;
+  return untouched ? nextTemplateLabel : current;
+}
 
 export { changeVerb } from "@/lib/change-log-actions";

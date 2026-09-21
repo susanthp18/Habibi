@@ -14,6 +14,8 @@ ALLOWED_WORKFLOWS = frozenset(
         "a2a_remote",
         "self_service_plan",
         "emi_date_change",
+        "field_visit",
+        "legal_notice",
         "lms_workitem",
         "o1_send_message",
         "o2_rail_submit",

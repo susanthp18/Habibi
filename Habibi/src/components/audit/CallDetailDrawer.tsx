@@ -23,6 +23,7 @@ import { AudioPlayer } from "./AudioPlayer";
 import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
+import { apiGetBlob } from "@/api/config";
 import type { CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
 import { fmtDateTime } from "@/lib/format";
@@ -39,6 +40,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef<number>(0);
 
@@ -46,10 +48,27 @@ export function CallDetailDrawer({ call, onClose }: Props) {
     setCurrentTime(0);
     setPlaying(false);
     setSpeed(1);
+    setAudioSrc((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (!call?.id) return;
+    let revoked = false;
+    void apiGetBlob(`/interactions/${encodeURIComponent(call.id)}/recording`)
+      .then(({ blob }) => {
+        if (revoked) return;
+        setAudioSrc(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        /* no recording yet — waveform still works as a scrubber */
+      });
+    return () => {
+      revoked = true;
+    };
   }, [call?.id]);
 
   useEffect(() => {
-    if (!playing || !call) return;
+    if (audioSrc || !playing || !call) return;
     lastTickRef.current = performance.now();
     const tick = (now: number) => {
       const dt = (now - lastTickRef.current) / 1000;
@@ -68,7 +87,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [playing, speed, call]);
+  }, [playing, speed, call, audioSrc]);
 
   const markers = useMemo(() => {
     if (!call) return [];
@@ -173,6 +192,7 @@ export function CallDetailDrawer({ call, onClose }: Props) {
             onPlayPause={() => setPlaying((p) => !p)}
             onSpeedChange={setSpeed}
             seedForBars={call.id}
+            src={audioSrc}
           />
           <SentimentTimeline
             points={call.sentimentSeries}

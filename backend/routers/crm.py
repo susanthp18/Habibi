@@ -31,6 +31,8 @@ from schemas import (
     ContactPolicyResponse,
     CustomerInsightsResponse,
     CustomerNoteCreateRequest,
+    CustomerOutreachRequest,
+    CustomerOutreachResponse,
     CustomerResponse,
     DisputeCreateRequest,
     DisputeEvidenceWriteResponse,
@@ -141,6 +143,44 @@ def export_interaction(
         media_type="application/json",
         headers={
             "Content-Disposition": f'attachment; filename="call-{interaction_id}.json"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+# WAV download by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/interactions/{interaction_id}/recording", response_class=Response)
+def get_interaction_recording(
+    interaction_id: str,
+    variant: str = Query("original", pattern="^(original|redacted)$"),
+):
+    """Stream the operator WAV (stereo audio, or sip_audio fallback)."""
+    import authz
+    from db_core import _actor_user_id
+    from voice.recordings import log_recording_download, stream_recording
+
+    if variant == "redacted":
+        uid = (_actor_user_id() or "").strip()
+        if not uid or not authz.has_permission(uid, authz.COMPLIANCE_READ):
+            raise HTTPException(status_code=403, detail="redacted_requires_compliance_read")
+    try:
+        payload = stream_recording(interaction_id, variant=variant)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="recording_not_found") from None
+    except Exception as exc:
+        logger.exception("recording stream failed interaction=%s", interaction_id)
+        raise HTTPException(status_code=503, detail="recording_unavailable") from exc
+    try:
+        log_recording_download(interaction_id, variant=variant, media_id=payload.get("mediaId"))
+    except Exception:
+        logger.exception("recording download audit failed interaction=%s", interaction_id)
+        raise HTTPException(status_code=503, detail="recording_audit_failed") from None
+    filename = f"{interaction_id}-{variant}.wav"
+    return Response(
+        content=payload["bytes"],
+        media_type=payload.get("mimeType") or "audio/wav",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
             "Cache-Control": "private, no-store",
         },
     )
@@ -393,6 +433,24 @@ def add_document_delivery_attempt(document_id: str, payload: DocumentDeliveryAtt
 @router.post("/customers/{customer_id}/notes", response_model=CustomerResponse)
 def add_customer_note(customer_id: str, payload: CustomerNoteCreateRequest):
     return _handle_write(db.add_customer_note, customer_id, payload.model_dump())
+
+@router.post(
+    "/customers/{customer_id}/outreach",
+    response_model=CustomerOutreachResponse,
+    response_model_exclude_unset=True,
+)
+def send_customer_outreach(
+    customer_id: str,
+    payload: CustomerOutreachRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Admit, create a thread if missing, then the same send path as inbox."""
+    return _handle_write(
+        db.send_customer_outreach,
+        customer_id,
+        payload.model_dump(),
+        idempotency_key,
+    )
 
 @router.get("/customers/{customer_id}/outbound/hours", response_model=list[OutboundHourResponse])
 def outbound_hourly(customer_id: str, days: int = Query(default=90, ge=1, le=365)):

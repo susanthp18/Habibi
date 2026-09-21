@@ -3,22 +3,20 @@ import {
   archiveAvailability,
   changeVerb,
   groupRoster,
+  nextCloneName,
+  ROUTING,
   rosterGroupOf,
   sandboxAvailability,
   type ArchivableCard,
   type GroupableCard,
 } from "./agent-roster";
 
-const ENTRY = "kaia-v2-4";
-
 function card(over: Partial<ArchivableCard> = {}): ArchivableCard {
   return {
     archivedAt: null,
     isFirstParty: false,
-    botId: "clone-abc123",
-    entryBotId: ENTRY,
     deploymentStatus: "draft",
-    entryBindings: [],
+    takesInbound: false,
     ...over,
   };
 }
@@ -29,38 +27,17 @@ describe("archiveAvailability", () => {
     // from the server, because a first-party card with a published row reports
     // cardSource "published" and inferring from that enabled a button that
     // then 409'd.
-    const a = archiveAvailability(
-      card({ isFirstParty: true, botId: "intake-v1", deploymentStatus: "published" }),
-    );
+    const a = archiveAvailability(card({ isFirstParty: true, deploymentStatus: "published" }));
     expect(a.allowed).toBe(false);
     expect(a.reason).toBe("First-party cards are re-seeded on API boot");
   });
 
-  it("refuses the card inbound traffic resolves to", () => {
-    const a = archiveAvailability(card({ botId: ENTRY, deploymentStatus: "live" }));
-    expect(a.allowed).toBe(false);
-    expect(a.reason).toBe("This card takes inbound traffic");
-  });
-
-  it("refuses a clone that a door binding still points at", () => {
-    // The server checks enabled bindings, not only BOT_ID / entryBotId. A
-    // WhatsApp default or a dialled number on this card used to enable Archive
-    // and then 409 with entry_card_not_archivable.
-    const a = archiveAvailability(
-      card({
-        entryBindings: [
-          {
-            id: "eb-1",
-            channel: "voice",
-            address: "+914412345678",
-            bot_id: "clone-abc123",
-            enabled: true,
-            note: "",
-            updated_at: null,
-          },
-        ],
-      }),
-    );
+  it("refuses whatever the server's entry guard refuses", () => {
+    // `takesInbound` is `routing.entry_card_ids` -- the env default or any
+    // enabled binding. It used to be rebuilt here from `entryBotId`, which is
+    // the voice channel's resolved card: point BOT_ID at a clone while the door
+    // routes voice elsewhere and the button enabled, then 409'd.
+    const a = archiveAvailability(card({ takesInbound: true, deploymentStatus: "live" }));
     expect(a.allowed).toBe(false);
     expect(a.reason).toBe("This card takes inbound traffic");
   });
@@ -80,7 +57,7 @@ describe("archiveAvailability", () => {
       card({
         archivedAt: "2026-08-23T08:16:34Z",
         isFirstParty: true,
-        botId: ENTRY,
+        takesInbound: true,
         deploymentStatus: "live",
       }),
     );
@@ -99,12 +76,13 @@ describe("archiveAvailability", () => {
     const statuses = ["live", "published", "draft", "empty"] as const;
     for (const archivedAt of [null, "2026-08-23T08:16:34Z"]) {
       for (const isFirstParty of [false, true]) {
-        for (const botId of ["clone-abc123", ENTRY]) {
+        for (const takesInbound of [false, true]) {
           for (const deploymentStatus of statuses) {
             const a = archiveAvailability(
-              card({ archivedAt, isFirstParty, botId, deploymentStatus }),
+              card({ archivedAt, isFirstParty, takesInbound, deploymentStatus }),
             );
-            if (!a.allowed) expect(a.reason, JSON.stringify({ isFirstParty, botId })).toBeTruthy();
+            if (!a.allowed)
+              expect(a.reason, JSON.stringify({ isFirstParty, takesInbound })).toBeTruthy();
           }
         }
       }
@@ -196,5 +174,35 @@ describe("changeVerb", () => {
   it("degrades an unknown action into something readable", () => {
     // A build that starts writing a new action must not render "agent.foo_bar".
     expect(changeVerb("agent.foo_bar")).toBe("foo bar");
+  });
+});
+
+describe("ROUTING.handoff.help", () => {
+  it("names the cards whose allowlist reaches this one, not the entry card", () => {
+    expect(ROUTING.handoff.help({ handoffFrom: ["insurance-v1", "kaia-v2-4"] })).toBe(
+      "Reached mid-conversation from the handoff allowlist of insurance-v1, kaia-v2-4.",
+    );
+  });
+
+  it("names nobody rather than the wrong card when it has no list", () => {
+    expect(ROUTING.handoff.help({})).toBe(
+      "Reached mid-conversation through another card's handoff allowlist.",
+    );
+  });
+});
+
+describe("nextCloneName", () => {
+  it("keeps a name the user typed when the template changes", () => {
+    expect(nextCloneName("Collections Tier 2", "Lapse", "Hardship")).toBe("Collections Tier 2");
+  });
+
+  it("follows the template while the name is still the form's own", () => {
+    expect(nextCloneName("Lapse", "Lapse", "Hardship")).toBe("Hardship");
+    expect(nextCloneName("", "Lapse", "Hardship")).toBe("Hardship");
+    expect(nextCloneName("  ", undefined, "Hardship")).toBe("Hardship");
+  });
+
+  it("leaves the name alone for a template it cannot find", () => {
+    expect(nextCloneName("Lapse", "Lapse", undefined)).toBe("Lapse");
   });
 });

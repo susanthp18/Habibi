@@ -85,13 +85,7 @@ def reserve_demo_attempt(
         if row is None:
             raise KeyError("demo_customer_not_found")
         customer_id = str(row["id"])
-        account_id = conn.execute(
-            text(
-                "SELECT id FROM accounts WHERE customer_id = :c"
-                " ORDER BY CASE WHEN id LIKE 'AC-%' THEN 0 ELSE 1 END, created_at, id LIMIT 1"
-            ),
-            {"c": customer_id},
-        ).scalar()
+        account_id = d._first_account_id(conn, customer_id)
         deployment_id = None
         try:
             from agent_core.canary import pick_deployment_id
@@ -253,6 +247,7 @@ def apply_provider_status(
     duration_sec: int | None,
     error_code: str | None,
     answered_by: str | None,
+    provider: str = "twilio",
 ) -> dict[str, Any] | None:
     """Twilio's call-status callback applied to the attempt (``outbound.apply_provider_status``)."""
     import outbound
@@ -265,6 +260,7 @@ def apply_provider_status(
             duration_sec=duration_sec,
             error_code=error_code,
             answered_by=answered_by,
+            provider=provider,
         )
 
 
@@ -354,34 +350,66 @@ def nonpayment_reasons(days: int, *, tenant_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+_PROGRESS_KEYS = ("total", "pending", "dialing", "done", "skipped", "failed", "parked")
+
+
+def _campaign_runs(
+    conn: Any, where: str, params: dict[str, Any], *, limit: int = 1
+) -> list[dict[str, Any]]:
+    """Runs with their progress, counted from ``campaign_targets``.
+
+    The one read every campaign endpoint answers through. The run row used to
+    carry its own ``targets_total``/``targets_done`` counters beside the target
+    rows they summarised; one was bumped on *placing* a call and the other was
+    returned stale by create, so the same run reported three different
+    progresses depending on which endpoint asked.
+    """
+    rows = conn.execute(
+        text(
+            f"""
+            SELECT r.*, p.*
+            FROM campaign_runs r
+            LEFT JOIN LATERAL (
+              SELECT
+                count(*)                                  AS total,
+                count(*) FILTER (WHERE t.state = 'pending') AS pending,
+                count(*) FILTER (WHERE t.state = 'dialing') AS dialing,
+                count(*) FILTER (WHERE t.state = 'done')    AS done,
+                count(*) FILTER (WHERE t.state = 'skipped') AS skipped,
+                count(*) FILTER (WHERE t.state = 'failed')  AS failed,
+                count(*) FILTER (WHERE t.state = 'parked')  AS parked
+              FROM campaign_targets t WHERE t.run_id = r.id
+            ) p ON true
+            WHERE {where}
+            ORDER BY r.created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {**params, "limit": limit},
+    ).mappings().all()
+    out = []
+    for row in rows:
+        run = dict(row)
+        run["progress"] = {k: int(run.pop(k) or 0) for k in _PROGRESS_KEYS}
+        out.append(run)
+    return out
+
+
+def _campaign_run(conn: Any, run_id: str, tenant_id: str) -> dict[str, Any] | None:
+    runs = _campaign_runs(conn, "r.id = :id AND r.tenant_id = :t", {"id": run_id, "t": tenant_id})
+    return runs[0] if runs else None
+
+
 def list_campaign_runs(
     *, status: str | None, limit: int, tenant_id: str
 ) -> list[dict[str, Any]]:
     clauses = ["r.tenant_id = :tenant"]
-    params: dict[str, Any] = {"tenant": tenant_id, "limit": limit}
+    params: dict[str, Any] = {"tenant": tenant_id}
     if status:
         clauses.append("r.status = :status")
         params["status"] = status
     with _db().engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"""
-                SELECT r.*,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'pending')  AS pending,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'done')     AS done,
-                  (SELECT count(*) FROM campaign_targets t
-                    WHERE t.run_id = r.id AND t.state = 'skipped')  AS skipped
-                FROM campaign_runs r
-                WHERE {' AND '.join(clauses)}
-                ORDER BY r.created_at DESC
-                LIMIT :limit
-                """
-            ),
-            params,
-        ).mappings().all()
-    return [dict(r) for r in rows]
+        return _campaign_runs(conn, " AND ".join(clauses), params, limit=limit)
 
 
 def create_campaign_run(
@@ -390,8 +418,8 @@ def create_campaign_run(
     name: str,
     objective: str,
     tenant_id: str,
-    actor_user_id: str,
-) -> dict[str, Any]:
+    actor_user_id: str | None,
+) -> dict[str, Any] | None:
     """Create the draft run and freeze its targets. ``campaigns.SelectorError`` propagates."""
     import campaigns
 
@@ -402,7 +430,6 @@ def create_campaign_run(
             name=name,
             objective=objective,
             bot_id=payload.get("botId"),
-            cadence=str(payload.get("cadence") or "default"),
             source=str(payload.get("source") or "list"),
             selector=payload.get("selector") or {},
             window_start_hour=int(payload.get("windowStartHour") or 10),
@@ -421,7 +448,9 @@ def create_campaign_run(
             campaigns.add_targets_from_selector(
                 conn, run["id"], tenant_id=tenant_id, selector=selector
             )
-    return dict(run)
+        # Re-read inside the transaction that added the targets: the row
+        # `create` returned predates them.
+        return _campaign_run(conn, run["id"], tenant_id)
 
 
 def preview_campaign_cohort(
@@ -455,21 +484,14 @@ def set_campaign_status(run_id: str, status: str, *, tenant_id: str) -> dict[str
     import campaigns
 
     with _db().engine.begin() as conn:
-        run = campaigns.set_status(conn, run_id, status, tenant_id=tenant_id)
-    return dict(run) if run is not None else None
+        if campaigns.set_status(conn, run_id, status, tenant_id=tenant_id) is None:
+            return None
+        return _campaign_run(conn, run_id, tenant_id)
 
 
 def get_campaign_run(run_id: str, *, tenant_id: str) -> dict[str, Any] | None:
-    import campaigns
-
     with _db().engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT * FROM campaign_runs WHERE id = :id AND tenant_id = :t"),
-            {"id": run_id, "t": tenant_id},
-        ).mappings().first()
-        if row is None:
-            return None
-        return {**dict(row), "progress": campaigns.progress(conn, run_id)}
+        return _campaign_run(conn, run_id, tenant_id)
 
 
 def list_cadence_cases(

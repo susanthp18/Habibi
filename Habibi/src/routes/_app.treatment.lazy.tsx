@@ -1,4 +1,4 @@
-import { createLazyFileRoute } from "@tanstack/react-router";
+import { createLazyFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Label } from "@/components/ui/label";
@@ -15,24 +15,20 @@ export const Route = createLazyFileRoute("/_app/treatment")({
   component: TreatmentPage,
 });
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
 import { InsightsTab } from "@/components/treatment/InsightsTab";
 import { ModelsTab } from "@/components/treatment/ModelsTab";
 import { CasesTab } from "@/components/treatment/CasesTab";
 import { HoldsTab } from "@/components/treatment/HoldsTab";
+import { OpsTab } from "@/components/treatment/OpsTab";
 
 const WINDOWS = [7, 14, 28, 90] as const;
+const TABS = ["insights", "models", "cases", "holds", "mandates", "field", "legal"] as const;
 
 export function TreatmentPage() {
   const [days, setDays] = useState<number>(14);
-  const [tab, setTab] = useState("insights");
+  const search = useSearch({ strict: false });
+  const tab = TABS.find((t) => t === search.tab) ?? "insights";
+  const navigate = useNavigate();
 
   return (
     <>
@@ -66,13 +62,23 @@ export function TreatmentPage() {
 
         <Tabs
           value={tab}
-          onValueChange={setTab}
+          onValueChange={(next) => {
+            const nextTab = TABS.find((t) => t === next);
+            if (!nextTab) return;
+            void navigate({
+              to: "/treatment",
+              search: { tab: nextTab, customerId: search.customerId },
+            });
+          }}
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <TabsList className="h-10 w-full shrink-0 justify-start px-300">
+          <TabsList className="h-10 w-full shrink-0 justify-start overflow-x-auto px-300">
             <TabsTrigger value="insights">Insights</TabsTrigger>
             <TabsTrigger value="models">Model health</TabsTrigger>
             <TabsTrigger value="cases">Cases</TabsTrigger>
+            <TabsTrigger value="mandates">Mandates</TabsTrigger>
+            <TabsTrigger value="field">Field</TabsTrigger>
+            <TabsTrigger value="legal">Legal</TabsTrigger>
             <TabsTrigger value="holds">Holds</TabsTrigger>
           </TabsList>
 
@@ -86,7 +92,19 @@ export function TreatmentPage() {
             <ModelsTab days={days} />
           </TabsContent>
           <TabsContent value="cases" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
-            <CasesTab />
+            <CasesTab customerId={search.customerId} />
+          </TabsContent>
+          <TabsContent
+            value="mandates"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200"
+          >
+            <OpsTab kind="mandates" customerId={search.customerId} />
+          </TabsContent>
+          <TabsContent value="field" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <OpsTab kind="field" customerId={search.customerId} />
+          </TabsContent>
+          <TabsContent value="legal" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <OpsTab kind="legal" customerId={search.customerId} />
           </TabsContent>
           <TabsContent value="holds" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
             <HoldsTab />
@@ -96,7 +114,3 @@ export function TreatmentPage() {
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Insights — GET /treatment/insights + GET /treatment/metrics
-// ---------------------------------------------------------------------------

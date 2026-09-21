@@ -29,6 +29,7 @@ from agent_core.tools.catalog import (
 from voice import persist
 
 from voice.tool_state import (
+    invalidate_customer_snapshot,
     spawn_session_task,
     ToolBuildContext,
 )
@@ -265,6 +266,11 @@ def build(ctx: ToolBuildContext) -> None:
         Scoped to this session's task bucket so a hangup drains it rather than
         leaving it pending (voice/tools.py spawn_session_task).
         """
+        # The shared per-turn customer read must not outlive the write that
+        # just changed the customer -- a stale balance is the one thing this
+        # machinery must never produce.
+        invalidate_customer_snapshot(state)
+
         ctx = state.call_context
         if ctx is None or replace_developer is None:
             return

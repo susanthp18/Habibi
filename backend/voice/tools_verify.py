@@ -143,6 +143,55 @@ async def take_crm_prefetch(session: Any, customer_id: str) -> tuple[Any, Any] |
     return result
 
 
+def _verification_audit_writes(
+    *,
+    interaction_id: str,
+    customer_id: str,
+    account_id: str | None,
+    method: str,
+    attempt_count: int,
+    attempt_id: str | None,
+) -> None:
+    """The three bookkeeping writes a passed verification produces.
+
+    One thread hop and one pool checkout for all three. They were three
+    separate ``await asyncio.to_thread(...)`` calls in a row, running one after
+    another while the model waited on the first real turn of the call, and
+    nothing in that turn reads any of them back -- the card load keys on
+    customer_id, not on the interaction binding.
+    """
+    persist.bind_customer_to_interaction(
+        interaction_id=interaction_id,
+        customer_id=customer_id,
+        account_id=account_id,
+    )
+    persist.record_identity_verification(
+        interaction_id=interaction_id,
+        customer_id=customer_id,
+        method=method,
+        status="verified",
+        attempt_count=attempt_count,
+    )
+    # Right-party contact, recorded against the dial that produced it. RPC rate
+    # is the metric every collections floor actually manages and the product had
+    # no way to compute it: the only evidence a verification ever happened lived
+    # on the interaction, and an interaction only exists once media connects. On
+    # an outbound leg the attempt is the thing being measured, so the fact
+    # belongs there too.
+    #
+    # Its own try: a bookkeeping write must never fail a verification the caller
+    # has already passed.
+    if attempt_id:
+        try:
+            import db as _db
+            import outbound as _outbound
+
+            with _db.engine.begin() as conn:
+                _outbound.mark(conn, str(attempt_id), right_party=True, answered_by="human")
+        except Exception:
+            logger.debug("right-party mark failed", exc_info=True)
+
+
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
     _node = ctx._node
@@ -309,47 +358,35 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 None,
             )
 
-        await asyncio.to_thread(
-            persist.bind_customer_to_interaction,
-            interaction_id=ix,
-            customer_id=match["customerId"],
-            account_id=match.get("accountId"),
+        # Three audit writes, one thread hop, overlapped with the card load.
+        #
+        # They were three separate `await asyncio.to_thread(...)` calls in a
+        # row, each its own thread hop and its own checkout from a five-
+        # connection pool, running one after another while the model waited on
+        # the first real turn of the call. Nothing in this turn reads any of
+        # them back: the card load below keys on customer_id, not on the
+        # interaction binding, so the writes are bookkeeping and the read is
+        # the thing the model's answer depends on.
+        #
+        # Still awaited before the tool returns -- an audit row is not
+        # optional -- but awaited once, beside the read, instead of three times
+        # in front of it.
+        audit_task = asyncio.create_task(
+            asyncio.to_thread(
+                _verification_audit_writes,
+                interaction_id=ix,
+                customer_id=match["customerId"],
+                account_id=match.get("accountId"),
+                method=method_n,
+                attempt_count=state.verify_attempts,
+                attempt_id=session.extra.get("attempt_id"),
+            )
         )
-        await asyncio.to_thread(
-            persist.record_identity_verification,
-            interaction_id=ix,
-            customer_id=match["customerId"],
-            method=method_n,
-            status="verified",
-            attempt_count=state.verify_attempts,
-        )
+
         session.customer_id = match["customerId"]
         session.account_id = match.get("accountId")
         session.identity_verified = True
 
-        # Right-party contact, recorded against the dial that produced it.
-        # RPC rate is the metric every collections floor actually manages and
-        # the product had no way to compute it: the only evidence a verification
-        # ever happened lived on the interaction, and an interaction only exists
-        # once media connects. On an outbound leg the attempt is the thing being
-        # measured, so the fact belongs there too.
-        #
-        # Fire-and-forget: a bookkeeping write must never fail a verification
-        # the caller has already passed.
-        _attempt = session.extra.get("attempt_id")
-        if _attempt:
-
-            def _mark_rpc() -> None:
-                import db as _db
-                import outbound as _outbound
-
-                with _db.engine.begin() as conn:
-                    _outbound.mark(conn, str(_attempt), right_party=True, answered_by="human")
-
-            try:
-                await asyncio.to_thread(_mark_rpc)
-            except Exception:
-                logger.debug("right-party mark failed", exc_info=True)
         session.outstanding = to_money(match.get("outstanding"))
         state.minimum_due = match.get("minimumDue")
         state.dpd = match.get("dpd")
@@ -362,21 +399,31 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # Cross-call memory is read in the SAME thread hop: it is one extra
         # query against an already-open pool, and a second to_thread would add a
         # round-trip class to the verification turn for no benefit.
-        prefetched = await take_crm_prefetch(session, match["customerId"])
-        if prefetched is not None:
-            ctx, mem_row = prefetched
-        else:
-            ctx, mem_row = await asyncio.to_thread(
-                load_context_and_memory,
-                channel=channel,
-                customer_id=match["customerId"],
-                interaction_id=ix,
-                account_id=match.get("accountId"),
-                session_id=session.session_id,
-                kb_snapshot_id=kb_snapshot_id,
-                bot_id=bot_id,
-                persona=persona,
-            )
+        try:
+            prefetched = await take_crm_prefetch(session, match["customerId"])
+            if prefetched is not None:
+                ctx, mem_row = prefetched
+            else:
+                ctx, mem_row = await asyncio.to_thread(
+                    load_context_and_memory,
+                    channel=channel,
+                    customer_id=match["customerId"],
+                    interaction_id=ix,
+                    account_id=match.get("accountId"),
+                    session_id=session.session_id,
+                    kb_snapshot_id=kb_snapshot_id,
+                    bot_id=bot_id,
+                    persona=persona,
+                )
+        finally:
+            # Joined on every path. The writes run either way -- the task is
+            # already scheduled -- but an unjoined task turns a failed audit
+            # write into an unretrieved-exception warning at GC instead of a
+            # line that names the call it belongs to.
+            try:
+                await audit_task
+            except Exception:
+                logger.warning("verification audit writes failed", exc_info=True)
         state.call_context = ctx
         if inject_developer:
             try:

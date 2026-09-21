@@ -32,6 +32,8 @@ OWNER_FILES = ("env_utils.py", "env_loader.py", "db_core.py", "platform_flags.py
 #: file -> raw reads on 2026-09-12. A file may shrink or disappear; never grow or join.
 BASELINE: dict[str, int] = {
     "actor_context.py": 5,
+    # Runs inside the Asterisk image before Asterisk starts: no repo helpers there.
+    "telephony/e2e/phones/render_phones.py": 2,
     "agent_core/a2a.py": 1,
     "agent_core/cards/routing.py": 1,
     "agent_core/carrier_guard.py": 1,

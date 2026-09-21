@@ -12,8 +12,8 @@ import { ExportConfigPanel } from "@/components/redaction/ExportConfigPanel";
 import { ExportAuditLog } from "@/components/redaction/ExportAuditLog";
 import { RulesSheet } from "@/components/redaction/RulesSheet";
 import {
-  bumpExportDownload,
   createExportJob,
+  downloadExportJob,
   markRedactionReviewed,
   patchRedactionRuleEnabled,
   retryExportJob,
@@ -191,7 +191,7 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   };
 
   const download = (id: string) => {
-    void bumpExportDownload(id)
+    void downloadExportJob(id)
       .then(() => {
         invalidateExports();
         toast.success(`Downloading ${id}`);

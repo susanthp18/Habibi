@@ -48,7 +48,7 @@ export type DemoOutboundTarget = {
    * same way would hide the override at the moment it is being used.
    */
   policyWaived: string | null;
-  twilioConfigured: boolean;
+  telephonyConfigured: boolean;
 };
 
 export type DemoOutboundResult = {
@@ -145,8 +145,8 @@ export function friendlyOutboundError(raw: string): string {
   if (raw.includes("fleet_busy")) {
     return "All concurrent call slots are in use. Try again in a moment.";
   }
-  if (raw.includes("twilio_not_configured")) {
-    return "Twilio is not configured on the server.";
+  if (raw.includes("telephony_not_configured")) {
+    return "Telephony is not configured on the server.";
   }
   if (raw.includes("demo_customer_not_found")) {
     return "No customer on file with the demo phone number.";

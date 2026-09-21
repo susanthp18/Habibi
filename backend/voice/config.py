@@ -225,6 +225,25 @@ def kb_enrich_wait_ms() -> float:
     return _number("KB_ENRICH_WAIT_MS", 400, minimum=0, maximum=2000)
 
 
+def kb_enrich_late_wait_ms() -> float:
+    """Second, outer bound on a speculation that outran KB_ENRICH_WAIT_MS.
+
+    The ``inline`` fallback keeps waiting on the already-paid embed rather than
+    starting a second one -- that part is right, and the shield that protects it
+    is load-bearing. What was missing is a ceiling: the continuation had no
+    timeout of its own, so it inherited AZURE_OPENAI_ACQUIRE_TIMEOUT_S (10s) and
+    the client's 20s request timeout with max_retries=2. A saturated process
+    could hold one LLMContextFrame -- and therefore the caller -- for the better
+    part of a minute on a turn that was only ever meant to wait 400ms.
+
+    Exceeding this means the turn proceeds ungrounded, which is exactly what
+    KB_ENRICH_FALLBACK=spec_only already does on the turns speculation cannot
+    cover, and the search_knowledge_base tool is still on the model's menu. The
+    retrieval is never cancelled: it completes into the cache for the next turn.
+    """
+    return _number("KB_ENRICH_LATE_WAIT_MS", 1200, minimum=0, maximum=10000)
+
+
 def kb_enrich_fallback() -> str:
     """``inline`` | ``spec_only`` — what to do when speculation missed.
 
@@ -327,7 +346,11 @@ def voice_analyzer_pool() -> bool:
 
 
 def voice_dtmf_input_enabled() -> bool:
-    """Fold inbound keypad digits into the transcript (telephony only)."""
-    return _flag("VOICE_DTMF_INPUT_ENABLED")
+    """Fold inbound keypad digits into the transcript (telephony only).
+
+    On by default: a phone caller who presses a key expects it to count, and with
+    this off every digit was silently dropped. ``false`` is the kill switch.
+    """
+    return _flag_default_on("VOICE_DTMF_INPUT_ENABLED")
 
 

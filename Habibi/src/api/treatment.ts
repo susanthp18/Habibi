@@ -537,6 +537,90 @@ export function useReleaseTreatmentHold() {
   });
 }
 
+export type TreatmentEnactResult = {
+  decisionId: string;
+  acted: boolean;
+  note: string;
+  enactedRef: string | null;
+};
+
+export async function enactTreatmentDecision(
+  decisionId: string,
+  body: {
+    agency?: string;
+    scheduledDate?: string;
+    servedAt?: string;
+    method?: string;
+  },
+  idempotencyKey: string,
+): Promise<TreatmentEnactResult> {
+  return apiPost(`/treatment/decisions/${encodeURIComponent(decisionId)}/enact`, body, {
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}
+
+export function useEnactTreatmentDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: (input: {
+      decisionId: string;
+      idempotencyKey: string;
+      agency?: string;
+      scheduledDate?: string;
+      servedAt?: string;
+      method?: string;
+    }) =>
+      enactTreatmentDecision(
+        input.decisionId,
+        {
+          agency: input.agency,
+          scheduledDate: input.scheduledDate,
+          servedAt: input.servedAt,
+          method: input.method,
+        },
+        input.idempotencyKey,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["treatment-ops"] });
+      void qc.invalidateQueries({ queryKey: ["treatment-cases"] });
+    },
+  });
+}
+
+export type TreatmentOpsRow = {
+  decisionId: string;
+  customerId: string;
+  customerName: string;
+  accountId: string | null;
+  action: string;
+  expectedValueInr: number | null;
+  scheduledAt: string | null;
+  mode: string;
+  enacted: boolean;
+  enactedRef: string | null;
+  rationale: string | null;
+  presentationId?: string | null;
+  presentationStatus?: string | null;
+};
+
+export async function fetchTreatmentOps(
+  kind: "mandates" | "field" | "legal",
+  customerId?: string | null,
+): Promise<TreatmentOpsRow[]> {
+  const params = new URLSearchParams();
+  if (customerId) params.set("customerId", customerId);
+  const q = params.toString();
+  return apiGet(`/treatment/ops/${kind}${q ? `?${q}` : ""}`);
+}
+
+export function useTreatmentOps(kind: "mandates" | "field" | "legal", customerId?: string | null) {
+  return useQuery({
+    queryKey: ["treatment-ops", kind, customerId ?? null],
+    queryFn: () => fetchTreatmentOps(kind, customerId),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Formatting — null is a fact, not a zero.
 // ---------------------------------------------------------------------------

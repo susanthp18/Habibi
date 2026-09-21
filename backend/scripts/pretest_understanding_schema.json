@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent",
+    "sentiment",
+    "abuse",
+    "legal",
+    "unresolved_repeat",
+    "language"
+  ],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": [
+        "balance_query",
+        "correction",
+        "dispute",
+        "escalation",
+        "greeting",
+        "hardship",
+        "help_capabilities",
+        "out_of_scope",
+        "payment_intent",
+        "product_faq",
+        "upsell_opportunity",
+        "waiver_request"
+      ]
+    },
+    "confidence": { "type": "number" },
+    "sentiment": { "type": "number" },
+    "abuse": { "type": "boolean" },
+    "legal": { "type": "boolean" },
+    "unresolved_repeat": { "type": "boolean" },
+    "language": {
+      "type": "string",
+      "enum": ["en", "hi", "hinglish", "other"]
+    },
+    "english_gloss": { "type": "string" }
+  }
+}

@@ -623,6 +623,27 @@ def test_a_selector_freezes_onto_the_run(db_tx) -> None:
     assert stored == added
 
 
+def test_a_created_run_reports_the_cohort_it_froze(db_tx) -> None:
+    """Create returned the row it read before adding the targets, so every new
+    run answered ``targets_total: 0`` however many borrowers it enrolled."""
+    import db_outbound
+
+    run = db_outbound.create_campaign_run(
+        {"selector": {"dpdMin": 1, "limit": 5}},
+        name="counted on create",
+        objective="dpd_reminder",
+        tenant_id="hdfc.retail",
+        actor_user_id=None,
+    )
+
+    stored = db_tx.execute(
+        text("SELECT count(*) FROM campaign_targets WHERE run_id = :r"), {"r": run["id"]}
+    ).scalar()
+    assert stored > 0
+    assert run["progress"]["total"] == stored
+    assert run["progress"]["pending"] == stored
+
+
 def test_a_new_run_never_starts_itself(db_tx) -> None:
     run = campaigns.create(
         db_tx, tenant_id="hdfc.retail", name="draft only", objective="dpd_reminder"

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { NbaActionKind, NbaItem } from "@/api/types/customer-insights";
+import { nbaPrimaryLabel } from "@/lib/nba-destinations";
 import { StatusChip, type ChipTone } from "./StatusChip";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +48,7 @@ const ACTION_ICON: Record<NbaActionKind, typeof PhoneCall> = {
 };
 
 type Handlers = {
-  onAction: (action: NbaActionKind) => void;
+  onAction: (item: NbaItem) => void;
 };
 
 export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & Handlers) {
@@ -83,14 +84,16 @@ export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & H
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            className="mt-150 h-400 bg-background-brand-bold hover:bg-background-brand-bold-hovered"
-            onClick={() => onAction(primary.action)}
-          >
-            Take action
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+          {nbaPrimaryLabel(primary) ? (
+            <Button
+              size="sm"
+              className="mt-150 h-400 bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+              onClick={() => onAction(primary)}
+            >
+              {nbaPrimaryLabel(primary)}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -100,13 +103,15 @@ export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & H
             const Icon = ACTION_ICON[item.action];
             return (
               <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => onAction(item.action)}
-                  className={cn(
-                    "flex w-full items-start gap-150 px-200 py-150 text-left transition-colors hover:bg-surface-sunken",
-                  )}
-                >
+                  <button
+                    type="button"
+                    onClick={() => onAction(item)}
+                    disabled={item.action === "wait"}
+                    className={cn(
+                      "flex w-full items-start gap-150 px-200 py-150 text-left transition-colors hover:bg-surface-sunken",
+                      item.action === "wait" && "cursor-default hover:bg-transparent",
+                    )}
+                  >
                   <Icon className="mt-025 h-4 w-4 shrink-0 text-text-brand" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-075">

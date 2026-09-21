@@ -1,5 +1,5 @@
 /** Cases -- GET /treatment/cases, and the next-treatment panel for the selected one. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Inbox, ShieldOff, Sparkles } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
@@ -35,10 +35,16 @@ import {
 import { EmptyPanel, Panel, Stat, StateGate } from "./chrome";
 import { fmtDateTime } from "@/lib/format";
 
-export function CasesTab() {
+export function CasesTab({ customerId }: { customerId?: string }) {
   const [openOnly, setOpenOnly] = useState(true);
   const [selected, setSelected] = useState<TreatmentCase | null>(null);
-  const cases = useTreatmentCases({ openOnly });
+  const cases = useTreatmentCases({ openOnly, customerId: customerId ?? null });
+
+  useEffect(() => {
+    if (!customerId || !cases.data) return;
+    const match = cases.data.find((c) => c.customerId === customerId);
+    if (match) setSelected(match);
+  }, [customerId, cases.data]);
 
   return (
     <div className="flex flex-col gap-200">

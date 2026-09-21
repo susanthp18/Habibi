@@ -10,6 +10,7 @@ import { ComplianceChecklist } from "@/components/handoff/ComplianceChecklist";
 import { WrapUpBar } from "@/components/handoff/WrapUpBar";
 import { HandoffAlerts, HandoffQueueList } from "@/components/handoff/HandoffQueue";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorBanner } from "@/components/ui/query-state";
 import { toast } from "sonner";
 import { postSupervisorAction } from "@/api/floor";
 import { useCannedResponses } from "@/api/inbox";
@@ -76,21 +77,9 @@ function HandoffPage() {
 
   if (queue.isError) {
     return (
-      <>
-        <div className="grid h-full place-items-center p-400 text-center">
-          <p className="text-sm font-semibold text-text">Could not load the handoff queue</p>
-          <p className="mt-050 text-body text-text-subtlest">
-            {queue.error instanceof Error ? queue.error.message : "The request failed."}
-          </p>
-          <button
-            type="button"
-            onClick={() => void queue.refetch()}
-            className="mt-150 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse"
-          >
-            Retry
-          </button>
-        </div>
-      </>
+      <div className="grid h-full place-items-center p-400">
+        <QueryErrorBanner label="the handoff queue" error={queue.error} />
+      </div>
     );
   }
 
@@ -128,27 +117,14 @@ function HandoffSessionGate({
     data: session,
     isError,
     error,
-    refetch,
-    isFetching,
   } = useHandoffSession(interactionId, {
     poll: true,
   });
 
   if (isError) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-150 bg-surface p-300 text-center">
-        <p className="text-sm font-semibold text-text">Could not load the handoff session</p>
-        <p className="max-w-md text-body text-text-subtlest">
-          {error instanceof Error ? error.message : "The request failed."}
-        </p>
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-          className="rounded-medium bg-background-brand-bold px-150 py-100 text-body font-semibold text-text-inverse transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isFetching ? "Retrying…" : "Retry"}
-        </button>
+      <div className="flex h-full w-full items-center justify-center bg-surface p-300">
+        <QueryErrorBanner label="the handoff session" error={error} />
       </div>
     );
   }

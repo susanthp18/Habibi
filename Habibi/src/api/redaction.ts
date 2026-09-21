@@ -14,7 +14,7 @@ import type {
   RedactionRecord,
   RedactionRules,
 } from "@/api/types/redaction";
-import { apiGet, apiPatch, apiPost } from "./config";
+import { apiGet, apiGetBlob, apiPatch, apiPost } from "./config";
 
 interface RedactionRuleApi {
   piiType: PiiEntityType;
@@ -97,8 +97,16 @@ export async function createExportJob(input: {
   return apiPost<ExportJob>("/export-jobs", input);
 }
 
-export async function bumpExportDownload(jobId: string): Promise<ExportJob> {
-  return apiPatch<ExportJob>(`/export-jobs/${jobId}`, { bumpDownload: true });
+export async function downloadExportJob(jobId: string): Promise<void> {
+  const { blob, headers } = await apiGetBlob(`/export-jobs/${encodeURIComponent(jobId)}/download`);
+  const name =
+    headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || `${jobId}.zip`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function retryExportJob(jobId: string): Promise<ExportJob> {
