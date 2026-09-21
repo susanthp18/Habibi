@@ -21,6 +21,7 @@ from agent_core import resolve_intent
 from agent_core import turn_critic
 from agent_core.guardrails import mentions_recording_disclosure
 from voice import crm_sink_jobs, crm_sink_observer, persist
+from voice.turn_trace import TurnTrace
 from voice.safety import (
     SENTIMENT_WINDOW,
     detect_abuse,
@@ -177,6 +178,8 @@ class CrmSink:
         self._pending_tokens: int | None = None
         # Per-service latency for the next bot turn (UserBotLatencyObserver).
         self._pending_breakdown: dict[str, int] = {}
+        #: Per-turn measurement collector. See voice/turn_trace.py.
+        self._turn_trace = TurnTrace(self._trace)
         self._user_bot_latency_ms: list[float] = []
         # CRM work discarded because the session never got an interaction_id,
         # counted by job kind. These guards used to be a bare `return`: an
@@ -235,6 +238,20 @@ class CrmSink:
             _trace_event(name, **session_fields(self.session), **fields)
         except Exception:
             logger.debug("crm sink trace failed", exc_info=True)
+
+    def set_turn_context(self, **fields: Any) -> None:
+        """Stamp the per-call facts every turn trace is compared within."""
+        self._turn_trace.set_context(**fields)
+
+    def record_turn_metric(self, **fields: Any) -> None:
+        """Collect one turn's values from whoever computed them."""
+        self._turn_trace.record(**fields)
+
+    def emit_turn_trace(self, breakdown: Any, *, latency_ms: float | None = None) -> None:
+        """One ``turn.e2e`` line, in the caller's clock. See voice/turn_trace.py."""
+        self._turn_trace.emit(
+            breakdown, latency_ms=latency_ms, stages=self._pending_breakdown
+        )
 
     def _note_dropped(self, kind: str, *, why: str = "no_interaction") -> None:
         """Record one lost CRM or analysis job, counted by kind.
@@ -929,6 +946,14 @@ class CrmSink:
         :meth:`record_bot_turn`. See that method for why.
         """
 
+        @user_aggregator.event_handler("on_user_turn_started")
+        async def _on_user_turn_started(aggregator, *_args):
+            # turn.e2e clears these, but it only runs on BotStartedSpeakingFrame
+            # -- a turn the bot never answers would carry its measurements into
+            # the next one and report them there. A per-turn value that outlives
+            # its turn silently describes the wrong turn.
+            self._turn_trace.clear()
+
         @user_aggregator.event_handler("on_user_turn_stopped")
         async def _on_user_turn_stopped(aggregator, strategy, message):
             content = getattr(message, "content", None) or ""
@@ -945,6 +970,9 @@ class CrmSink:
                     n=self._customer_exchanges,
                     preview=_preview(text),
                     strategy=type(strategy).__name__ if strategy is not None else None,
+                    smart_turn_ms=self._turn_trace.pending.get("smart_turn_ms"),
+                    smart_turn_prob=self._turn_trace.pending.get("smart_turn_prob"),
+                    smart_turn_complete=self._turn_trace.pending.get("smart_turn_complete"),
                 )
             except Exception:
                 logger.debug("user.turn trace failed", exc_info=True)

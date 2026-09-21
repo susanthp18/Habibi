@@ -114,7 +114,7 @@ def render(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     from pipecat.pipeline import pipeline as pipeline_mod
     from voice import flows_dynamic
     from voice import tts_pool
-    from pipecat.services.azure import stt as azure_stt
+    from voice import stt_service
 
     recorded: dict[str, Any] = {}
 
@@ -128,7 +128,15 @@ def render(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     monkeypatch.setattr(factory, "build_first_available", _no_binding)
 
-    monkeypatch.setattr(azure_stt, "AzureSTTService", _stand_in("AzureSTTService"))
+    # The STT slot is bound at its own module, not at Pipecat's.
+    # voice/stt_service.py subclasses AzureSTTService at import time, so
+    # patching the Pipecat class only works when that module has not been
+    # imported yet -- true when this test runs alone, false after any other
+    # voice test, and the difference showed up as an order-dependent failure
+    # constructing a real recogniser against this stand-in's Settings.
+    monkeypatch.setattr(
+        stt_service, "OverlappedAzureSTTService", _stand_in("OverlappedAzureSTTService")
+    )
     monkeypatch.setattr(tts_pool, "KeepAliveAzureTTSService", _stand_in("KeepAliveAzureTTSService"))
     _patch_everywhere(
         monkeypatch,

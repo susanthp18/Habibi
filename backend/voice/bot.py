@@ -455,15 +455,51 @@ def _warm_llm_service() -> None:
 
 
 def _warm_silero() -> None:
+    """Build one and hand it to the spare pool rather than discarding it.
+
+    Discarding it warmed the onnxruntime library, its thread pools and the model
+    file in the page cache -- real, and the reason the rebuild is 327 ms rather
+    than 1374 ms. But the 327 ms rebuild then stayed inside every call's setup
+    window. Seeding the pool means the first caller does not pay it either.
+    """
     from pipecat.audio.vad.silero import SileroVADAnalyzer
+    from pipecat.audio.vad.vad_analyzer import VADParams
+
+    from voice import analyzer_pool
+    from voice.tuning_apply import build_vad_params
 
     SileroVADAnalyzer()
+    params: VADParams = build_vad_params({})
+    analyzer_pool.seed(
+        analyzer_pool.vad_key(params), lambda: SileroVADAnalyzer(params=params)
+    )
 
 
 def _warm_smart_turn() -> None:
+    """As :func:`_warm_silero`: warm the runtime, then leave a spare behind."""
+    from voice import analyzer_pool
     from voice.tuning_apply import build_smart_turn_analyzer
 
+    # Goes through the pool, so this both warms the runtime and seeds the
+    # default-tuning key in one build.
     build_smart_turn_analyzer({})
+    analyzer_pool.seed(
+        analyzer_pool.turn_key(_default_turn_params()),
+        lambda: build_smart_turn_analyzer({}),
+    )
+
+
+def _default_turn_params():
+    from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+
+    from agent_core.tuning import normalize_tuning
+
+    turn = normalize_tuning({})["turn"]
+    return SmartTurnParams(
+        stop_secs=float(turn["stop_secs"]),
+        pre_speech_ms=float(turn["pre_speech_ms"]),
+        max_duration_secs=float(turn["max_duration_secs"]),
+    )
 
 
 def _warm_shared_llm_client() -> None:

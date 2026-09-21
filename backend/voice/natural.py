@@ -242,6 +242,26 @@ _FILLERS: dict[str, tuple[str, ...]] = {
 # would have raised KeyError out of the audio path.
 _SLOW_IO_TOOLS = frozenset(_FILLERS)
 
+#: Exactly the phrases whose synthesised audio may be cached and replayed.
+#:
+#: Derived from _FILLERS for the same reason _SLOW_IO_TOOLS is: two hand-kept
+#: sets are free to drift, and the drift here would be a cached clip for a
+#: sentence that is no longer a literal. Nothing the model authors is ever in
+#: this set -- a reply is unique to its call, and caching audio keyed on text
+#: that varies is how one borrower hears another borrower's answer.
+_CACHEABLE_PHRASES = frozenset(p for variants in _FILLERS.values() for p in variants)
+
+
+def is_cacheable_phrase(text: str) -> bool:
+    """Whether this exact string is one of the fixed spoken assets.
+
+    The filler exists to mask tool latency, so its own TTS round trip is dead
+    weight in the gap it was invented to fill. These are literals in this file,
+    picked by ``random.choice`` -- the audio for one is identical every time,
+    and the variety the caller hears comes from the choice, not the synthesis.
+    """
+    return (text or "").strip() in _CACHEABLE_PHRASES
+
 
 def filler_for_function_names(names: list[str]) -> str:
     """Short spoken acknowledgement — ONLY while a slow I/O tool runs.

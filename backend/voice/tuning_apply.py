@@ -108,9 +108,30 @@ def build_vad_params(tuning: dict[str, Any]):
     )
 
 
+def build_vad_analyzer(tuning: dict[str, Any]):
+    """A Silero analyzer for this tuning, from the warm pool when there is one.
+
+    Measured at 327 ms warm (1374 ms cold) and rebuilt per call on the event
+    loop. The object handed back is the same class with the same params; only
+    when it was constructed changes, and it is never shared -- see
+    voice/analyzer_pool.py.
+    """
+    from pipecat.audio.vad.silero import SileroVADAnalyzer
+
+    from voice import analyzer_pool
+
+    params = build_vad_params(tuning)
+    return analyzer_pool.take(
+        analyzer_pool.vad_key(params),
+        lambda: SileroVADAnalyzer(params=params),
+    )
+
+
 def build_smart_turn_analyzer(tuning: dict[str, Any]):
     from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
     from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+
+    from voice import analyzer_pool
 
     turn = normalize_tuning(tuning)["turn"]
     params = SmartTurnParams(
@@ -118,7 +139,12 @@ def build_smart_turn_analyzer(tuning: dict[str, Any]):
         pre_speech_ms=float(turn["pre_speech_ms"]),
         max_duration_secs=float(turn["max_duration_secs"]),
     )
-    return LocalSmartTurnAnalyzerV3(params=params)
+    # 215 ms warm, 386 ms cold, per call, on the loop. Same class, same params,
+    # never shared between calls -- see voice/analyzer_pool.py.
+    return analyzer_pool.take(
+        analyzer_pool.turn_key(params),
+        lambda: LocalSmartTurnAnalyzerV3(params=params),
+    )
 
 
 def build_user_turn_strategies(tuning: dict[str, Any]):

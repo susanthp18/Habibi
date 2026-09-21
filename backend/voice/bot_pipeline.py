@@ -26,7 +26,7 @@ from voice.tuning_apply import (
     build_tts_settings,
     build_user_mute_strategies,
     build_user_turn_strategies,
-    build_vad_params,
+    build_vad_analyzer,
     resolve_session_tuning,
     text_aggregation_mode,
     user_idle_timeout,
@@ -81,8 +81,7 @@ def _bind_providers(call: Any) -> None:
     sink = call.sink
     system_instruction = call.system_instruction
 
-    from pipecat.services.azure.stt import AzureSTTService
-
+    from voice.stt_service import OverlappedAzureSTTService
     from voice.tts_pool import KeepAliveAzureTTSService
 
     import db as _db
@@ -163,7 +162,13 @@ def _bind_providers(call: Any) -> None:
         session_id=session.session_id,
         settings=stt_settings_kwargs(tuning),
         ctor={"ttfs_p99_latency": 1.15},
-        fallback=lambda: AzureSTTService(
+        # OverlappedAzureSTTService, not AzureSTTService: identical recogniser,
+        # identical settings, but its language switch starts the new recogniser
+        # before retiring the old one. Stock Pipecat closes the push stream
+        # first and run_stt then drops every frame that arrives before the
+        # replacement exists -- on a switch that fires precisely because the
+        # caller has just started a sentence in the new language.
+        fallback=lambda: OverlappedAzureSTTService(
             api_key=speech_key,
             region=speech_region,
             settings=build_stt_settings(tuning),
@@ -252,7 +257,6 @@ def _build_context(call: Any) -> None:
     _setup_trace = call._setup_trace
     tuning = call.tuning
 
-    from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.processors.aggregators.llm_context import LLMContext
     from pipecat.processors.aggregators.llm_response_universal import (
         LLMAssistantAggregatorParams,
@@ -285,9 +289,22 @@ def _build_context(call: Any) -> None:
     _spawn_bg(prewarm_shared_client())
 
     idle_timeout = user_idle_timeout(tuning)
+    # Timed separately because these two are the largest measured item in call
+    # setup -- 327ms + 215ms warm, 1374ms + 386ms cold (bot.py) -- and they are
+    # rebuilt per call on the event loop. Nothing recorded them, so the warm
+    # rebuild was a number in a comment rather than a series. It is also the
+    # baseline the analyzer spare pool has to beat.
+    _vad_t0 = time.monotonic()
+    vad_analyzer = build_vad_analyzer(tuning)
+    _vad_ms = int((time.monotonic() - _vad_t0) * 1000)
+    _turn_t0 = time.monotonic()
+    turn_strategies = build_user_turn_strategies(tuning)
+    _turn_ms = int((time.monotonic() - _turn_t0) * 1000)
+    call._analyzer_build_ms = {"vad_build_ms": _vad_ms, "smart_turn_build_ms": _turn_ms}
+
     user_params_kwargs: dict = {
-        "vad_analyzer": SileroVADAnalyzer(params=build_vad_params(tuning)),
-        "user_turn_strategies": build_user_turn_strategies(tuning),
+        "vad_analyzer": vad_analyzer,
+        "user_turn_strategies": turn_strategies,
         "user_mute_strategies": build_user_mute_strategies(tuning),
         # Disabled by default: filter_incomplete_user_turns injects ✓ / ◐ into the
         # LLM context (seen in logs as assistant content '◐'). Enable via
@@ -499,6 +516,69 @@ def build_services(call) -> None:
     _build_kb_and_recording(call)
 
 
+def _emit_turn_e2e(sink, call, session, breakdown) -> None:
+    """Collect the stragglers and emit this turn's line.
+
+    Called from ``on_latency_breakdown``, which fires on
+    ``BotStartedSpeakingFrame`` -- by then the metrics frames for Smart Turn,
+    the LLM and TTS have all been pushed, so everything the turn's producers
+    computed is in.
+    """
+    kb_cache = getattr(call, "kb_cache", None)
+    if kb_cache is not None:
+        sink.record_turn_metric(
+            kb_source=kb_cache.last_source,
+            kb_wait_ms=(
+                int(kb_cache.last_wait_ms) if kb_cache.last_wait_ms is not None else None
+            ),
+        )
+    if not session.extra.get("_warm_state_traced"):
+        # First turn of each call only -- that is the turn a cold process is
+        # paid for, and this would have caught both prewarming gaps on its own.
+        session.extra["_warm_state_traced"] = True
+        try:
+            sink.record_turn_metric(**warm_state())
+        except Exception:
+            logger.debug("warm state unavailable", exc_info=True)
+    sink.emit_turn_trace(breakdown, latency_ms=sink.last_user_bot_latency_ms)
+
+
+def _stamp_turn_context(sink, call, transport, pipeline_kwargs, *, is_twilio: bool) -> None:
+    """The isolation cell every ``turn.e2e`` line is compared within.
+
+    Pooling 8 kHz and 16 kHz, or Twilio and Asterisk, into one p50 is what
+    makes a latency number meaningless -- at 8 kHz Smart Turn additionally
+    resamples an 8-second window on every turn end, so the two are not the
+    same measurement.
+    """
+    out_params = None
+    chunks = 4
+    try:
+        out_params = getattr(transport, "_params", None) or getattr(transport, "params", None)
+        chunks = int(getattr(out_params, "audio_out_10ms_chunks", 4) or 4)
+    except Exception:
+        chunks = 4
+    # Only the telephony branch sets the rate explicitly; on the WebRTC/sandbox
+    # path it is Pipecat's default. Read it off the transport there rather than
+    # leaving the tag absent -- a turn with no rate cannot be put in a cell.
+    sample_hz = pipeline_kwargs.get("audio_in_sample_rate") or getattr(
+        out_params, "audio_in_sample_rate", None
+    )
+    sink.set_turn_context(
+        transport=(
+            "asterisk"
+            if getattr(call, "is_asterisk", False)
+            else ("twilio" if is_twilio else "webrtc")
+        ),
+        sample_hz=sample_hz,
+        # BotStartedSpeakingFrame fires when the first audio is handed to the
+        # transport; the output stage still buffers this much before anything
+        # is emitted, so the caller hears the reply that much later.
+        out_buffer_ms=chunks * 10,
+        concurrent=admission.snapshot().get("activeCalls"),
+    )
+
+
 async def build_pipeline(call) -> None:
     """AMD, IVR, the ordered stages, observers and the PipelineWorker."""
     from pipecat.pipeline.pipeline import Pipeline
@@ -656,6 +736,7 @@ async def build_pipeline(call) -> None:
             async def _on_latency_breakdown(_obs, breakdown):  # noqa: ANN001
                 try:
                     sink.record_latency_breakdown(breakdown)
+                    _emit_turn_e2e(sink, call, session, breakdown)
                     spawn_session_task(
                         session.session_id,
                         emitter.send(
@@ -753,6 +834,8 @@ async def build_pipeline(call) -> None:
             function_call_report_level=report_levels,
         ),
     )
+
+    _stamp_turn_context(sink, call, transport, pipeline_kwargs, is_twilio=is_twilio)
 
     if voicemail_detector is not None:
         try:

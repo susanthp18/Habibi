@@ -301,6 +301,31 @@ def voice_stt_segmentation_silence_ms() -> int | None:
     return max(100, min(2000, value))
 
 
+def voice_tts_phrase_cache() -> bool:
+    """Replay cached audio for the fixed filler phrases instead of re-synthesising.
+
+    OFF by default, deliberately. The saving is the smallest of its phase --
+    the filler plays *while* the tool runs, so its TTS round trip overlaps the
+    latency it masks rather than adding to it -- and the risk lands on the
+    word-boundary sequencer, which has had a duplication bug before. The cache
+    advances the cumulative audio offset itself to keep later word timings
+    honest, but that correction wants real `tts_ttfb_ms` / `leading_silence_ms`
+    evidence behind it before it is on by default.
+    """
+    load_env()
+    return env_bool("VOICE_TTS_PHRASE_CACHE", default=False)
+
+
+def voice_analyzer_pool() -> bool:
+    """Hand calls a pre-built VAD / Smart Turn analyzer instead of building one.
+
+    On by default. The objects are the same classes with the same params and are
+    never shared between calls -- only the moment of construction moves, out of
+    the caller's silent line. ``false`` restores per-call construction exactly.
+    """
+    return _flag_default_on("VOICE_ANALYZER_POOL")
+
+
 def voice_dtmf_input_enabled() -> bool:
     """Fold inbound keypad digits into the transcript (telephony only)."""
     return _flag("VOICE_DTMF_INPUT_ENABLED")
