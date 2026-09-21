@@ -7,7 +7,7 @@
 # because voice install uses it as `-c` and pip 25 rejects extras there.
 # Same pin as requirements-voice.lock so the two images cannot drift.
 PyJWT==2.13.0
-cryptography==46.0.1
+cryptography==50.0.1
 fastapi==0.139.2
 uvicorn==0.51.0
 sqlalchemy==2.0.51
