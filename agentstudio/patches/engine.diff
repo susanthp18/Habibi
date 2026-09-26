@@ -1,0 +1,2447 @@
+diff --git a/api/Dockerfile b/api/Dockerfile
+index e09a2cf..34ef15e 100644
+--- a/api/Dockerfile
++++ b/api/Dockerfile
+@@ -1,8 +1,11 @@
+ # syntax=docker/dockerfile:1
+ # Multi-stage Dockerfile
++# AgentStudio: base images are pinned by digest and every pip install is
++# constrained by api/constraints.txt, so a rebuild on a fresh machine gets the
++# tested set. Bump both deliberately (see agentstudio/UPSTREAM.md).
+ # Stage 1: Builder - Install Python dependencies into a venv via uv
+ # (mirrors .devcontainer/Dockerfile's venv-builder stage).
+-FROM python:3.13-slim AS builder
++FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS builder
+ 
+ WORKDIR /app
+ 
+@@ -13,7 +16,7 @@ RUN apt-get update && apt-get install -y \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ # uv (https://github.com/astral-sh/uv) for ~5-10x faster installs than pip.
+-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
++COPY --from=ghcr.io/astral-sh/uv:latest@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /uvx /usr/local/bin/
+ 
+ # Build the venv at the path it will live at in the final image, so shebangs
+ # and console-scripts inside the venv reference the correct runtime location
+@@ -24,8 +27,9 @@ RUN python -m venv "$VIRTUAL_ENV"
+ 
+ # Layer 1: API deps. Cache invalidates only when requirements.txt changes.
+ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
++    --mount=type=bind,source=api/constraints.txt,target=/tmp/constraints.txt \
+     --mount=type=cache,target=/root/.cache/uv \
+-    uv pip install -r /tmp/req.txt
++    uv pip install -r /tmp/req.txt -c /tmp/constraints.txt
+ 
+ # Layer 2: pipecat deps. Cache invalidates when pipecat source changes.
+ # After installing pipecat, two hardening tweaks:
+@@ -36,10 +40,11 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
+ #      doesn't hit the network on first agent run. NLTK auto-finds it under
+ #      sys.prefix/nltk_data, so it travels with the venv on COPY.
+ RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
++    --mount=type=bind,source=api/constraints.txt,target=/tmp/constraints.txt \
+     --mount=type=cache,target=/root/.cache/uv \
+-    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]' \
++    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest,aws-nova-sonic]' -c /tmp/constraints.txt \
+  && uv pip uninstall opencv-python \
+- && uv pip install opencv-python-headless \
++ && uv pip install opencv-python-headless -c /tmp/constraints.txt \
+  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
+ 
+ # Strip cache files, test/example dirs, and type stubs from the venv
+@@ -51,7 +56,7 @@ RUN find /opt/venv -type f -name '*.pyc' -delete && \
+ 
+ # Stage 2: Node deps for ts_validator (built with full node:22-slim, only
+ # node_modules is copied into the runner).
+-FROM node:22-slim AS ts-deps
++FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS ts-deps
+ WORKDIR /ts_validator
+ COPY api/mcp_server/ts_validator/package*.json ./
+ RUN npm ci --omit=dev && npm cache clean --force
+@@ -77,7 +82,7 @@ RUN npm ci --omit=dev && npm cache clean --force
+ # (the cause of "stuck" builds) without killing a slow-but-progressing
+ # download; `--max-time` is a hard backstop; `--retry` rides out transient CDN
+ # hiccups. The archive nests binaries under bin/, so locate them with `find`.
+-FROM debian:trixie-slim AS ffmpeg-static
++FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS ffmpeg-static
+ ARG TARGETARCH
+ ARG BTBN_TAG=autobuild-2026-05-31-13-22
+ ARG BTBN_REV=N-124714-g49a77d37be
+@@ -108,7 +113,7 @@ RUN set -eu ; \
+     rm -rf /tmp/ffmpeg
+ 
+ # Stage 4: Runtime - Minimal image with only runtime dependencies
+-FROM python:3.13-slim AS runner
++FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runner
+ 
+ WORKDIR /app
+ 
+@@ -123,7 +128,7 @@ COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+ # Node.js 22 binary only (ts_validator subprocess needs node >=22.6 for
+ # native TypeScript stripping; see api/mcp_server/ts_bridge.py). python:3.13-slim
+ # already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
+-COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
++COPY --from=node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c /usr/local/bin/node /usr/local/bin/node
+ 
+ # Copy the populated venv from the builder stage. NLTK data lives at
+ # /opt/venv/nltk_data and is auto-discovered via sys.prefix.
+diff --git a/api/app.py b/api/app.py
+index 1915a81..ba62db1 100644
+--- a/api/app.py
++++ b/api/app.py
+@@ -88,13 +88,12 @@ async def lifespan(app: FastAPI):
+ 
+ 
+ app = FastAPI(
+-    title="Dograh API",
+-    description="API for the Dograh app",
++    title="PayInt Voice Studio API",
++    description="API for the PayInt Voice Studio app",
+     version="1.0.0",
+     openapi_url=f"{API_PREFIX}/openapi.json",
+     lifespan=lifespan,
+     servers=[
+-        {"url": "https://app.dograh.com", "description": "Production"},
+         {"url": "http://localhost:8000", "description": "Local development"},
+     ],
+ )
+diff --git a/api/constants.py b/api/constants.py
+index 2484dad..ea09d7e 100644
+--- a/api/constants.py
++++ b/api/constants.py
+@@ -68,6 +68,10 @@ CORS_ALLOWED_ORIGINS = [
+     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+ ]
+ AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
++# AgentStudio: with AUTH_PROVIDER=internal the engine sits behind the host
++# application's gateway, which authenticates the user (Entra + RBAC) and
++# forwards the identity in headers signed by this shared secret.
++AGENTSTUDIO_INTERNAL_SECRET = os.getenv("AGENTSTUDIO_INTERNAL_SECRET") or None
+ ENABLE_SIGNUP = os.getenv("ENABLE_SIGNUP", "true").lower() == "true"
+ # Stack Auth public client config. These are safe to expose to the browser (the
+ # publishable client key is public by design, and the project id is non-sensitive),
+diff --git a/api/db/organization_usage_client.py b/api/db/organization_usage_client.py
+index bd1022f..7d24c5a 100644
+--- a/api/db/organization_usage_client.py
++++ b/api/db/organization_usage_client.py
+@@ -152,6 +152,7 @@ class OrganizationUsageClient(BaseDBClient):
+         filters: Optional[list[dict]] = None,
+         sort_by: Optional[str] = None,
+         sort_order: str = "desc",
++        has_recording: bool = False,
+     ) -> tuple[list[dict], int, float, int]:
+         """Get paginated workflow runs with usage for an organization.
+ 
+@@ -174,6 +175,8 @@ class OrganizationUsageClient(BaseDBClient):
+                 query = query.where(WorkflowRunModel.created_at >= start_date)
+             if end_date:
+                 query = query.where(WorkflowRunModel.created_at <= end_date)
++            if has_recording:
++                query = query.where(WorkflowRunModel.recording_url.isnot(None))
+ 
+             # Only allow specific filters for usage history endpoint
+             # This ensures security and prevents unexpected filter attributes
+diff --git a/api/errors/failure.py b/api/errors/failure.py
+index 140ac20..60c8f05 100644
+--- a/api/errors/failure.py
++++ b/api/errors/failure.py
+@@ -179,7 +179,7 @@ def _external_message(source: ErrorSource, error_type: ErrorType) -> str:
+         return f"The {label} account has insufficient quota or credits."
+     if error_type == ErrorType.PROVIDER_ERROR:
+         return f"The external {label} service is temporarily unavailable."
+-    return f"Dograh encountered an internal error while processing {label}."
++    return f"PayInt Voice Studio encountered an internal error while processing {label}."
+ 
+ 
+ def _valid_http_status(value: object) -> int | None:
+diff --git a/api/errors/mps.py b/api/errors/mps.py
+index 737a588..7f4c3bd 100644
+--- a/api/errors/mps.py
++++ b/api/errors/mps.py
+@@ -1,7 +1,7 @@
+ """Errors raised at the Model Proxy Service boundary."""
+ 
+ MPS_UNAVAILABLE_PUBLIC_MESSAGE = (
+-    "A Dograh service is temporarily unavailable. Please try again later."
++    "A PayInt Voice Studio service is temporarily unavailable. Please try again later."
+ )
+ 
+ 
+diff --git a/api/errors/telephony_errors.py b/api/errors/telephony_errors.py
+index cfdd63d..499da96 100644
+--- a/api/errors/telephony_errors.py
++++ b/api/errors/telephony_errors.py
+@@ -58,7 +58,7 @@ def failure_from_telephony_error(
+                 type=ErrorType.SYSTEM_ERROR,
+                 code=f"{provider_code}-unknown-validation-error",
+                 internal_message=f"Unknown inbound telephony validation result: {error}",
+-                external_message="Dograh could not process the inbound telephony validation result.",
++                external_message="PayInt Voice Studio could not process the inbound telephony validation result.",
+                 provider=provider,
+                 retryable=None,
+                 context={
+diff --git a/api/requirements.txt b/api/requirements.txt
+index 00b05c0..ceb1c7d 100644
+--- a/api/requirements.txt
++++ b/api/requirements.txt
+@@ -22,3 +22,7 @@ tuner-pipecat-sdk==0.2.4
+ # Pin the reviewed wheel bytes, not only the package version.
+ noveum-trace @ https://files.pythonhosted.org/packages/e7/53/177b987931f3fd4366082de43a482187f6983b6b5851a6bf1b65c833c731/noveum_trace-1.5.21-py3-none-any.whl#sha256=03e916d5f45633d0db65092a12e6665634004901dde3d05b6055a4190ac5a3a4
+ PyNaCl==1.6.2
++# AgentStudio: self-hosted knowledge-base parsing (services/knowledge_base_local_parser.py)
++pypdf==6.19.0
++python-docx==1.2.0
++beautifulsoup4==4.15.0
+diff --git a/api/routes/main.py b/api/routes/main.py
+index eba304c..2e62cd0 100644
+--- a/api/routes/main.py
++++ b/api/routes/main.py
+@@ -1,7 +1,7 @@
+ import secrets
+ from typing import Annotated
+ 
+-from fastapi import APIRouter, Header, HTTPException, status
++from fastapi import APIRouter, Depends, Header, HTTPException, status
+ from loguru import logger
+ from pydantic import BaseModel
+ 
+@@ -21,6 +21,7 @@ from api.routes.public_embed_chat import router as public_embed_chat_router
+ from api.routes.reports import router as reports_router
+ from api.routes.s3_signed_url import router as s3_router
+ from api.routes.service_keys import router as service_keys_router
++from api.services.auth.depends import require_vendor_services
+ from api.routes.superuser import router as superuser_router
+ from api.routes.telephony import router as telephony_router
+ from api.routes.tool import router as tool_router
+@@ -48,7 +49,9 @@ router.include_router(credentials_router)
+ router.include_router(tool_router)
+ router.include_router(organization_router)
+ router.include_router(s3_router)
+-router.include_router(service_keys_router)
++router.include_router(
++    service_keys_router, dependencies=[Depends(require_vendor_services)]
++)
+ router.include_router(organization_usage_router)
+ router.include_router(reports_router)
+ router.include_router(webrtc_signaling_router)
+diff --git a/api/routes/organization.py b/api/routes/organization.py
+index a2398b8..621e638 100644
+--- a/api/routes/organization.py
++++ b/api/routes/organization.py
+@@ -1145,7 +1145,7 @@ def _require_trunk_support(provider: str):
+         raise HTTPException(
+             status_code=400,
+             detail=(
+-                f"Dograh does not model trunks on {provider} configurations — "
++                f"PayInt Voice Studio does not model trunks on {provider} configurations — "
+                 f"calls route through the provider account itself. Numbers on "
+                 f"this configuration need no trunk."
+             ),
+diff --git a/api/routes/organization_usage.py b/api/routes/organization_usage.py
+index fe6f97a..1eb4175 100644
+--- a/api/routes/organization_usage.py
++++ b/api/routes/organization_usage.py
+@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
+ from api.constants import DEPLOYMENT_MODE, UI_APP_URL
+ from api.db import db_client
+ from api.db.models import UserModel
+-from api.services.auth.depends import get_user, get_user_with_selected_organization
++from api.services.auth.depends import (
++    get_user,
++    get_user_with_selected_organization,
++    require_vendor_services,
++)
+ from api.services.mps_service_key_client import mps_service_key_client
+ from api.services.reports import generate_usage_runs_report_csv
+ from api.utils.artifacts import artifact_url
+@@ -168,7 +172,11 @@ async def _oss_mps_credits_response(user: UserModel) -> MPSBillingCreditsRespons
+     )
+ 
+ 
+-@router.get("/billing/credits", response_model=MPSBillingCreditsResponse)
++@router.get(
++    "/billing/credits",
++    response_model=MPSBillingCreditsResponse,
++    dependencies=[Depends(require_vendor_services)],
++)
+ async def get_billing_credits(
+     page: int = Query(1, ge=1),
+     limit: int = Query(50, ge=1, le=100),
+@@ -384,6 +392,7 @@ async def get_usage_history(
+         description="Sort order ('asc' or 'desc').",
+         pattern="^(asc|desc)$",
+     ),
++    has_recording: bool = Query(False, description="Only runs with uploaded call audio."),
+     user: UserModel = Depends(get_user),
+ ):
+     """Get paginated workflow runs with usage for the organization."""
+@@ -418,6 +427,7 @@ async def get_usage_history(
+             filters=parsed_filters,
+             sort_by=sort_by,
+             sort_order=sort_order,
++            has_recording=has_recording,
+         )
+ 
+         total_pages = (total_count + limit - 1) // limit
+diff --git a/api/routes/user.py b/api/routes/user.py
+index 925cc41..8b2db0f 100644
+--- a/api/routes/user.py
++++ b/api/routes/user.py
+@@ -34,7 +34,7 @@ from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
+ from api.services.configuration.masking import check_for_masked_keys, mask_user_config
+ from api.services.configuration.merge import merge_user_configurations
+ from api.services.configuration.registry import REGISTRY, ServiceType
+-from api.services.mps_service_key_client import mps_service_key_client
++from api.services import voice_catalog_local
+ from api.services.organization_preferences import (
+     get_organization_preferences,
+     upsert_organization_preferences,
+@@ -477,21 +477,23 @@ async def get_voices(
+ ) -> VoicesResponse:
+     """Get available voices for a TTS provider."""
+     try:
+-        result = await mps_service_key_client.get_voices(
++        # AgentStudio: listed from the provider with the org's own key.
++        result = await voice_catalog_local.list_voices(
++            organization_id=user.selected_organization_id,
+             provider=provider,
+             model=model,
+             language=language,
+             q=q,
+             gender=gender,
+             accent=accent,
+-            organization_id=user.selected_organization_id,
+-            created_by=user.provider_id,
+         )
+         return VoicesResponse(
+             provider=result.get("provider", provider),
+             voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
+             facets=result.get("facets"),
+         )
++    except HTTPException:
++        raise
+     except MPSUnavailableError:
+         # The MPS boundary emitted the classified failure. The app-level handler
+         # converts this typed dependency failure to a customer-safe HTTP 503.
+diff --git a/api/routes/workflow.py b/api/routes/workflow.py
+index e65bca1..a8f1794 100644
+--- a/api/routes/workflow.py
++++ b/api/routes/workflow.py
+@@ -10,7 +10,6 @@ from httpx import HTTPStatusError
+ from loguru import logger
+ from pydantic import BaseModel, Field, ValidationError
+ 
+-from api.constants import DEPLOYMENT_MODE
+ from api.db import db_client
+ from api.db.agent_trigger_client import TriggerPathConflictError
+ from api.db.models import UserModel
+@@ -46,7 +45,7 @@ from api.services.configuration.resolve import (
+     enrich_overrides_with_api_keys,
+     resolve_effective_config,
+ )
+-from api.services.mps_service_key_client import mps_service_key_client
++from api.services import workflow_generation_local
+ from api.services.posthog_client import capture_event
+ from api.services.reports import generate_workflow_report_csv
+ from api.services.storage import storage_fs
+@@ -542,9 +541,8 @@ async def create_workflow_from_template(
+     Create a new workflow from a natural language template request.
+ 
+     This endpoint:
+-    1. Uses mps_service_key_client to call MPS workflow API
+-    2. Passes organization ID (authenticated mode) or created_by (OSS mode)
+-    3. Creates the workflow in the database
++    1. Drafts the graph with the organization's own LLM (validated and repaired once)
++    2. Creates the workflow in the database
+ 
+     Args:
+         request: The template creation request with call_type, use_case, and activity_description
+@@ -554,27 +552,18 @@ async def create_workflow_from_template(
+         The created workflow
+ 
+     Raises:
+-        HTTPException: If MPS API call fails
++        HTTPException: If the draft cannot be generated or validated
+     """
+     try:
+-        # Call MPS API to generate workflow using the client
+-        if DEPLOYMENT_MODE == "oss":
+-            workflow_data = await mps_service_key_client.call_workflow_api(
+-                call_type=request.call_type.upper(),
+-                use_case=request.use_case,
+-                activity_description=request.activity_description,
+-                created_by=str(user.provider_id),
+-            )
+-        else:
+-            if not user.selected_organization_id:
+-                raise HTTPException(status_code=400, detail="No organization selected")
+-
+-            workflow_data = await mps_service_key_client.call_workflow_api(
+-                call_type=request.call_type.upper(),
+-                use_case=request.use_case,
+-                activity_description=request.activity_description,
+-                organization_id=user.selected_organization_id,
+-            )
++        # AgentStudio: drafted by the organization's own LLM.
++        if not user.selected_organization_id:
++            raise HTTPException(status_code=400, detail="No organization selected")
++        workflow_data = await workflow_generation_local.generate(
++            organization_id=user.selected_organization_id,
++            call_type=request.call_type.upper(),
++            use_case=request.use_case,
++            activity_description=request.activity_description,
++        )
+ 
+         # Create the workflow in our database
+         # Regenerate trigger UUIDs to avoid conflicts with existing triggers
+diff --git a/api/routes/workflow_embed.py b/api/routes/workflow_embed.py
+index 1df1506..d2a9bc6 100644
+--- a/api/routes/workflow_embed.py
++++ b/api/routes/workflow_embed.py
+@@ -20,7 +20,7 @@ def generate_embed_script(token: EmbedTokenModel) -> str:
+     """Generate the embed script for a given token."""
+     base_url = str(UI_APP_URL).rstrip("/")
+ 
+-    return f"""<!-- Dograh Widget -->
++    return f"""<!-- PayInt Voice Studio Widget -->
+ <script>
+   (function(d, s, id) {{
+     var js, fjs = d.getElementsByTagName(s)[0];
+diff --git a/api/routes/workflow_recording.py b/api/routes/workflow_recording.py
+index 6c59129..af42faf 100644
+--- a/api/routes/workflow_recording.py
++++ b/api/routes/workflow_recording.py
+@@ -5,7 +5,6 @@ from typing import Annotated, Optional
+ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+ from loguru import logger
+ 
+-from api.constants import DEPLOYMENT_MODE
+ from api.db import db_client
+ from api.db.workflow_recording_client import generate_short_id
+ from api.enums import StorageBackend
+@@ -21,7 +20,7 @@ from api.schemas.workflow_recording import (
+ )
+ from api.sdk_expose import sdk_expose
+ from api.services.auth.depends import get_user
+-from api.services.mps_service_key_client import mps_service_key_client
++from api.services import transcription_local
+ from api.services.storage import storage_fs
+ 
+ router = APIRouter(prefix="/workflow-recordings", tags=["workflow-recordings"])
+@@ -318,28 +317,20 @@ async def transcribe_audio(
+     language: str = Form("en"),
+     user=Depends(get_user),
+ ):
+-    """Transcribe an uploaded audio file using MPS STT."""
++    """Transcribe an uploaded audio file with the organization's own STT."""
+     try:
+         audio_data = await file.read()
++        # AgentStudio: the org's configured transcriber, not a hosted service.
++        return await transcription_local.transcribe(
++            organization_id=user.selected_organization_id,
++            audio=audio_data,
++            filename=file.filename or "audio.wav",
++            content_type=file.content_type or "audio/wav",
++            language=language,
++        )
+ 
+-        if DEPLOYMENT_MODE == "oss":
+-            result = await mps_service_key_client.transcribe_audio(
+-                audio_data=audio_data,
+-                filename=file.filename or "audio.wav",
+-                content_type=file.content_type or "audio/wav",
+-                language=language,
+-                created_by=str(user.provider_id),
+-            )
+-        else:
+-            result = await mps_service_key_client.transcribe_audio(
+-                audio_data=audio_data,
+-                filename=file.filename or "audio.wav",
+-                content_type=file.content_type or "audio/wav",
+-                language=language,
+-                organization_id=user.selected_organization_id,
+-            )
+-
+-        return result
++    except HTTPException:
++        raise
+ 
+     except Exception as exc:
+         logger.error(f"Error transcribing audio: {exc}")
+diff --git a/api/schemas/ai_model_configuration.py b/api/schemas/ai_model_configuration.py
+index a211074..6a59a01 100644
+--- a/api/schemas/ai_model_configuration.py
++++ b/api/schemas/ai_model_configuration.py
+@@ -187,4 +187,4 @@ def _reject_dograh_provider(section: str, service) -> None:
+     if service is None:
+         return
+     if getattr(service, "provider", None) == ServiceProviders.DOGRAH:
+-        raise ValueError(f"BYOK {section} cannot use Dograh provider")
++        raise ValueError(f"BYOK {section} cannot use PayInt Voice Studio provider")
+diff --git a/api/schemas/organization_preferences.py b/api/schemas/organization_preferences.py
+index c661a5d..5c1eed7 100644
+--- a/api/schemas/organization_preferences.py
++++ b/api/schemas/organization_preferences.py
+@@ -15,7 +15,7 @@ class OrganizationPreferences(BaseModel):
+     disposition_mapping: dict[str, str] = Field(
+         default_factory=dict,
+         description=(
+-            "Dograh disposition -> the code this organization uses for it. "
++            "PayInt Voice Studio disposition -> the code this organization uses for it. "
+             "Applied when writing `gathered_context.mapped_call_disposition`, "
+             "so webhooks, run filters, reports and external-PBX write-backs all "
+             "read the organization's own vocabulary. Dispositions absent from "
+diff --git a/api/schemas/tool.py b/api/schemas/tool.py
+index 3e64cad..e0862fc 100644
+--- a/api/schemas/tool.py
++++ b/api/schemas/tool.py
+@@ -124,7 +124,7 @@ class HttpApiConfig(BaseModel):
+     preset_parameters: list[PresetToolParameter] | None = Field(
+         default=None,
+         description=(
+-            "Parameters injected by Dograh from fixed values or workflow context "
++            "Parameters injected by PayInt Voice Studio from fixed values or workflow context "
+             "templates."
+         ),
+     )
+@@ -214,7 +214,7 @@ class HttpTransferResolverConfig(BaseModel):
+     )
+     wait_message: str | None = Field(
+         default=None,
+-        description="Optional short message played while Dograh resolves routing.",
++        description="Optional short message played while PayInt Voice Studio resolves routing.",
+     )
+     parameters: list[ToolParameter] | None = Field(
+         default=None,
+@@ -223,7 +223,7 @@ class HttpTransferResolverConfig(BaseModel):
+     preset_parameters: list[PresetToolParameter] | None = Field(
+         default=None,
+         description=(
+-            "Parameters injected by Dograh from fixed values or workflow context "
++            "Parameters injected by PayInt Voice Studio from fixed values or workflow context "
+             "templates."
+         ),
+     )
+@@ -400,7 +400,7 @@ class TransferCallConfig(BaseModel):
+         max_length=MAX_TRANSFER_CALL_DISPOSITION_LENGTH,
+         description=(
+             "Optional disposition to record after a successful transfer. When "
+-            "omitted, Dograh records its provider-specific transfer default."
++            "omitted, PayInt Voice Studio records its provider-specific transfer default."
+         ),
+     )
+     parameters: list[ToolParameter] | None = Field(
+@@ -546,7 +546,7 @@ class TransferAgentConfig(BaseModel):
+ 
+     workflow_id: int = Field(
+         description=(
+-            "Id of the Dograh agent to transfer to. Must be in the same "
++            "Id of the PayInt Voice Studio agent to transfer to. Must be in the same "
+             "organization, and must not be a speech-to-speech agent."
+         ),
+         json_schema_extra=_llm_hint(
+diff --git a/api/services/auth/depends.py b/api/services/auth/depends.py
+index 70c51d4..75d0b2f 100644
+--- a/api/services/auth/depends.py
++++ b/api/services/auth/depends.py
+@@ -1,9 +1,11 @@
++import secrets
++from collections.abc import Mapping
+ from typing import Annotated
+ 
+-from fastapi import Depends, Header, HTTPException, Query, WebSocket
++from fastapi import Depends, Header, HTTPException, Query, Request, WebSocket
+ from loguru import logger
+ 
+-from api.constants import AUTH_PROVIDER
++from api.constants import AGENTSTUDIO_INTERNAL_SECRET, AUTH_PROVIDER
+ from api.db import db_client
+ from api.db.models import UserModel
+ from api.enums import PostHogEvent
+@@ -30,9 +32,20 @@ async def require_local_auth() -> None:
+         raise HTTPException(status_code=404, detail="Not found")
+ 
+ 
++async def require_vendor_services() -> None:
++    """404 the vendor's hosted-service endpoints (service keys, credits).
++
++    AgentStudio runs on the organization's own provider keys; those endpoints
++    would only reach the vendor's cloud.
++    """
++    if AUTH_PROVIDER == "internal":
++        raise HTTPException(status_code=404, detail="Not found")
++
++
+ async def get_user(
+     authorization: Annotated[str | None, Header()] = None,
+     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
++    request: Request = None,
+ ) -> UserModel:
+     # ------------------------------------------------------------------
+     # Check if API key is provided (takes precedence)
+@@ -40,6 +53,12 @@ async def get_user(
+     if x_api_key:
+         return await _handle_api_key_auth(x_api_key)
+ 
++    # ------------------------------------------------------------------
++    # AgentStudio: identity asserted by the host gateway
++    # ------------------------------------------------------------------
++    if AUTH_PROVIDER == "internal":
++        return await _handle_internal_auth(request.headers if request else {})
++
+     # ------------------------------------------------------------------
+     # Check if we're using local (email/password) auth
+     # ------------------------------------------------------------------
+@@ -290,6 +309,48 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
+     return user
+ 
+ 
++async def _handle_internal_auth(headers: Mapping[str, str]) -> UserModel:
++    """Map the identity the host gateway asserts onto an engine user and org.
++
++    The gateway has already authenticated the caller (Entra) and checked their
++    permission for this route; the engine only verifies the shared secret.
++    One engine organization per host tenant, one engine user per Entra user.
++    """
++    secret = headers.get("x-internal-secret") or ""
++    if not AGENTSTUDIO_INTERNAL_SECRET or not secrets.compare_digest(
++        secret.encode(), AGENTSTUDIO_INTERNAL_SECRET.encode()
++    ):
++        raise HTTPException(status_code=401, detail="Unauthorized")
++
++    user_id = (headers.get("x-user-id") or "").strip()
++    org_id = (headers.get("x-org-id") or "").strip()
++    if not user_id or not org_id:
++        raise HTTPException(status_code=401, detail="Missing user or organization")
++
++    user, _ = await db_client.get_or_create_user_by_provider_id(f"host:{user_id}")
++    email = (headers.get("x-user-email") or "").strip().lower()
++    if email and user.email != email:
++        try:
++            await db_client.update_user_email(user.id, email)
++            user.email = email
++        except Exception:
++            # lower(email) is unique; a clash must not lock the user out.
++            logger.warning(f"Could not sync email for engine user {user.id}")
++
++    organization, _ = await db_client.get_or_create_organization_by_provider_id(
++        org_provider_id=f"tenant:{org_id}", user_id=user.id
++    )
++    if user.selected_organization_id != organization.id:
++        await db_client.add_user_to_organization(user.id, organization.id)
++        await db_client.update_user_selected_organization(user.id, organization.id)
++        user.selected_organization_id = organization.id
++
++    await ensure_organization_bootstrapped(
++        organization.id, created_by=user.provider_id
++    )
++    return user
++
++
+ async def _handle_api_key_auth(api_key: str) -> UserModel:
+     """
+     Handle authentication via X-API-Key header.
+@@ -324,12 +385,13 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
+ async def get_superuser(
+     authorization: Annotated[str | None, Header()] = None,
+     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
++    request: Request = None,
+ ) -> UserModel:
+     """
+     Dependency to check if the authenticated user is a superuser.
+     Raises HTTPException if user is not authenticated or not a superuser.
+     """
+-    user = await get_user(authorization, x_api_key)
++    user = await get_user(authorization, x_api_key, request)
+ 
+     if not user.is_superuser:
+         raise HTTPException(
+@@ -348,6 +410,13 @@ async def get_user_ws(
+     WebSocket authentication dependency.
+     Uses token or api_key from query parameters for authentication.
+     """
++    if AUTH_PROVIDER == "internal" and not api_key:
++        try:
++            return await _handle_internal_auth(websocket.headers)
++        except HTTPException as e:
++            await websocket.close(code=1008, reason=e.detail)
++            raise
++
+     if not token and not api_key:
+         await websocket.close(code=1008, reason="Missing authentication token")
+         raise HTTPException(status_code=401, detail="Missing authentication token")
+diff --git a/api/services/configuration/check_validity.py b/api/services/configuration/check_validity.py
+index 62021a3..f845b7b 100644
+--- a/api/services/configuration/check_validity.py
++++ b/api/services/configuration/check_validity.py
+@@ -349,7 +349,7 @@ class UserConfigurationValidator:
+     def _check_dograh_api_key(self, model: str, api_key: str) -> bool:
+         if api_key.startswith("dgr"):
+             raise ValueError(
+-                "You provided a Dograh API key (dgr...) instead of a service key. "
++                "You provided a PayInt Voice Studio API key (dgr...) instead of a service key. "
+                 "Please use a service key (mps...)."
+             )
+         auth = getattr(self, "_auth_context", {})
+diff --git a/api/services/configuration/registry.py b/api/services/configuration/registry.py
+index 9e5f2f9..8d16077 100644
+--- a/api/services/configuration/registry.py
++++ b/api/services/configuration/registry.py
+@@ -1198,7 +1198,7 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
+     model: str = Field(
+         default="chirp_3_hd",
+         description=(
+-            "Google Cloud low-latency TTS engine. Dograh maps this to Pipecat's "
++            "Google Cloud low-latency TTS engine. PayInt Voice Studio maps this to Pipecat's "
+             "streaming Google TTS service for Chirp 3 HD and Journey voices."
+         ),
+         json_schema_extra={
+@@ -1280,7 +1280,7 @@ class DograhTTSService(BaseTTSConfiguration):
+     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
+     model: str = Field(
+         default="default",
+-        description="Dograh TTS tier.",
++        description="PayInt Voice Studio TTS tier.",
+         json_schema_extra={"examples": DOGRAH_TTS_MODELS},
+     )
+     voice: str = Field(
+@@ -1886,7 +1886,7 @@ class DograhSTTService(BaseSTTConfiguration):
+     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
+     model: str = Field(
+         default="default",
+-        description="Dograh STT tier.",
++        description="PayInt Voice Studio STT tier.",
+         json_schema_extra={"examples": DOGRAH_STT_MODELS},
+     )
+     language: str = Field(
+diff --git a/api/services/filesystem/minio.py b/api/services/filesystem/minio.py
+index e81c609..970df73 100644
+--- a/api/services/filesystem/minio.py
++++ b/api/services/filesystem/minio.py
+@@ -1,7 +1,9 @@
+ import asyncio
+ import io
+-import json
++import os
++from datetime import timedelta
+ from typing import Any, Dict, Optional
++from urllib.parse import urlsplit
+ 
+ from loguru import logger
+ from minio import Minio
+@@ -16,8 +18,15 @@ class MinioFileSystem(BaseFileSystem):
+     Two endpoints, two different purposes:
+     - endpoint (host:port) + secure (bool): used by the MinIO SDK for
+       container-to-container calls. The SDK requires these split.
+-    - public_endpoint (full URL, e.g. "https://example.com"): used verbatim
+-      when building URLs that browsers will fetch. Required.
++    - public_endpoint (full URL, e.g. "https://example.com"): the host
++      browsers reach storage at. Required.
++
++    AgentStudio: the bucket is private. Every URL handed out is a
++    time-limited presigned URL, signed for the host that will be fetched
++    (the public endpoint for browsers, the internal one for server-side
++    reads). The vendor default made the bucket anonymously readable,
++    writable and deletable and handed out unsigned URLs, which would expose
++    call recordings and knowledge documents to anyone holding a link.
+     """
+ 
+     def __init__(
+@@ -49,9 +58,27 @@ class MinioFileSystem(BaseFileSystem):
+         self.access_key = access_key
+         self.secret_key = secret_key
+ 
++        # Region given explicitly so presigning never calls out to look it up.
++        region = os.getenv("MINIO_REGION", "us-east-1")
+         # Client for internal operations (uploads, etc.)
+         self.client = Minio(
+-            endpoint, access_key=access_key, secret_key=secret_key, secure=secure
++            endpoint, access_key=access_key, secret_key=secret_key, secure=secure, region=region
++        )
++        # Signs URLs for browsers. Only the host counts: a path prefix on the
++        # public endpoint cannot be part of a SigV4 signature, so storage must
++        # be reachable at the public host's root (/<bucket>/...).
++        public = urlsplit(self.public_endpoint)
++        if public.path not in ("", "/"):
++            logger.warning(
++                f"MINIO_PUBLIC_ENDPOINT path {public.path!r} is ignored for signing; "
++                "serve storage at /<bucket>/ on that host"
++            )
++        self.public_client = Minio(
++            public.netloc,
++            access_key=access_key,
++            secret_key=secret_key,
++            secure=public.scheme == "https",
++            region=region,
+         )
+ 
+         # Ensure bucket exists and configure anonymous access (using internal client)
+@@ -59,32 +86,11 @@ class MinioFileSystem(BaseFileSystem):
+             if not self.client.bucket_exists(self.bucket_name):
+                 self.client.make_bucket(self.bucket_name)
+ 
+-            # Set public read/write policy for local development
+-            # This allows:
+-            # 1. Anonymous downloads (s3:GetObject)
+-            # 2. Anonymous uploads (s3:PutObject) - bypasses presigned URL signature issues
+-            # 3. List bucket contents (s3:ListBucket) for debugging
+-            # Note: This is set on every initialization to ensure policy is correct
+-            # WARNING: Only use in local development, not production!
+-            policy = {
+-                "Version": "2012-10-17",
+-                "Statement": [
+-                    {
+-                        "Effect": "Allow",
+-                        "Principal": {"AWS": "*"},
+-                        "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+-                        "Resource": [f"arn:aws:s3:::{self.bucket_name}/*"],
+-                    },
+-                    {
+-                        "Effect": "Allow",
+-                        "Principal": {"AWS": "*"},
+-                        "Action": ["s3:ListBucket"],
+-                        "Resource": [f"arn:aws:s3:::{self.bucket_name}"],
+-                    },
+-                ],
+-            }
+-
+-            self.client.set_bucket_policy(self.bucket_name, json.dumps(policy))
++            # Private bucket: drop any anonymous policy an earlier version set.
++            try:
++                self.client.delete_bucket_policy(self.bucket_name)
++            except S3Error:
++                pass
+         except Exception as e:
+             # Bucket might already exist or we might be in a restricted environment
+             logger.debug(f"Bucket setup note: {e}")
+@@ -127,12 +133,15 @@ class MinioFileSystem(BaseFileSystem):
+         use_internal_endpoint: bool = False,
+     ) -> Optional[str]:
+         try:
+-            if use_internal_endpoint:
+-                protocol = "https" if self.secure else "http"
+-                base = f"{protocol}://{self.endpoint}"
+-            else:
+-                base = self.public_endpoint
+-            return f"{base}/{self.bucket_name}/{file_path}"
++            client = self.client if use_internal_endpoint else self.public_client
++            return client.presigned_get_object(
++                self.bucket_name,
++                file_path,
++                expires=timedelta(seconds=expiration),
++                response_headers=(
++                    {"response-content-disposition": "inline"} if force_inline else None
++                ),
++            )
+         except Exception as e:
+             logger.error(f"Error generating MinIO URL: {e}")
+             return None
+@@ -163,19 +172,11 @@ class MinioFileSystem(BaseFileSystem):
+         content_type: str = "text/csv",
+         max_size: int = 10_485_760,
+     ) -> Optional[str]:
+-        """Generate an unsigned URL for direct file upload.
+-
+-        For local MinIO development with anonymous upload enabled, we return
+-        a simple unsigned URL instead of a presigned URL. This avoids signature
+-        mismatch issues when the internal endpoint (minio:9000) differs from
+-        the public endpoint (localhost:9000).
+-
+-        The bucket policy allows anonymous s3:PutObject, so no signature is needed.
+-        """
++        """A presigned PUT URL for a browser upload, signed for the public host."""
+         try:
+-            url = f"{self.public_endpoint}/{self.bucket_name}/{file_path}"
+-            logger.debug(f"Generated unsigned upload URL: {url}")
+-            return url
++            return self.public_client.presigned_put_object(
++                self.bucket_name, file_path, expires=timedelta(seconds=expiration)
++            )
+         except Exception as e:
+             logger.error(f"Error generating MinIO upload URL: {e}")
+             return None
+diff --git a/api/services/gen_ai/embedding/azure_openai_service.py b/api/services/gen_ai/embedding/azure_openai_service.py
+index dddb785..893a656 100644
+--- a/api/services/gen_ai/embedding/azure_openai_service.py
++++ b/api/services/gen_ai/embedding/azure_openai_service.py
+@@ -102,7 +102,7 @@ class AzureOpenAIEmbeddingService(BaseEmbeddingService):
+                 raise ValueError(
+                     "Azure OpenAI embedding deployment "
+                     f"{self.model_id!r} returned {len(embedding)} dimensions; "
+-                    "Dograh knowledge base storage currently supports "
++                    "PayInt Voice Studio knowledge base storage currently supports "
+                     f"{EMBEDDING_DIMENSION}-dimensional embeddings."
+                 )
+ 
+diff --git a/api/services/integrations/noveum/node.py b/api/services/integrations/noveum/node.py
+index 05a5b3f..95a5f9f 100644
+--- a/api/services/integrations/noveum/node.py
++++ b/api/services/integrations/noveum/node.py
+@@ -56,7 +56,7 @@ from api.services.workflow.node_specs.model_spec import (
+         },
+         "noveum_enabled": {
+             "display_name": "Enabled",
+-            "description": "When false, Dograh skips exporting this call to Noveum.",
++            "description": "When false, PayInt Voice Studio skips exporting this call to Noveum.",
+         },
+         "noveum_api_key": {
+             "display_name": "Noveum API Key",
+@@ -75,7 +75,7 @@ class NoveumNodeData(BaseNodeData):
+         default=True,
+         ui_type=PropertyType.boolean,
+         display_name="Enabled",
+-        description="When false, Dograh skips exporting this call to Noveum.",
++        description="When false, PayInt Voice Studio skips exporting this call to Noveum.",
+     )
+     noveum_api_key: str | None = spec_field(
+         default=None,
+diff --git a/api/services/integrations/paygent/node.py b/api/services/integrations/paygent/node.py
+index 997712f..856024b 100644
+--- a/api/services/integrations/paygent/node.py
++++ b/api/services/integrations/paygent/node.py
+@@ -59,7 +59,7 @@ from api.services.workflow.node_specs.model_spec import (
+         },
+         "paygent_enabled": {
+             "display_name": "Enabled",
+-            "description": "When false, Dograh skips all Paygent tracking for this call.",
++            "description": "When false, PayInt Voice Studio skips all Paygent tracking for this call.",
+         },
+         "paygent_api_key": {
+             "display_name": "Paygent API Key",
+@@ -89,7 +89,7 @@ class PaygentNodeData(BaseNodeData):
+         default=True,
+         ui_type=PropertyType.boolean,
+         display_name="Enabled",
+-        description="When false, Dograh skips all Paygent tracking for this call.",
++        description="When false, PayInt Voice Studio skips all Paygent tracking for this call.",
+     )
+     paygent_api_key: str | None = spec_field(
+         default=None,
+diff --git a/api/services/integrations/tuner/node.py b/api/services/integrations/tuner/node.py
+index 3926249..883cd42 100644
+--- a/api/services/integrations/tuner/node.py
++++ b/api/services/integrations/tuner/node.py
+@@ -75,7 +75,7 @@ _COST_RATE_RENDERER_OPTIONS = PropertyRendererOptions(
+         },
+         "tuner_enabled": {
+             "display_name": "Enabled",
+-            "description": "When false, Dograh skips exporting this call to Tuner.",
++            "description": "When false, PayInt Voice Studio skips exporting this call to Tuner.",
+         },
+         "tuner_agent_id": {
+             "display_name": "Tuner Agent ID",
+@@ -100,7 +100,7 @@ class TunerNodeData(BaseNodeData):
+         default=True,
+         ui_type=PropertyType.boolean,
+         display_name="Enabled",
+-        description="When false, Dograh skips exporting this call to Tuner.",
++        description="When false, PayInt Voice Studio skips exporting this call to Tuner.",
+     )
+     tuner_agent_id: str | None = spec_field(
+         default=None,
+diff --git a/api/services/organization_bootstrap.py b/api/services/organization_bootstrap.py
+index abcffe4..e9a0ba8 100644
+--- a/api/services/organization_bootstrap.py
++++ b/api/services/organization_bootstrap.py
+@@ -61,6 +61,11 @@ async def ensure_organization_bootstrapped(
+     Never raises. A provisioning failure must not fail authentication — the
+     caller is a legitimately authenticated user either way.
+     """
++    if AUTH_PROVIDER == "internal":
++        # AgentStudio is self-hosted: organizations run on their own provider
++        # keys (Models page), so nothing is minted or provisioned upstream.
++        return True
++
+     if await _is_bootstrap_complete(organization_id):
+         return True
+ 
+diff --git a/api/services/pipecat/realtime_feedback_events.py b/api/services/pipecat/realtime_feedback_events.py
+index bc1b24b..3cd917b 100644
+--- a/api/services/pipecat/realtime_feedback_events.py
++++ b/api/services/pipecat/realtime_feedback_events.py
+@@ -91,6 +91,25 @@ def serialize_realtime_feedback_tool_result(result: Any) -> str | None:
+     return str(result)
+ 
+ 
++def summarize_realtime_feedback_tool_result(result: Any) -> dict[str, Any]:
++    """Persist only outcome metadata; tool data can contain borrower information."""
++    if not isinstance(result, dict):
++        return {"ok": None, "error_code": None}
++    data = result.get("data") if isinstance(result.get("data"), dict) else {}
++    status = result.get("status")
++    explicit_ok = data.get("ok") if isinstance(data.get("ok"), bool) else result.get("ok")
++    ok = explicit_ok if isinstance(explicit_ok, bool) else (status == "success" if status else None)
++    if status == "error":
++        ok = False
++    code = data.get("error") or result.get("error")
++    # A free-form error can contain PII. Only stable machine codes are retained.
++    if not isinstance(code, str) or not code.isascii() or not code.replace("_", "").isalnum() or len(code) > 64:
++        code = None
++    status_code = result.get("status_code")
++    return {"ok": ok, "error_code": code,
++            "http_status": status_code if isinstance(status_code, int) else None}
++
++
+ def build_function_call_end_event(
+     *,
+     function_name: str | None,
+@@ -103,6 +122,7 @@ def build_function_call_end_event(
+             "function_name": function_name,
+             "tool_call_id": tool_call_id,
+             "result": serialize_realtime_feedback_tool_result(result),
++            "result_summary": summarize_realtime_feedback_tool_result(result),
+         },
+     }
+ 
+diff --git a/api/services/pipecat/service_factory.py b/api/services/pipecat/service_factory.py
+index 10ea532..d31bf61 100644
+--- a/api/services/pipecat/service_factory.py
++++ b/api/services/pipecat/service_factory.py
+@@ -97,6 +97,7 @@ from pipecat.services.speechmatics.stt import (
+ from pipecat.services.xai.tts import XAITTSService, XAIWebsocketTTSSettings
+ from pipecat.transcriptions.language import Language
+ from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
++from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
+ 
+ if TYPE_CHECKING:
+     from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+@@ -661,13 +662,16 @@ def create_tts_service(
+ 
+     # Create function call filter to prevent TTS from speaking function call tags
+     xml_function_tag_filter = XMLFunctionTagFilter()
++    # AgentStudio: LLMs emit Markdown despite voice prompts ("**" was spoken as
++    # "asterisk"); strip it before synthesis for every provider.
++    markdown_filter = MarkdownTextFilter()
+     if is_deepgram:
+         return DeepgramTTSService(
+             api_key=user_config.tts.api_key,
+             # Wants wss://host with no path; it appends /v1/speak itself.
+             base_url=_deepgram_websocket_url(deepgram_base_url),
+             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -681,7 +685,7 @@ def create_tts_service(
+             api_key=user_config.tts.api_key,
+             sample_rate=OPENAI_SAMPLE_RATE,
+             settings=OpenAITTSSettings(model=user_config.tts.model),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+             **kwargs,
+@@ -706,7 +710,7 @@ def create_tts_service(
+             credentials=credentials,
+             location=location,
+             settings=GoogleTTSSettings(**settings_kwargs),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -732,7 +736,7 @@ def create_tts_service(
+                 speed=user_config.tts.speed,
+                 similarity_boost=0.75,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -760,7 +764,7 @@ def create_tts_service(
+                     else {}
+                 ),
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -779,7 +783,7 @@ def create_tts_service(
+                 speaking_rate=speed,
+                 delivery_mode=delivery_mode,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -795,7 +799,7 @@ def create_tts_service(
+                 voice=user_config.tts.voice,
+                 speed=user_config.tts.speed,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -808,7 +812,7 @@ def create_tts_service(
+             api_key=user_config.tts.api_key,
+             voice_id=voice_id,
+             model=user_config.tts.model,
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+         )
+         # Set language directly as BCP-47 code (bypasses Language enum conversion)
+@@ -824,7 +828,7 @@ def create_tts_service(
+                 voice=user_config.tts.voice,
+                 speed=user_config.tts.speed,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -849,7 +853,7 @@ def create_tts_service(
+         return RimeTTSService(
+             api_key=user_config.tts.api_key,
+             settings=RimeTTSSettings(**settings_kwargs),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -885,7 +889,7 @@ def create_tts_service(
+         return SarvamTTSService(
+             api_key=user_config.tts.api_key,
+             settings=SarvamTTSSettings(**settings_kwargs),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -920,7 +924,7 @@ def create_tts_service(
+                 voice=voice,
+                 speed=speed,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -941,7 +945,7 @@ def create_tts_service(
+             api_key=user_config.tts.api_key,
+             region=region,
+             settings=AzureTTSSettings(**settings_kwargs),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -963,7 +967,7 @@ def create_tts_service(
+         return SmallestTTSService(
+             api_key=user_config.tts.api_key,
+             settings=settings_kwargs,
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -983,7 +987,7 @@ def create_tts_service(
+                 voice=voice,
+                 language=pipecat_language,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+@@ -1034,7 +1038,7 @@ def create_tts_service(
+                 model=model,
+                 language=language,
+             ),
+-            text_filters=[xml_function_tag_filter],
++            text_filters=[xml_function_tag_filter, markdown_filter],
+             skip_aggregator_types=["recording_router", "recording"],
+             silence_time_s=1.0,
+         )
+diff --git a/api/services/quota_service.py b/api/services/quota_service.py
+index 82d9670..95522e6 100644
+--- a/api/services/quota_service.py
++++ b/api/services/quota_service.py
+@@ -47,18 +47,18 @@ OSS_QUOTA_EXCEEDED_MESSAGE = (
+ )
+ 
+ HOSTED_QUOTA_EXCEEDED_MESSAGE = (
+-    "You have exhausted your Dograh credits. "
++    "You have exhausted your PayInt Voice Studio credits. "
+     "Please purchase more credits from /billing "
+     "or change providers in Models configurations."
+ )
+ 
+ OSS_HOSTED_KEY_QUOTA_EXCEEDED_MESSAGE = (
+-    "The organization linked to this Dograh service key has insufficient credits. "
++    "The organization linked to this PayInt Voice Studio service key has insufficient credits. "
+     "Please add credits at app.dograh.com or change providers in Models configurations."
+ )
+ 
+ SERVICE_TOKEN_ORG_MISMATCH_MESSAGE = (
+-    "The Dograh service token being used is created from another account. "
++    "The PayInt Voice Studio service token being used is created from another account. "
+     "Please create a new service token from the Developers tab and use it in "
+     "your model configuration."
+ )
+@@ -106,7 +106,7 @@ def _log_mps_system_failure(
+             type=ErrorType.SYSTEM_ERROR,
+             code=f"dograh-{code}",
+             internal_message=message,
+-            external_message="Dograh could not verify managed model access.",
++            external_message="PayInt Voice Studio could not verify managed model access.",
+             provider="dograh",
+             error_owner="operator",
+             retryable=None,
+@@ -126,8 +126,8 @@ def _log_insufficient_dograh_credits(
+             source=ErrorSource.PLATFORM,
+             type=ErrorType.QUOTA_ERROR,
+             code="dograh-insufficient-credits",
+-            internal_message="Insufficient Dograh credits",
+-            external_message="Your organization has insufficient Dograh credits.",
++            internal_message="Insufficient PayInt Voice Studio credits",
++            external_message="Your organization has insufficient PayInt Voice Studio credits.",
+             provider="dograh",
+             error_owner="user",
+             retryable=False,
+@@ -180,7 +180,7 @@ def _managed_v2_authorization_failed_result() -> QuotaCheckResult:
+     return QuotaCheckResult(
+         has_quota=False,
+         error_code="quota_check_failed",
+-        error_message="Could not verify Dograh credits. Please try again.",
++        error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+     )
+ 
+ 
+@@ -304,7 +304,7 @@ async def _authorize_hosted_workflow_run_start(
+     if requires_correlation and not service_key:
+         _log_mps_system_failure(
+             "invalid-service-key",
+-            "Managed-v2 workflow configuration has no Dograh service key",
++            "Managed-v2 workflow configuration has no PayInt Voice Studio service key",
+             organization_id=organization_id,
+             workflow_run_id=workflow_run_id,
+         )
+@@ -362,7 +362,7 @@ async def _authorize_hosted_workflow_run_start(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+ 
+     remaining = _safe_float(authorization.get("remaining_credits"))
+@@ -401,10 +401,10 @@ async def _authorize_hosted_workflow_run_start(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+     logger.info(
+-        "Dograh run authorization passed for org {}: {:.2f} credits remaining",
++        "PayInt Voice Studio run authorization passed for org {}: {:.2f} credits remaining",
+         organization_id,
+         remaining,
+     )
+@@ -427,7 +427,7 @@ async def _authorize_oss_dograh_keys(
+                 return _insufficient_oss_quota_result()
+ 
+             logger.info(
+-                f"Dograh quota check passed for key ...{api_key[-8:]}: "
++                f"PayInt Voice Studio quota check passed for key ...{api_key[-8:]}: "
+                 f"{remaining:.2f} credits remaining"
+             )
+         except _MPS_UNREACHABLE_ERRORS as e:
+@@ -444,7 +444,7 @@ async def _authorize_oss_dograh_keys(
+             return QuotaCheckResult(
+                 has_quota=False,
+                 error_code="quota_check_failed",
+-                error_message="Could not verify Dograh credits. Please try again.",
++                error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+             )
+ 
+     return QuotaCheckResult(has_quota=True)
+@@ -463,7 +463,7 @@ async def _authorize_oss_managed_v2_correlation(
+     if not service_key:
+         _log_mps_system_failure(
+             "invalid-service-key",
+-            "OSS managed-v2 workflow configuration has no Dograh service key",
++            "OSS managed-v2 workflow configuration has no PayInt Voice Studio service key",
+             workflow_run_id=workflow_run_id,
+         )
+         return QuotaCheckResult(
+@@ -508,7 +508,7 @@ async def _authorize_oss_managed_v2_correlation(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+ 
+     return QuotaCheckResult(has_quota=True)
+@@ -540,7 +540,7 @@ async def _authorize_oss_managed_v2_run(
+             return QuotaCheckResult(
+                 has_quota=False,
+                 error_code="quota_check_failed",
+-                error_message="Could not verify Dograh credits. Please try again.",
++                error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+             )
+ 
+         logger.info(
+@@ -573,7 +573,7 @@ async def _authorize_oss_managed_v2_run(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+ 
+     remaining = _safe_float(authorization.get("remaining_credits"))
+@@ -607,11 +607,11 @@ async def _authorize_oss_managed_v2_run(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+ 
+     logger.info(
+-        "Dograh run authorization passed for key ...{}: {:.2f} credits remaining",
++        "PayInt Voice Studio run authorization passed for key ...{}: {:.2f} credits remaining",
+         service_key[-8:],
+         remaining,
+     )
+@@ -787,7 +787,7 @@ async def authorize_workflow_run_start(
+         if not correlation_service_key:
+             _log_mps_system_failure(
+                 "invalid-service-key",
+-                "Managed-v2 workflow configuration has no Dograh service key",
++                "Managed-v2 workflow configuration has no PayInt Voice Studio service key",
+                 organization_id=organization_id,
+                 workflow_run_id=workflow_run_id,
+             )
+@@ -829,5 +829,5 @@ async def authorize_workflow_run_start(
+         return QuotaCheckResult(
+             has_quota=False,
+             error_code="quota_check_failed",
+-            error_message="Could not verify Dograh credits. Please try again.",
++            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
+         )
+diff --git a/api/services/telephony/providers/ari/__init__.py b/api/services/telephony/providers/ari/__init__.py
+index 9f011d2..a875f7e 100644
+--- a/api/services/telephony/providers/ari/__init__.py
++++ b/api/services/telephony/providers/ari/__init__.py
+@@ -144,7 +144,7 @@ _UI_METADATA = ProviderUIMetadata(
+             type="select",
+             required=False,
+             description=(
+-                "Enable PBX-specific call control for calls patched into Dograh "
++                "Enable PBX-specific call control for calls patched into PayInt Voice Studio "
+                 "through this Asterisk configuration."
+             ),
+             options=[ProviderUIOption(value="vicidial", label="VICIdial")],
+diff --git a/api/services/telephony/providers/cloudonix/__init__.py b/api/services/telephony/providers/cloudonix/__init__.py
+index 22a43ff..b20cfde 100644
+--- a/api/services/telephony/providers/cloudonix/__init__.py
++++ b/api/services/telephony/providers/cloudonix/__init__.py
+@@ -731,7 +731,7 @@ _UI_METADATA = ProviderUIMetadata(
+             type="text",
+             description=(
+                 "Your Cloudonix domain (for example, acme.cloudonix.net). "
+-                "Dograh fetches and stores its UUID automatically."
++                "PayInt Voice Studio fetches and stores its UUID automatically."
+             ),
+         ),
+         ProviderUIField(
+diff --git a/api/services/telephony/providers/cloudonix/setup.py b/api/services/telephony/providers/cloudonix/setup.py
+index 1ba4707..683dbaa 100644
+--- a/api/services/telephony/providers/cloudonix/setup.py
++++ b/api/services/telephony/providers/cloudonix/setup.py
+@@ -42,7 +42,7 @@ def resolve_setup_checklist(
+                 "SIP domain provisioned" if managed else "Cloudonix credentials saved"
+             ),
+             description=(
+-                "Dograh provisioned a Cloudonix SIP domain for this "
++                "PayInt Voice Studio provisioned a Cloudonix SIP domain for this "
+                 "organization. Its inbound hostname and outbound origin IP "
+                 "are listed under SIP connectivity below — you will need "
+                 "them when configuring your carrier."
+@@ -59,10 +59,10 @@ def resolve_setup_checklist(
+             description=(
+                 "Under Outbound trunks, add a trunk pointing at your SIP "
+                 "carrier or PBX and allow its origin IP on your side. "
+-                "Without one Dograh has nowhere to send outbound calls."
++                "Without one PayInt Voice Studio has nowhere to send outbound calls."
+                 if managed
+                 else "Optional: add a trunk under Outbound trunks to pin "
+-                "Dograh's calls to one route. Without it Cloudonix picks "
++                "PayInt Voice Studio's calls to one route. Without it Cloudonix picks "
+                 "among the active trunks on your domain."
+             ),
+             complete=state.enabled_trunk_count > 0,
+@@ -91,11 +91,11 @@ def resolve_setup_checklist(
+         steps.append(
+             SetupStep(
+                 key="trunk_assignment",
+-                title="Tell Dograh which trunk each number dials out on",
++                title="Tell PayInt Voice Studio which trunk each number dials out on",
+                 description=(
+                     "This configuration has more than one trunk, so a number's "
+                     "carrier is no longer obvious. Assign each phone number to "
+-                    "the trunk whose carrier authorised it — otherwise Dograh "
++                    "the trunk whose carrier authorised it — otherwise PayInt Voice Studio "
+                     "cannot pin the call and Cloudonix picks among your active "
+                     "trunks."
+                 ),
+diff --git a/api/services/telephony/providers/twilio/strategies.py b/api/services/telephony/providers/twilio/strategies.py
+index ff17505..cf58e70 100644
+--- a/api/services/telephony/providers/twilio/strategies.py
++++ b/api/services/telephony/providers/twilio/strategies.py
+@@ -178,7 +178,7 @@ class TwilioHangupStrategy(HangupStrategy):
+                             "runtime call context"
+                         ),
+                         external_message=(
+-                            "Dograh could not identify the active Twilio call. Please "
++                            "PayInt Voice Studio could not identify the active Twilio call. Please "
+                             "retry or contact support if the problem continues."
+                         ),
+                         provider="twilio",
+diff --git a/api/services/telephony/providers/vobiz/provider.py b/api/services/telephony/providers/vobiz/provider.py
+index 7f1eec2..311b78b 100644
+--- a/api/services/telephony/providers/vobiz/provider.py
++++ b/api/services/telephony/providers/vobiz/provider.py
+@@ -603,9 +603,9 @@ class VobizProvider(TelephonyProvider):
+                             message = (
+                                 "Vobiz indicates that this phone number is already "
+                                 "attached to an application. To enable inbound calls "
+-                                "in Dograh, review the phone number configuration in "
++                                "in PayInt Voice Studio, review the phone number configuration in "
+                                 "Vobiz and ensure that the number is attached to the "
+-                                "Application ID configured in Dograh "
++                                "Application ID configured in PayInt Voice Studio "
+                                 f"({self.application_id})."
+                             )
+                         elif response.status == 404:
+diff --git a/api/services/workflow/dto.py b/api/services/workflow/dto.py
+index 229ddbf..574654b 100644
+--- a/api/services/workflow/dto.py
++++ b/api/services/workflow/dto.py
+@@ -1077,6 +1077,7 @@ class EdgeDataDTO(BaseModel):
+     transition_speech: Optional[str] = None
+     transition_speech_type: Optional[str] = None  # 'text' or 'audio'
+     transition_speech_recording_id: Optional[str] = None
++    allow_failed_action: bool = False
+ 
+ 
+ class RFEdgeDTO(BaseModel):
+diff --git a/api/services/workflow/pipecat_engine.py b/api/services/workflow/pipecat_engine.py
+index 6103222..2b6207b 100644
+--- a/api/services/workflow/pipecat_engine.py
++++ b/api/services/workflow/pipecat_engine.py
+@@ -168,6 +168,9 @@ class PipecatEngine:
+         self._retired_agents: list[AgentRuntime] = []
+         self._agent_visits: list[dict] = []
+         self._transfer_outcomes: list[dict] = []
++        # Outcome of the last customer write on each node visit. A rejected
++        # promise/callback cannot take an ordinary closing edge.
++        self._customer_action_outcomes: dict[tuple[str, str], bool] = {}
+         # Set by run setup on every cascade call; a realtime call gets none
+         # and so can never transfer.
+         self._agent_factory = None
+@@ -398,6 +401,7 @@ class PipecatEngine:
+         transition_speech_type: Optional[str] = None,
+         transition_speech_recording_id: Optional[str] = None,
+         *,
++        allow_failed_action: bool = False,
+         agent: AgentRuntime | None = None,
+     ):
+         agent = agent or self.active_agent
+@@ -411,6 +415,16 @@ class PipecatEngine:
+             logger.info(f"Arguments: {function_call_params.arguments}")
+ 
+             try:
++                current = agent.current_node
++                last_action = self._customer_action_outcomes.get(
++                    (agent.visit_id, current.id)
++                ) if current else None
++                if (agent.workflow.nodes[transition_to_node].is_end
++                        and last_action is False and not allow_failed_action):
++                    await function_call_params.result_callback({
++                        "status": "error", "error": "action_failed_no_success_transition",
++                    })
++                    return
+                 # Perform variable extraction before transitioning to new node
+                 await self._perform_variable_extraction_if_needed(
+                     self.active_agent.current_node,
+@@ -504,6 +518,7 @@ class PipecatEngine:
+         transition_speech_type: Optional[str] = None,
+         transition_speech_recording_id: Optional[str] = None,
+         *,
++        allow_failed_action: bool = False,
+         agent: AgentRuntime | None = None,
+     ):
+         agent = agent or self.active_agent
+@@ -518,6 +533,7 @@ class PipecatEngine:
+             transition_speech,
+             transition_speech_type,
+             transition_speech_recording_id,
++            allow_failed_action=allow_failed_action,
+             agent=agent,
+         )
+ 
+@@ -785,6 +801,7 @@ class PipecatEngine:
+                     edge.transition_speech,
+                     edge.data.transition_speech_type,
+                     edge.data.transition_speech_recording_id,
++                    allow_failed_action=edge.data.allow_failed_action,
+                     agent=agent,
+                 )
+         if node.tool_uuids and manager:
+diff --git a/api/services/workflow/pipecat_engine_custom_tools.py b/api/services/workflow/pipecat_engine_custom_tools.py
+index b27ad47..e794e2e 100644
+--- a/api/services/workflow/pipecat_engine_custom_tools.py
++++ b/api/services/workflow/pipecat_engine_custom_tools.py
+@@ -457,10 +457,21 @@ class CustomToolManager:
+                     organization_id=await self.get_organization_id(),
+                 )
+ 
++                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
++                    data = result.get("data") if isinstance(result.get("data"), dict) else {}
++                    ok = data.get("ok") is True and result.get("status") == "success"
++                    current = self._agent.current_node
++                    if current:
++                        self._engine._customer_action_outcomes[(self._agent.visit_id, current.id)] = ok
++
+                 await function_call_params.result_callback(result)
+ 
+             except Exception as e:
+                 logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
++                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
++                    current = self._agent.current_node
++                    if current:
++                        self._engine._customer_action_outcomes[(self._agent.visit_id, current.id)] = False
+                 await function_call_params.result_callback(
+                     {"status": "error", "error": str(e)}
+                 )
+diff --git a/api/services/workflow/tools/custom_tool.py b/api/services/workflow/tools/custom_tool.py
+index d7d93be..71bc2b9 100644
+--- a/api/services/workflow/tools/custom_tool.py
++++ b/api/services/workflow/tools/custom_tool.py
+@@ -477,8 +477,9 @@ async def execute_http_tool(
+             except Exception:
+                 response_data = {"raw_response": response.text}
+ 
++            business_failed = isinstance(response_data, dict) and response_data.get("ok") is False
+             result = {
+-                "status": "success",
++                "status": "error" if response.status_code >= 400 or business_failed else "success",
+                 "status_code": response.status_code,
+                 "data": response_data,
+             }
+diff --git a/api/tasks/knowledge_base_processing.py b/api/tasks/knowledge_base_processing.py
+index 11a3ef6..5d311c6 100644
+--- a/api/tasks/knowledge_base_processing.py
++++ b/api/tasks/knowledge_base_processing.py
+@@ -1,10 +1,10 @@
+ """ARQ background task for processing knowledge base documents.
+ 
+-Document conversion and chunking live in the Model Proxy Service (MPS);
+-this task downloads the file from S3, calls MPS, then handles the embedding
+-and DB writes locally.
++Downloads the file from S3, converts and chunks it locally
++(services/knowledge_base_local_parser), then embeds and stores the chunks.
+ """
+ 
++import asyncio
+ import os
+ import tempfile
+ 
+@@ -12,8 +12,8 @@ from loguru import logger
+ 
+ from api.db import db_client
+ from api.db.models import KnowledgeBaseChunkModel
++from api.services import knowledge_base_local_parser
+ from api.services.gen_ai import build_embedding_service
+-from api.services.mps_service_key_client import mps_service_key_client
+ from api.services.storage import storage_fs
+ 
+ MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+@@ -45,7 +45,7 @@ async def process_knowledge_base_document(
+     max_tokens: int = 128,
+     retrieval_mode: str = "chunked",
+ ):
+-    """Process a knowledge base document via MPS: download, call MPS, embed, store.
++    """Process a knowledge base document: download, parse locally, embed, store.
+ 
+     Args:
+         ctx: ARQ context
+@@ -174,15 +174,14 @@ async def process_knowledge_base_document(
+                     f"model={embeddings_model}"
+                 )
+ 
+-        logger.info(f"Delegating document processing to MPS (mode={retrieval_mode})")
+-        mps_response = await mps_service_key_client.process_document(
+-            file_path=temp_file_path,
+-            filename=filename,
+-            content_type=mime_type or "application/octet-stream",
++        # AgentStudio: converted and chunked in-process, never sent off the box.
++        logger.info(f"Processing document locally (mode={retrieval_mode})")
++        mps_response = await asyncio.to_thread(
++            knowledge_base_local_parser.process_document,
++            temp_file_path,
++            filename,
+             retrieval_mode=retrieval_mode,
+             max_tokens=max_tokens,
+-            organization_id=organization_id,
+-            created_by=created_by_provider_id,
+         )
+ 
+         docling_metadata = mps_response.get("docling_metadata", {})
+diff --git a/api/tests/telephony/twilio/test_strategies.py b/api/tests/telephony/twilio/test_strategies.py
+index c1743ac..6b83f3c 100644
+--- a/api/tests/telephony/twilio/test_strategies.py
++++ b/api/tests/telephony/twilio/test_strategies.py
+@@ -51,6 +51,6 @@ async def test_hangup_missing_call_sid_is_operator_owned_system_error():
+     assert failure.error_owner == ErrorOwner.OPERATOR
+     assert failure.code == "twilio-missing-call-sid"
+     assert failure.external_message == (
+-        "Dograh could not identify the active Twilio call. Please retry or contact "
++        "PayInt Voice Studio could not identify the active Twilio call. Please retry or contact "
+         "support if the problem continues."
+     )
+diff --git a/api/tests/test_custom_tools.py b/api/tests/test_custom_tools.py
+index 262aba7..fe36e08 100644
+--- a/api/tests/test_custom_tools.py
++++ b/api/tests/test_custom_tools.py
+@@ -411,6 +411,25 @@ class TestToolToFunctionSchema:
+ class TestExecuteHttpTool:
+     """Tests for execute_http_tool function."""
+ 
++    @pytest.mark.asyncio
++    async def test_http_200_with_rejected_business_action_is_error(self):
++        tool = MockToolModel(
++            tool_uuid="promise-tool", name="promise_to_pay", description="Promise",
++            category="http_api", definition={"type": "http_api", "config": {
++                "method": "POST", "url": "https://api.example.com/promise", "timeout_ms": 5000,
++            }},
++        )
++        with patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient") as mock_client_class:
++            mock_client = AsyncMock()
++            mock_response = Mock()
++            mock_response.status_code = 200
++            mock_response.json.return_value = {"ok": False, "error": "promise_revision_cap"}
++            mock_client.request.return_value = mock_response
++            mock_client_class.return_value.__aenter__.return_value = mock_client
++            result = await execute_http_tool(tool, {"amount": 100, "date": "2026-10-01"})
++        assert result["status"] == "error"
++        assert result["data"]["error"] == "promise_revision_cap"
++
+     @pytest.mark.asyncio
+     async def test_post_request_sends_json_body(self):
+         """Test that POST requests send arguments as JSON body."""
+diff --git a/api/tests/test_failure_classification.py b/api/tests/test_failure_classification.py
+index d7dedbf..91ea82f 100644
+--- a/api/tests/test_failure_classification.py
++++ b/api/tests/test_failure_classification.py
+@@ -207,7 +207,7 @@ def test_google_http_statuses_are_distinct_without_message_parsing():
+ def test_dograh_boundary_changes_attribution():
+     quota = classify_http_response(
+         402,
+-        "Insufficient Dograh credits",
++        "Insufficient PayInt Voice Studio credits",
+         source=ErrorSource.LLM,
+         provider="dograh",
+     )
+diff --git a/api/tests/test_mps_failure_http.py b/api/tests/test_mps_failure_http.py
+index 701b4be..978f74e 100644
+--- a/api/tests/test_mps_failure_http.py
++++ b/api/tests/test_mps_failure_http.py
+@@ -3,6 +3,7 @@ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, Mock
+ 
+ import pytest
++from fastapi import HTTPException
+ 
+ from api.errors.mps import MPS_UNAVAILABLE_PUBLIC_MESSAGE, MPSUnavailableError
+ from api.routes import user as user_routes
+@@ -10,16 +11,14 @@ from api.routes import user as user_routes
+ 
+ @pytest.mark.asyncio
+ async def test_voice_catalog_does_not_duplicate_mps_failure(monkeypatch):
++    # AgentStudio lists voices from the provider itself; its own HTTP errors
++    # (no key saved, provider refused) reach the caller unchanged and unlogged.
+     route_log_failure = Mock()
+-    get_voices = AsyncMock(side_effect=MPSUnavailableError("get_voices"))
+-    monkeypatch.setattr(
+-        user_routes.mps_service_key_client,
+-        "get_voices",
+-        get_voices,
+-    )
++    list_voices = AsyncMock(side_effect=HTTPException(status_code=400, detail="no key"))
++    monkeypatch.setattr(user_routes.voice_catalog_local, "list_voices", list_voices)
+     monkeypatch.setattr(user_routes, "log_failure", route_log_failure)
+ 
+-    with pytest.raises(MPSUnavailableError):
++    with pytest.raises(HTTPException) as exc:
+         await user_routes.get_voices(
+             provider="cartesia",
+             user=SimpleNamespace(
+@@ -28,6 +27,7 @@ async def test_voice_catalog_does_not_duplicate_mps_failure(monkeypatch):
+             ),
+         )
+ 
++    assert exc.value.status_code == 400
+     route_log_failure.assert_not_called()
+ 
+ 
+diff --git a/api/tests/test_realtime_feedback_events.py b/api/tests/test_realtime_feedback_events.py
+index bfd2c69..410e931 100644
+--- a/api/tests/test_realtime_feedback_events.py
++++ b/api/tests/test_realtime_feedback_events.py
+@@ -22,10 +22,39 @@ def test_build_function_call_end_event_serializes_results():
+             "function_name": "lookup_contact",
+             "tool_call_id": "tool-1",
+             "result": "{'contact_id': 42}",
++            "result_summary": {"ok": None, "error_code": None, "http_status": None},
+         },
+     }
+ 
+ 
++def test_failed_promise_metadata_is_redacted():
++    event = build_function_call_end_event(
++        function_name="promise_to_pay", tool_call_id="tool-2",
++        result={"status": "error", "status_code": 200, "data": {
++            "ok": False, "error": "promise_revision_cap", "customer_name": "Private Name"}},
++    )
++    assert event["payload"]["result_summary"] == {
++        "ok": False, "error_code": "promise_revision_cap", "http_status": 200,
++    }
++    assert "Private Name" not in str(event["payload"]["result_summary"])
++
++
++def test_run_seven_rejected_promise_sequence_stays_failed():
++    # Non-calling fixture for the two business rejections observed on run 7.
++    events = [
++        build_function_call_end_event(
++            function_name="promise_to_pay", tool_call_id=f"promise-{index}",
++            result={"status": "error", "status_code": 200,
++                    "data": {"ok": False, "error": code}},
++        )
++        for index, code in enumerate(("invalid_revision_reason", "promise_revision_cap"), start=1)
++    ]
++    assert [event["payload"]["result_summary"]["ok"] for event in events] == [False, False]
++    assert [event["payload"]["result_summary"]["error_code"] for event in events] == [
++        "invalid_revision_reason", "promise_revision_cap",
++    ]
++
++
+ def test_stamp_and_sort_realtime_feedback_events():
+     node_transition = stamp_realtime_feedback_event(
+         build_node_transition_event(
+diff --git a/api/utils/common.py b/api/utils/common.py
+index 690a457..d16000e 100644
+--- a/api/utils/common.py
++++ b/api/utils/common.py
+@@ -8,7 +8,7 @@ import re
+ 
+ from loguru import logger
+ 
+-from api.constants import BACKEND_API_ENDPOINT
++from api.constants import AUTH_PROVIDER, BACKEND_API_ENDPOINT
+ from api.utils.tunnel import TunnelURLProvider
+ 
+ 
+@@ -159,7 +159,9 @@ async def get_backend_endpoints() -> tuple[str, str]:
+     if BACKEND_API_ENDPOINT:
+         # Non-public address (localhost or a private/reserved IP) - the host isn't
+         # reachable from the internet, so prefer a running Cloudflare tunnel's URL.
+-        if is_local_or_private_url(BACKEND_API_ENDPOINT):
++        # AgentStudio sits behind the host's own proxy, which owns the public
++        # address; there is never a Cloudflare tunnel to discover.
++        if is_local_or_private_url(BACKEND_API_ENDPOINT) and AUTH_PROVIDER != "internal":
+             logger.debug(
+                 f"BACKEND_API_ENDPOINT is not publicly reachable ({BACKEND_API_ENDPOINT}), checking tunnel URL"
+             )
+diff --git a/ui/src/app/api-keys/page.tsx b/ui/src/app/api-keys/page.tsx
+index fd384e9..f1a8c5a 100644
+--- a/ui/src/app/api-keys/page.tsx
++++ b/ui/src/app/api-keys/page.tsx
+@@ -27,6 +27,7 @@ import { useAuth } from '@/lib/auth';
+ import { copyTextToClipboard } from '@/lib/clipboard';
+ import { formatDateTime } from '@/lib/dateTime';
+ import logger from '@/lib/logger';
++import { WHITELABEL } from '@/lib/whitelabel';
+ 
+ export default function APIKeysPage() {
+     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
+@@ -152,6 +153,7 @@ export default function APIKeysPage() {
+     }, [fetchApiKeys]);
+ 
+     useEffect(() => {
++        if (WHITELABEL) return;
+         logger.debug('[APIKeysPage] useEffect for fetchServiceKeys triggered');
+         fetchServiceKeys();
+     }, [fetchServiceKeys]);
+@@ -442,8 +444,8 @@ export default function APIKeysPage() {
+                         </CardContent>
+                     </Card>
+ 
+-                    {/* Dograh Service Keys Section */}
+-                    <Card className="mb-6">
++                    {/* Dograh Service Keys Section (the vendor's hosted models; hidden white-label) */}
++                    {!WHITELABEL && <Card className="mb-6">
+                         <CardHeader>
+                             <div className="flex justify-between items-center">
+                                 <div>
+@@ -555,7 +557,7 @@ export default function APIKeysPage() {
+                                 </div>
+                             )}
+                         </CardContent>
+-                    </Card>
++                    </Card>}
+ 
+                     <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                         <p className="text-sm text-yellow-600 dark:text-yellow-500">
+diff --git a/ui/src/app/campaigns/CampaignAdvancedSettings.tsx b/ui/src/app/campaigns/CampaignAdvancedSettings.tsx
+index d51d168..862fd73 100644
+--- a/ui/src/app/campaigns/CampaignAdvancedSettings.tsx
++++ b/ui/src/app/campaigns/CampaignAdvancedSettings.tsx
+@@ -272,7 +272,7 @@ export default function CampaignAdvancedSettings({
+                                         value={String(slot.day_of_week)}
+                                         onValueChange={(val) => {
+                                             const updated = [...timeSlots];
+-                                            updated[index] = { ...updated[index], day_of_week: parseInt(val) };
++                                            updated[index] = { ...updated[index]!, day_of_week: parseInt(val) };
+                                             onTimeSlotsChange(updated);
+                                         }}
+                                     >
+@@ -290,7 +290,7 @@ export default function CampaignAdvancedSettings({
+                                         value={slot.start_time}
+                                         onChange={(e) => {
+                                             const updated = [...timeSlots];
+-                                            updated[index] = { ...updated[index], start_time: e.target.value };
++                                            updated[index] = { ...updated[index]!, start_time: e.target.value };
+                                             onTimeSlotsChange(updated);
+                                         }}
+                                         className="w-[130px]"
+@@ -301,7 +301,7 @@ export default function CampaignAdvancedSettings({
+                                         value={slot.end_time}
+                                         onChange={(e) => {
+                                             const updated = [...timeSlots];
+-                                            updated[index] = { ...updated[index], end_time: e.target.value };
++                                            updated[index] = { ...updated[index]!, end_time: e.target.value };
+                                             onTimeSlotsChange(updated);
+                                         }}
+                                         className="w-[130px]"
+diff --git a/ui/src/app/campaigns/[campaignId]/page.tsx b/ui/src/app/campaigns/[campaignId]/page.tsx
+index f409aee..43cdf4b 100644
+--- a/ui/src/app/campaigns/[campaignId]/page.tsx
++++ b/ui/src/app/campaigns/[campaignId]/page.tsx
+@@ -144,7 +144,7 @@ export default function CampaignDetailPage() {
+         if (!date) return undefined;
+         const [hours, minutes] = time.split(':').map(Number);
+         const combined = new Date(date);
+-        combined.setHours(hours, minutes, 0, 0);
++        combined.setHours(hours!, minutes!, 0, 0);
+         return combined.toISOString();
+     };
+ 
+diff --git a/ui/src/app/recordings/RecordingsUploadDialog.tsx b/ui/src/app/recordings/RecordingsUploadDialog.tsx
+index 92de412..afe0c6c 100644
+--- a/ui/src/app/recordings/RecordingsUploadDialog.tsx
++++ b/ui/src/app/recordings/RecordingsUploadDialog.tsx
+@@ -233,7 +233,7 @@ export const RecordingsUploadDialog = ({
+ 
+             await Promise.all(
+                 items.map(async (item: RecordingUploadResponseSchema, idx: number) => {
+-                    const file = ready[idx].file;
++                    const file = ready[idx]!.file;
+                     const uploadResponse = await fetch(item.upload_url, {
+                         method: "PUT",
+                         body: file,
+@@ -249,12 +249,12 @@ export const RecordingsUploadDialog = ({
+                 body: {
+                     recordings: items.map((item: RecordingUploadResponseSchema, idx: number) => ({
+                         recording_id: item.recording_id,
+-                        transcript: ready[idx].transcript.trim(),
++                        transcript: ready[idx]!.transcript.trim(),
+                         storage_key: item.storage_key,
+                         metadata: {
+-                            original_filename: ready[idx].file.name,
+-                            file_size_bytes: ready[idx].file.size,
+-                            mime_type: ready[idx].file.type,
++                            original_filename: ready[idx]!.file.name,
++                            file_size_bytes: ready[idx]!.file.size,
++                            mime_type: ready[idx]!.file.type,
+                             language,
+                         },
+                     })),
+diff --git a/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx b/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx
+index a807e97..7ffb810 100644
+--- a/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx
++++ b/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx
+@@ -123,7 +123,7 @@ export function TransferCallToolConfig({
+         const target = index + offset;
+         if (target < 0 || target >= contextDestinationRules.length) return;
+         const reordered = [...contextDestinationRules];
+-        [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
++        [reordered[index], reordered[target]] = [reordered[target]!, reordered[index]!];
+         onContextDestinationRulesChange(reordered);
+     };
+ 
+diff --git a/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx b/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx
+index 58b81c0..b12f00f 100644
+--- a/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx
++++ b/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx
+@@ -128,7 +128,7 @@ export const PhoneCallDialog = ({
+                         callable.find((c) => c.is_default_outbound) ??
+                         callable[0] ??
+                         configurations.find((c) => c.is_default_outbound) ??
+-                        configurations[0];
++                        configurations[0]!;
+                     setSelectedConfigId(String(defaultConfig.id));
+                 }
+             } catch (err) {
+diff --git a/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx b/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx
+index 582c6d8..6d75a01 100644
+--- a/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx
++++ b/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx
+@@ -291,7 +291,7 @@ export const RecordingsDialog = ({
+             // Step 2: Upload all files to storage in parallel
+             await Promise.all(
+                 items.map(async (item: RecordingUploadResponseSchema, idx: number) => {
+-                    const file = ready[idx].file;
++                    const file = ready[idx]!.file;
+                     const uploadResponse = await fetch(item.upload_url, {
+                         method: "PUT",
+                         body: file,
+@@ -313,12 +313,12 @@ export const RecordingsDialog = ({
+                         tts_provider: ttsProvider,
+                         tts_model: ttsModel,
+                         tts_voice_id: ttsVoiceId,
+-                        transcript: ready[idx].transcript.trim(),
++                        transcript: ready[idx]!.transcript.trim(),
+                         storage_key: item.storage_key,
+                         metadata: {
+-                            original_filename: ready[idx].file.name,
+-                            file_size_bytes: ready[idx].file.size,
+-                            mime_type: ready[idx].file.type,
++                            original_filename: ready[idx]!.file.name,
++                            file_size_bytes: ready[idx]!.file.size,
++                            mime_type: ready[idx]!.file.type,
+                             language,
+                         },
+                     })),
+diff --git a/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx b/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx
+index 0a37b6e..e1ba5be 100644
+--- a/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx
++++ b/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx
+@@ -147,7 +147,7 @@ export const WorkflowVersionDiffDialog = ({
+     }, [activeChangeIndex, changeHunks.length, hasChanges, scrollToChange]);
+ 
+     const activeHunk = activeChangeIndex >= 0
+-        ? changeHunks[activeChangeIndex]
++        ? changeHunks[activeChangeIndex]!
+         : null;
+ 
+     return (
+diff --git a/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx b/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx
+index 153d0b2..baa1d46 100644
+--- a/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx
++++ b/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx
+@@ -1,14 +1,13 @@
+ import { useCallback, useEffect, useRef, useState } from "react";
+ 
+-import { client } from "@/client/client.gen";
+ import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
+ import { TurnCredentialsResponse } from "@/client/types.gen";
+ import { WorkflowValidationError } from "@/components/flow/types";
+ import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
+ import { useAppConfig } from "@/context/AppConfigContext";
+-import { resolveBrowserBackendUrl } from '@/lib/apiClient';
+ import { detailFromError } from '@/lib/apiError';
+ import logger from '@/lib/logger';
++import { signalingUrl } from '@/lib/signalingUrl';
+ 
+ import { sdpFilterCodec } from "../utils";
+ import { useDeviceInputs } from "./useDeviceInputs";
+@@ -124,9 +123,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
+         // reports the endpoint it runs on, so the old localhost autodetect that
+         // forced :8000 (back when an unset endpoint fell through to the UI origin)
+         // is no longer needed.
+-        const baseUrl = client.getConfig().baseUrl || resolveBrowserBackendUrl();
+-        const wsUrl = baseUrl.replace(/^http/, 'ws');
+-        return `${wsUrl}/api/v1/ws/signaling/${workflowId}/${workflowRunId}?token=${accessToken}`;
++        return signalingUrl(workflowId, workflowRunId, accessToken);
+     }, [workflowId, workflowRunId, accessToken]);
+ 
+     const closePeerConnection = useCallback((pc: RTCPeerConnection | null, delayClose = false) => {
+@@ -298,7 +295,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
+ 
+         pc.addEventListener('track', (evt) => {
+             if (evt.track.kind === 'audio' && audioRef.current) {
+-                audioRef.current.srcObject = evt.streams[0];
++                audioRef.current.srcObject = evt.streams[0]!;
+             }
+         });
+ 
+@@ -307,7 +304,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
+     };
+ 
+     const connectWebSocket = useCallback(async () => {
+-        const wsUrl = getWebSocketUrl();
++        const wsUrl = await getWebSocketUrl();
+ 
+         return new Promise<void>((resolve, reject) => {
+             logger.info(`Connecting to WebSocket: ${wsUrl}`);
+diff --git a/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx b/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx
+index ecaa54f..fbf3bbe 100644
+--- a/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx
++++ b/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx
+@@ -139,7 +139,7 @@ function buildWaveformPeaks(audioBuffer: AudioBuffer) {
+         let sum = 0;
+ 
+         for (let i = start; i < end; i += 1) {
+-            sum += channel[i] * channel[i];
++            sum += channel[i]! * channel[i]!;
+         }
+ 
+         const rms = Math.sqrt(sum / Math.max(1, end - start));
+diff --git a/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts b/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts
+index 2c05f81..62d1c43 100644
+--- a/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts
++++ b/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts
+@@ -18,21 +18,21 @@ export const sdpFilterCodec = (kind: string, codec: string, realSdp: string): st
+ 
+     let isKind = false;
+     for (let i = 0; i < lines.length; i++) {
+-        if (lines[i].startsWith('m=' + kind + ' ')) {
++        if (lines[i]!.startsWith('m=' + kind + ' ')) {
+             isKind = true;
+-        } else if (lines[i].startsWith('m=')) {
++        } else if (lines[i]!.startsWith('m=')) {
+             isKind = false;
+         }
+ 
+         if (isKind) {
+-            let match = lines[i].match(codecRegex);
++            let match = lines[i]!.match(codecRegex);
+             if (match) {
+-                allowed.push(parseInt(match[1]));
++                allowed.push(parseInt(match[1]!));
+             }
+ 
+-            match = lines[i].match(rtxRegex);
+-            if (match && allowed.includes(parseInt(match[2]))) {
+-                allowed.push(parseInt(match[1]));
++            match = lines[i]!.match(rtxRegex);
++            if (match && allowed.includes(parseInt(match[2]!))) {
++                allowed.push(parseInt(match[1]!));
+             }
+         }
+     }
+@@ -42,18 +42,18 @@ export const sdpFilterCodec = (kind: string, codec: string, realSdp: string): st
+ 
+     isKind = false;
+     for (let i = 0; i < lines.length; i++) {
+-        if (lines[i].startsWith('m=' + kind + ' ')) {
++        if (lines[i]!.startsWith('m=' + kind + ' ')) {
+             isKind = true;
+-        } else if (lines[i].startsWith('m=')) {
++        } else if (lines[i]!.startsWith('m=')) {
+             isKind = false;
+         }
+ 
+         if (isKind) {
+-            const skipMatch = lines[i].match(skipRegex);
+-            if (skipMatch && !allowed.includes(parseInt(skipMatch[2]))) {
++            const skipMatch = lines[i]!.match(skipRegex);
++            if (skipMatch && !allowed.includes(parseInt(skipMatch[2]!))) {
+                 continue;
+-            } else if (lines[i].match(videoRegex)) {
+-                sdp += lines[i].replace(videoRegex, '$1 ' + allowed.join(' ')) + '\n';
++            } else if (lines[i]!.match(videoRegex)) {
++                sdp += lines[i]!.replace(videoRegex, '$1 ' + allowed.join(' ')) + '\n';
+             } else {
+                 sdp += lines[i] + '\n';
+             }
+diff --git a/ui/src/app/workflow/[workflowId]/settings/page.tsx b/ui/src/app/workflow/[workflowId]/settings/page.tsx
+index 586b062..bb42fda 100644
+--- a/ui/src/app/workflow/[workflowId]/settings/page.tsx
++++ b/ui/src/app/workflow/[workflowId]/settings/page.tsx
+@@ -106,7 +106,7 @@ function ReportSection({ workflowId }: { workflowId: number }) {
+         if (!date) return undefined;
+         const [hours, minutes] = time.split(":").map(Number);
+         const combined = new Date(date);
+-        combined.setHours(hours, minutes, 0, 0);
++        combined.setHours(hours!, minutes!, 0, 0);
+         return combined.toISOString();
+     };
+ 
+diff --git a/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts b/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts
+index 7af8f16..1878fca 100644
+--- a/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts
++++ b/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts
+@@ -172,7 +172,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
+     const state = get();
+     if (state.historyIndex > 0) {
+       const newIndex = state.historyIndex - 1;
+-      const historicState = state.history[newIndex];
++      const historicState = state.history[newIndex]!;
+       set({
+         nodes: historicState.nodes,
+         edges: historicState.edges,
+@@ -187,7 +187,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
+     const state = get();
+     if (state.historyIndex < state.history.length - 1) {
+       const newIndex = state.historyIndex + 1;
+-      const historicState = state.history[newIndex];
++      const historicState = state.history[newIndex]!;
+       set({
+         nodes: historicState.nodes,
+         edges: historicState.edges,
+diff --git a/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts b/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts
+index c3a4218..b19869a 100644
+--- a/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts
++++ b/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts
+@@ -229,7 +229,7 @@ const buildDiffOperations = <Item>(
+                 let backtrackSelectedIndex = selectedLength;
+ 
+                 for (let backtrackDepth = trace.length - 1; backtrackDepth >= 0; backtrackDepth -= 1) {
+-                    const backtrackFrontier = trace[backtrackDepth];
++                    const backtrackFrontier = trace[backtrackDepth]!;
+                     const backtrackDiagonal = backtrackPreviousIndex - backtrackSelectedIndex;
+                     const previousDiagonal = (
+                         backtrackDiagonal === -backtrackDepth ||
+@@ -250,7 +250,7 @@ const buildDiffOperations = <Item>(
+                     ) {
+                         operations.push({
+                             kind: "unchanged",
+-                            value: previousItems[backtrackPreviousIndex - 1],
++                            value: previousItems[backtrackPreviousIndex - 1]!,
+                         });
+                         backtrackPreviousIndex -= 1;
+                         backtrackSelectedIndex -= 1;
+@@ -263,14 +263,14 @@ const buildDiffOperations = <Item>(
+                     if (backtrackPreviousIndex === previousX) {
+                         operations.push({
+                             kind: "added",
+-                            value: selectedItems[backtrackSelectedIndex - 1],
++                            value: selectedItems[backtrackSelectedIndex - 1]!,
+                         });
+                         backtrackSelectedIndex -= 1;
+                     }
+                     else {
+                         operations.push({
+                             kind: "removed",
+-                            value: previousItems[backtrackPreviousIndex - 1],
++                            value: previousItems[backtrackPreviousIndex - 1]!,
+                         });
+                         backtrackPreviousIndex -= 1;
+                     }
+@@ -406,7 +406,7 @@ export const buildSideBySideDiffRows = (
+     let operationIndex = 0;
+ 
+     while (operationIndex < operations.length) {
+-        const operation = operations[operationIndex];
++        const operation = operations[operationIndex]!;
+         if (operation.kind === "unchanged") {
+             rows.push({
+                 left: {
+@@ -430,9 +430,9 @@ export const buildSideBySideDiffRows = (
+         const added: DiffCell[] = [];
+         while (
+             operationIndex < operations.length &&
+-            operations[operationIndex].kind !== "unchanged"
++            operations[operationIndex]!.kind !== "unchanged"
+         ) {
+-            const changedOperation = operations[operationIndex];
++            const changedOperation = operations[operationIndex]!;
+             if (changedOperation.kind === "removed") {
+                 removed.push({
+                     kind: "removed",
+diff --git a/ui/src/components/AIModelConfigurationV2Editor.tsx b/ui/src/components/AIModelConfigurationV2Editor.tsx
+index ca6e160..739890a 100644
+--- a/ui/src/components/AIModelConfigurationV2Editor.tsx
++++ b/ui/src/components/AIModelConfigurationV2Editor.tsx
+@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
+ import { Label } from "@/components/ui/label";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
++import { WHITELABEL } from "@/lib/whitelabel";
+ import { VoiceSelectorModal } from "@/components/VoiceSelectorModal";
+ import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
+ import { formatRoundingPolicy } from "@/lib/billingDisplay";
+@@ -220,11 +221,11 @@ function preferredMode(
+     configuration: Record<string, unknown> | null,
+     effectiveConfiguration: Record<string, unknown> | null,
+ ): ModelMode {
+-    if (configuration?.mode === "dograh") return "dograh";
++    if (configuration?.mode === "dograh") return WHITELABEL ? "byok" : "dograh";
+     if (configuration?.mode === "byok") {
+         return asRecord(configuration.byok)?.mode === "realtime" ? "realtime" : "byok";
+     }
+-    if (isDograhEffectiveConfig(effectiveConfiguration)) return "dograh";
++    if (isDograhEffectiveConfig(effectiveConfiguration)) return WHITELABEL ? "byok" : "dograh";
+     return Boolean(effectiveConfiguration?.is_realtime) ? "realtime" : "byok";
+ }
+ 
+@@ -358,7 +359,7 @@ export function AIModelConfigurationV2Editor({
+     submitLabel = "Save Configuration",
+ }: AIModelConfigurationV2EditorProps) {
+     const defaultsForByok = useMemo(() => byokDefaults(defaults), [defaults]);
+-    const [mode, setMode] = useState<ModelMode>("dograh");
++    const [mode, setMode] = useState<ModelMode>(WHITELABEL ? "byok" : "dograh");
+     const [dograh, setDograh] = useState<DograhFormState>(() => ({
+         api_key: "",
+         voice: defaults.dograh.defaults.voice,
+@@ -458,9 +459,9 @@ export function AIModelConfigurationV2Editor({
+             )}
+ 
+             <Tabs value={mode} onValueChange={(value) => setMode(value as ModelMode)} className="space-y-6">
+-                <TabsList className="grid w-full grid-cols-3">
++                <TabsList className={`grid w-full ${WHITELABEL ? "grid-cols-2" : "grid-cols-3"}`}>
+                     <TabsTrigger value="realtime">Speech to Speech</TabsTrigger>
+-                    <TabsTrigger value="dograh">Dograh</TabsTrigger>
++                    {!WHITELABEL && <TabsTrigger value="dograh">Dograh</TabsTrigger>}
+                     <TabsTrigger value="byok">BYOK</TabsTrigger>
+                 </TabsList>
+ 
+@@ -481,7 +482,7 @@ export function AIModelConfigurationV2Editor({
+                     <ThirdPartyProviderNotice />
+                 </TabsContent>
+ 
+-                <TabsContent value="dograh" className="mt-0">
++                {!WHITELABEL && <TabsContent value="dograh" className="mt-0">
+                     <p className="mb-4 text-sm text-muted-foreground">
+                         Dograh provides a managed transcriber, LLM, and voice pipeline. Select a voice and language while Dograh manages the underlying model providers.{" "}
+                         We offer custom pricing and a 15-second pulse with a monthly commitment.{" "}
+@@ -570,7 +571,7 @@ export function AIModelConfigurationV2Editor({
+                             </Button>
+                         </CardContent>
+                     </Card>
+-                </TabsContent>
++                </TabsContent>}
+ 
+                 <TabsContent value="byok" className="mt-0">
+                     <p className="mb-4 text-sm text-muted-foreground">
+diff --git a/ui/src/components/LLMConfigSelector.tsx b/ui/src/components/LLMConfigSelector.tsx
+index f820d5f..d13d9b5 100644
+--- a/ui/src/components/LLMConfigSelector.tsx
++++ b/ui/src/components/LLMConfigSelector.tsx
+@@ -136,7 +136,7 @@ export function LLMConfigSelector({
+                                     onCheckedChange={(checked) => {
+                                         setIsManualModelInput(checked as boolean);
+                                         if (!checked && modelOptions.length > 0) {
+-                                            onModelChange(modelOptions[0]);
++                                            onModelChange(modelOptions[0]!);
+                                         }
+                                     }}
+                                 />
+diff --git a/ui/src/components/ServiceConfigurationForm.tsx b/ui/src/components/ServiceConfigurationForm.tsx
+index ec7efc9..b704bcd 100644
+--- a/ui/src/components/ServiceConfigurationForm.tsx
++++ b/ui/src/components/ServiceConfigurationForm.tsx
+@@ -280,7 +280,7 @@ export function ServiceConfigurationForm({
+ 
+             const realtimeProviderKeys = Object.keys(realtimeSchemas);
+             if (realtimeProviderKeys.length > 0) {
+-                selectedProviders.realtime = realtimeProviderKeys[0];
++                selectedProviders.realtime = realtimeProviderKeys[0]!;
+             }
+ 
+             const loadedApiKeys: Record<ServiceSegment, string[]> = {
+@@ -498,7 +498,7 @@ export function ServiceConfigurationForm({
+         };
+         const keys = apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
+         if (keys.length > 0) {
+-            config.api_key = mode === 'override' ? keys[0] : keys;
++            config.api_key = mode === 'override' ? keys[0]! : keys;
+         }
+         Object.entries(data).forEach(([property, value]) => {
+             if (!property.startsWith(`${service}_`)) return;
+@@ -733,7 +733,7 @@ export function ServiceConfigurationForm({
+     };
+ 
+     const renderFieldInput = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
+-        const schema = providerSchema.properties[field];
++        const schema = providerSchema.properties[field]!;
+         const actualSchema = schema.$ref && providerSchema.$defs
+             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
+             : schema;
+diff --git a/ui/src/components/VoiceSelector.tsx b/ui/src/components/VoiceSelector.tsx
+index c85b01e..e603c8b 100644
+--- a/ui/src/components/VoiceSelector.tsx
++++ b/ui/src/components/VoiceSelector.tsx
+@@ -183,7 +183,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
+             const existingVoice = voices.find((v) => v.voice_id === value);
+             if (!existingVoice && voices.length > 0) {
+                 // If current value not in list, select the first voice
+-                onChange(voices[0].voice_id);
++                onChange(voices[0]!.voice_id);
+             }
+         }
+     };
+diff --git a/ui/src/components/filters/DateRangeFilter.tsx b/ui/src/components/filters/DateRangeFilter.tsx
+index ae9dc9d..86d9e0f 100644
+--- a/ui/src/components/filters/DateRangeFilter.tsx
++++ b/ui/src/components/filters/DateRangeFilter.tsx
+@@ -73,9 +73,9 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
+     const timeString = type === 'from' ? fromTime : toTime;
+     const [hours, minutes] = timeString.split(':').map(Number);
+     const date = type === 'from' ? value.from : value.to;
+-    if (date && !isNaN(hours) && !isNaN(minutes)) {
++    if (date && !isNaN(hours!) && !isNaN(minutes!)) {
+       const newDate = new Date(date);
+-      newDate.setHours(hours, minutes);
++      newDate.setHours(hours!, minutes!);
+       onChange({ ...value, [type]: newDate });
+     }
+   };
+diff --git a/ui/src/components/flow/MentionTextarea.tsx b/ui/src/components/flow/MentionTextarea.tsx
+index 0c38606..0ad2b91 100644
+--- a/ui/src/components/flow/MentionTextarea.tsx
++++ b/ui/src/components/flow/MentionTextarea.tsx
+@@ -130,7 +130,7 @@ export function MentionTextarea({
+                 setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+             } else if (e.key === "Enter" || e.key === "Tab") {
+                 e.preventDefault();
+-                insertMention(filtered[selectedIndex]);
++                insertMention(filtered[selectedIndex]!);
+             } else if (e.key === "Escape") {
+                 e.preventDefault();
+                 setShowDropdown(false);
+diff --git a/ui/src/components/http/key-value-editor.tsx b/ui/src/components/http/key-value-editor.tsx
+index 1730440..3692809 100644
+--- a/ui/src/components/http/key-value-editor.tsx
++++ b/ui/src/components/http/key-value-editor.tsx
+@@ -34,7 +34,7 @@ export function KeyValueEditor({
+ 
+     const updateItem = (index: number, field: "key" | "value", value: string) => {
+         const newItems = [...items];
+-        newItems[index] = { ...newItems[index], [field]: value };
++        newItems[index] = { ...newItems[index]!, [field]: value };
+         onChange(newItems);
+     };
+ 
+diff --git a/ui/src/components/http/parameter-editor.tsx b/ui/src/components/http/parameter-editor.tsx
+index 09536ae..e7c6e26 100644
+--- a/ui/src/components/http/parameter-editor.tsx
++++ b/ui/src/components/http/parameter-editor.tsx
+@@ -55,7 +55,7 @@ export function ParameterEditor({
+         value: string | boolean
+     ) => {
+         const newParams = [...parameters];
+-        newParams[index] = { ...newParams[index], [field]: value };
++        newParams[index] = { ...newParams[index]!, [field]: value };
+         onChange(newParams);
+     };
+ 
+@@ -200,7 +200,7 @@ export function PresetParameterEditor({
+         value: string | boolean
+     ) => {
+         const newParams = [...parameters];
+-        newParams[index] = { ...newParams[index], [field]: value };
++        newParams[index] = { ...newParams[index]!, [field]: value };
+         onChange(newParams);
+     };
+ 
+diff --git a/ui/src/components/http/url-input.tsx b/ui/src/components/http/url-input.tsx
+index 01aa9ad..5d7a799 100644
+--- a/ui/src/components/http/url-input.tsx
++++ b/ui/src/components/http/url-input.tsx
+@@ -22,7 +22,7 @@ export interface UrlValidationResult {
+ }
+ 
+ function extractUrlSegmentParameters(segment: string): string[] {
+-    const parameters = Array.from(segment.matchAll(URL_TEMPLATE_REGEX), (match) => match[1]);
++    const parameters = Array.from(segment.matchAll(URL_TEMPLATE_REGEX), (match) => match[1]!);
+     return Array.from(new Set(parameters));
+ }
+ 
+diff --git a/ui/src/components/telephony/ConfigFormDialog.tsx b/ui/src/components/telephony/ConfigFormDialog.tsx
+index f209f8e..9334204 100644
+--- a/ui/src/components/telephony/ConfigFormDialog.tsx
++++ b/ui/src/components/telephony/ConfigFormDialog.tsx
+@@ -92,7 +92,7 @@ function nestValues(values: FieldValues): Record<string, unknown> {
+       }
+       current = current[part] as Record<string, unknown>;
+     }
+-    current[parts[parts.length - 1]] = value;
++    current[parts[parts.length - 1]!] = value;
+   }
+   return nested;
+ }
+@@ -157,7 +157,7 @@ export function ConfigFormDialog({
+       } else {
+         setIsDefault(suggestDefaultOutbound);
+         if (list.length > 0 && !providerName) {
+-          setProviderName(list[0].provider);
++          setProviderName(list[0]!.provider);
+           setValues({});
+         }
+       }
+diff --git a/ui/src/components/ui/json-editor.tsx b/ui/src/components/ui/json-editor.tsx
+index 0fe402c..2347f83 100644
+--- a/ui/src/components/ui/json-editor.tsx
++++ b/ui/src/components/ui/json-editor.tsx
+@@ -91,10 +91,10 @@ function getHelpfulJsonError(jsonString: string, originalError: string): string
+     // Extract position info from error if available
+     const positionMatch = originalError.match(/position (\d+)/i);
+     if (positionMatch) {
+-        const position = parseInt(positionMatch[1], 10);
++        const position = parseInt(positionMatch[1]!, 10);
+         const lines = jsonString.substring(0, position).split('\n');
+         const line = lines.length;
+-        const column = lines[lines.length - 1].length + 1;
++        const column = lines[lines.length - 1]!.length + 1;
+         return `Invalid JSON at line ${line}, column ${column}. Check for missing quotes, commas, or brackets.`;
+     }
+ 
+diff --git a/ui/src/lib/logger.ts b/ui/src/lib/logger.ts
+index 4f7a565..44a5dd0 100644
+--- a/ui/src/lib/logger.ts
++++ b/ui/src/lib/logger.ts
+@@ -26,7 +26,7 @@ function getCallerInfo(): string {
+ 
+     // Look for the first non-logger file in the stack
+     for (let i = 3; i < Math.min(stack.length, 10); i++) {
+-      const line = stack[i];
++      const line = stack[i]!;
+ 
+       // Skip logger.ts itself and node internals
+       if (line.includes('logger.ts') ||
+@@ -49,7 +49,7 @@ function getCallerInfo(): string {
+       for (const pattern of patterns) {
+         const match = line.match(pattern);
+         if (match) {
+-          let filePath = match[1];
++          let filePath = match[1]!;
+           const lineNum = match[2];
+ 
+           // Clean up various path formats
+@@ -84,7 +84,7 @@ function getCallerInfo(): string {
+             const cleanMatch = line.match(/at\s+(?:async\s+)?(\w+)/);
+             if (cleanMatch && cleanMatch[1] !== 'async') {
+               // Use the function name as a hint
+-              const funcName = cleanMatch[1];
++              const funcName = cleanMatch[1]!;
+               if (funcName === 'Home') filePath = 'page.tsx';
+               else if (funcName === 'AfterSignInPage') filePath = 'after-sign-in/page.tsx';
+               else if (funcName.includes('Page')) filePath = `${funcName.replace('Page', '').toLowerCase()}/page.tsx`;
+diff --git a/ui/src/lib/uuid.ts b/ui/src/lib/uuid.ts
+index fd8b5b8..6f1b5f0 100644
+--- a/ui/src/lib/uuid.ts
++++ b/ui/src/lib/uuid.ts
+@@ -12,8 +12,8 @@ export function createUuid(): string {
+     const bytes = webCrypto.getRandomValues(new Uint8Array(16));
+ 
+     // Mark the generated value as an RFC 4122 version 4 UUID.
+-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
++    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
++    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+ 
+     const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+     return [
