@@ -45,7 +45,11 @@ grep -E '^(AGENTSTUDIO_[A-Z_]+)=' "$ROOT/deploy/cloudunity/compose.env.example" 
   k=${line%%=*}
   grep -q "^$k=" "$ROOT/deploy/cloudunity/compose.env" || { echo "$line" >> "$ROOT/deploy/cloudunity/compose.env"; echo "  added $k"; }
 done
-echo "$STAMP overlay + PayInt Voice Studio engine; sql/66-69 by hand; alembic not run" > "$ROOT/DEPLOYED_SHA"
+# Record what is actually on disk. RELEASE_SHA is written into the deploy
+# tarball by pack-release.sh; without it we can only stamp a date, which is how
+# DEPLOYED_SHA went stale before.
+SHA=$(cat "$ROOT/deploy/cloudunity/RELEASE_SHA" 2>/dev/null || echo unknown-sha)
+echo "$STAMP $SHA overlay + PayInt Voice Studio engine; sql/66-69 by hand; backend alembic not run (the engine migrates itself at start)" > "$ROOT/DEPLOYED_SHA"
 
 cd "$ROOT/backend"
 COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env
@@ -102,6 +106,10 @@ for i in $(seq 1 80); do
 done
 docker ps --filter name=collections_ --format '{{.Names}} {{.Status}}'
 docker ps --filter name=payint_ --format '{{.Names}} {{.Status}}'
+# The engine runs `alembic upgrade head` itself at start. Print where it landed:
+# a released agent resolves its tools through tool_revisions, so a migration that
+# did not run is the difference between working tools and none.
+echo "engine schema: $(docker exec collections_agentstudio sh -lc 'cd /app/api && /opt/venv/bin/alembic current 2>/dev/null | tail -1' 2>/dev/null || echo unavailable)"
 curl -sS -o /dev/null -w "local_api:%{http_code}\n" -m 5 http://127.0.0.1:8100/ready || true
 curl -sS -o /dev/null -w "engine:%{http_code}\n" -m 5 http://127.0.0.1:8200/api/v1/health || true
 curl -sS -o /dev/null -w "https_app:%{http_code}\n" -m 10 https://beeonixpayint.bigtapp.net/app/ || true

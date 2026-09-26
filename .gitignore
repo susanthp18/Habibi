@@ -67,3 +67,6 @@ _wsl_clean.sh
 /latency_review/
 /my_view.md
 /PayInt_OnePager.txt
+
+# Release tarballs built by deploy/cloudunity/pack-release.sh
+/dist/

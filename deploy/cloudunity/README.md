@@ -44,8 +44,13 @@ sudo certbot --nginx -d beeonixpayint.bigtapp.net
 
 ## PayInt Voice Studio (voice-agent engine)
 
-Laptop: tar `Habibi`, `backend`, `agentstudio`, `deploy` to `/tmp/*.tgz` (no
-`.env`, `node_modules`, `.venv`), then on the VM `bash /tmp/voice-studio-rollout.sh`.
+Laptop: `bash deploy/cloudunity/pack-release.sh` builds `dist/{habibi,backend,agentstudio,deploy}.tgz`
+from `git archive HEAD` — it refuses a dirty tree, and gitignored paths
+(`.env`, `node_modules`, `.venv`) are excluded by construction rather than by
+an exclude list that drifts. `scp` them to `/tmp/` and run
+`bash /tmp/voice-studio-rollout.sh` on the VM. The rollout is re-runnable:
+`sql/66`–`69` are `IF NOT EXISTS`, the secrets are only generated when absent,
+and the nginx edit is skipped once its marker is present.
 It backs up the code, generates missing Voice Studio secrets into `backend/.env`,
 builds and starts `collections_agentstudio` (+ its Redis and the TURN relay on
 3478), applies `sql/66`–`sql/69` by hand (alembic is not run; 0156 stays
