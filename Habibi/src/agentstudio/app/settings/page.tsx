@@ -2,7 +2,9 @@
 
 import { ExternalLink } from "lucide-react";
 
-import { MCPSection } from "@/agentstudio/components/MCPSection";
+// PayInt fronts the engine, so the endpoint and its credential are the
+// host's to describe, not the engine's. See agentstudio-host/McpEndpoint.
+import McpEndpoint from "@/agentstudio-host/McpEndpoint";
 import { OrganizationPreferencesSection } from "@/agentstudio/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/agentstudio/components/TelemetrySection";
 import {
@@ -54,7 +56,7 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <MCPSection />
+            <McpEndpoint />
           </CardContent>
         </Card>
 

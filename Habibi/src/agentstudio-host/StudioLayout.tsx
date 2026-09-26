@@ -24,7 +24,16 @@ export function StudioLayout() {
       <OrgConfigProvider>
         <TelephonyConfigWarningsProvider>
           <OnboardingProvider>
-            <div className="agentstudio h-full overflow-auto">
+            {/*
+              `relative` is load-bearing. Radix gives a Switch/Checkbox a hidden
+              <input style="position:absolute"> with no offsets; every ancestor
+              up to the shell is statically positioned, so its containing block
+              was the document itself and `overflow-hidden` on the shell could
+              not clip it. One switch low on a long page stretched the document
+              by its own offset, so the whole app scrolled up and left a blank
+              band below it. Positioning this scroller adopts those inputs.
+            */}
+            <div className="agentstudio relative h-full overflow-auto">
               <Outlet />
             </div>
           </OnboardingProvider>

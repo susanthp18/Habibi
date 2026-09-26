@@ -39,7 +39,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       <div className="text-xs text-text-warning dark:text-text-warning">
         <p className="font-medium">Processed by an external service</p>
         <p className="mt-1">
-          Uploaded documents are sent to Dograh&apos;s managed Model Proxy Service for
+          Uploaded documents are sent to PayInt Voice Studio&apos;s managed Model Proxy Service for
           parsing and chunking. PayInt Voice Studio Model Proxy Service does not store or read your documents -
           the extracted text and embeddings are returned and stored locally in your
           self-hosted database.

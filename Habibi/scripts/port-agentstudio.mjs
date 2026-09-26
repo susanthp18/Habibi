@@ -103,7 +103,9 @@ const REWORD = [
   [/(["'])https:\/\/docs\.dograh\.com([^"']*)\1/g, '(import.meta.env.BASE_URL + "studio/docs$2")'],
   [/https:\/\/docs\.dograh\.com/g, "${import.meta.env.BASE_URL}studio/docs"],
   [/https:\/\/(app|www)\.dograh\.com[^"'`\s)]*/g, "#"],
-  [/(["'`>\s(])Dograh(?=[\s'".,:;!?)<`-])/g, "$1PayInt Voice Studio"],
+  // `&` is in the lookahead for JSX entities: "Dograh&apos;s" is how a
+  // possessive reaches us, and without it that one slips through un-rebranded.
+  [/(["'`>\s(])Dograh(?=[\s'".,:;!?)<`&-])/g, "$1PayInt Voice Studio"],
 ];
 
 /** Per-file class rules, for colours whose meaning depends on the surrounding markup. */
