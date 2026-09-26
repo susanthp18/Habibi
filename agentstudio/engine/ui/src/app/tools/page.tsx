@@ -2,7 +2,7 @@
 
 import { ExternalLink, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
     createToolApiV1ToolsPost,
@@ -62,6 +62,8 @@ export default function ToolsPage() {
 
     const [tools, setTools] = useState<ToolResponse[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [hasLoaded, setHasLoaded] = useState(false);
+    const fetchSequence = useRef(0);
     const [searchQuery, setSearchQuery] = useState("");
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
     const [newToolName, setNewToolName] = useState("");
@@ -90,6 +92,7 @@ export default function ToolsPage() {
 
     const fetchTools = useCallback(async () => {
         if (loading || !user) return;
+        const requestId = ++fetchSequence.current;
 
         try {
             setIsLoading(true);
@@ -105,14 +108,18 @@ export default function ToolsPage() {
                 },
             });
 
-            if (response.data) {
+            if (response.error || !response.data) {
+                throw new Error(detailFromError(response.error, "Failed to fetch tools"));
+            }
+            if (requestId === fetchSequence.current) {
                 setTools(response.data);
+                setHasLoaded(true);
             }
         } catch (err) {
-            setError("Failed to fetch tools");
+            if (requestId === fetchSequence.current) setError(err instanceof Error ? err.message : "Failed to fetch tools");
             console.error("Error fetching tools:", err);
         } finally {
-            setIsLoading(false);
+            if (requestId === fetchSequence.current) setIsLoading(false);
         }
     }, [loading, user, getAccessToken]);
 
@@ -138,6 +145,7 @@ export default function ToolsPage() {
 
     useEffect(() => {
         fetchTools();
+        return () => { fetchSequence.current += 1; };
     }, [fetchTools]);
 
     useEffect(() => {
@@ -390,7 +398,7 @@ export default function ToolsPage() {
                                 />
                             </div>
 
-                            {isLoading ? (
+                            {isLoading && !hasLoaded ? (
                                 <div className="space-y-4">
                                     {[1, 2, 3].map((i) => (
                                         <div

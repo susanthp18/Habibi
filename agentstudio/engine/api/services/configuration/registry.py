@@ -21,7 +21,6 @@ from api.services.configuration.options import (
     AZURE_SPEECH_REGIONS,
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
-    AZURE_SPEECH_TTS_VOICES,
     CARTESIA_INK_2_STT_LANGUAGES,
     CARTESIA_INK_WHISPER_STT_LANGUAGES,
     CARTESIA_STT_LANGUAGES,
@@ -1515,6 +1514,17 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+AZURE_SPEECH_TTS_STYLES = [
+    "empathetic",
+    "friendly",
+    "customerservice",
+    "calm",
+    "cheerful",
+    "serious",
+    "hopeful",
+]
+
+
 @register_tts
 class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
@@ -1531,13 +1541,11 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
             "examples": AZURE_SPEECH_REGIONS,
         },
     )
+    # AgentStudio: no static list; the voice picker lists the region's voices
+    # live (voice_catalog_local) and can preview each one.
     voice: str = Field(
         default="en-US-AriaNeural",
         description="Azure Neural voice name (e.g. 'en-US-AriaNeural').",
-        json_schema_extra={
-            "examples": AZURE_SPEECH_TTS_VOICES,
-            "allow_custom_input": True,
-        },
     )
     language: str = Field(
         default="en-US",
@@ -1552,6 +1560,30 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
         ge=0.5,
         le=2.0,
         description="Speech speed multiplier (0.5 to 2.0).",
+    )
+    # AgentStudio: the voice's delivery, rendered as SSML on every utterance.
+    style: str | None = Field(
+        default=None,
+        description="Speaking style, when the voice supports one (e.g. 'empathetic', 'friendly', 'customerservice').",
+        json_schema_extra={"examples": AZURE_SPEECH_TTS_STYLES, "allow_custom_input": True},
+    )
+    style_degree: float = Field(
+        default=1.0,
+        ge=0.01,
+        le=2.0,
+        description="How strongly the style is applied (0.01 to 2.0).",
+    )
+    pitch: int = Field(
+        default=0,
+        ge=-12,
+        le=12,
+        description="Pitch shift in semitones (-12 to +12).",
+    )
+    volume: int = Field(
+        default=100,
+        ge=50,
+        le=150,
+        description="Volume as a percentage of normal (50 to 150).",
     )
 
 

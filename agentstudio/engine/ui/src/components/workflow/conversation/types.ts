@@ -43,6 +43,14 @@ export interface RealtimeFeedbackEvent {
         tool_call_id?: string;
         arguments?: unknown;
         result?: unknown;
+        result_summary?: {
+            ok: boolean | null;
+            error_code: string | null;
+            http_status?: number | null;
+            verified?: boolean;
+            tool_uuid?: string;
+            duration_ms?: number;
+        };
         node_id?: string;
         node_name?: string;
         previous_node_id?: string;

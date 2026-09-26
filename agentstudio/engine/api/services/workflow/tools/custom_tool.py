@@ -1,7 +1,9 @@
 """Custom tool execution for user-defined HTTP API tools."""
 
+import asyncio
 import json
 import re
+import time
 from typing import Any
 
 import httpx
@@ -18,6 +20,8 @@ from api.errors.failure import (
     redact_failure_message,
 )
 from api.services.configuration.masking import mask_key
+from api.services.tool_egress import PublicHTTPTransport
+from api.services.tool_revisions import approved_context, validate_external_destination
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import (
     get_nested_value,
@@ -36,6 +40,7 @@ TYPE_MAP = {
 }
 
 _FULL_PLACEHOLDER = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
+_LIVE_HTTP_LIMIT = asyncio.Semaphore(16)
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -282,6 +287,7 @@ async def execute_http_tool(
     preset_params: dict[str, Any] | None = None,
     organization_id: int | None = None,
     include_request_headers: bool = False,
+    secure_destination: bool = False,
 ) -> dict[str, Any]:
     """Execute an HTTP API tool.
 
@@ -299,8 +305,15 @@ async def execute_http_tool(
     Returns:
         Result dict with response data or error
     """
+    started = time.monotonic()
     definition = tool.definition or {}
     config = definition.get("config", {})
+    policy = getattr(tool, "policy", None) or {}
+    secure_destination = secure_destination or policy.get("risk") in {"read", "write"}
+    if policy.get("risk") in {"read", "write"}:
+        allowed_paths = policy.get("egress_fields") or []
+        call_context_vars = approved_context(call_context_vars, "initial_context", allowed_paths)
+        gathered_context_vars = approved_context(gathered_context_vars, "gathered_context", allowed_paths)
 
     # Get HTTP method and URL
     method = config.get("method", "POST").upper()
@@ -308,11 +321,32 @@ async def execute_http_tool(
 
     # Get headers from config
     headers = dict(config.get("headers", {}) or {})
+    request_headers: dict[str, str] = {}
+    _rendered_url: str | None = None
+    _request_body_preview: Any = None
+
+    def build_result(result: dict[str, Any]) -> dict[str, Any]:
+        # AgentStudio: provenance for the run page (which tool, how long).
+        result = {
+            **result,
+            "tool_uuid": str(getattr(tool, "tool_uuid", "") or "") or None,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+        }
+        if include_request_headers:
+            return {
+                **result,
+                "request_headers": request_headers,
+                "rendered_url": _rendered_url,
+                "request_body_preview": _request_body_preview,
+            }
+        return result
 
     # Add auth header if credential is configured. Keep track of which headers
     # came from the credential so only those values are masked in test previews.
     credential_headers: dict[str, str] = {}
     credential_uuid = config.get("credential_uuid")
+    if credential_uuid and not organization_id and secure_destination:
+        return build_result({"status": "error", "error": "tool_credential_unavailable"})
     if credential_uuid and organization_id:
         try:
             credential = await db_client.get_credential_by_uuid(
@@ -337,6 +371,8 @@ async def execute_http_tool(
                     organization_id=organization_id,
                     tool_name=tool.name,
                 )
+                if secure_destination:
+                    return build_result({"status": "error", "error": "tool_credential_unavailable"})
         except Exception as e:
             log_failure(
                 classify_exception(
@@ -348,25 +384,13 @@ async def execute_http_tool(
                 organization_id=organization_id,
                 tool_name=tool.name,
             )
+            if secure_destination:
+                return build_result({"status": "error", "error": "tool_credential_unavailable"})
 
-    request_headers: dict[str, str] = {}
     if include_request_headers:
         request_headers = {str(name): str(value) for name, value in headers.items()}
         for header_name, header_value in credential_headers.items():
             request_headers[header_name] = mask_key(str(header_value))
-
-    _rendered_url: str | None = None
-    _request_body_preview: Any = None
-
-    def build_result(result: dict[str, Any]) -> dict[str, Any]:
-        if include_request_headers:
-            return {
-                **result,
-                "request_headers": request_headers,
-                "rendered_url": _rendered_url,
-                "request_body_preview": _request_body_preview,
-            }
-        return result
 
     # Get timeout
     timeout_ms = config.get("timeout_ms", 5000)
@@ -427,6 +451,8 @@ async def execute_http_tool(
 
     try:
         validate_user_configured_service_url(url, field_name="config.url")
+        if secure_destination:
+            validate_external_destination(url)
     except ValueError as e:
         logger.error(f"Custom tool '{tool.name}' URL validation failed: {e}")
         return build_result(
@@ -462,14 +488,29 @@ async def execute_http_tool(
             f"Resolved preset parameters for '{tool.name}': {list(preset_arguments.keys())}"
         )
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                json=body,
-                params=params,
-            )
+        transport = PublicHTTPTransport() if secure_destination else None
+        async with _LIVE_HTTP_LIMIT, httpx.AsyncClient(
+            timeout=timeout_seconds, follow_redirects=False, trust_env=False,
+            transport=transport,
+        ) as client:
+            if secure_destination:
+                request = client.build_request(method, url, headers=headers, json=body, params=params)
+                streamed = await client.send(request, stream=True)
+                try:
+                    content = bytearray()
+                    async for chunk in streamed.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > 1_048_576:
+                            return build_result({"status": "error", "error": "tool_response_too_large"})
+                    response = httpx.Response(
+                        streamed.status_code, headers=streamed.headers, content=bytes(content),
+                    )
+                finally:
+                    await streamed.aclose()
+            else:
+                response = await client.request(
+                    method=method, url=url, headers=headers, json=body, params=params,
+                )
 
             # Try to parse JSON response
             try:
@@ -478,8 +519,18 @@ async def execute_http_tool(
                 response_data = {"raw_response": response.text}
 
             business_failed = isinstance(response_data, dict) and response_data.get("ok") is False
+            if policy.get("risk") in {"read", "write"}:
+                from jsonschema import Draft202012Validator
+                if not Draft202012Validator(policy["result_schema"]).is_valid(response_data):
+                    return build_result({"status": "error", "error": "tool_result_schema_mismatch"})
+                business_failed = business_failed or (
+                    get_nested_value(response_data, policy["success_path"])
+                    != policy.get("success_value", True)
+                )
             result = {
-                "status": "error" if response.status_code >= 400 or business_failed else "success",
+                "status": "error" if response.status_code >= 400 or business_failed
+                          or (secure_destination and response.status_code >= 300)
+                          else "success",
                 "status_code": response.status_code,
                 "data": response_data,
             }

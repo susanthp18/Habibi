@@ -8,6 +8,7 @@ import type {
 } from "@/client/types.gen";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
 import { MentionTextarea } from "@/components/flow/MentionTextarea";
+import PromptLint from "@/host/PromptLint";
 import { RecordingSelect } from "@/components/flow/TextOrAudioInput";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { CredentialSelector, UrlInput } from "@/components/http";
@@ -31,6 +32,10 @@ export interface RendererContext {
     mcpToolFilters?: Record<string, string[]>;
     /** Persist a new mcp_tool_filters object onto the node form values. */
     onMcpToolFiltersChange?: (next: Record<string, string[]>) => void;
+    /** AgentStudio: the node being edited, so prompt lint knows the opening node. */
+    nodeType?: string;
+    /** AgentStudio: the node's current form values (the opening's greeting is spoken first). */
+    nodeValues?: Record<string, unknown>;
 }
 
 export interface PropertyInputProps {
@@ -82,6 +87,8 @@ export function PropertyInput({ spec, value, onChange, context }: PropertyInputP
                     value={value}
                     onChange={onChange}
                     recordings={context.recordings}
+                    nodeType={context.nodeType}
+                    greeting={context.nodeType === "startCall" ? String(context.nodeValues?.greeting ?? "") : ""}
                 />
             );
         case "tool_refs":
@@ -401,7 +408,9 @@ function MentionWidget({
     value,
     onChange,
     recordings,
-}: WidgetProps & { recordings: RecordingResponseSchema[] }) {
+    nodeType,
+    greeting,
+}: WidgetProps & { recordings: RecordingResponseSchema[]; nodeType?: string; greeting?: string }) {
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
@@ -411,6 +420,11 @@ function MentionWidget({
                 placeholder={spec.placeholder ?? undefined}
                 className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
                 recordings={recordings}
+            />
+            <PromptLint
+                prompt={(value as string | undefined) ?? ""}
+                isOpening={nodeType === "startCall"}
+                spokenFirst={greeting ?? ""}
             />
         </div>
     );

@@ -19,6 +19,8 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.services.mcp_service import MCPClient
 
 from api.services.workflow.tools.mcp_tool import namespace_function_name
+from api.services.tool_egress import PublicHTTPTransport
+from api.services.tool_revisions import mcp_schema_digest, validate_external_destination
 from api.utils.credential_auth import build_auth_header
 
 if TYPE_CHECKING:
@@ -59,6 +61,8 @@ class McpToolSession:
         tools_filter: List[str],
         timeout_secs: int,
         sse_read_timeout_secs: int,
+        expected_schema_digests: dict[str, str] | None = None,
+        secure_destination: bool = False,
     ) -> None:
         self._tool_uuid = tool_uuid
         self._tool_name = tool_name
@@ -68,6 +72,8 @@ class McpToolSession:
         # tools)" — Pipecat's MCPClient applies a filter only when this is a
         # non-empty list, so [] and None are equivalent ("all tools").
         self._tools_filter = tools_filter or None
+        self._expected_schema_digests = expected_schema_digests
+        self._secure_destination = secure_destination or expected_schema_digests is not None
         self._timeout_secs = timeout_secs
         self._sse_read_timeout_secs = sse_read_timeout_secs
 
@@ -76,6 +82,7 @@ class McpToolSession:
         self._schemas: List[FunctionSchema] = []
         # namespaced LLM name -> original MCP tool name
         self._name_map: Dict[str, str] = {}
+        self._raw_schemas: Dict[str, dict] = {}
         self.available: bool = False
         self._owner_task: asyncio.Task | None = None
         self._ready: asyncio.Future | None = None
@@ -128,20 +135,53 @@ class McpToolSession:
         external cancellation, KeyboardInterrupt, and SystemExit are re-raised
         (see the CancelledError handling below and ``_degrade``)."""
         try:
+            if self._secure_destination:
+                validate_external_destination(self._url)
             params = build_streamable_http_params(
                 url=self._url,
                 credential=self._credential,
                 timeout_secs=self._timeout_secs,
                 sse_read_timeout_secs=self._sse_read_timeout_secs,
             )
-            self._client = MCPClient(params, tools_filter=self._tools_filter)
+            self._client = MCPClient(
+                params, tools_filter=self._tools_filter,
+                http_transport=PublicHTTPTransport() if self._secure_destination else None,
+            )
             await self._client.start()
             # Single, isolated touch of Pipecat internals (vendored submodule).
             self._session = self._client._active_session
             tools_schema = await self._client.get_tools_schema()
+            raw_page = await self._session.list_tools()
+            while True:
+                for raw_tool in raw_page.tools:
+                    self._raw_schemas[raw_tool.name] = {
+                        "inputSchema": raw_tool.inputSchema,
+                        "outputSchema": getattr(raw_tool, "outputSchema", None),
+                    }
+                cursor = getattr(raw_page, "nextCursor", None)
+                if not cursor:
+                    break
+                raw_page = await self._session.list_tools(cursor=cursor)
+
+            if self._expected_schema_digests is not None:
+                actual = {
+                    fs.name: mcp_schema_digest(
+                        fs.name, fs.properties, fs.required,
+                        full_schema=self._raw_schemas.get(fs.name),
+                    )
+                    for fs in tools_schema.standard_tools
+                }
+                if not self._expected_schema_digests or any(
+                    actual.get(name) != digest
+                    for name, digest in self._expected_schema_digests.items()
+                ):
+                    raise ValueError("approved MCP function schema drift")
 
             fallback = self._tool_uuid[:8] if self._tool_uuid else "server"
             for fs in tools_schema.standard_tools:
+                if (self._expected_schema_digests is not None
+                        and fs.name not in self._expected_schema_digests):
+                    continue
                 ns_name = namespace_function_name(
                     self._tool_name, fs.name, fallback=fallback
                 )
@@ -233,16 +273,28 @@ class McpToolSession:
             s for s in self._schemas if self._name_map.get(s.name) in allowed_raw_names
         ]
 
-    def discovered_tools(self) -> List[Dict[str, str]]:
+    def raw_name(self, namespaced_name: str) -> str | None:
+        return self._name_map.get(namespaced_name)
+
+    def discovered_tools(self) -> List[Dict[str, Any]]:
         """Raw MCP tool catalog for UI/cache: ``[{name, description}]``
         using the *raw* server names (not the namespaced LLM names).
         Empty if the session is unavailable."""
-        out: List[Dict[str, str]] = []
+        out: List[Dict[str, Any]] = []
         for s in self._schemas:
             raw = self._name_map.get(s.name)
             if raw is None:
                 continue
-            out.append({"name": raw, "description": s.description or ""})
+            out.append({
+                "name": raw, "description": s.description or "",
+                "properties": s.properties, "required": s.required,
+                "input_schema": self._raw_schemas.get(raw, {}).get("inputSchema"),
+                "output_schema": self._raw_schemas.get(raw, {}).get("outputSchema"),
+                "schema_digest": mcp_schema_digest(
+                    raw, s.properties, s.required,
+                    full_schema=self._raw_schemas.get(raw),
+                ),
+            })
         return out
 
     async def call(self, namespaced_name: str, arguments: Dict[str, Any]) -> str:
@@ -255,10 +307,14 @@ class McpToolSession:
         if original is None:
             raise RuntimeError(f"Unknown MCP function {namespaced_name}")
         result = await self._session.call_tool(original, arguments=arguments)
+        if getattr(result, "isError", False):
+            raise RuntimeError("mcp_tool_reported_error")
         text = ""
         for content in getattr(result, "content", []) or []:
             if getattr(content, "text", None):
                 text += content.text
+                if len(text) > 1_048_576:
+                    raise ValueError("tool_response_too_large")
         return text or "Sorry, the MCP tool returned no content."
 
     async def close(self) -> None:
@@ -278,7 +334,8 @@ async def discover_mcp_tools(
     credential: Optional["ExternalCredentialModel"],
     timeout_secs: int,
     sse_read_timeout_secs: int,
-) -> List[Dict[str, str]]:
+    secure_destination: bool = False,
+) -> List[Dict[str, Any]]:
     """Open an ephemeral MCP session, list its tools, close it. Returns
     ``[{name, description}]`` (raw names). Never raises — on any connect
     failure returns ``[]``."""
@@ -290,6 +347,7 @@ async def discover_mcp_tools(
         tools_filter=[],
         timeout_secs=timeout_secs,
         sse_read_timeout_secs=sse_read_timeout_secs,
+        secure_destination=secure_destination,
     )
     await session.start()
     try:

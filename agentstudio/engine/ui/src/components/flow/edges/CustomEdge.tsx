@@ -31,6 +31,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
     const [transitionSpeech, setTransitionSpeech] = useState(data?.transition_speech ?? '');
     const [transitionSpeechType, setTransitionSpeechType] = useState<'text' | 'audio'>(data?.transition_speech_type ?? 'text');
     const [transitionSpeechRecordingId, setTransitionSpeechRecordingId] = useState(data?.transition_speech_recording_id ?? '');
+    const [allowFailedAction, setAllowFailedAction] = useState(data?.allow_failed_action ?? false);
 
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
@@ -40,6 +41,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
             setTransitionSpeech(data?.transition_speech ?? '');
             setTransitionSpeechType(data?.transition_speech_type ?? 'text');
             setTransitionSpeechRecordingId(data?.transition_speech_recording_id ?? '');
+            setAllowFailedAction(data?.allow_failed_action ?? false);
         }
     }, [data, open]);
 
@@ -50,9 +52,10 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
             transition_speech: transitionSpeechType === 'text' ? (transitionSpeech || undefined) : undefined,
             transition_speech_type: transitionSpeechType,
             transition_speech_recording_id: transitionSpeechType === 'audio' ? (transitionSpeechRecordingId || undefined) : undefined,
+            allow_failed_action: allowFailedAction,
         });
         onOpenChange(false);
-    }, [condition, label, transitionSpeech, transitionSpeechType, transitionSpeechRecordingId, onSave, onOpenChange]);
+    }, [condition, label, transitionSpeech, transitionSpeechType, transitionSpeechRecordingId, allowFailedAction, onSave, onOpenChange]);
 
     // Handle Cmd+S / Ctrl+S keyboard shortcut to save
     useEffect(() => {
@@ -131,6 +134,11 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                             </>
                         </TextOrAudioInput>
                     </div>
+                    <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" checked={allowFailedAction} disabled={readOnly}
+                            onChange={(e) => setAllowFailedAction(e.target.checked)} />
+                        <span>Failure close path. Allow this edge to close after a promise, callback, or dispute was rejected. The destination must say the action was not recorded.</span>
+                    </label>
                 </div>
                 <DialogFooter>
                     <div className="flex items-center gap-2">

@@ -1286,6 +1286,47 @@ class ToolModel(Base):
     )
 
 
+class ToolRevisionModel(Base):
+    """Immutable executable tool configuration; review state may change."""
+
+    __tablename__ = "tool_revisions"
+    id = Column(Integer, primary_key=True)
+    tool_id = Column(Integer, ForeignKey("tools.id", ondelete="CASCADE"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    revision = Column(Integer, nullable=False)
+    snapshot = Column(JSON, nullable=False)
+    digest = Column(String(64), nullable=False)
+    policy = Column(JSON, nullable=False, default=dict)
+    state = Column(String(24), nullable=False, default="draft")
+    authored_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("tool_id", "revision", name="uq_tool_revision_number"),
+        Index("ix_tool_revisions_org_tool", "organization_id", "tool_id"),
+    )
+
+
+class WorkflowToolBindingModel(Base):
+    """The tool revision a published workflow node is permitted to execute."""
+
+    __tablename__ = "workflow_tool_bindings"
+    workflow_definition_id = Column(Integer, ForeignKey("workflow_definitions.id", ondelete="CASCADE"), primary_key=True)
+    node_id = Column(String(255), primary_key=True)
+    tool_uuid = Column(String(36), primary_key=True)
+    tool_revision_id = Column(Integer, ForeignKey("tool_revisions.id"), nullable=False)
+    digest = Column(String(64), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_workflow_tool_bindings_revision", "tool_revision_id"),
+        Index("ix_workflow_tool_bindings_org", "organization_id"),
+    )
+
+
 class KnowledgeBaseDocumentModel(Base):
     """Model for storing document-level metadata in the knowledge base.
 

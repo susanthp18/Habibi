@@ -1746,18 +1746,18 @@ function WorkflowSettingsInner({
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2 text-base">
                                         <Mic className="h-4 w-4" />
-                                        Recordings
+                                        Audio Library
                                     </CardTitle>
                                     <CardDescription>
-                                        Recordings are now managed at the organization level and shared across all agents.
+                                        Uploaded prompt audio is managed at the organization level and shared across all agents.
                                         Use <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them.{" "}
                                         <a href={SETTINGS_DOCUMENTATION_URLS.recordings} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                                     </CardDescription>
                                 </CardHeader>
                                 <CardFooter className="border-t pt-6">
                                     <Button variant="outline" asChild>
-                                        <Link href="/recordings">
-                                            Go to Recordings
+                                        <Link href="/audio-library">
+                                            Go to Audio Library
                                             <ExternalLink className="ml-2 h-4 w-4" />
                                         </Link>
                                     </Button>

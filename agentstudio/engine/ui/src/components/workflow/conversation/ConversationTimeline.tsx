@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import { ConversationEmptyState } from "./ConversationEmptyState";
 import { ConversationItemView } from "./ConversationItemView";
+import { ConversationSummary } from "./ConversationSummary";
 import type { ConversationEmptyStateData, ConversationItem } from "./types";
 
 interface ConversationTimelineProps {
@@ -17,6 +18,8 @@ interface ConversationTimelineProps {
     pendingIndicator?: ReactNode;
     renderItemActions?: (item: ConversationItem) => ReactNode;
     className?: string;
+    /** AgentStudio: latency summary and transcript download; the file name to save as. */
+    summaryFileName?: string;
 }
 
 export function ConversationTimeline({
@@ -27,6 +30,7 @@ export function ConversationTimeline({
     pendingIndicator,
     renderItemActions,
     className,
+    summaryFileName = "transcript",
 }: ConversationTimelineProps) {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
     const scrollEndRef = useRef<HTMLDivElement | null>(null);
@@ -43,6 +47,8 @@ export function ConversationTimeline({
             {items.length === 0 && !pendingIndicator ? (
                 <ConversationEmptyState title={emptyState.title} subtitle={emptyState.subtitle} />
             ) : (
+                <>
+                <ConversationSummary items={items} fileName={summaryFileName} />
                 <div className="space-y-3 p-4">
                     {items.map((item) => (
                         <ConversationItemView
@@ -54,6 +60,7 @@ export function ConversationTimeline({
                     {pendingIndicator}
                     <div ref={scrollEndRef} />
                 </div>
+                </>
             )}
         </div>
     );

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { VoicePreviewPanel } from "@/components/VoicePreviewPanel";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
@@ -642,6 +643,23 @@ export function ServiceConfigurationForm({
                             );
                         })}
                     </div>
+                )}
+
+                {/* AgentStudio: hear the configured voice before saving it. */}
+                {service === "tts" && currentProvider === "azure_speech" && (
+                    <VoicePreviewPanel
+                        provider={currentProvider}
+                        settings={{
+                            voice: String(watch("tts_voice") || ""),
+                            language: (watch("tts_language") as string) || undefined,
+                            region: (watch("tts_region") as string) || undefined,
+                            speed: Number(watch("tts_speed") ?? 1),
+                            style: (watch("tts_style") as string) || undefined,
+                            style_degree: Number(watch("tts_style_degree") ?? 1),
+                            pitch: Number(watch("tts_pitch") ?? 0),
+                            volume: Number(watch("tts_volume") ?? 100),
+                        }}
+                    />
                 )}
 
                 {currentProvider && providerSchema && providerSchema.properties.api_key && (

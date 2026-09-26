@@ -19,6 +19,7 @@ from api.services.configuration.options import (
     GOOGLE_VERTEX_DEFAULT_LOCATION,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.voice_catalog_local import azure_delivery
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
@@ -941,6 +942,8 @@ def create_tts_service(
         }
         if rate:
             settings_kwargs["rate"] = rate
+        # AgentStudio: the delivery chosen (and previewed) in the voice picker.
+        settings_kwargs.update(azure_delivery(user_config.tts))
         return AzureTTSService(
             api_key=user_config.tts.api_key,
             region=region,

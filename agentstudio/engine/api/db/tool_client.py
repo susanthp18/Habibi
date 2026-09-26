@@ -1,15 +1,20 @@
 """Database client for managing tools."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.models import ToolModel
+from api.db.models import (
+    ToolModel, ToolRevisionModel, WorkflowDefinitionModel, WorkflowModel,
+    WorkflowToolBindingModel,
+)
 from api.enums import ToolCategory, ToolStatus
+from api.services.tool_revisions import snapshot_digest, snapshot_tool
 
 
 class ToolClient(BaseDBClient):
@@ -55,6 +60,13 @@ class ToolClient(BaseDBClient):
             )
 
             session.add(tool)
+            await session.flush()
+            snapshot = snapshot_tool(tool)
+            session.add(ToolRevisionModel(
+                tool_id=tool.id, organization_id=organization_id, revision=1,
+                snapshot=snapshot, digest=snapshot_digest(snapshot), state="draft",
+                authored_by=user_id,
+            ))
             await session.commit()
             await session.refresh(tool)
 
@@ -146,6 +158,8 @@ class ToolClient(BaseDBClient):
         icon: Optional[str] = None,
         icon_color: Optional[str] = None,
         status: Optional[str] = None,
+        authored_by: Optional[int] = None,
+        expected_revision: Optional[int] = None,
     ) -> Optional[ToolModel]:
         """Update a tool by UUID.
 
@@ -164,11 +178,20 @@ class ToolClient(BaseDBClient):
         """
         async with self.async_session() as session:
             # First check if tool exists and belongs to organization
-            tool = await self.get_tool_by_uuid(
-                tool_uuid, organization_id, include_archived=True
-            )
+            result = await session.execute(select(ToolModel).where(
+                ToolModel.tool_uuid == tool_uuid,
+                ToolModel.organization_id == organization_id,
+            ).with_for_update())
+            tool = result.scalar_one_or_none()
             if not tool:
                 return None
+
+            latest = await session.scalar(select(func.max(ToolRevisionModel.revision)).where(
+                ToolRevisionModel.tool_id == tool.id,
+                ToolRevisionModel.organization_id == organization_id,
+            )) or 0
+            if expected_revision is not None and latest != expected_revision:
+                raise ValueError("tool_revision_conflict")
 
             # Build update values
             update_values = {"updated_at": datetime.now(UTC)}
@@ -193,6 +216,16 @@ class ToolClient(BaseDBClient):
                 )
                 .values(**update_values)
             )
+            await session.flush()
+            if any(value is not None for value in (name, description, definition)):
+                await session.refresh(tool)
+                snapshot = snapshot_tool(tool)
+                session.add(ToolRevisionModel(
+                    tool_id=tool.id, organization_id=organization_id,
+                    revision=latest + 1, snapshot=snapshot,
+                    digest=snapshot_digest(snapshot), state="draft",
+                    authored_by=authored_by or tool.created_by,
+                ))
             await session.commit()
 
             # Fetch updated tool
@@ -205,6 +238,164 @@ class ToolClient(BaseDBClient):
 
             logger.info(f"Updated tool {tool_uuid} for organization {organization_id}")
             return updated_tool
+
+    async def get_tool_revisions(self, tool_uuid: str, organization_id: int) -> list[ToolRevisionModel]:
+        async with self.async_session() as session:
+            result = await session.execute(select(ToolRevisionModel)
+                .join(ToolModel, ToolRevisionModel.tool_id == ToolModel.id)
+                .where(ToolModel.tool_uuid == tool_uuid, ToolModel.organization_id == organization_id)
+                .order_by(ToolRevisionModel.revision.desc()))
+            return list(result.scalars().all())
+
+    async def get_tool_revision_usage(self, tool_uuid: str, organization_id: int) -> dict[int, int]:
+        async with self.async_session() as session:
+            result = await session.execute(select(
+                ToolRevisionModel.revision, func.count(WorkflowToolBindingModel.workflow_definition_id)
+            ).join(ToolModel, ToolRevisionModel.tool_id == ToolModel.id)
+             .outerjoin(WorkflowToolBindingModel,
+                        WorkflowToolBindingModel.tool_revision_id == ToolRevisionModel.id)
+             .where(ToolModel.tool_uuid == tool_uuid,
+                    ToolModel.organization_id == organization_id)
+             .group_by(ToolRevisionModel.revision))
+            return {revision: count for revision, count in result.all()}
+
+    async def review_tool_revision(
+        self, tool_uuid: str, revision: int, organization_id: int,
+        *, actor_id: int, state: str, policy: dict | None = None,
+    ) -> ToolRevisionModel | None:
+        async with self.async_session() as session:
+            tool = await session.scalar(select(ToolModel).where(
+                ToolModel.tool_uuid == tool_uuid,
+                ToolModel.organization_id == organization_id,
+            ).with_for_update())
+            if tool is None:
+                return None
+            result = await session.execute(select(ToolRevisionModel)
+                .where(ToolRevisionModel.tool_id == tool.id,
+                       ToolRevisionModel.organization_id == organization_id,
+                       ToolRevisionModel.revision == revision)
+                .with_for_update())
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            latest = await session.scalar(select(func.max(ToolRevisionModel.revision)).where(
+                ToolRevisionModel.tool_id == tool.id,
+                ToolRevisionModel.organization_id == organization_id,
+            ))
+            if state in {"submitted", "approved"} and revision != latest:
+                raise ValueError("tool_revision_conflict")
+            if state == "submitted" and row.state == "draft":
+                row.state = state
+                row.policy = policy or {}
+            elif state in {"approved", "rejected"} and row.state == "submitted":
+                if row.authored_by == actor_id:
+                    raise ValueError("tool_author_cannot_review")
+                row.state = state
+                row.reviewed_by = actor_id
+                row.reviewed_at = datetime.now(UTC)
+            elif state == "revoked" and row.state in {"approved", "legacy"}:
+                row.state = state
+                row.reviewed_by = actor_id
+                row.revoked_at = datetime.now(UTC)
+            else:
+                raise ValueError("invalid_tool_revision_transition")
+            await session.commit()
+            await session.refresh(row)
+            return row
+
+    async def get_bound_tool_revisions(
+        self, workflow_definition_id: int, organization_id: int, node_id: str,
+        tool_uuids: list[str],
+    ) -> list[tuple[ToolRevisionModel, str, str]]:
+        if not tool_uuids:
+            return []
+        async with self.async_session() as session:
+            result = await session.execute(select(
+                ToolRevisionModel, WorkflowToolBindingModel.tool_uuid,
+                WorkflowToolBindingModel.digest,
+            )
+                .join(WorkflowToolBindingModel, WorkflowToolBindingModel.tool_revision_id == ToolRevisionModel.id)
+                .where(WorkflowToolBindingModel.workflow_definition_id == workflow_definition_id,
+                       WorkflowToolBindingModel.organization_id == organization_id,
+                       WorkflowToolBindingModel.node_id == node_id,
+                       WorkflowToolBindingModel.tool_uuid.in_(tool_uuids),
+                       ToolRevisionModel.organization_id == organization_id))
+            return list(result.all())
+
+    async def get_workflow_tool_manifest(
+        self, workflow_id: int, definition_id: int, organization_id: int,
+    ) -> list[dict]:
+        async with self.async_session() as session:
+            result = await session.execute(select(WorkflowToolBindingModel, ToolRevisionModel)
+                .join(ToolRevisionModel, WorkflowToolBindingModel.tool_revision_id == ToolRevisionModel.id)
+                .join(WorkflowDefinitionModel,
+                      WorkflowToolBindingModel.workflow_definition_id == WorkflowDefinitionModel.id)
+                .join(WorkflowModel, WorkflowDefinitionModel.workflow_id == WorkflowModel.id)
+                .where(WorkflowModel.id == workflow_id,
+                       WorkflowModel.organization_id == organization_id,
+                       WorkflowDefinitionModel.id == definition_id,
+                       WorkflowToolBindingModel.organization_id == organization_id,
+                       ToolRevisionModel.organization_id == organization_id))
+            return [{"nodeId": binding.node_id, "toolUuid": binding.tool_uuid,
+                     "revisionId": revision.id, "revision": revision.revision,
+                     "digest": binding.digest, "state": revision.state,
+                     "snapshot": revision.snapshot, "policy": revision.policy}
+                    for binding, revision in result.all()]
+
+    async def get_runtime_tools(
+        self, tool_uuids: list[str], organization_id: int,
+        *, definition_id: int | None, node_id: str | None,
+    ) -> list:
+        """Drafts use catalog tools; released calls use only pinned revisions."""
+        if not tool_uuids:
+            return []
+        if definition_id is None:
+            # Fail closed, but never quietly: an agent whose run definition was
+            # not bound would otherwise just appear to have no tools.
+            logger.error(
+                "Refusing tools for an agent with no run definition: {}", tool_uuids
+            )
+            return []
+        async with self.async_session() as session:
+            result = await session.execute(select(WorkflowDefinitionModel.status)
+                .join(WorkflowModel, WorkflowDefinitionModel.workflow_id == WorkflowModel.id)
+                .where(WorkflowDefinitionModel.id == definition_id,
+                       WorkflowModel.organization_id == organization_id))
+            status = result.scalar_one_or_none()
+        if status == "draft":
+            return await self.get_tools_by_uuids(tool_uuids, organization_id)
+        if status not in {"published", "archived"} or not node_id:
+            return []
+        rows = await self.get_bound_tool_revisions(
+            definition_id, organization_id, node_id, tool_uuids,
+        )
+        tools = []
+        for revision, tool_uuid, binding_digest in rows:
+            if revision.state not in {"approved", "legacy"}:
+                continue
+            snapshot = revision.snapshot or {}
+            if (binding_digest != revision.digest or
+                    (revision.state == "approved" and snapshot_digest(snapshot) != revision.digest)):
+                logger.error("Refusing tool {}: released revision digest mismatch", tool_uuid)
+                continue
+            tools.append(SimpleNamespace(
+                tool_uuid=tool_uuid, name=snapshot.get("name"),
+                description=snapshot.get("description"),
+                category=snapshot.get("category"),
+                definition=snapshot.get("definition") or {},
+                revision=revision.revision, revision_id=revision.id,
+                revision_digest=revision.digest, policy=revision.policy or {},
+            ))
+        return tools
+
+    async def is_tool_revision_callable(self, revision_id: int, organization_id: int) -> bool:
+        async with self.async_session() as session:
+            row = await session.scalar(select(ToolRevisionModel.id).where(
+                ToolRevisionModel.id == revision_id,
+                ToolRevisionModel.organization_id == organization_id,
+                ToolRevisionModel.state.in_(["approved", "legacy"]),
+            ))
+            return row is not None
 
     async def archive_tool(self, tool_uuid: str, organization_id: int) -> bool:
         """Soft delete a tool by setting its status to archived.

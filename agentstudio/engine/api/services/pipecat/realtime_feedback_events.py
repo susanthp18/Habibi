@@ -110,6 +110,10 @@ def summarize_realtime_feedback_tool_result(result: Any) -> dict[str, Any]:
                "http_status": status_code if isinstance(status_code, int) else None}
     if isinstance(data.get("verified"), bool):
         summary["verified"] = data["verified"]
+    if isinstance(result.get("tool_uuid"), str):
+        summary["tool_uuid"] = result["tool_uuid"]
+    if isinstance(result.get("duration_ms"), int):
+        summary["duration_ms"] = result["duration_ms"]
     return summary
 
 

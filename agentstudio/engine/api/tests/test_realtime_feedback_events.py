@@ -128,3 +128,20 @@ def test_transcript_can_include_end_timestamps_without_changing_default_format()
         "[2026-01-01T00:00:06+00:00 -> 2026-01-01T00:00:08+00:00] "
         "user: January fifth\n"
     )
+
+
+def test_summary_keeps_tool_provenance():
+    event = build_function_call_end_event(
+        function_name="verify_identity",
+        tool_call_id="call-9",
+        result={
+            "status": "success",
+            "data": {"ok": True, "verified": False},
+            "tool_uuid": "3f0c6a52-0000-4000-8000-000000000001",
+            "duration_ms": 412,
+        },
+    )
+    summary = event["payload"]["result_summary"]
+    assert summary["tool_uuid"] == "3f0c6a52-0000-4000-8000-000000000001"
+    assert summary["duration_ms"] == 412
+    assert summary["verified"] is False

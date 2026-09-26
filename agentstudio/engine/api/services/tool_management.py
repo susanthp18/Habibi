@@ -14,12 +14,13 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent, ToolCategory
+from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.schemas.tool import (
     CreatedByResponse,
     CreateToolRequest,
     McpRefreshResponse,
     ToolResponse,
+    UpdateToolRequest,
 )
 from api.services.posthog_client import capture_event
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
@@ -27,6 +28,7 @@ from api.services.workflow.tools.mcp_tool import (
     McpDefinitionError,
     validate_mcp_definition,
 )
+from api.services.tool_revisions import validate_external_destination
 
 
 class ToolManagementError(ValueError):
@@ -156,6 +158,12 @@ async def populate_discovered_tools(
         cfg = validate_mcp_definition(definition)
     except McpDefinitionError:
         return definition
+    try:
+        validate_external_destination(cfg["url"])
+    except ValueError:
+        # Draft creation remains available; unsafe/unreachable destinations
+        # are not contacted and cannot later pass review.
+        return definition
 
     credential = await fetch_credential(cfg.get("credential_uuid"), organization_id)
 
@@ -166,6 +174,7 @@ async def populate_discovered_tools(
                 credential=credential,
                 timeout_secs=cfg["timeout_secs"],
                 sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
+                secure_destination=True,
             )
         except BaseException as e:  # noqa: BLE001
             logger.warning(f"MCP discovery failed; caching empty list: {e}")
@@ -224,6 +233,40 @@ async def create_tool_for_user(
     return build_tool_response(tool)
 
 
+async def update_tool_for_user(
+    tool_uuid: str, request: UpdateToolRequest, user: UserModel,
+) -> ToolResponse:
+    """Shared REST/MCP edit path with tenant validation and revision CAS."""
+    organization_id = user.selected_organization_id
+    if not organization_id:
+        raise ToolManagementError("organization_required", "No organization selected")
+    if request.status and request.status not in {s.value for s in ToolStatus}:
+        raise ToolManagementError("invalid_status", "Invalid tool status")
+    semantic_edit = any(value is not None for value in (
+        request.name, request.description, request.definition,
+    ))
+    if semantic_edit and request.base_revision is None:
+        raise ToolManagementError("revision_required", "Load the latest tool revision before editing", status_code=409)
+    definition = None
+    if request.definition is not None:
+        definition = request.definition.model_dump()
+        await validate_tool_references(definition, organization_id=organization_id)
+        definition = await populate_discovered_tools(definition, organization_id=organization_id)
+    try:
+        tool = await db_client.update_tool(
+            tool_uuid=tool_uuid, organization_id=organization_id,
+            name=request.name, description=request.description,
+            definition=definition, icon=request.icon, icon_color=request.icon_color,
+            status=request.status, authored_by=user.id,
+            expected_revision=request.base_revision,
+        )
+    except ValueError as exc:
+        raise ToolManagementError("tool_revision_conflict", str(exc), status_code=409) from exc
+    if tool is None:
+        raise ToolManagementError("tool_not_found", "Tool not found", status_code=404)
+    return build_tool_response(tool, include_created_by=True)
+
+
 async def refresh_mcp_tool_for_user(
     tool_uuid: str,
     user: UserModel,
@@ -254,6 +297,10 @@ async def refresh_mcp_tool_for_user(
             f"Invalid MCP definition: {e}",
             status_code=400,
         ) from e
+    try:
+        validate_external_destination(cfg["url"])
+    except ValueError as e:
+        raise ToolManagementError("unsafe_mcp_destination", str(e)) from e
 
     credential = await fetch_credential(
         cfg.get("credential_uuid"), user.selected_organization_id
@@ -265,6 +312,7 @@ async def refresh_mcp_tool_for_user(
             credential=credential,
             timeout_secs=cfg["timeout_secs"],
             sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
+            secure_destination=True,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MCP refresh discovery failed: {e}")
@@ -283,6 +331,7 @@ async def refresh_mcp_tool_for_user(
         tool_uuid=tool_uuid,
         organization_id=user.selected_organization_id,
         definition=new_def,
+        authored_by=user.id,
     )
     return McpRefreshResponse(
         tool_uuid=tool_uuid, discovered_tools=discovered, error=None

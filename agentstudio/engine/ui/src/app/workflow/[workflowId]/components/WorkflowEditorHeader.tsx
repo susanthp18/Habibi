@@ -6,10 +6,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
-import {
-    duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost,
-    publishWorkflowApiV1WorkflowWorkflowIdPublishPost,
-} from "@/client/sdk.gen";
+import { duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { GitHubStarBadge } from "@/components/layout/GitHubStarBadge";
@@ -27,6 +24,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
+import PublishDialog from "@/host/PublishDialog";
 import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface WorkflowEditorHeaderProps {
@@ -46,6 +44,8 @@ interface WorkflowEditorHeaderProps {
     onBackToDraft: () => void;
     hasDraft: boolean;
     onPublished: () => void;
+    // AgentStudio: opens the draft-vs-live diff from the publish dialog.
+    onCompareDraft?: () => void;
     renameWorkflow: (newName: string) => Promise<void>;
 }
 
@@ -63,6 +63,7 @@ export const WorkflowEditorHeader = ({
     onBackToDraft,
     hasDraft,
     onPublished,
+    onCompareDraft,
     workflowId,
     workflowUuid,
     renameWorkflow,
@@ -71,7 +72,8 @@ export const WorkflowEditorHeader = ({
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
-    const [publishing, setPublishing] = useState(false);
+    // AgentStudio: publishing opens the release dialog (gate, checks, changelog note).
+    const [publishOpen, setPublishOpen] = useState(false);
     // One discriminated-union state instead of (isEditingName, nameDraft,
     // nameError, isRenaming): they're not independent — error and saving are
     // mutually exclusive, and both are meaningless in the display state. The
@@ -92,25 +94,6 @@ export const WorkflowEditorHeader = ({
         setSavingWorkflow(true);
         await saveWorkflow();
         setSavingWorkflow(false);
-    };
-
-    const handlePublish = async () => {
-        if (publishing) return;
-        setPublishing(true);
-        const promise = publishWorkflowApiV1WorkflowWorkflowIdPublishPost({
-            path: { workflow_id: workflowId },
-        });
-        toast.promise(promise, {
-            loading: "Publishing...",
-            success: "Workflow published successfully",
-            error: "Failed to publish workflow",
-        });
-        try {
-            await promise;
-            onPublished();
-        } finally {
-            setPublishing(false);
-        }
     };
 
     const handleBack = () => {
@@ -389,24 +372,22 @@ export const WorkflowEditorHeader = ({
                 {/* Publish button (only when on draft with no unsaved changes) */}
                 {!isViewingHistoricalVersion && hasDraft && (
                     <Button
-                        onClick={handlePublish}
-                        disabled={isDirty || publishing || hasValidationErrors}
+                        onClick={() => setPublishOpen(true)}
+                        disabled={isDirty || hasValidationErrors}
                         variant="outline"
                         className="border-[#3a3a3a] bg-transparent hover:bg-[#2a2a2a] text-white px-4"
                     >
-                        {publishing ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Publishing...
-                            </>
-                        ) : (
-                            <>
-                                <Rocket className="w-4 h-4 mr-2" />
-                                Publish
-                            </>
-                        )}
+                        <Rocket className="w-4 h-4 mr-2" />
+                        Publish
                     </Button>
                 )}
+                <PublishDialog
+                    workflowId={workflowId}
+                    open={publishOpen}
+                    onOpenChange={setPublishOpen}
+                    onPublished={onPublished}
+                    onCompare={onCompareDraft ? () => { setPublishOpen(false); onCompareDraft(); } : undefined}
+                />
 
                 {!isViewingHistoricalVersion && (
                     <Button

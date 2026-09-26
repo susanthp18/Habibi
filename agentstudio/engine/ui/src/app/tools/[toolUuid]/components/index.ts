@@ -3,6 +3,12 @@ export { EndCallToolConfig, type EndCallToolConfigProps } from "./EndCallToolCon
 export { buildHttpToolTestSnapshot, HttpToolTestDialog } from "./http-tool-test";
 export { HttpApiToolConfig, type HttpApiToolConfigProps } from "./HttpApiToolConfig";
 export {
+    ToolRevisionPanel,
+    type ToolRevision,
+    type ToolRevisionPanelProps,
+    type ToolRevisionState,
+} from "./ToolRevisionPanel";
+export {
     TransferAgentToolConfig,
     type TransferAgentToolConfigProps,
     type TransferAgentWorkflowOption,

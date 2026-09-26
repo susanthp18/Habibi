@@ -671,6 +671,7 @@ class UpdateToolRequest(BaseModel):
     icon_color: str | None = Field(default=None, max_length=7)
     definition: ToolDefinition | None = None
     status: str | None = None
+    base_revision: int | None = Field(default=None, ge=1)
 
 
 class CreatedByResponse(BaseModel):

@@ -690,6 +690,8 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                             values={values}
                             onChange={setValues}
                             context={{
+                                nodeType: spec.name,
+                                nodeValues: values,
                                 tools: tools ?? [],
                                 documents: documents ?? [],
                                 recordings: recordings ?? [],

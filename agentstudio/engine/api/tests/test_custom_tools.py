@@ -1048,6 +1048,28 @@ class TestExecuteHttpTool:
                 mock_db.get_credential_by_uuid.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_reviewed_http_tool_does_not_send_without_configured_credential():
+    tool = SimpleNamespace(
+        tool_uuid="reviewed-tool", name="Reviewed API",
+        definition={"config": {
+            "method": "POST", "url": "https://api.example.com/action",
+            "credential_uuid": "missing-credential",
+        }},
+        policy={"risk": "write", "egress_fields": []},
+    )
+    with (
+        patch("api.services.workflow.tools.custom_tool.db_client") as mock_db,
+        patch("api.services.workflow.tools.custom_tool.httpx.AsyncClient") as client,
+        patch("api.services.workflow.tools.custom_tool.log_failure"),
+    ):
+        mock_db.get_credential_by_uuid = AsyncMock(return_value=None)
+        result = await execute_http_tool(tool, {}, organization_id=7)
+    assert result["status"] == "error"
+    assert result["error"] == "tool_credential_unavailable"
+    client.assert_not_called()
+
+
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""
 
@@ -1489,6 +1511,7 @@ class TestCustomToolManagerUnit:
         mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._verification_outcomes = {}
         mock_engine._organization_id = None
         mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
             mock_engine
@@ -1530,7 +1553,7 @@ class TestCustomToolManagerUnit:
                 return_value=1,
             ),
         ):
-            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            mock_db.get_runtime_tools = AsyncMock(return_value=[mock_tool])
 
             schemas = await manager.get_tool_schemas(["uuid-1"])
 
@@ -1570,6 +1593,7 @@ class TestCustomToolManagerUnit:
         mock_engine.active_agent = stub_agent_runtime()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._verification_outcomes = {}
         mock_engine._organization_id = None
         mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
             mock_engine
@@ -1604,7 +1628,7 @@ class TestCustomToolManagerUnit:
                 return_value=1,
             ),
         ):
-            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            mock_db.get_runtime_tools = AsyncMock(return_value=[mock_tool])
 
             await manager.register_handlers(["uuid-1"])
 
@@ -1666,7 +1690,7 @@ class TestCustomToolManagerUnit:
         )
 
         with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.db_client.get_tools_by_uuids",
+            "api.services.workflow.pipecat_engine_custom_tools.db_client.get_runtime_tools",
             new=AsyncMock(return_value=[tool]),
         ):
             await manager.register_handlers([tool.tool_uuid])

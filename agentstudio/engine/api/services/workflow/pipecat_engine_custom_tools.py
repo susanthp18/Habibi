@@ -7,6 +7,7 @@ during workflow execution.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -19,6 +20,7 @@ from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
+from api.services.tool_revisions import live_policy_error
 from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
@@ -33,7 +35,7 @@ from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
 )
-from api.utils.template_renderer import render_template
+from api.utils.template_renderer import get_nested_value, render_template
 
 if TYPE_CHECKING:
     from api.services.workflow.mcp_tool_session import McpToolSession
@@ -44,6 +46,20 @@ _TRANSFER_PLAYBACK_START_TIMEOUT_SECS = 5.0
 _TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS = 30.0
 _TRANSFER_EXTERNAL_PBX_API_TIMEOUT_SECS = 30.0
 _TRANSFER_POST_HANDOFF_DELAY_SECS = 4.0
+
+
+def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
+                     arguments: dict[str, Any], function_name: str) -> dict[str, Any]:
+    """Supply one stable idempotency key for a node visit's write action."""
+    policy = getattr(tool, "policy", None) or {}
+    if policy.get("risk") != "write":
+        return arguments
+    parameter = policy["idempotency_parameter"]
+    identity = ":".join(str(part) for part in (
+        engine._workflow_run_id, agent.visit_id,
+        agent.current_node.id if agent.current_node else "", tool.tool_uuid, function_name,
+    ))
+    return {**arguments, parameter: str(uuid.uuid5(uuid.NAMESPACE_URL, identity))}
 
 
 def _render_transfer_destination(
@@ -169,7 +185,11 @@ class CustomToolManager:
             return []
 
         try:
-            tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
+            tools = await db_client.get_runtime_tools(
+                tool_uuids, organization_id,
+                definition_id=self._agent.definition_id,
+                node_id=self._agent.current_node.id if self._agent.current_node else None,
+            )
 
             schemas: list[FunctionSchema] = []
             for tool in tools:
@@ -248,7 +268,11 @@ class CustomToolManager:
             return
 
         try:
-            tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
+            tools = await db_client.get_runtime_tools(
+                tool_uuids, organization_id,
+                definition_id=self._agent.definition_id,
+                node_id=self._agent.current_node.id if self._agent.current_node else None,
+            )
 
             for tool in tools:
                 if tool.category == ToolCategory.CALCULATOR.value:
@@ -277,7 +301,7 @@ class CustomToolManager:
                         self._agent.llm.register_function(
                             fs.name,
                             self._agent.bind_tool(
-                                self._engine, self._create_mcp_handler(session, fs.name)
+                                self._engine, self._create_mcp_handler(session, fs.name, tool)
                             ),
                             timeout_secs=session.call_timeout_secs,
                         )
@@ -389,7 +413,7 @@ class CustomToolManager:
 
         async def calculate_func(function_call_params: FunctionCallParams) -> None:
             logger.info("LLM Function Call EXECUTED: safe_calculator")
-            logger.info(f"Arguments: {function_call_params.arguments}")
+            logger.debug("Calculator arguments received")
             try:
                 expr = function_call_params.arguments.get("expression", "")
                 result = safe_calculator(expr)
@@ -418,8 +442,37 @@ class CustomToolManager:
             function_call_params: FunctionCallParams,
         ) -> None:
             logger.info(f"HTTP Tool EXECUTED: {function_name}")
-            logger.info(f"Arguments: {function_call_params.arguments}")
+            logger.info(
+                "HTTP tool argument keys: {}",
+                sorted((function_call_params.arguments or {}).keys()),
+            )
             action_node_id = self._agent.current_node.id if self._agent.current_node else None
+
+            revision_id = getattr(tool, "revision_id", None)
+            if isinstance(revision_id, int) and not await db_client.is_tool_revision_callable(
+                revision_id, await self.get_organization_id()
+            ):
+                await function_call_params.result_callback(
+                    {"status": "error", "error": "tool_revision_revoked"}
+                )
+                return
+
+            policy = getattr(tool, "policy", None) or {}
+            arguments = dict(function_call_params.arguments or {})
+            if policy.get("risk") in {"read", "write"}:
+                declared = {str(p.get("name")) for p in (tool.definition.get("config") or {}).get("parameters") or []}
+                if set(arguments) - declared:
+                    await function_call_params.result_callback(
+                        {"status": "error", "error": "tool_argument_not_declared"}
+                    )
+                    return
+                arguments = _write_arguments(self._engine, self._agent, tool, arguments, function_name)
+            verified = any(visit == self._agent.visit_id and accepted
+                           for (visit, _node), accepted in self._engine._verification_outcomes.items())
+            denied = live_policy_error(policy, self._engine._call_context_vars, verified)
+            if denied:
+                await function_call_params.result_callback({"status": "error", "error": denied})
+                return
 
             try:
                 # Queue custom message before executing the API call
@@ -456,13 +509,14 @@ class CustomToolManager:
 
                 result = await execute_http_tool(
                     tool=tool,
-                    arguments=function_call_params.arguments,
+                    arguments=arguments,
                     call_context_vars=self._engine._call_context_vars,
                     gathered_context_vars=self._engine._gathered_context,
                     organization_id=await self.get_organization_id(),
                 )
 
-                if function_name == "verify_identity" and action_node_id:
+                if (function_name == "verify_identity" and action_node_id
+                        and (not policy or policy.get("risk") == "platform")):
                     data = result.get("data") if isinstance(result.get("data"), dict) else {}
                     verified = (result.get("status") == "success"
                                 and data.get("ok") is True and data.get("verified") is True)
@@ -478,7 +532,8 @@ class CustomToolManager:
 
             except Exception as e:
                 logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
-                if function_name == "verify_identity" and action_node_id:
+                if (function_name == "verify_identity" and action_node_id
+                        and (not policy or policy.get("risk") == "platform")):
                     self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = False
                 if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
                     if action_node_id:
@@ -489,7 +544,7 @@ class CustomToolManager:
 
         return http_tool_handler
 
-    def _create_mcp_handler(self, session: "McpToolSession", function_name: str):
+    def _create_mcp_handler(self, session: "McpToolSession", function_name: str, tool: Any):
         """Create a handler that proxies an LLM function call to a live MCP
         session. Errors are returned to the LLM as structured text so the
         agent can recover verbally; the call is never crashed."""
@@ -498,12 +553,61 @@ class CustomToolManager:
             function_call_params: FunctionCallParams,
         ) -> None:
             logger.info(f"MCP Tool EXECUTED: {function_name}")
-            logger.info(f"Arguments: {function_call_params.arguments}")
+            logger.info(
+                "MCP tool argument keys: {}",
+                sorted((function_call_params.arguments or {}).keys()),
+            )
+            revision_id = getattr(tool, "revision_id", None)
+            if isinstance(revision_id, int) and not await db_client.is_tool_revision_callable(
+                revision_id, await self.get_organization_id()
+            ):
+                await function_call_params.result_callback(
+                    {"status": "error", "error": "tool_revision_revoked"}
+                )
+                return
+            policy = getattr(tool, "policy", None) or {}
+            arguments = dict(function_call_params.arguments or {})
+            if policy.get("risk") in {"read", "write"}:
+                raw_name = session.raw_name(function_name)
+                discovered = next((item for item in (tool.definition.get("config") or {}).get("discovered_tools") or []
+                                   if item.get("name") == raw_name), None)
+                if (raw_name not in policy.get("allowed_mcp_functions", {}) or discovered is None
+                        or set(arguments) - set(discovered.get("properties") or {})):
+                    await function_call_params.result_callback(
+                        {"status": "error", "error": "mcp_function_or_argument_not_approved"}
+                    )
+                    return
+                arguments = _write_arguments(self._engine, self._agent, tool, arguments, function_name)
+            verified = any(visit == self._agent.visit_id and accepted
+                           for (visit, _node), accepted in self._engine._verification_outcomes.items())
+            denied = live_policy_error(policy, self._engine._call_context_vars, verified)
+            if denied:
+                await function_call_params.result_callback({"status": "error", "error": denied})
+                return
             try:
                 result = await session.call(
-                    function_name, function_call_params.arguments or {}
+                    function_name, arguments
                 )
-                await function_call_params.result_callback(result)
+                if policy.get("risk") in {"read", "write"}:
+                    try:
+                        data = json.loads(result)
+                    except (TypeError, ValueError):
+                        data = None
+                    from jsonschema import Draft202012Validator
+                    if not Draft202012Validator(policy["result_schema"]).is_valid(data):
+                        await function_call_params.result_callback(
+                            {"status": "error", "error": "tool_result_schema_mismatch"}
+                        )
+                        return
+                    accepted = (isinstance(data, dict)
+                                and get_nested_value(data, policy["success_path"])
+                                == policy.get("success_value", True))
+                    await function_call_params.result_callback(
+                        {"status": "success" if accepted else "error", "data": data if accepted else None,
+                         "error": None if accepted else "mcp_business_failure"}
+                    )
+                else:
+                    await function_call_params.result_callback(result)
             except Exception as e:
                 logger.error(f"MCP tool '{function_name}' failed: {e}")
                 await function_call_params.result_callback(

@@ -36,7 +36,7 @@ export default function RecordingsPage() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Recordings</h1>
+                <h1 className="text-3xl font-bold mb-2">Audio Library</h1>
                 <p className="text-muted-foreground">
                     Manage audio recordings for your organization. Use{" "}
                     <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
@@ -51,9 +51,9 @@ export default function RecordingsPage() {
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <div>
-                            <CardTitle>All Recordings</CardTitle>
+                            <CardTitle>Uploaded prompt audio</CardTitle>
                             <CardDescription>
-                                Audio recordings shared across all agents in your organization
+                                Reusable prompt audio shared across agents. Call recordings are on the Call recordings page.
                             </CardDescription>
                         </div>
                         <Button onClick={() => setIsUploadOpen(true)}>

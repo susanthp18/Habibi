@@ -638,6 +638,11 @@ async def execute_text_chat_pending_turn(
         # leaving a node so teardown cannot discard the result before checkpointing.
         run_transition_variable_extraction_in_background=False,
     )
+    # Same pinned definition the voice path binds: without it a released
+    # agent's tools resolve to nothing.
+    engine.active_agent.workflow_id = workflow_id
+    engine.active_agent.definition_id = run_definition.id
+    engine.active_agent.workflow_name = workflow.name
     engine._gathered_context = dict(base_checkpoint["gathered_context"])
     capture_processor = _TextChatCaptureProcessor(response_window, context, engine)
     node_transition_events = capture_processor.events

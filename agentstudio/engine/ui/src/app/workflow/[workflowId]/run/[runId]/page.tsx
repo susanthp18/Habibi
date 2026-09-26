@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
+import RunProvenance from '@/host/RunProvenance';
 import {
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
     getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
@@ -37,6 +38,7 @@ import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { formatDateTime } from '@/lib/dateTime';
+import { detailFromError } from '@/lib/apiError';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 import { cn } from '@/lib/utils';
 
@@ -56,6 +58,8 @@ interface WorkflowRunResponse {
     gathered_context: Record<string, string | number | boolean | object> | null;
     logs: WorkflowRunLogs | null;
     annotations: Record<string, unknown> | null;
+    definition_id: number | null;
+    call_type: string | null;
 }
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
@@ -613,26 +617,31 @@ export default function WorkflowRunPage() {
     const params = useParams();
     const [isLoading, setIsLoading] = useState(true);
     const auth = useAuth();
+    const { isAuthenticated, loading: authLoading, redirectToLogin } = auth;
     const organizationTimezone = useOrganizationTimezone();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
     const [workflowName, setWorkflowName] = useState<string | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const customizeButtonRef = useRef<HTMLButtonElement>(null);
 
     // Redirect if not authenticated
     useEffect(() => {
-        if (!auth.loading && !auth.isAuthenticated) {
-            auth.redirectToLogin();
+        if (!authLoading && !isAuthenticated) {
+            redirectToLogin();
         }
-    }, [auth]);
+    }, [authLoading, isAuthenticated, redirectToLogin]);
 
     const { openPreview, dialog } = MediaPreviewDialog();
 
     useEffect(() => {
+        let active = true;
         const fetchWorkflowRun = async () => {
-            if (!auth.isAuthenticated || auth.loading) return;
+            if (!isAuthenticated || authLoading) return;
 
             setIsLoading(true);
             setWorkflowName(null);
+            setWorkflowRun(null);
+            setLoadError(null);
             const workflowId = Number(params.workflowId);
             const runId = Number(params.runId);
 
@@ -651,6 +660,14 @@ export default function WorkflowRunPage() {
                     }),
                 ]);
 
+                if (runResponse.error || !runResponse.data) {
+                    throw new Error(detailFromError(runResponse.error, 'Could not load this run'));
+                }
+                if (workflowResponse.error || !workflowResponse.data) {
+                    throw new Error(detailFromError(workflowResponse.error, 'Could not load the agent'));
+                }
+                if (!active) return;
+
                 setWorkflowName(workflowResponse.data?.name ?? null);
                 const runData = {
                     mode: runResponse.data?.mode ?? '',
@@ -665,6 +682,8 @@ export default function WorkflowRunPage() {
                     gathered_context: runResponse.data?.gathered_context as Record<string, string> | null ?? null,
                     logs: runResponse.data?.logs as WorkflowRunLogs | null ?? null,
                     annotations: runResponse.data?.annotations as Record<string, unknown> | null ?? null,
+                    definition_id: runResponse.data?.definition_id ?? null,
+                    call_type: runResponse.data?.call_type ?? null,
                 };
                 setWorkflowRun(runData);
                 posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
@@ -676,12 +695,15 @@ export default function WorkflowRunPage() {
                     has_split_recordings: !!runData.user_recording_url && !!runData.bot_recording_url,
                     has_transcript: !!runData.transcript_url,
                 });
+            } catch (cause) {
+                if (active) setLoadError(cause instanceof Error ? cause.message : 'Could not load this run');
             } finally {
-                setIsLoading(false);
+                if (active) setIsLoading(false);
             }
         };
         fetchWorkflowRun();
-    }, [params.workflowId, params.runId, auth]);
+        return () => { active = false; };
+    }, [params.workflowId, params.runId, isAuthenticated, authLoading]);
 
     let returnValue = null;
     const isTextChatRun = workflowRun?.mode === WORKFLOW_RUN_MODES.TEXTCHAT;
@@ -713,6 +735,9 @@ export default function WorkflowRunPage() {
                 </div>
             </div>
         );
+    }
+    else if (loadError) {
+        returnValue = <div role="alert" className="p-6 text-sm text-destructive">{loadError}</div>;
     }
     else if (showRunDetailsView) {
         returnValue = (
@@ -841,6 +866,11 @@ export default function WorkflowRunPage() {
                             </div>
                         </CardContent>
                     </Card>
+
+                        <RunProvenance workflowId={Number(params.workflowId)}
+                            definitionId={workflowRun?.definition_id ?? null}
+                            direction={workflowRun?.call_type ?? null}
+                            logs={workflowRun?.logs ?? null} />
 
                         <RunMetricsSection
                             costInfo={workflowRun?.cost_info ?? null}

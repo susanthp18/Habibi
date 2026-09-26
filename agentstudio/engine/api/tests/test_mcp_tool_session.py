@@ -1,9 +1,10 @@
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
+from api.services.tool_revisions import mcp_schema_digest
 from api.services.workflow.mcp_tool_session import (
     McpToolSession,
     build_streamable_http_params,
@@ -176,6 +177,23 @@ async def test_call_on_unavailable_session_raises():
 
 
 @pytest.mark.asyncio
+async def test_server_reported_error_cannot_be_treated_as_success():
+    session = McpToolSession(
+        tool_uuid="uuid-error", tool_name="Acme MCP",
+        url="https://example.com/mcp", credential=None, tools_filter=["write"],
+        timeout_secs=5, sse_read_timeout_secs=5,
+    )
+    session.available = True
+    session._name_map = {"mcp__acme_mcp__write": "write"}
+    session._session = MagicMock()
+    session._session.call_tool = AsyncMock(return_value=MagicMock(
+        isError=True, content=[MagicMock(text='{"ok": true}')],
+    ))
+    with pytest.raises(RuntimeError, match="mcp_tool_reported_error"):
+        await session.call("mcp__acme_mcp__write", {})
+
+
+@pytest.mark.asyncio
 async def test_call_unknown_function_raises():
     async with running_mcp_server() as base_url:
         session = McpToolSession(
@@ -239,7 +257,12 @@ async def test_discover_mcp_tools_success():
     assert names == ["add", "echo"]
     by_name = {t["name"]: t for t in tools}
     assert by_name["echo"]["description"]  # non-empty description
-    assert set(by_name["echo"]) == {"name", "description"}
+    assert set(by_name["echo"]) == {"name", "description", "properties", "required", "input_schema", "output_schema", "schema_digest"}
+    assert by_name["echo"]["schema_digest"] == mcp_schema_digest(
+        "echo", by_name["echo"]["properties"], by_name["echo"]["required"],
+        full_schema={"inputSchema": by_name["echo"]["input_schema"],
+                     "outputSchema": by_name["echo"]["output_schema"]},
+    )
 
 
 @pytest.mark.asyncio

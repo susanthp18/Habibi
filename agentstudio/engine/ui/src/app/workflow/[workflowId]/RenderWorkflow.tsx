@@ -359,6 +359,30 @@ function RenderWorkflow({
         fetchVersions(true);
     }, [fetchVersions]);
 
+    // AgentStudio: a rollback publishes an earlier version as the newest one;
+    // show it on the canvas (the draft it replaced is gone).
+    const handleRolledBack = useCallback(async () => {
+        await fetchVersions(true);
+        const response = await getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet({
+            path: { workflow_id: workflowId },
+            query: { limit: 1, offset: 0 },
+        });
+        const live = response.data?.[0];
+        if (response.error || !live) {
+            toast.error(detailFromError(response.error, "Rolled back; reload to see the live version"));
+            return;
+        }
+        setCurrentVersionNumber(live.version_number);
+        setCurrentVersionStatus(live.status);
+        handleSelectVersion(live);
+    }, [fetchVersions, workflowId, handleSelectVersion]);
+
+    // AgentStudio: the publish dialog's "Compare with live" diffs the draft against its predecessor.
+    const handleCompareDraft = useCallback(() => {
+        const draft = versions.find((v) => v.status === "draft");
+        if (draft) void handleCompareVersion(draft);
+    }, [versions, handleCompareVersion]);
+
     // Compute version label for the header.
     // Uses currentVersionNumber/Status which update immediately from save responses,
     // falling back to the versions list for history navigation.
@@ -590,6 +614,7 @@ function RenderWorkflow({
                     onBackToDraft={handleBackToDraft}
                     hasDraft={hasDraft}
                     onPublished={handlePublished}
+                    onCompareDraft={handleCompareDraft}
                     renameWorkflow={renameWorkflow}
                 />
 
@@ -797,6 +822,8 @@ function RenderWorkflow({
                     hasMore={versionsHasMore}
                     loadingMore={versionsLoadingMore}
                     onLoadMore={handleLoadMoreVersions}
+                    workflowId={workflowId}
+                    onRolledBack={handleRolledBack}
                 />
 
                 {versionDiffPair && (

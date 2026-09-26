@@ -7,7 +7,12 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunModel
+from api.db.models import (
+    ToolModel, ToolRevisionModel, WorkflowDefinitionModel, WorkflowModel,
+    WorkflowRunModel, WorkflowToolBindingModel,
+)
+from api.enums import ToolStatus
+from api.services.tool_revisions import snapshot_digest
 
 
 class WorkflowClient(BaseDBClient):
@@ -20,6 +25,42 @@ class WorkflowClient(BaseDBClient):
         )
         current_max = result.scalar()
         return (current_max or 0) + 1
+
+    async def _pin_tool_bindings(
+        self, session, definition, organization_id: int,
+    ) -> list["WorkflowToolBindingModel"]:
+        """The reviewed tool revision each node of a released definition may call.
+
+        Every path that releases a definition goes through here — `publish_draft`
+        and `create_workflow`, which publishes its v1 outright. A released
+        definition with no binding is not an agent with no tools; it is an agent
+        whose tools silently resolve to nothing at runtime.
+        """
+        bindings: list[WorkflowToolBindingModel] = []
+        for node in (definition.workflow_json or {}).get("nodes") or []:
+            node_id = str(node.get("id") or "")
+            for tool_uuid in dict.fromkeys((node.get("data") or {}).get("tool_uuids") or []):
+                tool = await session.scalar(select(ToolModel).where(
+                    ToolModel.tool_uuid == tool_uuid,
+                    ToolModel.organization_id == organization_id,
+                    ToolModel.status == ToolStatus.ACTIVE.value,
+                ).with_for_update())
+                if tool is None:
+                    raise ValueError(f"{node_id}: tool {tool_uuid} is not active in this organization")
+                revision = await session.scalar(select(ToolRevisionModel).where(
+                    ToolRevisionModel.tool_id == tool.id,
+                    ToolRevisionModel.organization_id == organization_id,
+                ).order_by(ToolRevisionModel.revision.desc()).limit(1).with_for_update())
+                if revision is None or revision.state != "approved":
+                    raise ValueError(f"{node_id}: tool {tool_uuid} latest revision is not approved")
+                if snapshot_digest(revision.snapshot) != revision.digest:
+                    raise ValueError(f"{node_id}: tool {tool_uuid} revision digest mismatch")
+                bindings.append(WorkflowToolBindingModel(
+                    workflow_definition_id=definition.id, node_id=node_id,
+                    tool_uuid=tool_uuid, tool_revision_id=revision.id,
+                    digest=revision.digest, organization_id=organization_id,
+                ))
+        return bindings
 
     async def create_workflow(
         self,
@@ -53,6 +94,12 @@ class WorkflowClient(BaseDBClient):
                 )
                 session.add(definition)
                 await session.flush()
+
+                # v1 is published straight away, so it is a release: it binds
+                # its reviewed tool revisions exactly as `publish_draft` does.
+                session.add_all(await self._pin_tool_bindings(
+                    session, definition, organization_id,
+                ))
 
                 # Set the released pointer
                 new_workflow.released_definition_id = definition.id
@@ -157,6 +204,10 @@ class WorkflowClient(BaseDBClient):
         - Sets is_current for backward compatibility
         """
         async with self.async_session() as session:
+            workflow = await session.scalar(select(WorkflowModel).where(
+                WorkflowModel.id == workflow_id).with_for_update())
+            if workflow is None or workflow.organization_id is None:
+                raise ValueError("Workflow or organization not found")
             # Find the draft
             result = await session.execute(
                 select(WorkflowDefinitionModel).where(
@@ -167,6 +218,13 @@ class WorkflowClient(BaseDBClient):
             draft = result.scalars().first()
             if not draft:
                 raise ValueError(f"No draft exists for workflow {workflow_id}")
+
+            # Resolve and pin reviewed tool revisions under the same database
+            # transaction as publication. A preflight is useful UX; this is
+            # the authoritative gate against edits racing with publish.
+            session.add_all(await self._pin_tool_bindings(
+                session, draft, workflow.organization_id,
+            ))
 
             # Archive the current published version
             await session.execute(
@@ -184,10 +242,6 @@ class WorkflowClient(BaseDBClient):
             draft.is_current = True
 
             # Update workflow's released pointer + legacy fields
-            wf_result = await session.execute(
-                select(WorkflowModel).where(WorkflowModel.id == workflow_id)
-            )
-            workflow = wf_result.scalars().first()
             workflow.released_definition_id = draft.id
             workflow.workflow_definition = draft.workflow_json
             workflow.workflow_configurations = draft.workflow_configurations
@@ -329,6 +383,19 @@ class WorkflowClient(BaseDBClient):
                 )
             )
             return result.scalar_one_or_none() or {}
+
+    async def get_workflow_version(
+        self, workflow_id: int, version_id: int
+    ) -> WorkflowDefinitionModel | None:
+        """One version of a workflow (caller has already scoped the workflow)."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.id == version_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                )
+            )
+            return result.scalars().first()
 
     async def get_workflow_versions(
         self,

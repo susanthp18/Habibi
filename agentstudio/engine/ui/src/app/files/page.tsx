@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/auth";
 
 import DocumentList from "./DocumentList";
 import DocumentUpload from "./DocumentUpload";
+import TestRetrieval from "./TestRetrieval";
 
 export default function FilesPage() {
     const { user, redirectToLogin, loading } = useAuth();
@@ -75,6 +76,19 @@ export default function FilesPage() {
                 </CardHeader>
                 <CardContent>
                     <DocumentList refreshTrigger={refreshKey} />
+                </CardContent>
+            </Card>
+
+            {/* AgentStudio: check what agents will retrieve before customers ask. */}
+            <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Test retrieval</CardTitle>
+                    <CardDescription>
+                        Ask a question the way a customer would and see the passages an agent receives.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <TestRetrieval />
                 </CardContent>
             </Card>
 

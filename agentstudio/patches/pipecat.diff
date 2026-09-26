@@ -1,0 +1,57 @@
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-26 21:07:59.970999600 +0530
++++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
+@@ -39,7 +39,7 @@
+ 
+ 
+ @asynccontextmanager
+-async def _streamable_http_transport(params: StreamableHttpParameters):
++async def _streamable_http_transport(params: StreamableHttpParameters, *, http_transport=None):
+     """Open a streamable-HTTP transport, owning the HTTP client it runs on.
+ 
+     The transport takes its HTTP settings as a prepared client and leaves that
+@@ -56,13 +56,17 @@
+     # own module rather than importing a family directly.
+     transport_module = sys.modules[streamable_http_client.__module__]
+     http = getattr(transport_module, "httpx2", None) or transport_module.httpx
++    if http_transport is not None and http.__name__ != "httpx":
++        raise RuntimeError("Secure MCP transport is unavailable for this HTTP client version")
+     async with http.AsyncClient(
+         headers=params.headers,
+         timeout=http.Timeout(
+             _timeout_seconds(params.timeout), read=_timeout_seconds(params.sse_read_timeout)
+         ),
+         # Matches the client the SDK builds when given none.
+-        follow_redirects=True,
++        follow_redirects=http_transport is None,
++        transport=http_transport,
++        trust_env=False,
+     ) as client:
+         async with streamable_http_client(
+             params.url, http_client=client, terminate_on_close=params.terminate_on_close
+@@ -163,6 +167,7 @@
+         tools_filter: list[str] | None = None,
+         tools_output_filters: dict[str, Callable[[Any], Any]] | None = None,
+         tools_arguments: dict[str, dict[str, Any]] | None = None,
++        http_transport=None,
+         **kwargs,
+     ):
+         """Initialize the MCP client with server parameters.
+@@ -183,6 +188,7 @@
+         self._tools_filter = tools_filter
+         self._tools_output_filters = tools_output_filters or {}
+         self._tools_arguments = tools_arguments or {}
++        self._http_transport = http_transport
+         self._exit_stack: AsyncExitStack | None = None
+         self._active_session: ClientSession | None = None
+         # One wrapper shared by every tool this client advertises, carrying the
+@@ -262,7 +268,8 @@
+                 # Indexed rather than unpacked: the transport yields three
+                 # stream elements on the SDK's 1.x line and two on 2.x.
+                 streams = await exit_stack.enter_async_context(
+-                    _streamable_http_transport(self._server_params)
++                    _streamable_http_transport(self._server_params,
++                                               http_transport=self._http_transport)
+                 )
+                 read_stream, write_stream = streams[0], streams[1]
+ 

@@ -1880,21 +1880,33 @@ class PipecatEngine:
 
         agent = agent or self.active_agent
         try:
-            tool_uuids: set[str] = set()
-            for node in agent.workflow.nodes.values():
-                for tu in getattr(node, "tool_uuids", None) or []:
-                    tool_uuids.add(tu)
-            if not tool_uuids:
-                return
-
             organization_id = await self._get_organization_id()
             if not organization_id:
                 logger.warning("Cannot open MCP sessions: organization_id missing")
                 return
 
-            tools = await db_client.get_tools_by_uuids(
-                list(tool_uuids), organization_id
-            )
+            tools_by_uuid = {}
+            conflicted_uuids = set()
+            for node in agent.workflow.nodes.values():
+                tool_uuids = list(getattr(node, "tool_uuids", None) or [])
+                if not tool_uuids:
+                    continue
+                for tool in await db_client.get_runtime_tools(
+                    tool_uuids, organization_id,
+                    definition_id=agent.definition_id, node_id=node.id,
+                ):
+                    if tool.tool_uuid in conflicted_uuids:
+                        continue
+                    if tool.tool_uuid in tools_by_uuid and (
+                        getattr(tools_by_uuid[tool.tool_uuid], "revision_id", None)
+                        != getattr(tool, "revision_id", None)
+                    ):
+                        logger.warning("MCP tool has conflicting revisions across nodes: %s", tool.tool_uuid)
+                        tools_by_uuid.pop(tool.tool_uuid, None)
+                        conflicted_uuids.add(tool.tool_uuid)
+                        continue
+                    tools_by_uuid[tool.tool_uuid] = tool
+            tools = list(tools_by_uuid.values())
             for tool in tools:
                 if tool.category != ToolCategory.MCP.value:
                     continue
@@ -1918,13 +1930,24 @@ class PipecatEngine:
                             f"MCP tool '{tool.name}': credential fetch failed: {e}"
                         )
                         continue
+                    if credential is None:
+                        logger.warning(
+                            "MCP tool '{}' ({}): configured credential unavailable",
+                            tool.name, tool.tool_uuid,
+                        )
+                        continue
 
                 session = McpToolSession(
                     tool_uuid=tool.tool_uuid,
                     tool_name=tool.name,
                     url=cfg["url"],
                     credential=credential,
-                    tools_filter=cfg["tools_filter"],
+                    tools_filter=(list(tool.policy["allowed_mcp_functions"])
+                                  if (getattr(tool, "policy", None) or {}).get("allowed_mcp_functions")
+                                  else cfg["tools_filter"]),
+                    expected_schema_digests=(tool.policy["allowed_mcp_functions"]
+                                             if (getattr(tool, "policy", None) or {}).get("allowed_mcp_functions")
+                                             else None),
                     timeout_secs=cfg["timeout_secs"],
                     sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
                 )

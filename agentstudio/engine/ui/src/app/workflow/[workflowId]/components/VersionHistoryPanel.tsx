@@ -6,6 +6,7 @@ import { useEffect } from "react";
 
 import type { WorkflowVersionResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
+import VersionRelease from "@/host/VersionRelease";
 
 interface VersionHistoryPanelProps {
     isOpen: boolean;
@@ -19,6 +20,9 @@ interface VersionHistoryPanelProps {
     hasMore: boolean;
     loadingMore: boolean;
     onLoadMore: () => void;
+    // AgentStudio: release notes and rollback per version.
+    workflowId: number;
+    onRolledBack: () => void;
 }
 
 const statusLabel: Record<string, string> = {
@@ -45,6 +49,8 @@ export const VersionHistoryPanel = ({
     hasMore,
     loadingMore,
     onLoadMore,
+    workflowId,
+    onRolledBack,
 }: VersionHistoryPanelProps) => {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -99,12 +105,13 @@ export const VersionHistoryPanel = ({
                             return (
                                 <div
                                     key={version.id}
-                                    className={`flex w-full overflow-hidden rounded-lg border transition-colors ${
+                                    className={`w-full overflow-hidden rounded-lg border transition-colors ${
                                         isActive
                                             ? "border-teal-500/50 bg-teal-500/10"
                                             : "border-[#2a2a2a] bg-[#222]"
                                     }`}
                                 >
+                                    <div className="flex w-full">
                                     <button
                                         type="button"
                                         onClick={() => onSelectVersion(version)}
@@ -151,6 +158,12 @@ export const VersionHistoryPanel = ({
                                             )}
                                         </Button>
                                     )}
+                                    </div>
+                                    <VersionRelease
+                                        workflowId={workflowId}
+                                        version={version}
+                                        onRolledBack={onRolledBack}
+                                    />
                                 </div>
                             );
                         })}

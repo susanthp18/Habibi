@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, Eye, EyeOff, Key, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -26,6 +26,7 @@ import { useOrganizationTimezone } from '@/hooks/useOrganizationTimezone';
 import { useAuth } from '@/lib/auth';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { formatDateTime } from '@/lib/dateTime';
+import { detailFromError } from '@/lib/apiError';
 import logger from '@/lib/logger';
 import { WHITELABEL } from '@/lib/whitelabel';
 
@@ -46,6 +47,10 @@ export default function APIKeysPage() {
     const [serviceKeys, setServiceKeys] = useState<ServiceKeyResponse[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isServiceKeysLoading, setIsServiceKeysLoading] = useState(true);
+    const [apiLoaded, setApiLoaded] = useState(false);
+    const [serviceLoaded, setServiceLoaded] = useState(false);
+    const apiSequence = useRef(0);
+    const serviceSequence = useRef(0);
     const [showArchived, setShowArchived] = useState(false);
     const [showServiceArchived, setShowServiceArchived] = useState(false);
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -77,6 +82,7 @@ export default function APIKeysPage() {
             logger.debug('[APIKeysPage] fetchApiKeys - skipping due to loading or no user');
             return;
         }
+        const requestId = ++apiSequence.current;
 
         try {
             setIsLoading(true);
@@ -96,14 +102,18 @@ export default function APIKeysPage() {
                 }
             });
 
-            if (response.data) {
+            if (response.error || !response.data) {
+                throw new Error(detailFromError(response.error, 'Failed to fetch API keys'));
+            }
+            if (requestId === apiSequence.current) {
                 setApiKeys(response.data);
+                setApiLoaded(true);
             }
         } catch (err) {
-            setError('Failed to fetch API keys');
+            if (requestId === apiSequence.current) setError(err instanceof Error ? err.message : 'Failed to fetch API keys');
             console.error('Error fetching API keys:', err);
         } finally {
-            setIsLoading(false);
+            if (requestId === apiSequence.current) setIsLoading(false);
         }
     }, [loading, user, getAccessToken, showArchived]);
 
@@ -119,6 +129,7 @@ export default function APIKeysPage() {
             logger.debug('[APIKeysPage] fetchServiceKeys - skipping due to loading or no user');
             return;
         }
+        const requestId = ++serviceSequence.current;
 
         try {
             setIsServiceKeysLoading(true);
@@ -136,26 +147,32 @@ export default function APIKeysPage() {
                 }
             });
 
-            if (response.data) {
+            if (response.error || !response.data) {
+                throw new Error(detailFromError(response.error, 'Failed to fetch service keys'));
+            }
+            if (requestId === serviceSequence.current) {
                 setServiceKeys(response.data);
+                setServiceLoaded(true);
             }
         } catch (err) {
-            setError('Failed to fetch service keys');
+            if (requestId === serviceSequence.current) setError(err instanceof Error ? err.message : 'Failed to fetch service keys');
             console.error('Error fetching service keys:', err);
         } finally {
-            setIsServiceKeysLoading(false);
+            if (requestId === serviceSequence.current) setIsServiceKeysLoading(false);
         }
     }, [loading, user, getAccessToken, showServiceArchived]);
 
     useEffect(() => {
         logger.debug('[APIKeysPage] useEffect for fetchApiKeys triggered');
         fetchApiKeys();
+        return () => { apiSequence.current += 1; };
     }, [fetchApiKeys]);
 
     useEffect(() => {
         if (WHITELABEL) return;
         logger.debug('[APIKeysPage] useEffect for fetchServiceKeys triggered');
         fetchServiceKeys();
+        return () => { serviceSequence.current += 1; };
     }, [fetchServiceKeys]);
 
     const handleCreateKey = async () => {
@@ -365,7 +382,7 @@ export default function APIKeysPage() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            {isLoading ? (
+                            {isLoading && !apiLoaded ? (
                                 <div className="space-y-4">
                                     {[1, 2, 3].map((i) => (
                                         <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
@@ -482,7 +499,7 @@ export default function APIKeysPage() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            {isServiceKeysLoading ? (
+                            {isServiceKeysLoading && !serviceLoaded ? (
                                 <div className="space-y-4">
                                     {[1, 2].map((i) => (
                                         <div key={i} className="flex items-center justify-between p-4 border rounded-lg">

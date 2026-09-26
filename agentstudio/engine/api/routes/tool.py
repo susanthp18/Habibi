@@ -35,7 +35,7 @@ from api.services.tool_management import (
     build_tool_response,
     create_tool_for_user,
     refresh_mcp_tool_for_user,
-    validate_tool_references,
+    update_tool_for_user,
 )
 from api.services.tool_management import (
     populate_discovered_tools as _populate_discovered_tools,
@@ -225,6 +225,12 @@ async def test_tool(
     if tool.category != ToolCategory.HTTP_API.value:
         raise HTTPException(status_code=400, detail="Only HTTP API tools can be tested")
 
+    from api.services.tool_revisions import validate_external_destination
+    try:
+        validate_external_destination(str((tool.definition or {}).get("config", {}).get("url") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Tool test destination: {exc}") from exc
+
     tool_config = (
         tool.definition.get("config", {}) if isinstance(tool.definition, dict) else {}
     )
@@ -238,6 +244,7 @@ async def test_tool(
         preset_params=request.preset_params,
         organization_id=user.selected_organization_id,
         include_request_headers=True,
+        secure_destination=True,
     )
     duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
 
@@ -359,44 +366,107 @@ async def update_tool(
     Returns:
         The updated tool
     """
+    try:
+        return await update_tool_for_user(tool_uuid, request, user)
+    except ToolManagementError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/{tool_uuid}/revisions")
+async def list_tool_revisions(tool_uuid: str, user: UserModel = Depends(get_user)) -> list[dict]:
     if not user.selected_organization_id:
-        raise HTTPException(
-            status_code=400, detail="No organization selected for the user"
+        raise HTTPException(status_code=400, detail="No organization selected")
+    rows = await db_client.get_tool_revisions(tool_uuid, user.selected_organization_id)
+    usage = await db_client.get_tool_revision_usage(tool_uuid, user.selected_organization_id)
+    return [{"revision": r.revision, "digest": r.digest, "state": r.state,
+             "snapshot": r.snapshot, "policy": r.policy, "authoredBy": r.authored_by,
+             "reviewedBy": r.reviewed_by, "createdAt": r.created_at.isoformat(),
+             "publishedUsage": usage.get(r.revision, 0)}
+            for r in rows]
+
+
+@router.post("/{tool_uuid}/revisions/{revision}/submit")
+async def submit_tool_revision(tool_uuid: str, revision: int, request: dict,
+                               user: UserModel = Depends(get_user)) -> dict:
+    from api.services.tool_revisions import LiveToolPolicy, validate_live_snapshot
+
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    rows = await db_client.get_tool_revisions(tool_uuid, user.selected_organization_id)
+    row = next((r for r in rows if r.revision == revision), None)
+    if row is None or row != rows[0]:
+        raise HTTPException(status_code=404, detail="Latest tool revision not found")
+    try:
+        policy = LiveToolPolicy.model_validate(request)
+        validate_live_snapshot(row.snapshot, policy)
+        reviewed = await db_client.review_tool_revision(
+            tool_uuid, revision, user.selected_organization_id,
+            actor_id=user.id, state="submitted", policy=policy.model_dump(),
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"toolUuid": tool_uuid, "revision": revision, "state": reviewed.state,
+            "digest": reviewed.digest}
 
-    if request.status:
-        validate_status(request.status)
 
-    definition = None
-    if request.definition:
-        definition = request.definition.model_dump()
+@router.post("/{tool_uuid}/revisions/{revision}/review")
+async def review_tool_revision(tool_uuid: str, revision: int, request: dict,
+                               user: UserModel = Depends(get_user)) -> dict:
+    """Internal-only; the PayInt review endpoint owns human authorization."""
+    from api.constants import AUTH_PROVIDER
+
+    if AUTH_PROVIDER != "internal":
+        raise HTTPException(status_code=404, detail="Not found")
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    state = request.get("decision")
+    if state not in {"approved", "rejected", "revoked"}:
+        raise HTTPException(status_code=400, detail="Invalid review decision")
+    if state == "approved":
+        from api.services.tool_revisions import (
+            LiveToolPolicy, snapshot_digest, validate_live_snapshot,
+        )
+        from api.services.workflow.mcp_tool_session import discover_mcp_tools
+        from api.services.workflow.tools.mcp_tool import validate_mcp_definition
+        from api.services.tool_management import fetch_credential, validate_tool_references
+
+        rows = await db_client.get_tool_revisions(tool_uuid, user.selected_organization_id)
+        row = next((entry for entry in rows if entry.revision == revision), None)
+        if row is None or row != rows[0] or row.state != "submitted":
+            raise HTTPException(status_code=409, detail="Review the latest submitted revision")
         try:
-            await validate_tool_references(
-                definition,
-                organization_id=user.selected_organization_id,
-            )
-            definition = await _populate_discovered_tools(
-                definition,
-                organization_id=user.selected_organization_id,
-            )
-        except ToolManagementError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.message) from e
-
-    tool = await db_client.update_tool(
-        tool_uuid=tool_uuid,
-        organization_id=user.selected_organization_id,
-        name=request.name,
-        description=request.description,
-        definition=definition,
-        icon=request.icon,
-        icon_color=request.icon_color,
-        status=request.status,
-    )
-
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-
-    return build_tool_response(tool, include_created_by=True)
+            if snapshot_digest(row.snapshot) != row.digest:
+                raise ValueError("Tool revision digest mismatch")
+            policy = LiveToolPolicy.model_validate(row.policy)
+            validate_live_snapshot(row.snapshot, policy)
+            definition = row.snapshot.get("definition") or {}
+            await validate_tool_references(definition, organization_id=user.selected_organization_id)
+            if row.snapshot.get("category") == ToolCategory.MCP.value:
+                config = validate_mcp_definition(definition)
+                credential = await fetch_credential(config.get("credential_uuid"), user.selected_organization_id)
+                current = await discover_mcp_tools(
+                    url=config["url"], credential=credential,
+                    timeout_secs=config["timeout_secs"],
+                    sse_read_timeout_secs=config["sse_read_timeout_secs"],
+                    secure_destination=True,
+                )
+                discovered = {item["name"]: item["schema_digest"] for item in current}
+                if not current or any(discovered.get(name) != digest
+                                      for name, digest in policy.allowed_mcp_functions.items()):
+                    raise ValueError("MCP function schema changed since submission")
+        except (ValueError, ToolManagementError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        row = await db_client.review_tool_revision(
+            tool_uuid, revision, user.selected_organization_id,
+            actor_id=user.id, state=state,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tool revision not found")
+    return {"toolUuid": tool_uuid, "revision": revision, "state": row.state,
+            "digest": row.digest}
 
 
 @router.delete("/{tool_uuid}")

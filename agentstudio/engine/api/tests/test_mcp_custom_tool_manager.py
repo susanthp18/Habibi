@@ -16,6 +16,8 @@ def _mcp_tool():
     t.name = "Acme MCP"
     t.category = ToolCategory.MCP.value
     t.definition = {"type": "mcp", "config": {"url": "https://x/mcp"}}
+    t.policy = {}
+    t.revision_id = None
     return t
 
 
@@ -52,7 +54,7 @@ async def test_get_tool_schemas_and_handler_for_mcp(monkeypatch):
         from api.db import db_client
 
         monkeypatch.setattr(
-            db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool])
+            db_client, "get_runtime_tools", AsyncMock(return_value=[tool])
         )
 
         try:
@@ -103,7 +105,7 @@ async def test_unavailable_mcp_session_contributes_nothing(monkeypatch):
 
     from api.db import db_client
 
-    monkeypatch.setattr(db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool]))
+    monkeypatch.setattr(db_client, "get_runtime_tools", AsyncMock(return_value=[tool]))
 
     schemas = await mgr.get_tool_schemas([tool.tool_uuid])
     assert schemas == []
@@ -152,7 +154,7 @@ async def test_per_node_mcp_filter_intersection(monkeypatch):
         from api.db import db_client
 
         monkeypatch.setattr(
-            db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool])
+            db_client, "get_runtime_tools", AsyncMock(return_value=[tool])
         )
         try:
             # Allow only raw "echo" for this node

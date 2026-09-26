@@ -492,7 +492,7 @@ async def create_workflow(
         except TriggerPathConflictError as e:
             raise _trigger_conflict_http_exception(workflow_definition, e.trigger_paths)
 
-    workflow = await db_client.create_workflow(
+    workflow = await _create_workflow_or_409(
         request.name,
         workflow_definition,
         user.id,
@@ -580,7 +580,7 @@ async def create_workflow_from_template(
             except TriggerPathConflictError as e:
                 raise HTTPException(status_code=409, detail=str(e))
 
-        workflow = await db_client.create_workflow(
+        workflow = await _create_workflow_or_409(
             name=workflow_data.get("name", f"{request.use_case} - {request.call_type}"),
             workflow_definition=workflow_def,
             user_id=user.id,
@@ -837,6 +837,26 @@ async def get_workflow_versions(
     ]
 
 
+@router.get("/{workflow_id}/versions/{version_id}/tool-manifest")
+async def get_workflow_tool_manifest(
+    workflow_id: int, version_id: int, user: UserModel = Depends(get_user),
+) -> list[dict]:
+    """Return the exact tool revisions pinned to a released definition."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id,
+    )
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    version = await db_client.get_workflow_version(workflow_id, version_id)
+    if version is None or version.status not in {"published", "archived"}:
+        raise HTTPException(status_code=404, detail="Released version not found")
+    return await db_client.get_workflow_tool_manifest(
+        workflow_id, version_id, user.selected_organization_id,
+    )
+
+
 @router.post("/{workflow_id}/publish")
 async def publish_workflow(
     workflow_id: int,
@@ -909,6 +929,60 @@ async def create_workflow_draft(
         )
 
     draft = await db_client.save_workflow_draft(workflow_id)
+    return WorkflowVersionResponse(
+        id=draft.id,
+        version_number=draft.version_number,
+        status=draft.status,
+        created_at=draft.created_at,
+        published_at=draft.published_at,
+        workflow_json=mask_workflow_definition(draft.workflow_json),
+        workflow_configurations=mask_workflow_configurations(
+            draft.workflow_configurations
+        ),
+        template_context_variables=draft.template_context_variables,
+    )
+
+
+async def _create_workflow_or_409(*args, **kwargs):
+    """Create a workflow whose v1 is published, reporting an unreviewed tool.
+
+    `create_workflow` pins each node's approved tool revision, exactly as
+    publishing a draft does. A tool nobody has approved is the caller's
+    problem to fix, not a server fault.
+    """
+    try:
+        return await db_client.create_workflow(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{workflow_id}/versions/{version_id}/restore")
+async def restore_workflow_version(
+    workflow_id: int,
+    version_id: int,
+    user: UserModel = Depends(get_user),
+) -> WorkflowVersionResponse:
+    """AgentStudio: copy an earlier version into the draft (for rollback).
+
+    Server-side, so the stored keys travel unmasked. Publishing the draft is a
+    separate step.
+    """
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow with id {workflow_id} not found"
+        )
+    version = await db_client.get_workflow_version(workflow_id, version_id)
+    if version is None or version.status == "draft":
+        raise HTTPException(status_code=404, detail="Version not found")
+    draft = await db_client.save_workflow_draft(
+        workflow_id,
+        workflow_definition=version.workflow_json,
+        workflow_configurations=version.workflow_configurations or {},
+        template_context_variables=version.template_context_variables or {},
+    )
     return WorkflowVersionResponse(
         id=draft.id,
         version_number=draft.version_number,
@@ -1657,7 +1731,7 @@ async def duplicate_workflow_template(
         except TriggerPathConflictError as e:
             raise HTTPException(status_code=409, detail=str(e))
 
-    workflow = await db_client.create_workflow(
+    workflow = await _create_workflow_or_409(
         request.workflow_name,
         workflow_def,
         user.id,

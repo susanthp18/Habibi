@@ -11,11 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { detailFromError } from "@/lib/apiError";
 import { cn } from "@/lib/utils";
+import { fetchVoicePreviewUrl, PREVIEW_PROVIDERS } from "@/lib/voicePreview";
 
 // Providers that have MPS voice endpoints
-type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime";
-const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"];
+type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime" | "azure_speech";
+const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech"];
 const ALL_FILTER_VALUE = "__all__";
 
 interface VoiceSelectorProps {
@@ -66,6 +68,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             cartesia: "cartesia",
             dograh: "dograh",
             rime: "rime",
+            azure_speech: "azure_speech",
         };
         return providerMap[providerName.toLowerCase()] || null;
     }, []);
@@ -89,6 +92,11 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 query: Object.keys(query).length > 0 ? query : undefined,
             });
 
+            if (response.error) {
+                setError(detailFromError(response.error, "Failed to load voices"));
+                setVoices([]);
+                return;
+            }
             if (response.data?.voices) {
                 setVoices(response.data.voices);
             }
@@ -201,7 +209,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         return voice?.name || value || "Select a voice";
     };
 
-    const playPreview = (previewUrl: string, voiceId: string) => {
+    const playPreview = async (previewUrl: string | null, voiceId: string) => {
         // Stop current audio if playing
         if (currentAudio) {
             currentAudio.pause();
@@ -216,17 +224,34 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         }
 
         setPlayingPreview(voiceId);
-        const audio = new Audio(previewUrl);
+        // AgentStudio: voices without a hosted sample are spoken on demand.
+        let source = previewUrl;
+        if (!source) {
+            try {
+                source = await fetchVoicePreviewUrl(provider, { voice: voiceId });
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not preview this voice");
+                setPlayingPreview(null);
+                return;
+            }
+        }
+        const release = () => {
+            if (!previewUrl) URL.revokeObjectURL(source!);
+        };
+        const audio = new Audio(source);
         setCurrentAudio(audio);
         audio.onended = () => {
+            release();
             setPlayingPreview(null);
             setCurrentAudio(null);
         };
         audio.onerror = () => {
+            release();
             setPlayingPreview(null);
             setCurrentAudio(null);
         };
         audio.play().catch(() => {
+            release();
             setPlayingPreview(null);
             setCurrentAudio(null);
         });
@@ -406,14 +431,14 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                                 )}
                                             </div>
                                         </div>
-                                        {voice.preview_url && (
+                                        {(voice.preview_url || PREVIEW_PROVIDERS.has(provider)) && (
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 className="h-8 w-8 p-0 shrink-0"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    playPreview(voice.preview_url!, voice.voice_id);
+                                                    void playPreview(voice.preview_url ?? null, voice.voice_id);
                                                 }}
                                             >
                                                 <Volume2

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -63,6 +63,9 @@ export default function TelephonyConfigurationsPage() {
   } = useTelephonyConfigWarnings();
   const [items, setItems] = useState<TelephonyConfigurationListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const fetchSequence = useRef(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<TelephonyConfigurationDetail | null>(
     null,
@@ -73,18 +76,23 @@ export default function TelephonyConfigurationsPage() {
 
   const fetchItems = useCallback(async () => {
     if (authLoading || !user) return;
+    const requestId = ++fetchSequence.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const token = await getAccessToken();
       const res = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet(
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (res.error) throw new Error(detailFromError(res.error));
-      setItems(res.data?.configurations ?? []);
+      if (res.error || !res.data) throw new Error(detailFromError(res.error, "Failed to load configurations"));
+      if (requestId === fetchSequence.current) {
+        setItems(res.data.configurations);
+        setHasLoaded(true);
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load configurations");
+      if (requestId === fetchSequence.current) setLoadError(err instanceof Error ? err.message : "Failed to load configurations");
     } finally {
-      setLoading(false);
+      if (requestId === fetchSequence.current) setLoading(false);
     }
   }, [authLoading, user, getAccessToken]);
 
@@ -98,6 +106,7 @@ export default function TelephonyConfigurationsPage() {
 
   useEffect(() => {
     fetchItems();
+    return () => { fetchSequence.current += 1; };
   }, [fetchItems]);
 
   // ?add=1 lands the user straight on the provider form — used by the Phone
@@ -245,7 +254,9 @@ export default function TelephonyConfigurationsPage() {
           </div>
         )}
 
-        {loading ? (
+        {loadError && <p role="alert" className="mb-4 text-sm text-destructive">{loadError}</p>}
+        {loading && hasLoaded && <p role="status" className="mb-4 text-sm text-muted-foreground">Refreshing configurations…</p>}
+        {loading && !hasLoaded ? (
           <div className="grid gap-3">
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-24 w-full" />

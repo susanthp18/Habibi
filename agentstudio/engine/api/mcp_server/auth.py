@@ -3,7 +3,8 @@ from fastmcp.server.dependencies import get_http_headers
 from opentelemetry import trace
 
 from api.db.models import UserModel
-from api.services.auth.depends import _handle_api_key_auth
+from api.constants import AUTH_PROVIDER
+from api.services.auth.depends import _handle_api_key_auth, _handle_internal_auth
 
 
 async def authenticate_mcp_request() -> UserModel:
@@ -20,7 +21,25 @@ async def authenticate_mcp_request() -> UserModel:
     """
     # FastMCP strips Authorization by default unless explicitly included.
     # Preserve it here so Bearer API keys work for MCP tool invocations.
-    headers = get_http_headers(include={"authorization"})
+    headers = get_http_headers(include={
+        "authorization", "x-internal-secret", "x-user-id", "x-user-email", "x-org-id",
+    })
+    if AUTH_PROVIDER == "internal":
+        user = await _handle_internal_auth(headers)
+    else:
+        user = await _api_key_user(headers)
+
+    span = trace.get_current_span()
+    if span.is_recording():
+        org_id = user.selected_organization_id
+        span.set_attribute("mcp.org_id", str(org_id))
+        span.set_attribute("mcp.user_id", str(user.id))
+        span.set_attribute("langfuse.user.id", str(user.id))
+
+    return user
+
+
+async def _api_key_user(headers: dict[str, str]) -> UserModel:
     api_key = headers.get("x-api-key")
     if not api_key:
         auth = headers.get("authorization", "")
@@ -31,18 +50,4 @@ async def authenticate_mcp_request() -> UserModel:
             status_code=401,
             detail="Missing API key — send X-API-Key or Authorization: Bearer <key>",
         )
-    user = await _handle_api_key_auth(api_key)
-
-    span = trace.get_current_span()
-    if span.is_recording():
-        org_id = user.selected_organization_id
-        # Intentionally NOT `dograh.org_id` — that attribute triggers the
-        # per-org Langfuse routing for pipeline spans, and MCP traffic
-        # should land in the default (developer-facing) project only.
-        # Exposed under `mcp.org_id` for Langfuse UI filtering without
-        # affecting the router.
-        span.set_attribute("mcp.org_id", str(org_id))
-        span.set_attribute("mcp.user_id", str(user.id))
-        span.set_attribute("langfuse.user.id", str(user.id))
-
-    return user
+    return await _handle_api_key_auth(api_key)

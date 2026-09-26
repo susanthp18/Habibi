@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { detailFromError } from "@/lib/apiError";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 
 interface PhoneNumberDialogProps {
@@ -44,7 +45,6 @@ interface PhoneNumberDialogProps {
   onSaved: () => void;
 }
 
-const NO_WORKFLOW = "__none__";
 const NO_TRUNK = "__no_trunk__";
 
 // Mirrors api/schemas/telephony_phone_number.py::_validate_address_shape and
@@ -84,7 +84,6 @@ export function PhoneNumberDialog({
   const [label, setLabel] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [isDefaultCallerId, setIsDefaultCallerId] = useState(false);
-  const [inboundWorkflowId, setInboundWorkflowId] = useState<string>(NO_WORKFLOW);
   const [trunkId, setTrunkId] = useState<string>(NO_TRUNK);
   const [workflows, setWorkflows] = useState<{ id: number; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -98,9 +97,6 @@ export function PhoneNumberDialog({
     setLabel(existing?.label ?? "");
     setIsActive(existing?.is_active ?? true);
     setIsDefaultCallerId(existing?.is_default_caller_id ?? false);
-    setInboundWorkflowId(
-      existing?.inbound_workflow_id ? String(existing.inbound_workflow_id) : NO_WORKFLOW,
-    );
     const initialTrunkId = existing
       ? existing.telephony_trunk_id
       : (defaultTrunkId ?? null);
@@ -111,7 +107,7 @@ export function PhoneNumberDialog({
   // Only validate the address on create — edits keep the immutable address.
   const addressError = isEdit ? null : validateAddress(address, countryCode);
 
-  // Load workflows for the inbound dropdown.
+  // Load workflow names to show the current inbound agent.
   useEffect(() => {
     if (!open || !user) return;
     let cancelled = false;
@@ -142,8 +138,6 @@ export function PhoneNumberDialog({
     setSubmitting(true);
     try {
       const token = await getAccessToken();
-      const inboundId =
-        inboundWorkflowId === NO_WORKFLOW ? null : Number(inboundWorkflowId);
       const selectedTrunkId = trunkId === NO_TRUNK ? null : Number(trunkId);
 
       let providerSync: PhoneNumberResponse["provider_sync"] | undefined;
@@ -156,8 +150,6 @@ export function PhoneNumberDialog({
               label: label || undefined,
               is_active: isActive,
               country_code: countryCode || undefined,
-              inbound_workflow_id: inboundId ?? undefined,
-              clear_inbound_workflow: inboundId === null,
               telephony_trunk_id: selectedTrunkId ?? undefined,
               clear_trunk: selectedTrunkId === null,
             },
@@ -177,7 +169,6 @@ export function PhoneNumberDialog({
               label: label || undefined,
               is_active: isActive,
               is_default_caller_id: isDefaultCallerId,
-              inbound_workflow_id: inboundId ?? undefined,
               telephony_trunk_id: selectedTrunkId ?? undefined,
             },
           },
@@ -264,23 +255,19 @@ export function PhoneNumberDialog({
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="pn-workflow">Inbound workflow</Label>
-            <Select value={inboundWorkflowId} onValueChange={setInboundWorkflowId}>
-              <SelectTrigger id="pn-workflow">
-                <SelectValue placeholder="(none)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_WORKFLOW}>(none)</SelectItem>
-                {workflows.map((w) => (
-                  <SelectItem key={w.id} value={String(w.id)}>
-                    #{w.id} - {w.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Inbound agent</Label>
+            <p className="text-sm">
+              {existing?.inbound_workflow_id
+                ? (workflows.find((w) => w.id === existing.inbound_workflow_id)?.name ??
+                  `#${existing.inbound_workflow_id}`)
+                : "(none)"}
+            </p>
             <p className="text-xs text-muted-foreground">
-              Used when per-number inbound routing is enabled. Today, inbound calls still
-              route by the workflow_id in the webhook URL.
+              Inbound routing is checked and audited on the{" "}
+              <Link href="/routing" className="underline">
+                Routing
+              </Link>{" "}
+              page; set it there.
             </p>
           </div>
 

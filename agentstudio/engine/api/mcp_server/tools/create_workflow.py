@@ -94,6 +94,10 @@ async def create_workflow(code: str) -> dict[str, Any]:
       name is required and there is no prior workflow to fall back to.
     - `trigger_path_conflict` — a trigger node's path is already used by
       another workflow in this organization; rename it and resubmit.
+    - `tool_not_approved` — a node calls a tool whose latest revision is
+      not approved, or that is not active here. v1 is published on
+      creation, and a released agent may only call reviewed revisions:
+      have a reviewer approve the tool in Voice Studio, then resubmit.
     - `bridge_error` — internal/transient; retry once, then surface it.
     """
     user = await authenticate_mcp_request()
@@ -165,13 +169,18 @@ async def create_workflow(code: str) -> dict[str, Any]:
                 "trigger_path_conflict", str(e), trigger_paths=e.trigger_paths
             )
 
-    # 5. Persist as a new workflow with v1 published.
-    workflow = await db_client.create_workflow(
-        name,
-        payload,
-        user.id,
-        user.selected_organization_id,
-    )
+    # 5. Persist as a new workflow with v1 published. v1 is a release, so it
+    # pins each node's reviewed tool revision; a tool nobody has approved yet
+    # stops the release rather than shipping an agent whose tools do nothing.
+    try:
+        workflow = await db_client.create_workflow(
+            name,
+            payload,
+            user.id,
+            user.selected_organization_id,
+        )
+    except ValueError as e:
+        return _error_result("tool_not_approved", str(e))
 
     capture_event(
         distinct_id=str(user.provider_id),

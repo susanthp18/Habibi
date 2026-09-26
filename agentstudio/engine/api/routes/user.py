@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import List, Literal, Optional, TypedDict, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field, ValidationError
 
 from api.db import db_client
@@ -438,7 +438,7 @@ async def reactivate_api_key(
 
 
 # Voice Configuration Endpoints
-TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"]
+TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech"]
 
 
 class VoiceInfo(BaseModel):
@@ -449,6 +449,22 @@ class VoiceInfo(BaseModel):
     gender: Optional[str] = None
     language: Optional[str] = None
     preview_url: Optional[str] = None
+    # AgentStudio: speaking styles the voice supports (Azure).
+    styles: List[str] = []
+
+
+class VoicePreviewRequest(BaseModel):
+    """AgentStudio: speak a sample with a voice and delivery before saving it."""
+
+    voice: str = Field(min_length=1, max_length=80)
+    language: Optional[str] = Field(default=None, max_length=20)
+    region: Optional[str] = Field(default=None, max_length=40)
+    text: Optional[str] = Field(default=None, max_length=300)
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    style: Optional[str] = Field(default=None, max_length=40)
+    style_degree: float = Field(default=1.0, ge=0.01, le=2.0)
+    pitch: int = Field(default=0, ge=-12, le=12)
+    volume: int = Field(default=100, ge=50, le=150)
 
 
 class VoiceFacets(BaseModel):
@@ -463,6 +479,19 @@ class VoicesResponse(BaseModel):
     provider: str
     voices: List[VoiceInfo]
     facets: Optional[VoiceFacets] = None
+
+
+@router.post("/configurations/voices/{provider}/preview")
+async def preview_voice(
+    provider: TTSProvider,
+    request: VoicePreviewRequest,
+    user: UserModel = Depends(get_user),
+) -> Response:
+    """AgentStudio: an MP3 of the voice as configured (style, pitch, speed, volume)."""
+    audio = await voice_catalog_local.preview_voice(
+        organization_id=user.selected_organization_id, provider=provider, params=request
+    )
+    return Response(content=audio, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/configurations/voices/{provider}")

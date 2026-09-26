@@ -1181,6 +1181,13 @@ async def _run_pipeline_impl(
     engine.call_worker = task
     engine.set_transport_output(transport.output())
 
+    # The run's own pinned definition, on every call shape. A released agent
+    # resolves its tools from the revisions pinned to this definition, so a
+    # root agent without it would silently have no tools at all.
+    engine.active_agent.workflow_id = workflow_id
+    engine.active_agent.definition_id = run_definition.id
+    engine.active_agent.workflow_name = workflow.name
+
     if not is_realtime:
 
         def _agent_generation_callbacks(visit_id: str) -> AgentGenerationCallbacks:
@@ -1210,9 +1217,6 @@ async def _run_pipeline_impl(
         # same way. The worker is attached once the call pipeline is running,
         # in `PipecatEngine.start_initial_agent`.
         agent = engine.active_agent
-        agent.workflow_id = workflow_id
-        agent.definition_id = run_definition.id
-        agent.workflow_name = workflow.name
         agent.tts = tts
         agent.recording_router = recording_router
         agent.user_config = user_config

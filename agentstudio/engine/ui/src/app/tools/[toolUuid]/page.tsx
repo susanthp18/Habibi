@@ -69,6 +69,7 @@ import {
     EndCallToolConfig,
     HttpApiToolConfig,
     HttpToolTestDialog,
+    ToolRevisionPanel,
     TransferAgentToolConfig,
     type TransferAgentWorkflowOption,
     TransferCallToolConfig,
@@ -104,6 +105,10 @@ export default function ToolDetailPage() {
     const [showCodeDialog, setShowCodeDialog] = useState(false);
     const [showTestDialog, setShowTestDialog] = useState(false);
     const [savedHttpTestSnapshot, setSavedHttpTestSnapshot] = useState<string | null>(null);
+    // The revision this form was loaded from. Sent back on save so a second
+    // editor's change cannot be silently overwritten.
+    const [baseRevision, setBaseRevision] = useState<number | null>(null);
+    const [revisionReloadKey, setRevisionReloadKey] = useState(0);
 
     // Common form state
     const [name, setName] = useState("");
@@ -753,7 +758,7 @@ export default function ToolDetailPage() {
 
             const response = await updateToolApiV1ToolsToolUuidPut({
                 path: { tool_uuid: toolUuid },
-                body: requestBody,
+                body: { ...requestBody, base_revision: baseRevision ?? undefined },
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
@@ -761,11 +766,15 @@ export default function ToolDetailPage() {
 
             if (response.error) {
                 setError(detailFromError(response.error, "Failed to save tool"));
+                // Someone else saved in the meantime: show them that edit
+                // rather than leaving a stale revision number in the form.
+                setRevisionReloadKey((key) => key + 1);
                 return;
             }
 
             if (response.data) {
                 setTool(response.data);
+                setRevisionReloadKey((key) => key + 1);
                 setSaveSuccess(true);
                 setTimeout(() => setSaveSuccess(false), 3000);
                 if (tool.category === "http_api") {
@@ -1181,6 +1190,14 @@ const data = await response.json();`;
                             Tool saved successfully!
                         </div>
                     )}
+
+                    <div className="mt-6">
+                        <ToolRevisionPanel
+                            toolUuid={toolUuid}
+                            reloadKey={revisionReloadKey}
+                            onLatestRevision={setBaseRevision}
+                        />
+                    </div>
 
                     <div className="flex justify-end gap-2 mt-6">
                         {isHttpApiTool && (
