@@ -83,6 +83,11 @@ class TurnFacts:
     #: A rehearsal, not a contact. Sandbox and eval traffic reaches no customer,
     #: so no contact rule can be breached by it.
     simulated: bool = False
+    #: The dial was admitted outside the window by an operator's explicit
+    #: waiver (the demo handset). Admission already made and recorded that
+    #: decision; re-judging it on every bot turn flagged a critical breach
+    #: five times a call and told the model its wording caused it.
+    hours_waived: bool = False
     recording_disclosed: bool = False
     miranda_disclosed: bool = False
     hardship_hold: bool = False
@@ -166,7 +171,7 @@ def check_hours(facts: TurnFacts) -> Finding | None:
     """
     if (facts.channel or "voice").lower() != "voice":
         return None
-    if facts.simulated:
+    if facts.simulated or facts.hours_waived:
         return None
     if (facts.direction or "outbound").lower() != "outbound":
         return None

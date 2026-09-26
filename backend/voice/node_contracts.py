@@ -62,13 +62,26 @@ NODE_REQUIRED: dict[str, frozenset[str]] = {
 NODE_INSTRUCTIONS_PREFIX = "CURRENT NODE:"
 
 NODE_DIRECTIVES: dict[str, str] = {
+    # Must agree with the verification factor ``verify_identity`` enforces: the
+    # last four digits of the registered mobile, on the outbound leg as well.
+    # This directive still asked for a spoken "confirmation question" after
+    # the tool and the graph moved to last-four, so the node's own prompt and
+    # this line gave the model two different ceremonies on every outbound call.
+    # Two turns, one question each. Asking for the name AND the digits in the
+    # opening (VS-7956F27B36) made a 15-second monologue with two questions
+    # stacked -- the most scripted-sounding moment of the call.
     "confirm_identity": (
-        "Do not call any tool until the caller has spoken and confirmed they are "
-        "the account holder. Your first utterance is the greeting, your name, "
-        "the bank, that the call is recorded for quality and compliance, and the "
-        "confirmation question. Never mention a balance, overdue, or collections "
-        "before they confirm. Do not put the recording notice in parentheses. "
-        "Never open with a tool acknowledgement such as 'Sure, I can set that up.'"
+        "Your first turn is the greeting, your name, the bank, that the call is "
+        "recorded for quality and compliance, and whether you are speaking with "
+        "them by first name -- one question, nothing else. When they confirm, ask "
+        "in your next turn, casually, for the last four digits of their registered "
+        "mobile to confirm it is them. Call verify_identity only with digits they "
+        "have spoken; a first name or 'yes, speaking' is not verification. Never "
+        "read the digits back and never repeat personal details they give you -- "
+        "say it matched in a few words and move on. Never mention a balance, "
+        "overdue, or collections before the digits match. Do not put the "
+        "recording notice in parentheses. Never open with a tool acknowledgement "
+        "such as 'Sure, I can set that up.'"
     ),
     "escalate_close": (
         "If they ask a product or policy question, call search_knowledge_base. "

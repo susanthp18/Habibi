@@ -227,6 +227,35 @@ def test_a_names_only_answer_forbids_describing_cover() -> None:
     assert "do NOT describe what any of them covers" in policy
 
 
+def test_a_names_only_answer_on_voice_is_never_read_out_in_full() -> None:
+    """VS-8C1B760F1B: nine "...Protect360" names in one 17-second breath."""
+    payload = kb.llm_payload(
+        {
+            "mode": "catalog",
+            "confident": False,
+            "intent": "product_faq",
+            "results": [{"docTitle": "Travel Protect360", "snippet": "Travel Protect360"}],
+            "products": _TRAVEL,
+        },
+        channel="voice",
+    )
+    policy = payload["answer_policy"]
+    assert "product NAMES only" in policy
+    assert "never read the list out" in policy
+    assert "at most three" in policy
+    assert "Never answer an unclear name with another list" in policy
+
+
+def test_a_names_only_answer_on_text_may_still_list_them() -> None:
+    """A chat window can hold a list; only the spoken channel gets the cap."""
+    payload = kb.llm_payload(
+        {"mode": "catalog", "confident": False, "intent": "product_faq",
+         "results": [{"docTitle": "Travel Protect360", "snippet": "Travel Protect360"}]},
+        channel="text",
+    )
+    assert "never read the list out" not in payload["answer_policy"]
+
+
 def test_a_scoped_catalog_answer_tells_the_model_which_rows_are_evidence() -> None:
     payload = kb.llm_payload(
         {

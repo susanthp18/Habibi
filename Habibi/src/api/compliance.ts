@@ -188,3 +188,95 @@ export function useResolveViolation() {
     },
   });
 }
+
+// -----------------------------------------------------------------------------
+// Statutory rule sets — maker-checker publication.
+//   GET  /compliance/policy-rules              → every set with its rules
+//   POST /compliance/policy-rules/{id}/submit  → maker (policy.publish)
+//   POST /compliance/policy-rules/{id}/approve → a *different* checker (policy.approve)
+//   POST /compliance/policy-rules/{id}/reject  → back to the maker
+// The API existed with no screen, so seeded sets sat as drafts and the contact
+// gate ran on module constants with no policy_version stamped.
+// -----------------------------------------------------------------------------
+
+export type PolicyRuleSetState = "draft" | "pending_approval" | "published" | "rejected";
+
+export type PolicyRuleSet = {
+  id: string;
+  scope: string;
+  version: number;
+  label: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  notes?: string | null;
+  publication_state?: PolicyRuleSetState | null;
+  published_by_user_id?: string | null;
+  /** This viewer may break-glass approve their own pending set. */
+  selfApprovable?: boolean;
+  /** Why four eyes were waived, when the submitter published it. */
+  self_approval_reason?: string | null;
+  approved_by_user_id?: string | null;
+  rules: Array<{
+    kind: string;
+    channel: string | null;
+    params: Record<string, unknown>;
+    citation: string | null;
+  }>;
+};
+
+export function usePolicyRuleSets() {
+  return useQuery({
+    queryKey: ["policy-rule-sets"],
+    queryFn: () => apiGet<PolicyRuleSet[]>("/compliance/policy-rules"),
+  });
+}
+
+/** Server refusals, in the words an approver needs. */
+const POLICY_ERRORS: Record<string, string> = {
+  maker_checker_required: "The person who submitted a rule set cannot approve it.",
+  production_publication_disabled:
+    "Publication is switched off on this server (POLICY_PRODUCTION_PUBLICATION).",
+  not_pending_approval: "This rule set is no longer awaiting approval — refresh.",
+  not_a_draft: "Only a draft or a rejected set can be submitted.",
+  changed_rules_mismatch: "The rules changed after submission; submit it again.",
+  platform_write_required:
+    "Statutory rules bind every tenant; submitting or approving them needs the platform-write permission.",
+  row_security_refused: "The database refused this change for your tenant.",
+  self_approval_not_permitted:
+    "Only the operators named on the server may approve their own submission.",
+  self_approval_reason_too_short: "Say why four eyes are being waived, in at least 20 characters.",
+  policy_rule_set_not_writable: "This rule set could not be changed from your account.",
+};
+
+export function policyErrorMessage(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+  const hit = Object.keys(POLICY_ERRORS).find((k) => text.includes(k));
+  return (hit && POLICY_ERRORS[hit]) || text;
+}
+
+export function usePolicyRuleSetAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    // onError below turns the server's refusal code into words.
+    meta: { errors: "caller" },
+    mutationFn: ({
+      id,
+      action,
+      selfApprovalReason,
+    }: {
+      id: string;
+      action: "submit" | "approve" | "reject";
+      /** Break-glass only: the maker approving their own set says why. */
+      selfApprovalReason?: string;
+    }) =>
+      apiPost<{ id: string; state: PolicyRuleSetState }>(
+        `/compliance/policy-rules/${encodeURIComponent(id)}/${action}`,
+        selfApprovalReason ? { selfApprovalReason } : {},
+      ),
+    onSuccess: (out) => {
+      void qc.invalidateQueries({ queryKey: ["policy-rule-sets"] });
+      toast.success(`${out.id} is ${out.state.replace("_", " ")}`);
+    },
+    onError: (err) => toast.error(policyErrorMessage(err)),
+  });
+}

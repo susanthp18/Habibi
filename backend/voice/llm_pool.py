@@ -215,6 +215,35 @@ _KEEP_WARM_INTERVAL_S = 180.0
 _keep_warm_task: Any = None
 
 
+def install_serving_loop_warmers(app: Any) -> None:
+    """Warm the shared client, and start the idle re-warm loop, on the loop
+    that will carry calls -- the runner app's own, at startup.
+
+    The standalone runner warmed with ``asyncio.run`` before serving: a
+    throwaway loop, closed at once, whose pooled connection the first call then
+    tried to reuse. That request failed and was retried inside the greeting
+    (VS-7956F27B36: "Retrying request to /chat/completions"), while
+    ``warm_state`` reported the process prewarmed. The keep-warm loop, for its
+    part, only started with the first call's pipeline, so a freshly restarted
+    runner had none until someone rang.
+    """
+    from contextlib import asynccontextmanager
+
+    from pipecat.runner import run as runner_mod
+
+    @asynccontextmanager
+    async def _warm_on_serving_loop(_app: Any):
+        try:
+            ms = await prewarm_shared_client(force=True)
+            logger.info("voice LLM warm on the serving loop · %.0f ms", ms)
+        except Exception:
+            logger.warning("serving-loop LLM warm failed -- the first call pays it", exc_info=True)
+        await ensure_keep_warm()
+        yield
+
+    runner_mod._add_lifespan_to_app(app, _warm_on_serving_loop)
+
+
 async def ensure_keep_warm() -> None:
     """Start the idle re-warm loop once per process. Idempotent.
 

@@ -58,3 +58,12 @@ _wsl_clean.sh
 /_conv_trace/
 /artifacts/*
 !/artifacts/retrieval_*.json
+
+# Upstream Dograh, extracted for comparison. The engine we actually ship is
+# vendored under /agentstudio/engine; this 46 MB copy is scratch.
+/dograh-main/
+
+# Working notes beside the repo, never part of it
+/latency_review/
+/my_view.md
+/PayInt_OnePager.txt

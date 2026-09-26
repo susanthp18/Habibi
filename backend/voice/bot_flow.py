@@ -122,6 +122,7 @@ def _sandbox_session_id_from(runner_args, is_session_id) -> str | None:
             if isinstance(value, str) and value:
                 seen.append(value)
 
+    client_supplied = list(seen)
     transport_sid = getattr(runner_args, "session_id", None)
     if isinstance(transport_sid, str) and transport_sid:
         seen.append(transport_sid)
@@ -129,11 +130,13 @@ def _sandbox_session_id_from(runner_args, is_session_id) -> str | None:
     for candidate in seen:
         if is_session_id(candidate):
             return candidate
-    if seen:
-        # A non-canonical id here is a client bug worth naming, not silence.
+    if client_supplied:
+        # A non-canonical id the *client* sent is a client bug worth naming.
+        # The transport id is not: the standalone runner mints a uuid4 for
+        # every connection, so warning on it logged a "bug" on every phone call.
         logger.warning(
             "ignoring non-sandbox session identifiers on this connection: {}",
-            ", ".join(sorted(set(seen))),
+            ", ".join(sorted(set(client_supplied))),
         )
     return None
 
@@ -362,7 +365,7 @@ async def resolve_call(call) -> None:
         logger.warning("No active deployment — using minimal fallback instruction")
         bundle = {
             "deploymentId": None,
-            "prompt": "You are Priya, an HDFC collections voice agent. Be brief.",
+            "prompt": "You are Priya, a BigTapp collections voice agent. Be brief.",
             "persona": {},
             "guardrails": {},
             "voice": {},
@@ -386,7 +389,15 @@ async def resolve_call(call) -> None:
         session_id = str(sandbox_session["sessionId"])
     else:
         session_id = f"VS-{uuid.uuid4().hex[:10].upper()}"
-    transport_name = "asterisk" if call.is_asterisk else ("twilio" if is_twilio else "smallwebrtc")
+    if call.is_asterisk:
+        transport_name = "asterisk"
+    elif is_twilio:
+        transport_name = "twilio"
+    elif call.transport_type == "websocket":
+        # Sandbox Live over /ws-sandbox (voice/sandbox_ws.py).
+        transport_name = "websocket"
+    else:
+        transport_name = "smallwebrtc"
     session = VoiceSession(
         session_id=session_id,
         deployment_id=bundle.get("deploymentId"),
@@ -452,6 +463,17 @@ async def resolve_call(call) -> None:
     # (calling window, DND) must not judge it — flagging a 20:43 rehearsal as an
     # RBI hours breach cost a high-severity self-correction on turn one.
     is_simulated = isinstance(bundle.get("sandboxPersona"), dict)
+    # A rehearsal of a call we place. Direction and objective only -- not
+    # ``call_type``, which is the carrier's word and switches on answering-
+    # machine detection and IVR traversal. The mission itself is assembled in
+    # ``load_mission`` like a real dial's.
+    if (
+        isinstance(sandbox_session, dict)
+        and str(sandbox_session.get("direction") or "").strip().lower() == "outbound"
+    ):
+        session.extra["call_direction"] = "outbound"
+        session.extra["objective"] = sandbox_session.get("objective") or "dpd_reminder"
+        session.extra["rehearsal_outbound"] = True
     # Stream parameters carry call_type, not callDirection. Defaulting the sink
     # to inbound here made outbound live QA skip the RBI hours check.
     call_direction = resolve_call_direction(session, bundle)
@@ -509,11 +531,11 @@ async def load_mission(call) -> None:
     # A non-treatment mission may still degrade to the ordinary script.
     # A treatment mission carries a signed Action Contract and fails before
     # speech if that contract is missing, stale, or tampered.
+    import mission as mission_mod
+
     _mission: dict[str, Any] | None = None
     if session.extra.get("attempt_id"):
         try:
-            import mission as mission_mod
-
             task = getattr(call, "_mission_io_task", None)
             if task is not None:
                 _mission = await task
@@ -545,6 +567,34 @@ async def load_mission(call) -> None:
                     action_contract["required_assertions"]
                 )
                 session.extra["action_contract_validated"] = True
+    elif session.extra.get("rehearsal_outbound"):
+        # Sandbox Live rehearsing an outbound scenario: no attempt row, so the
+        # mission comes from the card being rehearsed and the persona played.
+        # Same terms and briefing as a real dial (``mission.rehearsal``).
+        try:
+            from agent_core.cards.schema import parse_card
+
+            raw_card = (getattr(call, "bundle", None) or {}).get("agentCard")
+            card = parse_card(raw_card) if isinstance(raw_card, dict) and raw_card else None
+            persona = (getattr(call, "sandbox_session", None) or {}).get("persona")
+
+            def _rehearsal() -> dict[str, Any]:
+                import db as _db
+
+                with _db.engine.connect() as conn:
+                    return mission_mod.rehearsal(
+                        conn,
+                        card=card,
+                        objective=session.extra.get("objective"),
+                        persona=persona if isinstance(persona, dict) else None,
+                    )
+
+            _mission = await asyncio.to_thread(_rehearsal)
+            session.extra["objective"] = _mission.get("objective") or session.extra.get("objective")
+        except Exception:
+            logger.exception("rehearsal mission failed — rehearsing without a briefing")
+    if session.extra.get("attempt_id") or session.extra.get("rehearsal_outbound"):
+        if _mission:
             session.extra["mission"] = _mission
             # The card's entry node wins over the objective lookup when both
             # exist; they agree unless someone edited one of them, and G-OB2
@@ -615,8 +665,17 @@ def build_flow(call) -> None:
     )
     # Not `_tool_state`: build_authored_flow returns its own turn state under
     # that name a few lines below, and they are unrelated types.
+    from agent_core.tools.grant import VOICE_ALWAYS
+
+    # The floor is the hop out of a node (begin_negotiate and the rest).
+    # Omitting it left those names off the grant, and the published graph
+    # then logged them as unknown tools — VS-E6043500C0 never left
+    # state_position. channel_tools is the catalog slice; the floor names
+    # are not in it, and grant.py keeps them beside that intersection.
     _grant = _mouth.tools(
-        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)}, channel="voice"
+        channel_tools={spec.name for spec in CATALOG.for_channel(CHANNEL_VOICE)},
+        channel="voice",
+        floor=VOICE_ALWAYS,
     )
     _allowed_tools = _grant.allowed
     _attached_skills = list(_mouth.packs)

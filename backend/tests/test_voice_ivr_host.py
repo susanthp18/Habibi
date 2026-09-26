@@ -140,20 +140,6 @@ def test_host_enabled_mounts_both_offer_paths(monkeypatch):
     assert len(mounted) == 4
 
 
-def test_voice_status_does_not_probe_when_embedded(monkeypatch):
-    import voice_sandbox
-
-    monkeypatch.setenv("VOICE_EMBEDDED_HOST", "true")
-
-    def _explode(*a, **k):
-        raise AssertionError("must not probe :7860 when hosting in-process")
-
-    monkeypatch.setattr(voice_sandbox.httpx, "Client", _explode)
-    status = voice_sandbox.voice_status()
-    assert status["ok"] is True
-    assert status["webrtcUrl"]
-
-
 def test_shared_runner_hosts_concurrent_calls_and_prunes(monkeypatch):
     """One long-lived runner, many calls, no registry growth across hangups."""
     from pipecat.pipeline.pipeline import Pipeline

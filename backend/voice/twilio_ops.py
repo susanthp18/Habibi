@@ -215,6 +215,64 @@ def call_status_callback_url() -> str | None:
     return f"{base}/twilio/voice/call-status"
 
 
+#: Stream parameters the outbound connect document is allowed to carry.
+#: Anything else on the query string is ignored, so a trial-gather POST
+#: (Digits, CallSid, From) cannot become a stream parameter.
+OUTBOUND_STREAM_KEYS = (
+    "call_type",
+    "attempt_id",
+    "objective",
+    "customer_id",
+    "account_id",
+    "treatment_decision_id",
+    "mission_id",
+    "demo",
+)
+
+
+def outbound_connect_url(custom: dict[str, str] | None = None) -> str | None:
+    """The document Twilio fetches to continue an outbound call.
+
+    A trial account plays "press any key" as a Gather with no action of its
+    own. Gather posts the digit to the current document URL, and falls
+    through to the next verb only when the caller presses nothing. Inline
+    ``twiml=`` on ``calls.create`` has no document URL, so the key the
+    prompt asks for ends the call, and only the timeout reaches the stream.
+    This URL is that document: keypress and timeout both come back here.
+    """
+    try:
+        base = voice_https_public_base_url()
+    except RuntimeError:
+        return None
+    if not base:
+        return None
+    from urllib.parse import urlencode
+
+    pairs = []
+    supplied = custom or {}
+    for key in OUTBOUND_STREAM_KEYS:
+        value = str(supplied.get(key) or "").strip()
+        if value:
+            pairs.append((key, value))
+    query = urlencode(pairs)
+    url = f"{base}/twilio/voice/connect"
+    return f"{url}?{query}" if query else url
+
+
+def outbound_stream_custom(query: Any) -> dict[str, str]:
+    """The stream parameters from the connect document's query string."""
+    custom: dict[str, str] = {}
+    get = getattr(query, "get", None)
+    if not callable(get):
+        return {"call_type": "outbound"}
+    for key in OUTBOUND_STREAM_KEYS:
+        value = str(get(key) or "").strip()
+        if value:
+            custom[key] = value
+    custom.setdefault("call_type", "outbound")
+    return custom
+
+
 def configured() -> bool:
     return bool(account_sid() and auth_token() and twilio_phone())
 
@@ -410,13 +468,23 @@ def start_outbound_call(
     from_number = (from_number or "").strip() or twilio_phone()
     if not from_number:
         raise RuntimeError("TWILIO_PHONE_NUMBER missing")
-    twiml = twiml_connect_stream(
-        custom={
-            "call_type": "outbound",
-            **(custom or {}),
-        }
-    )
-    kwargs: dict[str, Any] = {"to": to, "from_": from_number, "twiml": twiml}
+    stream_custom = {
+        "call_type": "outbound",
+        **(custom or {}),
+    }
+    # A document URL, not inline TwiML. See outbound_connect_url.
+    connect_url = outbound_connect_url(stream_custom)
+    twiml = "" if connect_url else twiml_connect_stream(custom=stream_custom)
+    kwargs: dict[str, Any] = {"to": to, "from_": from_number}
+    if connect_url:
+        kwargs["url"] = connect_url
+        kwargs["method"] = "POST"
+    else:
+        kwargs["twiml"] = twiml
+        logger.warning(
+            "Twilio outbound has no connect URL (PUBLIC_BASE_URL unset) — "
+            "inline TwiML is used, and a trial-account keypress will end the call"
+        )
     status_cb = call_status_callback_url()
     if status_cb:
         kwargs["status_callback"] = status_cb
@@ -437,7 +505,7 @@ def start_outbound_call(
     # stream, because nothing logged the TwiML. The bytes and the stream host
     # are enough to tell "we sent no stream" from "we sent one and it was never
     # dialled", which are different bugs in different systems.
-    from voice.call_trace import event, redact_phone, redact_url
+    from voice.call_trace import Stopwatch, event, redact_phone, redact_url
 
     stream_url = media_stream_wss_url()
     custom_ids = custom or {}
@@ -447,7 +515,8 @@ def start_outbound_call(
         from_number=redact_phone(from_number),
         stream=redact_url(stream_url),
         twiml_bytes=len(twiml or ""),
-        has_stream="<Stream" in (twiml or ""),
+        has_stream=bool(connect_url) or "<Stream" in (twiml or ""),
+        twiml_source="url" if connect_url else "inline",
         status_cb=bool(status_cb),
         amd=machine_detection,
         attempt=custom_ids.get("attempt_id"),
@@ -455,6 +524,7 @@ def start_outbound_call(
         demo=custom_ids.get("demo"),
         custom=",".join(sorted(custom_ids.keys())) or "-",
     )
+    carrier_watch = Stopwatch()
     try:
         from agent_core.carrier_guard import refuse_real_carrier
 
@@ -465,6 +535,7 @@ def start_outbound_call(
             "dial.failed",
             to=redact_phone(to),
             error=type(exc).__name__,
+            carrier_s=carrier_watch.s(),
             attempt=custom_ids.get("attempt_id"),
             objective=custom_ids.get("objective"),
             demo=custom_ids.get("demo"),
@@ -475,6 +546,7 @@ def start_outbound_call(
         sid=call.sid,
         to=redact_phone(to),
         status=call.status,
+        carrier_s=carrier_watch.s(),
         attempt=custom_ids.get("attempt_id"),
         objective=custom_ids.get("objective"),
         demo=custom_ids.get("demo"),

@@ -11,7 +11,7 @@ import {
 } from "@/components/records/RecordsTable";
 import type { DirectoryUser } from "@/api/users";
 import { useDirectoryUsers, usePatchUserStatus, usePutUserRoles } from "@/api/users";
-import type { RolesCatalog } from "@/api/agent-studio";
+import type { RolesCatalog } from "@/api/roles";
 import { fmtRelative } from "@/lib/format";
 import { PersonSheet } from "./PersonSheet";
 

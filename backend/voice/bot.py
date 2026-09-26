@@ -437,6 +437,13 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     # reaches the catalog and its schema on the first call. Warm them or
     # that import cost lands mid-conversation.
     "agent_core.tools.catalog",
+    # build_flow imports VOICE_ALWAYS from here per call to add the voice floor
+    # to the mouth grant; unwarmed, the first call after a restart paid for it.
+    # The product router, loaded off the loop at call setup (bot_pipeline).
+    "agent_core",
+    "agent_core.cards.schema",
+    "agent_core.product_resolver",
+    "agent_core.tools.grant",
     "agent_core.tools.schema",
     "agent_core.tuning",
     "azure_openai",
@@ -450,6 +457,7 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "voice.amd",
     "voice.analyzer_pool",
     "voice.bot_turn_state",
+    "voice.call_diagnostics",
     "voice.call_trace",
     "voice.flows_dynamic",
     "voice.greeting_hold",
@@ -457,6 +465,7 @@ _RUN_BOT_MODULES: tuple[str, ...] = (
     "voice.ivr",
     "voice.kb_enrich",
     "voice.rtvi_events",
+    "voice.sandbox_ws",
     "voice.stt_service",
     "voice.tool_state",
     "voice.tools",
@@ -586,7 +595,11 @@ if __name__ == "__main__":
     import observability
 
     observability.serve_metrics()
-    _warm_before_serving()
+    # The shared LLM client is warmed on the serving loop instead (see
+    # llm_pool.install_serving_loop_warmers): warming it here, under
+    # asyncio.run, opened a connection on a loop that closes before the server
+    # starts, and the first call's request failed and retried on it.
+    _warm_before_serving(skip_shared_llm_client=True)
     from voice.asterisk_ws import install_runner_hook
 
     install_runner_hook()

@@ -98,6 +98,12 @@ services:
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
       VOICE_RUNNER_URL: http://voice:7860
+      # Statutory rule sets: whether an approval may publish at all, and who
+      # may break-glass approve their own submission (user ids or emails,
+      # comma-separated). Deployment decisions, so they live in the compose
+      # env (deploy/cloudunity/compose.env), not in a hand-edited backend/.env.
+      POLICY_PRODUCTION_PUBLICATION: ${POLICY_PRODUCTION_PUBLICATION:-false}
+      POLICY_SELF_APPROVE_USERS: ${POLICY_SELF_APPROVE_USERS:-}
       # Corpus on host at ../source_db — required for /kb/ingest/source-db + reindex.
       SOURCE_DB_ROOT: /source_db
       # Single worker — connection budget assumes 1× pool.

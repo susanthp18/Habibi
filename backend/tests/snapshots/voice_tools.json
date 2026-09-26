@@ -838,6 +838,10 @@
       "handler": "_search_knowledge_base_handler",
       "kind": "schema",
       "properties": {
+        "product": {
+          "description": "Which product the customer means, as a key from `productKeys` in an earlier result (e.g. 'travel'). 'any' when they asked about products in general. Leave out when unsure -- the search works it out from the question.",
+          "type": "string"
+        },
         "query": {
           "description": "Customer's question in plain language.",
           "type": "string"

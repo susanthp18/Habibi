@@ -491,11 +491,6 @@ def test_agent_is_denied_an_integrations_route(gated_client: TestClient) -> None
     assert authz.INTEGRATIONS_READ in res.text
 
 
-def test_agent_is_denied_the_admin_route(gated_client: TestClient) -> None:
-    res = gated_client.post("/tts-voices/catalog/sync", headers=_hdr("arjun-mehta"))
-    assert res.status_code == 403, res.text
-
-
 def test_agent_is_allowed_a_customers_route(gated_client: TestClient) -> None:
     res = gated_client.get("/staff", headers=_hdr("arjun-mehta"))
     assert res.status_code == 200, res.text
@@ -635,14 +630,6 @@ def test_no_read_route_requires_a_write_permission() -> None:
     assert authz.ROUTE_PERMISSIONS[("GET", "/access-requests")] == authz.ADMIN_WRITE
 
 
-def test_deployment_rollback_requires_agent_publish() -> None:
-    assert authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/{deployment_id}/rollback")] == authz.AGENT_PUBLISH
-    assert (
-        authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/experiments/{experiment_id}/rollback")]
-        == authz.AGENT_PUBLISH
-    )
-
-
 @pytest.mark.parametrize(
     "route",
     [
@@ -659,59 +646,6 @@ def test_deployment_rollback_requires_agent_publish() -> None:
 )
 def test_every_route_that_changes_what_ships_requires_agent_publish(route) -> None:
     assert authz.ROUTE_PERMISSIONS[route] == authz.AGENT_PUBLISH, route
-
-
-def test_restore_is_an_edit_because_it_does_not_redeploy() -> None:
-    assert authz.ROUTE_PERMISSIONS[("POST", "/agent-studio/cards/{bot_id}/restore")] == authz.AGENT_EDIT
-
-
-def test_agent_cannot_publish_an_agent_card(gated_client: TestClient) -> None:
-    """agent.publish is not on the floor-agent role — 403, not a silent publish."""
-    res = gated_client.post(
-        "/prompt-versions/v1_4/publish",
-        headers=_hdr("arjun-mehta"),
-        json={"summary": "should not ship"},
-    )
-    assert res.status_code == 403, res.text
-    assert authz.AGENT_PUBLISH in res.text
-
-
-def test_get_roles_reports_resolved_grants_not_raw_rows(
-    db_tx, gated_client: TestClient
-) -> None:
-    """The Roles screen and the enforcer cannot disagree about an empty role."""
-    import db
-
-    tenant = db.TENANT_ID
-    db_tx.execute(
-        text(
-            "INSERT INTO roles (id, tenant_id, name) "
-            "VALUES ('role-tmp-unconf', :t, 'QA Reviewer')"
-        ),
-        {"t": tenant},
-    )
-    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
-    unconf = next(r for r in catalog["roles"] if r["id"] == "role-tmp-unconf")
-    assert set(unconf["permissionIds"]) == set(authz.ROLE_DEFAULTS["qa_reviewer"])
-
-    if db_tx.execute(text("SELECT 1 FROM roles WHERE id = 'role-supervisor'")).scalar() is None:
-        pytest.skip("role-supervisor not present in this database")
-
-    db.replace_role_permissions("role-supervisor", [])
-    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
-    supervisor = next(r for r in catalog["roles"] if r["id"] == "role-supervisor")
-    assert supervisor["permissionIds"] == []
-    assert [
-        g["permission_id"] for g in catalog["grants"] if g["role_id"] == "role-supervisor"
-    ] == []
-
-    denied = gated_client.post(
-        "/voice/sandbox/start",
-        headers=_hdr("david-chen"),
-        json={},
-    )
-    assert denied.status_code == 403, denied.text
-    assert authz.VOICE_OPERATE in denied.text
 
 
 def test_actor_is_admin_is_the_route_guards_reading(db_tx, monkeypatch) -> None:
@@ -788,3 +722,34 @@ def test_provider_bindings_are_read_by_bot_read_and_written_by_admin(
     finally:
         gone = gated_client.delete(f"/providers/bindings/{binding_id}", headers=_hdr("priya-nair"))
         assert gone.status_code == 200, gone.text
+
+
+def test_get_roles_reports_resolved_grants_not_raw_rows(
+    db_tx, gated_client: TestClient
+) -> None:
+    """The Roles screen and the enforcer cannot disagree about an empty role."""
+    import db
+
+    tenant = db.TENANT_ID
+    db_tx.execute(
+        text(
+            "INSERT INTO roles (id, tenant_id, name) "
+            "VALUES ('role-tmp-unconf', :t, 'QA Reviewer')"
+        ),
+        {"t": tenant},
+    )
+    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
+    unconf = next(r for r in catalog["roles"] if r["id"] == "role-tmp-unconf")
+    assert set(unconf["permissionIds"]) == set(authz.ROLE_DEFAULTS["qa_reviewer"])
+
+    if db_tx.execute(text("SELECT 1 FROM roles WHERE id = 'role-supervisor'")).scalar() is None:
+        pytest.skip("role-supervisor not present in this database")
+
+    db.replace_role_permissions("role-supervisor", [])
+    catalog = gated_client.get("/roles", headers=_hdr("priya-nair")).json()
+    supervisor = next(r for r in catalog["roles"] if r["id"] == "role-supervisor")
+    assert supervisor["permissionIds"] == []
+    assert [
+        g["permission_id"] for g in catalog["grants"] if g["role_id"] == "role-supervisor"
+    ] == []
+

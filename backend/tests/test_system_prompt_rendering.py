@@ -47,7 +47,7 @@ def _render_like_a_runtime(template: str, ctx: dict) -> str:
 def test_operator_tokens_resolve_and_crm_tokens_never_reach_the_model() -> None:
     rendered = _render_like_a_runtime(AUTHORED, UNIDENTIFIED)
 
-    assert "Priya" in rendered and "HDFC Bank" in rendered and "English" in rendered
+    assert "Priya" in rendered and "BigTapp Bank" in rendered and "English" in rendered
     for crm in KNOWN_VARIABLES - SYSTEM_SAFE_VARIABLES:
         assert "{" + crm + "}" not in rendered
 
@@ -92,7 +92,7 @@ def test_a_prompt_without_crm_tokens_survives_intact() -> None:
     rendered = _render_like_a_runtime(clean, UNIDENTIFIED)
 
     assert rendered.splitlines() == [
-        "You are Priya for HDFC Bank.",
+        "You are Priya for BigTapp Bank.",
         "Speak in English.",
         "Never threaten legal action.",
     ]

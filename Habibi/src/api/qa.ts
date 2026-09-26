@@ -196,3 +196,39 @@ export function useCloseCalibrationSession() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// GET /eval/disagreements — where the auto-scorer and a human disagreed.
+//
+// Only the two contradictions that matter are mined: live QA passed a call
+// humans scored red, or barged a call humans scored green. Read-only by
+// construction — `applied` is false on the envelope and on every item, and the
+// module says "Rubric tweaks only" / "this never writes the rubric".
+// ---------------------------------------------------------------------------
+
+export type QaDisagreement = {
+  interactionId: string | null;
+  liveVerdict: string;
+  humanBand: string;
+  humanScore: number | null;
+  suggestedRubricTweak: string;
+  applied: boolean;
+};
+
+export type QaDisagreements = {
+  applied: boolean;
+  count: number;
+  items: QaDisagreement[];
+};
+
+export async function fetchQaDisagreements(limit = 50): Promise<QaDisagreements> {
+  return apiGet<QaDisagreements>(`/eval/disagreements?limit=${limit}`);
+}
+
+export function useQaDisagreements(limit = 50) {
+  return useQuery({
+    queryKey: ["eval-disagreements", limit],
+    queryFn: () => fetchQaDisagreements(limit),
+    staleTime: 60_000,
+  });
+}

@@ -100,7 +100,6 @@ def compile_agent_studio_card(
     from db_prompt_studio.versions import (
         _prompt_guardrails,
         _prompt_persona,
-        _prompt_voice,
     )
 
     # Same mappers GET /prompt-versions uses. The editor JSON-roundtrips the
@@ -108,7 +107,6 @@ def compile_agent_studio_card(
     # because ``1`` and ``1.0`` were different keys, and omitted defaults
     # (``params``, ``style``) were a second identity.
     persona_for_key = _prompt_persona(persona if persona is not None else mouth.get("persona"))
-    voice_for_key = _prompt_voice(voice if voice is not None else mouth.get("voice"))
     guardrails_for_key = _prompt_guardrails(mouth.get("guardrails"))
     candidate_key = _content_key(
         card=card,
@@ -116,12 +114,12 @@ def compile_agent_studio_card(
         prompt=mouth.get("prompt"),
         persona=persona_for_key,
         guardrails=guardrails_for_key,
-        voice=voice_for_key,
         tuning=mouth.get("tuning"),
         skill_packs=attached or [],
     )
-    # Temporary RCA: identity prefixes only — no prompt text.
-    from agent_core.eval.provenance import _canon, content_key_for_version
+    # Which part moved when a key does not match: identity prefixes only, no
+    # prompt text. The voice is not in the key (see provenance) and so not here.
+    from agent_core.eval.provenance import _canon, content_key_for_version, judged_tuning
     import hashlib
 
     def _part(name: str, value: Any) -> str:
@@ -147,9 +145,8 @@ def compile_agent_studio_card(
                 _part("card", card),
                 _part("flow", graph),
                 _part("persona", persona_for_key),
-                _part("voice", voice_for_key),
                 _part("guard", guardrails_for_key),
-                _part("tuning", mouth.get("tuning")),
+                _part("tuning", judged_tuning(mouth.get("tuning"))),
             ]
         ),
     )
@@ -182,6 +179,17 @@ def compile_agent_studio_card(
         prompt=mouth.get("prompt"),
         prompt_guardrails=sub(mouth, "guardrails"),
     )
+    # Why a publish is refused, in the log and not only in the dialog: a
+    # blocked publish used to leave nothing server-side but a 200 on /compile.
+    blocking = [f"{g.gate}:{g.detail}" for g in report.gates if g.status == "fail"]
+    if blocking:
+        logger.info(
+            "publish.blocked bot=%s pv=%s key=%s gates=%s",
+            bot_id,
+            version_id,
+            candidate_key[:16],
+            blocking,
+        )
     from agent_core.fleet.compile import compile_bundle, fleet_gates
 
     # Warn-level, and appended rather than folded into `compile_card` because

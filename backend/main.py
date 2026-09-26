@@ -64,6 +64,9 @@ _AUTH_EXEMPT_PREFIXES = (
     "/twilio/voice/fallback",
     "/twilio/voice/stream-status",
     "/twilio/voice/call-status",
+    # Outbound TwiML document. Signature-checked. Not /twilio/voice/outbound,
+    # which places a call and stays behind the API key.
+    "/twilio/voice/connect",
     # Delivery receipts. Twilio carries no API key; the handler HMAC is the
     # authentication — same as the voice callbacks above. This path lived in
     # authz.PUBLIC_ROUTES and not here, so ApiKeyMiddleware 401'd it first.
@@ -74,6 +77,12 @@ _AUTH_EXEMPT_PREFIXES = (
     # because matching is `path == p or path.startswith(p + "/")`.
     "/webhooks/collections/payment-events",
     "/ws",
+    # AgentStudio live-call sockets: a one-use ticket minted by an
+    # authenticated POST is the credential (routers/agentstudio_gateway.py).
+    "/studio-ws",
+    # PayInt Voice Studio engine -> us: the shared hook token is checked in
+    # the handler (routers/voice_studio_hooks.py), like the payment webhooks.
+    "/voice-studio/hooks",
     "/.well-known/agent-card.json",
     # SmallWebRTC signalling. The WebRTC client cannot attach our API-key
     # header to its offer POST, and the standalone runner it replaces has no
@@ -107,6 +116,27 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        if path == "/studio-mcp" or path.startswith("/studio-mcp/"):
+            import voice_studio_mcp_keys
+
+            presented = (request.headers.get("x-api-key") or "").strip()
+            if not presented:
+                authorization = (request.headers.get("authorization") or "").strip()
+                if authorization.lower().startswith("bearer "):
+                    presented = authorization[7:].strip()
+            principal = await run_in_threadpool(voice_studio_mcp_keys.authenticate, presented)
+            if principal is None:
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            actor_id = principal["userId"]
+            request.state.actor_user_id = actor_id
+            request.state.studio_mcp_key = principal
+            actor_token = actor_context.set_actor_user_id(actor_id)
+            log_token = request_context.set_actor(actor_id)
+            try:
+                return await call_next(request)
+            finally:
+                request_context.reset_actor(log_token)
+                actor_context.reset_actor_user_id(actor_token)
         # A2A authenticates by client certificate, reported by the TLS
         # terminator -- but only while the feature is on. Off, the route is
         # an ordinary authenticated endpoint that answers 403 `a2a_disabled`.
@@ -343,12 +373,30 @@ def _warn_if_no_policy_rules() -> None:
 
     with db.engine.connect() as conn:
         resolved = policy_rules.resolve(conn, tenant_id=db.current_tenant())
-    if resolved is policy_rules.EMPTY or not resolved.rules:
-        logger.warning(
-            "no published statutory rule set for tenant %s — the contact gate runs on "
-            "module constants and stamps no policy_version; run scripts/seed_policy_rules.py",
-            db.current_tenant(),
-        )
+        if resolved is not policy_rules.EMPTY and resolved.rules:
+            return
+        states = [
+            str(r.get("publication_state") or "published")
+            for r in policy_rules.list_rule_sets(conn, tenant_id=db.current_tenant())
+            if r.get("scope") == "statutory"
+        ]
+    # Name the step that is actually missing. "Run the seed script" was the
+    # advice even with both sets already seeded and sitting as drafts, where
+    # re-running it does nothing and the fix is a submit and an approval.
+    waiting = [s for s in states if s in {"draft", "pending_approval", "rejected"}]
+    remedy = (
+        f"{len(waiting)} statutory set(s) await maker-checker publication "
+        f"({', '.join(sorted(set(waiting)))}) — submit and approve them under "
+        "Compliance → Statutory rules"
+        if waiting
+        else "run scripts/seed_policy_rules.py"
+    )
+    logger.warning(
+        "no published statutory rule set for tenant %s — the contact gate runs on "
+        "module constants and stamps no policy_version; %s",
+        db.current_tenant(),
+        remedy,
+    )
 
 
 @asynccontextmanager
@@ -368,10 +416,23 @@ async def lifespan(_app: FastAPI):
             "(only dev/test/local may boot without credentials)"
         )
     if not has_auth:
-        logger.warning(
-            "API_KEY / API_KEY_MAP unset — CRM routes are public. "
-            "Set credentials (required outside APP_ENV=dev/test/local)."
-        )
+        import entra
+
+        # Same three identity sources the auth middleware reads. With Entra
+        # configured it requires a credential on every CRM route, so "public"
+        # was false on any Entra deployment (CloudUnity answers 401 unsigned);
+        # a warning that states the opposite of reality trains people to ignore
+        # the one that is true.
+        if entra.configured():
+            logger.info(
+                "API_KEY / API_KEY_MAP unset — CRM routes accept Entra sign-in only; "
+                "non-browser clients have no key to present."
+            )
+        else:
+            logger.warning(
+                "API_KEY / API_KEY_MAP unset and Entra not configured — CRM routes "
+                "are public. Set credentials (required outside APP_ENV=dev/test/local)."
+            )
 
     try:
         await asyncio.to_thread(db.probe)
@@ -467,7 +528,8 @@ class StreamingAwareGZipMiddleware(GZipMiddleware):
     async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
         if scope["type"] == "http":
             path = str(scope.get("path") or "")
-            if path.endswith("/stream"):
+            # AgentStudio responses stream straight through from the engine.
+            if path.endswith("/stream") or path.startswith("/studio-api/"):
                 await self.app(scope, receive, send)
                 return
         await super().__call__(scope, receive, send)
@@ -1274,13 +1336,13 @@ register_error_handlers(app)
 # exception handler and lifespan hook above is wired before a route exists.
 # ---------------------------------------------------------------------------
 from api_support import _handle_write, _read_upload_capped, _MAX_UPLOAD_BYTES  # noqa: E402,F401  (tests and middleware reach them here)
-from routers import a2a, agent_studio, billing, compliance, crm, evals, floor, inbox, integrations, kb, outbound, payments, platform, routing, sandbox, telephony, voice_catalog, webhooks  # noqa: E402
+from routers import a2a, agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks  # noqa: E402
 
 # Appended flat rather than `include_router`: FastAPI 0.139 nests an included
 # router as one `_IncludedRouter` entry, and everything that walks `app.routes`
 # -- the authz coverage check, the response-model test, the voice websocket
 # test -- expects one APIRoute per route. Each router carries the app's
 # response class itself, so nothing is lost by not going through include.
-for _router_module in (a2a, agent_studio, billing, compliance, crm, evals, floor, inbox, integrations, kb, outbound, payments, platform, routing, sandbox, telephony, voice_catalog, webhooks):
+for _router_module in (a2a, agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks):
     for _route in _router_module.router.routes:
         app.router.routes.append(_route)

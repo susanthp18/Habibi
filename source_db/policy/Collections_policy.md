@@ -1,4 +1,4 @@
-# HDFC Bank — Retail Collections Policy (voice agent corpus)
+# BigTapp Bank — Retail Collections Policy (voice agent corpus)
 
 ## Late fee
 

@@ -182,6 +182,31 @@ def _maybe_scan_for_violations() -> None:
         logger.exception("compliance sweep failed")
 
 
+# Product routing profiles follow the documents they were written from: a new
+# product, a re-ingest or a prompt change regenerates them here, with no
+# migration or manual step (kb_products.py). Cheap when nothing changed -- one
+# fingerprint query per product, no model call.
+_PRODUCT_PROFILE_INTERVAL_S = 300.0
+_last_product_profiles = 0.0
+
+
+def _maybe_reconcile_product_profiles() -> None:
+    global _last_product_profiles
+
+    now = time.monotonic()
+    if now - _last_product_profiles < _PRODUCT_PROFILE_INTERVAL_S:
+        return
+    _last_product_profiles = now
+    try:
+        import kb_products
+
+        failed = [r for r in kb_products.reconcile() if r["status"] != "ready"]
+        if failed:
+            logger.warning("kb product profiles failed: %s", failed)
+    except Exception:
+        logger.exception("kb product profile reconcile failed")
+
+
 _RATE_LIMIT_PURGE_INTERVAL_S = 300.0
 _last_rate_limit_purge = 0.0
 
@@ -419,6 +444,7 @@ def main() -> None:
         _maybe_purge_rate_limit_counters()
         _maybe_autoscore_interactions()
         _maybe_garden_kb_gaps()
+        _maybe_reconcile_product_profiles()
         _maybe_run_eval_schedule()
         _maybe_drain_mcp_tasks()
         _maybe_policy_jobs()

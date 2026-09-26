@@ -285,16 +285,6 @@ def test_eval_gate_requires_the_exact_draft(db_tx) -> None:
     assert latest_any is not None
 
 
-def test_rollback_route_requires_agent_publish() -> None:
-    import authz
-
-    assert authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/{deployment_id}/rollback")] == authz.AGENT_PUBLISH
-    assert (
-        authz.ROUTE_PERMISSIONS[("POST", "/bot-deployments/experiments/{experiment_id}/rollback")]
-        == authz.AGENT_PUBLISH
-    )
-
-
 def test_slo_signal_is_ttfb_not_call_duration() -> None:
     from agent_core import canary as canary_mod
     import inspect

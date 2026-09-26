@@ -7,7 +7,7 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { Empty } from "@/components/ui/empty";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { useConfirm } from "@/components/ui/use-confirm";
-import { useRolesCatalog } from "@/api/agent-studio";
+import { useRolesCatalog } from "@/api/roles";
 import { ApiError } from "@/api/config";
 import {
   useCreateInvite,

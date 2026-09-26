@@ -8,10 +8,18 @@ run keeps the row id and the green report.
 
 ``content_key`` is the sha256 of everything that changes what the mouth says
 or may do: the card, the flow, the prompt, the persona, the guardrails, the
-voice, the tuning, the attached skill packs by content hash, and the grader
-version. G7/G8/G-OB9 accept a stored pass with the same key -- a republish of
+tuning, the attached skill packs by content hash, and the grader version.
+G7/G8/G-OB9 accept a stored pass with the same key -- a republish of
 identical content is not re-judged -- and refuse one with a different key
 however recent. G-F14 reports the provenance itself.
+
+Not the voice, and not ``tuning.tts``: how the words *sound* (which Azure
+voice, speed, pitch, speaking style). No suite judges audio -- every grader
+reads text -- so a Speed or Pitch change used to invalidate a regression and a
+red-team pass that could not have come out differently, and blocked publish
+until both were re-run. The voice is gated on its own terms on every compile:
+G15 (its language against the card's) and G17 (a vendor this bot can speak
+through).
 """
 
 from __future__ import annotations
@@ -60,6 +68,15 @@ def _canon(value: Any) -> str:
     )
 
 
+def judged_tuning(tuning: Any) -> Any:
+    """``tuning`` without its ``tts`` block -- the audio rendering no grader
+    hears. The LLM, turn-taking and listening settings stay: they change what
+    is said and when."""
+    if isinstance(tuning, dict):
+        return {k: v for k, v in tuning.items() if k != "tts"}
+    return tuning
+
+
 def content_key(
     *,
     card: Any,
@@ -67,7 +84,6 @@ def content_key(
     prompt: str | None,
     persona: Any,
     guardrails: Any,
-    voice: Any,
     tuning: Any,
     skill_packs: Iterable[Any] = (),
 ) -> str:
@@ -82,8 +98,7 @@ def content_key(
         (prompt or "").strip(),
         _canon(persona),
         _canon(guardrails),
-        _canon(voice),
-        _canon(tuning),
+        _canon(judged_tuning(tuning)),
         _canon(packs),
         GRADER_VERSION,
     ]
@@ -109,7 +124,6 @@ def content_key_for_version(version: dict[str, Any]) -> str:
         prompt=version.get("prompt"),
         persona=version.get("persona"),
         guardrails=version.get("guardrails"),
-        voice=version.get("voice"),
         tuning=version.get("tuning"),
         skill_packs=packs,
     )

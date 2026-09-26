@@ -280,7 +280,13 @@ class ToolGrant:
         # the voice floor names the flow tools, which are no catalog entry and
         # are rendered by the FlowManager, not the catalog.
         if renderable is not None:
-            base &= renderable
+            # Flow-control names are not catalog entries. Intersecting the
+            # whole floor with the catalog dropped begin_negotiate,
+            # begin_dispute, begin_wrap_up, not_account_holder and
+            # refuse_verification on every voice call (VS-E6043500C0), so the
+            # node that should have moved on had no hop and kept asking.
+            flow = VOICE_FLOW_TOOLS if channel == VOICE else frozenset()
+            base = (base & renderable) | (base & flow)
         grant = cls(
             channel=channel,
             allowed=frozenset(),

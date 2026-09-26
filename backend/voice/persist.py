@@ -117,6 +117,8 @@ def _voice_source_payload(
     bot_id: str,
     accountable_user_id: str | None,
     tuning_clamp: list[dict[str, Any]] | None = None,
+    sandbox: dict[str, Any] | None = None,
+    hours_waived: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "source": "voice",
@@ -130,6 +132,14 @@ def _voice_source_payload(
     }
     if tuning_clamp:
         payload["tuningClamp"] = list(tuning_clamp)
+    if hours_waived:
+        # Admitted outside the calling window by an operator waiver; the
+        # post-call scorecard reads this instead of re-judging the clock.
+        payload["hoursWaived"] = True
+    if sandbox:
+        # A rehearsal, not a customer call: the Audit screen labels it so.
+        payload["environment"] = "sandbox"
+        payload.update({k: v for k, v in sandbox.items() if v})
     return payload
 
 
@@ -164,6 +174,8 @@ def start_voice_call(
     started_at: datetime | None = None,
     accountable_user_id: str | None = None,
     tuning_clamp: list[dict[str, Any]] | None = None,
+    sandbox: dict[str, Any] | None = None,
+    hours_waived: bool = False,
 ) -> dict[str, Any]:
     """INSERT active interaction + voice_sessions row. Returns ids.
 
@@ -184,7 +196,11 @@ def start_voice_call(
     interaction_id = _sid("CL")
     host = socket.gethostname()
     started = started_at or _now()
-    transport_n = transport if transport in ("smallwebrtc", "twilio", "daily", "asterisk") else "smallwebrtc"
+    transport_n = (
+        transport
+        if transport in ("smallwebrtc", "websocket", "twilio", "daily", "asterisk")
+        else "smallwebrtc"
+    )
     direction_n = direction if direction in ("inbound", "outbound") else "inbound"
 
     with db.engine.begin() as conn:
@@ -230,6 +246,8 @@ def start_voice_call(
                         bot_id=bid,
                         accountable_user_id=accountable_user_id,
                         tuning_clamp=tuning_clamp,
+                        sandbox=sandbox,
+                        hours_waived=hours_waived,
                     )
                 ),
                 **retention_params,
@@ -393,6 +411,7 @@ def record_voice_tool_call(
     error: str | None = None,
     latency_ms: int | None = None,
     args: dict[str, Any] | None = None,
+    channel: str = "voice",
 ) -> None:
     """Audit one voice tool call into ``bot_tool_calls``.
 
@@ -421,7 +440,7 @@ def record_voice_tool_call(
             conn,
             interaction_id=interaction_id,
             transcript_turn_id=turn_id,
-            channel="voice",
+            channel=channel,
             tool_name=tool_name,
             # Was `{}` with the note "voice args are bound server-side from
             # VoiceSession". True of the *identity* arguments and false of
@@ -880,6 +899,7 @@ def evaluate_and_flag_bot_turn(
     now_hour: int | None = None,
     direction: str = "outbound",
     simulated: bool = False,
+    hours_waived: bool = False,
     recording_disclosed: bool = False,
 ) -> list[str]:
     flags = evaluate_guardrails(
@@ -926,9 +946,16 @@ def evaluate_and_flag_bot_turn(
                     now_hour=hour,
                     direction=direction,
                     simulated=simulated,
+                    hours_waived=hours_waived,
                     recording_disclosed=recording_disclosed
                     or "missing-recording-disclosure" not in flags,
-                    miranda_disclosed=False,
+                    # The recording notice is the disclosure this book gives.
+                    # Hardcoding this False flagged missing-mini-miranda on
+                    # every dues turn of VS-E6043500C0 and the critic then
+                    # told the model to "say a required disclosure", which it
+                    # heard as the recording line again.
+                    miranda_disclosed=recording_disclosed
+                    or "missing-recording-disclosure" not in flags,
                     guardrail_flags=tuple(flags),
                 ),
                 conn=conn,

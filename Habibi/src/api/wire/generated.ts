@@ -693,6 +693,8 @@ export const ExportJobResponse = z.object({
   "status": z.enum(["queued", "ready", "failed"]),
   "downloadCount": z.number(),
   "entitiesRedacted": z.number(),
+  "kind": z.enum(["redaction", "dashboard"]).optional(),
+  "mailStatus": z.string().nullable().optional(),
 }).passthrough();
 export const ConsentChannelResponse = z.object({
   "channel": z.enum(["call", "whatsapp", "sms", "email"]),
@@ -1039,6 +1041,12 @@ export const PolicyExportBundleResponse = z.object({
   "facts": PolicyExportBundleFactsResponse,
   "text": z.string(),
 }).passthrough();
+export const PolicyRuleItemResponse = z.object({
+  "kind": z.string(),
+  "channel": z.string().nullable().optional(),
+  "params": z.record(z.string(), z.unknown()),
+  "citation": z.string().nullable().optional(),
+}).passthrough();
 export const PolicyRuleSetResponse = z.object({
   "id": z.string(),
   "scope": z.string(),
@@ -1052,6 +1060,10 @@ export const PolicyRuleSetResponse = z.object({
   "published_by_user_id": z.string().nullable().optional(),
   "approved_by_user_id": z.string().nullable().optional(),
   "changed_rules": z.array(z.string()).nullable().optional(),
+  "notes": z.string().nullable().optional(),
+  "rules": z.array(PolicyRuleItemResponse).optional(),
+  "selfApprovable": z.boolean().optional(),
+  "self_approval_reason": z.string().nullable().optional(),
 }).passthrough();
 export const PolicyRuleSetCreatedResponse = z.object({
   "id": z.string(),
@@ -1541,6 +1553,12 @@ export const DocumentDeliveryAttemptResponse = z.object({
   "status": z.string(),
   "attemptNumber": z.number(),
 }).passthrough();
+export const CustomerOutreachResponse = z.object({
+  "conversationId": z.string(),
+  "messageId": z.string(),
+  "channel": z.enum(["whatsapp", "sms"]),
+  "createdConversation": z.boolean(),
+}).passthrough();
 export const OutboundHourResponse = z.object({
   "hour": z.number(),
   "attempts": z.number(),
@@ -1742,6 +1760,25 @@ export const EvalSuiteRunResponse = z.object({
   "errored": z.number(),
   "total": z.number(),
   "trials": z.array(EvalTrialResponse),
+}).passthrough();
+export const EvalRequiredRunItemResponse = z.object({
+  "kind": z.string(),
+  "suiteId": z.string(),
+  "reportId": z.string(),
+  "status": z.enum(["pass", "fail", "error"]),
+  "failed": z.number(),
+  "total": z.number(),
+}).passthrough();
+export const EvalRequiredSkipResponse = z.object({
+  "kind": z.string(),
+  "reason": z.string(),
+}).passthrough();
+export const EvalRequiredRunResponse = z.object({
+  "botId": z.string(),
+  "promptVersionId": z.string(),
+  "status": z.enum(["pass", "fail"]),
+  "ran": z.array(EvalRequiredRunItemResponse),
+  "skipped": z.array(EvalRequiredSkipResponse),
 }).passthrough();
 export const EvalSuiteResponse = z.object({
   "id": z.string(),
@@ -2469,6 +2506,19 @@ export const KbRetrievalResultItem = z.object({
   "score": z.number(),
   "matchedTerms": z.array(z.string()),
 }).passthrough();
+export const KbRoutingScore = z.object({
+  "productKey": z.string(),
+  "score": z.number(),
+}).passthrough();
+export const KbRouting = z.object({
+  "tier": z.string(),
+  "keys": z.array(z.string()).optional(),
+  "score": z.number().nullable().optional(),
+  "margin": z.number().nullable().optional(),
+  "candidates": z.array(z.string()).optional(),
+  "scores": z.array(KbRoutingScore).optional(),
+  "widened": z.boolean().optional(),
+}).passthrough();
 export const KbRetrieveResponse = z.object({
   "results": z.array(KbRetrievalResultItem),
   "draftAnswer": z.string().nullable().optional(),
@@ -2480,6 +2530,8 @@ export const KbRetrieveResponse = z.object({
   "stageMs": z.record(z.string(), z.number()).optional(),
   "reranked": z.boolean().optional(),
   "cached": z.boolean().optional(),
+  "productScope": z.array(z.string()).nullable().optional(),
+  "routing": KbRouting.nullable().optional(),
 }).passthrough();
 export const KbStatsResponse = z.object({
   "docs": z.number(),
@@ -2594,6 +2646,23 @@ export const KbGapResponse = z.object({
   "linkedDocumentId": z.string().nullable().optional(),
   "linkedFaqId": z.string().nullable().optional(),
   "linkedPromptVersionId": z.string().nullable().optional(),
+}).passthrough();
+export const KbProductPhrasing = z.object({
+  "id": z.string(),
+  "text": z.string(),
+  "origin": z.enum(["title", "document", "generated", "operator"]),
+  "createdAt": z.string().nullable().optional(),
+}).passthrough();
+export const KbProductResponse = z.object({
+  "productKey": z.string(),
+  "title": z.string(),
+  "docCount": z.number().optional(),
+  "summary": z.string().nullable().optional(),
+  "status": z.enum(["pending", "ready", "failed"]),
+  "error": z.string().nullable().optional(),
+  "generatedAt": z.string().nullable().optional(),
+  "model": z.string().nullable().optional(),
+  "phrasings": z.array(KbProductPhrasing).optional(),
 }).passthrough();
 export const OfferHealthResponse = z.object({
   "window": z.string(),
@@ -2961,6 +3030,12 @@ export const DecisionFeedbackResponse = z.object({
   "customerId": z.string(),
   "verdict": z.string(),
 }).passthrough();
+export const TreatmentEnactResponse = z.object({
+  "decisionId": z.string(),
+  "acted": z.boolean(),
+  "note": z.string(),
+  "enactedRef": z.string().nullable().optional(),
+}).passthrough();
 export const TreatmentCaseResponse = z.object({
   "id": z.string(),
   "customerId": z.string(),
@@ -2977,6 +3052,21 @@ export const TreatmentCaseResponse = z.object({
   "rationale": z.string().nullable().optional(),
   "lastDecidedAt": z.string().nullable().optional(),
   "lastAttemptAt": z.string().nullable().optional(),
+}).passthrough();
+export const TreatmentOpsRowResponse = z.object({
+  "decisionId": z.string(),
+  "customerId": z.string(),
+  "customerName": z.string(),
+  "accountId": z.string().nullable().optional(),
+  "action": z.string(),
+  "expectedValueInr": z.number().nullable().optional(),
+  "scheduledAt": z.string().nullable().optional(),
+  "mode": z.string(),
+  "enacted": z.boolean(),
+  "enactedRef": z.string().nullable().optional(),
+  "rationale": z.string().nullable().optional(),
+  "presentationId": z.string().nullable().optional(),
+  "presentationStatus": z.string().nullable().optional(),
 }).passthrough();
 export const ReachStatsResponse = z.object({
   "attempts": z.number(),
@@ -3746,6 +3836,7 @@ export const VoiceCapacityResponse = z.object({
 export const VoiceStatusResponse = z.object({
   "ok": z.boolean(),
   "webrtcUrl": z.string().nullable().optional(),
+  "transport": z.enum(["websocket", "webrtc"]).optional(),
   "detail": z.string(),
   "capacity": VoiceCapacityResponse.nullable().optional(),
 }).passthrough();
@@ -3753,6 +3844,8 @@ export const VoiceSandboxStartResponse = z.object({
   "sessionId": z.string(),
   "webrtcUrl": z.string(),
   "sandboxRunId": z.string().nullable().optional(),
+  "transport": z.enum(["websocket", "webrtc"]).optional(),
+  "wsUrl": z.string().nullable().optional(),
 }).passthrough();
 export const VoiceSandboxStopResponse = z.object({
   "ok": z.boolean(),
@@ -4047,6 +4140,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["PATCH /document-requests/{document_id}", DocumentRequestResponse],
   ["POST /document-requests/{document_id}/delivery-attempts", DocumentDeliveryAttemptResponse],
   ["POST /customers/{customer_id}/notes", CustomerResponse],
+  ["POST /customers/{customer_id}/outreach", CustomerOutreachResponse],
   ["GET /customers/{customer_id}/outbound/hours", z.array(OutboundHourResponse)],
   ["GET /rubric", RubricResponse],
   ["GET /scorecards", z.array(ScorecardListResponse)],
@@ -4060,6 +4154,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /calibration-sessions", z.array(CalibrationSessionResponse)],
   ["PATCH /calibration-sessions/{session_id}", CalibrationSessionResponse],
   ["POST /eval/suites/{suite_id}/run", EvalSuiteRunResponse],
+  ["POST /eval/cards/{bot_id}/run-required", EvalRequiredRunResponse],
   ["GET /eval/suites", z.array(EvalSuiteResponse)],
   ["GET /eval/reports", z.array(EvalReportSummaryResponse)],
   ["GET /eval/reports/{report_id}", EvalReportRowResponse],
@@ -4155,6 +4250,8 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /kb/gaps/{gap_id}/link", KbGapResponse],
   ["GET /kb/snapshots", z.array(KbSnapshotResponse)],
   ["POST /kb/snapshots", KbSnapshotResponse],
+  ["GET /kb/products", z.array(KbProductResponse)],
+  ["POST /kb/products/{product_key}/phrasings", KbProductResponse],
   ["GET /offers/health", OfferHealthResponse],
   ["POST /offers/{decisionId}/response", OfferResponseResponse],
   ["GET /demo/outbound-call", DemoOutboundTargetResponse],
@@ -4168,7 +4265,9 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /treatment/holds", TreatmentHoldResponse],
   ["POST /treatment/holds/{hold_id}/release", TreatmentHoldResponse],
   ["POST /treatment/decisions/{decision_id}/feedback", DecisionFeedbackResponse],
+  ["POST /treatment/decisions/{decision_id}/enact", TreatmentEnactResponse],
   ["GET /treatment/cases", z.array(TreatmentCaseResponse)],
+  ["GET /treatment/ops/{kind}", z.array(TreatmentOpsRowResponse)],
   ["GET /outbound/stats", ReachStatsResponse],
   ["GET /outbound/attempts", z.array(CallAttemptResponse)],
   ["GET /outbound/reasons", z.array(NonpaymentReasonResponse)],

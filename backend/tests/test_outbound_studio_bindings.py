@@ -496,11 +496,15 @@ def test_demo_call_product_fixes_are_wired() -> None:
     # Behaviour is covered directly by
     # test_kb_plan.py::test_empty_results_are_never_confident.
     assert "confident = answerable(results)" in kb
-    assert "query_looks_product(query)" in tools
+    # Product scope is the model's `product` argument, then semantic routing,
+    # then what the call settled on -- never a keyword test over the query.
+    assert "fallback_product_keys=fallback" in tools
+    assert "query_looks_product" not in tools
     assert 'session.extra["upsell_blocked"] = reason' in tools
     assert 'blocked = session.extra.get("upsell_blocked")' in tools
     assert 'session.extra.pop("upsell_blocked", None)' not in tools
-    assert "first_names_match" in tools
+    assert "ask only for the last 4 digits of their registered mobile" in tools
+    assert "first_names_match" not in tools
     assert "AFTER the caller has spoken" in natural
     assert "first words of the call" in natural
     # The mission briefing is a developer block, not a string spliced into the

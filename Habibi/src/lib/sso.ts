@@ -2,6 +2,7 @@
  * Operator SSO. Entra owns the password; this module is the only MSAL owner.
  */
 import {
+  CacheLookupPolicy,
   InteractionRequiredAuthError,
   PublicClientApplication,
   type AccountInfo,
@@ -98,12 +99,50 @@ export async function completeRedirect(): Promise<AccountInfo | null> {
 }
 
 function tokenRequest(account: AccountInfo): RedirectRequest {
-  return { account, scopes: [apiScope()] };
+  // offline_access is what stores a refresh token. Without it every page load
+  // falls through to a hidden login.microsoftonline.com frame, and that frame
+  // is what sat on "Checking your access" for sixteen seconds.
+  return { account, scopes: [apiScope(), "openid", "profile", "offline_access"] };
 }
 
 let tokenCache: { value: string; expiresAt: number } | null = null;
+let inflight: Promise<string | null> | null = null;
 
-export async function getAccessToken(): Promise<string | null> {
+/** A refresh-token POST that has not returned. Not an iframe wait. */
+const REFRESH_TOKEN_MS = 4_000;
+
+/**
+ * The operator has a Microsoft account, but the silent frame did not return a
+ * token. This is a session renewal, not a missing PayInt role.
+ */
+export class SessionRenewalNeeded extends Error {
+  constructor() {
+    super("Microsoft session needs to be renewed");
+    this.name = "SessionRenewalNeeded";
+  }
+}
+
+export function isSessionRenewal(error: unknown): boolean {
+  return error instanceof SessionRenewalNeeded;
+}
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SessionRenewalNeeded()), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+async function acquireAccessToken(): Promise<string | null> {
   const pca = await getMsal();
   if (!pca) return null;
   rememberAccount(pca);
@@ -111,7 +150,15 @@ export async function getAccessToken(): Promise<string | null> {
   const now = Date.now();
   if (tokenCache && tokenCache.expiresAt - 60_000 > now) return tokenCache.value;
   try {
-    const silent = await pca.acquireTokenSilent(tokenRequest(activeAccount));
+    // Cache, then the refresh token. Never the hidden frame: that frame does
+    // not finish in this browser, and the default policy waits on it.
+    const silent = await withDeadline(
+      pca.acquireTokenSilent({
+        ...tokenRequest(activeAccount),
+        cacheLookupPolicy: CacheLookupPolicy.AccessTokenAndRefreshToken,
+      }),
+      REFRESH_TOKEN_MS,
+    );
     tokenCache = {
       value: silent.accessToken,
       expiresAt: silent.expiresOn?.getTime() ?? now + 5 * 60_000,
@@ -119,12 +166,23 @@ export async function getAccessToken(): Promise<string | null> {
     return silent.accessToken;
   } catch (err) {
     tokenCache = null;
-    if (err instanceof InteractionRequiredAuthError) {
-      await pca.acquireTokenRedirect(tokenRequest(activeAccount));
-      return null;
-    }
-    throw err;
+    if (err instanceof SessionRenewalNeeded) throw err;
+    if (err instanceof InteractionRequiredAuthError) throw new SessionRenewalNeeded();
+    throw new SessionRenewalNeeded();
   }
+}
+
+export async function getAccessToken(): Promise<string | null> {
+  const now = Date.now();
+  if (tokenCache && tokenCache.expiresAt - 60_000 > now) return tokenCache.value;
+  // One renewal for the whole page. Every widget calling /me was starting
+  // its own frame, and each one waited out the timeout.
+  if (!inflight) {
+    inflight = acquireAccessToken().finally(() => {
+      inflight = null;
+    });
+  }
+  return inflight;
 }
 
 export function entraDisplayName(): string {
@@ -149,7 +207,7 @@ export async function signInWithMicrosoft(): Promise<{ ok: true } | { ok: false;
   if (!pca) {
     return { ok: false, reason: "Microsoft sign-in could not start in this browser." };
   }
-  await pca.loginRedirect({ scopes: [apiScope()] });
+  await pca.loginRedirect({ scopes: [apiScope(), "openid", "profile", "offline_access"] });
   return { ok: true };
 }
 

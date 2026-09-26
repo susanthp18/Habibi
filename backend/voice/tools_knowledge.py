@@ -81,19 +81,19 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             except Exception:
                 logger.debug("kb enrich suppress failed", exc_info=True)
 
-        # Corpus scope follows the node, unless the query is clearly about a
-        # product. escalate_close / pre_close used to hard-filter to
-        # ``collections``, so a travel-insurance exclusions question retrieved
-        # nothing and the judge then fail-opened as confident.
-        product_keys = product_keys_for_node(state.current_node)
-        if kb_tool.query_looks_product(query):
-            product_keys = None
+        # Which product. The model says so in the tool call when it knows; when
+        # it does not, retrieval routes the question by meaning against each
+        # product's phrasings (agent_core/product_resolver.py). This is only the
+        # fallback for when neither can tell: the product this call already
+        # settled on, else the node's own corpus. It used to be the decision --
+        # a keyword test chose between the node's collections scope and "any
+        # product", so "something for my travel to Singapore" was searched in
+        # the collections FAQ (VS-7956F27B36).
+        product_arg = str(args.get("product") or "").strip() or None
+        node_keys = product_keys_for_node(state.current_node)
+        fallback = [state.kb_product] if state.kb_product else node_keys
         snapshot = kb_snapshot_id
-        # Collections FAQs *are* policy text, so bias retrieval that way. On the
-        # product corpus, let the query decide — exclusions stay exclusions.
-        prefer_policy = (
-            kb_tool.wants_policy_detail(query) if product_keys is None else True
-        )
+        prefer_policy = kb_tool.wants_policy_detail(query)
         # The run-up, and the caller's own last words out of it.
         #
         # "No customer turn is available here" was true of this function's
@@ -117,7 +117,8 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 customer_text=caller_text,
                 recent=recent or None,
                 interaction_id=session.interaction_id,
-                product_keys=product_keys,
+                product=product_arg,
+                fallback_product_keys=fallback,
                 kb_snapshot_id=snapshot,
                 prefer_policy=prefer_policy,
                 confidence_threshold=KB_CONFIDENCE_THRESHOLD,
@@ -146,6 +147,32 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
 
         data = result.data
         rows = data["results"]
+        # The conversation is now about whatever product this settled on, and
+        # the rest of the call's lookups -- the enricher's included -- fall back
+        # to it. The node's collections scope used to stick instead, so the
+        # enricher grounded "what types are there?" in the collections FAQ and
+        # the model improvised (VS-7956F27B36).
+        routing = data.get("routing") or {}
+        scope = [str(k) for k in (routing.get("productScope") or []) if k]
+        listed = [str(p.get("productKey") or "") for p in data.get("products") or []]
+        settled = [k for k in scope if k != "collections"] or (listed if len(listed) == 1 else [])
+        if settled:
+            state.kb_product = settled[0]
+        if settled or data.get("mode") == "catalog":
+            state.product_scope = "product"
+        logger.info(
+            "kb scope · session=%s · arg=%s · tier=%s · searched=%s · remembered=%s · "
+            "mode=%s · confident=%s · top=%.3f · route=%s",
+            session.session_id,
+            product_arg,
+            routing.get("tier"),
+            ",".join(scope) or "all",
+            state.kb_product,
+            data.get("mode"),
+            data.get("confident"),
+            float(data.get("topScore") or 0),
+            routing.get("scores"),
+        )
         # Catalog name-only rows have no retrieval score. Counting them as
         # rag_hits made a names-only listing look like ten grounded passages.
         session.rag_hits += count_scored_rag_hits(rows)

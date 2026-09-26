@@ -52,7 +52,7 @@ def build(ctx: ToolBuildContext) -> None:
 
     _TERMINAL_NODES = frozenset({"wrap_up", "terminate_politely", "escalate_close", "call_ended"})
 
-    def _traced(name: str, handler: Callable[..., Any]) -> Callable[..., Any]:
+    def _traced(name: str, handler: Callable[..., Any], spec: Any) -> Callable[..., Any]:
         """Time a tool handler and queue an audit row for it.
 
         Voice tool calls were never written to ``bot_tool_calls`` — the table
@@ -72,33 +72,64 @@ def build(ctx: ToolBuildContext) -> None:
             started = time.perf_counter()
             ok = True
             error: str | None = None
+            raised_at: str | None = None
             # Pipecat Flows calls a handler as (args, flow_manager); the audit
             # row wants the first of those. Read defensively rather than
             # unpacking: a handler signature change must break the handler, not
             # silently break the audit trail with it.
             call_args = args[0] if args and isinstance(args[0], dict) else None
             result: Any = None
+            blocked: str | None = None
             try:
                 from voice.call_trace import event as _trace_event
                 from voice.call_trace import session_fields
 
-                arg_keys = ",".join(sorted(call_args)) if call_args else None
+                accepted_keys = {key for arg in spec.args for key in (arg.name, *arg.aliases)}
+                arg_keys = ",".join(
+                    key
+                    for arg in spec.args
+                    for key in (arg.name, *arg.aliases)
+                    if call_args and key in call_args
+                ) or None
+                arg_types = ",".join(
+                    f"{key}:{type(call_args[key]).__name__}"
+                    for arg in spec.args
+                    for key in (arg.name, *arg.aliases)
+                    if call_args and key in call_args
+                ) or None
+                missing_required = ",".join(
+                    arg.name
+                    for arg in spec.args
+                    if arg.required and not (
+                        call_args and any(call_args.get(key) not in (None, "") for key in (arg.name, *arg.aliases))
+                    )
+                ) or None
                 _trace_event(
                     "tool.called",
                     **session_fields(session),
                     tool=name,
                     node=state.current_node,
+                    turn=session.turn_index,
                     arg_keys=arg_keys,
+                    arg_types=arg_types,
+                    unknown_args=len(set(call_args) - accepted_keys) if call_args else 0,
+                    missing_required=missing_required,
+                    args_type=type(args[0]).__name__ if args else "missing",
+                    positional_args=len(args),
+                    keyword_args=len(kwargs),
                 )
-            except Exception:
-                logger.debug("tool.called trace failed", exc_info=True)
-            from agent_core.tools.gates import enforce_human_gate
-
-            identity_ok = bool(session.identity_verified) and bool(session.customer_id) and (
-                not persist.is_unknown_caller(session.customer_id)
-            )
-            blocked = enforce_human_gate(name, card=agent_card, identity_verified=identity_ok)
+            except Exception as exc:
+                logger.warning(
+                    "tool.called trace failed tool=%s session=%s error_type=%s",
+                    name, getattr(session, "session_id", None), type(exc).__name__,
+                )
             try:
+                from agent_core.tools.gates import enforce_human_gate
+
+                identity_ok = bool(session.identity_verified) and bool(session.customer_id) and (
+                    not persist.is_unknown_caller(session.customer_id)
+                )
+                blocked = enforce_human_gate(name, card=agent_card, identity_verified=identity_ok)
                 if blocked:
                     result = ({"ok": False, "error": blocked}, None)
                     return result
@@ -107,6 +138,11 @@ def build(ctx: ToolBuildContext) -> None:
             except Exception as exc:
                 ok = False
                 error = type(exc).__name__
+                tb = exc.__traceback__
+                while tb is not None and tb.tb_next is not None:
+                    tb = tb.tb_next
+                if tb is not None:
+                    raised_at = f"{tb.tb_frame.f_code.co_name}:{tb.tb_lineno}"
                 raise
             finally:
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -128,8 +164,11 @@ def build(ctx: ToolBuildContext) -> None:
                             latency_ms=latency_ms,
                             args=call_args,
                         )
-                    except Exception:
-                        logger.debug("tool call audit enqueue failed", exc_info=True)
+                    except Exception as exc:
+                        logger.warning(
+                            "tool call audit enqueue failed tool=%s session=%s error_type=%s",
+                            name, getattr(session, "session_id", None), type(exc).__name__,
+                        )
                 try:
                     from voice.call_trace import event as _trace_event
                     from voice.call_trace import session_fields
@@ -148,14 +187,26 @@ def build(ctx: ToolBuildContext) -> None:
                         "tool.result",
                         **session_fields(session),
                         tool=name,
+                        turn=session.turn_index,
                         ok=1 if ok else 0,
                         error=error,
                         next=next_name,
                         ms=latency_ms,
+                        result_type=type(payload).__name__,
+                        result_fields=len(payload) if isinstance(payload, dict) else None,
+                        result_items=len(result) if isinstance(result, tuple) else None,
+                        next_type=type(next_node).__name__ if next_node is not None else None,
+                        blocked=1 if blocked else None,
+                        suppressed=1 if isinstance(payload, dict) and payload.get("suppressed") else None,
+                        audit_sink=1 if sink is not None else 0,
+                        raised_at=raised_at,
                         **extra,
                     )
-                except Exception:
-                    logger.debug("tool.result trace failed", exc_info=True)
+                except Exception as exc:
+                    logger.warning(
+                        "tool.result trace failed tool=%s session=%s error_type=%s",
+                        name, getattr(session, "session_id", None), type(exc).__name__,
+                    )
 
         return _wrapper
 
@@ -173,7 +224,7 @@ def build(ctx: ToolBuildContext) -> None:
             from agent_core.tools.handoff_allowlist import handoff_tool_spec
 
             spec = handoff_tool_spec(spec, agent_card=agent_card, bot_id=bot_id)
-        return spec.to_flows_schema(_traced(name, handler))
+        return spec.to_flows_schema(_traced(name, handler, spec))
 
 
     def _node(name: str, *, namespace: str | None = None) -> dict[str, Any] | None:
@@ -306,7 +357,7 @@ def build(ctx: ToolBuildContext) -> None:
     #: Carries the disclosure and hands the turn back to the caller, because the
     #: node it transitions into listens rather than speaks.
     _FALLBACK_GREETING = (
-        "Hello, this is Priya from HDFC Bank Collections. "
+        "Hello, this is Priya from BigTapp Bank Collections. "
         "This call is recorded for quality and compliance. "
         "How can I help you today?"
     )

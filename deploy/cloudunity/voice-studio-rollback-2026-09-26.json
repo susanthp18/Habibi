@@ -1,0 +1,293 @@
+{
+  "capturedAt": "2026-09-26T10:29:41.484162+00:00",
+  "workflowId": 1,
+  "definitionId": 4,
+  "version": 4,
+  "publishedDefinition": {
+    "nodes": [
+      {
+        "id": "global",
+        "type": "globalNode",
+        "position": {
+          "x": 0,
+          "y": -220
+        },
+        "data": {
+          "name": "Persona and rules",
+          "prompt": "You are Kaia, an assistant speaking on behalf of BigTapp Bank.\nIt is now {{current_time_Asia/Kolkata}} ({{current_weekday_Asia/Kolkata}}); resolve dates the customer says against this.\nThis conversation's channel is {{channel | fallback:voice}}.\nSpeak in short, warm, plain sentences, one question at a time, in the customer's language.\nNever use Markdown, lists or symbols. On voice you are speaking on the phone. On whatsapp you are\nchatting in WhatsApp text messages: the customer wrote to you, so never say you are calling, never\nmention call recording, and keep each message to two or three short sentences.\nFollow fair-practice rules: be respectful, never threaten, never mention legal action, never\ncall the customer names, and never discuss the account with anyone but the account holder.\nUntil verify_identity returns verified, do not reveal why you are calling: never say the words collections, overdue,\npayment, due or debt, and share no account detail (amount, dues, account number).\nNever read out full account or phone numbers; the last four digits at most.\nOn voice say amounts in rupees naturally, for example \"twelve thousand five hundred rupees\";\non whatsapp write them as figures, for example \u20b912,500, and dates as 30 Sep.\nIf the customer is distressed, mentions hardship, illness or job loss, acknowledge it and offer a callback\nfrom a specialist. If they ask for a person, threaten legal action or become abusive, say you will\nconnect them to a colleague and use transfer_to_human straight away, even before verification.\nIf they ask you not to call again, acknowledge it, say you will note it, and close politely.\nNever invent facts; if you do not know, say you will have someone follow up.\nWhy this call was placed (private: never say any of it until verify_identity returns verified):\n{{mission_brief | fallback:The customer may have an overdue payment.}}"
+        }
+      },
+      {
+        "id": "start",
+        "type": "startCall",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "data": {
+          "name": "Greeting",
+          "prompt": "If this is an outbound call ({{direction}} is outbound): greet, ask to speak with {{first_name | fallback:the account holder}}, say you are Kaia from BigTapp Bank and that the call may be recorded. Do not say why you are calling, and never mention an account, amount or overdue payment before identity is verified: say only that it is about an important matter for them. Once they confirm they are the right person, take the Right person path. If this is an inbound call: greet, say this is BigTapp Bank, the call may be recorded, and ask how you can help. On whatsapp (channel is {{channel | fallback:voice}}): the account holder wrote to us from their registered number, so never ask whether you are speaking to them and never mention recording; take the Right person path at once.",
+          "add_global_prompt": true,
+          "tool_uuids": [],
+          "pre_call_fetch_mode": "inbound",
+          "pre_call_fetch_url": "http://api:8000/voice-studio/hooks/precall",
+          "pre_call_fetch_credential_uuid": "aca2a505-184f-4e5b-821d-8fa447bce38e"
+        }
+      },
+      {
+        "id": "verify",
+        "type": "agentNode",
+        "position": {
+          "x": 320,
+          "y": 0
+        },
+        "data": {
+          "name": "Verify identity",
+          "prompt": "Before anything about the account, verify the customer. On whatsapp ask for the last four digits of their account number and call verify_identity with method account_tail. On a call ask for the last four digits of the mobile number registered with the bank and call verify_identity with method phone_last4. As soon as it returns verified true, take the Verified path straight away, before saying anything about the account. If it is not verified and attempts remain, ask once more. Never tell them which digits are right. Call verify_identity only with four digits the customer has just given you; until then, just ask for them.",
+          "add_global_prompt": true,
+          "tool_uuids": [
+            "f43517fc-a727-4891-97ce-85fb67c64390",
+            "30532f89-c11d-4a96-b055-c1855e5750fe"
+          ]
+        }
+      },
+      {
+        "id": "position",
+        "type": "agentNode",
+        "position": {
+          "x": 640,
+          "y": 0
+        },
+        "data": {
+          "name": "Explain the overdue amount",
+          "prompt": "Call account_position. Tell the customer, in one or two sentences, the overdue amount and how many days it is past due, and the minimum due if there is one. Ask whether they are able to pay. If they dispute the amount, use flag_dispute.",
+          "add_global_prompt": true,
+          "tool_uuids": [
+            "80274442-58a5-4300-b992-ea0a28e1c51e",
+            "72700470-68d9-4d49-926f-4c93ed04b540",
+            "30532f89-c11d-4a96-b055-c1855e5750fe"
+          ],
+          "document_uuids": [
+            "c2b96c12-6fa2-40bc-88e6-91c1805fb725",
+            "0cd62b8f-1242-4a44-a06b-84fdebf071ea",
+            "07f88afa-c2b2-4d0f-ac6b-ca968c6f6e91",
+            "7e32a293-97ea-42e8-ac04-82adfd0fe327",
+            "f1229cda-76c8-438b-a251-b5eca9da5d94",
+            "f09076a4-be9b-4fee-bfb8-6cabe3fe2c8a",
+            "d3fd9910-85a9-4913-b3a3-26bc647f3b44",
+            "138d0801-58ba-4a11-8f3d-5fd716723a86",
+            "fb0d55fe-38fe-48f2-bccf-1b3058f21f78",
+            "242d9998-dd6d-470c-8e36-88a31c045341",
+            "04e40934-4627-4f85-bc42-4e1d89ff8c61",
+            "b840a37a-5134-4c0b-b4d4-5437184b851c",
+            "59d7f202-2ce9-42c4-8f68-14913a113215",
+            "d63670b2-be67-4f63-b157-e207431b16b4",
+            "eccec317-a189-4b7c-8bff-4cc8d0497299",
+            "2092cd48-1ef7-4c9b-ba1c-ab079127f684",
+            "97608a14-950e-4873-8280-04d47e56ec1a",
+            "de33f066-166a-4984-a14f-a950dc56b86b",
+            "7d62cc95-85cb-4df9-889e-2bad95ed6000",
+            "4d1d903b-d28c-4ebf-a95d-929d45dc6bd4",
+            "62707da2-2806-4420-bd8b-d1b9d97e0cc4",
+            "4278be08-4eb9-4183-ae83-5da3dccdcf00",
+            "d0d9ac6d-7626-47da-8955-9386374bfe38",
+            "36cc342b-d1f1-4082-bd71-33602be7fa40",
+            "dcae1bce-8a99-492e-b5f2-1d4c9ba8b469",
+            "4018e3e9-fb97-4f0a-a963-68e974c58ec4",
+            "16277705-b19a-4726-9b1d-11a68621d139",
+            "5063884b-06b9-48ae-b890-bd4060bdece6",
+            "b2b6e06a-20a0-475a-8f72-af217bbb0611",
+            "f8c9a4e9-07b9-4483-bf1a-d8d219de3913"
+          ]
+        }
+      },
+      {
+        "id": "resolve",
+        "type": "agentNode",
+        "position": {
+          "x": 960,
+          "y": 0
+        },
+        "data": {
+          "name": "Agree next step",
+          "prompt": "Aim for a promise to pay: agree an amount (at least the minimum due) and a date within the next seven days, read them back, and as soon as they confirm, call promise_to_pay with the amount in rupees and the date as YYYY-MM-DD (resolved against today's date). If they cannot commit, or the promise cannot be changed, offer a callback: first ask what time suits them, then call request_callback once, with that time. If they already paid, thank them and note it with flag_dispute type already_paid.",
+          "add_global_prompt": true,
+          "tool_uuids": [
+            "c60c6823-e31e-486e-8e17-54f9443ee440",
+            "722c7b48-14a8-4e79-a41c-1f2c1782f55e",
+            "72700470-68d9-4d49-926f-4c93ed04b540",
+            "30532f89-c11d-4a96-b055-c1855e5750fe"
+          ],
+          "document_uuids": [
+            "c2b96c12-6fa2-40bc-88e6-91c1805fb725",
+            "0cd62b8f-1242-4a44-a06b-84fdebf071ea",
+            "07f88afa-c2b2-4d0f-ac6b-ca968c6f6e91",
+            "7e32a293-97ea-42e8-ac04-82adfd0fe327",
+            "f1229cda-76c8-438b-a251-b5eca9da5d94",
+            "f09076a4-be9b-4fee-bfb8-6cabe3fe2c8a",
+            "d3fd9910-85a9-4913-b3a3-26bc647f3b44",
+            "138d0801-58ba-4a11-8f3d-5fd716723a86",
+            "fb0d55fe-38fe-48f2-bccf-1b3058f21f78",
+            "242d9998-dd6d-470c-8e36-88a31c045341",
+            "04e40934-4627-4f85-bc42-4e1d89ff8c61",
+            "b840a37a-5134-4c0b-b4d4-5437184b851c",
+            "59d7f202-2ce9-42c4-8f68-14913a113215",
+            "d63670b2-be67-4f63-b157-e207431b16b4",
+            "eccec317-a189-4b7c-8bff-4cc8d0497299",
+            "2092cd48-1ef7-4c9b-ba1c-ab079127f684",
+            "97608a14-950e-4873-8280-04d47e56ec1a",
+            "de33f066-166a-4984-a14f-a950dc56b86b",
+            "7d62cc95-85cb-4df9-889e-2bad95ed6000",
+            "4d1d903b-d28c-4ebf-a95d-929d45dc6bd4",
+            "62707da2-2806-4420-bd8b-d1b9d97e0cc4",
+            "4278be08-4eb9-4183-ae83-5da3dccdcf00",
+            "d0d9ac6d-7626-47da-8955-9386374bfe38",
+            "36cc342b-d1f1-4082-bd71-33602be7fa40",
+            "dcae1bce-8a99-492e-b5f2-1d4c9ba8b469",
+            "4018e3e9-fb97-4f0a-a963-68e974c58ec4",
+            "16277705-b19a-4726-9b1d-11a68621d139",
+            "5063884b-06b9-48ae-b890-bd4060bdece6",
+            "b2b6e06a-20a0-475a-8f72-af217bbb0611",
+            "f8c9a4e9-07b9-4483-bf1a-d8d219de3913"
+          ]
+        }
+      },
+      {
+        "id": "end_done",
+        "type": "endCall",
+        "position": {
+          "x": 0,
+          "y": 200
+        },
+        "data": {
+          "name": "Close - agreed",
+          "prompt": "Confirm what was agreed in one sentence, thank them, and say goodbye.",
+          "add_global_prompt": true
+        }
+      },
+      {
+        "id": "end_unverified",
+        "type": "endCall",
+        "position": {
+          "x": 320,
+          "y": 200
+        },
+        "data": {
+          "name": "Close - not verified",
+          "prompt": "Explain you cannot discuss the account without verification, suggest they call the number on their card, thank them, and say goodbye.",
+          "add_global_prompt": true
+        }
+      },
+      {
+        "id": "end_wrong",
+        "type": "endCall",
+        "position": {
+          "x": 640,
+          "y": 200
+        },
+        "data": {
+          "name": "Close - wrong person",
+          "prompt": "Apologise for the trouble, do not mention why you called, and say goodbye.",
+          "add_global_prompt": true
+        }
+      },
+      {
+        "id": "trigger",
+        "type": "trigger",
+        "position": {
+          "x": -320,
+          "y": 0
+        },
+        "data": {
+          "name": "API trigger",
+          "trigger_path": "5848c2195c804cf9af9c1b62336ab642",
+          "enabled": true
+        }
+      },
+      {
+        "id": "webhook",
+        "type": "webhook",
+        "position": {
+          "x": -320,
+          "y": 220
+        },
+        "data": {
+          "name": "PayInt: file the call",
+          "enabled": true,
+          "http_method": "POST",
+          "endpoint_url": "http://api:8000/voice-studio/hooks/run-completed",
+          "credential_uuid": "aca2a505-184f-4e5b-821d-8fa447bce38e",
+          "payload_template": {
+            "workflow_run_id": "{{workflow_run_id}}",
+            "workflow_id": "{{workflow_id}}",
+            "recording_url": "{{recording_url}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-start-verify",
+        "source": "start",
+        "target": "verify",
+        "data": {
+          "label": "Right person",
+          "condition": "The account holder is on the line (outbound), the caller wants help with their account (inbound), or the channel is whatsapp."
+        }
+      },
+      {
+        "id": "e-start-end_wrong",
+        "source": "start",
+        "target": "end_wrong",
+        "data": {
+          "label": "Wrong person",
+          "condition": "The person says the account holder is not available or it is a wrong number."
+        }
+      },
+      {
+        "id": "e-verify-position",
+        "source": "verify",
+        "target": "position",
+        "data": {
+          "label": "Verified",
+          "condition": "verify_identity has returned verified true."
+        }
+      },
+      {
+        "id": "e-verify-end_unverified",
+        "source": "verify",
+        "target": "end_unverified",
+        "data": {
+          "label": "Not verified",
+          "condition": "Verification failed with no attempts left, or the caller refuses to verify."
+        }
+      },
+      {
+        "id": "e-position-resolve",
+        "source": "position",
+        "target": "resolve",
+        "data": {
+          "label": "Discuss payment",
+          "condition": "The customer has heard the amount and the conversation turns to paying."
+        }
+      },
+      {
+        "id": "e-resolve-end_done",
+        "source": "resolve",
+        "target": "end_done",
+        "data": {
+          "label": "Agreed",
+          "condition": "A promise to pay or a callback has been recorded, or the customer disputes and it is flagged."
+        }
+      }
+    ]
+  },
+  "numbers": [
+    {
+      "configId": 1,
+      "phoneId": 1,
+      "addressLast4": "2674",
+      "inboundWorkflowId": 1
+    }
+  ]
+}

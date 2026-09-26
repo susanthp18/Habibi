@@ -725,7 +725,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-ArjunNeural",
@@ -1772,7 +1772,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-AartiNeural",
@@ -2551,7 +2551,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-AartiNeural",
@@ -3603,7 +3603,7 @@
     "params": {},
     "pauseMs": 320,
     "pitch": 0,
-    "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+    "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
     "speed": 1.0,
     "style": null,
     "voiceId": "en-IN-AartiNeural",
@@ -4654,7 +4654,7 @@
     "params": {},
     "pauseMs": 320,
     "pitch": 0,
-    "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+    "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
     "speed": 1.0,
     "style": null,
     "voiceId": "en-IN-AartiNeural",
@@ -7858,7 +7858,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-ArjunNeural",
@@ -7939,7 +7939,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-AartiNeural",
@@ -8020,7 +8020,7 @@
      "params": {},
      "pauseMs": 320,
      "pitch": 0,
-     "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+     "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
      "speed": 1.0,
      "style": null,
      "voiceId": "en-IN-AartiNeural",
@@ -8106,7 +8106,7 @@
     "params": {},
     "pauseMs": 320,
     "pitch": 0,
-    "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+    "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
     "speed": 1.0,
     "style": null,
     "voiceId": "en-IN-AartiNeural",
@@ -8305,7 +8305,7 @@
      "budgetPct": 0.0,
      "costPerCall": 0.0,
      "id": "hdfc.retail",
-     "name": "HDFC Retail",
+     "name": "BigTapp Bank",
      "resolvedCalls": 0,
      "spend": 11.189041,
      "spendPrev": 149.022624
@@ -8317,7 +8317,7 @@
      "ahtSec": 0,
      "budgetInr": 2500000.0,
      "id": "hdfc.retail",
-     "name": "HDFC Retail",
+     "name": "BigTapp Bank",
      "resolvedCalls": 0,
      "spendShare": 0.0
     }
@@ -8343,7 +8343,7 @@
      "transcript"
     ],
     "status": "ready",
-    "watermark": "HDFC Retail"
+    "watermark": "BigTapp Bank"
    }
   ],
   "key": "GET /export-jobs",
@@ -8643,7 +8643,7 @@
       "id": "CL-6CC040F8A6-T1",
       "speaker": "bot",
       "t": 2,
-      "text": "Good evening, this is Priya from HDFC Bank. This call is recorded for quality and compliance. Can you please confirm I\u2019m speaking with Susanth?"
+      "text": "Good evening, this is Priya from BigTapp Bank. This call is recorded for quality and compliance. Can you please confirm I\u2019m speaking with Susanth?"
      },
      "preceding": null,
      "snippet": "The call was not identified as a debt-collection call."
@@ -8779,7 +8779,7 @@
       "id": "CL-100005-t0",
       "speaker": "bot",
       "t": 0,
-      "text": "Hi, I'm Kaia, an AI assistant from HDFC. This call is recorded for training and compliance."
+      "text": "Hi, I'm Kaia, an AI assistant from BigTapp. This call is recorded for training and compliance."
      },
      {
       "id": "CL-100005-t1",
@@ -8833,7 +8833,7 @@
       "id": "CL-100039-t0",
       "speaker": "bot",
       "t": 0,
-      "text": "Hi, I'm Kaia, an AI assistant from HDFC. This call is recorded for training and compliance."
+      "text": "Hi, I'm Kaia, an AI assistant from BigTapp. This call is recorded for training and compliance."
      },
      {
       "id": "CL-100039-t1",
@@ -8879,7 +8879,7 @@
       "id": "CL-100018-t0",
       "speaker": "agent",
       "t": 0,
-      "text": "Good afternoon, this is a recorded call from HDFC Collections. My name is Aarav \u2014 may I confirm your identity?"
+      "text": "Good afternoon, this is a recorded call from BigTapp Collections. My name is Aarav \u2014 may I confirm your identity?"
      },
      {
       "id": "CL-100018-t1",
@@ -11424,7 +11424,7 @@
     "ragSuggestions": [
      "Hospital Protect360 \u2014 Policy \u2014 YOUR HOSPITAL PROTECT360 POLICY\n\nHere is Your Hospital Protect360 Policy. Please examine this insurance Policy, to ensure that You understand the terms and conditions and that the cover You require is being provided. It is important that the documents are read together and any amendments to avoid misunderstanding.\n\nWe recommend that You keep this Policy in a safe place.\n\nIf You have any questions after reading these documents, please contact Your insurance agent, broker or Us.\n\nIf You need to change anything, please contact Us immediately.",
      "Maid Protect360 \u2014 Benefits \u2014 Maid Protect360 \u2014 Benefits\n\nMAID PROTECT360 PRO - BENEFITS AND COVERAGE EXTRACTED FROM TABLE\n\nSection 1 - Personal Accident Coverage:\nPersonal Accident Accidental Death benefit provides sixty thousand dollars for Basic plan, seventy thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and one hundred thousand dollars for Exclusive plan.\n\nPersonal Accident Permanent Disablement benefit provides sixty thousand dollars for Basic plan, seventy thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and one hundred thousand dollars for Exclusive plan.\n\nAccidental Medical Reimbursement covers when your helper sustains an injury and requires outpatient medical treatment with benefits of one thousand dollars for Basic plan, two thousand dollars for Enhanced plan, three thousand dollars for Premier plan, and five thousand dollars for Exclusive plan.\n\nClinical Visit coverage provides fifty dollars per visit for Basic plan, seventy five dollars per visit for Enhanced plan, one hundred dollars per visit for Premier plan, and two hundred dollars per visit for Exclusive plan.\n\nDental treatment coverage provides no coverage for Basic plan, 100$ benefit coverage for Enhanced plan, $250 per accident for Premier plan, and four hundred dollars per accident for Exclusive plan.\n\nAmbulance Fee coverage provides no coverage for Basic plan, one hundred dollars per year for Enhanced plan, one hundred dollars per year for Premier plan, and one hundred dollars per year for Exclusive plan.\n\nTreatment by a Chinese Physician provides no coverage for Basic plan, no coverage for Enhanced plan, one hundred dollars per accident for Premier plan, and two hundred dollars per accident for Exclusive plan.\n\nPhysiotherapy coverage provides no coverage for Basic plan, no coverage for Enhanced plan, two hundred fifty dollars per year for Premier plan, and three hundred dollars per year for Exclusive plan.\n\nSection 2 - Hospital and Surgical Expenses:\nHospital and Surgical Expenses Annual Limit covers when your helper is hospitalized due to an injury or illness and extends to cover Infectious Diseases with up to ninety days Pre and Post hospitalization or Day Surgery, providing sixty thousand dollars annual limit for Basic plan, sixty thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and eighty thousand dollars for Exclusive plan.\n\nHospital Cash benefi\u2026",
-     "Car Protect360 \u2014 Benefits \u2014 Car Protect360 \u2014 Benefits\n\nTABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at an HDFC Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at an HDFC Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available."
+     "Car Protect360 \u2014 Benefits \u2014 Car Protect360 \u2014 Benefits\n\nTABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at a BigTapp Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at a BigTapp Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available."
     ],
     "sentiment": "neutral",
     "sla": "ok",
@@ -11558,7 +11558,7 @@
    {
     "id": "canned-greeting",
     "label": "Greeting",
-    "text": "Hi, this is Priya from HDFC Collections. How can I help you today?"
+    "text": "Hi, this is Priya from BigTapp Collections. How can I help you today?"
    },
    {
     "id": "canned-late-fee",
@@ -12297,7 +12297,7 @@
      "benefits",
      "hdfc"
     ],
-    "title": "HDFC Retail Collections \u2014 Benefits",
+    "title": "BigTapp Retail Collections \u2014 Benefits",
     "type": "benefits",
     "updatedBy": "System",
     "version": "v1.0"
@@ -12317,7 +12317,7 @@
      "policy",
      "hdfc"
     ],
-    "title": "HDFC Retail Collections \u2014 Policy",
+    "title": "BigTapp Retail Collections \u2014 Policy",
     "type": "policy",
     "updatedBy": "System",
     "version": "v1.0"
@@ -12358,7 +12358,7 @@
     "hits": 27,
     "id": "kb-benefits-car-c1",
     "index": 1,
-    "text": "TABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at an HDFC Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at an HDFC Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available.",
+    "text": "TABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at a BigTapp Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at a BigTapp Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available.",
     "tokens": 460
    }
   ],
@@ -12368,7 +12368,7 @@
  {
   "body": [
    {
-    "answer": "HDFC Assurance Motor policy gives you the freedom to choose your own workshop in Singapore. However, if you choose to use our HDFC Assurance Approved Workshop for repair, you can be assured that genuine manufacturers\u2019 parts are used and it comes with a full 9 months repair warranty. Own Damage Excess will be halved if you choose to repair your vehicle at our HDFC Assurance Approved Workshop. To view the list of HDFC Assurance Approved Workshops, please click here .",
+    "answer": "BigTapp Assurance Motor policy gives you the freedom to choose your own workshop in Singapore. However, if you choose to use our BigTapp Assurance Approved Workshop for repair, you can be assured that genuine manufacturers\u2019 parts are used and it comes with a full 9 months repair warranty. Own Damage Excess will be halved if you choose to repair your vehicle at our BigTapp Assurance Approved Workshop. To view the list of BigTapp Assurance Approved Workshops, please click here .",
     "enabled": true,
     "id": "faq-car-001",
     "intent": "car.9d597f52a585",
@@ -12386,7 +12386,7 @@
     "updatedAt": "2026-09-11T06:33:31.741817+00:00"
    },
    {
-    "answer": "For HDFC Assurance Motor policy, your windscreen cover will be automatically reinstated at no cost to you without affecting NCD.",
+    "answer": "For BigTapp Assurance Motor policy, your windscreen cover will be automatically reinstated at no cost to you without affecting NCD.",
     "enabled": true,
     "id": "faq-car-003",
     "intent": "car.80c8bddb81da",
@@ -12464,6 +12464,120 @@
   ],
   "key": "GET /kb/snapshots",
   "path": "/kb/snapshots"
+ },
+ {
+  "body": [
+   {
+    "productKey": "car",
+    "title": "Car Protect360",
+    "docCount": 2,
+    "summary": "Car Protect360 is a car insurance policy that covers loss or damage to your car (including fire or theft and other insured causes) up to market value, along with third-party liability. It is for vehicle owners/drivers who want protection for their insured car, windscreen claims, towing/assistance, and related expenses.",
+    "status": "ready",
+    "error": null,
+    "generatedAt": "2026-09-25T12:17:08.553098+00:00",
+    "model": "gpt-5.4-nano",
+    "phrasings": [
+     {
+      "id": "kbu-eb7cf268385f4eae",
+      "text": "Can I choose my preferred workshop for accident repairs?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:08.553706+00:00"
+     },
+     {
+      "id": "kbu-818eaf20f9bf49da",
+      "text": "If I am not at fault for the accident but make an own damage claim, will my NCD be affected?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:08.553706+00:00"
+     },
+     {
+      "id": "kbu-0c6976a4a0d542b7",
+      "text": "If I make a claim for Windscreen, do I have to reinstate my windscreen cover after a claim? Will my NCD be affected?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:08.553706+00:00"
+     },
+     {
+      "id": "kbu-67e332cb74434883",
+      "text": "If the other party offers private settlement, should I agree?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:08.553706+00:00"
+     }
+    ]
+   },
+   {
+    "productKey": "choice",
+    "title": "Choice Protect360",
+    "docCount": 2,
+    "summary": "Choice Protect360 is an insurance plan that provides benefits such as Accidental Death & Permanent Disablement, accident medical reimbursement, daily hospital income, and personal accident reimbursements like mobility aid/ambulance services, purchase protection, bill protector, and funeral expenses. It is designed for individuals who want protection against accidental events, with options including family/dependent child cover and optional home contents coverage.",
+    "status": "ready",
+    "error": null,
+    "generatedAt": "2026-09-25T12:17:15.753550+00:00",
+    "model": "gpt-5.4-nano",
+    "phrasings": [
+     {
+      "id": "kbu-40bab16ba8584499",
+      "text": "Does Choice Protect360 cover Child(ren)?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:15.754467+00:00"
+     },
+     {
+      "id": "kbu-966ba822c55b4db6",
+      "text": "Does this policy have age restrictions?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:15.754467+00:00"
+     },
+     {
+      "id": "kbu-df0779ff707c496e",
+      "text": "How does No Claim Discount(NCD) work?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:15.754467+00:00"
+     },
+     {
+      "id": "kbu-0a3851d3ab1f46ce",
+      "text": "How do I make a claim?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:15.754467+00:00"
+     }
+    ]
+   },
+   {
+    "productKey": "collections",
+    "title": "BigTapp Bank Collections",
+    "docCount": 2,
+    "summary": "BigTapp Bank Collections helps borrowers manage overdue EMI/loan payments through promise-to-pay dates, hardship review callbacks, and auto-debit (mandate) updates after a bounce, and provides NOC/account-closure documentation after clearing dues. It is for verified account holders facing late payments, EMI failures, or financial hardship.",
+    "status": "ready",
+    "error": null,
+    "generatedAt": "2026-09-25T12:17:21.747140+00:00",
+    "model": "gpt-5.4-nano",
+    "phrasings": [
+     {
+      "id": "kbu-ca3a4bca1c374bb2",
+      "text": "Can I restructure my loan or settle for less?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:21.747722+00:00"
+     },
+     {
+      "id": "kbu-9a31228bb7974a74",
+      "text": "Can you waive the late fee?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:21.747722+00:00"
+     },
+     {
+      "id": "kbu-c7ebe74224df4fc8",
+      "text": "I lost my job / I am in financial hardship. What are my options?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:21.747722+00:00"
+     },
+     {
+      "id": "kbu-7e75dda963ed4606",
+      "text": "Is there a grace period after the due date?",
+      "origin": "document",
+      "createdAt": "2026-09-25T12:17:21.747722+00:00"
+     }
+    ]
+   }
+  ],
+  "key": "GET /kb/products",
+  "path": "/kb/products"
  },
  {
   "body": {
@@ -14416,7 +14530,7 @@
      "sentiment": 0.0,
      "sentimentLabel": "neutral",
      "systemKind": null,
-     "text": "Hello, this is Priya calling from HDFC Bank regarding your loan account. This call is recorded for quality. Am I speaking with Rahul Sharma?",
+     "text": "Hello, this is Priya calling from BigTapp Bank regarding your loan account. This call is recorded for quality. Am I speaking with Rahul Sharma?",
      "tokenCount": 35,
      "tokens": 35,
      "ts": 1787603900950,
@@ -14451,7 +14565,7 @@
      "groundedIn": [
       {
        "chunkId": "kb-policy-collections-c1",
-       "docTitle": "HDFC Retail Collections \u2014 Policy",
+       "docTitle": "BigTapp Retail Collections \u2014 Policy",
        "heading": "Late fee",
        "snippet": "Late payment fees apply when the minimum amount due is not paid by the due date\nprinted on the statement. The late fee amount is disclosed on the monthly\nstatem"
       }

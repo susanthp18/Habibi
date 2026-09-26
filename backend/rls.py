@@ -51,6 +51,12 @@ logger = logging.getLogger(__name__)
 #: One policy name everywhere, so ``apply`` can replace its own work idempotently
 #: without touching a policy some DBA added by hand.
 POLICY_NAME = "tenant_isolation"
+#: The read-only half on tables whose write side is stricter than their read
+#: side. A single ``FOR ALL`` policy gates UPDATE and DELETE by its USING
+#: clause -- the *read* predicate -- so a tenant could delete a statutory rule
+#: set it could not insert. There, ``POLICY_NAME`` carries the write predicate
+#: for every command and this one widens SELECT only.
+READ_POLICY_NAME = "tenant_isolation_read"
 
 #: Rooted tables whose ``tenant_id IS NULL`` rows are *global by design* --
 #: readable by every tenant, writable by none of them through the application
@@ -62,8 +68,15 @@ POLICY_NAME = "tenant_isolation"
 #: Membership is a claim about the schema, checked in ``tests/test_rls.py``:
 #: each table here must declare the NULL meaning (a CHECK, a partial unique
 #: index) rather than merely tolerate it. The read side (USING) admits NULL;
-#: the write side (WITH CHECK) does not, so a tenant cannot publish a global
-#: row -- that is the owner's job, by migration or seed.
+#: the write side (WITH CHECK) admits it only inside a declared platform scope
+#: (``platform_scope.enter``, which requires ``perm-platform-write``), so a
+#: tenant still cannot publish a global row.
+#:
+#: The write side is inherited. A child of a global table (``policy_rules``,
+#: ``budget_rules``, ``budget_alert_events``) used to copy the parent's *read*
+#: predicate into its WITH CHECK, so any tenant could add rules to a statutory
+#: set -- rewriting the law every other tenant runs under -- while the set
+#: itself was locked.
 GLOBAL_WHEN_NULL: frozenset[str] = frozenset(
     {
         # scope = 'statutory' <=> tenant_id IS NULL (sql/03_consent.sql).
@@ -80,6 +93,8 @@ GLOBAL_WHEN_NULL: frozenset[str] = frozenset(
 #: parameter closes that window, and :func:`enable` proves the value is present
 #: before it commits.
 _GUC_EXPR = f"current_setting('{tenant_context.GUC}', true)"
+#: Set only by ``platform_scope.enter``, transaction-local.
+_PLATFORM_EXPR = "current_setting('app.platform_scope', true) = 'global'"
 
 
 @dataclass(frozen=True)
@@ -212,7 +227,9 @@ def plan(conn: Any) -> list[TablePolicy]:
                 orphan_predicate="TRUE",
                 parents=(),
                 weak=False,
-                check_predicate=own,
+                check_predicate=(
+                    f"({own} OR ({_quote(table)}.tenant_id IS NULL AND {_PLATFORM_EXPR}))"
+                ),
             )
             continue
         policies[table] = TablePolicy(
@@ -297,9 +314,18 @@ def _build_policy(
         _exists(table, fk, policies[fk["dst_table"]], counter, tenant_scoped=False)
         for fk in chosen
     )
+    # Writes follow the parents' *write* side wherever one is stricter.
+    check_predicate = None
+    if any(policies[fk["dst_table"]].check_predicate for fk in chosen):
+        check_predicate = " OR ".join(
+            _exists(table, fk, policies[fk["dst_table"]], counter, tenant_scoped=True, write=True)
+            for fk in chosen
+        )
     if len(chosen) > 1:
         predicate = f"({predicate})"
         orphan_predicate = f"({orphan_predicate})"
+        if check_predicate:
+            check_predicate = f"({check_predicate})"
 
     return TablePolicy(
         table=table,
@@ -308,6 +334,7 @@ def _build_policy(
         orphan_predicate=orphan_predicate,
         parents=tuple(fk["dst_table"] for fk in chosen),
         weak=not strong,
+        check_predicate=check_predicate,
     )
 
 
@@ -318,6 +345,7 @@ def _exists(
     counter: _AliasCounter,
     *,
     tenant_scoped: bool,
+    write: bool = False,
 ) -> str:
     """``EXISTS (SELECT 1 FROM parent alias WHERE <join> AND <parent predicate>)``."""
     alias = counter.next()
@@ -325,7 +353,12 @@ def _exists(
         f"{alias}.{_quote(dst)} = {_quote(table)}.{_quote(src)}"
         for src, dst in zip(fk["src_cols"], fk["dst_cols"])
     )
-    inner_source = parent.predicate if tenant_scoped else parent.orphan_predicate
+    if not tenant_scoped:
+        inner_source = parent.orphan_predicate
+    elif write:
+        inner_source = parent.check_predicate or parent.predicate
+    else:
+        inner_source = parent.predicate
     inner = inner_source.replace(f"{_quote(parent.table)}.", f"{alias}.")
     return f"EXISTS (SELECT 1 FROM {_quote(parent.table)} {alias} WHERE {joins} AND {inner})"
 
@@ -405,15 +438,23 @@ def apply(conn: Any, policies: list[TablePolicy] | None = None) -> list[str]:
     executed: list[str] = []
     for policy in policies:
         table = _quote(policy.table)
-        drop = f"DROP POLICY IF EXISTS {POLICY_NAME} ON {table}"
-        create = (
-            f"CREATE POLICY {POLICY_NAME} ON {table} "
-            f"FOR ALL USING ({policy.predicate}) "
-            f"WITH CHECK ({policy.check_predicate or policy.predicate})"
-        )
-        conn.execute(text(drop))
-        conn.execute(text(create))
-        executed.extend([drop, create])
+        write = policy.check_predicate or policy.predicate
+        statements = [
+            f"DROP POLICY IF EXISTS {POLICY_NAME} ON {table}",
+            f"DROP POLICY IF EXISTS {READ_POLICY_NAME} ON {table}",
+            # Every command, on the write predicate: which rows may be updated
+            # or deleted is a write question, not a read one.
+            f"CREATE POLICY {POLICY_NAME} ON {table} FOR ALL USING ({write}) WITH CHECK ({write})",
+        ]
+        if policy.check_predicate:
+            # Permissive policies OR per command, so SELECT sees read ∪ write
+            # (= read) while INSERT/UPDATE/DELETE see only the write side.
+            statements.append(
+                f"CREATE POLICY {READ_POLICY_NAME} ON {table} FOR SELECT USING ({policy.predicate})"
+            )
+        for stmt in statements:
+            conn.execute(text(stmt))
+        executed.extend(statements)
     return executed
 
 
@@ -424,13 +465,14 @@ def drop(conn: Any) -> list[str]:
     executed: list[str] = []
     rows = conn.execute(
         text(
-            "SELECT tablename FROM pg_policies "
-            " WHERE schemaname = 'public' AND policyname = :name ORDER BY tablename"
+            "SELECT tablename, policyname FROM pg_policies "
+            " WHERE schemaname = 'public' AND policyname IN (:name, :read) "
+            " ORDER BY tablename, policyname"
         ),
-        {"name": POLICY_NAME},
-    ).scalars()
-    for table in list(rows):
-        stmt = f"DROP POLICY IF EXISTS {POLICY_NAME} ON {_quote(table)}"
+        {"name": POLICY_NAME, "read": READ_POLICY_NAME},
+    ).all()
+    for table, name in rows:
+        stmt = f"DROP POLICY IF EXISTS {name} ON {_quote(table)}"
         conn.execute(text(stmt))
         executed.append(stmt)
     return executed

@@ -522,3 +522,13 @@ def test_resolve_records_how_the_turn_was_grounded() -> None:
     assert source == "exact"
     assert wait_ms is not None and wait_ms >= 0
     assert reset == (None, None)
+
+
+def test_the_cooldown_ends_with_the_turn_it_grounded() -> None:
+    """A tool call grounds *its* turn. The flat 25s outlived it, so the next
+    question ("what types are there?") got no passages (VS-7956F27B36)."""
+    cache = KbCache(interaction_id_getter=lambda: None)
+    cache.suppress()
+    assert cache.skip_reason(_POLICY_Q) == "cooldown"
+    cache.note_turn_start()
+    assert cache.skip_reason(_POLICY_Q) != "cooldown"

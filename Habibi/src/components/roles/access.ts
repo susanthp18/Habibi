@@ -1,4 +1,4 @@
-import type { RolesCatalog } from "@/api/agent-studio";
+import type { RolesCatalog } from "@/api/roles";
 
 export function normalizeRoleName(name: string) {
   return name.trim().toLowerCase().replace(/[-\s]/g, "_");

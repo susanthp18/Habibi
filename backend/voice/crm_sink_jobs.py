@@ -17,6 +17,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _hours_waived(session_or_extra: Any) -> bool:
+    """The dial was admitted outside the calling window by an operator waiver.
+
+    Only the demo handset gets that waiver (``db_outbound`` logs it at admission),
+    and a demo call outside the window cannot exist without it: admission would
+    have refused the dial. ``demo=1`` rides the stream parameters.
+    """
+    from voice.amd import is_demo_call
+
+    extra = getattr(session_or_extra, "extra", session_or_extra)
+    return is_demo_call(extra if isinstance(extra, dict) else None)
+
+
 def _session_waiver_cap(session: Any) -> float | None:
     extra = getattr(session, "extra", None) or {}
     raw = extra.get("max_waiver_inr")
@@ -154,8 +167,22 @@ def handle(sink: "CrmSink", job: _Job) -> None:
                 (sink.session.extra or {}).get("call_direction") or sink.call_direction
             ),
             simulated=sink.simulated_call,
+            hours_waived=_hours_waived(sink.session),
             recording_disclosed=bool(p.get("recording_disclosed")),
         )
+        try:
+            # Every rule a bot turn broke, the turn it broke it on. These were
+            # only written to the interaction row, read at QA review.
+            sink._trace(
+                "guardrail.turn",
+                turn=int(p["turn_index"]),
+                flags=",".join(flags) if flags else None,
+                intent=p.get("intent"),
+                verified=1 if sink.session.identity_verified else 0,
+                disclosed=1 if p.get("recording_disclosed") else 0,
+            )
+        except Exception as exc:
+            logger.warning("guardrail.turn trace failed error_type=%s", type(exc).__name__)
         sink._drain_whispers()
         if "live-qa-auto-barge" in flags:
             sink.enqueue("live_qa_barge", reason=next(
@@ -181,7 +208,10 @@ def handle(sink: "CrmSink", job: _Job) -> None:
         sink.enqueue_critique(
             bot_text=p["text"],
             user_text=p.get("customer_text") or "",
-            guardrail_flags=flags,
+            # Contact hours were decided at dial admission. A spoken reply
+            # cannot undo that decision, so keep the QA flag but do not tell
+            # the model its wording caused an hours breach.
+            guardrail_flags=[f for f in flags if f != "hours-breach"],
             recent_bot_turns=list(p.get("prior_bot_turns") or []),
         )
         persist.heartbeat(sink.session.session_id)

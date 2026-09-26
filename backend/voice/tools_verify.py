@@ -23,7 +23,6 @@ from agent_core.tools.catalog import (
     CATALOG,
 )
 from voice import persist
-from voice.names import first_names_match
 from voice.session import to_money
 
 from voice.tool_state import (
@@ -259,6 +258,19 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 "allowed": list(_VERIFY_METHODS),
             }, None
 
+        # The outbound ceremony asks for the registered mobile's last four.
+        # A model once passed those spoken digits as account_tail, which matched
+        # the account by coincidence and marked a different factor verified.
+        # Reject the wrong factor without spending an attempt; the same spoken
+        # digits can be retried with phone_match immediately.
+        if _outbound_leg() and method_n == "account_tail":
+            return {
+                "ok": False,
+                "error": "wrong_verification_factor",
+                "hint": "retry_phone_match_with_spoken_digits",
+                "say": "do not ask for the digits again; use phone_match for the mobile digits just spoken",
+            }, None
+
         raw = value.strip()
         digits = "".join(ch for ch in raw if ch.isdigit())
         lookup_method = method_n
@@ -267,35 +279,15 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         # Reject hallucinated / placeholder values before burning an attempt.
         if method_n == "phone_match":
             if len(digits) < 4:
-                # Outbound we already dialled this number. A first-name confirm
-                # against the mission / bound customer is enough — last-4 is
-                # the inbound second factor, not a ceremony we invented for
-                # someone we called.
-                outbound = _outbound_leg()
-                mission = session.extra.get("mission")
-                mission = mission if isinstance(mission, dict) else {}
-                expected = (
-                    state.customer_name
-                    or session.extra.get("expected_customer_name")
-                    or mission.get("customerName")
-                    or mission.get("firstName")
-                )
-                bound_id = session.customer_id or mission.get("customerId")
-                if (
-                    outbound
-                    and expected
-                    and bound_id
-                    and first_names_match(raw, str(expected))
-                ):
-                    lookup_method = "manual"
-                    lookup_value = str(bound_id)
-                else:
-                    return {
-                        "ok": False,
-                        "error": "need_digits",
-                        "hint": "ask_caller_for_last_4_mobile_digits",
-                        "say": "ask only for the last 4 digits of their registered mobile",
-                    }, None
+                # Dialling the number is not verification. Anyone who answers
+                # can say the first name. Last-4 of the registered mobile is
+                # the factor, on the outbound leg as well as the inbound one.
+                return {
+                    "ok": False,
+                    "error": "need_digits",
+                    "hint": "ask_caller_for_last_4_mobile_digits",
+                    "say": "ask only for the last 4 digits of their registered mobile",
+                }, None
             else:
                 lookup_value = digits[-10:] if len(digits) > 10 else digits
                 if _outbound_leg():
@@ -455,7 +447,10 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             "ok": True,
             "customerName": match.get("name"),
             "verified": True,
-            "say": "acknowledge verification briefly, then continue",
+            "say": (
+                "say it matched in a few words -- never read the digits back -- "
+                "then continue"
+            ),
         }
         tail = match.get("accountTail") or _account_tail(match.get("accountId"))
         if tail:

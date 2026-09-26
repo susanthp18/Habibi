@@ -8,6 +8,7 @@ import { ComplianceFilters } from "@/components/compliance/ComplianceFilters";
 import { ViolationTrendChart } from "@/components/compliance/ViolationTrendChart";
 import { RuleBreakdown } from "@/components/compliance/RuleBreakdown";
 import { RuleCoverageCard } from "@/components/compliance/RuleCoverageCard";
+import { StatutoryRulesCard } from "@/components/compliance/StatutoryRulesCard";
 import { ViolationFeed } from "@/components/compliance/ViolationFeed";
 import { ViolationSheet } from "@/components/compliance/ViolationSheet";
 import type { ComplianceFilterState, Violation } from "@/api/types/compliance";
@@ -207,6 +208,7 @@ function CompliancePage() {
                 <aside className="space-y-200 xl:sticky xl:top-0 xl:self-start">
                   <RuleBreakdown all={items} selectedRuleId={filters.ruleId} onSelect={setRule} />
                   <RuleCoverageCard selectedRuleId={filters.ruleId} onSelect={setRule} />
+                  <StatutoryRulesCard />
                 </aside>
               </div>
             </div>

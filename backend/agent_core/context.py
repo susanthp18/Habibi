@@ -18,12 +18,12 @@ The system prompt is never re-rendered mid-call for changed numbers.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
-from functools import lru_cache
+from datetime import datetime
 from typing import Any, Literal
 
 import money_inr
+from agent_core import clock
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +34,10 @@ Channel = Literal["voice", "whatsapp", "sandbox_text", "sandbox_live"]
 # ``["collections"]`` is a HARD filter: collections money questions must never
 # be answered out of the insurance product corpus.
 #
-# ``None`` means "no hard product filter" — kb_retrieve then applies its own
-# soft product-family steering from the query tokens (travel / home / car /
-# maid / …). That is exactly what the WhatsApp product path already does, and
-# it is the right scope for upsell, where the caller could be asking about any
-# of the non-collections product families. Hard-coding a product key list here
-# would silently exclude every corpus added later.
+# ``None`` means "no hard product filter from the node" — the product is then
+# resolved from the conversation against the live catalog
+# (agent_core/product_resolver.py). Hard-coding a product key list here would
+# silently exclude every corpus added later.
 PRODUCT_KEYS_COLLECTIONS = ("collections",)
 
 _PRODUCT_INTENTS = frozenset({"product_faq", "upsell_opportunity"})
@@ -69,160 +67,6 @@ CLOSED_DOCUMENT_STATUSES = frozenset({"sent"})
 CLOSED_CALLBACK_STATUSES = frozenset({"completed", "cancelled"})
 
 
-# Every product the KB is partitioned by. The ten insurance corpora are near
-# duplicates of each other -- same legal boilerplate, same section headings,
-# different product name -- so dense retrieval carries almost no product signal:
-# measured cross-product chunk cosine averages 0.428 against 0.475 same-product,
-# and 140 chunk pairs sit above 0.95 across products (one pair at 1.0000).
-#
-# The consequence is that scope has to come from the conversation, not from the
-# embedding. Returning None here means "search all ten", which is what produced
-# the wrong-product answers: the differentiating token is a proper noun the
-# embedding compresses away.
-KB_PRODUCT_KEYS = (
-    "travel",
-    "car",
-    "home",
-    "maid",
-    "hospital",
-    "fraud",
-    "early",
-    "choice",
-    "personal_accident",
-    "collections",
-)
-
-# Spoken forms -> product key, in two tiers.
-#
-# One flat map ordered by alias length got "is my maid covered for hospital
-# bills" wrong: "hospital" is longer than "maid", so the topical word beat the
-# actual product. Product *identity* has to outrank topic, so the tiers are
-# separate and strong wins outright.
-#
-# STRONG: the caller named the product. "family protect360" belongs here and
-# resolves to personal_accident -- 5 FAQ pairs and 2 chunks name it, and no
-# amount of similarity search would have guessed that mapping.
-_STRONG_ALIASES: dict[str, str] = {
-    "travel protect360": "travel",
-    "travel insurance": "travel",
-    "travel policy": "travel",
-    "travel plan": "travel",
-    "travel": "travel",
-    "car protect360": "car",
-    "car insurance": "car",
-    "motor insurance": "car",
-    "car": "car",
-    "motor": "car",
-    "vehicle": "car",
-    "home protect360": "home",
-    "home insurance": "home",
-    "household contents": "home",
-    "home contents": "home",
-    "home": "home",
-    "house": "home",
-    "maid protect360 pro": "maid",
-    "maid protect360": "maid",
-    "maid insurance": "maid",
-    "domestic helper": "maid",
-    "maid": "maid",
-    "helper": "maid",
-    "hospital protect360": "hospital",
-    "hospital income": "hospital",
-    "hospital cash": "hospital",
-    "hospital plan": "hospital",
-    "fraud protect360 plus": "fraud",
-    "fraud protect360": "fraud",
-    "card fraud": "fraud",
-    "fraud": "fraud",
-    "fraudulent": "fraud",
-    "fraudulently": "fraud",
-    "early protect360 plus": "early",
-    "early protect360": "early",
-    "choice protect360": "choice",
-    "personal accident protect360": "personal_accident",
-    "family protect360": "personal_accident",
-    "personal accident": "personal_accident",
-    "collections": "collections",
-}
-
-# WEAK: a topic that implies a product only when no product was named. "hospital"
-# lives here, so it cannot outrank "maid" in the sentence above, but it still
-# scopes "how much do i get for daily hospital cash".
-_WEAK_ALIASES: dict[str, str] = {
-    "annual trip": "travel",
-    "single trip": "travel",
-    "trip": "travel",
-    "baggage": "travel",
-    "luggage": "travel",
-    "hospitalisation": "hospital",
-    "hospitalization": "hospital",
-    "hospital": "hospital",
-    "phish": "fraud",
-    "phished": "fraud",
-    "phishing": "fraud",
-    "scam": "fraud",
-    "unauthorised transaction": "fraud",
-    "unauthorized transaction": "fraud",
-    "early stage": "early",
-    "critical illness": "early",
-    "income protector": "personal_accident",
-    "loss of limb": "personal_accident",
-    "late fee": "collections",
-    "late payment": "collections",
-    "minimum amount due": "collections",
-    "minimum due": "collections",
-    "emi": "collections",
-    "outstanding balance": "collections",
-}
-
-
-@lru_cache(maxsize=256)
-def _alias_re(alias: str) -> re.Pattern[str]:
-    """Whole-word matcher for one alias.
-
-    Boundaries on both ends, because bare substring matching resolved "credit
-    card" to the car corpus -- "car" appears inside "card" and won on position.
-    The cost is that morphological variants have to be listed explicitly
-    ("fraudulently", "phished"), which is the right trade: an alias list is
-    reviewable, a substring collision is not.
-    """
-    return re.compile(r"\b" + re.escape(alias) + r"\b")
-
-
-def _match_tier(haystack: str, aliases: dict[str, str]) -> str | None:
-    """Earliest mention wins; longest alias breaks a tie at the same position.
-
-    Earliest, not longest: in "is my maid covered for hospital bills" the
-    subject is whatever the caller led with.
-    """
-    best: tuple[int, int, str] | None = None
-    for alias, key in aliases.items():
-        found = _alias_re(alias).search(haystack)
-        if not found:
-            continue
-        candidate = (found.start(), -len(alias), key)
-        if best is None or candidate < best:
-            best = candidate
-    return best[2] if best else None
-
-
-def product_key_from_text(text: str | None) -> str | None:
-    """The product a caller just named, or ``None`` if they named none.
-
-    Substring matching on a whitespace-normalised utterance, deliberately not a
-    word-boundary regex per alias: STT rewrites mid-utterance ("protect three
-    sixty" / "protect360") and "fraudulently" should still resolve to fraud. A
-    missed narrowing only falls back to today's behaviour, whereas a wrong
-    narrowing hides the one document that had the answer.
-    """
-    if not text:
-        return None
-    haystack = " ".join(str(text).lower().split())
-    if not haystack:
-        return None
-    return _match_tier(haystack, _STRONG_ALIASES) or _match_tier(haystack, _WEAK_ALIASES)
-
-
 def product_keys_for_intent(intent: str | None) -> list[str] | None:
     """KB corpus scope for an intent. Defaults to the collections corpus."""
     if (intent or "").strip() in _PRODUCT_INTENTS:
@@ -230,35 +74,21 @@ def product_keys_for_intent(intent: str | None) -> list[str] | None:
     return list(PRODUCT_KEYS_COLLECTIONS)
 
 
-def product_keys_for_node(
-    node: str | None,
-    *,
-    utterance: str | None = None,
-    remembered: str | None = None,
-) -> list[str] | None:
-    """KB corpus scope for a Flows node — upsell talks products, the rest collections.
+def product_keys_for_node(node: str | None) -> list[str] | None:
+    """KB corpus scope for a Flows node -- upsell talks products, the rest collections.
 
-    On a product node this used to return ``None``, widening the search to all
-    ten near-identical corpora at exactly the moment the caller was asking about
-    one specific policy. ``utterance`` and ``remembered`` narrow it back down:
-    what they just said wins, then the last product established in the call.
-    ``None`` is still the answer when neither is known, so kb_retrieve falls
-    back to its own query-token steering rather than guessing a product.
-
-    Both hints are keyword-only and optional, so existing callers keep their
-    current behaviour.
+    ``None`` means "a product question, product not decided here": the KB
+    handler resolves which one from what the caller said and what the call
+    already settled on (agent_core/product_resolver.py). The ten insurance
+    corpora are near-identical boilerplate under different names -- measured
+    cross-product chunk cosine 0.428 against 0.475 same-product -- so that scope
+    has to come from the conversation, never from the embedding.
     """
     # A fleet graph namespaces node keys (`insurance-v1/gated_upsell`), so the
-    # membership test has to be on the member-local half. Fixed here rather
-    # than at the two call sites, which is one guard instead of two.
+    # membership test has to be on the member-local half.
     from flow_graph import local_key
 
     if local_key(node or "") in _PRODUCT_NODES:
-        named = product_key_from_text(utterance)
-        if named:
-            return [named]
-        if remembered in KB_PRODUCT_KEYS:
-            return [remembered]
         return None
     return list(PRODUCT_KEYS_COLLECTIONS)
 
@@ -274,6 +104,22 @@ def _inr(value: Any) -> str | None:
     except (TypeError, ValueError):
         return None
     return money_inr.inr(amount)
+
+
+def _promise_day(value: Any) -> str | None:
+    """Render a stored promise instant as the customer's calendar day."""
+    if value is None:
+        return None
+    if isinstance(value, str) and len(value) == 10:
+        return value
+    try:
+        instant = value if isinstance(value, datetime) else datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+    except ValueError:
+        return str(value)
+    day = clock.local_day(instant)
+    return day.isoformat() if day else None
 
 
 @dataclass
@@ -381,7 +227,7 @@ class CallContext:
                 {
                     "id": p.get("id"),
                     "amount": p.get("amount"),
-                    "promisedDate": p.get("promisedDate"),
+                    "promisedDate": _promise_day(p.get("promisedDate")),
                     "status": p.get("status"),
                 }
                 for p in _open(customer.get("promises"), set(CLOSED_PROMISE_STATUSES))

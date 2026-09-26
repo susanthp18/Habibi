@@ -1,4 +1,4 @@
-# HDFC Assurance
+# BigTapp Assurance
 ## Car Protect360
 ### YOUR CAR PROTECT360 POLICY
 Here is Your Car Protect360 Policy. Please examine this insurance Policy together with the Schedule and the Certificate of Insurance, to ensure that You understand the terms and conditions and that the cover You require is being provided.
@@ -66,7 +66,7 @@ Provided that the person driving is permitted in accordance with the licensing o
 
 **"Schedule"** refers to the document which reflects details of yourself, the Insured vehicle, any Authorised Driver and/or any terms and conditions that are specific to Your contract.
 
-**"We, Our, Us or the Company"** refers to HDFC Assurance Pte. Ltd.
+**"We, Our, Us or the Company"** refers to BigTapp Assurance Pte. Ltd.
 
 **"Windscreen"** refers to front, side, rear back and quarter glass of the Insured Vehicle.
 
@@ -457,7 +457,7 @@ The caller will be required to always identify themselves by their full name and
 
 If You are insured under Third Party, Fire and Theft cover, the Motor Emergency Assistance Services can be activated in the event of fire and/or theft only.
 
-#### HDFC Assurance 24 HOUR EMERGENCY HELPLINE (65) 6922 6009
+#### BigTapp Assurance 24 HOUR EMERGENCY HELPLINE (65) 6922 6009
 
 ##### Motor Emergency Assistance Services
 Please note that the Services under Items (a) to (h) are purely on referral or arrangement basis. All costs and expenses incurred for the services listed below are to be borne by You.
@@ -572,10 +572,10 @@ It is hereby understood and agreed that the Policy indemnifies You for the accid
 It is hereby understood and agreed that notwithstanding anything contrary contained in Section I of this Policy, We shall not be liable thereunder except in respect of loss or damage by fire and/or theft. It is further understood and agreed that Section III and IV of this Policy are deemed to be cancelled.
 
 ### POLICY OWNERS' PROTECTION SCHEME
-This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your Policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg)
+This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your Policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg)
 
 ### CARING FOR OUR CUSTOMERS
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
 Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising.
 
@@ -584,7 +584,7 @@ We will acknowledge receipt of Your feedback within seven (7) working days whils
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 **Chief Executive Officer**
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 

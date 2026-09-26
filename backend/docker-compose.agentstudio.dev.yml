@@ -1,0 +1,16 @@
+# Dev-only: run the engine from the working tree instead of the baked image, so
+# a patch is live after `docker restart collections_agentstudio`.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.agentstudio.yml \
+#     -f docker-compose.agentstudio.dev.yml up -d --no-deps agentstudio_engine
+
+services:
+  agentstudio_engine:
+    volumes:
+      - ../agentstudio/engine/api:/app/api
+      # The image's MCP TypeScript validator deps live under the source tree;
+      # keep them visible through the bind mount.
+      - agentstudio_ts_validator:/app/api/mcp_server/ts_validator/node_modules
+
+volumes:
+  agentstudio_ts_validator:

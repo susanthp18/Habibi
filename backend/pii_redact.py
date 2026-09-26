@@ -82,7 +82,7 @@ PII_DETECTORS: list[tuple[str, re.Pattern[str], Callable[[str], str]]] = [
         re.compile(r"\b(?:0?[1-9]|[12]\d|3[01])[-/](?:0?[1-9]|1[0-2])[-/](?:19|20)\d{2}\b"),
         lambda _s: "[REDACTED-DOB]",
     ),
-    ("account", re.compile(r"\bHDFC-(?:CC|PL|RL|AL)-\d{4}\b"), _mask_account),
+    ("account", re.compile(r"\b(?:HDFC|BIGTAPP)-(?:CC|PL|RL|AL)-\d{4}\b", re.I), _mask_account),
     (
         "pincode",
         re.compile(r"(?i)\b(?:pin(?:\s*code)?|pincode)\b\s*[:\-]?\s*\d{6}\b"),

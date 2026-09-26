@@ -49,14 +49,21 @@ def test_a_callback_decline_is_recognised() -> None:
 
 
 def test_travel_exclusions_are_a_product_query_not_a_document_query() -> None:
-    assert (
-        callback_reason_for_turn("document_query", "what about travel exclusions")
-        == "product_query"
-    )
-    assert callback_reason_for_turn("hardship_review", "salary delay") == "hardship_review"
+    # Product talk is what the call's knowledge-base searches settled, not a
+    # keyword match on the last sentence.
+    assert callback_reason_for_turn("document_query", product_talk=True) == "product_query"
+    assert callback_reason_for_turn(None, product_talk=True) == "product_query"
+    assert callback_reason_for_turn("document_query", product_talk=False) == "document_query"
+    assert callback_reason_for_turn("hardship_review", product_talk=True) == "hardship_review"
 
 
-def _callback_tools(*, customer_text: str, bot_text: str, monkeypatch: pytest.MonkeyPatch):
+def _callback_tools(
+    *,
+    customer_text: str,
+    bot_text: str,
+    monkeypatch: pytest.MonkeyPatch,
+    product_scope: str | None = None,
+):
     booked: list[dict] = []
 
     def _fake_request_callback(**kwargs):
@@ -79,7 +86,7 @@ def _callback_tools(*, customer_text: str, bot_text: str, monkeypatch: pytest.Mo
             provider_call_id="CA-1",
         ),
         spoke_this_response=SimpleNamespace(add=lambda *_a, **_k: None),
-        state=SimpleNamespace(current_node="escalate_close"),
+        state=SimpleNamespace(current_node="escalate_close", product_scope=product_scope),
         upsell_node="gated_upsell",
         sink=sink,
         _sink_call=lambda name, default=None: customer_text
@@ -112,6 +119,8 @@ def test_accepting_a_callback_stores_the_caller_snippet(
         customer_text="yes, call me about travel exclusions",
         bot_text="Shall I arrange a callback with a specialist?",
         monkeypatch=monkeypatch,
+        # CL-CAF293FDE9 had been searching travel exclusions: the call is on a product.
+        product_scope="product",
     )
     result, nxt = asyncio.run(
         tools["request_callback"](

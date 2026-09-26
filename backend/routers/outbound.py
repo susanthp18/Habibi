@@ -109,7 +109,7 @@ def post_offer_response(decisionId: str, payload: OfferResponseRequest):
 DEMO_OUTBOUND_PHONE_DEFAULT = "919655282324"
 
 def _demo_waivable_reasons() -> frozenset[str]:
-    """Contact-policy refusals the demo switch may override.
+    """Contact-policy refusals the demo button is allowed to override.
 
     Every one is a rule about *timing or frequency* — when a borrower may be
     called and how often. None of them is a rule about whether the borrower
@@ -128,7 +128,39 @@ def _demo_waivable_reasons() -> frozenset[str]:
         }
     )
 
+def _demo_frequency_reasons() -> frozenset[str]:
+    """Frequency refusals this button always overrides.
+
+    The endpoint takes no phone number. It dials one configured handset, the
+    one the operator running the demo is holding, so a second rehearsal inside
+    the cooling-off gap is the cap applying to the wrong subject. Calling
+    hours are not in this set: those stay behind the operator switch so a
+    demo can still show the statutory gate.
+    """
+    import contact_policy
+
+    return frozenset(
+        {
+            contact_policy.REASON_COOLING,
+            contact_policy.REASON_DAILY,
+            contact_policy.REASON_WEEKLY,
+        }
+    )
+
 _DEMO_WAIVABLE_REASONS = _demo_waivable_reasons()
+_DEMO_FREQUENCY_REASONS = _demo_frequency_reasons()
+
+def _demo_active_waivers() -> frozenset[str]:
+    """The refusals this click will override.
+
+    Frequency is always overridden. Calling hours and the borrower's preferred
+    window are overridden only when the operator has turned the demo switch on.
+    """
+    import platform_switches
+
+    if platform_switches.demo_ignores_window():
+        return _DEMO_WAIVABLE_REASONS
+    return _DEMO_FREQUENCY_REASONS
 
 def _demo_outbound_phone() -> str:
     return (os.getenv("DEMO_OUTBOUND_PHONE") or DEMO_OUTBOUND_PHONE_DEFAULT).strip()
@@ -222,14 +254,12 @@ def demo_outbound_target():
             # unwaived refusal would tell the operator they are blocked and then
             # place the call anyway — the same class of confident-but-wrong
             # state this product keeps getting caught by.
-            if (
-                policy_reason in _DEMO_WAIVABLE_REASONS
-                and platform_switches.demo_ignores_window()
-            ):
+            if policy_reason in _demo_active_waivers():
                 policy_waived = policy_reason
                 policy_reason = None
         except Exception:
             logger.exception("demo target: contact policy dry-run failed")
+            policy_reason = "policy_unavailable"
 
     return {
         "phone": phone,
@@ -258,10 +288,14 @@ async def demo_outbound_call():
     import outbound
     import platform_switches
     from voice import telephony
+    from voice.call_trace import Stopwatch, event
 
+    watch = Stopwatch()
     if not platform_switches.outbound_enabled():
+        event("demo.refused", reason="outbound_disabled", took_s=watch.s())
         raise HTTPException(status_code=409, detail="outbound_disabled")
     if not telephony.configured():
+        event("demo.refused", reason="telephony_not_configured", took_s=watch.s())
         raise HTTPException(status_code=503, detail="telephony_not_configured")
 
     phone = _demo_outbound_phone()
@@ -269,25 +303,21 @@ async def demo_outbound_call():
 
     def _prepare() -> tuple[Any, str, str | None, str]:
         """Resolve the card, then reserve, gate and (maybe) waive, off the event loop."""
+        card_watch = Stopwatch()
         bot_id = _demo_outbound_bot_id()
         card = mission_mod.card_for_bot(bot_id)
         objective = _demo_outbound_objective(card)
-        # The one override, and its limits.
-        #
-        # Waivable: *when* and *how often*. The calling hours, the borrower's
-        # preferred window, the cooling-off gap and the daily and weekly caps
-        # all exist to stop a borrower being rung repeatedly. The demo endpoint
-        # takes no phone number — it dials one configured handset, the one the
-        # operator running the demo is holding — so rehearsing on it is not the
-        # harm any of those rules were written to prevent. Hitting `cooling_off`
-        # after three rehearsal calls to your own phone is the rule working
-        # correctly on the wrong subject.
+        event("demo.card", bot=bot_id, objective=objective, took_s=card_watch.s())
+        # Frequency is always overridden on this endpoint: it dials one
+        # configured handset and takes no number, so cooling-off and the
+        # daily/weekly caps — rules about not ringing a borrower repeatedly —
+        # are being applied to the operator's own phone. Calling hours and the
+        # borrower's preferred window stay behind the operator switch, so a
+        # demo can still show the statutory gate.
         #
         # Not waivable, at any switch setting: consent, opt-out, DND, the
         # registry and the DPDP promotional-purpose basis. Those answer "may we
-        # contact this person at all", which a demo does not get to re-answer —
-        # and they are not what is blocking anyone here, so waiving them would
-        # buy nothing and cost the one guarantee worth keeping.
+        # contact this person at all", which a demo does not get to re-answer.
         try:
             return db_outbound.reserve_demo_attempt(
                 digits=digits,
@@ -296,28 +326,57 @@ async def demo_outbound_call():
                 bot_id=bot_id,
                 card=card,
                 objective=objective,
-                waivable=(
-                    _DEMO_WAIVABLE_REASONS
-                    if platform_switches.demo_ignores_window()
-                    else frozenset()
-                ),
+                waivable=_demo_active_waivers(),
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
 
-    gated, customer_id, account_id, reason = await asyncio.to_thread(_prepare)
+    try:
+        gated, customer_id, account_id, reason = await asyncio.to_thread(_prepare)
+    except Exception as exc:
+        event("demo.prepare_failed", error=type(exc).__name__, took_s=watch.s())
+        raise
     attempt = gated.attempt
     if not gated.allowed:
+        event(
+            "demo.refused",
+            attempt=(attempt or {}).get("id"),
+            reason=reason,
+            took_s=watch.s(),
+        )
         # 409 with the engine's own reason. `outside_allowed_window` here is the
         # calling window doing its job, not a bug in the button.
         raise HTTPException(status_code=409, detail=reason)
 
-    result = await asyncio.to_thread(
-        outbound.place,
-        db.engine,
-        attempt,
-        to_phone=phone,
-        custom={"customer_id": customer_id, "demo": "1"},
+    prepared_s = watch.s()
+    dial_watch = Stopwatch()
+    try:
+        result = await asyncio.to_thread(
+            outbound.place,
+            db.engine,
+            attempt,
+            to_phone=phone,
+            custom={"customer_id": customer_id, "demo": "1"},
+        )
+    except Exception as exc:
+        event(
+            "demo.place_failed",
+            attempt=(attempt or {}).get("id"),
+            error=type(exc).__name__,
+            prepare_s=prepared_s,
+            dial_s=dial_watch.s(),
+            total_s=watch.s(),
+        )
+        raise
+    event(
+        "demo.result",
+        attempt=result.get("attemptId") or (attempt or {}).get("id"),
+        sid=result.get("callSid"),
+        placed=bool(result.get("placed")),
+        reason=result.get("reason"),
+        prepare_s=prepared_s,
+        dial_s=dial_watch.s(),
+        total_s=watch.s(),
     )
     if not result.get("placed"):
         reason = result.get("reason") or "dial_failed"
@@ -834,4 +893,3 @@ def authority_next(
 def authority_apply(payload: AuthorityApplyRequest):
     """Post the goodwill the matrix already approved. Live mode only."""
     return _handle_write(db.apply_authority, payload.model_dump(exclude_none=True))
-

@@ -25,4 +25,9 @@ FROM unnest(ARRAY[
   'perm-integrations-read'
 ]) AS permission_id
 WHERE EXISTS (SELECT 1 FROM roles WHERE id = 'role-viewer')
+  -- The catalogue is upserted at API boot (authz.ensure_permission_catalog),
+  -- so on an empty database these rows do not exist yet and the grant broke
+  -- the whole sql/ build on its foreign key. Skip what is not there; the seed
+  -- and ROLE_DEFAULTS grant the same set once the catalogue is in.
+  AND EXISTS (SELECT 1 FROM permissions p WHERE p.id = permission_id)
 ON CONFLICT DO NOTHING;

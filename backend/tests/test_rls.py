@@ -136,7 +136,10 @@ def test_rooted_tables_compare_the_column_directly(db_tx) -> None:
         own = f'"{policy.table}".tenant_id ' f"= current_setting('app.tenant_id', true)"
         if policy.table in rls.GLOBAL_WHEN_NULL:
             assert policy.predicate == f'("{policy.table}".tenant_id IS NULL OR {own})'
-            assert policy.check_predicate == own
+            assert policy.check_predicate == (
+                f'({own} OR ("{policy.table}".tenant_id IS NULL AND '
+                "current_setting('app.platform_scope', true) = 'global'))"
+            )
         else:
             assert policy.predicate == own
         assert policy.parents == ()
@@ -601,10 +604,20 @@ def test_global_when_null_tables_declare_what_null_means(db_tx) -> None:
         ).scalar()
         assert declared, f"{table} tolerates a NULL tenant but nothing in its schema says what it means"
 
-    for policy in rls.plan(db_tx):
+    plan = {p.table: p for p in rls.plan(db_tx)}
+
+    def under_global(table: str) -> bool:
+        return any(t in rls.GLOBAL_WHEN_NULL or under_global(t) for t in plan[table].parents)
+
+    for policy in plan.values():
         if policy.table in rls.GLOBAL_WHEN_NULL:
             assert "tenant_id IS NULL OR" in policy.predicate
-            assert policy.check_predicate and "IS NULL" not in policy.check_predicate
+            # A NULL-tenant row is writable only inside a declared platform scope.
+            assert "app.platform_scope" in (policy.check_predicate or "")
+        elif under_global(policy.table):
+            # Inherited: `policy_rules` used to copy its parent's read side, so
+            # any tenant could add rules to a statutory set.
+            assert "app.platform_scope" in (policy.check_predicate or ""), policy.table
         else:
             assert policy.check_predicate is None
 
@@ -618,12 +631,23 @@ def test_a_global_row_is_readable_and_not_writable_by_a_tenant(db_tx) -> None:
         ),
         {"p": rls.POLICY_NAME},
     ).mappings().first()
+    read = db_tx.execute(
+        text(
+            "SELECT qual FROM pg_policies WHERE schemaname = 'public' "
+            "AND tablename = 'policy_rule_sets' AND policyname = :p AND cmd = 'SELECT'"
+        ),
+        {"p": rls.READ_POLICY_NAME},
+    ).scalar()
     if live is None:
         pytest.skip("policies are not installed on this database")
-    # Readable: the installed USING clause admits the NULL-tenant row.
-    assert "IS NULL" in (live["qual"] or "")
-    # Not writable: the installed WITH CHECK clause does not.
-    assert "IS NULL" not in (live["with_check"] or "")
+    # Readable: the SELECT policy admits the NULL-tenant row outright.
+    # Postgres renders it "((tenant_id IS NULL) OR (tenant_id = ...))".
+    assert "tenant_id IS NULL" in (read or "") and " OR " in (read or "")
+    # Updatable and deletable only in platform scope: the FOR ALL USING is the
+    # write side too, or a tenant could delete a set it cannot insert.
+    assert "app.platform_scope" in (live["qual"] or "")
+    # Not writable outside a platform scope: WITH CHECK admits NULL only there.
+    assert "app.platform_scope" in (live["with_check"] or "")
     if db_tx.execute(text("SELECT current_user")).scalar() == "collections":
         pytest.skip("the write-side refusal applies to the application role, not the owner")
     with pytest.raises(Exception) as excinfo:
@@ -635,5 +659,37 @@ def test_a_global_row_is_readable_and_not_writable_by_a_tenant(db_tx) -> None:
                     VALUES ('PRS-global-probe', NULL, 'statutory', 999, 'probe', now())
                     """
                 )
+            )
+    assert "row-level security" in str(excinfo.value)
+
+
+def test_a_tenant_cannot_add_rules_to_a_statutory_set(db_tx) -> None:
+    """The child of a global row inherits its write side. ``policy_rules``
+    copied the parent's read predicate, so a tenant could rewrite the law."""
+    live = db_tx.execute(
+        text(
+            "SELECT with_check FROM pg_policies "
+            "WHERE schemaname = 'public' AND tablename = 'policy_rules' AND policyname = :p"
+        ),
+        {"p": rls.POLICY_NAME},
+    ).scalar()
+    if live is None:
+        pytest.skip("policies are not installed on this database")
+    assert "platform_scope" in live
+    if db_tx.execute(text("SELECT current_user")).scalar() == "collections":
+        pytest.skip("the write-side refusal applies to the application role, not the owner")
+    statutory = db_tx.execute(
+        text("SELECT id FROM policy_rule_sets WHERE tenant_id IS NULL LIMIT 1")
+    ).scalar()
+    if statutory is None:
+        pytest.skip("no statutory set on this database")
+    with pytest.raises(Exception) as excinfo:
+        with db_tx.begin_nested():
+            db_tx.execute(
+                text(
+                    "INSERT INTO policy_rules (id, rule_set_id, kind, channel, params) "
+                    "VALUES ('PR-probe', :s, 'calling_window', 'sms', '{}'::jsonb)"
+                ),
+                {"s": statutory},
             )
     assert "row-level security" in str(excinfo.value)

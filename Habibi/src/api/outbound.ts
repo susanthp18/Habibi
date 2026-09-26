@@ -250,8 +250,6 @@ const placedCallSchema = z.object({
   from: z.string().nullable().optional(),
 });
 
-import { OBJECTIVES } from "./agent-card";
-
 export type ReachStats = {
   attempts: number;
   suppressed: number;

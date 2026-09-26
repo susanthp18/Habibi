@@ -110,30 +110,6 @@ export type ProviderPool = {
   keys: ProviderPoolKey[];
 };
 
-export type VoiceProviderCount = { providerId: string; count: number };
-
-/** Voice counts per provider for the catalog filter chips. Separate from the
- *  paginated list because a chip must count the whole catalog, not one page. */
-export function useVoiceProviderCounts() {
-  return useQuery({
-    queryKey: ["tts-voice-provider-counts"],
-    queryFn: () => apiGet<VoiceProviderCount[]>("/tts-voices/catalog-provider-counts"),
-    staleTime: 60_000,
-  });
-}
-
-export type VoiceLocaleCount = { locale: string; localeName: string; count: number };
-
-/** Locales actually present in the catalog, most-voices-first.
- *  Replaces a hardcoded India-only preset list that hid 143 of 150 locales. */
-export function useVoiceLocaleCounts(limit = 200) {
-  return useQuery({
-    queryKey: ["tts-voice-locale-counts", limit],
-    queryFn: () => apiGet<VoiceLocaleCount[]>(`/tts-voices/catalog-locale-counts?limit=${limit}`),
-    staleTime: 60_000,
-  });
-}
-
 export function useProviderModels(kind?: ProviderSlot) {
   return useQuery({
     queryKey: ["provider-models", kind ?? "all"],

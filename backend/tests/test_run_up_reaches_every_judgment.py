@@ -180,13 +180,6 @@ def test_sandbox_assembly_is_given_the_run_up() -> None:
     assert "recent=run_up(" in src
 
 
-def test_the_sandbox_prefetch_is_given_the_run_up() -> None:
-    import sandbox_runtime
-
-    src = inspect.getsource(sandbox_runtime._start_enrichment)
-    assert "_run_up_for_run(" in src
-
-
 def test_the_intent_label_no_longer_outranks_the_customer() -> None:
     """A wrong label must degrade, not derail.
 

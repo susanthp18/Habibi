@@ -11,6 +11,7 @@ bypasses that proxy.
 from __future__ import annotations
 
 import logging
+import time
 
 from sqlalchemy import text
 from typing import Any
@@ -78,14 +79,22 @@ def reserve_demo_attempt(
     """
     import mission as mission_mod
     import outbound
+    from voice.call_trace import event
 
+    started = time.monotonic()
     d = _db()
     with d.engine.begin() as conn:
         row = conn.execute(text(_DEMO_CUSTOMER_SQL), {"t": tenant_id, "d": digits}).mappings().first()
         if row is None:
+            event(
+                "demo.prepare_refused",
+                reason="demo_customer_not_found",
+                took_ms=round((time.monotonic() - started) * 1000),
+            )
             raise KeyError("demo_customer_not_found")
         customer_id = str(row["id"])
         account_id = d._first_account_id(conn, customer_id)
+        lookup_done = time.monotonic()
         deployment_id = None
         try:
             from agent_core.canary import pick_deployment_id
@@ -96,6 +105,7 @@ def reserve_demo_attempt(
             )
         except Exception:
             logger.debug("demo reserve: deployment_id lookup failed", exc_info=True)
+        deployment_done = time.monotonic()
         built = mission_mod.build(
             conn,
             customer_id=customer_id,
@@ -105,6 +115,7 @@ def reserve_demo_attempt(
             bot_id=bot_id,
             deployment_id=deployment_id,
         )
+        mission_done = time.monotonic()
         # Waivable: *when* and *how often* (hours, window, cooling-off, caps).
         # Not waivable at any switch setting: consent, opt-out, DND, registry,
         # DPDP basis. The router decides the set; the gate enforces it.
@@ -120,6 +131,7 @@ def reserve_demo_attempt(
             deployment_id=deployment_id,
             context={"source": "demo_button", "mission": built},
         )
+        gate_done = time.monotonic()
         reason = gated.reason or "contact_policy"
         if gated.waived:
             logger.warning(
@@ -134,6 +146,20 @@ def reserve_demo_attempt(
                 f"waived:{reason}",
                 customer_id,
             )
+    committed = time.monotonic()
+    event(
+        "demo.prepare",
+        attempt=(gated.attempt or {}).get("id"),
+        allowed=gated.allowed,
+        waived=gated.waived,
+        reason=reason if not gated.allowed or gated.waived else None,
+        lookup_ms=round((lookup_done - started) * 1000),
+        deployment_ms=round((deployment_done - lookup_done) * 1000),
+        mission_ms=round((mission_done - deployment_done) * 1000),
+        gate_ms=round((gate_done - mission_done) * 1000),
+        commit_ms=round((committed - gate_done) * 1000),
+        total_ms=round((committed - started) * 1000),
+    )
     return gated, customer_id, account_id, reason
 
 

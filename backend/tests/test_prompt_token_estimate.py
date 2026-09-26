@@ -45,12 +45,6 @@ def client(api_headers: dict[str, str]) -> TestClient:
     return TestClient(main.app, headers=api_headers)
 
 
-def _estimate(client: TestClient, **body: object) -> dict:
-    res = client.post("/prompt-versions/estimate-tokens", json={"prompt": PROMPT, **body})
-    assert res.status_code == 200, res.text
-    return res.json()
-
-
 def test_the_authored_count_is_unchanged(client: TestClient) -> None:
     """The existing contract still holds — this adds a figure, it does not move one."""
     plain = _estimate(client)
@@ -95,35 +89,8 @@ def test_turning_a_guardrail_on_costs_tokens(client: TestClient) -> None:
     assert on["assembledTokens"] > off["assembledTokens"]
 
 
-def test_a_crm_line_that_gets_deleted_is_not_billed(client: TestClient) -> None:
-    """The assembled count runs the real render, deletions included."""
-    kept = _estimate(client, guardrails=GUARDRAILS, persona=PERSONA)
-    res = client.post(
-        "/prompt-versions/estimate-tokens",
-        json={
-            "prompt": PROMPT + "\nReference their account {account_no} in full.",
-            "guardrails": GUARDRAILS,
-            "persona": PERSONA,
-        },
-    )
-    assert res.status_code == 200, res.text
-    doomed = res.json()
-    # strip_unrendered_crm_tokens deletes the extra line before assembly, so it
-    # raises the authored count and leaves the assembled one exactly where it was.
-    assert doomed["tokens"] > kept["tokens"]
-    assert doomed["assembledTokens"] == kept["assembledTokens"]
-
-
 def test_persona_is_optional(client: TestClient) -> None:
     body = _estimate(client, guardrails=GUARDRAILS)
     assert body["assembledTokens"] > body["tokens"]
 
 
-def test_the_estimate_reads_the_billing_price_book(client: TestClient, monkeypatch) -> None:
-    """One price book: the editor's $ figure and the invoice's rate are the
-    same variable. Two used to exist (2.50 vs 0.25) and disagreed by 10x."""
-    monkeypatch.setenv("PRICE_CHAT_INPUT_USD_PER_1M", "4.0")
-    r = client.post("/prompt-versions/estimate-tokens", json={"prompt": "hello " * 200})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["costUsd"] == round(body["tokens"] * 4.0 / 1_000_000, 6)

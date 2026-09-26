@@ -90,7 +90,7 @@ CORPUS_MANIFEST: list[CorpusProduct] = [
     ),
     CorpusProduct(
         product_key="collections",
-        title="HDFC Retail Collections",
+        title="BigTapp Bank Collections",
         policy="source_db/policy/Collections_policy.md",
         faq="source_db/FAQ/Collections_FAQs.txt",
         benefits="source_db/benefits/Collections_benefits.txt",

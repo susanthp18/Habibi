@@ -75,7 +75,7 @@ WHATSAPP = dict(
     access_token=${secret("accessToken")},
 )`;
     case "cbs":
-      return `# Read-only mTLS bridge to HDFC Finacle core
+      return `# Read-only mTLS bridge to BigTapp Finacle core
 import httpx
 
 cbs = httpx.AsyncClient(

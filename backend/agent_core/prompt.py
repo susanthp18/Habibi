@@ -14,7 +14,7 @@ def agent_name() -> str:
 
 def bank_name() -> str:
     """Institution the bot represents — tenant configuration, not a constant."""
-    return (os.getenv("BANK_NAME") or "HDFC Bank").strip() or "HDFC Bank"
+    return (os.getenv("BANK_NAME") or "BigTapp Bank").strip() or "BigTapp Bank"
 
 
 #: Language the agent speaks when a card does not say. Not a constant: the

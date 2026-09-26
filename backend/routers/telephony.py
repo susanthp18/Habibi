@@ -25,12 +25,6 @@ from schemas import (
     TwilioOutboundCallRequest,
     TwilioOutboundCallResponse,
     TwilioVoiceStatusResponse,
-    VoiceSandboxStartRequest,
-    VoiceSandboxStartResponse,
-    VoiceSandboxStopResponse,
-    VoiceSandboxTuneRequest,
-    VoiceSandboxTuneResponse,
-    VoiceStatusResponse,
 )
 from typing import Any
 
@@ -55,34 +49,6 @@ def list_calls(
     """Bounded list. Each row carries its full transcript, so the default page
     is deliberately smaller than for flat lists."""
     return db.list_calls(limit=limit, offset=offset)
-
-@router.get("/voice/status", response_model=VoiceStatusResponse)
-def get_voice_status():
-    import voice_sandbox
-
-    return voice_sandbox.voice_status()
-
-@router.post("/voice/sandbox/start", response_model=VoiceSandboxStartResponse)
-def start_voice_sandbox_session(payload: VoiceSandboxStartRequest):
-    import voice_sandbox
-
-    try:
-        return voice_sandbox.start_voice_sandbox(payload.model_dump(exclude_none=True))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-@router.post("/voice/sandbox/{session_id}/stop", response_model=VoiceSandboxStopResponse)
-def stop_voice_sandbox_session(session_id: str):
-    import voice_sandbox
-
-    return _handle_write(voice_sandbox.stop_voice_sandbox, session_id)
-
-@router.post("/voice/sandbox/{session_id}/tune", response_model=VoiceSandboxTuneResponse)
-def tune_voice_sandbox_session(session_id: str, payload: VoiceSandboxTuneRequest):
-    import voice_sandbox
-
-    delta = payload.tuning if isinstance(payload.tuning, dict) else payload.model_dump(exclude_none=True)
-    return _handle_write(voice_sandbox.tune_voice_sandbox, session_id, delta)
 
 def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
     """Validate X-Twilio-Signature.
@@ -241,6 +207,50 @@ async def twilio_voice_incoming(request: Request):
         "Twilio inbound CallSid=%s From=%s → Stream %s",
         call_sid,
         from_number,
+        _redact_voice_ws_url(stream_url),
+    )
+    return Response(content=xml, media_type="application/xml")
+
+@router.post("/twilio/voice/connect", response_class=TwiMLResponse)
+async def twilio_voice_connect(request: Request):
+    """The outbound call's TwiML document.
+
+    Twilio fetches this when the call is answered, and again if the trial
+    account's "press any key" gather posts a digit back to the same document.
+    ``Digits`` is the gather's result, not a request to hang up. Both visits
+    return the media stream.
+    """
+    from voice import twilio_ops
+
+    form = dict(await request.form())
+    if not _twilio_signature_ok(request, form):
+        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
+
+    if not twilio_ops.configured():
+        return Response(
+            content=twilio_ops.twiml_say_hangup(
+                "We're sorry, the voice agent is not configured. Please try again later."
+            ),
+            media_type="application/xml",
+        )
+
+    try:
+        stream_url = twilio_ops.media_stream_wss_url()
+    except RuntimeError as exc:
+        logger.error("Twilio Stream URL unavailable: %s", exc)
+        return Response(
+            content=twilio_ops.twiml_say_hangup(
+                "We're sorry, the voice agent is temporarily unavailable."
+            ),
+            media_type="application/xml",
+        )
+
+    custom = twilio_ops.outbound_stream_custom(request.query_params)
+    xml = twilio_ops.twiml_connect_stream(custom=custom)
+    logger.info(
+        "Twilio outbound connect CallSid=%s digits=%s → Stream %s",
+        form.get("CallSid"),
+        "yes" if str(form.get("Digits") or "").strip() else "no",
         _redact_voice_ws_url(stream_url),
     )
     return Response(content=xml, media_type="application/xml")
@@ -568,4 +578,3 @@ async def voice_media_stream_proxy_with_secret(
     websocket: WebSocket, proxy_secret: str
 ):
     await _voice_media_stream_entry(websocket, path_secret=proxy_secret)
-

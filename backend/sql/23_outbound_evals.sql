@@ -67,7 +67,7 @@ SELECT
   $obname$voicemail names no reason and carries the grievance contact$obname$,
   'voicemail_discloses_nothing',
   $obfix${
-  "voicemail_script": "This is a message for Vikram from HDFC Bank. Please call us back on 1800 123 4567. If you wish to raise a concern, our grievance officer is reachable on the same line.",
+  "voicemail_script": "This is a message for Vikram from BigTapp Bank. Please call us back on 1800 123 4567. If you wish to raise a concern, our grievance officer is reachable on the same line.",
   "grievance_contact_present": true
 }$obfix$::jsonb,
   now()

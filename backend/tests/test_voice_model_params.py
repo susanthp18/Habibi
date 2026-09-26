@@ -153,7 +153,7 @@ def test_the_sliders_win_over_the_bag():
         default_tuning(), speed=1.0, params={"rate": "9.99", "temperature": 0.3}
     )
     kwargs = tts_settings_kwargs(tuning)
-    assert kwargs["rate"] == "1.03"  # 1.0 nudged for the phone, not 9.99
+    assert kwargs["rate"] == "1.00"  # exactly the Speed set, not the stray 9.99
     assert kwargs["temperature"] == 0.3
 
 

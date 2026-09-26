@@ -5,8 +5,8 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { cn } from "@/lib/utils";
-import type { RolesCatalog } from "@/api/agent-studio";
-import { usePatchRolePermissions } from "@/api/agent-studio";
+import type { RolesCatalog } from "@/api/roles";
+import { usePatchRolePermissions } from "@/api/roles";
 import { groupPermissions, isAdminRoleName, isViewerRoleName, moduleLabel } from "./access";
 
 export function RolesMatrix({

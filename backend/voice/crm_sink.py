@@ -333,6 +333,9 @@ class CrmSink:
                 direction=str(extra.get("call_direction") or self.call_direction),
                 started_at=self.session.call_started_at,
                 tuning_clamp=extra.get("tuning_clamp") if isinstance(extra, dict) else None,
+                accountable_user_id=extra.get("accountable_user_id") if isinstance(extra, dict) else None,
+                sandbox=extra.get("sandbox") if isinstance(extra, dict) else None,
+                hours_waived=crm_sink_jobs._hours_waived(extra),
             )
         except Exception:
             logger.exception(
@@ -775,6 +778,31 @@ class CrmSink:
         # Guard against a late arrival overwriting a newer turn — the queue is
         # FIFO but a slow call can still land after a faster later one was
         # dropped, and a stale intent on the session is worse than none.
+        try:
+            # What the analyser decided about this caller turn -- the intent
+            # the offer engine, lead capture and guardrails then act on. It
+            # mislabelled turns on VS-7956F27B36 and nothing said so.
+            self._trace(
+                "understanding",
+                turn=turn_index,
+                intent=getattr(result, "intent", None),
+                intent_score=(
+                    round(float(result.intent_scores.get(result.intent) or 0), 2)
+                    if getattr(result, "intent_scores", None)
+                    else None
+                ),
+                sentiment=getattr(result, "sentiment_label", None),
+                repeat=1 if getattr(result, "unresolved_repeat", False) else None,
+                abuse=1 if getattr(result, "abuse", False) else None,
+                legal=1 if getattr(result, "legal", False) else None,
+                lang=getattr(result, "language", None),
+                source=getattr(result, "source", None),
+                ms=getattr(result, "latency_ms", None),
+                fail=getattr(result, "fail_closed_reason", None),
+                stale=1 if turn_index < self.session.understanding_turn_index else None,
+            )
+        except Exception as exc:
+            logger.warning("understanding trace failed error_type=%s", type(exc).__name__)
         if turn_index >= self.session.understanding_turn_index:
             self.session.understanding = result
             self.session.understanding_turn_index = turn_index
@@ -1487,6 +1515,8 @@ def bind_session_start(
         direction=direction,
         accountable_user_id=extra.get("accountable_user_id"),
         tuning_clamp=extra.get("tuning_clamp"),
+        sandbox=extra.get("sandbox"),
+        hours_waived=crm_sink_jobs._hours_waived(extra),
     )
     session.interaction_id = row["interactionId"]
     session.customer_id = row["customerId"]

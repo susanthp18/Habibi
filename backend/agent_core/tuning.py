@@ -411,6 +411,44 @@ def merge_tuning_delta(
     )
 
 
+#: The Voice tab's Speed and Pitch, defined once for the control, the preview
+#: and the call. There used to be three definitions that disagreed: the control
+#: offered speed 0.5-2.0 and pitch +/-50 with no unit; the preview clamped speed
+#: to 0.5-1.5 and read pitch as semitones clamped to +/-6; and the call turned
+#: speed into ``speed x 1.03`` clamped to 0.85-1.25 and pitch into ``pitch x 2 %``
+#: with 0 mapped to +2%. So Speed 0.5 was 0.85x on a call, Pitch 0 and Pitch 1
+#: sounded identical on a call, and the preview was a different voice from the
+#: one that dialled. ``agent_core.providers.registry`` declares the same bounds.
+VOICE_SPEED_RANGE: tuple[float, float] = (0.5, 1.5)
+VOICE_PITCH_RANGE: tuple[int, int] = (-6, 6)  # semitones
+
+
+def voice_rate(speed: Any) -> str:
+    """Azure prosody ``rate`` for a Speed multiplier -- exactly what was set."""
+    lo, hi = VOICE_SPEED_RANGE
+    return f"{_clamp_float(speed, lo, hi, 1.0):.2f}"
+
+
+def voice_pitch(pitch: Any) -> str:
+    """Azure prosody ``pitch`` for a Pitch in semitones.
+
+    ``default`` for zero: Azure rejects ``pitch="0st"``.
+    """
+    lo, hi = VOICE_PITCH_RANGE
+    p = _clamp_int(pitch, lo, hi, 0)
+    return "default" if p == 0 else f"{p:+d}st"
+
+
+def warmth_style(warmth: Any) -> tuple[str, str]:
+    """The speaking style and degree Warmth selects, for the preview and the call alike."""
+    w = _clamp_int(warmth, 0, 100, 60)
+    if w >= 70:
+        return "friendly", "1.6"
+    if w <= 35:
+        return "empathetic", "1.15"
+    return "empathetic", "1.4"
+
+
 def apply_voice_config_overlay(
     tuning: dict[str, Any],
     *,
@@ -451,24 +489,12 @@ def apply_voice_config_overlay(
     # other tuning field does. Pitch is clamped *before* the ×2 conversion so a
     # stray 9999 cannot emit "+19998%" into the SSML.
     if speed is not None:
-        # Azure rate is a float string; nudge slightly for phone like bot.py did.
-        rate = max(0.85, min(1.25, _clamp_float(speed, 0.5, 2.0, 1.0) * 1.03))
-        tts["rate"] = f"{rate:.2f}"
+        tts["rate"] = voice_rate(speed)
     if pitch is not None:
-        p = _clamp_int(pitch, -25, 25, 0)
-        tts["pitch"] = "+2%" if p == 0 else f"{p * 2:+d}%"
+        tts["pitch"] = voice_pitch(pitch)
     if warmth is not None:
-        # The only warmth → express-as mapping. ``voice.natural`` held a second,
-        # richer copy that consulted the Azure style catalog; nothing called it,
-        # and agent_core must stay free of the voice package because the sandbox
-        # and WhatsApp import this too.
-        w = _clamp_int(warmth, 0, 100, 60)
-        if w >= 70:
-            tts["style"], tts["style_degree"] = "friendly", "1.6"
-        elif w <= 35:
-            tts["style"], tts["style_degree"] = "empathetic", "1.15"
-        else:
-            tts["style"], tts["style_degree"] = "empathetic", "1.4"
+        # The only warmth → express-as mapping; the preview reads the same one.
+        tts["style"], tts["style_degree"] = warmth_style(warmth)
     if style and str(style).strip():
         tts["style"] = str(style).strip()
         tts.setdefault("style_degree", "1.4")

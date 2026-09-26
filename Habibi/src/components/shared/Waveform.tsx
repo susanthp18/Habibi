@@ -21,10 +21,14 @@ export function Waveform({
               "block w-025 rounded-full",
               active ? "bg-background-brand-bold" : "bg-text-subtlest/50",
             )}
+            // One `animation` shorthand carrying its own delay. Pairing it with a
+            // separate `animationDelay` made React warn on every bar each time
+            // speech started or stopped (the shorthand resets the longhand).
             style={{
               height: `${h}%`,
-              animation: active ? "wave-bar 900ms ease-in-out infinite" : undefined,
-              animationDelay: `${(i * 60) % 900}ms`,
+              animation: active
+                ? `wave-bar 900ms ease-in-out ${(i * 60) % 900}ms infinite`
+                : "none",
             }}
           />
         );

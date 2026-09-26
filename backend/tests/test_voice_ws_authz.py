@@ -85,7 +85,18 @@ def test_only_the_voice_media_stream_routes_are_websockets() -> None:
     gated by nothing at all, so it has to fail here first and be given its
     own check.
     """
-    assert sorted(_websocket_routes()) == ["/ws", "/ws/{proxy_secret}"]
+    # /ws-sandbox (Sandbox Live over a WebSocket, voice/sandbox_ws.py) has its
+    # own check: a one-time, 120-second ticket minted by the authenticated
+    # sandbox start call and consumed atomically on upgrade -- pinned by
+    # tests/test_sandbox_ws_ticket.py. /studio-ws (AgentStudio live calls)
+    # likewise redeems a one-use ticket minted by an authorised POST --
+    # pinned by tests/test_agentstudio_gateway.py.
+    assert sorted(_websocket_routes()) == [
+        "/studio-ws/{ticket}/{path:path}",
+        "/ws",
+        "/ws-sandbox/{session_id}/{ticket}",
+        "/ws/{proxy_secret}",
+    ]
 
 
 def test_http_routes_are_still_checked(monkeypatch: pytest.MonkeyPatch) -> None:

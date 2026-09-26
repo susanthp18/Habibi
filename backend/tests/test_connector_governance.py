@@ -175,10 +175,12 @@ def test_context_includes_paylink_for_an_approved_healthy_connector(
     assert out["payLink"]["say"] == "We see the UPI success."
 
 
-def test_context_omits_paylink_when_mcp_client_is_off(
+def test_context_reads_first_party_paylink_with_mcp_client_off(
     db_tx, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Unchanged behaviour: the flag still short-circuits before any DB read."""
+    """``MCP_CLIENT_ENABLED`` is about egress to remote MCP servers. It used to
+    refuse the first-party pay-link read too, so on a server with the flag
+    off every context read silently lost the pay-link status."""
     _require_connectors(db_tx)
     monkeypatch.delenv("MCP_CLIENT_ENABLED", raising=False)
     customer_id, account_id = _customer(db_tx)
@@ -187,7 +189,7 @@ def test_context_omits_paylink_when_mcp_client_is_off(
     _paid_intent(db_tx, customer_id, account_id)
     _paylink_connector(db_tx, status="approved")
 
-    assert "payLink" not in _context(customer_id)
+    assert _context(customer_id)["payLink"]["status"] == "paid"
 
 
 def test_dispatch_gates_first_party_tools_on_status(

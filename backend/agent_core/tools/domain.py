@@ -20,6 +20,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+import money_inr
+
 from agent_core.tools.catalog import (
     CALLBACK_REASONS,
     CATALOG,
@@ -863,13 +865,54 @@ def _open_promise_summary(promise_id: str) -> dict[str, Any]:
 
 _REVISE_SPOKEN: dict[str, str] = {
     "promise_revision_cap": (
-        "this promise has already been moved the maximum number of times; do not move it "
-        "again -- offer a callback for a hardship review or a payment plan"
+        "this open promise has already been moved the maximum number of times. "
+        "Do not offer to create a fresh promise beside it; the account permits "
+        "only one open promise. Offer a hardship review callback or a human agent."
     ),
     "promise_not_open": "there is no open promise to move; offer to record a new one",
     "nothing_to_revise": "the date and amount are the same as the promise already holds",
     "invalid_revision_reason": "choose one of the listed reasons",
 }
+
+
+def _revision_spoken(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """What the model should tell the caller changed -- and what did not.
+
+    The old line was "confirm the promise now stands at 4000.0 on 2026-10-04"
+    whatever moved. On VS-8C1B760F1B the caller only asked for ten more days;
+    the amount was the INR 4,000 they had promised on an earlier call, and the
+    agent said "I've updated your Promise-to-Pay to INR 4,000" as though a new
+    figure had just been agreed. An unchanged field is named as unchanged.
+    """
+    amount, day = after.get("amount"), after.get("promisedDate")
+    was_amount, was_day = before.get("amount"), before.get("promisedDate")
+    if amount is None or not day:
+        return "confirm the promise was moved"
+    shown = money_inr.inr(amount)
+    # Spoken forms: the model repeats what it is handed, and "2026-10-10"
+    # reached the caller digit by digit.
+    from agent_core.clock import spoken_date
+
+    day, was_day = spoken_date(day), spoken_date(was_day) if was_day else was_day
+    if was_amount is None or not was_day:
+        return f"confirm the promise now stands at {shown} on {day}"
+    amount_moved = float(was_amount) != float(amount)
+    day_moved = was_day != day
+    if day_moved and not amount_moved:
+        return (
+            f"confirm the date of their existing promise of {shown} moved from "
+            f"{was_day} to {day}; the amount is unchanged, so do not present it "
+            "as a new figure"
+        )
+    if amount_moved and not day_moved:
+        return (
+            f"confirm their promise is now {shown} instead of "
+            f"{money_inr.inr(was_amount)}, still due on {day}"
+        )
+    return (
+        f"confirm their promise moved from {money_inr.inr(was_amount)} on {was_day} "
+        f"to {shown} on {day}"
+    )
 
 
 def revise_promise_to_pay(
@@ -914,6 +957,7 @@ def revise_promise_to_pay(
             data={"detail": "promise_not_open"},
             spoken_summary=_REVISE_SPOKEN["promise_not_open"],
         )
+    before = _open_promise_summary(pid)
     payload: dict[str, Any] = {"reason": reason, "interactionId": interaction_id}
     if amount not in (None, ""):
         try:
@@ -944,9 +988,8 @@ def revise_promise_to_pay(
         )
     fulfillment = (row or {}).get("_fulfillment") or {}
     summary = _open_promise_summary(pid)
-    spoken = (
-        f"confirm the promise now stands at {summary.get('amount')} on {summary.get('promisedDate')}"
-        + ("; the confirmation could not be re-sent, say so" if fulfillment.get("error") else "")
+    spoken = _revision_spoken(before, summary) + (
+        "; the confirmation could not be re-sent, say so" if fulfillment.get("error") else ""
     )
     return ToolResult(
         ok=True,
@@ -954,6 +997,8 @@ def revise_promise_to_pay(
             "promiseId": pid,
             "amount": summary.get("amount"),
             "promisedDate": summary.get("promisedDate"),
+            "previousAmount": before.get("amount"),
+            "previousPromisedDate": before.get("promisedDate"),
             "revisionCount": summary.get("revisionCount"),
             "status": _row_field(row, "status"),
             "amountCapped": bool((row or {}).get("_capped")),
@@ -1172,7 +1217,10 @@ def request_callback(
             "scheduledAt": when,
             "status": _row_field(row, "status"),
         },
-        spoken_summary="confirm the callback time briefly",
+        spoken_summary=(
+            "confirm the agreed callback time briefly; say a colleague will call. "
+            "Do not promise a specialist unless one was assigned."
+        ),
         entity=_entity("request_callback"),
         entity_id=callback_id,
         deep_link=_link("request_callback", callback_id),

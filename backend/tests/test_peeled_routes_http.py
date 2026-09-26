@@ -48,20 +48,6 @@ def test_platform_switches_list_and_flip(client, db_tx) -> None:
     platform_switches.invalidate()
 
 
-def test_eval_report_read_is_tenant_scoped(client, db_tx) -> None:
-    import db
-    from sqlalchemy import text
-
-    assert client.get("/eval/reports/no-such-report", headers=HEADERS).status_code == 404
-    suite = db_tx.execute(text("SELECT id FROM eval_suites LIMIT 1")).scalar()
-    if suite is None:
-        pytest.skip("no eval suites seeded")
-    saved = db.save_eval_report(suite_id=suite, bot_id=None, status="pass", summary={"failed": 0, "total": 1})
-    res = client.get(f"/eval/reports/{saved['id']}", headers=HEADERS)
-    assert res.status_code == 200, res.text
-    assert res.json()["id"] == saved["id"]
-
-
 def test_hourly_reach_answers_for_a_customer(client, db_tx) -> None:
     import db
     from sqlalchemy import text

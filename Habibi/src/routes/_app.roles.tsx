@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useRolesCatalog } from "@/api/agent-studio";
+import { useRolesCatalog } from "@/api/roles";
 import { can, useMe } from "@/api/me";
 import { useDirectoryUsers } from "@/api/users";
 import { Lozenge } from "@/components/ui/lozenge";

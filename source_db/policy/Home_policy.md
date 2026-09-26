@@ -1,4 +1,4 @@
-# HDFC Assurance
+# BigTapp Assurance
 ## Home Protect360
 ### YOUR HOME PROTECT360 POLICY
 Here is Your Home Protect360 Policy. Please examine this insurance Policy to ensure that You understand the terms and conditions and that the cover You require is being provided.
@@ -35,7 +35,7 @@ Injury resulting solely and directly from Accident and does not include any medi
 A person qualified by a medical degree/certification and duly licensed or registered to practice Chinese medicine or Chiropractic in the geographical area of his practice, and who in rendering such services is practicing within the scope of his licensing and training but excluding a Chinese Physician or Chiropractor who is You or Your spouse, Your relative or Your employee.
 
 **"Company/We/Us/Our"**
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 
 **"Domestic Helper"**
 A helper employed by You and residing with You at Your Home.
@@ -517,10 +517,10 @@ This Policy does not cover:
     b. Loss or damage resulting from an impairment in the function, availability, range of use or accessibility of data, software or computer programs that is caused by a deletion, a corruption or a deformation of the original structure, and any business interruption losses resulting from such loss or damage.
 
 ### POLICY OWNER'S PROTECTION SCHEME
-This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your Policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your Policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ### CARING FOR OUR CUSTOMERS
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
 Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising.
 
@@ -529,7 +529,7 @@ We will acknowledge receipt of Your feedback within seven (7) working days whils
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 **Chief Executive Officer**
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 

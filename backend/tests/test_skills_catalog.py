@@ -123,6 +123,33 @@ def test_first_party_cards_pin_the_pack_the_platform_ships(skills_ready) -> None
     assert pins["ptp-negotiate"] == pack_for_slug("ptp-negotiate").version
 
 
+def test_a_draft_follows_the_platform_pack_too(skills_ready) -> None:
+    """Only the published pin moved, so publishing an open draft rolled the
+    card back to the pack version the platform had just moved it off."""
+    from agent_core.skills.pack import pack_for_slug
+
+    row = skills_ready.execute(
+        text(
+            "SELECT id, agent_card FROM prompt_versions "
+            "WHERE bot_id = 'kaia-v2-4' AND status = 'draft' LIMIT 1"
+        )
+    ).mappings().first()
+    if row is None or not (row["agent_card"] or {}).get("skills"):
+        pytest.skip("no kaia draft with skills")
+    card = dict(row["agent_card"])
+    card["skills"] = [{**s, "version": "1"} for s in card["skills"]]
+    skills_ready.execute(
+        text("UPDATE prompt_versions SET agent_card = CAST(:c AS jsonb) WHERE id = :id"),
+        {"c": db._jsonb(card), "id": row["id"]},
+    )
+    ensure_first_party_skills()
+    after = skills_ready.execute(
+        text("SELECT agent_card FROM prompt_versions WHERE id = :id"), {"id": row["id"]}
+    ).scalar()
+    pins = {s["skill_id"]: s["version"] for s in after["skills"]}
+    assert pins["dispute-capture"] == pack_for_slug("dispute-capture").version
+
+
 def test_listing_the_catalog_writes_nothing(skills_ready, monkeypatch) -> None:
     """``GET /agent-studio/skills`` used to call the boot sync when the list
     came back empty -- and the boot sync rewrites published first-party cards.

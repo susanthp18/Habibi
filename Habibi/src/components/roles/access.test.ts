@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { RolesCatalog } from "@/api/agent-studio";
+import type { RolesCatalog } from "@/api/roles";
 import {
   effectivePermissionIds,
   isAdminRoleName,

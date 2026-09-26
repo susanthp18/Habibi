@@ -123,11 +123,10 @@ def effective_tools(
         names |= {n for n in frozen_connector_tools if n}
     elif card.connectors:
         try:
-            from agent_core.platform_flags import mcp_client_enabled
             from agent_core.connectors.persist import bound_tool_names
 
-            if mcp_client_enabled():
-                names |= set(bound_tool_names([c.model_dump() for c in card.connectors]))
+            # The MCP flag is applied inside, to remote connectors only.
+            names |= set(bound_tool_names([c.model_dump() for c in card.connectors]))
         except Exception as exc:
             # A transient registry read failure used to strip every ext.* tool
             # from the compiled card with nothing written down anywhere. Degrade

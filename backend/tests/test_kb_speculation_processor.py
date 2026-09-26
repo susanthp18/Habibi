@@ -198,20 +198,26 @@ def test_gated_intents_never_speculate() -> None:
     assert calls == [], "speculated on a balance_query"
 
 
-def test_cooldown_suppresses_speculation() -> None:
+def test_cooldown_suppresses_speculation_for_the_grounded_turn_only() -> None:
+    """Within the turn a tool call grounded, no speculation; the caller's next
+    turn lifts it. The flat 25s used to starve that next question."""
     calls: list[str] = []
 
     async def scenario() -> None:
         cache = _cache_recording(calls)
-        cache.suppress(30)
         h = _Harness(cache)
         await h.send(VADUserStartedSpeakingFrame())
+        cache.suppress(30)  # the tool call lands mid-turn
         await h.send(_interim(_POLICY_Q))
         await asyncio.sleep(0.1)
+        assert calls == []
+        await h.send(VADUserStartedSpeakingFrame())  # their next turn
+        await h.send(_interim(_POLICY_Q))
+        await asyncio.sleep(0.6)
         await h.proc.cleanup()
 
     asyncio.run(scenario())
-    assert calls == []
+    assert calls, "the next turn should speculate again"
 
 
 def test_end_frame_cancels_in_flight_work() -> None:

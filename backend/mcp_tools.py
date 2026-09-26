@@ -120,6 +120,7 @@ def _search_knowledge_base(customer_id: str, args: dict[str, Any]) -> dict[str, 
         # gated on interaction_id, so passing none is the whole mechanism.
         interaction_id=None,
         apply_intent_gate=False,
+        product=args.get("product"),
     )
     return result.to_llm()
 

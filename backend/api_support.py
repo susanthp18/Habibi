@@ -15,7 +15,7 @@ import observability
 
 from fastapi import Depends, HTTPException, Request, Response
 from fastapi import UploadFile
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from fastapi.responses import JSONResponse
 from starlette.requests import HTTPConnection
@@ -298,6 +298,32 @@ def register_error_handlers(app: Any) -> None:
         import time
 
         return _unavailable(429, str(exc) or "rate_limited", 60 - int(time.time()) % 60)
+
+    @app.exception_handler(DBAPIError)
+    async def _database(request: Request, exc: DBAPIError):
+        """A row-security refusal is a 403 that names itself, not a 500.
+
+        Submitting a statutory rule set used to surface as ``internal_error``
+        with the cause only in a traceback: Postgres had refused a write to a
+        row no tenant may write. That is still a code path that should not
+        have tried, so it logs at ERROR -- once, with the route and the
+        database's own words -- but the client learns what happened.
+        """
+        if pg_errors.sqlstate(exc) != pg_errors.PG_INSUFFICIENT_PRIVILEGE:
+            return await _unhandled(request, exc)
+        rid = getattr(request.state, "request_id", None)
+        logger.error(
+            "row security refused %s %s request_id=%s: %s",
+            request.method,
+            request.url.path,
+            rid,
+            str(getattr(exc, "orig", exc)).splitlines()[0],
+        )
+        return Utf8JSONResponse(
+            status_code=403,
+            content={"detail": "row_security_refused", "requestId": rid},
+            headers={"X-Request-Id": rid} if rid else None,
+        )
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, _exc: Exception):

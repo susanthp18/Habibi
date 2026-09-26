@@ -60,6 +60,15 @@ def _fields(record_msg: str) -> dict[str, str]:
     return dict(p.split("=", 1) for p in parts[2:] if "=" in p)
 
 
+def test_tool_trace_names_cannot_include_arguments_or_borrower_text():
+    from voice.call_trace import safe_tool_name
+
+    assert safe_tool_name("create_promise_to_pay") == "create_promise_to_pay"
+    assert safe_tool_name("create_promise_to_pay(amount=500)") is None
+    assert safe_tool_name("borrower said yes") is None
+    assert safe_tool_name("x" * 65) is None
+
+
 def test_turn_trace_carries_the_caller_clock_not_only_the_pipeline_one(trace_lines):
     """BotStartedSpeakingFrame fires when audio is handed to the transport.
     The output buffer still has to be added before the number is what the

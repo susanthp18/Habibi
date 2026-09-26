@@ -20,7 +20,9 @@ consume or alter them.
 
 from __future__ import annotations
 
+import logging
 import time
+from collections import deque
 from typing import Any
 
 from pipecat.frames.frames import (
@@ -56,16 +58,44 @@ _MAX_USER_TURN_SECONDS = 120.0
 #: turn that has plainly stopped progressing should be overridden.
 _MAX_BOT_TURN_SECONDS = 30.0
 
+#: Longest the bot is believed to hold the line in one utterance. The voice
+#: overlay caps a turn at 45 spoken words, which is under 20 seconds at any
+#: Azure rate; a nine-item product list ran 17. Past this, `_bot_speaking` is
+#: treated as latched by a lost ``BotStoppedSpeakingFrame`` rather than true, so
+#: the dead-air watchdog cannot be disabled for the rest of the call by one
+#: dropped frame. Same judgement as the two limits above.
+_MAX_BOT_SPEECH_SECONDS = 60.0
+
+logger = logging.getLogger(__name__)
+
+_WATCHED = (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    FunctionCallInProgressFrame,
+    FunctionCallResultFrame,
+    InterruptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    TranscriptionFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+)
+
 
 class BotTurnStateObserver(BaseObserver):
     """Tracks whether the bot is mid-turn: generating, calling a tool, or speaking."""
 
-    def __init__(self, on_first_speech: Any | None = None) -> None:
+    def __init__(
+        self, on_first_speech: Any | None = None, on_transition: Any | None = None
+    ) -> None:
         super().__init__()
         self._on_first_speech = on_first_speech
+        self._on_transition = on_transition
         self._first_speech_emitted = False
         self._generating = False
+        self._llm_started_at = 0.0
         self._tool_calls = 0
+        self._active_tool_ids: set[str] = set()
         self._last_activity = 0.0
         # Audio only — deliberately separate from _last_activity, which also
         # counts the bot thinking. "Has anyone made a sound?" and "does the bot
@@ -78,29 +108,80 @@ class BotTurnStateObserver(BaseObserver):
         # quiet. See :meth:`silent_for`.
         self._user_speaking = False
         self._user_speaking_since = 0.0
+        self._user_stopped_at = 0.0
         # When the caller connected. The origin for silence that precedes any
         # sound at all — see :meth:`silent_for`.
         self._call_started_at = 0.0
         self._bot_speaking = False
+        self._bot_speaking_since = 0.0
         self._bot_has_spoken = False
         self.llm_response_starts = 0
         self._callee_spoke = False
+        # Frames already seen. Pipecat calls an observer once per *hop*, not
+        # once per frame -- a response start passes the TTS, the output
+        # transport and the assistant aggregator, and each push is reported.
+        # Pipecat's own observers skip repeats by frame id; this one did not,
+        # so `llm_response_starts` counted hops, and the loop-trip watchdog
+        # (budget 6 responses before the callee speaks) could close a real call
+        # as a voicemail loop after a greeting and one nudge. Bounded: ids only
+        # need to outlive one frame's trip through the pipeline.
+        self._seen_ids: set[int] = set()
+        self._seen_order: deque[int] = deque()
+
+    def _first_sighting(self, frame: Any) -> bool:
+        frame_id = getattr(frame, "id", None)
+        if frame_id is None:
+            return True
+        if frame_id in self._seen_ids:
+            return False
+        self._seen_ids.add(frame_id)
+        self._seen_order.append(frame_id)
+        if len(self._seen_order) > 2048:
+            self._seen_ids.discard(self._seen_order.popleft())
+        return True
 
     async def on_push_frame(self, data: FrameProcessed) -> None:
         frame = data.frame
+        # Type first: audio frames arrive fifty times a second per hop and must
+        # cost nothing here.
+        if not isinstance(frame, _WATCHED) or not self._first_sighting(frame):
+            return
         if isinstance(frame, LLMFullResponseStartFrame):
             self._generating = True
             self.llm_response_starts += 1
             self._touch()
+            self._llm_started_at = self._last_activity
+            self._trace("llm.response_start", response=self.llm_response_starts)
         elif isinstance(frame, LLMFullResponseEndFrame):
             self._generating = False
             self._touch()
+            self._trace(
+                "llm.response_end",
+                response=self.llm_response_starts,
+                elapsed_ms=(
+                    int((self._last_activity - self._llm_started_at) * 1000)
+                    if self._llm_started_at
+                    else None
+                ),
+                pending_tools=self._tool_calls,
+            )
+            self._llm_started_at = 0.0
         elif isinstance(frame, FunctionCallInProgressFrame):
+            tool_id = str(getattr(frame, "tool_call_id", "") or "")
+            if tool_id and tool_id in self._active_tool_ids:
+                return
+            if tool_id:
+                self._active_tool_ids.add(tool_id)
             self._tool_calls += 1
             self._touch()
         elif isinstance(frame, FunctionCallResultFrame):
             # Never below zero: a result can arrive for a call that started
             # before this observer was attached.
+            tool_id = str(getattr(frame, "tool_call_id", "") or "")
+            if tool_id:
+                if tool_id not in self._active_tool_ids:
+                    return
+                self._active_tool_ids.remove(tool_id)
             self._tool_calls = max(0, self._tool_calls - 1)
             self._touch()
         elif isinstance(frame, InterruptionFrame):
@@ -121,36 +202,108 @@ class BotTurnStateObserver(BaseObserver):
             #
             # After an interruption the bot owes nothing: whatever it was going
             # to say has been thrown away.
+            if self._generating or self._tool_calls or self._bot_speaking:
+                self._trace(
+                    "turn.interrupted",
+                    response=self.llm_response_starts,
+                    generating=1 if self._generating else 0,
+                    pending_tools=self._tool_calls,
+                    bot_speaking=1 if self._bot_speaking else 0,
+                )
             self._generating = False
+            self._llm_started_at = 0.0
             self._tool_calls = 0
+            self._active_tool_ids.clear()
             self._touch()
         elif isinstance(frame, BotStoppedSpeakingFrame):
+            was_speaking = self._bot_speaking
+            if not was_speaking:
+                return
             self._bot_speaking = False
             self._touch()
             self._last_audio = time.monotonic()
+            self._trace(
+                "bot.speech_stop",
+                response=self.llm_response_starts,
+                speech_ms=(
+                    int((self._last_audio - self._bot_speaking_since) * 1000)
+                    if was_speaking and self._bot_speaking_since
+                    else None
+                ),
+                paired=1 if was_speaking else 0,
+            )
         elif isinstance(frame, UserStartedSpeakingFrame):
+            if self._user_speaking:
+                return
+            bot_was_speaking = self._bot_speaking
             self._user_speaking = True
             self._user_speaking_since = time.monotonic()
             self._last_audio = time.monotonic()
+            self._trace("caller.speech_start", bot_speaking=1 if bot_was_speaking else 0)
         elif isinstance(frame, UserStoppedSpeakingFrame):
+            was_speaking = self._user_speaking
+            if not was_speaking:
+                return
             self._user_speaking = False
+            self._user_stopped_at = time.monotonic()
             self._last_audio = time.monotonic()
+            self._trace(
+                "caller.speech_stop",
+                speech_ms=(
+                    int((self._user_stopped_at - self._user_speaking_since) * 1000)
+                    if was_speaking and self._user_speaking_since
+                    else None
+                ),
+                paired=1 if was_speaking else 0,
+            )
         elif isinstance(frame, BotStartedSpeakingFrame):
+            if self._bot_speaking:
+                return
             self._bot_speaking = True
+            self._bot_speaking_since = time.monotonic()
             self._bot_has_spoken = True
             self._last_audio = time.monotonic()
+            self._trace(
+                "bot.speech_start",
+                response=self.llm_response_starts,
+                since_caller_stop_ms=(
+                    int((self._bot_speaking_since - self._user_stopped_at) * 1000)
+                    if (
+                        self._user_stopped_at
+                        and self._bot_speaking_since >= self._user_stopped_at
+                    )
+                    else None
+                ),
+                generating=1 if self._generating else 0,
+                pending_tools=self._tool_calls,
+            )
             if not self._first_speech_emitted:
                 self._first_speech_emitted = True
                 cb = self._on_first_speech
                 if cb is not None:
                     try:
                         cb()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "first speech callback failed error_type=%s",
+                            type(exc).__name__,
+                        )
         elif isinstance(frame, TranscriptionFrame):
             letters = sum(1 for ch in str(getattr(frame, "text", "") or "") if ch.isalpha())
             if letters >= 2:
                 self._callee_spoke = True
+
+    def _trace(self, name: str, **fields: Any) -> None:
+        if self._on_transition is None:
+            return
+        try:
+            self._on_transition(name, **fields)
+        except Exception as exc:
+            logger.warning(
+                "voice turn trace failed event=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
 
     def _touch(self) -> None:
         self._last_activity = time.monotonic()
@@ -185,8 +338,18 @@ class BotTurnStateObserver(BaseObserver):
         this returned 8.9s at 12:23:04, and the watchdog cut into a nine-second
         sentence with "Are you still there?" — the caller finished half a
         second later. Someone speaking is the opposite of silence.
+
+        And 0.0 while the *bot* is mid-utterance, for the same reason from the
+        other side. ``_last_audio`` is stamped when the bot starts speaking, so a
+        long turn aged into "silence" while it was still playing: on
+        VS-8C1B760F1B a 17-second balance statement and a 17-second product list
+        each tripped the watchdog at 14s, which then asked the idle ladder to
+        nudge once a second until the caller spoke. The ladder refused only
+        because the bot's last sentence happened to end in a question.
         """
         if self._user_speaking and not self._user_turn_is_stale():
+            return 0.0
+        if self._bot_speaking and not self._bot_speech_is_stale():
             return 0.0
         origin = max(self._last_audio, self._call_started_at)
         if not origin:
@@ -212,6 +375,29 @@ class BotTurnStateObserver(BaseObserver):
         if not self._user_speaking_since:
             return False
         return (time.monotonic() - self._user_speaking_since) > _MAX_USER_TURN_SECONDS
+
+    def _bot_speech_is_stale(self) -> bool:
+        """Has ``_bot_speaking`` been stuck on beyond any real utterance?
+
+        A dropped ``BotStoppedSpeakingFrame`` must not switch the watchdog off
+        for the rest of the call. Past the limit, trust the clock over the flag.
+        """
+        if not self._bot_speaking_since:
+            return False
+        return (time.monotonic() - self._bot_speaking_since) > _MAX_BOT_SPEECH_SECONDS
+
+    def caller_waiting_for(self) -> float:
+        """Seconds since the caller stopped talking with no bot audio since.
+
+        What the caller actually experiences as a slow reply, independent of
+        which stage is slow. 0.0 while they are talking, once the bot has
+        started answering, and before they have said anything at all.
+        """
+        if self._user_speaking or not self._user_stopped_at:
+            return 0.0
+        if self._bot_speaking_since >= self._user_stopped_at:
+            return 0.0
+        return time.monotonic() - self._user_stopped_at
 
     def busy(self, *, grace_seconds: float = 1.5) -> bool:
         """True while the bot owes the caller a turn.

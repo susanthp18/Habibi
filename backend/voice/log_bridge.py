@@ -25,6 +25,7 @@ from typing import Any
 import inspect
 import logging
 import os
+import sys
 
 from loguru import logger
 
@@ -91,6 +92,17 @@ def install(level: str | None = None) -> None:
     if not any(isinstance(h, InterceptHandler) for h in root.handlers):
         root.handlers = [InterceptHandler()]
     root.setLevel(resolved)
+
+    # Loguru's built-in stderr sink accepts DEBUG independently of the stdlib
+    # root level. Pipecat logs the entire model context at DEBUG, including
+    # borrower facts. Replace only that built-in sink; leave a caller's custom
+    # sink (for example, a test capture) alone. A second install has no sink 0.
+    try:
+        logger.remove(0)
+    except ValueError:
+        pass
+    else:
+        logger.add(sys.stderr, level=resolved, backtrace=False, diagnose=False)
 
     # Redaction, on both halves of the stream.
     #

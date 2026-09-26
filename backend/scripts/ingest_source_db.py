@@ -1,4 +1,4 @@
-"""Bootstrap HDFC insurance corpus from source_db/ (disk) into kb_* + faq_pairs.
+"""Bootstrap BigTapp insurance corpus from source_db/ (disk) into kb_* + faq_pairs.
 
 Usage (from backend/):
   .venv/Scripts/python scripts/ingest_source_db.py
@@ -116,7 +116,7 @@ def ingest_product(product: CorpusProduct, paths: dict[str, Path]) -> dict[str, 
             doc_type="policy",
             product_key=product.product_key,
             source_path=str(paths["policy"]),
-            tags=[product.product_key, "policy", "hdfc", "upsell"],
+            tags=[product.product_key, "policy", "bigtapp", "upsell"],
         )
         upsert_document(
             conn,
@@ -125,7 +125,7 @@ def ingest_product(product: CorpusProduct, paths: dict[str, Path]) -> dict[str, 
             doc_type="benefits",
             product_key=product.product_key,
             source_path=str(paths["benefits"]),
-            tags=[product.product_key, "benefits", "hdfc", "upsell"],
+            tags=[product.product_key, "benefits", "bigtapp", "upsell"],
         )
         # Drop stale queued/failed jobs so re-runs don't pile up; always new job ids.
         conn.execute(

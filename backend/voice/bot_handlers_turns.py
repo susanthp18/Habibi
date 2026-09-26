@@ -44,6 +44,7 @@ def build(scope: HandlerScope) -> None:
     flow_manager = scope.flow_manager
     _flow_holder = scope._flow_holder
     hs = scope.hs
+    bot_turn_state = getattr(scope, "bot_turn_state", None)
 
 
     sink.configure_live_handlers(
@@ -69,6 +70,53 @@ def build(scope: HandlerScope) -> None:
                 await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=float(restore)))
             except Exception:
                 logger.debug("restore idle timeout failed", exc_info=True)
+
+    @user_aggregator.event_handler("on_user_turn_started")
+    async def on_user_turn_started_note_barge(aggregator, strategy):
+        # Read before the interruption lands: speaking() still reports the
+        # audio the caller just talked over.
+        hs.turn_cut_bot = bool(bot_turn_state is not None and bot_turn_state.speaking())
+
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped_false_barge(aggregator, strategy, message=None):
+        """Resume the bot when a barge-in turns out to have had no words in it.
+
+        VAD opens a turn on sound, not speech. On VS-58097BA530 line noise cut
+        the bot one second into "could you share the last four digits", the
+        turn closed on the backstop with no transcript, and nothing spoke
+        again: the caller sat in 12s of silence, then said "Hello?". The only
+        recovery was the idle ladder, which is for a caller who went quiet,
+        not for a question the caller never heard.
+        """
+        cut, hs.turn_cut_bot = hs.turn_cut_bot, False
+        words = str(getattr(message, "content", "") or "").strip()
+        if words:
+            hs.false_barges = 0
+            return
+        if not cut or hs.ending or session.extra.get("ending") or session.extra.get("on_hold"):
+            return
+        hs.false_barges += 1
+        from voice.call_trace import event as _trace
+        from voice.call_trace import session_fields
+
+        # Two in a row is a noisy line, not a cut-off sentence: stop repeating
+        # and let the idle ladder, which asks whether they can hear us, take it.
+        resumed = hs.false_barges <= 2
+        _trace("barge.false", **session_fields(session), n=hs.false_barges, resumed=int(resumed))
+        if not resumed:
+            return
+        from pipecat.frames.frames import LLMMessagesAppendFrame
+
+        msg = {
+            "role": "developer",
+            "content": (
+                "Background noise cut you off and the caller did not hear the end of "
+                "your last reply; they have said nothing. Say the part they missed "
+                "again in one short sentence, ending with your question if you had "
+                "one. Do not apologise or mention the noise."
+            ),
+        }
+        await aggregator.push_frame(LLMMessagesAppendFrame([msg], run_llm=True))
 
     @user_aggregator.event_handler("on_user_turn_stopped")
     async def on_user_turn_stopped_rearm_idle(aggregator, strategy, message=None):
@@ -179,7 +227,12 @@ def build(scope: HandlerScope) -> None:
 
     # Fallback: raw data-channel JSON still arrives here as
     # {type: "client-message", data: {t, d}} before/alongside RTVIProcessor.
-    @transport.event_handler("on_app_message")
-    async def on_app_message(transport, message, sender=None):
-        await _handle_tune_message(message)
+    # Only the WebRTC sandbox has a data channel. Twilio and Asterisk
+    # transports have no such event, and registering one there logged
+    # "event handler on_app_message not registered" on every phone call.
+    if scope.transport_name == "smallwebrtc":
+
+        @transport.event_handler("on_app_message")
+        async def on_app_message(transport, message, sender=None):
+            await _handle_tune_message(message)
 

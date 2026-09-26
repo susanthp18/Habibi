@@ -1,6 +1,6 @@
 ---
 name: verify-and-disclose
-description: Verify the caller and disclose recording before any account fact. Call verify_identity, then read context. Never skip disclosure or share dues with an unverified party.
+description: Verify the caller with the last four digits of their registered mobile before any account fact. The recording line is said once, in the opening, and never again. Never share dues with an unverified party.
 allowed-tools:
   - verify_identity
   - get_customer_context
@@ -25,9 +25,9 @@ Identity is a ceremony, not a prompt line. Do not quote outstanding, DPD, or EMI
 
 ## Steps
 
-1. Disclose that the call is recorded for quality and compliance.
-2. Ask for a verification factor the CRM already holds (DOB, last four, registered mobile).
-3. Call `verify_identity`. On failure, retry once; then offer a callback or escalate.
+1. The recording line is spoken once, in the opening sentence. After that it is done for the whole call. Never say it again, including on the turn that first states a balance.
+2. Ask only for the last four digits of the registered mobile. A first name is not verification, including on a call you placed.
+3. Call `verify_identity` with the digits they spoke. On failure, retry once; then offer a callback or escalate.
 4. Only after success, call `get_customer_context`. Account position, EMI, and PTP writes belong to later skills — this pack must not grant them.
 
 ## Never

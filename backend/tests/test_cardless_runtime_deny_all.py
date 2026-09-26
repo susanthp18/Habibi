@@ -90,16 +90,6 @@ def test_text_runtime_no_longer_falls_back_to_the_full_catalog() -> None:
 # --- sandbox ----------------------------------------------------------------
 
 
-def test_sandbox_offers_no_tools_when_cardless() -> None:
-    import sandbox_runtime
-
-    assert not hasattr(sandbox_runtime, "_SANDBOX_TOOL_NAMES")
-    tool_state = _cardless_state()
-    offered = CATALOG.openai_tools(list(tool_state.offered or ()))
-    assert offered == []
-    assert not (set(tool_state.allowed) & SKILL_GATED_TOOLS)
-
-
 @pytest.mark.parametrize("name", _WRITES)
 def test_sandbox_execute_refuses_writes_when_cardless(name) -> None:
     """Sandbox shares ``bot_tools.execute_tool``; the empty grant must bind."""

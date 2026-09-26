@@ -27,12 +27,12 @@ describe("wire schemas", () => {
   });
 
   it("refuse a body the model does not describe", () => {
-    expect(() => parseWire("GET", "/agent-studio/cards", [{ botId: 1 }])).toThrow(WireError);
+    expect(() => parseWire("GET", "/customers", [{ id: 1 }])).toThrow(WireError);
   });
 
   it("resolve a parameterised path to its own route, not the list beside it", () => {
-    const card = schemaFor("GET", "/agent-studio/cards/kaia-v2-4?x=1");
-    expect(card).toBeDefined();
-    expect(card).not.toBe(schemaFor("GET", "/agent-studio/cards"));
+    const customer = schemaFor("GET", "/customers/CUST-1?x=1");
+    expect(customer).toBeDefined();
+    expect(customer).not.toBe(schemaFor("GET", "/customers"));
   });
 });

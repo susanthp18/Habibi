@@ -9,6 +9,7 @@ watchdog tasks) stays where every handler can reach it.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from loguru import logger
@@ -74,7 +75,6 @@ def make_developer_injectors(call) -> None:
     from pipecat.frames.frames import LLMMessagesAppendFrame
 
     context = call.context
-    user_aggregator = call.user_aggregator
 
     async def _inject_developer(messages: list[Any]) -> None:
         """Append developer messages (CRM card, persona, deltas) to the context.
@@ -82,10 +82,26 @@ def make_developer_injectors(call) -> None:
         run_llm=False: these are facts for the *next* turn, not a prompt to
         speak now. Letting them trigger inference would make the bot narrate
         its own CRM lookup.
+
+        Queued on the worker, never pushed from a processor. The transport
+        fires ``on_client_connected`` before ``StartFrame`` has reached the user
+        aggregator, and Pipecat's ``push_frame`` on a processor that has not
+        started logs an ERROR and *drops* the frame. That is where every
+        outbound mission briefing went on VS-8C1B760F1B and VS-E6043500C0: the
+        model never saw the open promise, the balance, or "do NOT mention any
+        product", and read nine insurance products to a borrower on a call the
+        mission forbade offers on. The worker queue sits behind ``StartFrame``
+        and is FIFO with the flow's own node messages, so a message injected
+        before ``FlowManager.initialize`` also lands before the first node.
         """
         if not messages:
             return
-        await user_aggregator.push_frame(LLMMessagesAppendFrame(messages, run_llm=False))
+        worker = getattr(call, "worker", None)
+        if worker is None:
+            # Nothing can carry a frame before the pipeline exists. Raising is
+            # the honest outcome; a silent drop is the bug this replaced.
+            raise RuntimeError("developer message injected before the pipeline was built")
+        await worker.queue_frame(LLMMessagesAppendFrame(messages, run_llm=False))
 
     async def _replace_developer(prefix: str, message: dict[str, str]) -> None:
         """Re-inject a developer block, evicting the previous one first.
@@ -156,12 +172,51 @@ def register_handlers(call) -> None:
     # the model did NOT already acknowledge in this same response. The role
     # message now asks for acknowledge-then-call, so on the good path the
     # caller is already hearing something and this filler would talk over it.
+    # A 40ms verify on VS-E6043500C0 still spoke "Thanks, just confirming"
+    # and then the model opened with "Thanks" again. Wait, and speak only
+    # if the tool is still running and the model has not started talking.
+    _FILLER_WAIT_SECS = 0.8
+    # ...except when the caller has already waited this long. A turn that
+    # chains tools is a run of LLM round trips with no audio between them, and
+    # every tool in it can be fast: on VS-8C1B760F1B capture_nonpayment_reason
+    # (33ms) and revise_promise_to_pay (87ms) sat inside 6.3s of silence made
+    # of three ~1.7s generations. The still-running rule never fired because
+    # no tool was ever still running. By the second tool of such a turn the
+    # caller has been waiting well past this, so the filler speaks at once.
+    _CALLER_WAIT_FILLER_SECS = 2.0
+
+    async def _speak_filler(phrase: str) -> None:
+        try:
+            await tts.queue_frame(TTSSpeakFrame(phrase, append_to_context=False))
+        except TypeError:
+            await tts.queue_frame(TTSSpeakFrame(phrase))
+        except Exception:
+            logger.exception("filler TTS failed")
+
     @llm.event_handler("on_function_calls_started")
     async def _on_function_calls_started(service, function_calls):
+        calls = tuple(function_calls or ())
+        try:
+            from voice.call_trace import event, safe_tool_name, session_fields
+
+            traced_names = [
+                safe_tool_name(
+                    getattr(call, "function_name", None) or getattr(call, "name", None)
+                )
+                for call in calls
+            ]
+            event(
+                "tool.started",
+                **session_fields(session),
+                tools=",".join(name for name in traced_names if name) or None,
+                count=len(calls),
+            )
+        except Exception as exc:
+            logger.debug("tool start trace unavailable: {}", type(exc).__name__)
         if should_skip_filler(spoke_probe, tts):
             return
         names = []
-        for call in function_calls or []:
+        for call in calls:
             names.append(
                 getattr(call, "function_name", None)
                 or getattr(call, "name", None)
@@ -170,12 +225,23 @@ def register_handlers(call) -> None:
         phrase = filler_for_function_names([str(n) for n in names if n])
         if not phrase:
             return
-        try:
-            await tts.queue_frame(TTSSpeakFrame(phrase, append_to_context=False))
-        except TypeError:
-            await tts.queue_frame(TTSSpeakFrame(phrase))
-        except Exception:
-            logger.exception("filler TTS failed")
+
+        if bot_turn_state.caller_waiting_for() >= _CALLER_WAIT_FILLER_SECS:
+            await _speak_filler(phrase)
+            return
+
+        async def _speak_if_still_waiting() -> None:
+            try:
+                await asyncio.sleep(_FILLER_WAIT_SECS)
+            except asyncio.CancelledError:
+                return
+            if should_skip_filler(spoke_probe, tts):
+                return
+            if getattr(bot_turn_state, "_tool_calls", 0) <= 0:
+                return
+            await _speak_filler(phrase)
+
+        asyncio.create_task(_speak_if_still_waiting())
 
     # The closure scope, as an object the sections can read, and the six
     # scalars they used to share through `nonlocal`.

@@ -20,6 +20,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isVendored } from "./vendored.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const SRC = join(ROOT, "src");
@@ -45,6 +46,7 @@ function walk(dir) {
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules") continue;
     const full = join(dir, entry);
+    if (isVendored(full)) continue;
     if (statSync(full).isDirectory()) out.push(...walk(full));
     else if (/\.(ts|tsx)$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
   }

@@ -40,6 +40,7 @@ from datetime import timezone
 from typing import Any
 
 from sqlalchemy import text
+from agent_core import clock
 from agent_core.clock import utc_now as _now
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,8 @@ def _open_promise(conn: Any, customer_id: str) -> dict[str, Any] | None:
     return {
         "promiseId": row["id"],
         "amountInr": float(row["amount"]) if row["amount"] is not None else None,
-        "promisedDate": promised.date().isoformat() if promised else None,
+        # The customer's day, not the UTC one: see clock.local_day.
+        "promisedDate": clock.local_day(promised).isoformat() if promised else None,
         "status": row["status"],
         "daysLate": days_late,
     }
@@ -237,6 +239,44 @@ def _first_name(name: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _objective_terms(card: Any, objective: str) -> dict[str, Any]:
+    """What the card allows this objective: where it starts, how long, what it may offer."""
+    objective_spec = None
+    outbound_cfg = getattr(card, "outbound", None) if card is not None else None
+    if outbound_cfg is not None:
+        objective_spec = outbound_cfg.objective(objective)
+
+    # Offers: the card's allowance, narrowed by the mission's own conscience and
+    # by the number we are dialling from. Three independent gates that can only
+    # ever subtract, so no single misconfiguration opens a sales pitch.
+    allowed_offers: list[str] = list(getattr(objective_spec, "allowed_offers", []) or [])
+    if objective in NEVER_OFFER:
+        allowed_offers = []
+    if outbound_cfg is not None and outbound_cfg.pool_kind == "service_1600":
+        allowed_offers = []
+
+    prohibited = ["third_party_disclosure", "pressure_language"]
+    if not allowed_offers:
+        prohibited.append("cross_sell")
+
+    return {
+        "entryNode": getattr(objective_spec, "entry_node", "") or "",
+        "maxDurationSec": int(getattr(objective_spec, "max_duration_sec", 240) or 240),
+        "authorityProfile": getattr(objective_spec, "authority_profile", None),
+        # The voicemail policy travels with the mission because the decision
+        # "leave a message or not" is made on the audio path, seconds after the
+        # detector fires, with no time to go and read a card.
+        "voicemail": _voicemail_policy(objective_spec),
+        # Card-level, not per-objective: whether this agent may navigate a third
+        # party's phone menu is a property of the agent, not of why it called.
+        "ivrTraversal": bool(getattr(outbound_cfg, "ivr_traversal", False)),
+        "ivrMaxSec": int(getattr(outbound_cfg, "ivr_max_sec", 90) or 90),
+        "allowedOffers": allowed_offers,
+        "prohibited": prohibited,
+        "success": list(getattr(objective_spec, "success", []) or []),
+    }
+
+
 def build(
     conn: Any,
     *,
@@ -266,11 +306,6 @@ def build(
         # that names no account still gets a briefing with a position in it.
         account_id = dbmod._first_account_id(conn, customer_id)
 
-    objective_spec = None
-    outbound_cfg = getattr(card, "outbound", None) if card is not None else None
-    if outbound_cfg is not None:
-        objective_spec = outbound_cfg.objective(objective)
-
     context: dict[str, Any] = {}
     try:
         context["position"] = _account_position(conn, account_id)
@@ -278,19 +313,6 @@ def build(
         context["lastContact"] = _last_contact(conn, customer_id)
     except Exception:
         logger.exception("mission warm context failed for %s", customer_id)
-
-    # Offers: the card's allowance, narrowed by the mission's own conscience and
-    # by the number we are dialling from. Three independent gates that can only
-    # ever subtract, so no single misconfiguration opens a sales pitch.
-    allowed_offers: list[str] = list(getattr(objective_spec, "allowed_offers", []) or [])
-    if objective in NEVER_OFFER:
-        allowed_offers = []
-    if outbound_cfg is not None and outbound_cfg.pool_kind == "service_1600":
-        allowed_offers = []
-
-    prohibited = ["third_party_disclosure", "pressure_language"]
-    if not allowed_offers:
-        prohibited.append("cross_sell")
 
     mission = {
         "objective": objective,
@@ -303,20 +325,7 @@ def build(
         "timezone": customer.get("timezone"),
         "botId": bot_id,
         "deploymentId": deployment_id,
-        "entryNode": getattr(objective_spec, "entry_node", "") or "",
-        "maxDurationSec": int(getattr(objective_spec, "max_duration_sec", 240) or 240),
-        "authorityProfile": getattr(objective_spec, "authority_profile", None),
-        # The voicemail policy travels with the mission because the decision
-        # "leave a message or not" is made on the audio path, seconds after the
-        # detector fires, with no time to go and read a card.
-        "voicemail": _voicemail_policy(objective_spec),
-        # Card-level, not per-objective: whether this agent may navigate a third
-        # party's phone menu is a property of the agent, not of why it called.
-        "ivrTraversal": bool(getattr(outbound_cfg, "ivr_traversal", False)),
-        "ivrMaxSec": int(getattr(outbound_cfg, "ivr_max_sec", 90) or 90),
-        "allowedOffers": allowed_offers,
-        "prohibited": prohibited,
-        "success": list(getattr(objective_spec, "success", []) or []),
+        **_objective_terms(card, objective),
         "attemptNo": attempt_no,
         "campaignRunId": campaign_run_id,
         "context": context,
@@ -343,6 +352,56 @@ def build(
     return mission
 
 
+def rehearsal(
+    conn: Any,
+    *,
+    card: Any,
+    objective: str | None,
+    persona: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The Mission a Sandbox Live rehearsal of an outbound call opens with.
+
+    Rehearsing an outbound scenario used to run the inbound entrance, so the
+    agent asked an overdue borrower it had just rung "how can I help you
+    today?" while the text rehearsal of the same scenario opened by asking for
+    them by name. Same objective terms as a real dial (``_objective_terms``),
+    same briefing. A persona bound to a real customer gets the real ``build``;
+    a typed persona supplies the name and the figures the tester is playing.
+    """
+    persona = persona if isinstance(persona, dict) else {}
+    outbound_cfg = getattr(card, "outbound", None) if card is not None else None
+    key = str(objective or "").strip() or "dpd_reminder"
+    if outbound_cfg is not None and outbound_cfg.objectives and outbound_cfg.objective(key) is None:
+        # The scenario names a mission this card does not run: rehearse the
+        # card's own first mission rather than one with no entry node.
+        key = outbound_cfg.objectives[0].key
+
+    customer_id = str(persona.get("customerId") or "").strip()
+    if customer_id:
+        built = build(conn, customer_id=customer_id, objective=key, card=card)
+        if built is not None:
+            return {**built, "rehearsal": True}
+
+    name = str(persona.get("name") or "").strip() or None
+    position: dict[str, Any] = {}
+    if persona.get("overdue") is not None:
+        position["outstandingInr"] = persona["overdue"]
+    if persona.get("dpd"):
+        position["dpd"] = persona["dpd"]
+    return {
+        "objective": key,
+        "brief": OBJECTIVE_BRIEF.get(key, ""),
+        "customerId": None,
+        "customerName": name,
+        "firstName": _first_name(name),
+        "language": persona.get("language"),
+        **_objective_terms(card, key),
+        "attemptNo": 1,
+        "context": {"position": position} if position else {},
+        "rehearsal": True,
+    }
+
+
 def _voicemail_policy(objective_spec: Any) -> dict[str, Any]:
     vm = getattr(objective_spec, "voicemail", None)
     return {
@@ -367,6 +426,15 @@ def load(conn: Any, attempt_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 # The briefing
 # ---------------------------------------------------------------------------
+
+
+#: How a contact channel reads mid-sentence ("an SMS", not "a sms").
+_CHANNEL_PHRASE = {"sms": "an SMS", "whatsapp": "a WhatsApp", "email": "an email", "voice": "a voice"}
+
+
+def _channel_phrase(channel: Any) -> str:
+    key = str(channel or "").strip().lower()
+    return _CHANNEL_PHRASE.get(key) or f"a {key or 'text'}"
 
 
 def _inr(value: Any) -> str:
@@ -396,21 +464,31 @@ def briefing(mission: dict[str, Any]) -> str:
 
     first = mission.get("firstName")
     if first:
+        # Two separate things, and this line used to fuse them. Asking for the
+        # borrower by name is right-party contact (what the
+        # ``outbound_opens_by_confirming`` grader checks); it is not
+        # verification. The factor is the last four of the registered mobile,
+        # as ``verify_identity`` enforces on both legs. The old wording, "open
+        # by confirming you are speaking to {first}", read as the whole ceremony
+        # and contradicted the confirm_identity node on every outbound call.
         lines.append(
-            f"You dialled {first}'s number on file. Open by confirming you are "
-            f"speaking to {first} BEFORE mentioning the account, the balance, or "
-            "anything about money. If it is not them, or you are unsure, say only "
-            "that you are calling from the bank about a personal matter and ask "
-            "when {name} is available.".replace("{name}", first)
+            f"You dialled {first}'s number on file. In your opening, ask for {first} "
+            "by name; once they confirm, ask for the last four digits of their "
+            "registered mobile in your next turn -- one question per turn. "
+            "Their saying yes to the name is not verification: verify_identity "
+            "must match those digits before mentioning the account, the balance, "
+            "or anything about money. If it is not them, or you "
+            "are unsure, say only that you are calling from the bank about a "
+            f"personal matter and ask when {first} is available."
         )
 
     ctx = mission.get("context") or {}
     position = ctx.get("position") or {}
     if position.get("outstandingInr") is not None:
         tail = position.get("accountTail")
-        bits = [f"outstanding is INR {_inr(position['outstandingInr'])}"]
+        bits = [f"outstanding is ₹{_inr(position['outstandingInr'])}"]
         if position.get("minimumDueInr") is not None:
-            bits.append(f"minimum due INR {_inr(position['minimumDueInr'])}")
+            bits.append(f"minimum due ₹{_inr(position['minimumDueInr'])}")
         if position.get("dpd"):
             bits.append(f"{position['dpd']} days overdue")
         lines.append(
@@ -424,8 +502,8 @@ def briefing(mission: dict[str, Any]) -> str:
         state = "was not kept" if promise.get("status") == "broken" else "is open"
         late = f", {promise['daysLate']} days ago" if promise.get("daysLate") else ""
         lines.append(
-            f"They promised INR {_inr(promise['amountInr'])} by "
-            f"{promise.get('promisedDate')}{late} and that promise {state}. "
+            f"They promised ₹{_inr(promise['amountInr'])} by "
+            f"{clock.spoken_date(promise.get('promisedDate'))}{late} and that promise {state}. "
             "Refer to it without reproach."
         )
 
@@ -433,14 +511,19 @@ def briefing(mission: dict[str, Any]) -> str:
     if last and last.get("hoursAgo") is not None and last["hoursAgo"] < 168:
         seen = "which they read" if last.get("read") else "which may not have been seen"
         lines.append(
-            f"We sent them a {last['channel']} message about {last['hoursAgo']} "
+            f"We sent them {_channel_phrase(last['channel'])} message about {last['hoursAgo']} "
             f"hours ago, {seen}. You may refer to it."
         )
 
     if not mission.get("allowedOffers"):
+        # Scoped to what the ``upsell_blocked`` latch enforces: no pitch by any
+        # route. A borrower's own product question still goes to the knowledge
+        # base, as the state_position node routes it; forbidding that outright
+        # would have the agent refuse to answer the customer.
         lines.append(
-            "Do NOT mention any product, offer, top-up or upgrade on this call, "
-            "and do not explain why."
+            "Do NOT mention any product, offer, top-up or upgrade on this call "
+            "unless they ask about one first, and do not explain why. If they do "
+            "ask, answer only what they asked — never recommend or pitch one."
         )
 
     budget = mission.get("maxDurationSec")

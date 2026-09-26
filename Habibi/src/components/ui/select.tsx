@@ -246,9 +246,11 @@ export function SelectField({
   const offersNone = options.some((o) => !o.value);
   return (
     <Select
-      // `undefined` is Radix's "nothing selected", which is what renders the
-      // placeholder. `""` would be read as a value and match no item.
-      value={value ? value : offersNone ? SELECT_NONE : undefined}
+      // `""` is Radix's controlled "nothing selected": it renders the
+      // placeholder. `undefined` would do the same but makes the Select
+      // uncontrolled, and a picker whose options arrive after mount then warns
+      // "changing from uncontrolled to controlled" the moment it gets a value.
+      value={value ? value : offersNone ? SELECT_NONE : ""}
       onValueChange={(v) => onChange(v === SELECT_NONE ? "" : v)}
       disabled={disabled}
       name={name}

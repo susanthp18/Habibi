@@ -81,6 +81,36 @@ def local_midnight(day: date | str) -> datetime:
     return datetime.combine(day, time.min, tzinfo=tenant_tz())
 
 
+def local_day(at: datetime | None) -> date | None:
+    """The calendar day an instant falls on where the customer is.
+
+    ``at.date()`` on a stored ``timestamptz`` is the UTC day. A promise for
+    4 October is stored as 00:00 IST, which is 18:30 on 3 October UTC, so the
+    outbound briefing told the agent "by 2026-10-03" while the revise tool, which
+    already converted, said the same promise was for the 4th.
+    """
+    if at is None:
+        return None
+    at = at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+    return at.astimezone(tenant_tz()).date()
+
+
+def spoken_date(day: date | str | None) -> str:
+    """A day as a person says it: "Sunday 4 October", with the year only when
+    it is not this one. The model copies whatever form it is handed, and an ISO
+    date was read to the caller as "twenty twenty-six dash ten dash zero four".
+    """
+    if not day:
+        return ""
+    if isinstance(day, str):
+        try:
+            day = date.fromisoformat(day.split("T", 1)[0])
+        except ValueError:
+            return day  # not a date we can say better; pass it through
+    text = f"{day.strftime('%A')} {day.day} {day.strftime('%B')}"
+    return text if day.year == today_local().year else f"{text} {day.year}"
+
+
 def today_local() -> date:
     """Today, reckoned where the customer is.
 

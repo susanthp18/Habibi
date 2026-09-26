@@ -1,12 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
-import { BookOpen, Bot, CheckCircle2, AlertTriangle, Layers } from "lucide-react";
+import { BookOpen, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UnansweredQuestion } from "@/api/types/bot-analytics";
 import { INTENTS } from "@/lib/bot-analytics";
-import { linkKbGap, promoteGapToSkill } from "@/api/kb";
-import { usePublishedPromptVersion } from "@/api/prompt-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsTable, type RecordsColumn } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
@@ -23,72 +20,10 @@ export function UnansweredTable({
   error?: unknown;
 }) {
   const navigate = useNavigate();
-  const publishedQuery = usePublishedPromptVersion();
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const uncovered = questions.filter((r) => !r.hasKbDoc).length;
 
   const intentLabel = (id: string) => INTENTS.find((i) => i.id === id)?.label ?? id;
-
-  const onPromoteSkill = async (r: UnansweredQuestion) => {
-    setBusyId(r.id);
-    try {
-      const created = await promoteGapToSkill(r.id);
-      toast.success("Draft skill created — unsigned until you sign it");
-      void navigate({ to: "/agent-studio/skills/$skillId", params: { skillId: created.id } });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not promote gap");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const onAddToKb = (r: UnansweredQuestion) => {
-    void navigate({
-      to: "/knowledge-base",
-      search: { gapId: r.id, q: r.text, tab: "gaps" },
-    });
-  };
-
-  const onPromptFix = async (r: UnansweredQuestion) => {
-    setBusyId(r.id);
-    try {
-      // The card the text channel answers from is whatever the server's default
-      // resolves to (`/prompt-versions/published` carries its botId); it used to
-      // be a literal here, so a fleet with a different door deep-linked to the
-      // wrong card.
-      let published = publishedQuery.data;
-      if (!published) {
-        try {
-          published = (await publishedQuery.refetch()).data;
-        } catch {
-          // Fall through — the toast below says the link was not made.
-        }
-      }
-      if (published?.id) {
-        try {
-          await linkKbGap(r.id, { promptVersionId: published.id });
-        } catch (err) {
-          toast.message("Gap link skipped", {
-            description: err instanceof Error ? err.message : "Could not persist prompt link",
-          });
-        }
-      }
-      if (!published?.botId) {
-        toast.message("No published card to open", {
-          description: "Publish a card for the text channel first.",
-        });
-        return;
-      }
-      void navigate({
-        to: "/agent-studio/$botId",
-        params: { botId: published.botId },
-        search: { unansweredId: r.id, note: r.text },
-      });
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   const columns = useMemo<RecordsColumn<UnansweredQuestion>[]>(
     () => [
@@ -160,12 +95,12 @@ export function UnansweredTable({
         id: "actions",
         header: "Actions",
         align: "right",
-        className: "min-w-[22rem] whitespace-nowrap",
+        className: "min-w-[8rem] whitespace-nowrap",
         cell: (r) => (
           <div className="flex justify-end gap-050">
             <button
               type="button"
-              onClick={() => onAddToKb(r)}
+              onClick={() => void navigate({ to: "/studio/files" })}
               className={cn(
                 "inline-flex items-center gap-050 rounded-medium border px-100 py-050 text-body-small",
                 r.suggestedFix !== "prompt"
@@ -175,32 +110,11 @@ export function UnansweredTable({
             >
               <BookOpen className="h-3 w-3" /> Add to KB
             </button>
-            <button
-              type="button"
-              onClick={() => void onPromoteSkill(r)}
-              disabled={busyId === r.id}
-              className="inline-flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
-            >
-              <Layers className="h-3 w-3" /> Promote to skill
-            </button>
-            <button
-              type="button"
-              onClick={() => void onPromptFix(r)}
-              disabled={busyId === r.id}
-              className={cn(
-                "inline-flex items-center gap-050 rounded-medium border px-100 py-050 text-body-small disabled:opacity-50",
-                r.suggestedFix !== "kb"
-                  ? "border-border-brand bg-background-brand-subtlest text-text-brand hover:bg-background-brand-subtlest-pressed"
-                  : "border-border text-text-subtle hover:bg-surface-sunken",
-              )}
-            >
-              <Bot className="h-3 w-3" /> Prompt fix
-            </button>
           </div>
         ),
       },
     ],
-    [busyId],
+    [navigate],
   );
 
   return (
@@ -212,7 +126,7 @@ export function UnansweredTable({
               Top unanswered / RAG-miss questions
             </div>
             <div className="text-body-small text-text-subtlest">
-              Each row is a candidate for Knowledge Base or Prompt Studio work
+              Each row is a candidate for Voice Studio knowledge base work
             </div>
           </div>
           <Lozenge tone="warning">{uncovered} without KB coverage</Lozenge>

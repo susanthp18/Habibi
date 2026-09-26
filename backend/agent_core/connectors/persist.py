@@ -261,9 +261,14 @@ def approve(connector_id: str) -> dict[str, Any]:
 
 
 def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
-    """Compile-time bind: only approved connectors, only allow_prefixes."""
-    if not mcp_client_enabled():
-        return []
+    """Compile-time bind: only approved connectors, only allow_prefixes.
+
+    ``MCP_CLIENT_ENABLED`` gates *remote* connectors -- network egress to an
+    MCP server. It used to gate every connector, so a first-party one (a read
+    of our own CRM through the registry) bound nothing while the flag was off,
+    and every card binding `paylink` shipped without its tool.
+    """
+    remote_ok = mcp_client_enabled()
     names: list[str] = []
     # One registry read, two indexes. Calling list_connectors() twice put a
     # second `SELECT * FROM mcp_connectors` on the compile hot path for nothing.
@@ -274,6 +279,8 @@ def bound_tool_names(card_connectors: list[dict[str, Any]]) -> list[str]:
         cid = str(ref.get("connector_id") or ref.get("connectorId") or "")
         conn = by_id.get(cid) or by_slug.get(cid)
         if not conn or conn["status"] != "approved":
+            continue
+        if conn["kind"] != "first_party" and not remote_ok:
             continue
         prefixes = bound_prefixes(
             ref.get("allow_prefixes") or ref.get("allowPrefixes"), conn["allowPrefixes"]
@@ -334,8 +341,6 @@ def dispatch(
     checked here, at the point of execution, the way ``grant.may_execute``
     does for catalog tools.
     """
-    if not mcp_client_enabled():
-        return {"ok": False, "error": "mcp_client_disabled"}
     conn = None
     if connector_id:
         conn = get_connector(connector_id)
@@ -358,6 +363,11 @@ def dispatch(
     # caller of dispatch().
     if name in FIRST_PARTY_TOOLS:
         return dispatch_first_party(name, customer_id)
+    # The flag is about egress, so it is checked where egress starts. At the
+    # top of this function it refused first-party reads too, and
+    # get_customer_context's pay-link prefetch degraded silently on every call.
+    if not mcp_client_enabled():
+        return {"ok": False, "error": "mcp_client_disabled"}
     try:
         result = _call_remote(conn, name, customer_id, args=args)
     except RemoteRefused as exc:

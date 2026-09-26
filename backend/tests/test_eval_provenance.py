@@ -20,7 +20,6 @@ def _key(**over):
         prompt="Be kind.",
         persona={"language": "English", "traits": {"empathy": 50}},
         guardrails={"maxTurns": 12},
-        voice={"speed": 1.0},
         tuning={},
         skill_packs=[],
     )
@@ -35,10 +34,24 @@ def test_editing_the_persona_changes_the_key() -> None:
 
 
 def test_json_number_types_are_the_same_content() -> None:
-    """The studio mapper stores ``speed: 1.0``; the browser sends ``speed: 1``."""
-    assert _key(voice={"speed": 1.0}) == _key(voice={"speed": 1})
+    """The studio mapper stores ``1.0``; the browser sends ``1``."""
+    assert _key(tuning={"llm": {"temperature": 1.0}}) == _key(tuning={"llm": {"temperature": 1}})
     assert _key(flow={"nodes": [{"position": {"x": 240.0, "y": 12}}]}) == _key(
         flow={"nodes": [{"position": {"x": 240, "y": 12}}]}
+    )
+
+
+def test_how_it_sounds_is_not_what_a_suite_judged() -> None:
+    """A Speed, Pitch or voice change blocked publish until regression and
+    red-team were re-run, though no grader hears audio. The LLM settings in
+    the same tuning blob still move the key."""
+    audio = {"tts": {"voice": "en-IN-AartiNeural", "rate": "1.00", "pitch": "default"}}
+    moved = {"tts": {"voice": "en-IN-NeerjaNeural", "rate": "0.90", "pitch": "+2st"}}
+    assert _key(tuning={**audio, "llm": {"temperature": 0.4}}) == _key(
+        tuning={**moved, "llm": {"temperature": 0.4}}
+    )
+    assert _key(tuning={**audio, "llm": {"temperature": 0.4}}) != _key(
+        tuning={**audio, "llm": {"temperature": 0.9}}
     )
 
 

@@ -45,7 +45,7 @@ _DEFAULT_VOICE = {
     "pitch": 0,
     "warmth": 62,
     "pauseMs": 320,
-    "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+    "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
 }
 
 _DEFAULT_AZURE_TTS_VOICE = "en-IN-AartiNeural"

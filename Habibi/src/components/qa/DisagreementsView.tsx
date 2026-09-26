@@ -16,7 +16,7 @@
 
 import { AlertCircle, ArrowRight } from "lucide-react";
 
-import { useQaDisagreements, type QaDisagreement } from "@/api/agent-studio";
+import { useQaDisagreements, type QaDisagreement } from "@/api/qa";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
 

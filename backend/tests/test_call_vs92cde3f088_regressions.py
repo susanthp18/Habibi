@@ -48,7 +48,7 @@ def _flags(bot_text: str, *, turn_index: int, disclosed: bool = False) -> list[s
 
 def test_greeting_that_discloses_satisfies_the_rule() -> None:
     assert "missing-recording-disclosure" not in _flags(
-        "Hello, this is Priya from HDFC Bank Collections, and this call is "
+        "Hello, this is Priya from BigTapp Bank Collections, and this call is "
         "recorded for quality and compliance.",
         turn_index=0,
     )

@@ -128,46 +128,6 @@ _DEFAULTS = {
     "text": {"top_k": 6, "top_k_policy": 8, "snippet": 1400, "snippet_policy": 2000},
 }
 
-# Unambiguous product/insurance vocabulary — one of these alone opens the KB.
-_PRODUCT_QUERY_HINTS = (
-    "insurance",
-    "policy",
-    "coverage",
-    "exclu",
-    "benefit",
-    "premium",
-    "protect360",
-    "covered",
-    "policy wording",
-    "terms and conditions",
-    "travel cover",
-    "travel insurance",
-)
-
-# Terms that occur just as naturally in a collections conversation ("payment
-# plan", "I want to claim I already paid", "the terms of my loan"). On their own
-# these must NOT open search_knowledge_base, or a money question gets answered
-# out of the HL Assurance corpus. They count only alongside a strong signal.
-_WEAK_PRODUCT_HINTS = (
-    "claim",
-    "plan",
-    "terms",
-    "invalid",
-    "travel",
-    "wording",
-)
-_PRODUCT_CONTEXT_TOKENS = (
-    "insurance",
-    "policy",
-    "cover",
-    "premium",
-    "protect360",
-    "assurance",
-    "product",
-    "add-on",
-    "addon",
-)
-
 _POLICY_DETAIL_TOKENS = (
     "exclu",
     "invalid",
@@ -220,15 +180,38 @@ _COVERAGE_TOPIC_TOKENS = (
 )
 
 
-def query_looks_product(query: str) -> bool:
-    t = (query or "").lower()
-    if any(h in t for h in _PRODUCT_QUERY_HINTS):
-        return True
-    if any(h in t for h in _WEAK_PRODUCT_HINTS) and any(
-        c in t for c in _PRODUCT_CONTEXT_TOKENS
-    ):
-        return True
-    return False
+#: ``product`` argument values that mean "every product".
+_BROAD_PRODUCT_ARGS = frozenset({"any", "all", "none", "every", "general", "all products"})
+
+
+def query_looks_product(query: str, *, kb_snapshot_id: str | None = None) -> bool:
+    """Is this about an insurance product at all? Decided by meaning.
+
+    The text channel's intent gate asks this when the intent classifier did
+    not already say product_faq. Three keyword tuples used to answer it (and
+    two more lists elsewhere); they disagreed about "something for my travel to
+    Singapore" and let "can you cover the late fee" through. Now: a product
+    title said outright, or the question's embedding lands nearest a product
+    that is not the collections corpus. The embedding is cached, so the
+    retrieval that follows does not pay for it twice.
+    """
+    from agent_core import product_resolver
+
+    text = (query or "").strip()
+    if not text:
+        return False
+    router = product_resolver.load(kb_snapshot_id)
+    named = router.titles_named(text)
+    if named:
+        return any(k != product_resolver.COLLECTIONS_KEY for k in named)
+    try:
+        import azure_openai
+
+        vector = azure_openai.embed_texts([text])[0]
+    except Exception:
+        logger.warning("kb product check could not embed -- treating as not a product question", exc_info=True)
+        return False
+    return router.is_product_question(vector)
 
 
 def wants_policy_detail(query: str) -> bool:
@@ -417,7 +400,7 @@ def _catalog_for_plan(kb_snapshot_id: str | None) -> list[dict[str, Any]]:
     try:
         import kb_retrieve
 
-        return kb_retrieve.catalog()
+        return kb_retrieve.catalog(kb_snapshot_id=kb_snapshot_id)
     except Exception:
         logger.warning("kb catalog lookup failed — planning without product scope",
                        exc_info=True)
@@ -465,6 +448,14 @@ def _catalog_rows(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for p in products
     ]
+
+
+def _product_keys_menu(kb_snapshot_id: str | None = None) -> list[str]:
+    """``key (Title)`` per product, from the already-loaded router. No I/O."""
+    from agent_core import product_resolver
+
+    router = product_resolver.cached(kb_snapshot_id)
+    return [f"{k} ({router.title(k)})" for k in router.keys()]
 
 
 def llm_payload(data: dict[str, Any], *, channel: str) -> dict[str, Any]:
@@ -545,6 +536,22 @@ def llm_payload(data: dict[str, Any], *, channel: str) -> dict[str, Any]:
             "costs, includes or excludes. To go further, ask which product they "
             "mean, or offer request_callback."
         )
+        if voice:
+            # The confident branch has had a length rule since VS-92CDE3F088;
+            # this one had none, and "you may tell the customer which products
+            # exist" was read as "all of them". On VS-8C1B760F1B the caller
+            # heard nine near-identical "...Protect360" names in one 17-second
+            # breath, then two four-way quizzes, and hung up.
+            policy += (
+                " This is a phone call: never read the list out. Name at most "
+                "three — the ones closest to what they asked — or sum the range "
+                "up in a few words, then ask one short question about what they "
+                "want to protect. Speech recognition garbles product names: if "
+                "what they say is close to one product here, check it the way a "
+                "person would ('You mean Travel Protect360?') -- never add 'yes "
+                "or no' -- and once they name one, call search_knowledge_base "
+                "with its exact name. Never answer an unclear name with another list."
+            )
     elif voice:
         policy = (
             "Retrieval was weak — do NOT answer from these; tell the caller a "
@@ -557,9 +564,26 @@ def llm_payload(data: dict[str, Any], *, channel: str) -> dict[str, Any]:
             "request_callback."
         )
 
+    routing = data.get("routing") or {}
+    scope = routing.get("productScope") or routing.get("keys") or None
+    if routing.get("tier") == "uncertain" and routing.get("candidates") and not is_catalog:
+        # Routing could not tell which product; the search ran across all of
+        # them. A person would check rather than answer about the wrong one.
+        policy += (
+            " It was not clear which product they mean (closest: "
+            + ", ".join(routing["candidates"])
+            + "). If the answer depends on the product, check which one in a few "
+            "words before relying on these."
+        )
+
     payload: dict[str, Any] = {
         "intent": data.get("intent"),
         "queryUsed": data.get("queryUsed"),
+        # Which product this was searched under, and the keys the `product`
+        # argument accepts -- so the next lookup can name it instead of
+        # leaving it to routing.
+        "searchedProduct": scope or "all",
+        "productKeys": _product_keys_menu(data.get("snapshotId")),
         # What kind of answer this is. The single most load-bearing key here:
         # "catalog" means no passage was retrieved for these rows.
         "mode": data.get("mode"),
@@ -603,6 +627,7 @@ def _catalog_result(
     session_intent: str | None,
     passages: list[dict[str, Any]] | None = None,
     chunk_ids: list[str] | None = None,
+    routing: dict[str, Any] | None = None,
 ) -> ToolResult:
     """Answer a "what do you have?" question from the corpus itself.
 
@@ -667,6 +692,7 @@ def _catalog_result(
             "confident": answerable(results),
             "preferPolicy": False,
             "snapshotId": kb_snapshot_id,
+            "routing": routing,
         },
     )
 
@@ -701,6 +727,16 @@ class KbSearch:
     should_expand_query: Any
     snippet_chars: Any
     top_k: Any
+    #: The ``product`` tool argument: the conversation model's own answer to
+    #: "which product", validated against the catalog before it is used.
+    product: str | None = None
+    #: Scope when routing cannot tell -- the product the call settled on, or
+    #: the node's corpus.
+    fallback_product_keys: list[str] | None = None
+    #: The caller asked broadly ("what do you have?", product="any").
+    broad: bool = False
+    #: How the product scope was decided, for the payload and the log.
+    routing: dict[str, Any] | None = None
     chunk_ids: list[str] = field(default_factory=list)
     confident: bool = False
     expanded: str = ""
@@ -753,7 +789,31 @@ def _kb_plan(st: KbSearch) -> ToolResult | None:
                 },
             )
 
+    from agent_core import product_resolver
     from agent_core.tools import kb_plan
+
+    # Which product. The conversation model names it in the tool call when it
+    # knows (it has the whole call; "that one" is trivial to it), validated
+    # against the live catalog here. When it does not, the planner may scope
+    # from the run-up, and failing that kb_retrieve routes the question by
+    # meaning against each product's phrasings -- see product_resolver.
+    router = product_resolver.load(kb_snapshot_id)
+    named_scope = product_keys is not None
+    if not named_scope and st.product:
+        if product_resolver.normalize(st.product) in _BROAD_PRODUCT_ARGS:
+            st.broad = True
+        else:
+            key = router.match_key(st.product)
+            if key:
+                product_keys = [key]
+                named_scope = True
+                st.routing = {"tier": product_resolver.EXPLICIT, "keys": [key]}
+            else:
+                logger.warning(
+                    "kb product argument %r is not in the catalog (%s) -- routing instead",
+                    st.product,
+                    ",".join(router.keys()) or "-",
+                )
 
     # The keyword derivation is now the *fallback*, not the decision. It is
     # computed first so a disabled planner, a saturated analysis lane or an
@@ -779,7 +839,9 @@ def _kb_plan(st: KbSearch) -> ToolResult | None:
         # retrieving exclusions, off the word "exclusions" in the tool args.
         customer_text=customer_text or q,
         tool_query=query or "",
-        available_products=_catalog_for_plan(kb_snapshot_id),
+        # Key, title and the generated summary: a planner that only saw names
+        # could not tell which product "cover for my helper" belongs to.
+        available_products=router.menu() or _catalog_for_plan(kb_snapshot_id),
         recent=recent,
         # The full retrieval budget. The judge no longer takes a slice out of
         # this one — it gets a guaranteed floor of its own further down (see
@@ -796,8 +858,17 @@ def _kb_plan(st: KbSearch) -> ToolResult | None:
 
     expanded = plan.query or expanded
     prefer_policy = plan.prefer_policy
-    if plan.product_keys:
+    if named_scope:
+        if plan.product_keys and plan.product_keys != product_keys:
+            logger.info("kb planner scope %s overruled by %s", plan.product_keys, product_keys)
+        if st.routing is not None and plan.product_keys != product_keys:
+            # The model named the product: the catalog branch below lists that one.
+            from dataclasses import replace
+
+            plan = replace(plan, product_keys=product_keys)
+    elif plan.product_keys and not st.broad:
         product_keys = plan.product_keys
+        st.routing = {"tier": "planner", "keys": list(plan.product_keys)}
 
     # "What do you sell?" has no passage to find — the answer is the shape of
     # the corpus, and retrieval against the caller's own words scores 0.389 and
@@ -822,6 +893,7 @@ def _kb_plan(st: KbSearch) -> ToolResult | None:
             bot_id=bot_id,
             record_offer=record_offer,
             session_intent=session_intent,
+            routing=st.routing,
         )
 
     st.prefer_policy = prefer_policy
@@ -868,6 +940,10 @@ def _kb_fetch(st: KbSearch) -> ToolResult | None:
             topic="exclusions" if prefer_policy else None,
             product_keys=product_keys,
             kb_snapshot_id=kb_snapshot_id,
+            # A broad question searches everything; otherwise an unscoped one
+            # is routed by meaning, falling back to what the call settled on.
+            scope_from_query=not st.broad,
+            fallback_product_keys=None if st.broad else st.fallback_product_keys,
         )
     except ValueError as exc:
         # A bad/stale snapshot must not silently fall back to the whole corpus —
@@ -892,6 +968,34 @@ def _kb_fetch(st: KbSearch) -> ToolResult | None:
         )
 
     rows = list(raw.get("results") or [])[:k]
+    if not rows and prefer_policy:
+        # The planner is not stable on prefer_policy, and "exclusions" is a
+        # topic *filter*: a scoped "travel insurance for Singapore" question
+        # planned that way found nothing and was answered with the product's
+        # name alone (VS-7956F27B36). An empty topic-filtered result is retried
+        # once on the query's own words before anyone is told there is no answer.
+        logger.warning(
+            "kb fetch empty under topic=exclusions for %r (products=%s) -- retrying unfiltered",
+            (expanded or "")[:80],
+            product_keys,
+        )
+        try:
+            raw = kb_retrieve.retrieve(
+                query=expanded,
+                top_k=k,
+                include_draft_answer=False,
+                source="voice" if channel == "voice" else "bot",
+                interaction_id=interaction_id,
+                prefer_policy=False,
+                topic=None,
+                product_keys=product_keys,
+                kb_snapshot_id=kb_snapshot_id,
+                scope_from_query=not st.broad,
+                fallback_product_keys=None if st.broad else st.fallback_product_keys,
+            )
+            rows = list(raw.get("results") or [])[:k]
+        except Exception:
+            logger.exception("kb unfiltered retry failed")
     results = [
         {
             "docTitle": r.get("docTitle") or r.get("docId"),
@@ -909,6 +1013,10 @@ def _kb_fetch(st: KbSearch) -> ToolResult | None:
     st.chunk_ids = chunk_ids
     st.raw = raw
     st.results = results
+    if st.routing is None and raw.get("routing"):
+        st.routing = dict(raw["routing"])
+    if st.routing is not None:
+        st.routing["productScope"] = raw.get("productScope") or product_keys
 
 
 def _kb_judge(st: KbSearch) -> ToolResult | None:
@@ -1053,6 +1161,7 @@ def _kb_judge(st: KbSearch) -> ToolResult | None:
             session_intent=session_intent,
             passages=results,
             chunk_ids=chunk_ids,
+            routing=st.routing,
         )
 
     st.confident = confident
@@ -1102,6 +1211,7 @@ def _kb_result(st: KbSearch) -> ToolResult:
             "judgeSource": "removed",
             "judgeReason": "judge_removed",
             "unvetted": False,
+            "routing": st.routing,
         },
     )
 
@@ -1130,6 +1240,8 @@ def search_knowledge_base(
     gap_sink: Callable[[dict[str, Any]], None] | None = None,
     recent: list[tuple[str, str]] | None = None,
     plan_budget_s: float | None = None,
+    product: str | None = None,
+    fallback_product_keys: list[str] | None = None,
 ) -> ToolResult:
     """Retrieve KB passages under the shared gate/steering/confidence policy.
 
@@ -1168,6 +1280,8 @@ def search_knowledge_base(
         should_expand_query=should_expand_query,
         snippet_chars=snippet_chars,
         top_k=top_k,
+        product=(product or "").strip() or None,
+        fallback_product_keys=list(fallback_product_keys) if fallback_product_keys else None,
     )
     for phase in (_kb_plan, _kb_fetch, _kb_judge):
         early = phase(st)

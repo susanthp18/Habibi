@@ -24,17 +24,65 @@ def _db():
     return d
 
 
-def list_policy_rule_sets(*, tenant_id: str) -> Any:
+def _scope_global_set(conn: Any, set_id: str, *, actor_user_id: str | None, action: str) -> None:
+    """A tenant-less (statutory) set is written only in platform scope.
+
+    Row security refuses the write otherwise -- it used to reach the browser as
+    a 500 on every Submit. Unknown ids fall through to the lifecycle function,
+    which raises the 404.
+    """
+    row = conn.execute(
+        text("SELECT tenant_id FROM policy_rule_sets WHERE id = :id"), {"id": set_id}
+    ).first()
+    if row is not None and row[0] is None:
+        import platform_scope
+
+        platform_scope.enter(conn, actor_user_id=actor_user_id, reason=f"{action} statutory rule set {set_id}")
+
+
+def list_policy_rule_sets(*, tenant_id: str, actor_user_id: str | None = None) -> Any:
+    """Every set, and per set whether *this* actor may break-glass approve it
+    -- the screen offers the control only where the server would accept it."""
     import policy_rules
 
     with _db().engine.connect() as conn:
-        return policy_rules.list_rule_sets(conn, tenant_id=tenant_id)
+        rows = policy_rules.list_rule_sets(conn, tenant_id=tenant_id)
+        may_self_approve = policy_rules.self_approval_allowed(conn, actor_user_id)
+    for row in rows:
+        row["selfApprovable"] = bool(
+            may_self_approve
+            and row.get("publication_state") == "pending_approval"
+            and row.get("published_by_user_id") == actor_user_id
+        )
+    return rows
+
+
+def _audit(conn: Any, set_id: str, *, actor_user_id: str | None, decision: str, **detail: Any) -> None:
+    """Every publication step on the hash-chained audit log, in the same
+    transaction as the step -- a decision that is not recorded did not happen."""
+    from agent_core import change_log
+
+    row = conn.execute(
+        text("SELECT scope, version, label FROM policy_rule_sets WHERE id = :id"), {"id": set_id}
+    ).mappings().first()
+    change_log.record_policy_decision(
+        conn,
+        tenant_id=_db().current_tenant(),
+        actor_user_id=actor_user_id,
+        set_id=set_id,
+        decision=decision,
+        detail={**(dict(row) if row else {}), **detail},
+    )
 
 
 def create_policy_rule_draft(body: Any, *, tenant_id: str | None, actor_user_id: str) -> dict[str, Any]:
     import policy_rules
 
     with _db().engine.begin() as conn:
+        if tenant_id is None:
+            import platform_scope
+
+            platform_scope.enter(conn, actor_user_id=actor_user_id, reason="draft a statutory rule set")
         set_id = policy_rules.create_draft(
             conn,
             scope=body.scope,
@@ -55,15 +103,41 @@ def submit_policy_rule_set(set_id: str, *, actor_user_id: str) -> dict[str, Any]
     import policy_rules
 
     with _db().engine.begin() as conn:
+        _scope_global_set(conn, set_id, actor_user_id=actor_user_id, action="submit")
         policy_rules.submit_for_approval(conn, set_id, actor_user_id=actor_user_id)
+        _audit(conn, set_id, actor_user_id=actor_user_id, decision="submitted")
     return {"id": set_id, "state": "pending_approval"}
 
 
-def approve_policy_rule_set(set_id: str, *, actor_user_id: str) -> dict[str, Any]:
+def approve_policy_rule_set(
+    set_id: str, *, actor_user_id: str, self_approval_reason: str | None = None
+) -> dict[str, Any]:
+    import logging
+
     import policy_rules
 
     with _db().engine.begin() as conn:
-        policy_rules.approve_publication(conn, set_id, actor_user_id=actor_user_id)
+        _scope_global_set(conn, set_id, actor_user_id=actor_user_id, action="approve")
+        break_glass = policy_rules.approve_publication(
+            conn, set_id, actor_user_id=actor_user_id, self_approval_reason=self_approval_reason
+        )
+        _audit(
+            conn,
+            set_id,
+            actor_user_id=actor_user_id,
+            decision="approved",
+            breakGlass=break_glass,
+            reason=(self_approval_reason or "").strip() if break_glass else None,
+        )
+    if break_glass:
+        # WARNING by design: four eyes were waived, and that should be the
+        # line anyone scanning the log for this set finds first.
+        logging.getLogger(__name__).warning(
+            "policy.break_glass self-approval · set=%s · actor=%s · reason=%r",
+            set_id,
+            actor_user_id,
+            (self_approval_reason or "").strip(),
+        )
     return {"id": set_id, "state": "published"}
 
 
@@ -71,7 +145,9 @@ def reject_policy_rule_set(set_id: str, *, actor_user_id: str) -> dict[str, Any]
     import policy_rules
 
     with _db().engine.begin() as conn:
+        _scope_global_set(conn, set_id, actor_user_id=actor_user_id, action="reject")
         policy_rules.reject_publication(conn, set_id, actor_user_id=actor_user_id)
+        _audit(conn, set_id, actor_user_id=actor_user_id, decision="rejected")
     return {"id": set_id, "state": "rejected"}
 
 

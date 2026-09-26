@@ -6,7 +6,7 @@ router of the same name serves these. ``schemas/__init__`` re-exports every name
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -54,6 +54,8 @@ class VoiceCapacityResponse(BaseModel):
 class VoiceStatusResponse(BaseModel):
     ok: bool
     webrtcUrl: str | None = None
+    #: Which browser transport Sandbox Live uses on this deployment.
+    transport: Literal["websocket", "webrtc"] = "websocket"
     detail: str
     #: Embedded host only — the counter is process-local.
     capacity: VoiceCapacityResponse | None = None
@@ -63,6 +65,10 @@ class VoiceSandboxStartResponse(BaseModel):
     sessionId: str
     webrtcUrl: str
     sandboxRunId: str | None = None
+    transport: Literal["websocket", "webrtc"] = "websocket"
+    #: ``/ws-sandbox/{sessionId}/{ticket}`` -- a path on the API origin. The
+    #: ticket is single-use and expires in two minutes.
+    wsUrl: str | None = None
 
 
 class VoiceSandboxStopResponse(BaseModel):

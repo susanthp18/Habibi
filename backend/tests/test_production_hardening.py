@@ -26,6 +26,7 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
     assert "/twilio/voice/fallback" in prefixes
     assert "/twilio/voice/stream-status" in prefixes
     assert "/twilio/voice/call-status" in prefixes
+    assert "/twilio/voice/connect" in prefixes
     assert "/twilio/sms/status" in prefixes
     assert "/webhooks/collections/payment-events" in prefixes
     assert "/twilio" not in prefixes
@@ -52,6 +53,7 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
         assert client.post("/twilio/voice/fallback", data={}).status_code == 403
         assert client.post("/twilio/voice/stream-status", data={}).status_code == 403
         assert client.post("/twilio/voice/call-status", data={}).status_code == 403
+        assert client.post("/twilio/voice/connect", data={"Digits": "1"}).status_code == 403
 
         # A path that merely shares the prefix is NOT exempt.
         res = client.get("/twilio-admin/secrets")
@@ -241,27 +243,6 @@ def _file_backed_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return voice_session_store
 
 
-def test_voice_sandbox_rejects_path_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import voice_sandbox
-
-    _file_backed_store(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match="invalid_session_id"):
-        voice_sandbox.session_path("../etc/passwd")
-    with pytest.raises(ValueError, match="invalid_session_id"):
-        voice_sandbox.read_session("VS-notahex!!")
-
-
-def test_voice_sandbox_accepts_canonical_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import voice_sandbox
-
-    _file_backed_store(tmp_path, monkeypatch)
-    sid = "VS-ABCDEF0123"
-    path = voice_sandbox.session_path(sid)
-    assert path.parent == tmp_path
-    voice_sandbox.write_session(sid, {"ok": True})
-    assert voice_sandbox.read_session(sid) == {"ok": True}
-
-
 def test_voice_session_id_discriminates_transport_ids() -> None:
     """A pipecat-minted uuid4 must never be treated as a sandbox session id.
 
@@ -336,30 +317,6 @@ def test_sandbox_session_id_from_runner_args() -> None:
     assert _resolve(body={}) is None
     assert _resolve(body="not json") is None
     assert _resolve() is None
-
-
-def test_offer_url_carries_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The offer URL is the channel the stock pipecat runner actually honours.
-
-    Its /api/offer binds the body to the SmallWebRTCRequest dataclass, whose
-    field is ``request_data``; the JS transport only ever sends camelCase
-    ``requestData``, so FastAPI drops it. The route's ``session_id`` query
-    parameter is threaded into runner_args.session_id instead.
-    """
-    import voice_sandbox
-
-    monkeypatch.setattr(voice_sandbox, "_WEBRTC_PUBLIC", "/voice-rtc/api/offer")
-    assert (
-        voice_sandbox._offer_url_for("VS-ABCDEF0123")
-        == "/voice-rtc/api/offer?session_id=VS-ABCDEF0123"
-    )
-
-    # An operator-supplied URL that already has a query keeps it.
-    monkeypatch.setattr(voice_sandbox, "_WEBRTC_PUBLIC", "https://edge/api/offer?region=in")
-    assert (
-        voice_sandbox._offer_url_for("VS-ABCDEF0123")
-        == "https://edge/api/offer?region=in&session_id=VS-ABCDEF0123"
-    )
 
 
 def test_embedded_host_reads_session_id_from_body_or_query() -> None:

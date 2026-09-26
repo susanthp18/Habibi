@@ -28,34 +28,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.seed_member_graphs import MEMBERS, draft_for  # noqa: E402
 
-#: Which suite satisfies which requirement, per card. `bot_id_for_suite` only
-#: knows the collections family; the lapse suites are the insurance card's.
-SUITES: dict[str, dict[str, str]] = {
-    "insurance-v1": {"regression": "eval-regression-lapse", "redteam": "eval-redteam-lapse"},
-}
-DEFAULT_SUITES = {
-    "regression": "eval-regression-collections",
-    "redteam": "eval-redteam-collections",
-    "outbound": "eval-outbound-collections",
-}
-
 
 def run_required_suites(bot_id: str, draft_id: str) -> list[str]:
-    import db
-    from agent_core.cards.schema import parse_card
-    from agent_core.eval.run import run_named_suite
+    from agent_core.eval.run import run_required_suites as run
 
-    version = db.get_prompt_version(draft_id) or {}
-    card = parse_card(version.get("agentCard") or {})
-    filed: list[str] = []
-    for want in card.eval.require or []:
-        suite = SUITES.get(bot_id, {}).get(want) or DEFAULT_SUITES.get(want)
-        if not suite:
-            print(f"  {want}: no suite of this kind; G-gate will report it")
-            continue
-        report = run_named_suite(suite, origin="manual", bot_id=bot_id, prompt_version_id=draft_id)
-        filed.append(f"{want}={report.get('status')}")
-    return filed
+    out = run(bot_id, draft_id)
+    for s in out["skipped"]:
+        print(f"  {s['kind']}: {s['reason']}; its G-gate will report it")
+    return [f"{r['kind']}={r['status']}" for r in out["ran"]]
 
 
 def main() -> int:

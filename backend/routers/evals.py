@@ -1,4 +1,4 @@
-"""Evals: suites, reports, critiques, scorecards, QA calibration.
+"""QA: rubric, scorecards, coaching, calibration, and the QA disagreement feed.
 
 Split out of main.py by domain (WS7). Routes are verbatim; the router is
 included by main.py.
@@ -13,18 +13,9 @@ import db
 from fastapi import APIRouter
 from fastapi import HTTPException, Query
 from schemas import (
-    EvalReportRowResponse,
-    EvalReportSummaryResponse,
-    EvalScheduleRunResponse,
-    EvalSuiteResponse,
-    EvalSuiteRunResponse,
-    EvalTaskGraduateResponse,
     QaCoverageResponse,
     QaDisagreementsResponse,
     QaInteractionPackResponse,
-    SkillCritiqueResponse,
-    TwinCorpusGrowResponse,
-    TwinCorpusRowResponse,
     CalibrationSessionPatchRequest,
     CalibrationSessionResponse,
     CoachingActionCreateRequest,
@@ -112,110 +103,9 @@ def patch_calibration_session(session_id: str, payload: CalibrationSessionPatchR
         db.patch_calibration_session, session_id, payload.model_dump(exclude_unset=True)
     )
 
-@router.post("/eval/suites/{suite_id}/run", response_model=EvalSuiteRunResponse)
-def run_eval_suite(
-    suite_id: str,
-    botId: str | None = Query(default=None),
-    promptVersionId: str | None = Query(default=None),
-):
-    """Run a suite. ``botId`` files the report against the card that launched it.
-
-    ``promptVersionId`` scopes the report to the draft being published so G7/G8
-    cannot accept last week's green run for this week's card.
-    """
-    from agent_core.eval.run import run_named_suite
-
-    try:
-        return run_named_suite(
-            suite_id,
-            origin="manual",
-            bot_id=botId or None,
-            prompt_version_id=promptVersionId or None,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-@router.get("/eval/suites", response_model=list[EvalSuiteResponse])
-def list_eval_suites(kind: str | None = Query(default=None)):
-    return db.list_eval_suites(kind=kind)
-
-@router.get("/eval/reports", response_model=list[EvalReportSummaryResponse])
-def list_eval_reports(
-    kind: str | None = Query(default=None),
-    botId: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    perBot: int | None = Query(default=None, ge=1, le=10),
-):
-    """Eval history. botId scopes it to one card — the Studio's Evals tab needs
-    this card's runs, not the whole tenant's. `botId=__none__` is the runs the
-    scheduler filed against no card. `perBot` is the fleet index: last N per
-    card, so two busy mouths cannot hide everyone else behind a global 50."""
-    return db.list_eval_reports(kind=kind, bot_id=botId, limit=limit, per_bot=perBot)
-
-@router.get(
-    "/eval/reports/{report_id}",
-    response_model=EvalReportRowResponse,
-    response_model_exclude_unset=True,
-)
-def get_eval_report(report_id: str):
-    row = db.get_eval_report(report_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="eval_report_not_found")
-    return row
-
-@router.post("/eval/schedule/run", response_model=EvalScheduleRunResponse)
-def run_eval_schedule():
-    from agent_core.eval.schedule import run_continuous
-
-    try:
-        return run_continuous()
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-@router.post("/eval/tasks/{task_id}/graduate", response_model=EvalTaskGraduateResponse)
-def graduate_eval_task(task_id: str):
-    from agent_core.eval.graduate import graduate_task
-
-    try:
-        return graduate_task(task_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-@router.get("/eval/critiques", response_model=list[SkillCritiqueResponse])
-def list_skill_critiques(limit: int = Query(default=50, ge=1, le=200)):
-    from agent_core.eval.critique import list_critiques
-
-    return list_critiques(limit=limit)
-
-@router.post("/eval/reports/{report_id}/critique", response_model=list[SkillCritiqueResponse])
-def critique_eval_report(report_id: str):
-    from agent_core.eval.critique import critique_from_report
-
-    try:
-        return critique_from_report(report_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @router.get("/eval/disagreements", response_model=QaDisagreementsResponse)
 def list_qa_disagreements(limit: int = Query(default=50, ge=1, le=200)):
     from agent_core.eval.disagreement import disagreements
 
     return disagreements(limit=limit)
-
-@router.get("/eval/twin-corpus", response_model=list[TwinCorpusRowResponse])
-def list_twin_corpus(limit: int = Query(default=50, ge=1, le=200)):
-    from agent_core.eval.corpus import list_corpus
-
-    return list_corpus(limit=limit)
-
-@router.post("/eval/twin-corpus/grow", response_model=TwinCorpusGrowResponse)
-def grow_twin_corpus(limit: int = Query(default=20, ge=1, le=100)):
-    from agent_core.eval.corpus import grow_from_kept_promises
-
-    try:
-        return grow_from_kept_promises(limit=limit)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-

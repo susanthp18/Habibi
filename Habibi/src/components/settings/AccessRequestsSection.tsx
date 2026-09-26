@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { useRolesCatalog } from "@/api/agent-studio";
+import { useRolesCatalog } from "@/api/roles";
 import {
   useAccessRequests,
   useApproveAccessRequest,

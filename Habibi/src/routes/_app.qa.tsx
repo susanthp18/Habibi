@@ -25,8 +25,8 @@ import {
   useMoveCoachingAction,
   useCreateCoachingAction,
   useCloseCalibrationSession,
+  useQaDisagreements,
 } from "@/api/qa";
-import { useQaDisagreements } from "@/api/agent-studio";
 import { Lozenge } from "@/components/ui/lozenge";
 import type {
   Scorecard,

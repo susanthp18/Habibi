@@ -1,0 +1,172 @@
+/*
+ * The few non-utility styles the AgentStudio screens rely on, restated with
+ * Habibi's tokens. Everything else those screens draw comes from the shared
+ * shadcn variables in styles.css, so they follow the app's theme and dark mode.
+ */
+
+/* Cards in the vendor UI carried a woven texture; AgentStudio uses plain surfaces. */
+.agentstudio .card-weave {
+  background-image: none;
+}
+
+/* First-run hint ring around the "web call" button. */
+.agentstudio .onboarding-pulse {
+  animation: agentstudio-onboarding-pulse 1.5s ease-out infinite;
+}
+
+@keyframes agentstudio-onboarding-pulse {
+  0% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--border-focused) 75%, transparent);
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  70% {
+    box-shadow: 0 0 0 10px color-mix(in oklab, var(--border-focused) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--border-focused) 0%, transparent);
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentstudio .onboarding-pulse {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--border-focused);
+  }
+}
+
+/* ---- Help pages (DocsPage): generated HTML, styled with the app's tokens ---- */
+.agentstudio .as-doc {
+  color: var(--text);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+.agentstudio .as-doc > * + * {
+  margin-top: 0.875rem;
+}
+.agentstudio .as-doc h2 {
+  margin-top: 2rem;
+  font-size: 1.25rem;
+  font-weight: 653;
+}
+.agentstudio .as-doc h3 {
+  margin-top: 1.5rem;
+  font-size: 1.0625rem;
+  font-weight: 653;
+}
+.agentstudio .as-doc h4 {
+  margin-top: 1.25rem;
+  font-weight: 653;
+}
+.agentstudio .as-doc a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agentstudio .as-doc ul,
+.agentstudio .as-doc ol {
+  padding-left: 1.5rem;
+}
+.agentstudio .as-doc ul {
+  list-style: disc;
+}
+.agentstudio .as-doc ol {
+  list-style: decimal;
+}
+.agentstudio .as-doc li + li {
+  margin-top: 0.25rem;
+}
+.agentstudio .as-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-token-small);
+  background: var(--background-neutral);
+}
+.agentstudio .as-doc pre {
+  overflow-x: auto;
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-token-large);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+.agentstudio .as-doc pre code {
+  padding: 0;
+  background: none;
+}
+.agentstudio .as-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.agentstudio .as-doc th,
+.agentstudio .as-doc td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.agentstudio .as-doc th {
+  color: var(--text-subtle);
+  font-weight: 653;
+}
+.agentstudio .as-doc img {
+  max-width: 100%;
+  border-radius: var(--radius-token-large);
+  border: 1px solid var(--border);
+}
+.agentstudio .as-doc blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid var(--border-bold);
+  color: var(--text-subtle);
+}
+.agentstudio .as-callout {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-token-large);
+  border: 1px solid var(--border-information-subtle);
+  background: var(--background-information);
+}
+.agentstudio .as-callout > :first-child {
+  margin-top: 0;
+}
+.agentstudio .as-callout-warning,
+.agentstudio .as-callout-danger {
+  border-color: var(--border-warning-subtle);
+  background: var(--background-warning);
+}
+.agentstudio .as-callout-tip,
+.agentstudio .as-callout-check {
+  border-color: var(--border-success-subtle);
+  background: var(--background-success);
+}
+.agentstudio .as-cards {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+}
+.agentstudio .as-card {
+  padding: 0.875rem 1rem;
+  border-radius: var(--radius-token-large);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.agentstudio .as-card-title {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-weight: 653;
+}
+.agentstudio .as-accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-token-large);
+  padding: 0.5rem 1rem;
+}
+.agentstudio .as-accordion summary {
+  cursor: pointer;
+  font-weight: 653;
+}
+.agentstudio .as-accordion[open] summary {
+  margin-bottom: 0.5rem;
+}

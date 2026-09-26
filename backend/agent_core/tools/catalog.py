@@ -907,6 +907,16 @@ SEARCH_KNOWLEDGE_BASE = _r(
                 description="Customer's question in plain language.",
                 required=True,
             ),
+            ArgSpec(
+                name="product",
+                type="string",
+                description=(
+                    "Which product the customer means, as a key from `productKeys` "
+                    "in an earlier result (e.g. 'travel'). 'any' when they asked "
+                    "about products in general. Leave out when unsure -- the "
+                    "search works it out from the question."
+                ),
+            ),
         ),
         channels=BOTH_AND_MCP,
         cancel_on_interruption=True,

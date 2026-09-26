@@ -1,4 +1,4 @@
-# HDFC Assurance
+# BigTapp Assurance
 ## Family Protect360
 ### YOUR FAMILY PROTECT360 POLICY
 
@@ -30,7 +30,7 @@ The insurance We provide in this Policy is subject to the terms, conditions, exc
 
 In consideration of Your paying to Us the required premium, We agree to indemnify You in the manner and to the extent described in the Policy, in respect of events occurring during the Period of Insurance, or any subsequent period for which You pay and We accept the required premium.
 
-HDFC Assurance Pte. Ltd. A Member of the HDFC Group
+BigTapp Assurance Pte. Ltd. A Member of the BigTapp Group
 
 ### POLICY DEFINITIONS
 
@@ -107,7 +107,7 @@ The attending Registered Medical Practitioner shall not be You, an employee of Y
 
 **"Waiting Period"** means the continuous period of fourteen (14) days from the Policy Effective Date in which no benefits are payable under the Policy.
 
-**"We, Our, Us or the Company"** means HDFC Assurance Pte. Ltd.
+**"We, Our, Us or the Company"** means BigTapp Assurance Pte. Ltd.
 
 **"You or Your"** means the Insured Person or Persons described as such in the Policy Schedule.
 
@@ -378,17 +378,17 @@ You shall at Our expense do and concur in doing and permit to be done all such a
 (e) We shall in the case of Your Death be entitled to have a post mortem examination at Our own expense.
 
 ### POLICY OWNERS' PROTECTION SCHEME
-This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ### CARING FOR OUR CUSTOMERS
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
 Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising. We will acknowledge receipt of Your feedback within seven (7) working days whilst We look into the matter You have raised. We will contact You for further information if required within seven (7) working days and provide You with a full reply within fourteen (14) working days.
 
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 **Chief Executive Officer**
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 

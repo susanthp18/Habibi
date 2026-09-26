@@ -9,6 +9,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { isSessionRenewal } from "@/lib/sso";
+
 import { apiGet, retryUnlessClientError } from "./config";
 
 export interface Me {
@@ -43,7 +45,11 @@ export function useMe() {
     queryKey: ["me"],
     queryFn: fetchMe,
     staleTime: 5 * 60_000,
-    retry: retryUnlessClientError,
+    // A failed Microsoft renewal does not start succeeding on the third try.
+    // Retrying it is what held "Checking your access" for the length of
+    // several timeouts.
+    retry: (failureCount, error) =>
+      !isSessionRenewal(error) && retryUnlessClientError(failureCount, error),
   });
 }
 

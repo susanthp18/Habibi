@@ -1417,7 +1417,7 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--icon-subtlest) var(--background-brand-subtlest);
+    scrollbar-color: var(--border) transparent;
   }
 }
 *::-webkit-scrollbar {
@@ -1430,19 +1430,19 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
   height: 0;
 }
 *::-webkit-scrollbar-track {
-  background-color: var(--background-brand-subtlest);
+  background-color: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: var(--icon-subtlest);
+  background-color: var(--border);
   border-radius: var(--radius-full);
-  border: 2px solid var(--background-brand-subtlest);
+  border: 3px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--background-brand-bold);
+  background-color: var(--icon-subtlest);
 }
 *::-webkit-scrollbar-corner {
-  background-color: var(--background-brand-subtlest);
+  background-color: transparent;
 }
 
 /*

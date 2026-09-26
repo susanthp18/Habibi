@@ -80,7 +80,10 @@ COMPONENTS: tuple[str, ...] = (
 ENTITY_BOT = "bot"
 ENTITY_CONSENT = "consent"
 ENTITY_LEDGER = "ledger"
-ENTITIES = (ENTITY_BOT, ENTITY_CONSENT, ENTITY_LEDGER)
+#: Rule-set publication: submit, approve (including break-glass), reject.
+ENTITY_POLICY = "policy_rule_set"
+ENTITIES = (ENTITY_BOT, ENTITY_CONSENT, ENTITY_LEDGER, ENTITY_POLICY)
+POLICY_DECISION = "policy.decision"
 _ENTITY_TYPE = ENTITY_BOT
 _GENESIS = "0" * 64
 CONSENT_CHANGE = "consent.change"
@@ -427,6 +430,33 @@ def record_role_grants(
     )
 
 
+AGENTSTUDIO_CHANGE = "agentstudio.change"
+
+
+def record_agentstudio_change(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str | None,
+    entry_id: str,
+    method: str,
+    path: str,
+    status: int,
+) -> dict[str, Any]:
+    """A write through the AgentStudio gateway (agents, tools, campaigns, KB,
+    telephony, models). The engine keeps the content; the chain keeps who
+    changed what, when. Bodies are not recorded: they carry credentials."""
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=AGENTSTUDIO_CHANGE,
+        bot_id=f"agentstudio:{path.split('/')[1] if path.count('/') else path}",
+        payload={"method": method, "path": path, "status": status},
+        entry_id=entry_id,
+    )
+
+
 def record_connector(
     conn: Any,
     *,
@@ -534,8 +564,8 @@ def record_platform_sync(
     filled: list[str],
     moved: list[str],
 ) -> dict[str, Any]:
-    """The platform (not a person) rewrote a published first-party card's
-    skill references. ``filled`` names the packs an empty list was seeded
+    """The platform (not a person) rewrote a first-party card's skill references,
+    published or draft. ``filled`` names the packs an empty list was seeded
     with; ``moved`` names the pins that now follow the version on disk."""
     # No person did this. audit_log.actor_user_id is a nullable FK on users;
     # NULL is "the platform", and the action name says which part of it.
@@ -637,6 +667,33 @@ def record_consent_change(
         payload={"customerId": customer_id, "change": change},
         entry_id=_entry_id(),
         entity=ENTITY_CONSENT,
+    )
+
+
+def record_policy_decision(
+    conn: Any,
+    *,
+    tenant_id: str,
+    actor_user_id: str | None,
+    set_id: str,
+    decision: str,
+    detail: dict[str, Any],
+) -> dict[str, Any]:
+    """One step of a rule set's maker-checker publication, on its own chain.
+
+    Nothing recorded these: who submitted and who approved lived only on the
+    row, where the next publication overwrote them. A break-glass approval
+    carries ``breakGlass`` and the approver's reason inside the digest.
+    """
+    return _write(
+        conn,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        action=POLICY_DECISION,
+        bot_id=set_id,
+        payload={"ruleSetId": set_id, "decision": decision, **detail},
+        entry_id=_entry_id(),
+        entity=ENTITY_POLICY,
     )
 
 

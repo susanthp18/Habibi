@@ -143,6 +143,81 @@ def test_ws_proxy_is_off_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ws_proxy_enabled() is False
 
 
+def test_outbound_dial_uses_a_document_url_so_a_trial_keypress_continues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inline twiml has no document for the trial Gather to POST a digit to.
+
+    The prompt says press any key. With twiml= on calls.create, that key ends
+    the call. A url= is the document both the keypress and the timeout return to.
+    """
+    from types import SimpleNamespace
+
+    from voice import twilio_ops
+
+    monkeypatch.setenv("VOICE_WS_VIA_API", "true")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://api.example.ngrok-free.dev")
+    monkeypatch.setenv("TWILIO_PHONE_NUMBER", "+15550001111")
+    monkeypatch.setattr("platform_switches.outbound_enabled", lambda **_kwargs: True)
+    monkeypatch.setattr("agent_core.carrier_guard.refuse_real_carrier", lambda _name: None)
+
+    seen: dict = {}
+
+    class _Calls:
+        def create(self, **kwargs):
+            raise AssertionError("create must be wrapped by carrier_call")
+
+    class _Client:
+        calls = _Calls()
+
+    def _carrier(_fn, *_args, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(sid="CA123", status="queued")
+
+    monkeypatch.setattr(twilio_ops, "rest_client", lambda: _Client())
+    monkeypatch.setattr(twilio_ops, "carrier_call", _carrier)
+
+    result = twilio_ops.start_outbound_call(
+        to="+15558675309",
+        custom={"attempt_id": "CA-1", "customer_id": "cust-1", "demo": "1"},
+    )
+    assert result["callSid"] == "CA123"
+    assert "twiml" not in seen
+    assert seen["method"] == "POST"
+    assert seen["url"].startswith("https://api.example.ngrok-free.dev/twilio/voice/connect?")
+    assert "attempt_id=CA-1" in seen["url"]
+    assert "customer_id=cust-1" in seen["url"]
+    assert "demo=1" in seen["url"]
+
+
+def test_connect_document_streams_after_the_trial_digit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    import main as app_main
+
+    monkeypatch.setattr("routers.telephony._twilio_signature_ok", lambda *_a, **_k: True)
+    monkeypatch.setattr("voice.twilio_ops.configured", lambda: True)
+    monkeypatch.setenv("VOICE_WS_VIA_API", "true")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://api.example.ngrok-free.dev")
+    monkeypatch.delenv("VOICE_WS_PROXY_SECRET", raising=False)
+
+    client = TestClient(app_main.app)
+    res = client.post(
+        "/twilio/voice/connect?attempt_id=CA-1&customer_id=cust-1&demo=1",
+        data={"Digits": "5", "CallSid": "CAtest"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.text
+    assert "<Connect>" in body
+    assert "<Stream" in body
+    assert 'name="attempt_id"' in body
+    assert 'value="CA-1"' in body
+    assert "Hangup" not in body
+    assert "not available on trial" not in body
+
+
 def test_ws_proxy_is_dev_compose_only() -> None:
     from pathlib import Path
 

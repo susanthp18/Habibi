@@ -17,6 +17,11 @@ from pipecat.utils.text.base_text_aggregator import Aggregation, AggregationType
 
 _CLAUSE_PUNCT = ",;:"
 _FIRST_CLAUSE_WORDS = 6
+#: A comma earlier than this is not a clause worth its own synthesis. Azure
+#: renders every chunk as a finished sentence, so "Thanks," alone came out with
+#: a full stop's fall and a gap before "Susanth." -- the stilted, read-aloud
+#: rhythm callers hear as a bot. Four words is still well inside the TTFB win.
+_MIN_CLAUSE_WORDS = 4
 
 
 class FirstClauseTextAggregator(SimpleTextAggregator):
@@ -48,10 +53,16 @@ class FirstClauseTextAggregator(SimpleTextAggregator):
     def _maybe_first_clause(self) -> str | None:
         buf = self._text
         for i, ch in enumerate(buf):
-            if ch in _CLAUSE_PUNCT:
+            if ch in _CLAUSE_PUNCT and len(buf[:i].split()) >= _MIN_CLAUSE_WORDS:
                 result = buf[: i + 1].strip(" ")
                 self._text = buf[i + 1 :]
                 return result or None
+        # Complete words only. Text arrives a character at a time, so the last
+        # "word" of the buffer is usually still being typed: counting it cut
+        # "what i" | "nsurance", "For travel t" | "o Singapore" -- two
+        # syntheses of half a word each, spoken as nonsense.
+        if not buf or not buf[-1].isspace():
+            return None
         words = buf.split()
         if len(words) >= _FIRST_CLAUSE_WORDS:
             result = " ".join(words[:_FIRST_CLAUSE_WORDS])

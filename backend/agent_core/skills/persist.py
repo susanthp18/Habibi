@@ -862,30 +862,31 @@ def ensure_first_party_skills() -> dict[str, int]:
             set_latest=set_latest,
         )
 
-    published: dict[str, dict[str, Any] | None] = {
-        "kaia-v2-4": None,
-        "intake-v1": None,
-        "insurance-v1": None,
-        "supervisor-brief": None,
+    # The published row *and* the open drafts. Moving only the published pin
+    # left every draft on the old version, so the next publish of a draft
+    # silently rolled the card back to the pack the platform had moved it off.
+    published: dict[str, list[dict[str, Any]]] = {
+        "kaia-v2-4": [],
+        "intake-v1": [],
+        "insurance-v1": [],
+        "supervisor-brief": [],
     }
     tenant_id = db.current_tenant()
     with db.engine.connect() as conn:
         for bot_id in list(published):
-            row = db._one(
+            published[bot_id] = db._rows(
                 conn.execute(
                     text(
                         """
-                        SELECT id, agent_card
+                        SELECT id, status, agent_card
                           FROM prompt_versions
-                         WHERE bot_id = :bot AND status = 'published'
+                         WHERE bot_id = :bot AND status IN ('published', 'draft')
                            AND tenant_id = :tid
-                         LIMIT 1
                         """
                     ),
                     {"bot": bot_id, "tid": tenant_id},
                 )
             )
-            published[bot_id] = row
 
     skill_version_ids: dict[str, str] = {}
     with db.engine.connect() as conn:
@@ -896,89 +897,87 @@ def ensure_first_party_skills() -> dict[str, int]:
 
     with db.engine.begin() as conn:
         for bot_id, slugs in CARD_SKILLS.items():
-            row = published.get(bot_id)
-            if not row:
-                continue
-            card = sub(row, "agent_card")
-            skills = card.get("skills") if isinstance(card.get("skills"), list) else []
-            filled: list[str] = []
-            if not skills:
-                card = {
-                    **card,
-                    "skills": [
-                        {"skill_id": slug, "version": "1", "pin": "exact"} for slug in slugs
-                    ],
-                }
-                conn.execute(
-                    text(
-                        """
-                        UPDATE prompt_versions
-                           SET agent_card = CAST(:card AS jsonb), updated_at = now()
-                         WHERE id = :id
-                        """
-                    ),
-                    {"card": db._jsonb(card), "id": row["id"]},
-                )
-                cards_filled += 1
-                skills = card["skills"]
-                filled = list(slugs)
-            # A first-party card follows the platform pack: its exact pins
-            # move to the version on disk. Pinned to "1" forever, every card
-            # kept running the pack from the first deploy while the boot sync
-            # stored each newer one beside it, honoured the pin, and changed
-            # nothing (SKILLS-08's cousin).
-            shipped = {pk.slug: _stored_version(pk.version) for pk in packs}
-            moved = []
-            for ref in skills:
-                if not isinstance(ref, dict):
-                    continue
-                slug = str(ref.get("skill_id") or "")
-                if slug in shipped and str(ref.get("version") or "1") != shipped[slug]:
-                    ref["version"] = shipped[slug]
-                    moved.append(slug)
-            if moved:
-                conn.execute(
-                    text(
-                        """
-                        UPDATE prompt_versions
-                           SET agent_card = CAST(:card AS jsonb), updated_at = now()
-                         WHERE id = :id
-                        """
-                    ),
-                    {"card": db._jsonb({**card, "skills": skills}), "id": row["id"]},
-                )
-                logger.info("first-party card %s follows the platform pack for %s", bot_id, ", ".join(moved))
-            if filled or moved:
-                from agent_core import change_log
+            for row in published.get(bot_id) or []:
+                card = sub(row, "agent_card")
+                skills = card.get("skills") if isinstance(card.get("skills"), list) else []
+                filled: list[str] = []
+                if not skills:
+                    card = {
+                        **card,
+                        "skills": [
+                            {"skill_id": slug, "version": "1", "pin": "exact"} for slug in slugs
+                        ],
+                    }
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE prompt_versions
+                               SET agent_card = CAST(:card AS jsonb), updated_at = now()
+                             WHERE id = :id
+                            """
+                        ),
+                        {"card": db._jsonb(card), "id": row["id"]},
+                    )
+                    cards_filled += 1
+                    skills = card["skills"]
+                    filled = list(slugs)
+                # A first-party card follows the platform pack: its exact pins
+                # move to the version on disk. Pinned to "1" forever, every card
+                # kept running the pack from the first deploy while the boot sync
+                # stored each newer one beside it, honoured the pin, and changed
+                # nothing (SKILLS-08's cousin).
+                shipped = {pk.slug: _stored_version(pk.version) for pk in packs}
+                moved = []
+                for ref in skills:
+                    if not isinstance(ref, dict):
+                        continue
+                    slug = str(ref.get("skill_id") or "")
+                    if slug in shipped and str(ref.get("version") or "1") != shipped[slug]:
+                        ref["version"] = shipped[slug]
+                        moved.append(slug)
+                if moved:
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE prompt_versions
+                               SET agent_card = CAST(:card AS jsonb), updated_at = now()
+                             WHERE id = :id
+                            """
+                        ),
+                        {"card": db._jsonb({**card, "skills": skills}), "id": row["id"]},
+                    )
+                    logger.info("first-party card %s follows the platform pack for %s", bot_id, ", ".join(moved))
+                if filled or moved:
+                    from agent_core import change_log
 
-                change_log.record_platform_sync(
-                    conn,
-                    tenant_id=tenant_id,
-                    entry_id=db._id("AUD"),
-                    bot_id=bot_id,
-                    prompt_version_id=str(row["id"]),
-                    filled=filled,
-                    moved=moved,
-                )
-            want = {
-                str(s.get("skill_id"))
-                for s in skills
-                if isinstance(s, dict) and s.get("skill_id")
-            } or set(slugs)
-            for slug in want:
-                vid = skill_version_ids.get(slug)
-                if not vid:
-                    continue
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO skill_attachments (prompt_version_id, skill_version_id)
-                        VALUES (:pv, :sv) ON CONFLICT DO NOTHING
-                        """
-                    ),
-                    {"pv": row["id"], "sv": vid},
-                )
-                attached += 1
+                    change_log.record_platform_sync(
+                        conn,
+                        tenant_id=tenant_id,
+                        entry_id=db._id("AUD"),
+                        bot_id=bot_id,
+                        prompt_version_id=str(row["id"]),
+                        filled=filled,
+                        moved=moved,
+                    )
+                want = {
+                    str(s.get("skill_id"))
+                    for s in skills
+                    if isinstance(s, dict) and s.get("skill_id")
+                } or set(slugs)
+                for slug in want:
+                    vid = skill_version_ids.get(slug)
+                    if not vid:
+                        continue
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO skill_attachments (prompt_version_id, skill_version_id)
+                            VALUES (:pv, :sv) ON CONFLICT DO NOTHING
+                            """
+                        ),
+                        {"pv": row["id"], "sv": vid},
+                    )
+                    attached += 1
 
     logger.info(
         "first-party skills synced created=%s refreshed=%s attached=%s cards_filled=%s",

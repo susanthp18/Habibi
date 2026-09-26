@@ -1,0 +1,162 @@
+# AgentStudio engine overlay: the vendored voice-agent engine (agentstudio/engine)
+# running as an internal service behind our API gateway (/studio-api).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.agentstudio.yml \
+#     up -d agentstudio_engine
+#
+# It shares collections_db (its own `agentstudio` database and role) and
+# collections_minio (its own bucket). Only its Redis is separate. Nothing here
+# is published beyond localhost: browsers reach it through our backend, which
+# owns Entra login and RBAC.
+
+x-agentstudio-db: &agentstudio-db
+  AGENTSTUDIO_DB_USER: ${AGENTSTUDIO_DB_USER:-agentstudio}
+  AGENTSTUDIO_DB_PASSWORD: ${AGENTSTUDIO_DB_PASSWORD:-agentstudio}
+
+# Every backend process that can dial or file calls. TELEPHONY_PROVIDER=studio
+# makes outbound.place hand calls to PayInt Voice Studio (voice_studio.py).
+x-voice-studio-env: &voice-studio-env
+  AGENTSTUDIO_ENGINE_URL: http://agentstudio_engine:8000
+  AGENTSTUDIO_INTERNAL_SECRET: ${AGENTSTUDIO_INTERNAL_SECRET:-dev-only-agentstudio-internal-secret}
+  VOICE_STUDIO_HOOK_TOKEN: ${VOICE_STUDIO_HOOK_TOKEN:-dev-only-voice-studio-hook-token}
+  TELEPHONY_PROVIDER: studio
+
+services:
+  # Our API fronts the engine (routers/agentstudio_gateway.py) and answers
+  # its hooks (routers/voice_studio_hooks.py).
+  api:
+    environment: *voice-studio-env
+  bot_worker:
+    environment: *voice-studio-env
+  wk_batch:
+    environment: *voice-studio-env
+  worker:
+    environment: *voice-studio-env
+
+  agentstudio_db_init:
+    image: pgvector/pgvector@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+    container_name: collections_agentstudio_db_init
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *agentstudio-db
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-collections}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-collections}
+      PGDATABASE: ${POSTGRES_DB:-collections}
+    # Idempotent: role, database, and the vector extension (the engine's
+    # migrations run as a non-superuser, so the extension is created here).
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        psql -v ON_ERROR_STOP=1 -v u="$$AGENTSTUDIO_DB_USER" -v p="$$AGENTSTUDIO_DB_PASSWORD" <<'SQL'
+        SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'u', :'p')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'u') \gexec
+        SELECT format('ALTER ROLE %I PASSWORD %L', :'u', :'p') \gexec
+        SELECT format('CREATE DATABASE agentstudio OWNER %I', :'u')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'agentstudio') \gexec
+        SQL
+        psql -v ON_ERROR_STOP=1 -d agentstudio -c 'CREATE EXTENSION IF NOT EXISTS vector'
+    restart: "no"
+
+  # TURN relay for AgentStudio's browser test calls (WebRTC). The browser
+  # reaches it on 3478 only; the relay talks to the engine inside the compose
+  # network, so neither the relay range nor the engine is published.
+  # On a server: AGENTSTUDIO_TURN_BIND=0.0.0.0 and AGENTSTUDIO_TURN_HOST=<public
+  # name or IP>, and open 3478 tcp+udp in the firewall.
+  agentstudio_turn:
+    image: coturn/coturn:4.8.0
+    container_name: collections_agentstudio_turn
+    restart: unless-stopped
+    command:
+      - -n
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --use-auth-secret
+      - --static-auth-secret=${AGENTSTUDIO_TURN_SECRET:-dev-only-agentstudio-turn-secret}
+      - --realm=agentstudio
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      # UDP relay only, and never towards the host's private network.
+      - --no-tcp-relay
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --log-file=stdout
+    ports:
+      - "${AGENTSTUDIO_TURN_BIND:-127.0.0.1}:3478:3478/tcp"
+      - "${AGENTSTUDIO_TURN_BIND:-127.0.0.1}:3478:3478/udp"
+
+  agentstudio_redis:
+    image: redis:7-alpine
+    container_name: collections_agentstudio_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "${AGENTSTUDIO_REDIS_PASSWORD:-agentstudio}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${AGENTSTUDIO_REDIS_PASSWORD:-agentstudio}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  agentstudio_engine:
+    build:
+      context: ../agentstudio/engine
+      dockerfile: api/Dockerfile
+    image: "${IMAGE_PREFIX:-}collections-agentstudio:${IMAGE_TAG:-local}"
+    container_name: collections_agentstudio
+    restart: unless-stopped
+    depends_on:
+      agentstudio_db_init:
+        condition: service_completed_successfully
+      agentstudio_redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${AGENTSTUDIO_DB_USER:-agentstudio}:${AGENTSTUDIO_DB_PASSWORD:-agentstudio}@db:5432/agentstudio
+      REDIS_URL: redis://:${AGENTSTUDIO_REDIS_PASSWORD:-agentstudio}@agentstudio_redis:6379/0
+      DEPLOYMENT_MODE: oss
+      AUTH_PROVIDER: internal
+      AGENTSTUDIO_INTERNAL_SECRET: ${AGENTSTUDIO_INTERNAL_SECRET:-dev-only-agentstudio-internal-secret}
+      OSS_JWT_SECRET: ${AGENTSTUDIO_JWT_SECRET:-dev-only-agentstudio-jwt-secret}
+      ENABLE_SIGNUP: "false"
+      # No telemetry leaves the box, and any missed call to the vendor's hosted
+      # services fails loudly instead of silently reaching the internet.
+      ENABLE_TELEMETRY: "false"
+      POSTHOG_API_KEY: ""
+      SENTRY_DSN: ""
+      MPS_API_URL: http://mps.invalid
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${AGENTSTUDIO_MEDIA_PUBLIC_URL:-http://localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in backend/.env}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in backend/.env}
+      MINIO_BUCKET: agentstudio-audio
+      BACKEND_API_ENDPOINT: ${AGENTSTUDIO_PUBLIC_URL:-http://localhost:8200}
+      # Behind nginx: trust its X-Forwarded-Proto so request URLs read https,
+      # which provider webhook signatures (Twilio) are computed over. The
+      # engine port is loopback-only, so only nginx and the compose network reach it.
+      FORWARDED_ALLOW_IPS: "*"
+      TELEPHONY_WS_TOKEN_SECRET: ${AGENTSTUDIO_TELEPHONY_WS_SECRET:-dev-only-agentstudio-telephony-secret}
+      ENABLE_COTURN: "true"
+      TURN_SECRET: ${AGENTSTUDIO_TURN_SECRET:-dev-only-agentstudio-turn-secret}
+      TURN_HOST: ${AGENTSTUDIO_TURN_HOST:-localhost}
+      TURN_PORT: "3478"
+      TURN_TLS_PORT: "0"
+      ENABLE_ARI_MANAGER: ${AGENTSTUDIO_ENABLE_ARI_MANAGER:-false}
+      ENABLE_CAMPAIGN_ORCHESTRATOR: "true"
+      FASTAPI_WORKERS: "1"
+      ARQ_WORKERS: "1"
+      LOG_LEVEL: INFO
+      LOG_TO_FILE: "false"
+    ports:
+      - "127.0.0.1:${AGENTSTUDIO_PORT:-8200}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

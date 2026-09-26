@@ -71,9 +71,9 @@
 {"id": "faq-070", "query": "What are the general exclusions for Family Protect360?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-003"], "origin": "faq"}
 {"id": "faq-071", "query": "How does this Policy pay out for Income Protector?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-004"], "origin": "faq"}
 {"id": "faq-072", "query": "Does this Policy premium increase with age?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-005"], "origin": "faq"}
-{"id": "faq-073", "query": "Do I need to inform HDFC Assurance upon the annual renewal of this Policy?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-006"], "origin": "faq"}
+{"id": "faq-073", "query": "Do I need to inform BigTapp Assurance upon the annual renewal of this Policy?", "product": "personal_accident", "gold_ids": ["faq-personal_accident-006"], "origin": "faq"}
 {"id": "faq-074", "query": "What does Travel Protect360 Insurance cover?", "product": "travel", "gold_ids": ["faq-travel-001"], "origin": "faq"}
-{"id": "faq-075", "query": "How to buy travel insurance from HDFC Assurance?", "product": "travel", "gold_ids": ["faq-travel-002"], "origin": "faq"}
+{"id": "faq-075", "query": "How to buy travel insurance from BigTapp Assurance?", "product": "travel", "gold_ids": ["faq-travel-002"], "origin": "faq"}
 {"id": "faq-076", "query": "Annual Trip Insurance vs Single Trip Insurance - Which is better?", "product": "travel", "gold_ids": ["faq-travel-003"], "origin": "faq"}
 {"id": "faq-077", "query": "Does Travel Protect360 Insurance cover me if I travel to multiple countries?", "product": "travel", "gold_ids": ["faq-travel-004"], "origin": "faq"}
 {"id": "faq-078", "query": "Can I buy travel insurance after departure?", "product": "travel", "gold_ids": ["faq-travel-005"], "origin": "faq"}

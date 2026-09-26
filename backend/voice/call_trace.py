@@ -53,7 +53,7 @@ logger = logging.getLogger("voice.trace")
 #: The media-stream path carries ``VOICE_WS_PROXY_SECRET`` as a path segment
 #: (Twilio rejects query strings, error 31920), so any URL logged from this
 #: module has to lose that segment first.
-_WS_SECRET = re.compile(r"(/ws/)[^\s\"'<>?]+")
+_WS_SECRET = re.compile(r"(/ws/|/ws-sandbox/[^/\s]+/)[^\s\"'<>?]+")
 
 
 def redact_url(url: str | None) -> str:
@@ -70,6 +70,12 @@ def redact_phone(number: str | None) -> str:
 
 
 _DIGITS = re.compile(r"\d{2,}")
+_TOOL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+
+
+def safe_tool_name(value: Any) -> str | None:
+    """Only registered-style names may appear in tool traces, never arguments."""
+    return value if isinstance(value, str) and _TOOL_NAME.fullmatch(value) else None
 
 
 def preview(text: str | None, *, limit: int = 80) -> str | None:

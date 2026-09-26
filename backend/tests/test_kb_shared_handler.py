@@ -55,7 +55,27 @@ def fake_retrieve(monkeypatch):
 
     fake = _FakeRetrieve()
     monkeypatch.setattr(kb_retrieve, "retrieve", fake)
+    _stub_router(monkeypatch)
     return fake
+
+
+def _stub_router(monkeypatch, *, nearest: str = "travel"):
+    """A two-product router and an embedder that puts every question near ``nearest``.
+
+    The intent gate asks the router whether a question is about a product; no
+    test here is about the embedding, so the embedding is fixed.
+    """
+    import azure_openai
+    from agent_core import product_resolver as pr
+
+    router = pr.ProductRouter(
+        [pr.ProductProfile("travel", "Travel Protect360"), pr.ProductProfile("collections", "BigTapp Bank Collections")],
+        [("travel", "flying abroad", [1.0, 0.0]), ("collections", "late fee", [0.0, 1.0])],
+    )
+    monkeypatch.setattr(pr, "load", lambda *_a, **_k: router)
+    monkeypatch.setattr(pr, "cached", lambda *_a, **_k: router)
+    vec = [0.9, 0.1] if nearest == "travel" else [0.1, 0.9]
+    monkeypatch.setattr(azure_openai, "embed_texts", lambda texts, **_k: [vec for _ in texts])
 
 
 # --------------------------------------------------------------------------
@@ -123,6 +143,10 @@ def test_text_channel_shapes_the_historical_payload(fake_retrieve):
         "topScore",
         "answer_policy",
         "logId",
+        # Which product was searched, and the keys the `product` argument
+        # takes -- so the model can name the product next time.
+        "searchedProduct",
+        "productKeys",
     }
     assert fake_retrieve.last["source"] == "bot"
 
@@ -132,7 +156,9 @@ def test_text_channel_shapes_the_historical_payload(fake_retrieve):
 # --------------------------------------------------------------------------
 
 
-def test_gate_blocks_collections_money_question(fake_retrieve):
+def test_gate_blocks_collections_money_question(fake_retrieve, monkeypatch):
+    # The question embeds nearest the collections corpus.
+    _stub_router(monkeypatch, nearest="collections")
     result = kb.search_knowledge_base(
         query="how much do I owe",
         channel="text",
@@ -142,7 +168,7 @@ def test_gate_blocks_collections_money_question(fake_retrieve):
     assert result.ok
     assert result.data["available"] is False
     assert result.data["reason"] == "kb_gated_for_intent"
-    assert not fake_retrieve.calls, "gated query must not spend an embed + ANN"
+    assert not fake_retrieve.calls, "gated query must not spend an ANN search"
 
 
 def test_gate_opens_on_product_vocabulary(fake_retrieve):
@@ -289,19 +315,32 @@ def test_empty_query_is_a_soft_failure(fake_retrieve):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("is scuba diving covered", True),
-        ("what does my travel insurance cover", True),
-        ("what are the travel insurance exclusions", True),
-        ("i want a payment plan", False),
-        ("i claim i already paid the terms", False),
-        ("the terms of my insurance policy", True),
-    ],
-)
-def test_product_vocabulary_detection(text, expected):
-    assert kb.query_looks_product(text) is expected
+def test_product_question_is_decided_by_meaning_not_keywords(monkeypatch):
+    """The intent gate asks the router, not a keyword tuple.
+
+    The tuples called "can you cover the late fee" insurance and "something
+    for my travel to Singapore" not. Now: a title said outright, or the
+    question's embedding nearest a product other than collections.
+    """
+    import azure_openai
+    from agent_core import product_resolver as pr
+
+    router = pr.ProductRouter(
+        [pr.ProductProfile("travel", "Travel Protect360"), pr.ProductProfile("collections", "BigTapp Bank Collections")],
+        [("travel", "flying abroad", [1.0, 0.0]), ("collections", "late fee", [0.0, 1.0])],
+    )
+    monkeypatch.setattr(pr, "load", lambda *_a, **_k: router)
+    vectors = {
+        "I want something for my travel to Singapore": [0.9, 0.1],
+        "can you cover the late fee": [0.1, 0.9],
+    }
+    monkeypatch.setattr(azure_openai, "embed_texts", lambda texts, **_k: [vectors[t] for t in texts])
+
+    assert kb.query_looks_product("I want something for my travel to Singapore") is True
+    assert kb.query_looks_product("can you cover the late fee") is False
+    # A title needs no embedding at all.
+    assert kb.query_looks_product("what does travel protect three sixty exclude") is True
+    assert kb.query_looks_product("") is False
 
 
 @pytest.mark.parametrize(

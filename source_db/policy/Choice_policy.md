@@ -48,7 +48,7 @@ This policy and the Policy Schedule shall be read together as one contract and a
 
 **"Policy Schedule"** means the document issued by Us which reflects details of You and/or any terms and conditions that are specific to the Policy.
 
-**"We, Our, Us or the Company"** means HDFC Assurance Pte. Ltd.
+**"We, Our, Us or the Company"** means BigTapp Assurance Pte. Ltd.
 
 **"You or Your"** means the Insured Person or Persons described as such in the Policy Schedule.
 
@@ -1101,7 +1101,7 @@ This policy is protected under the Policy Owners' Protection Scheme which is adm
 
 Coverage for Your policy is automatic and no further action is required from You.
 
-For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ## CLAIMS PROCEDURE
 
@@ -1116,7 +1116,7 @@ On the happening of any loss, damage or injury which may give rise to a claim un
 
 ## CARING FOR OUR CUSTOMERS
 
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders.
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders.
 
 If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
@@ -1131,7 +1131,7 @@ We will contact You for further information if required within seven (7) working
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 Chief Executive Officer
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 
@@ -1163,7 +1163,7 @@ Voucher is valid from 16th January 2026 to 4th March 2026 (both dates inclusive)
 This voucher has a fixed value of SGD $38.
 Voucher requires a minimum spending of amount greater than SGD $38.
 The voucher may be used multiple times by the recipient.
-The voucher can be applied to the following HDFC Assurance plans: 1) Travel Protect360 (Multi Trip), 2) Maid Protect360 Pro (26 Months), 3) Home Protect360 (Annual), 4) Family Protect360 (Annual), 5) Hospital Protect (Annual).
-The voucher may only be used on HDFC Assurance website: www.hdfc.com.sg
+The voucher can be applied to the following BigTapp Assurance plans: 1) Travel Protect360 (Multi Trip), 2) Maid Protect360 Pro (26 Months), 3) Home Protect360 (Annual), 4) Family Protect360 (Annual), 5) Hospital Protect (Annual).
+The voucher may only be used on BigTapp Assurance website: www.bigtapp.example
 The voucher may be used in conjunction with ongoing promotions or discounts.
 

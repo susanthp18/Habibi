@@ -29,6 +29,7 @@ from schemas import (
     PolicyRuleSetCreatedResponse,
     PolicyRuleSetResponse,
     PolicyRuleSetStateResponse,
+    PolicyRuleApproveRequest,
     RedactionAudioMuteRequest,
     RedactionAudioMuteResponse,
     RedactionRecordListResponse,
@@ -174,7 +175,9 @@ def export_policy_bundle(fmt: str = Query(default="opa"), bot_id: str | None = Q
     response_model_exclude_unset=True,
 )
 def list_policy_rule_sets():
-    return db_compliance.list_policy_rule_sets(tenant_id=db.current_tenant())
+    return db_compliance.list_policy_rule_sets(
+        tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id()
+    )
 
 @router.post("/compliance/policy-rules", response_model=PolicyRuleSetCreatedResponse)
 def create_policy_rule_draft(body: PolicyRuleDraftRequest):
@@ -183,6 +186,8 @@ def create_policy_rule_draft(body: PolicyRuleDraftRequest):
         return db_compliance.create_policy_rule_draft(
             body, tenant_id=tenant_id, actor_user_id=db._actor_user_id()
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -190,15 +195,21 @@ def create_policy_rule_draft(body: PolicyRuleDraftRequest):
 def submit_policy_rule_set(set_id: str):
     try:
         return db_compliance.submit_policy_rule_set(set_id, actor_user_id=db._actor_user_id())
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/compliance/policy-rules/{set_id}/approve", response_model=PolicyRuleSetStateResponse)
-def approve_policy_rule_set(set_id: str):
+def approve_policy_rule_set(set_id: str, payload: PolicyRuleApproveRequest | None = None):
     try:
-        return db_compliance.approve_policy_rule_set(set_id, actor_user_id=db._actor_user_id())
+        return db_compliance.approve_policy_rule_set(
+            set_id,
+            actor_user_id=db._actor_user_id(),
+            self_approval_reason=(payload.selfApprovalReason if payload else None),
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -208,7 +219,14 @@ def approve_policy_rule_set(set_id: str):
 
 @router.post("/compliance/policy-rules/{set_id}/reject", response_model=PolicyRuleSetStateResponse)
 def reject_policy_rule_set(set_id: str):
-    return db_compliance.reject_policy_rule_set(set_id, actor_user_id=db._actor_user_id())
+    try:
+        return db_compliance.reject_policy_rule_set(set_id, actor_user_id=db._actor_user_id())
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post("/compliance/policy-replay", response_model=PolicyReplayResponse)
 def run_policy_replay(payload: PolicyReplayRequest | None = None):

@@ -48,19 +48,32 @@ def ws_proxy_enabled() -> bool:
 
 async def proxy_voice_websocket(client: WebSocket, *, upstream_path: str = "/ws") -> None:
     """Bidirectional byte/text bridge between Twilio (via ngrok→API) and Pipecat."""
+    await bridge_websocket(client, voice_ws_upstream(upstream_path))
+
+
+async def bridge_websocket(
+    client: WebSocket,
+    upstream: str,
+    *,
+    headers: dict[str, str] | None = None,
+    label: str = "voice",
+) -> None:
+    """Accept ``client`` and pump frames both ways to ``upstream`` until either
+    end closes. ``headers`` go on the upstream handshake only (the AgentStudio
+    gateway signs the caller's identity there)."""
     import websockets
     from websockets.exceptions import ConnectionClosed
 
     from voice.call_trace import Stopwatch, event, redact_url
 
     await client.accept()
-    upstream = voice_ws_upstream(upstream_path)
-    logger.info("Voice WS proxy → %s", upstream)
+    logger.info("%s WS proxy → %s", label, redact_url(upstream))
     watch = Stopwatch()
 
     try:
         async with websockets.connect(
             upstream,
+            additional_headers=headers,
             max_size=8 * 1024 * 1024,
             open_timeout=10,
             ping_interval=20,
@@ -159,7 +172,7 @@ async def proxy_voice_websocket(client: WebSocket, *, upstream_path: str = "/ws"
             error=type(exc).__name__,
             took_s=watch.s(),
         )
-        logger.exception("Voice WS proxy failed connecting to %s", upstream)
+        logger.exception("%s WS proxy failed connecting to %s", label, redact_url(upstream))
         try:
             await client.close(code=1011)
         except Exception:

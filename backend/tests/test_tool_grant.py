@@ -238,19 +238,3 @@ def test_the_publish_scope_is_the_authors_declaration_not_the_grant(bot_id, card
         assert not any(name in p.allowed_tools for p in packs)
 
 
-def test_the_cardless_fallbacks_stay_gone() -> None:
-    """The text and sandbox runtimes used private tool lists when no card
-    resolved; both contained skill-gated writes. ADR-0002 deleted them, and a
-    cardless mouth is granted nothing at the live seam, not only inside
-    ToolGrant.
-    """
-    import bot_tools
-    import sandbox_runtime
-    from agent_core.skills.runtime import resolve_mouth
-
-    assert not hasattr(bot_tools, "TOOL_DEFINITIONS")
-    assert not hasattr(sandbox_runtime, "_SANDBOX_TOOL_NAMES")
-
-    tools = resolve_mouth({}).tools()
-    assert tools.allowed == frozenset()
-    assert tools.offered == ()

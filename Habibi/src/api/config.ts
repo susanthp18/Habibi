@@ -34,7 +34,7 @@ const ACTOR_USER_ID = (import.meta.env.VITE_ACTOR_USER_ID as string | undefined)
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-async function authHeaders(extra?: HeadersInit): Promise<Headers> {
+export async function authHeaders(extra?: HeadersInit): Promise<Headers> {
   const headers = new Headers(extra);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   if (entraConfigured() && typeof window !== "undefined") {
@@ -139,6 +139,12 @@ export class ApiError extends Error {
     this.path = path;
     this.requestId = requestId ?? null;
   }
+}
+
+/** The server's own words for a failed request (its `detail`), else the error text. */
+export function apiErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.detail;
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** True only for a real 404 from the API — never for a network or 5xx failure. */

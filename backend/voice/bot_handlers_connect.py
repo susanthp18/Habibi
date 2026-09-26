@@ -201,6 +201,7 @@ def build(scope: HandlerScope) -> None:
     runner_args = scope.runner_args
     sandbox_load_error = scope.sandbox_load_error
     sandbox_persona = scope.sandbox_persona
+    sandbox_session = scope.sandbox_session
     session = scope.session
     transport = scope.transport
     voicemail_detector = scope.voicemail_detector
@@ -314,7 +315,12 @@ def build(scope: HandlerScope) -> None:
             if isinstance(twilio_params, dict)
             else session.extra.get("call_type") or ""
         ).strip().lower()
-        direction = "outbound" if call_type == "outbound" else "inbound"
+        # ``resolve_call`` already decided (carrier params, a truncated context,
+        # or an outbound rehearsal); re-deriving it from ``call_type`` alone
+        # filed an outbound rehearsal as inbound after the sink said outbound.
+        direction = str(session.extra.get("call_direction") or "").strip().lower()
+        if direction not in {"inbound", "outbound"}:
+            direction = "outbound" if call_type == "outbound" else "inbound"
 
         # We chose this borrower, this number and this moment — and until now
         # the call opened as UNKNOWN-CALLER anyway, because `customer_id` was a
@@ -335,28 +341,56 @@ def build(scope: HandlerScope) -> None:
                 else None
             ),
         )
+        # A rehearsal has no dial and no ANI. Its customer is the one the tester
+        # picked (``persona.customerId``, already checked to exist by
+        # ``voice_sandbox._bind_persona_to_customer``), and it answers to the
+        # operator who started it. Without both it filed as an anonymous
+        # inbound call from "Unknown caller" on the Audit screen.
+        if sandbox_session:
+            persona = sandbox_persona if isinstance(sandbox_persona, dict) else {}
+            if not raw_customer:
+                raw_customer = str(persona.get("customerId") or "").strip() or None
+            if sandbox_session.get("startedBy"):
+                session.extra.setdefault("accountable_user_id", sandbox_session["startedBy"])
+            session.extra["sandbox"] = {
+                "runId": sandbox_session.get("sandboxRunId"),
+                "scenarioId": sandbox_session.get("scenarioId"),
+                "personaName": persona.get("name"),
+            }
+
         # Existence check is a DB round-trip. It used to sit in front of
         # FlowManager.initialize, so the greeting waited on it. The bind
         # already runs beside the greeting and is the only consumer.
         mission_customer = raw_customer
 
+        # Prefetch is a head start on the CRM card. It is not the greeting and
+        # it is not the interaction row. VS-B8A775DEDF died here — an undefined
+        # name inside this block — and Pipecat then abandoned the rest of the
+        # handler: no flow, no first word, no CRM bind, the caller muted until
+        # the dead-air nudge. A failure stays in this block.
         if raw_customer:
-            from voice.tools_verify import start_crm_prefetch
+            try:
+                from voice.tools_verify import start_crm_prefetch
 
-            mission = session.extra.get("mission")
-            mission = mission if isinstance(mission, dict) else {}
-            start_crm_prefetch(
-                session,
-                customer_id=raw_customer,
-                channel="sandbox_live" if sandbox_session else "voice",
-                interaction_id=session.interaction_id,
-                account_id=mission.get("accountId"),
-                kb_snapshot_id=(bundle.get("kbSnapshotId") if isinstance(bundle, dict) else None),
-                bot_id=bot_id,
-                persona=sandbox_persona if isinstance(sandbox_persona, dict) else (
-                    (bundle.get("persona") if isinstance(bundle, dict) else None)
-                ),
-            )
+                mission = session.extra.get("mission")
+                mission = mission if isinstance(mission, dict) else {}
+                start_crm_prefetch(
+                    session,
+                    customer_id=raw_customer,
+                    channel="sandbox_live" if sandbox_session else "voice",
+                    interaction_id=session.interaction_id,
+                    account_id=mission.get("accountId"),
+                    kb_snapshot_id=(bundle.get("kbSnapshotId") if isinstance(bundle, dict) else None),
+                    bot_id=bot_id,
+                    persona=sandbox_persona if isinstance(sandbox_persona, dict) else (
+                        (bundle.get("persona") if isinstance(bundle, dict) else None)
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "crm prefetch failed; greeting continues · session={}",
+                    session.session_id,
+                )
 
         # What this bind resolved, kept where teardown can reach it. If the bind
         # below fails, CrmSink files the minimal row itself and has no other way

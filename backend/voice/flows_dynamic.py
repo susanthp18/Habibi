@@ -612,6 +612,12 @@ def build_authored_flow(
     from flow_graph import split_key as _split_key
 
     state.active_specialist = _split_key(entry.key)[0]
+    # The node the call opens on. ToolState defaults to the inbound door, so an
+    # outbound mission entering at confirm_identity reported greet_disclose to
+    # every trace and chose its KB corpus from a node it never visited, until
+    # the first transition overwrote it (VS-36E9E26C13, VS-58097BA530).
+    state.current_node = entry.key
+    session.extra["flow_node"] = entry.key
 
     # One walker, shared with the text mouths. It owns the edge rules, the node
     # index and the variable bag; this module owns everything about speaking.

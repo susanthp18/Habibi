@@ -62,7 +62,7 @@ export function OutboundControlPanel() {
       const ok = await confirm({
         title: "Let the demo call outside permitted hours?",
         description:
-          "This waives the calling-hours check for the demo number only, and only for the demo button. Consent, opt-out, DND and the attempt caps still apply and still refuse. Every call that uses the waiver is recorded against the customer. Intended for a handset you own — not for reaching real borrowers out of hours.",
+          "This waives the statutory calling hours and this borrower's preferred window for the demo button only. Cooling-off and the daily/weekly caps are already not applied to this button, because it dials one configured handset. Consent, opt-out and DND still refuse. Every call that uses the hours waiver is recorded against the customer. Intended for a handset you own — not for reaching real borrowers out of hours.",
         confirmLabel: "Allow out-of-hours demo",
         cancelLabel: "Keep hours enforced",
       });
@@ -216,9 +216,23 @@ export function OutboundControlPanel() {
           </div>
           <button
             type="button"
-            disabled={!enabled || busy || !target.data?.customer}
+            disabled={
+              !enabled ||
+              busy ||
+              !target.data?.customer ||
+              !target.data.telephonyConfigured ||
+              Boolean(blockedNow)
+            }
             onClick={() => void onDemo()}
-            title={enabled ? undefined : "Turn outbound calling on first"}
+            title={
+              !enabled
+                ? "Turn outbound calling on first"
+                : target.data && !target.data.telephonyConfigured
+                  ? "Telephony is not configured on the server"
+                  : blockedNow
+                    ? `Contact policy blocks this call: ${blockedNow}`
+                    : undefined
+            }
             className="focus-ring inline-flex h-400 shrink-0 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered active:scale-[0.98] disabled:opacity-50"
           >
             <PhoneCall className="h-3.5 w-3.5" />
@@ -239,9 +253,10 @@ export function OutboundControlPanel() {
                 Allow the demo to call outside permitted hours
               </div>
               <p className="mt-025 max-w-[40rem] text-body-small text-text-subtle">
-                Demo number only. Waives when and how often the demo may dial — calling hours, the
-                borrower&apos;s window, cooling-off and the daily/weekly caps. Consent, opt-out, DND
-                and the registry still refuse. Each use is recorded against the customer.
+                Demo number only. Waives the statutory calling hours and this borrower&apos;s
+                preferred window. Cooling-off and the daily/weekly caps are not applied to this
+                button. Consent, opt-out, DND and the registry still refuse. Each hours waiver is
+                recorded against the customer.
                 {blockedNow && timingBlock && !ignoresWindow ? (
                   <span className="font-semibold text-text-warning-bolder">
                     {" "}
@@ -257,8 +272,9 @@ export function OutboundControlPanel() {
                 {blockedNow && !timingBlock ? (
                   <span className="font-semibold text-text-danger">
                     {" "}
-                    Right now the call would be refused for {blockedNow}, which this waiver does not
-                    cover.
+                    {blockedNow === "policy_unavailable"
+                      ? "The contact policy could not be checked. Refresh the target before calling."
+                      : `Right now the call would be refused for ${blockedNow}, which this waiver does not cover.`}
                   </span>
                 ) : null}
               </p>
@@ -272,6 +288,11 @@ export function OutboundControlPanel() {
           </div>
         )}
 
+        {target.data && !target.data.telephonyConfigured && (
+          <p className="mt-100 text-body-small text-text-danger">
+            Telephony is not configured on the server. The demo call is unavailable.
+          </p>
+        )}
         {target.data?.customer && !target.data.offersAllowed && (
           <p className="mt-100 text-body-small text-text-subtlest">
             <span className="font-semibold text-text-subtle">No upsell on this call.</span> Every

@@ -39,6 +39,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from agent_core.tuning import VOICE_PITCH_RANGE as _PITCH
+from agent_core.tuning import VOICE_SPEED_RANGE as _SPEED
+
 logger = logging.getLogger(__name__)
 
 # Emotion palette lives with the client that knows the syntax; the registry only
@@ -96,31 +99,47 @@ class ModelSpec:
     #: Fish cannot be pinned: its OpenAPI has no `seed` on TTSRequest, and
     #: temperature only narrows the spread (24.8% at 0.7 → 8.6% at 0.0).
     sampling: bool = False
+    #: Top-level packages the Pipecat integration imports that its own install
+    #: does not bring. Checked before the service module is imported: Pipecat's
+    #: optional-extra modules log at ERROR in their own body and then raise, so
+    #: probing an uninstalled extra wrote an ERROR into every voice start.
+    requires: tuple[str, ...] = ()
 
 
-def _num(key, label, *, lo, hi, step, default, transport, help=""):
+def _num(key, label, *, lo, hi, step, default, transport, help="", unit=""):
     """One numeric control descriptor.
 
     ``transport`` is load-bearing: ``body`` is a top-level JSON field on the
     speech request, ``ssml`` is an Azure prosody attribute. A control with no
     transport has nowhere to go, which is what stops a knob being decoration.
+
+    ``unit`` is what the number is *in* ("x", "st", "ms"). Without it the Voice
+    tab showed "0.5" and "1" with nothing to say whether that was a multiplier,
+    a percentage or semitones -- and the three code paths behind it disagreed.
     """
     return {
         "key": key, "label": label, "kind": "number", "min": lo, "max": hi,
         "step": step, "default": default, "transport": transport, "help": help,
+        "unit": unit,
     }
 
 
 #: Azure: a parametric synthesiser. Prosody rides in the SSML envelope.
+#: Speed and Pitch bounds are ``agent_core.tuning``'s, not restated: that module
+#: is what the preview and the call both render them with.
 PARAM_AZURE_TTS: tuple[dict[str, Any], ...] = (
-    _num("rate", "Speed", lo=0.5, hi=2.0, step=0.01, default=1.0, transport="ssml",
-         help="SSML prosody rate."),
-    _num("pitch", "Pitch", lo=-50, hi=50, step=1, default=0, transport="ssml",
-         help="Semitone offset, rendered as an SSML percentage."),
+    _num("rate", "Speed", lo=_SPEED[0], hi=_SPEED[1], step=0.05, default=1.0,
+         transport="ssml", unit="×",
+         help="How fast the voice speaks. 1× is the voice's natural pace."),
+    _num("pitch", "Pitch", lo=_PITCH[0], hi=_PITCH[1], step=1, default=0,
+         transport="ssml", unit="st",
+         help="Semitones above or below the voice's natural pitch."),
     _num("warmth", "Warmth", lo=0, hi=100, step=1, default=62, transport="ssml",
-         help="Drives mstts:express-as style degree where the voice supports it."),
+         help="Speaking style: 70 and above is friendly, 35 and below is calm-empathetic, "
+              "between is empathetic."),
     _num("pause_ms", "Sentence pause", lo=0, hi=1200, step=10, default=320,
-         transport="ssml", help="Break inserted between sentences."),
+         transport="ssml", unit="ms",
+         help="Pause between sentences. Preview only — a live call streams sentences as they arrive."),
 )
 
 #: Fish S2.1 Pro via OpenRouter. A *generative* TTS — it has no pitch or style
@@ -476,6 +495,7 @@ SEED: tuple[ProviderSpec, ...] = (
                 model_id="ursa-2",
                 display_name="Ursa 2",
                 service_class="pipecat.services.speechmatics.stt.SpeechmaticsSTTService",
+                requires=("speechmatics",),
                 on_prem=True,
                 diarization=True,
                 cost_per_unit=0.129,
@@ -486,6 +506,7 @@ SEED: tuple[ProviderSpec, ...] = (
                 model_id="bilingual-ar-en",
                 display_name="Arabic–English bilingual",
                 service_class="pipecat.services.speechmatics.stt.SpeechmaticsSTTService",
+                requires=("speechmatics",),
                 locales=("ar-AE", "ar-SA", "ar-EG", "en-GB", "en-US"),
                 code_switch=True,
                 on_prem=True,
@@ -587,6 +608,16 @@ def runtime_status(
     cached = _RUNTIME_CACHE.get(model.service_class)
     if cached is not None:
         return cached
+
+    missing = [pkg for pkg in model.requires if importlib.util.find_spec(pkg) is None]
+    if missing:
+        result = (
+            RUNTIME_UNAVAILABLE,
+            f"Not installed on the call host: {', '.join(missing)}.",
+        )
+        logger.info("model not installed · provider=%s · needs %s", model.model_id, ", ".join(missing))
+        _RUNTIME_CACHE[model.service_class] = result
+        return result
 
     module_path, _, cls_name = model.service_class.rpartition(".")
     try:

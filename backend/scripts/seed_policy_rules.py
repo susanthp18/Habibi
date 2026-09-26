@@ -158,6 +158,12 @@ def publish(conn: Any) -> None:
             "unverified legal text as a production publication."
         )
     actor = None
+    # Statutory sets have no tenant; row security admits their insert only in
+    # platform scope. Without this a fresh install's seed died on the first
+    # INSERT once RLS was on.
+    import platform_scope
+
+    platform_scope.enter_unattended(conn, reason="seed the statutory rule sets")
     for spec in RULE_SETS:
         existing = conn.execute(
             text("SELECT id, publication_state FROM policy_rule_sets WHERE id = :id"),

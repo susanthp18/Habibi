@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from agent_core.skills.pack import SkillPack, approx_tokens
 
 DESCRIPTION_TOKEN_CAP = 120
 CATALOG_PREFIX_TOKEN_CAP = 800
+
+
+#: ``ext.<connector>.<tool>`` -- a connector tool. Not a catalog tool, and not
+#: meant to be: its binding is the card's (G10, G18) and the grant drops it on
+#: any card that does not bind that connector. Lint used to reject every one as
+#: ``unknown_tools`` while the grant offered an ``ext.*`` tool *only* through a
+#: pack that names it, so no connector bound on any card could ever be called.
+_CONNECTOR_TOOL = re.compile(r"^ext\.[a-z0-9][a-z0-9_-]*\.[A-Za-z0-9_]+$")
+
+
+def is_connector_tool(name: str) -> bool:
+    return bool(_CONNECTOR_TOOL.match(name))
 
 
 def lint_pack(pack: SkillPack, *, catalog_names: set[str]) -> list[dict[str, Any]]:
@@ -24,7 +37,9 @@ def lint_pack(pack: SkillPack, *, catalog_names: set[str]) -> list[dict[str, Any
                 "msg": f"description is {tokens} tokens; cap {DESCRIPTION_TOKEN_CAP}",
             }
         )
-    unknown = [n for n in pack.allowed_tools if n not in catalog_names]
+    unknown = [
+        n for n in pack.allowed_tools if n not in catalog_names and not is_connector_tool(n)
+    ]
     if unknown:
         issues.append({"code": "unknown_tools", "msg": "allowed-tools not in catalog", "tools": unknown})
     if any(" " in n or n != n.strip() for n in pack.allowed_tools):

@@ -109,6 +109,35 @@ def test_inbound_last4_collision_still_refuses(monkeypatch) -> None:
     assert found is None
 
 
+def test_outbound_first_name_does_not_verify(monkeypatch) -> None:
+    """VS-E6043500C0 accepted 'Sushant' and then read the balance."""
+    from voice import persist
+    from voice import tools as voice_tools
+    from voice.session import VoiceSession
+
+    monkeypatch.setattr(persist, "lookup_customer_for_verify", lambda **_k: (_ for _ in ()).throw(AssertionError("lookup")))
+    monkeypatch.setattr(persist, "record_identity_verification", lambda **_k: None)
+
+    session = VoiceSession(session_id="VS-NAME", customer_id="C-BOUND")
+    session.interaction_id = "IX-NAME"
+    session.extra["call_direction"] = "outbound"
+    session.extra["expected_customer_name"] = "Susanth"
+
+    async def go():
+        state, tools = voice_tools.build_tools(
+            session, bot_id=None, start_recording=None, nodes={}
+        )
+        state.customer_name = "Susanth"
+        return await tools["verify_identity"].handler(
+            {"method": "phone_match", "value": "Sushant"}, None
+        )
+
+    body = asyncio.run(go())
+    payload = body[0] if isinstance(body, tuple) else body
+    assert payload.get("error") == "need_digits"
+    assert session.identity_verified is False
+
+
 def test_verify_tool_passes_prefer_on_outbound(monkeypatch) -> None:
     from voice import persist
     from voice import tools as voice_tools

@@ -77,7 +77,7 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
 
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [scope, setScope] = useState<ExportScope[]>(["transcript", "metadata"]);
-  const [watermark, setWatermark] = useState("HDFC-CONFIDENTIAL · Compliance review");
+  const [watermark, setWatermark] = useState("BigTapp-CONFIDENTIAL · Compliance review");
   const [accessRole, setAccessRole] = useState("Compliance Officer");
 
   const recordState = remoteRecords ?? [];

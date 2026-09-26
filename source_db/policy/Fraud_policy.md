@@ -167,7 +167,7 @@ ii. as part of a civil war, rebellion, revolution, insurrection, military action
 
 whether War be declared or not.
 
-"We, Our, Us or the Company" means HDFC Assurance Pte. Ltd.
+"We, Our, Us or the Company" means BigTapp Assurance Pte. Ltd.
 
 "You or Your" means the Insured Person described as such in the Policy Schedule.
 
@@ -576,11 +576,11 @@ In the event that We pay a claim for Online Shopping Fraud and the goods are eve
 
 ## POLICY OWNERS' PROTECTION SCHEME
 
-This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for this Policy is automatic, and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+This Policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for this Policy is automatic, and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ## CARING FOR OUR CUSTOMERS
 
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
 Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising.
 
@@ -589,7 +589,7 @@ We will acknowledge receipt of Your feedback within seven (7) working days whils
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 Chief Executive Officer
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 

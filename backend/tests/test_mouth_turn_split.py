@@ -325,6 +325,20 @@ def test_a_voice_grant_drops_text_only_tools() -> None:
     assert "get_account_position" in granted
 
 
+def test_a_voice_grant_keeps_the_flow_hops() -> None:
+    """Catalog intersection must not strip begin_negotiate. VS-E6043500C0 logged
+    it as an unknown tool and the call never left state_position."""
+    from agent_core.tools.grant import VOICE_ALWAYS
+
+    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
+    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
+    granted = mouth.tools(channel_tools=voice, channel="voice", floor=VOICE_ALWAYS).allowed
+    assert "begin_negotiate" in granted
+    assert "begin_dispute" in granted
+    assert "begin_wrap_up" in granted
+    assert "not_account_holder" in granted
+
+
 def test_the_three_runtimes_pass_channel_tools() -> None:
     """Closing the divergence requires the callers, not only the parameter."""
     missing: list[str] = []

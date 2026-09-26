@@ -45,7 +45,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -190,7 +192,10 @@ mean — adding "exclusions" to a question about what is available sends the
 search to the wrong half of the corpus.
 
 product_keys — from the provided list only, when the caller named or clearly
-meant specific products. Leave empty when they asked broadly.
+meant specific products. Describing a need counts: "something for my trip to
+Singapore" means the travel product, "my maid hurt her back" the one for
+helpers -- use the summaries. Leave empty when they asked broadly or the need
+fits several products equally.
 
 prefer_policy — true only when they want the fine print: exclusions, conditions,
 what voids cover, terms. False for what a product covers or offers.
@@ -301,7 +306,15 @@ def _call_tool(
                 tool_name,
             )
         else:
-            logger.debug("kb model call failed", exc_info=True)
+            # Warning, not debug: a planner that fails leaves the lookup on the
+            # keyword fallback, and the cause is the first thing an
+            # investigation needs. At debug level it was invisible in production.
+            logger.warning(
+                "kb model call failed (%s): %s: %s -- using the fallback plan",
+                tool_name,
+                type(exc).__name__,
+                str(exc)[:200],
+            )
         return None
 
     calls = result.get("toolCalls") or []
@@ -334,23 +347,47 @@ _POLICY_FACET_TOKENS = (
 )
 
 
+_WORD = re.compile(r"[a-z0-9]+")
+
+#: Words that appear in a product title without naming the product.
+_GENERIC_PRODUCT_WORDS = frozenset({"plus", "plan", "cover", "policy", "insurance"})
+
+
+def _words(text: str) -> set[str]:
+    """Lower-case words, plus each adjacent pair joined -- STT writes the
+    brand suffix as "protect 360" as often as "protect360"."""
+    seq = _WORD.findall((text or "").lower())
+    return set(seq) | {a + b for a, b in zip(seq, seq[1:])}
+
+
 def _named_product_keys(text: str, products: list[dict[str, Any]]) -> list[str]:
-    """Product keys the caller actually named, from the corpus list only."""
-    low = (text or "").lower()
-    if not low:
+    """Product keys the caller actually named, from the corpus list only.
+
+    Whole words, and only words that tell one product from the others. The
+    previous substring test on words longer than three letters was wrong both
+    ways on the Protect360 corpus: ``car`` was too short to ever match, so "car
+    protect" named nothing, while the shared ``protect360`` matched all nine
+    products at once. A word every product carries names none of them.
+    """
+    said = _words(text)
+    if not said:
         return []
-    found: list[str] = []
+    vocab: dict[str, set[str]] = {}
     for product in products:
         key = str(product.get("productKey") or "").strip().lower()
-        if not key:
-            continue
-        title = str(product.get("title") or "").strip().lower()
-        tokens = {key, *key.replace("_", " ").replace("-", " ").split()}
-        if title:
-            tokens.update(w for w in title.split() if len(w) > 3)
-        if any(tok and tok in low for tok in tokens if len(tok) > 3):
-            found.append(key)
-    return found
+        if key:
+            vocab[key] = _words(key.replace("_", " ").replace("-", " ")) | _words(
+                str(product.get("title") or "")
+            )
+    seen_in = Counter(w for words in vocab.values() for w in words)
+    return [
+        key
+        for key, words in vocab.items()
+        if any(
+            seen_in[w] == 1 and len(w) >= 3 and not w.isdigit() and w not in _GENERIC_PRODUCT_WORDS
+            for w in words & said
+        )
+    ]
 
 
 def _caller_names_product_and_facet(text: str, products: list[dict[str, Any]]) -> bool:
@@ -400,6 +437,7 @@ def plan_retrieval(
     products = available_products or []
     catalog_lines = "\n".join(
         f"- {p.get('productKey')}: {p.get('title') or p.get('productKey')}"
+        + (f" -- {p['summary']}" if p.get("summary") else "")
         for p in products
         if p.get("productKey")
     )

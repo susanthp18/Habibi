@@ -1,4 +1,4 @@
-# HDFC Assurance
+# BigTapp Assurance
 ## EARLY PROTECT360 PLUS
 
 ### YOUR EARLY PROTECT360 PLUS POLICY
@@ -60,7 +60,7 @@ iv. for which you have been advised to get medical treatment by a medical practi
 
 **"Specialist"** means a Registered Medical Practitioner who has the extra qualifications and expertise needed to practise as a recognised specialist of diagnostic techniques, treatment and prevention, in the particular field of medicine relevant to the conditions or illnesses in each benefit.
 
-**"We, Our, Us or the Company"** means HDFC Assurance Pte. Ltd.
+**"We, Our, Us or the Company"** means BigTapp Assurance Pte. Ltd.
 
 **"You or Your"** means the Policyholder described as such in the Policy Schedule.
 
@@ -338,17 +338,17 @@ Unless otherwise expressly stated or extended in the Policy, this Policy does no
 (e) We shall in the case of the Insured Person's death be entitled to have a post mortem examination at Our own expense, where this is not forbidden by law or religious beliefs.
 
 ### POLICY OWNERS' PROTECTION SCHEME
-This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ### CARING FOR OUR CUSTOMERS
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do:
 
 Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising. We will acknowledge receipt of Your feedback within seven (7) working days whilst We look into the matter You have raised. We will contact You for further information if required within seven (7) working days and provide You with a full reply within fourteen (14) working days.
 
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 **Chief Executive Officer**
-HDFC Assurance Pte. Ltd.
+BigTapp Assurance Pte. Ltd.
 11 Keppel Road #11-01 ABI Plaza
 Singapore 089057
 

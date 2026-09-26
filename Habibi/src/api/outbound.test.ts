@@ -11,14 +11,3 @@ describe("outbound campaign create", () => {
     expect(src).toContain("botId?: string");
   });
 });
-
-describe("Outbound tab compile preview", () => {
-  it("sends the unsaved flow with the card", () => {
-    const src = readFileSync(
-      join(here, "..", "components", "prompt-studio", "OutboundTab.tsx"),
-      "utf8",
-    );
-    expect(src).toContain("agentCard: card, flow");
-    expect(src).toMatch(/botId/);
-  });
-});

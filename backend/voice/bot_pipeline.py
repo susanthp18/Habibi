@@ -110,6 +110,34 @@ def _run_collections_summary(transcript: str) -> str:
     ) or ""
 
 
+def _tool_call_ids(message: dict) -> set[str]:
+    ids: set[str] = set()
+    for call in message.get("tool_calls") or []:
+        if isinstance(call, dict) and call.get("id"):
+            ids.add(str(call["id"]))
+    return ids
+
+
+def summary_cut(messages: list, keep_n: int) -> int:
+    """Where the kept tail starts.
+
+    A fixed last-N slice on VS-E6043500C0 began on a ``role: tool`` message
+    whose assistant ``tool_calls`` had been folded into the summary. OpenAI
+    rejects that with HTTP 400 and the call goes mute. Walk the cut back onto
+    the assistant that issued the calls, and never leave a tool result whose
+    call sits on the summarised side.
+    """
+    n = len(messages)
+    cut = max(0, n - keep_n)
+    while cut > 0 and isinstance(messages[cut], dict) and messages[cut].get("role") == "tool":
+        cut -= 1
+    if cut < n and isinstance(messages[cut], dict) and messages[cut].get("role") == "system":
+        cut += 1
+        while cut < n and isinstance(messages[cut], dict) and messages[cut].get("role") == "tool":
+            cut += 1
+    return cut
+
+
 async def summarise_context_after_assistant_turn(context) -> None:
     """Apply the collections summary off the aggregator, after the assistant turn.
 
@@ -123,24 +151,67 @@ async def summarise_context_after_assistant_turn(context) -> None:
         return
     messages = list(context.messages)
     keep_n = min(_SUMMARY_KEEP, len(messages))
-    to_summarise = messages[:-keep_n] if keep_n else messages
+    cut = summary_cut(messages, keep_n)
+    to_summarise = messages[:cut]
     if not to_summarise:
         return
     transcript = LLMContextSummarizationUtil.format_messages_for_summary(to_summarise)
+    started = time.monotonic()
     try:
         summary = await asyncio.to_thread(_run_collections_summary, transcript)
-    except Exception:
-        logger.debug("off-turn context summary failed", exc_info=True)
+    except Exception as exc:
+        # Warning, not debug: a failed summary leaves the context growing,
+        # which shows up later as slow, expensive turns with no stated cause.
+        logger.warning(
+            "context.summary failed · {}: {} · messages={}",
+            type(exc).__name__,
+            str(exc)[:160],
+            len(messages),
+        )
         return
     if not str(summary).strip():
+        logger.warning("context.summary empty · messages={} · kept unsummarised", len(messages))
         return
+    logger.warning(
+        "voice.trace context.summary messages_before={} summarised={} kept={} summary_chars={} ms={}",
+        len(messages),
+        len(to_summarise),
+        len(messages) - cut,
+        len(str(summary)),
+        int((time.monotonic() - started) * 1000),
+    )
     system = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"][:1]
-    keep = messages[-keep_n:]
+    keep = messages[cut:]
+    # The summary is a user message. A tool result must not sit directly
+    # after it, and an assistant tool_call must not survive without its result.
+    pending: set[str] = set()
+    paired: list[dict] = []
+    for message in keep:
+        if not isinstance(message, dict) or message.get("role") == "system":
+            continue
+        role = message.get("role")
+        if role == "assistant":
+            pending = _tool_call_ids(message)
+            paired.append(message)
+        elif role == "tool":
+            tid = str(message.get("tool_call_id") or "")
+            if tid and tid in pending:
+                paired.append(message)
+                pending.discard(tid)
+        else:
+            pending = set()
+            paired.append(message)
+    if pending:
+        # The issuing assistant is in the tail but its result was not. Drop
+        # the tool_calls rather than send a request OpenAI will 400.
+        for message in paired:
+            if message.get("role") == "assistant" and _tool_call_ids(message) & pending:
+                message.pop("tool_calls", None)
     context.set_messages(
         [
             *system,
             {"role": "user", "content": f"Conversation summary: {summary.strip()}"},
-            *keep,
+            *paired,
         ]
     )
 
@@ -473,6 +544,18 @@ def _build_kb_and_recording(call: Any) -> None:
     # unbound there and every send() is a no-op.
     emitter = RtviEmitter()
     kb_snapshot_id = bundle.get("kbSnapshotId")
+    # Product routing needs the tenant's router in memory before the caller's
+    # first question: the enricher and the result payload read it without I/O
+    # (product_resolver.cached). Loaded off the loop, never awaited.
+    try:
+        from agent_core import product_resolver
+        from voice.tool_state import spawn_session_task
+
+        spawn_session_task(
+            session.session_id, asyncio.to_thread(product_resolver.load, kb_snapshot_id)
+        )
+    except RuntimeError:
+        logger.debug("product router warm-up skipped: no running loop")
     sandbox_persona = bundle.get("sandboxPersona") if isinstance(bundle.get("sandboxPersona"), dict) else None
 
     # ToolState is created inside build_authored_flow below; the getter reads
@@ -489,7 +572,8 @@ def _build_kb_and_recording(call: Any) -> None:
         # collections corpus. `None` means "no hard product filter" — let
         # kb_retrieve steer by query tokens.
         if getattr(state, "product_scope", None) == "product":
-            return None
+            product = getattr(state, "kb_product", None)
+            return [product] if product else None
         return product_keys_for_node(getattr(state, "current_node", None))
 
     # One cache, two processors. The speculator sits upstream of the user
@@ -524,7 +608,13 @@ def _build_kb_and_recording(call: Any) -> None:
             waited_from=waited_from,
         )
 
-    bot_turn_state = BotTurnStateObserver(on_first_speech=_on_first_speech)
+    def _trace_turn_transition(name: str, **fields: Any) -> None:
+        _setup_trace(name, turn_so_far=session.turn_index, **fields)
+
+    bot_turn_state = BotTurnStateObserver(
+        on_first_speech=_on_first_speech,
+        on_transition=_trace_turn_transition,
+    )
 
     # Manual start after disclosure (plan §9.5) — never auto_start.
     # Optional chunked buffer for long calls: VOICE_AUDIO_BUFFER_SECS=30
@@ -662,7 +752,11 @@ def _stamp_turn_context(sink, call, transport, pipeline_kwargs, *, is_twilio: bo
         transport=(
             "asterisk"
             if getattr(call, "is_asterisk", False)
-            else ("twilio" if is_twilio else "webrtc")
+            else "twilio"
+            if is_twilio
+            else "websocket"
+            if getattr(call, "transport_name", None) == "websocket"
+            else "webrtc"
         ),
         sample_hz=sample_hz,
         # BotStartedSpeakingFrame fires when the first audio is handed to the
@@ -784,7 +878,11 @@ async def build_pipeline(call) -> None:
         # mute drop it; see voice/greeting_hold.py.
         from voice.greeting_hold import GreetingHold
 
-        pipeline_stages.append(GreetingHold())
+        pipeline_stages.append(
+            GreetingHold(
+                drop_before_greeting=str(session.extra.get("call_direction") or "") == "outbound"
+            )
+        )
     pipeline_stages.extend(
         [
             # Must precede the user aggregator: LLMUserAggregator consumes
@@ -822,6 +920,30 @@ async def build_pipeline(call) -> None:
     # Built above, next to the idle state it guards.
     observers.append(bot_turn_state)
 
+    # One numbered line per step of the call -- what was heard, what the model
+    # was given and wrote, what reached the ear, and whether the reply was any
+    # good -- plus a scorecard at hang-up. See voice/call_diagnostics.py.
+    try:
+        from voice.call_diagnostics import CallDiagnosticsObserver
+
+        _diag_holder = getattr(call, "_flow_holder", {}) or {}
+
+        def _diag_name() -> str | None:
+            state = _diag_holder.get("state")
+            return getattr(state, "customer_name", None) or session.extra.get(
+                "expected_customer_name"
+            )
+
+        def _diag_node() -> str | None:
+            return getattr(_diag_holder.get("state"), "current_node", None)
+
+        call.diagnostics = CallDiagnosticsObserver(
+            session=session, name_getter=_diag_name, node_getter=_diag_node
+        )
+        observers.append(call.diagnostics)
+    except Exception:
+        logger.exception("call diagnostics observer unavailable -- continuing without it")
+
     # Per-service latency attribution. Prerequisite (enable_metrics=True) is
     # already set on PipelineParams below. The observer is passive — it only
     # reads pushed frames — so the handlers here must stay off the audio path:
@@ -839,6 +961,25 @@ async def build_pipeline(call) -> None:
                 try:
                     sink.record_latency_breakdown(breakdown)
                     _emit_turn_e2e(sink, call, session, breakdown)
+                    try:
+                        from voice.call_trace import safe_tool_name
+
+                        for tool_call in getattr(breakdown, "function_calls", None) or []:
+                            name = safe_tool_name(getattr(tool_call, "function_name", None))
+                            if name is None:
+                                continue
+                            duration = getattr(tool_call, "duration_secs", None)
+                            try:
+                                took_ms = (
+                                    round(float(duration) * 1000)
+                                    if duration is not None
+                                    else None
+                                )
+                            except (TypeError, ValueError):
+                                took_ms = None
+                            sink._trace("tool.finished", tool=name, took_ms=took_ms)
+                    except Exception:
+                        logger.debug("tool completion trace unavailable", exc_info=True)
                     spawn_session_task(
                         session.session_id,
                         emitter.send(
@@ -927,6 +1068,11 @@ async def build_pipeline(call) -> None:
         rate = 16000 if getattr(call, "is_asterisk", False) else 8000
         pipeline_kwargs["audio_in_sample_rate"] = rate
         pipeline_kwargs["audio_out_sample_rate"] = rate
+    elif getattr(call, "transport_name", None) == "websocket":
+        from voice.sandbox_ws import IN_SAMPLE_RATE, OUT_SAMPLE_RATE
+
+        pipeline_kwargs["audio_in_sample_rate"] = IN_SAMPLE_RATE
+        pipeline_kwargs["audio_out_sample_rate"] = OUT_SAMPLE_RATE
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(**pipeline_kwargs),

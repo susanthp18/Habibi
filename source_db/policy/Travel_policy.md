@@ -1,4 +1,4 @@
-# HDFC Assurance
+# BigTapp Assurance
 # Travel Protect360
 
 ## YOUR TRAVEL PROTECT360 POLICY
@@ -20,7 +20,7 @@ This policy, the Policy Schedule and any Endorsement or Memoranda thereon shall 
 Whereas:
 1) Insured Person(s) by an application form or statements made to Us, including a declaration made to Us, which shall be the basis of and shall form part of this Policy, has applied for insurance;
 and
-2) HDFC Assurance Pte. Ltd. ("the Company") has agreed to provide such insurance.
+2) BigTapp Assurance Pte. Ltd. ("the Company") has agreed to provide such insurance.
 
 We agree only on the basis of the Terms and Conditions contained in this Policy to provide insurance cover to You for those risks insured against to the extent and in the manner stated in this Policy and subject to payment of the relevant premium.
 
@@ -137,7 +137,7 @@ This definition of Pre-Existing Medical Condition shall also apply to Your Immed
 
 **"Trip"** means a Trip undertaken by You during the Period of Insurance beginning at the time You leave Singapore for the purpose of commencing the travel abroad and after Your return to Singapore or on the expiry date of the Period of Insurance shown in the Policy Schedule, whichever is the earlier, under a Single Return Trip Policy or an Annual Multi-Trip Policy.
 
-**"We, Our, Us or Company"** refers to HDFC Assurance Pte. Ltd.
+**"We, Our, Us or Company"** refers to BigTapp Assurance Pte. Ltd.
 
 ## AREA OF TRAVEL
 * **Area 1:** Brunei, Cambodia, Indonesia, Laos, Malaysia, Myanmar, Philippines, Thailand and Vietnam
@@ -981,17 +981,17 @@ Unless otherwise expressly stated or extended in the Policy, this Policy does no
 The Policy does not insure loss or damage to property, which is already specifically insured under other policies of insurance.
 
 ## POLICY OWNERS' PROTECTION SCHEME
-This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact HDFC Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
+This policy is protected under the Policy Owners' Protection Scheme which is administered by the Singapore Deposit Insurance Corporation (SDIC). Coverage for Your policy is automatic and no further action is required from You. For more information on the types of benefits that are covered under the scheme as well as the limits of coverage, where applicable, please contact BigTapp Assurance Pte. Ltd. or visit the GIA or SDIC websites (www.gia.org.sg or www.sdic.org.sg).
 
 ## CARING FOR OUR CUSTOMERS
-HDFC Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do: Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising.
+BigTapp Assurance Pte. Ltd. will make every effort to provide a high level of service expected by all Our policyholders. If on any occasion Our service falls below the standard of Your expectation, the procedure below explains what You can do: Your first point of contact should always be Your insurance agent or broker. Alternatively, You may submit Your feedback to the manager in charge of the matter You are raising.
 
 We will acknowledge receipt of Your feedback within seven (7) working days whilst We look into the matter You have raised. We will contact You for further information if required within seven (7) working days and provide You with a full reply within fourteen (14) working days.
 
 If the outcome of Your complaint is not handled to Your satisfaction, You can write to:
 
 **Chief Executive Officer**
-**HDFC Assurance Pte. Ltd.**
+**BigTapp Assurance Pte. Ltd.**
 **11 Keppel Road #11-01 ABI Plaza**
 **Singapore 089057**
 

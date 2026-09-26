@@ -941,6 +941,17 @@ def create_draft(
     return new_id
 
 
+def _require_written(result: Any, set_id: str) -> None:
+    """A lifecycle UPDATE that touched no row is a refusal, not a success.
+
+    Row security makes a statutory set invisible to UPDATE outside platform
+    scope: the statement matches nothing and raises nothing, so Submit would
+    have answered "pending_approval" over an unchanged draft.
+    """
+    if (result.rowcount or 0) != 1:
+        raise PermissionError(f"policy_rule_set_not_writable: {set_id}")
+
+
 def submit_for_approval(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
     row = conn.execute(
         text("SELECT publication_state FROM policy_rule_sets WHERE id = :id"),
@@ -950,7 +961,7 @@ def submit_for_approval(conn: Any, set_id: str, *, actor_user_id: str | None) ->
         raise KeyError("policy_rule_set_not_found")
     if row["publication_state"] not in {"draft", "rejected"}:
         raise ValueError("not_a_draft")
-    conn.execute(
+    _require_written(conn.execute(
         text(
             """
             UPDATE policy_rule_sets
@@ -961,11 +972,48 @@ def submit_for_approval(conn: Any, set_id: str, *, actor_user_id: str | None) ->
             """
         ),
         {"id": set_id, "actor": actor_user_id},
-    )
+    ), set_id)
 
 
-def approve_publication(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
-    """Promote a pending set. Refuses production until the env flag is on."""
+#: A break-glass self-approval must say why, in words an auditor can read.
+SELF_APPROVAL_MIN_REASON = 20
+
+
+def self_approval_allowed(conn: Any, actor_user_id: str | None) -> bool:
+    """Whether ``actor_user_id`` may approve a set they submitted themselves.
+
+    Break-glass, and deliberately not a permission: an admin holds every
+    permission and could grant it to themselves from the Roles screen, which
+    would make four eyes optional for exactly the people who can change the
+    rules. It is a server setting instead -- ``POLICY_SELF_APPROVE_USERS``,
+    user ids or emails, comma-separated -- that nobody can change from the app.
+    """
+    from env_loader import env_str
+
+    allowed = {v.strip().lower() for v in env_str("POLICY_SELF_APPROVE_USERS").split(",") if v.strip()}
+    if not actor_user_id or not allowed:
+        return False
+    if actor_user_id.lower() in allowed:
+        return True
+    email = conn.execute(
+        text("SELECT lower(email) FROM users WHERE id = :id"), {"id": actor_user_id}
+    ).scalar()
+    return bool(email) and email in allowed
+
+
+def approve_publication(
+    conn: Any,
+    set_id: str,
+    *,
+    actor_user_id: str | None,
+    self_approval_reason: str | None = None,
+) -> bool:
+    """Promote a pending set. Refuses production until the env flag is on.
+
+    Returns True when the approval was a break-glass self-approval: the maker
+    approving their own set, allowed only for :func:`self_approval_allowed`
+    actors and only with a written reason. The caller audits it as such.
+    """
     if not production_publication_enabled():
         raise PermissionError("production_publication_disabled")
     row = conn.execute(
@@ -983,8 +1031,16 @@ def approve_publication(conn: Any, set_id: str, *, actor_user_id: str | None) ->
     if row["publication_state"] != "pending_approval":
         raise ValueError("not_pending_approval")
     maker = row["published_by_user_id"]
-    if not actor_user_id or not maker or actor_user_id == maker:
+    if not actor_user_id or not maker:
         raise ValueError("maker_checker_required")
+    break_glass = actor_user_id == maker
+    if break_glass:
+        if not self_approval_reason:
+            raise ValueError("maker_checker_required")
+        if not self_approval_allowed(conn, actor_user_id):
+            raise PermissionError("self_approval_not_permitted")
+        if len(self_approval_reason.strip()) < SELF_APPROVAL_MIN_REASON:
+            raise ValueError("self_approval_reason_too_short")
     rules = conn.execute(
         text("SELECT kind, channel, params FROM policy_rules WHERE rule_set_id = :id"),
         {"id": set_id},
@@ -1003,25 +1059,49 @@ def approve_publication(conn: Any, set_id: str, *, actor_user_id: str | None) ->
     declared_list = list(declared or [])
     if declared_list and sorted(declared_list) != changed:
         raise ValueError("changed_rules_mismatch")
-    conn.execute(
+    _require_written(conn.execute(
         text(
             """
             UPDATE policy_rule_sets
             SET publication_state = 'published',
                 approved_by_user_id = :actor,
+                self_approval_reason = :reason,
                 published_at = now(),
                 changed_rules = :changed,
                 updated_at = now()
             WHERE id = :id
             """
         ),
-        {"id": set_id, "actor": actor_user_id, "changed": changed},
-    )
+        {
+            "id": set_id,
+            "actor": actor_user_id,
+            "changed": changed,
+            # On the row, not only the audit chain: ck_policy_rule_sets_
+            # maker_checker (sql/63) refuses approver = submitter without it.
+            "reason": self_approval_reason.strip() if break_glass and self_approval_reason else None,
+        },
+    ), set_id)
     reset_cache()
+    return break_glass
 
 
 def reject_publication(conn: Any, set_id: str, *, actor_user_id: str | None) -> None:
-    conn.execute(
+    """Send a pending set back to its maker.
+
+    Used to be a bare conditional UPDATE: rejecting an unknown id, a draft or
+    an already-published set matched no row and still answered "rejected", so
+    the reviewer was told they had stopped a publication that was never theirs
+    to stop -- or one that was already live.
+    """
+    state = conn.execute(
+        text("SELECT publication_state FROM policy_rule_sets WHERE id = :id"),
+        {"id": set_id},
+    ).scalar()
+    if state is None:
+        raise KeyError("policy_rule_set_not_found")
+    if state != "pending_approval":
+        raise ValueError("not_pending_approval")
+    _require_written(conn.execute(
         text(
             """
             UPDATE policy_rule_sets
@@ -1032,7 +1112,7 @@ def reject_publication(conn: Any, set_id: str, *, actor_user_id: str | None) -> 
             """
         ),
         {"id": set_id, "actor": actor_user_id},
-    )
+    ), set_id)
 
 
 def list_rule_sets(conn: Any, *, tenant_id: str | None = None) -> list[dict[str, Any]]:
@@ -1043,11 +1123,19 @@ def list_rule_sets(conn: Any, *, tenant_id: str | None = None) -> list[dict[str,
         if schema_ready.w4_ready(conn)
         else ""
     )
+    has_reason = conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'policy_rule_sets' AND column_name = 'self_approval_reason'"
+        )
+    ).scalar()
+    if extra and has_reason:
+        extra += ", self_approval_reason"
     rows = conn.execute(
         text(
             f"""
             SELECT id, scope, tenant_id, product_id, version, label,
-                   effective_from, effective_to
+                   effective_from, effective_to, notes
                    {extra}
             FROM policy_rule_sets
             WHERE tenant_id IS NULL OR tenant_id = :tid
@@ -1056,4 +1144,25 @@ def list_rule_sets(conn: Any, *, tenant_id: str | None = None) -> list[dict[str,
         ),
         {"tid": tenant_id},
     ).mappings().all()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    # What the set says, so the approver reads the rules and their citations
+    # rather than approving a label.
+    citation = ", citation" if extra else ", NULL AS citation"
+    rules = conn.execute(
+        text(
+            f"""
+            SELECT rule_set_id, kind, channel, params {citation}
+            FROM policy_rules
+            WHERE rule_set_id = ANY(:ids)
+            ORDER BY rule_set_id, kind, channel NULLS FIRST
+            """
+        ),
+        {"ids": [r["id"] for r in out]},
+    ).mappings().all()
+    by_set: dict[str, list[dict[str, Any]]] = {}
+    for rule in rules:
+        item = dict(rule)
+        by_set.setdefault(item.pop("rule_set_id"), []).append(item)
+    for row in out:
+        row["rules"] = by_set.get(row["id"], [])
+    return out

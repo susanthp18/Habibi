@@ -96,11 +96,34 @@ def test_maybe_chat_none_when_url_missing(monkeypatch: pytest.MonkeyPatch) -> No
     assert maybe_chat([{"role": "user", "content": "hi"}]) is None
 
 
-def test_g10_skipped_when_client_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_g10_skips_remote_but_checks_first_party_when_client_flag_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag governs remote MCP egress. A first-party connector is still a
+    binding G10 checks; a remote one is skipped, never fake-green."""
     monkeypatch.delenv("MCP_CLIENT_ENABLED", raising=False)
-    report = _compile(card_dump(COLLECTIONS_BOT_ID))
-    g10 = next(g for g in report.gates if g.gate == "G10")
+    kinds = {"paylink": "first_party", "remote": "remote_mcp"}
+
+    def fake_get(cid: str):
+        return {
+            "status": "approved",
+            "kind": kinds[cid],
+            "url": "https://x.example/mcp",
+            "allowedEnv": "both",
+            "allowPrefixes": [f"ext.{cid}."],
+            "dataClass": ["pii"],
+            "health": "healthy",
+        }
+
+    monkeypatch.setattr("agent_core.connectors.persist.get_connector", fake_get)
+    dumped = card_dump(COLLECTIONS_BOT_ID)
+    dumped["connectors"] = [{"connector_id": "remote", "allow_prefixes": ["ext.remote."]}]
+    g10 = next(g for g in _compile(dumped).gates if g.gate == "G10")
     assert g10.status == "skipped"
+    dumped["connectors"].append({"connector_id": "paylink", "allow_prefixes": ["ext.paylink."]})
+    g10 = next(g for g in _compile(dumped).gates if g.gate == "G10")
+    assert g10.status == "pass", g10
+    assert "remote skipped" in g10.detail
 
 
 def test_g10_fails_http_remote_when_client_on(monkeypatch: pytest.MonkeyPatch) -> None:

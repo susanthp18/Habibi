@@ -5,7 +5,6 @@
 // cannot stay a missing option or a toneless lozenge on the other.
 import { describe, expect, it } from "vitest";
 
-import { ROLLBACK_TRIGGERS } from "@/api/agent-card";
 import { SENDERS } from "@/api/types/inbox";
 import {
   PROMISE_REVISION_REASONS,
@@ -15,9 +14,6 @@ import {
 import constants from "./constants.json";
 
 describe("wire constants", () => {
-  it("rollback triggers are the compiler's", () => {
-    expect([...ROLLBACK_TRIGGERS]).toEqual(constants.rollbackTriggers);
-  });
   it("promise and reminder statuses are the columns'", () => {
     expect([...PROMISE_STATUSES]).toEqual(constants.promiseStatuses);
     expect([...REMINDER_STATUSES]).toEqual(constants.reminderStatuses);

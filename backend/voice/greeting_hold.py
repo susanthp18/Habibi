@@ -17,7 +17,16 @@ Only the first window: the function-call mute is short and the model is mid-tool
 so replaying speech there would be a behaviour change beyond this fix.
 
 If ``UserMuteStoppedFrame`` never arrives (a lost unmute), a timeout releases
-the hold so the call is not silent for the rest of the session.
+the hold so the call is not silent for the rest of the session. The timeout
+follows the disclosure's own playback, read from the ``BotStartedSpeakingFrame``
+/ ``BotStoppedSpeakingFrame`` the output transport sends upstream through this
+processor: a ceiling until the greeting starts, a longer one while it plays, and
+a short grace once it stops (the unmute follows the stop by milliseconds). It
+used to be one fixed 12s from mute-start, which also had to cover the LLM's
+first-token wait; a normal opening overran it on every outbound call in the
+logs (4 of 4 over 72h), and from the timeout to the real unmute -- 4.8s on
+VS-B8A775DEDF -- anything the caller said went to a muted aggregator and was
+dropped, the loss this processor exists to prevent.
 
 Interims are forwarded while holding. The speculator sits downstream of this
 processor and upstream of the muted aggregator, so it can start retrieval
@@ -32,6 +41,14 @@ for keypad input. The replayed frame is marked ``hold_replay=True`` so a
 scoped start strategy can open the turn; ordinary speech transcripts do not
 match, which is the VS-39B35AC484 reason the blanket transcription start
 strategy was removed.
+
+On a call we placed, what the callee says *before* the greeting starts is
+dropped, not replayed (``drop_before_greeting``). They picked up a ringing
+phone: "Hello?" is all it can be, and it cannot answer a question not yet
+asked. VS-58097BA530 heard that pickup as "No." at 0.9s; replayed after the
+greeting it opened a turn that swallowed the real answer, the model read
+"No. Yes." as confirmation and called verify_identity with it. Inbound keeps
+it: the caller rang us and may open with why.
 """
 
 from __future__ import annotations
@@ -41,6 +58,8 @@ import logging
 from typing import Any
 
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     Frame,
     TranscriptionFrame,
     UserMuteStartedFrame,
@@ -55,9 +74,18 @@ except ImportError:  # pragma: no cover - older Pipecat
 
 logger = logging.getLogger(__name__)
 
-#: Long enough for the opening disclosure TTS; short enough that a lost unmute
-#: cannot leave the caller in a mute-stuck silent call.
+#: Mute started, greeting not yet audible: the first LLM token plus TTS
+#: first byte. Longer than this and the opening never began.
 _DEFAULT_HOLD_TIMEOUT_SECS = 12.0
+
+#: The greeting is playing. The overlay caps a turn at 45 words (under 20s at
+#: any Azure rate); past this a lost BotStoppedSpeakingFrame is the likelier
+#: story than a still-running disclosure.
+_SPEECH_CEILING_SECS = 45.0
+
+#: The greeting stopped. The aggregator unmutes on the same frame, so the
+#: UserMuteStoppedFrame is milliseconds behind; this only covers a lost one.
+_POST_SPEECH_GRACE_SECS = 3.0
 
 #: Attribute set on the replayed TranscriptionFrame. The start strategy matches
 #: this flag, not the text -- a prefix would leak into the model context.
@@ -104,12 +132,25 @@ def build_greeting_replay_turn_start_strategy() -> Any | None:
 
 
 class GreetingHold(FrameProcessor):
-    def __init__(self, *, timeout_secs: float = _DEFAULT_HOLD_TIMEOUT_SECS, **kwargs) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_secs: float = _DEFAULT_HOLD_TIMEOUT_SECS,
+        speech_ceiling_secs: float = _SPEECH_CEILING_SECS,
+        post_speech_grace_secs: float = _POST_SPEECH_GRACE_SECS,
+        drop_before_greeting: bool = False,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
+        self._drop_before_greeting = bool(drop_before_greeting)
+        self._greeting_started = False
+        self._dropped_words = 0
         self._holding = False
         self._done = False
         self._held: list[TranscriptionFrame] = []
         self._timeout_secs = float(timeout_secs)
+        self._speech_ceiling_secs = float(speech_ceiling_secs)
+        self._post_speech_grace_secs = float(post_speech_grace_secs)
         self._timeout_task: asyncio.Task[None] | None = None
 
     def _cancel_timeout(self) -> None:
@@ -118,23 +159,28 @@ class GreetingHold(FrameProcessor):
         if task is not None and not task.done():
             task.cancel()
 
-    def _arm_timeout(self) -> None:
+    def _arm_timeout(self, secs: float, stage: str) -> None:
+        """(Re)start the one timer. Each stage replaces the previous deadline."""
         self._cancel_timeout()
         if self._timeout_secs <= 0:
-            return
+            return  # timeouts switched off entirely
         try:
-            self._timeout_task = asyncio.get_running_loop().create_task(self._timeout_release())
+            self._timeout_task = asyncio.get_running_loop().create_task(
+                self._timeout_release(secs, stage)
+            )
         except RuntimeError:
             logger.debug("greeting hold has no running loop to arm a timeout")
 
-    async def _timeout_release(self) -> None:
+    async def _timeout_release(self, secs: float, stage: str) -> None:
         try:
-            await asyncio.sleep(self._timeout_secs)
+            await asyncio.sleep(secs)
         except asyncio.CancelledError:
             return
         if not self._holding or self._done:
             return
-        logger.warning("greeting hold timed out after %.1fs — releasing without unmute", self._timeout_secs)
+        logger.warning(
+            "greeting hold timed out %s after %.1fs — releasing without unmute", stage, secs
+        )
         self._holding, self._done = False, True
         await self._release()
 
@@ -143,7 +189,12 @@ class GreetingHold(FrameProcessor):
 
         if isinstance(frame, UserMuteStartedFrame) and not self._done:
             self._holding = True
-            self._arm_timeout()
+            self._arm_timeout(self._timeout_secs, "before the greeting started")
+        elif isinstance(frame, BotStartedSpeakingFrame) and self._holding:
+            self._greeting_started = True
+            self._arm_timeout(self._speech_ceiling_secs, "while the greeting played")
+        elif isinstance(frame, BotStoppedSpeakingFrame) and self._holding:
+            self._arm_timeout(self._post_speech_grace_secs, "after the greeting stopped")
         elif isinstance(frame, UserMuteStoppedFrame) and self._holding:
             self._cancel_timeout()
             self._holding, self._done = False, True
@@ -159,11 +210,21 @@ class GreetingHold(FrameProcessor):
                 await self.push_frame(frame, direction)
                 return
             if isinstance(frame, TranscriptionFrame):
+                if self._drop_before_greeting and not self._greeting_started:
+                    self._dropped_words += len(frame.text.split())
+                    return
                 self._held.append(frame)
                 return
         await self.push_frame(frame, direction)
 
     async def _release(self) -> None:
+        if self._dropped_words:
+            # Words only: the pickup is still the callee's speech.
+            logger.info(
+                "greeting hold dropped %d word(s) spoken before the greeting on an outbound call",
+                self._dropped_words,
+            )
+            self._dropped_words = 0
         held, self._held = self._held, []
         text = " ".join(f.text.strip() for f in held if f.text.strip())
         if not text:

@@ -1312,6 +1312,11 @@ def _tool_loop(
 
 
 def _handle_turn(engine: Engine, job: dict[str, Any]) -> None:
+    import whatsapp_studio
+
+    if whatsapp_studio.enabled():
+        whatsapp_studio.handle_turn(engine, job)
+        return
     turn = _prepare_turn(engine, job)
     if turn is None:
         return

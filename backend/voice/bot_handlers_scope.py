@@ -152,6 +152,10 @@ class HandlerState:
     duration_task: asyncio.Task | None = None
     deadair_task: asyncio.Task | None = None
     finalized: bool = False
+    #: The caller's current turn began while the bot owed audio (a barge-in).
+    turn_cut_bot: bool = False
+    #: Consecutive barge-ins that carried no words; the resume is capped on it.
+    false_barges: int = 0
 
 
 class HandlerScope(SimpleNamespace):

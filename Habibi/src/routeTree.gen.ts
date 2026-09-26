@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
-import { Route as AppAgentStudioRouteImport } from './routes/_app.agent-studio'
 import { Route as AppAuditRouteImport } from './routes/_app.audit'
 import { Route as AppBillingRouteImport } from './routes/_app.billing'
 import { Route as AppBotAnalyticsRouteImport } from './routes/_app.bot-analytics'
@@ -27,23 +26,48 @@ import { Route as AppFloorRouteImport } from './routes/_app.floor'
 import { Route as AppHandoffRouteImport } from './routes/_app.handoff'
 import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppIntegrationsRouteImport } from './routes/_app.integrations'
-import { Route as AppKnowledgeBaseRouteImport } from './routes/_app.knowledge-base'
 import { Route as AppPromisesRouteImport } from './routes/_app.promises'
 import { Route as AppQaRouteImport } from './routes/_app.qa'
 import { Route as AppRedactionRouteImport } from './routes/_app.redaction'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
 import { Route as AppRoutingRouteImport } from './routes/_app.routing'
-import { Route as AppSandboxRouteImport } from './routes/_app.sandbox'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
+import { Route as AppStudioRouteImport } from './routes/_app.studio'
 import { Route as AppTreatmentRouteImport } from './routes/_app.treatment'
 import { Route as AppUpsellRouteImport } from './routes/_app.upsell'
 import { Route as AppWebhooksRouteImport } from './routes/_app.webhooks'
-import { Route as AppAgentStudioIndexRouteImport } from './routes/_app.agent-studio.index'
-import { Route as AppAgentStudioBotIdRouteImport } from './routes/_app.agent-studio.$botId'
 import { Route as AppCustomersIndexRouteImport } from './routes/_app.customers.index'
 import { Route as AppCustomersCustomerIdRouteImport } from './routes/_app.customers.$customerId'
-import { Route as AppAgentStudioSkillsIndexRouteImport } from './routes/_app.agent-studio.skills.index'
-import { Route as AppAgentStudioSkillsSkillIdRouteImport } from './routes/_app.agent-studio.skills.$skillId'
+import { Route as AppStudioIndexRouteImport } from './routes/_app.studio.index'
+import { Route as AppStudioApiKeysRouteImport } from './routes/_app.studio.api-keys'
+import { Route as AppStudioAudioLibraryRouteImport } from './routes/_app.studio.audio-library'
+import { Route as AppStudioChecksRouteImport } from './routes/_app.studio.checks'
+import { Route as AppStudioFilesRouteImport } from './routes/_app.studio.files'
+import { Route as AppStudioGuardrailsRouteImport } from './routes/_app.studio.guardrails'
+import { Route as AppStudioMcpKeysRouteImport } from './routes/_app.studio.mcp-keys'
+import { Route as AppStudioModelConfigurationsRouteImport } from './routes/_app.studio.model-configurations'
+import { Route as AppStudioRecordingsRouteImport } from './routes/_app.studio.recordings'
+import { Route as AppStudioReleasesRouteImport } from './routes/_app.studio.releases'
+import { Route as AppStudioReportsRouteImport } from './routes/_app.studio.reports'
+import { Route as AppStudioRoutingRouteImport } from './routes/_app.studio.routing'
+import { Route as AppStudioSettingsRouteImport } from './routes/_app.studio.settings'
+import { Route as AppStudioUsageRouteImport } from './routes/_app.studio.usage'
+import { Route as AppStudioCampaignsIndexRouteImport } from './routes/_app.studio.campaigns.index'
+import { Route as AppStudioCampaignsNewRouteImport } from './routes/_app.studio.campaigns.new'
+import { Route as AppStudioDocsIndexRouteImport } from './routes/_app.studio.docs.index'
+import { Route as AppStudioDocsSplatRouteImport } from './routes/_app.studio.docs.$'
+import { Route as AppStudioTelephonyConfigurationsIndexRouteImport } from './routes/_app.studio.telephony-configurations.index'
+import { Route as AppStudioTelephonyConfigurationsConfigIdRouteImport } from './routes/_app.studio.telephony-configurations.$configId'
+import { Route as AppStudioToolsIndexRouteImport } from './routes/_app.studio.tools.index'
+import { Route as AppStudioToolsToolUuidRouteImport } from './routes/_app.studio.tools.$toolUuid'
+import { Route as AppStudioWorkflowIndexRouteImport } from './routes/_app.studio.workflow.index'
+import { Route as AppStudioWorkflowCreateRouteImport } from './routes/_app.studio.workflow.create'
+import { Route as AppStudioCampaignsCampaignIdIndexRouteImport } from './routes/_app.studio.campaigns.$campaignId.index'
+import { Route as AppStudioCampaignsCampaignIdEditRouteImport } from './routes/_app.studio.campaigns.$campaignId.edit'
+import { Route as AppStudioWorkflowWorkflowIdIndexRouteImport } from './routes/_app.studio.workflow.$workflowId.index'
+import { Route as AppStudioWorkflowWorkflowIdRunsRouteImport } from './routes/_app.studio.workflow.$workflowId.runs'
+import { Route as AppStudioWorkflowWorkflowIdSettingsRouteImport } from './routes/_app.studio.workflow.$workflowId.settings'
+import { Route as AppStudioWorkflowWorkflowIdRunRunIdRouteImport } from './routes/_app.studio.workflow.$workflowId.run.$runId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -57,11 +81,6 @@ const LoginRoute = LoginRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAgentStudioRoute = AppAgentStudioRouteImport.update({
-  id: '/agent-studio',
-  path: '/agent-studio',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAuditRoute = AppAuditRouteImport.update({
@@ -136,13 +155,6 @@ const AppIntegrationsRoute = AppIntegrationsRouteImport.update({
   path: '/integrations',
   getParentRoute: () => AppRoute,
 } as any)
-const AppKnowledgeBaseRoute = AppKnowledgeBaseRouteImport.update({
-  id: '/knowledge-base',
-  path: '/knowledge-base',
-  getParentRoute: () => AppRoute,
-} as any).lazy(() =>
-  import('./routes/_app.knowledge-base.lazy').then((d) => d.Route),
-)
 const AppPromisesRoute = AppPromisesRouteImport.update({
   id: '/promises',
   path: '/promises',
@@ -168,14 +180,14 @@ const AppRoutingRoute = AppRoutingRouteImport.update({
   path: '/routing',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSandboxRoute = AppSandboxRouteImport.update({
-  id: '/sandbox',
-  path: '/sandbox',
-  getParentRoute: () => AppRoute,
-} as any).lazy(() => import('./routes/_app.sandbox.lazy').then((d) => d.Route))
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStudioRoute = AppStudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTreatmentRoute = AppTreatmentRouteImport.update({
@@ -195,18 +207,6 @@ const AppWebhooksRoute = AppWebhooksRouteImport.update({
   path: '/webhooks',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAgentStudioIndexRoute = AppAgentStudioIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppAgentStudioRoute,
-} as any)
-const AppAgentStudioBotIdRoute = AppAgentStudioBotIdRouteImport.update({
-  id: '/$botId',
-  path: '/$botId',
-  getParentRoute: () => AppAgentStudioRoute,
-} as any).lazy(() =>
-  import('./routes/_app.agent-studio.$botId.lazy').then((d) => d.Route),
-)
 const AppCustomersIndexRoute = AppCustomersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -219,23 +219,169 @@ const AppCustomersCustomerIdRoute = AppCustomersCustomerIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app.customers.$customerId.lazy').then((d) => d.Route),
 )
-const AppAgentStudioSkillsIndexRoute =
-  AppAgentStudioSkillsIndexRouteImport.update({
-    id: '/skills/',
-    path: '/skills/',
-    getParentRoute: () => AppAgentStudioRoute,
+const AppStudioIndexRoute = AppStudioIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioApiKeysRoute = AppStudioApiKeysRouteImport.update({
+  id: '/api-keys',
+  path: '/api-keys',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioAudioLibraryRoute = AppStudioAudioLibraryRouteImport.update({
+  id: '/audio-library',
+  path: '/audio-library',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioChecksRoute = AppStudioChecksRouteImport.update({
+  id: '/checks',
+  path: '/checks',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioFilesRoute = AppStudioFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioGuardrailsRoute = AppStudioGuardrailsRouteImport.update({
+  id: '/guardrails',
+  path: '/guardrails',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioMcpKeysRoute = AppStudioMcpKeysRouteImport.update({
+  id: '/mcp-keys',
+  path: '/mcp-keys',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioModelConfigurationsRoute =
+  AppStudioModelConfigurationsRouteImport.update({
+    id: '/model-configurations',
+    path: '/model-configurations',
+    getParentRoute: () => AppStudioRoute,
   } as any)
-const AppAgentStudioSkillsSkillIdRoute =
-  AppAgentStudioSkillsSkillIdRouteImport.update({
-    id: '/skills/$skillId',
-    path: '/skills/$skillId',
-    getParentRoute: () => AppAgentStudioRoute,
+const AppStudioRecordingsRoute = AppStudioRecordingsRouteImport.update({
+  id: '/recordings',
+  path: '/recordings',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioReleasesRoute = AppStudioReleasesRouteImport.update({
+  id: '/releases',
+  path: '/releases',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioReportsRoute = AppStudioReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioRoutingRoute = AppStudioRoutingRouteImport.update({
+  id: '/routing',
+  path: '/routing',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioSettingsRoute = AppStudioSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioUsageRoute = AppStudioUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioCampaignsIndexRoute = AppStudioCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioCampaignsNewRoute = AppStudioCampaignsNewRouteImport.update({
+  id: '/campaigns/new',
+  path: '/campaigns/new',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioDocsIndexRoute = AppStudioDocsIndexRouteImport.update({
+  id: '/docs/',
+  path: '/docs/',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioDocsSplatRoute = AppStudioDocsSplatRouteImport.update({
+  id: '/docs/$',
+  path: '/docs/$',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioTelephonyConfigurationsIndexRoute =
+  AppStudioTelephonyConfigurationsIndexRouteImport.update({
+    id: '/telephony-configurations/',
+    path: '/telephony-configurations/',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioTelephonyConfigurationsConfigIdRoute =
+  AppStudioTelephonyConfigurationsConfigIdRouteImport.update({
+    id: '/telephony-configurations/$configId',
+    path: '/telephony-configurations/$configId',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioToolsIndexRoute = AppStudioToolsIndexRouteImport.update({
+  id: '/tools/',
+  path: '/tools/',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioToolsToolUuidRoute = AppStudioToolsToolUuidRouteImport.update({
+  id: '/tools/$toolUuid',
+  path: '/tools/$toolUuid',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioWorkflowIndexRoute = AppStudioWorkflowIndexRouteImport.update({
+  id: '/workflow/',
+  path: '/workflow/',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioWorkflowCreateRoute = AppStudioWorkflowCreateRouteImport.update({
+  id: '/workflow/create',
+  path: '/workflow/create',
+  getParentRoute: () => AppStudioRoute,
+} as any)
+const AppStudioCampaignsCampaignIdIndexRoute =
+  AppStudioCampaignsCampaignIdIndexRouteImport.update({
+    id: '/campaigns/$campaignId/',
+    path: '/campaigns/$campaignId/',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioCampaignsCampaignIdEditRoute =
+  AppStudioCampaignsCampaignIdEditRouteImport.update({
+    id: '/campaigns/$campaignId/edit',
+    path: '/campaigns/$campaignId/edit',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioWorkflowWorkflowIdIndexRoute =
+  AppStudioWorkflowWorkflowIdIndexRouteImport.update({
+    id: '/workflow/$workflowId/',
+    path: '/workflow/$workflowId/',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioWorkflowWorkflowIdRunsRoute =
+  AppStudioWorkflowWorkflowIdRunsRouteImport.update({
+    id: '/workflow/$workflowId/runs',
+    path: '/workflow/$workflowId/runs',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioWorkflowWorkflowIdSettingsRoute =
+  AppStudioWorkflowWorkflowIdSettingsRouteImport.update({
+    id: '/workflow/$workflowId/settings',
+    path: '/workflow/$workflowId/settings',
+    getParentRoute: () => AppStudioRoute,
+  } as any)
+const AppStudioWorkflowWorkflowIdRunRunIdRoute =
+  AppStudioWorkflowWorkflowIdRunRunIdRouteImport.update({
+    id: '/workflow/$workflowId/run/$runId',
+    path: '/workflow/$workflowId/run/$runId',
+    getParentRoute: () => AppStudioRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
-  '/agent-studio': typeof AppAgentStudioRouteWithChildren
   '/audit': typeof AppAuditRoute
   '/billing': typeof AppBillingRoute
   '/bot-analytics': typeof AppBotAnalyticsRoute
@@ -250,23 +396,48 @@ export interface FileRoutesByFullPath {
   '/handoff': typeof AppHandoffRoute
   '/inbox': typeof AppInboxRoute
   '/integrations': typeof AppIntegrationsRoute
-  '/knowledge-base': typeof AppKnowledgeBaseRoute
   '/promises': typeof AppPromisesRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
   '/routing': typeof AppRoutingRoute
-  '/sandbox': typeof AppSandboxRoute
   '/settings': typeof AppSettingsRoute
+  '/studio': typeof AppStudioRouteWithChildren
   '/treatment': typeof AppTreatmentRoute
   '/upsell': typeof AppUpsellRoute
   '/webhooks': typeof AppWebhooksRoute
-  '/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
   '/customers/$customerId': typeof AppCustomersCustomerIdRoute
-  '/agent-studio/': typeof AppAgentStudioIndexRoute
+  '/studio/api-keys': typeof AppStudioApiKeysRoute
+  '/studio/audio-library': typeof AppStudioAudioLibraryRoute
+  '/studio/checks': typeof AppStudioChecksRoute
+  '/studio/files': typeof AppStudioFilesRoute
+  '/studio/guardrails': typeof AppStudioGuardrailsRoute
+  '/studio/mcp-keys': typeof AppStudioMcpKeysRoute
+  '/studio/model-configurations': typeof AppStudioModelConfigurationsRoute
+  '/studio/recordings': typeof AppStudioRecordingsRoute
+  '/studio/releases': typeof AppStudioReleasesRoute
+  '/studio/reports': typeof AppStudioReportsRoute
+  '/studio/routing': typeof AppStudioRoutingRoute
+  '/studio/settings': typeof AppStudioSettingsRoute
+  '/studio/usage': typeof AppStudioUsageRoute
   '/customers/': typeof AppCustomersIndexRoute
-  '/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
-  '/agent-studio/skills/': typeof AppAgentStudioSkillsIndexRoute
+  '/studio/': typeof AppStudioIndexRoute
+  '/studio/campaigns/new': typeof AppStudioCampaignsNewRoute
+  '/studio/docs/$': typeof AppStudioDocsSplatRoute
+  '/studio/telephony-configurations/$configId': typeof AppStudioTelephonyConfigurationsConfigIdRoute
+  '/studio/tools/$toolUuid': typeof AppStudioToolsToolUuidRoute
+  '/studio/workflow/create': typeof AppStudioWorkflowCreateRoute
+  '/studio/campaigns/': typeof AppStudioCampaignsIndexRoute
+  '/studio/docs/': typeof AppStudioDocsIndexRoute
+  '/studio/telephony-configurations/': typeof AppStudioTelephonyConfigurationsIndexRoute
+  '/studio/tools/': typeof AppStudioToolsIndexRoute
+  '/studio/workflow/': typeof AppStudioWorkflowIndexRoute
+  '/studio/campaigns/$campaignId/edit': typeof AppStudioCampaignsCampaignIdEditRoute
+  '/studio/workflow/$workflowId/runs': typeof AppStudioWorkflowWorkflowIdRunsRoute
+  '/studio/workflow/$workflowId/settings': typeof AppStudioWorkflowWorkflowIdSettingsRoute
+  '/studio/campaigns/$campaignId/': typeof AppStudioCampaignsCampaignIdIndexRoute
+  '/studio/workflow/$workflowId/': typeof AppStudioWorkflowWorkflowIdIndexRoute
+  '/studio/workflow/$workflowId/run/$runId': typeof AppStudioWorkflowWorkflowIdRunRunIdRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -283,30 +454,53 @@ export interface FileRoutesByTo {
   '/handoff': typeof AppHandoffRoute
   '/inbox': typeof AppInboxRoute
   '/integrations': typeof AppIntegrationsRoute
-  '/knowledge-base': typeof AppKnowledgeBaseRoute
   '/promises': typeof AppPromisesRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
   '/routing': typeof AppRoutingRoute
-  '/sandbox': typeof AppSandboxRoute
   '/settings': typeof AppSettingsRoute
   '/treatment': typeof AppTreatmentRoute
   '/upsell': typeof AppUpsellRoute
   '/webhooks': typeof AppWebhooksRoute
   '/': typeof AppIndexRoute
-  '/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
   '/customers/$customerId': typeof AppCustomersCustomerIdRoute
-  '/agent-studio': typeof AppAgentStudioIndexRoute
+  '/studio/api-keys': typeof AppStudioApiKeysRoute
+  '/studio/audio-library': typeof AppStudioAudioLibraryRoute
+  '/studio/checks': typeof AppStudioChecksRoute
+  '/studio/files': typeof AppStudioFilesRoute
+  '/studio/guardrails': typeof AppStudioGuardrailsRoute
+  '/studio/mcp-keys': typeof AppStudioMcpKeysRoute
+  '/studio/model-configurations': typeof AppStudioModelConfigurationsRoute
+  '/studio/recordings': typeof AppStudioRecordingsRoute
+  '/studio/releases': typeof AppStudioReleasesRoute
+  '/studio/reports': typeof AppStudioReportsRoute
+  '/studio/routing': typeof AppStudioRoutingRoute
+  '/studio/settings': typeof AppStudioSettingsRoute
+  '/studio/usage': typeof AppStudioUsageRoute
   '/customers': typeof AppCustomersIndexRoute
-  '/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
-  '/agent-studio/skills': typeof AppAgentStudioSkillsIndexRoute
+  '/studio': typeof AppStudioIndexRoute
+  '/studio/campaigns/new': typeof AppStudioCampaignsNewRoute
+  '/studio/docs/$': typeof AppStudioDocsSplatRoute
+  '/studio/telephony-configurations/$configId': typeof AppStudioTelephonyConfigurationsConfigIdRoute
+  '/studio/tools/$toolUuid': typeof AppStudioToolsToolUuidRoute
+  '/studio/workflow/create': typeof AppStudioWorkflowCreateRoute
+  '/studio/campaigns': typeof AppStudioCampaignsIndexRoute
+  '/studio/docs': typeof AppStudioDocsIndexRoute
+  '/studio/telephony-configurations': typeof AppStudioTelephonyConfigurationsIndexRoute
+  '/studio/tools': typeof AppStudioToolsIndexRoute
+  '/studio/workflow': typeof AppStudioWorkflowIndexRoute
+  '/studio/campaigns/$campaignId/edit': typeof AppStudioCampaignsCampaignIdEditRoute
+  '/studio/workflow/$workflowId/runs': typeof AppStudioWorkflowWorkflowIdRunsRoute
+  '/studio/workflow/$workflowId/settings': typeof AppStudioWorkflowWorkflowIdSettingsRoute
+  '/studio/campaigns/$campaignId': typeof AppStudioCampaignsCampaignIdIndexRoute
+  '/studio/workflow/$workflowId': typeof AppStudioWorkflowWorkflowIdIndexRoute
+  '/studio/workflow/$workflowId/run/$runId': typeof AppStudioWorkflowWorkflowIdRunRunIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
-  '/_app/agent-studio': typeof AppAgentStudioRouteWithChildren
   '/_app/audit': typeof AppAuditRoute
   '/_app/billing': typeof AppBillingRoute
   '/_app/bot-analytics': typeof AppBotAnalyticsRoute
@@ -321,31 +515,55 @@ export interface FileRoutesById {
   '/_app/handoff': typeof AppHandoffRoute
   '/_app/inbox': typeof AppInboxRoute
   '/_app/integrations': typeof AppIntegrationsRoute
-  '/_app/knowledge-base': typeof AppKnowledgeBaseRoute
   '/_app/promises': typeof AppPromisesRoute
   '/_app/qa': typeof AppQaRoute
   '/_app/redaction': typeof AppRedactionRoute
   '/_app/roles': typeof AppRolesRoute
   '/_app/routing': typeof AppRoutingRoute
-  '/_app/sandbox': typeof AppSandboxRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/studio': typeof AppStudioRouteWithChildren
   '/_app/treatment': typeof AppTreatmentRoute
   '/_app/upsell': typeof AppUpsellRoute
   '/_app/webhooks': typeof AppWebhooksRoute
   '/_app/': typeof AppIndexRoute
-  '/_app/agent-studio/$botId': typeof AppAgentStudioBotIdRoute
   '/_app/customers/$customerId': typeof AppCustomersCustomerIdRoute
-  '/_app/agent-studio/': typeof AppAgentStudioIndexRoute
+  '/_app/studio/api-keys': typeof AppStudioApiKeysRoute
+  '/_app/studio/audio-library': typeof AppStudioAudioLibraryRoute
+  '/_app/studio/checks': typeof AppStudioChecksRoute
+  '/_app/studio/files': typeof AppStudioFilesRoute
+  '/_app/studio/guardrails': typeof AppStudioGuardrailsRoute
+  '/_app/studio/mcp-keys': typeof AppStudioMcpKeysRoute
+  '/_app/studio/model-configurations': typeof AppStudioModelConfigurationsRoute
+  '/_app/studio/recordings': typeof AppStudioRecordingsRoute
+  '/_app/studio/releases': typeof AppStudioReleasesRoute
+  '/_app/studio/reports': typeof AppStudioReportsRoute
+  '/_app/studio/routing': typeof AppStudioRoutingRoute
+  '/_app/studio/settings': typeof AppStudioSettingsRoute
+  '/_app/studio/usage': typeof AppStudioUsageRoute
   '/_app/customers/': typeof AppCustomersIndexRoute
-  '/_app/agent-studio/skills/$skillId': typeof AppAgentStudioSkillsSkillIdRoute
-  '/_app/agent-studio/skills/': typeof AppAgentStudioSkillsIndexRoute
+  '/_app/studio/': typeof AppStudioIndexRoute
+  '/_app/studio/campaigns/new': typeof AppStudioCampaignsNewRoute
+  '/_app/studio/docs/$': typeof AppStudioDocsSplatRoute
+  '/_app/studio/telephony-configurations/$configId': typeof AppStudioTelephonyConfigurationsConfigIdRoute
+  '/_app/studio/tools/$toolUuid': typeof AppStudioToolsToolUuidRoute
+  '/_app/studio/workflow/create': typeof AppStudioWorkflowCreateRoute
+  '/_app/studio/campaigns/': typeof AppStudioCampaignsIndexRoute
+  '/_app/studio/docs/': typeof AppStudioDocsIndexRoute
+  '/_app/studio/telephony-configurations/': typeof AppStudioTelephonyConfigurationsIndexRoute
+  '/_app/studio/tools/': typeof AppStudioToolsIndexRoute
+  '/_app/studio/workflow/': typeof AppStudioWorkflowIndexRoute
+  '/_app/studio/campaigns/$campaignId/edit': typeof AppStudioCampaignsCampaignIdEditRoute
+  '/_app/studio/workflow/$workflowId/runs': typeof AppStudioWorkflowWorkflowIdRunsRoute
+  '/_app/studio/workflow/$workflowId/settings': typeof AppStudioWorkflowWorkflowIdSettingsRoute
+  '/_app/studio/campaigns/$campaignId/': typeof AppStudioCampaignsCampaignIdIndexRoute
+  '/_app/studio/workflow/$workflowId/': typeof AppStudioWorkflowWorkflowIdIndexRoute
+  '/_app/studio/workflow/$workflowId/run/$runId': typeof AppStudioWorkflowWorkflowIdRunRunIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/login'
-    | '/agent-studio'
     | '/audit'
     | '/billing'
     | '/bot-analytics'
@@ -360,23 +578,48 @@ export interface FileRouteTypes {
     | '/handoff'
     | '/inbox'
     | '/integrations'
-    | '/knowledge-base'
     | '/promises'
     | '/qa'
     | '/redaction'
     | '/roles'
     | '/routing'
-    | '/sandbox'
     | '/settings'
+    | '/studio'
     | '/treatment'
     | '/upsell'
     | '/webhooks'
-    | '/agent-studio/$botId'
     | '/customers/$customerId'
-    | '/agent-studio/'
+    | '/studio/api-keys'
+    | '/studio/audio-library'
+    | '/studio/checks'
+    | '/studio/files'
+    | '/studio/guardrails'
+    | '/studio/mcp-keys'
+    | '/studio/model-configurations'
+    | '/studio/recordings'
+    | '/studio/releases'
+    | '/studio/reports'
+    | '/studio/routing'
+    | '/studio/settings'
+    | '/studio/usage'
     | '/customers/'
-    | '/agent-studio/skills/$skillId'
-    | '/agent-studio/skills/'
+    | '/studio/'
+    | '/studio/campaigns/new'
+    | '/studio/docs/$'
+    | '/studio/telephony-configurations/$configId'
+    | '/studio/tools/$toolUuid'
+    | '/studio/workflow/create'
+    | '/studio/campaigns/'
+    | '/studio/docs/'
+    | '/studio/telephony-configurations/'
+    | '/studio/tools/'
+    | '/studio/workflow/'
+    | '/studio/campaigns/$campaignId/edit'
+    | '/studio/workflow/$workflowId/runs'
+    | '/studio/workflow/$workflowId/settings'
+    | '/studio/campaigns/$campaignId/'
+    | '/studio/workflow/$workflowId/'
+    | '/studio/workflow/$workflowId/run/$runId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -393,29 +636,52 @@ export interface FileRouteTypes {
     | '/handoff'
     | '/inbox'
     | '/integrations'
-    | '/knowledge-base'
     | '/promises'
     | '/qa'
     | '/redaction'
     | '/roles'
     | '/routing'
-    | '/sandbox'
     | '/settings'
     | '/treatment'
     | '/upsell'
     | '/webhooks'
     | '/'
-    | '/agent-studio/$botId'
     | '/customers/$customerId'
-    | '/agent-studio'
+    | '/studio/api-keys'
+    | '/studio/audio-library'
+    | '/studio/checks'
+    | '/studio/files'
+    | '/studio/guardrails'
+    | '/studio/mcp-keys'
+    | '/studio/model-configurations'
+    | '/studio/recordings'
+    | '/studio/releases'
+    | '/studio/reports'
+    | '/studio/routing'
+    | '/studio/settings'
+    | '/studio/usage'
     | '/customers'
-    | '/agent-studio/skills/$skillId'
-    | '/agent-studio/skills'
+    | '/studio'
+    | '/studio/campaigns/new'
+    | '/studio/docs/$'
+    | '/studio/telephony-configurations/$configId'
+    | '/studio/tools/$toolUuid'
+    | '/studio/workflow/create'
+    | '/studio/campaigns'
+    | '/studio/docs'
+    | '/studio/telephony-configurations'
+    | '/studio/tools'
+    | '/studio/workflow'
+    | '/studio/campaigns/$campaignId/edit'
+    | '/studio/workflow/$workflowId/runs'
+    | '/studio/workflow/$workflowId/settings'
+    | '/studio/campaigns/$campaignId'
+    | '/studio/workflow/$workflowId'
+    | '/studio/workflow/$workflowId/run/$runId'
   id:
     | '__root__'
     | '/_app'
     | '/login'
-    | '/_app/agent-studio'
     | '/_app/audit'
     | '/_app/billing'
     | '/_app/bot-analytics'
@@ -430,24 +696,49 @@ export interface FileRouteTypes {
     | '/_app/handoff'
     | '/_app/inbox'
     | '/_app/integrations'
-    | '/_app/knowledge-base'
     | '/_app/promises'
     | '/_app/qa'
     | '/_app/redaction'
     | '/_app/roles'
     | '/_app/routing'
-    | '/_app/sandbox'
     | '/_app/settings'
+    | '/_app/studio'
     | '/_app/treatment'
     | '/_app/upsell'
     | '/_app/webhooks'
     | '/_app/'
-    | '/_app/agent-studio/$botId'
     | '/_app/customers/$customerId'
-    | '/_app/agent-studio/'
+    | '/_app/studio/api-keys'
+    | '/_app/studio/audio-library'
+    | '/_app/studio/checks'
+    | '/_app/studio/files'
+    | '/_app/studio/guardrails'
+    | '/_app/studio/mcp-keys'
+    | '/_app/studio/model-configurations'
+    | '/_app/studio/recordings'
+    | '/_app/studio/releases'
+    | '/_app/studio/reports'
+    | '/_app/studio/routing'
+    | '/_app/studio/settings'
+    | '/_app/studio/usage'
     | '/_app/customers/'
-    | '/_app/agent-studio/skills/$skillId'
-    | '/_app/agent-studio/skills/'
+    | '/_app/studio/'
+    | '/_app/studio/campaigns/new'
+    | '/_app/studio/docs/$'
+    | '/_app/studio/telephony-configurations/$configId'
+    | '/_app/studio/tools/$toolUuid'
+    | '/_app/studio/workflow/create'
+    | '/_app/studio/campaigns/'
+    | '/_app/studio/docs/'
+    | '/_app/studio/telephony-configurations/'
+    | '/_app/studio/tools/'
+    | '/_app/studio/workflow/'
+    | '/_app/studio/campaigns/$campaignId/edit'
+    | '/_app/studio/workflow/$workflowId/runs'
+    | '/_app/studio/workflow/$workflowId/settings'
+    | '/_app/studio/campaigns/$campaignId/'
+    | '/_app/studio/workflow/$workflowId/'
+    | '/_app/studio/workflow/$workflowId/run/$runId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -476,13 +767,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/agent-studio': {
-      id: '/_app/agent-studio'
-      path: '/agent-studio'
-      fullPath: '/agent-studio'
-      preLoaderRoute: typeof AppAgentStudioRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/audit': {
@@ -583,13 +867,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIntegrationsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/knowledge-base': {
-      id: '/_app/knowledge-base'
-      path: '/knowledge-base'
-      fullPath: '/knowledge-base'
-      preLoaderRoute: typeof AppKnowledgeBaseRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/promises': {
       id: '/_app/promises'
       path: '/promises'
@@ -625,18 +902,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRoutingRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/sandbox': {
-      id: '/_app/sandbox'
-      path: '/sandbox'
-      fullPath: '/sandbox'
-      preLoaderRoute: typeof AppSandboxRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/studio': {
+      id: '/_app/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof AppStudioRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/treatment': {
@@ -660,20 +937,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebhooksRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/agent-studio/': {
-      id: '/_app/agent-studio/'
-      path: '/'
-      fullPath: '/agent-studio/'
-      preLoaderRoute: typeof AppAgentStudioIndexRouteImport
-      parentRoute: typeof AppAgentStudioRoute
-    }
-    '/_app/agent-studio/$botId': {
-      id: '/_app/agent-studio/$botId'
-      path: '/$botId'
-      fullPath: '/agent-studio/$botId'
-      preLoaderRoute: typeof AppAgentStudioBotIdRouteImport
-      parentRoute: typeof AppAgentStudioRoute
-    }
     '/_app/customers/': {
       id: '/_app/customers/'
       path: '/'
@@ -688,40 +951,218 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCustomersCustomerIdRouteImport
       parentRoute: typeof AppCustomersRoute
     }
-    '/_app/agent-studio/skills/': {
-      id: '/_app/agent-studio/skills/'
-      path: '/skills'
-      fullPath: '/agent-studio/skills/'
-      preLoaderRoute: typeof AppAgentStudioSkillsIndexRouteImport
-      parentRoute: typeof AppAgentStudioRoute
+    '/_app/studio/': {
+      id: '/_app/studio/'
+      path: '/'
+      fullPath: '/studio/'
+      preLoaderRoute: typeof AppStudioIndexRouteImport
+      parentRoute: typeof AppStudioRoute
     }
-    '/_app/agent-studio/skills/$skillId': {
-      id: '/_app/agent-studio/skills/$skillId'
-      path: '/skills/$skillId'
-      fullPath: '/agent-studio/skills/$skillId'
-      preLoaderRoute: typeof AppAgentStudioSkillsSkillIdRouteImport
-      parentRoute: typeof AppAgentStudioRoute
+    '/_app/studio/api-keys': {
+      id: '/_app/studio/api-keys'
+      path: '/api-keys'
+      fullPath: '/studio/api-keys'
+      preLoaderRoute: typeof AppStudioApiKeysRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/audio-library': {
+      id: '/_app/studio/audio-library'
+      path: '/audio-library'
+      fullPath: '/studio/audio-library'
+      preLoaderRoute: typeof AppStudioAudioLibraryRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/checks': {
+      id: '/_app/studio/checks'
+      path: '/checks'
+      fullPath: '/studio/checks'
+      preLoaderRoute: typeof AppStudioChecksRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/files': {
+      id: '/_app/studio/files'
+      path: '/files'
+      fullPath: '/studio/files'
+      preLoaderRoute: typeof AppStudioFilesRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/guardrails': {
+      id: '/_app/studio/guardrails'
+      path: '/guardrails'
+      fullPath: '/studio/guardrails'
+      preLoaderRoute: typeof AppStudioGuardrailsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/mcp-keys': {
+      id: '/_app/studio/mcp-keys'
+      path: '/mcp-keys'
+      fullPath: '/studio/mcp-keys'
+      preLoaderRoute: typeof AppStudioMcpKeysRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/model-configurations': {
+      id: '/_app/studio/model-configurations'
+      path: '/model-configurations'
+      fullPath: '/studio/model-configurations'
+      preLoaderRoute: typeof AppStudioModelConfigurationsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/recordings': {
+      id: '/_app/studio/recordings'
+      path: '/recordings'
+      fullPath: '/studio/recordings'
+      preLoaderRoute: typeof AppStudioRecordingsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/releases': {
+      id: '/_app/studio/releases'
+      path: '/releases'
+      fullPath: '/studio/releases'
+      preLoaderRoute: typeof AppStudioReleasesRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/reports': {
+      id: '/_app/studio/reports'
+      path: '/reports'
+      fullPath: '/studio/reports'
+      preLoaderRoute: typeof AppStudioReportsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/routing': {
+      id: '/_app/studio/routing'
+      path: '/routing'
+      fullPath: '/studio/routing'
+      preLoaderRoute: typeof AppStudioRoutingRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/settings': {
+      id: '/_app/studio/settings'
+      path: '/settings'
+      fullPath: '/studio/settings'
+      preLoaderRoute: typeof AppStudioSettingsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/usage': {
+      id: '/_app/studio/usage'
+      path: '/usage'
+      fullPath: '/studio/usage'
+      preLoaderRoute: typeof AppStudioUsageRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/campaigns/': {
+      id: '/_app/studio/campaigns/'
+      path: '/campaigns'
+      fullPath: '/studio/campaigns/'
+      preLoaderRoute: typeof AppStudioCampaignsIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/campaigns/new': {
+      id: '/_app/studio/campaigns/new'
+      path: '/campaigns/new'
+      fullPath: '/studio/campaigns/new'
+      preLoaderRoute: typeof AppStudioCampaignsNewRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/docs/': {
+      id: '/_app/studio/docs/'
+      path: '/docs'
+      fullPath: '/studio/docs/'
+      preLoaderRoute: typeof AppStudioDocsIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/docs/$': {
+      id: '/_app/studio/docs/$'
+      path: '/docs/$'
+      fullPath: '/studio/docs/$'
+      preLoaderRoute: typeof AppStudioDocsSplatRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/telephony-configurations/': {
+      id: '/_app/studio/telephony-configurations/'
+      path: '/telephony-configurations'
+      fullPath: '/studio/telephony-configurations/'
+      preLoaderRoute: typeof AppStudioTelephonyConfigurationsIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/telephony-configurations/$configId': {
+      id: '/_app/studio/telephony-configurations/$configId'
+      path: '/telephony-configurations/$configId'
+      fullPath: '/studio/telephony-configurations/$configId'
+      preLoaderRoute: typeof AppStudioTelephonyConfigurationsConfigIdRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/tools/': {
+      id: '/_app/studio/tools/'
+      path: '/tools'
+      fullPath: '/studio/tools/'
+      preLoaderRoute: typeof AppStudioToolsIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/tools/$toolUuid': {
+      id: '/_app/studio/tools/$toolUuid'
+      path: '/tools/$toolUuid'
+      fullPath: '/studio/tools/$toolUuid'
+      preLoaderRoute: typeof AppStudioToolsToolUuidRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/': {
+      id: '/_app/studio/workflow/'
+      path: '/workflow'
+      fullPath: '/studio/workflow/'
+      preLoaderRoute: typeof AppStudioWorkflowIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/create': {
+      id: '/_app/studio/workflow/create'
+      path: '/workflow/create'
+      fullPath: '/studio/workflow/create'
+      preLoaderRoute: typeof AppStudioWorkflowCreateRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/campaigns/$campaignId/': {
+      id: '/_app/studio/campaigns/$campaignId/'
+      path: '/campaigns/$campaignId'
+      fullPath: '/studio/campaigns/$campaignId/'
+      preLoaderRoute: typeof AppStudioCampaignsCampaignIdIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/campaigns/$campaignId/edit': {
+      id: '/_app/studio/campaigns/$campaignId/edit'
+      path: '/campaigns/$campaignId/edit'
+      fullPath: '/studio/campaigns/$campaignId/edit'
+      preLoaderRoute: typeof AppStudioCampaignsCampaignIdEditRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/$workflowId/': {
+      id: '/_app/studio/workflow/$workflowId/'
+      path: '/workflow/$workflowId'
+      fullPath: '/studio/workflow/$workflowId/'
+      preLoaderRoute: typeof AppStudioWorkflowWorkflowIdIndexRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/$workflowId/runs': {
+      id: '/_app/studio/workflow/$workflowId/runs'
+      path: '/workflow/$workflowId/runs'
+      fullPath: '/studio/workflow/$workflowId/runs'
+      preLoaderRoute: typeof AppStudioWorkflowWorkflowIdRunsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/$workflowId/settings': {
+      id: '/_app/studio/workflow/$workflowId/settings'
+      path: '/workflow/$workflowId/settings'
+      fullPath: '/studio/workflow/$workflowId/settings'
+      preLoaderRoute: typeof AppStudioWorkflowWorkflowIdSettingsRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
+    '/_app/studio/workflow/$workflowId/run/$runId': {
+      id: '/_app/studio/workflow/$workflowId/run/$runId'
+      path: '/workflow/$workflowId/run/$runId'
+      fullPath: '/studio/workflow/$workflowId/run/$runId'
+      preLoaderRoute: typeof AppStudioWorkflowWorkflowIdRunRunIdRouteImport
+      parentRoute: typeof AppStudioRoute
     }
   }
 }
-
-interface AppAgentStudioRouteChildren {
-  AppAgentStudioBotIdRoute: typeof AppAgentStudioBotIdRoute
-  AppAgentStudioIndexRoute: typeof AppAgentStudioIndexRoute
-  AppAgentStudioSkillsSkillIdRoute: typeof AppAgentStudioSkillsSkillIdRoute
-  AppAgentStudioSkillsIndexRoute: typeof AppAgentStudioSkillsIndexRoute
-}
-
-const AppAgentStudioRouteChildren: AppAgentStudioRouteChildren = {
-  AppAgentStudioBotIdRoute: AppAgentStudioBotIdRoute,
-  AppAgentStudioIndexRoute: AppAgentStudioIndexRoute,
-  AppAgentStudioSkillsSkillIdRoute: AppAgentStudioSkillsSkillIdRoute,
-  AppAgentStudioSkillsIndexRoute: AppAgentStudioSkillsIndexRoute,
-}
-
-const AppAgentStudioRouteWithChildren = AppAgentStudioRoute._addFileChildren(
-  AppAgentStudioRouteChildren,
-)
 
 interface AppCustomersRouteChildren {
   AppCustomersCustomerIdRoute: typeof AppCustomersCustomerIdRoute
@@ -737,8 +1178,82 @@ const AppCustomersRouteWithChildren = AppCustomersRoute._addFileChildren(
   AppCustomersRouteChildren,
 )
 
+interface AppStudioRouteChildren {
+  AppStudioApiKeysRoute: typeof AppStudioApiKeysRoute
+  AppStudioAudioLibraryRoute: typeof AppStudioAudioLibraryRoute
+  AppStudioChecksRoute: typeof AppStudioChecksRoute
+  AppStudioFilesRoute: typeof AppStudioFilesRoute
+  AppStudioGuardrailsRoute: typeof AppStudioGuardrailsRoute
+  AppStudioMcpKeysRoute: typeof AppStudioMcpKeysRoute
+  AppStudioModelConfigurationsRoute: typeof AppStudioModelConfigurationsRoute
+  AppStudioRecordingsRoute: typeof AppStudioRecordingsRoute
+  AppStudioReleasesRoute: typeof AppStudioReleasesRoute
+  AppStudioReportsRoute: typeof AppStudioReportsRoute
+  AppStudioRoutingRoute: typeof AppStudioRoutingRoute
+  AppStudioSettingsRoute: typeof AppStudioSettingsRoute
+  AppStudioUsageRoute: typeof AppStudioUsageRoute
+  AppStudioIndexRoute: typeof AppStudioIndexRoute
+  AppStudioCampaignsNewRoute: typeof AppStudioCampaignsNewRoute
+  AppStudioDocsSplatRoute: typeof AppStudioDocsSplatRoute
+  AppStudioTelephonyConfigurationsConfigIdRoute: typeof AppStudioTelephonyConfigurationsConfigIdRoute
+  AppStudioToolsToolUuidRoute: typeof AppStudioToolsToolUuidRoute
+  AppStudioWorkflowCreateRoute: typeof AppStudioWorkflowCreateRoute
+  AppStudioCampaignsIndexRoute: typeof AppStudioCampaignsIndexRoute
+  AppStudioDocsIndexRoute: typeof AppStudioDocsIndexRoute
+  AppStudioTelephonyConfigurationsIndexRoute: typeof AppStudioTelephonyConfigurationsIndexRoute
+  AppStudioToolsIndexRoute: typeof AppStudioToolsIndexRoute
+  AppStudioWorkflowIndexRoute: typeof AppStudioWorkflowIndexRoute
+  AppStudioCampaignsCampaignIdEditRoute: typeof AppStudioCampaignsCampaignIdEditRoute
+  AppStudioWorkflowWorkflowIdRunsRoute: typeof AppStudioWorkflowWorkflowIdRunsRoute
+  AppStudioWorkflowWorkflowIdSettingsRoute: typeof AppStudioWorkflowWorkflowIdSettingsRoute
+  AppStudioCampaignsCampaignIdIndexRoute: typeof AppStudioCampaignsCampaignIdIndexRoute
+  AppStudioWorkflowWorkflowIdIndexRoute: typeof AppStudioWorkflowWorkflowIdIndexRoute
+  AppStudioWorkflowWorkflowIdRunRunIdRoute: typeof AppStudioWorkflowWorkflowIdRunRunIdRoute
+}
+
+const AppStudioRouteChildren: AppStudioRouteChildren = {
+  AppStudioApiKeysRoute: AppStudioApiKeysRoute,
+  AppStudioAudioLibraryRoute: AppStudioAudioLibraryRoute,
+  AppStudioChecksRoute: AppStudioChecksRoute,
+  AppStudioFilesRoute: AppStudioFilesRoute,
+  AppStudioGuardrailsRoute: AppStudioGuardrailsRoute,
+  AppStudioMcpKeysRoute: AppStudioMcpKeysRoute,
+  AppStudioModelConfigurationsRoute: AppStudioModelConfigurationsRoute,
+  AppStudioRecordingsRoute: AppStudioRecordingsRoute,
+  AppStudioReleasesRoute: AppStudioReleasesRoute,
+  AppStudioReportsRoute: AppStudioReportsRoute,
+  AppStudioRoutingRoute: AppStudioRoutingRoute,
+  AppStudioSettingsRoute: AppStudioSettingsRoute,
+  AppStudioUsageRoute: AppStudioUsageRoute,
+  AppStudioIndexRoute: AppStudioIndexRoute,
+  AppStudioCampaignsNewRoute: AppStudioCampaignsNewRoute,
+  AppStudioDocsSplatRoute: AppStudioDocsSplatRoute,
+  AppStudioTelephonyConfigurationsConfigIdRoute:
+    AppStudioTelephonyConfigurationsConfigIdRoute,
+  AppStudioToolsToolUuidRoute: AppStudioToolsToolUuidRoute,
+  AppStudioWorkflowCreateRoute: AppStudioWorkflowCreateRoute,
+  AppStudioCampaignsIndexRoute: AppStudioCampaignsIndexRoute,
+  AppStudioDocsIndexRoute: AppStudioDocsIndexRoute,
+  AppStudioTelephonyConfigurationsIndexRoute:
+    AppStudioTelephonyConfigurationsIndexRoute,
+  AppStudioToolsIndexRoute: AppStudioToolsIndexRoute,
+  AppStudioWorkflowIndexRoute: AppStudioWorkflowIndexRoute,
+  AppStudioCampaignsCampaignIdEditRoute: AppStudioCampaignsCampaignIdEditRoute,
+  AppStudioWorkflowWorkflowIdRunsRoute: AppStudioWorkflowWorkflowIdRunsRoute,
+  AppStudioWorkflowWorkflowIdSettingsRoute:
+    AppStudioWorkflowWorkflowIdSettingsRoute,
+  AppStudioCampaignsCampaignIdIndexRoute:
+    AppStudioCampaignsCampaignIdIndexRoute,
+  AppStudioWorkflowWorkflowIdIndexRoute: AppStudioWorkflowWorkflowIdIndexRoute,
+  AppStudioWorkflowWorkflowIdRunRunIdRoute:
+    AppStudioWorkflowWorkflowIdRunRunIdRoute,
+}
+
+const AppStudioRouteWithChildren = AppStudioRoute._addFileChildren(
+  AppStudioRouteChildren,
+)
+
 interface AppRouteChildren {
-  AppAgentStudioRoute: typeof AppAgentStudioRouteWithChildren
   AppAuditRoute: typeof AppAuditRoute
   AppBillingRoute: typeof AppBillingRoute
   AppBotAnalyticsRoute: typeof AppBotAnalyticsRoute
@@ -753,14 +1268,13 @@ interface AppRouteChildren {
   AppHandoffRoute: typeof AppHandoffRoute
   AppInboxRoute: typeof AppInboxRoute
   AppIntegrationsRoute: typeof AppIntegrationsRoute
-  AppKnowledgeBaseRoute: typeof AppKnowledgeBaseRoute
   AppPromisesRoute: typeof AppPromisesRoute
   AppQaRoute: typeof AppQaRoute
   AppRedactionRoute: typeof AppRedactionRoute
   AppRolesRoute: typeof AppRolesRoute
   AppRoutingRoute: typeof AppRoutingRoute
-  AppSandboxRoute: typeof AppSandboxRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppStudioRoute: typeof AppStudioRouteWithChildren
   AppTreatmentRoute: typeof AppTreatmentRoute
   AppUpsellRoute: typeof AppUpsellRoute
   AppWebhooksRoute: typeof AppWebhooksRoute
@@ -768,7 +1282,6 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppAgentStudioRoute: AppAgentStudioRouteWithChildren,
   AppAuditRoute: AppAuditRoute,
   AppBillingRoute: AppBillingRoute,
   AppBotAnalyticsRoute: AppBotAnalyticsRoute,
@@ -783,14 +1296,13 @@ const AppRouteChildren: AppRouteChildren = {
   AppHandoffRoute: AppHandoffRoute,
   AppInboxRoute: AppInboxRoute,
   AppIntegrationsRoute: AppIntegrationsRoute,
-  AppKnowledgeBaseRoute: AppKnowledgeBaseRoute,
   AppPromisesRoute: AppPromisesRoute,
   AppQaRoute: AppQaRoute,
   AppRedactionRoute: AppRedactionRoute,
   AppRolesRoute: AppRolesRoute,
   AppRoutingRoute: AppRoutingRoute,
-  AppSandboxRoute: AppSandboxRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppStudioRoute: AppStudioRouteWithChildren,
   AppTreatmentRoute: AppTreatmentRoute,
   AppUpsellRoute: AppUpsellRoute,
   AppWebhooksRoute: AppWebhooksRoute,

@@ -89,11 +89,16 @@ BOT_READ = "perm-bot-read"
 BOT_WRITE = "perm-bot-write"
 AGENT_EDIT = "perm-agent-edit"
 AGENT_PUBLISH = "perm-agent-publish"
+TOOL_APPROVE = "perm-tool-approve"
 EVAL_RUN = "perm-eval-run"
 POLICY_EXPORT = "perm-policy-export"
 POLICY_READ = "perm-policy-read"
 POLICY_PUBLISH = "perm-policy-publish"
 POLICY_APPROVE = "perm-policy-approve"
+#: Tenant-less (global) rows: statutory rule sets and the platform budget.
+#: Row security admits them to every tenant for reading and to none for
+#: writing, except inside ``platform_scope.enter`` -- which requires this.
+PLATFORM_WRITE = "perm-platform-write"
 SUBJECT_RIGHTS_READ = "perm-subject-rights-read"
 SUBJECT_RIGHTS_WRITE = "perm-subject-rights-write"
 VOICE_OPERATE = "perm-voice-operate"
@@ -142,11 +147,18 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (BOT_WRITE, "bot", "write", "Author and publish prompts, flows and deployments"),
     (AGENT_EDIT, "agent", "edit", "Author agent cards, tools and handoff allowlists"),
     (AGENT_PUBLISH, "agent", "publish", "Compile and publish an agent card to production"),
+    (TOOL_APPROVE, "integrations", "approve_tool", "Approve or revoke a reviewed Voice Studio tool revision"),
     (EVAL_RUN, "eval", "run", "Run regression eval suites against a card"),
     (POLICY_EXPORT, "policy", "export", "Download the OPA/Cedar projection of live Python policy"),
     (POLICY_READ, "policy", "read", "Read the versioned policy catalogue"),
     (POLICY_PUBLISH, "policy", "publish", "Submit a policy draft for approval"),
     (POLICY_APPROVE, "policy", "approve", "Approve or reject a policy publication"),
+    (
+        PLATFORM_WRITE,
+        "platform",
+        "write",
+        "Change platform-wide records every tenant reads: statutory rule sets and the platform budget",
+    ),
     (SUBJECT_RIGHTS_READ, "subject_rights", "read", "Read DPDP subject requests and evidence packs"),
     (SUBJECT_RIGHTS_WRITE, "subject_rights", "write", "Create and progress DPDP subject requests"),
     (VOICE_OPERATE, "voice", "operate", "Place outbound calls and run voice sandbox sessions"),
@@ -275,6 +287,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/twilio/voice/fallback"),
         ("POST", "/twilio/voice/stream-status"),
         ("POST", "/twilio/voice/call-status"),
+        ("POST", "/twilio/voice/connect"),
         # Delivery receipts. Twilio carries no API key, so the signature check
         # inside the handler is the authentication — same as every other
         # callback above.
@@ -286,6 +299,14 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         # Media-stream / signalling sockets (no header can be attached).
         ("WS", "/ws"),
         ("WS", "/ws/{proxy_secret}"),
+        # Sandbox Live from the browser; a single-use ticket is the credential.
+        # AgentStudio live calls; a one-use ticket from the gateway is the credential.
+        ("WS", "/studio-ws/{ticket}/{path:path}"),
+        # Voice Studio engine hooks; the shared hook token is the credential.
+        ("POST", "/voice-studio/hooks/tools/{name}"),
+        ("POST", "/voice-studio/hooks/precall"),
+        ("POST", "/voice-studio/hooks/transfer"),
+        ("POST", "/voice-studio/hooks/run-completed"),
         ("POST", "/api/offer"),
         ("PATCH", "/api/offer"),
         ("POST", "/voice-rtc/api/offer"),
@@ -306,6 +327,41 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: as a policy table. Every non-public route in the app must appear here;
 #: :func:`assert_registry_covers` enforces that.
 ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
+    # --- AgentStudio gateway -------------------------------------------------
+    # The floor for touching the engine at all; each request is then checked
+    # against routers/agentstudio_gateway.PERMISSION_RULES by engine path.
+    ("POST", "/studio-api/_ws-ticket"): BOT_READ,
+    ("GET", "/studio-api/{path:path}"): BOT_READ,
+    ("POST", "/studio-api/{path:path}"): BOT_READ,
+    ("PUT", "/studio-api/{path:path}"): BOT_READ,
+    ("PATCH", "/studio-api/{path:path}"): BOT_READ,
+    ("DELETE", "/studio-api/{path:path}"): BOT_READ,
+    ("GET", "/studio-mcp/"): BOT_READ,
+    ("POST", "/studio-mcp/"): BOT_READ,
+    ("DELETE", "/studio-mcp/"): BOT_READ,
+    ("GET", "/studio-mcp"): BOT_READ,
+    ("POST", "/studio-mcp"): BOT_READ,
+    ("DELETE", "/studio-mcp"): BOT_READ,
+    ("GET", "/voice-studio/guardrails/{workflow_id}"): BOT_READ,
+    ("PUT", "/voice-studio/guardrails/{workflow_id}"): AGENT_EDIT,
+    ("GET", "/voice-studio/checks/scenarios"): BOT_READ,
+    ("GET", "/voice-studio/checks"): BOT_READ,
+    ("POST", "/voice-studio/checks"): EVAL_RUN,
+    ("GET", "/voice-studio/routing"): BOT_READ,
+    ("POST", "/voice-studio/routing/check"): BOT_READ,
+    ("PUT", "/voice-studio/routing"): AGENT_PUBLISH,
+    ("GET", "/voice-studio/agents/{workflow_id}/preflight"): BOT_READ,
+    ("POST", "/voice-studio/agents/{workflow_id}/publish"): AGENT_PUBLISH,
+    ("POST", "/voice-studio/agents/{workflow_id}/rollback"): AGENT_PUBLISH,
+    ("GET", "/voice-studio/releases"): BOT_READ,
+    ("POST", "/voice-studio/prompt/lint"): BOT_READ,
+    ("POST", "/voice-studio/checks/simulate"): EVAL_RUN,
+    ("POST", "/voice-studio/releases/reconcile"): AGENT_PUBLISH,
+    ("POST", "/voice-studio/tools/{tool_uuid}/revisions/{revision}/review"): TOOL_APPROVE,
+    ("GET", "/voice-studio/mcp-keys"): AGENT_EDIT,
+    ("POST", "/voice-studio/mcp-keys"): AGENT_EDIT,
+    ("POST", "/voice-studio/mcp-keys/{key_id}/rotate"): AGENT_EDIT,
+    ("DELETE", "/voice-studio/mcp-keys/{key_id}"): AGENT_EDIT,
     # --- billing -----------------------------------------------------------
     ("GET", "/billing"): BILLING_READ,
     ("GET", "/billing/export.csv"): BILLING_READ,
@@ -323,67 +379,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # open it could also claim from it — a permission that gates a GET on the
     # right to mutate is wrong in both directions.
     ("GET", "/work-items"): COLLECTIONS_READ,
-    # --- bot configuration -------------------------------------------------
-    ("GET", "/bot-deployments"): BOT_READ,
-    ("GET", "/bot-deployments/active"): BOT_READ,
-    ("GET", "/bot-deployments/experiments"): BOT_READ,
-    ("POST", "/bot-deployments/experiments/{experiment_id}/rollback"): AGENT_PUBLISH,
-    ("POST", "/bot-deployments/{deployment_id}/rollback"): AGENT_PUBLISH,
-    ("GET", "/flow/reserved-keys"): BOT_READ,
-    ("GET", "/flow/variables"): BOT_READ,
-    ("GET", "/flow/tools"): BOT_READ,
-    ("POST", "/flow/validate"): BOT_READ,
-    ("GET", "/persona-presets"): BOT_READ,
-    ("GET", "/prompt-versions"): BOT_READ,
-    ("GET", "/prompt-versions/published"): BOT_READ,
-    ("GET", "/prompt-versions/{version_id}"): BOT_READ,
-    ("POST", "/prompt-versions"): BOT_WRITE,
-    ("PATCH", "/prompt-versions/{version_id}"): BOT_WRITE,
-    ("POST", "/prompt-versions/{version_id}/discard"): BOT_WRITE,
-    ("POST", "/prompt-versions/{version_id}/publish"): AGENT_PUBLISH,
-    ("POST", "/prompt-versions/{version_id}/restore-as-draft"): BOT_WRITE,
-    ("POST", "/prompt-versions/estimate-tokens"): BOT_READ,
-    ("POST", "/prompt-versions/lint"): BOT_READ,
-    ("GET", "/flow/built-in"): BOT_READ,
-    ("GET", "/flow/transitions"): BOT_READ,
-    ("GET", "/agent-studio/cards"): BOT_READ,
-    # Read-only history of who changed what an agent says. BOT_READ, not
-    # AGENT_EDIT: reviewing the record must not require the right to change it.
-    ("GET", "/agent-studio/change-log"): BOT_READ,
-    ("GET", "/agent-studio/cards/{bot_id}"): BOT_READ,
-    ("PATCH", "/agent-studio/cards/{bot_id}"): AGENT_EDIT,
-    # Archiving retires the live production deployment (that is what "takes
-    # no traffic" means), so it is the inverse of publishing and needs the
-    # same right. Restore does not redeploy and stays an edit.
-    ("POST", "/agent-studio/cards/{bot_id}/archive"): AGENT_PUBLISH,
-    ("POST", "/agent-studio/cards/{bot_id}/restore"): AGENT_EDIT,
-    ("POST", "/agent-studio/cards/{bot_id}/compile"): AGENT_EDIT,
-    ("GET", "/agent-studio/cards/{bot_id}/effective-contract"): BOT_READ,
-    ("POST", "/agent-studio/cards/{bot_id}/publish"): AGENT_PUBLISH,
-    ("GET", "/agent-studio/cards/{bot_id}/graph"): BOT_READ,
-    ("POST", "/agent-studio/cards/clone"): AGENT_EDIT,
-    ("GET", "/agent-studio/skills"): BOT_READ,
-    ("GET", "/agent-studio/skills/scripts"): BOT_READ,
-    ("GET", "/agent-studio/skills/{skill_id}"): BOT_READ,
-    ("POST", "/agent-studio/skills"): AGENT_EDIT,
-    ("PATCH", "/agent-studio/skills/{skill_id}"): AGENT_EDIT,
-    # Delete refuses first-party / signed / attached packs in the handler, so
-    # authoring rights are enough — it cannot reach anything production pins.
-    ("DELETE", "/agent-studio/skills/{skill_id}"): AGENT_EDIT,
-    ("POST", "/agent-studio/skills/{skill_id}/sign"): AGENT_PUBLISH,
-    ("POST", "/agent-studio/skills/{skill_id}/revert"): AGENT_PUBLISH,
-    ("POST", "/agent-studio/skills/{skill_id}/clone"): AGENT_EDIT,
-    ("GET", "/agent-studio/skills/{skill_id}/export"): BOT_READ,
-    ("POST", "/agent-studio/skills/import"): AGENT_EDIT,
-    ("POST", "/agent-studio/skills/run-script"): AGENT_EDIT,
-    ("GET", "/agent-studio/templates"): BOT_READ,
-    # Rebinding a number is a deployment change: it decides which card a
-    # borrower reaches. Publish rights, not edit rights.
-    ("GET", "/agent-studio/entry-bindings"): BOT_READ,
-    ("GET", "/agent-studio/policy-engines"): BOT_READ,
-    ("PUT", "/agent-studio/entry-bindings"): AGENT_PUBLISH,
-    ("DELETE", "/agent-studio/entry-bindings/{binding_id}"): AGENT_PUBLISH,
-    ("POST", "/kb/gaps/{gap_id}/promote-skill"): AGENT_EDIT,
+    # --- integrations, access and routing ------------------------------------
     ("GET", "/connectors"): INTEGRATIONS_READ,
     ("POST", "/connectors"): INTEGRATIONS_WRITE,
     ("GET", "/connectors/{connector_id}"): INTEGRATIONS_READ,
@@ -408,17 +404,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/gateway/canary"): INTEGRATIONS_READ,
     ("POST", "/gateway/canary"): INTEGRATIONS_WRITE,
     ("POST", "/gateway/canary/{canary_id}/promote"): INTEGRATIONS_WRITE,
-    ("POST", "/eval/suites/{suite_id}/run"): EVAL_RUN,
-    ("POST", "/eval/schedule/run"): EVAL_RUN,
-    ("POST", "/eval/tasks/{task_id}/graduate"): EVAL_RUN,
-    ("GET", "/eval/suites"): BOT_READ,
-    ("GET", "/eval/reports"): BOT_READ,
-    ("GET", "/eval/reports/{report_id}"): BOT_READ,
-    ("GET", "/eval/critiques"): BOT_READ,
-    ("POST", "/eval/reports/{report_id}/critique"): EVAL_RUN,
     ("GET", "/eval/disagreements"): QA_REVIEW,
-    ("GET", "/eval/twin-corpus"): BOT_READ,
-    ("POST", "/eval/twin-corpus/grow"): EVAL_RUN,
     ("GET", "/roles"): ADMIN_WRITE,
     ("PATCH", "/roles/{role_id}/permissions"): ADMIN_WRITE,
     ("GET", "/users"): ADMIN_WRITE,
@@ -439,24 +425,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/routing-rules/simulate"): BOT_READ,
     ("PATCH", "/routing-rules/{rule_id}"): BOT_WRITE,
     ("DELETE", "/routing-rules/{rule_id}"): BOT_WRITE,
-    ("GET", "/sandbox/scenarios"): BOT_READ,
-    ("GET", "/sandbox/tuning/presets"): BOT_READ,
-    ("GET", "/sandbox/runs/{run_id}"): BOT_READ,
-    ("POST", "/sandbox/runs"): BOT_WRITE,
-    ("POST", "/sandbox/runs/{run_id}/complete"): BOT_WRITE,
-    ("POST", "/sandbox/runs/{run_id}/turns"): BOT_WRITE,
     ("POST", "/sandbox/payment-events"): COLLECTIONS_WRITE,
-    ("GET", "/twins"): BOT_READ,
-    ("POST", "/twins/{twin_id}/run"): BOT_WRITE,
     ("GET", "/work-runtime/jobs/{job_id}"): COLLECTIONS_READ,
-    ("GET", "/tts-voices/catalog"): BOT_READ,
-    ("GET", "/tts-voices/catalog-warning"): BOT_READ,
-    ("GET", "/tts-voices/catalog/sync-runs"): BOT_READ,
-    ("GET", "/tts-voices/catalog/{short_name}"): BOT_READ,
-    ("GET", "/tts-voices/pricing"): BOT_READ,
-    ("POST", "/tts-voices/catalog/sync"): ADMIN_WRITE,
-    ("GET", "/tts-voices/catalog-provider-counts"): BOT_READ,
-    ("GET", "/tts-voices/catalog-locale-counts"): BOT_READ,
     # --- provider registry -------------------------------------------------
     # Reads are BOT_READ: the Voice tab needs the capability matrix to render
     # a picker at all. Writes are ADMIN_WRITE because a binding decides which
@@ -637,29 +607,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/integrations/bank/fairness"): BANK_BOUNDARY_READ,
     ("POST", "/integrations/bank/complaints"): BANK_BOUNDARY_WRITE,
     ("GET", "/integrations/bank/complaints"): BANK_BOUNDARY_READ,
-    # --- knowledge base ----------------------------------------------------
-    ("GET", "/kb/documents"): KB_READ,
-    ("GET", "/kb/documents/{document_id}"): KB_READ,
-    ("GET", "/kb/documents/{document_id}/chunks"): KB_READ,
-    ("GET", "/kb/faqs"): KB_READ,
-    ("GET", "/kb/gaps"): KB_READ,
-    ("GET", "/kb/index-jobs/{job_id}"): KB_READ,
-    ("GET", "/kb/snapshots"): KB_READ,
-    ("GET", "/kb/stats"): KB_READ,
-    ("POST", "/kb/retrieve"): KB_READ,
-    ("POST", "/kb/documents"): KB_WRITE,
-    ("PATCH", "/kb/documents/{document_id}"): KB_WRITE,
-    ("DELETE", "/kb/documents/{document_id}"): KB_WRITE,
-    ("POST", "/kb/documents/purge"): KB_WRITE,
-    ("POST", "/kb/documents/{document_id}/reindex"): KB_WRITE,
-    ("POST", "/kb/documents/{document_id}/versions"): KB_WRITE,
-    ("POST", "/kb/faqs"): KB_WRITE,
-    ("PATCH", "/kb/faqs/{faq_id}"): KB_WRITE,
-    ("DELETE", "/kb/faqs/{faq_id}"): KB_WRITE,
-    ("POST", "/kb/gaps/{gap_id}/link"): KB_WRITE,
-    ("POST", "/kb/ingest/source-db"): KB_WRITE,
-    ("POST", "/kb/reindex-all"): KB_WRITE,
-    ("POST", "/kb/snapshots"): KB_WRITE,
     # --- leads -------------------------------------------------------------
     ("GET", "/leads"): LEADS_READ,
     ("GET", "/leads/metrics"): LEADS_READ,
@@ -705,16 +652,10 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/platform/switches"): BOT_READ,
     ("PATCH", "/platform/switches/{key}"): ADMIN_WRITE,
     # --- voice operation ---------------------------------------------------
-    ("GET", "/voice/status"): BOT_READ,
     ("GET", "/twilio/voice/status"): BOT_READ,
     ("GET", "/demo/outbound-call"): BOT_READ,
     ("POST", "/demo/outbound-call"): VOICE_OPERATE,
     ("POST", "/twilio/voice/outbound"): VOICE_OPERATE,
-    ("POST", "/voice/sandbox/start"): VOICE_OPERATE,
-    ("POST", "/voice/sandbox/{session_id}/stop"): VOICE_OPERATE,
-    ("POST", "/voice/sandbox/{session_id}/tune"): VOICE_OPERATE,
-    ("POST", "/stt/transcribe"): VOICE_OPERATE,
-    ("POST", "/tts/preview"): VOICE_OPERATE,
 }
 
 

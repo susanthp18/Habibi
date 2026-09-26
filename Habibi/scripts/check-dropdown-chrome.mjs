@@ -33,6 +33,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isVendored } from "./vendored.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const SRC = join(ROOT, "src");
@@ -43,12 +44,7 @@ const SRC = join(ROOT, "src");
  * This list may only ever get shorter — same rule as check-no-source-grep-tests
  * and check-file-size. A gate introduced red is a gate people learn to ignore.
  */
-const ALLOWED = new Map([
-  [
-    "src/components/kb/KbTagEditor.tsx",
-    "an input embedded inside a tag chip, whose border IS the chip's",
-  ],
-]);
+const ALLOWED = new Map([]);
 
 /** Chrome: what the primitive owns. Anything here belongs in `size`, not here. */
 const CHROME = [
@@ -70,6 +66,7 @@ const CONTROLS = ["SelectTrigger", "SelectField", "Input"];
 function* sources(dir) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
+    if (isVendored(full)) continue;
     if (statSync(full).isDirectory()) yield* sources(full);
     else if (/\.tsx$/.test(entry) && !/\.test\.tsx$/.test(entry)) yield full;
   }

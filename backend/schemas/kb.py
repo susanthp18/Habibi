@@ -44,6 +44,30 @@ class KbRetrieveRequest(BaseModel):
     source: str = "test"
 
 
+class KbRoutingScore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    productKey: str
+    score: float
+
+
+class KbRouting(BaseModel):
+    """Which product a question was routed to, and how sure routing was."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: explicit | named | routed | planner | fallback | uncertain | general | none
+    tier: str
+    keys: list[str] = Field(default_factory=list)
+    score: float | None = None
+    margin: float | None = None
+    #: Uncertain tier: products boosted, not filtered to.
+    candidates: list[str] = Field(default_factory=list)
+    scores: list[KbRoutingScore] = Field(default_factory=list)
+    #: The routed scope found nothing and the search was retried across all.
+    widened: bool = False
+
+
 class KbRetrieveResponse(BaseModel):
     """The full shape of ``kb_retrieve.retrieve()``, not a subset of it.
 
@@ -75,6 +99,10 @@ class KbRetrieveResponse(BaseModel):
     stageMs: dict[str, float] = Field(default_factory=dict)
     reranked: bool = False
     cached: bool = False
+    #: The product filter the search ran under; None = every product.
+    productScope: list[str] | None = None
+    #: How that scope was decided -- see agent_core/product_resolver.Route.
+    routing: KbRouting | None = None
 
 
 KbDocType = Literal["policy", "sop", "product", "compliance", "faq", "benefits"]
@@ -306,3 +334,56 @@ class KbReindexAllResponse(BaseModel):
     jobIds: list[str]
     count: int
     snapshot: KbSnapshotResponse | None = None
+
+
+# ---------------------------------------------------------------------------
+# Product routing profiles (kb_products.py)
+# ---------------------------------------------------------------------------
+
+KbProductPhrasingOrigin = Literal["title", "document", "generated", "operator"]
+
+
+class KbProductPhrasing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    text: str
+    origin: KbProductPhrasingOrigin
+    createdAt: str | None = None
+
+
+class KbProductResponse(BaseModel):
+    """One product: its generated summary and the phrasings routing compares against."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    productKey: str
+    title: str
+    docCount: int = 0
+    summary: str | None = None
+    status: Literal["pending", "ready", "failed"]
+    error: str | None = None
+    generatedAt: str | None = None
+    model: str | None = None
+    phrasings: list[KbProductPhrasing] = Field(default_factory=list)
+
+
+class KbProductPhrasingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=2, max_length=200)
+
+
+class KbProductRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Regenerate even when the documents have not changed.
+    force: bool = False
+    productKeys: list[str] | None = None
+
+
+class KbProductRefreshResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: False when a regeneration was already running.
+    started: bool

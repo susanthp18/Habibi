@@ -232,6 +232,11 @@ class ToolState:
         # docs. Sticky for the rest of the call, matching legacy behaviour
         # (you never leave gated_upsell except to wrap up).
         self.product_scope = "collections"
+        #: The product the caller is asking about, once a KB search settles on
+        #: exactly one ("travel"). Scopes every later lookup -- the explicit
+        #: search and the always-on enricher -- so "and my age is 23" searches
+        #: Travel Protect360's documents, not the collections FAQ.
+        self.kb_product: str | None = None
         #: Namespace -> that member's executable set. Empty on a flat graph.
         self.specialist_grants: dict[str, set[str]] = {}
         #: bot_id -> the namespaced node a hop into that member lands on. Comes

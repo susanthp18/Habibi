@@ -285,3 +285,31 @@ def test_fish_pcm_payload_carries_the_pipeline_sample_rate():
     assert payload["sample_rate"] == 24000
     # mp3_bitrate is meaningless for pcm and must not be sent.
     assert "mp3_bitrate" not in payload
+
+
+def test_a_missing_declared_sdk_is_unavailable_without_importing_the_module(monkeypatch):
+    """Pipecat's optional-extra modules log at ERROR in their own body before
+    raising, so importing one to find out it is missing wrote an ERROR into
+    every voice start (Speechmatics, on CloudUnity). The declared dependency is
+    checked first and the service module is never touched."""
+    monkeypatch.setattr(registry, "can_host_calls", lambda: True)
+    imported: list[str] = []
+    monkeypatch.setattr(registry.importlib, "import_module", lambda name: imported.append(name))
+    spec = registry.ModelSpec(
+        kind="stt",
+        model_id="needs-sdk",
+        display_name="Needs SDK",
+        service_class="pipecat.services.nowhere.stt.NowhereSTTService",
+        requires=("definitely_not_an_installed_package_xyz",),
+    )
+    registry._RUNTIME_CACHE.pop(spec.service_class, None)
+    status, detail = registry.runtime_status(spec)
+    assert status == registry.RUNTIME_UNAVAILABLE
+    assert "definitely_not_an_installed_package_xyz" in detail
+    assert imported == []
+
+
+def test_speechmatics_declares_its_sdk() -> None:
+    for model_id in ("ursa-2", "bilingual-ar-en"):
+        model = registry.find_model("speechmatics", model_id)
+        assert model is not None and model.requires == ("speechmatics",)

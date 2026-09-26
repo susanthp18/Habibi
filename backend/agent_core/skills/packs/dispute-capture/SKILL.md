@@ -8,8 +8,9 @@ allowed-tools:
   - add_customer_note
   - escalate_to_human
   - get_customer_context
+  - ext.paylink.get_status
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   data_class:
     - pii
     - money
@@ -28,8 +29,13 @@ A live dispute vetoes collection treatment. The write is `flag_dispute`, not a n
 ## Steps
 
 1. Classify: `paid_already`, `wrong_amount`, `not_my_account`, or other allowed type.
-2. Call `flag_dispute` with type and a one-line summary in the caller's words.
-3. Stop PTP / upsell language. Escalate if the caller asks for legal next steps.
+2. For `paid_already`, check before you file: call `ext.paylink.get_status`.
+   - `paid`: the payment is on record. Say so in the tool's `say` words, note it
+     with `add_customer_note`, and do not file a dispute or ask for money.
+   - anything else (`pending`, `none`, a failure): the link does not show it.
+     Say you cannot see it yet — never that they did not pay — and file it.
+3. Call `flag_dispute` with type and a one-line summary in the caller's words.
+4. Stop PTP / upsell language. Escalate if the caller asks for legal next steps.
 
 ## Goodwill on a resolved dispute
 
@@ -45,6 +51,7 @@ the agent could size a waiver it had no way to post.
 ## Never
 
 - Never argue the ledger from memory.
+- Never read a provider reference or transaction id aloud; it is for the note.
 - Never call `create_promise_to_pay` while this skill is active.
 - Never call `apply_goodwill` without a `decision_id` from `evaluate_authority`,
   and never for settlement, restructuring or bounce charges.

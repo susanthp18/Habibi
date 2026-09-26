@@ -426,6 +426,13 @@ class PolicyExportResponse(BaseModel):
     text: str
 
 
+class PolicyRuleItemResponse(BaseModel):
+    kind: str
+    channel: str | None = None
+    params: dict[str, Any]
+    citation: str | None = None
+
+
 class PolicyRuleSetResponse(BaseModel):
     """policy_rules.list_rule_sets: raw row; the W4 publication columns are
     selected only once that migration is in (exclude_unset keeps the wire)."""
@@ -442,6 +449,20 @@ class PolicyRuleSetResponse(BaseModel):
     published_by_user_id: str | None = None
     approved_by_user_id: str | None = None
     changed_rules: list[str] | None = None
+    notes: str | None = None
+    rules: list[PolicyRuleItemResponse] = []
+    #: This actor may approve their own pending set (break-glass).
+    selfApprovable: bool = False
+    #: Set when the set was published by its own submitter (break-glass).
+    self_approval_reason: str | None = None
+
+
+class PolicyRuleApproveRequest(BaseModel):
+    """Approve. ``selfApprovalReason`` only for a break-glass self-approval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    selfApprovalReason: str | None = Field(default=None, max_length=1000)
 
 
 class PolicyRuleSetCreatedResponse(BaseModel):

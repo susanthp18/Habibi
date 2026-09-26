@@ -6,12 +6,14 @@ from typing import Any
 
 from sqlalchemy import text
 
+from agent_core.cards.defaults import FIRST_PARTY_BOTS
 from agent_core.clock import utc_now
 from db_prompt_studio.deployments import DEFAULT_BOT_ID
 from env_utils import env_int
 from db_core import (
     _activity,
     _actor_user_id,
+    _as_dict,
     _assert_tenant_owns,
     _dump,
     _duration,
@@ -28,6 +30,7 @@ from db_core import (
     _vis_params,
     clamp_list_limit,
     clamp_offset,
+    is_unknown_caller,
 )
 
 
@@ -55,6 +58,58 @@ def _sentiment_delta(score: float | None) -> str:
     return "flat"
 
 
+def _current_card_names(conn: Any, bot_ids: set[str]) -> dict[str, str]:
+    """Resolve the same draft → published → built-in name shown by Agent Studio."""
+    if not bot_ids:
+        return {}
+    names = {bot_id: name for bot_id, name, _ in FIRST_PARTY_BOTS if bot_id in bot_ids}
+    versions = _rows(
+        conn.execute(
+            text(
+                """
+                SELECT DISTINCT ON (p.bot_id, p.status) p.bot_id, p.agent_card
+                FROM prompt_versions p
+                JOIN bots b ON b.id = p.bot_id AND b.tenant_id = p.tenant_id
+                WHERE p.tenant_id = :tenant_id
+                  AND p.bot_id = ANY(:bot_ids)
+                  AND p.status IN ('draft', 'published')
+                ORDER BY p.bot_id, p.status, p.created_at DESC, p.id DESC
+                """
+            ),
+            {"tenant_id": _tenant(), "bot_ids": list(bot_ids)},
+        )
+    )
+    # The newest draft wins when it names the card; otherwise use the
+    # published name, then the built-in first-party name.
+    resolved: set[str] = set()
+    for version in versions:
+        bot_id = version["bot_id"]
+        if bot_id in resolved:
+            continue
+        card = _as_dict(version["agent_card"])
+        if not card:
+            continue
+        identity = card.get("identity")
+        display_name = identity.get("display_name") if isinstance(identity, dict) else None
+        if isinstance(display_name, str) and display_name.strip():
+            names[bot_id] = display_name
+            resolved.add(bot_id)
+    return names
+
+
+def _caller_label(row: dict[str, Any]) -> str:
+    """Who the Audit screen says was on the line.
+
+    A Sandbox Live rehearsal that never verified sits on the UNKNOWN-CALLER
+    sentinel; "Unknown caller" there reads as an anonymous real call. Name it
+    for what it is, with the customer the tester was playing.
+    """
+    if row.get("environment") == "sandbox" and is_unknown_caller(row.get("customer_id")):
+        persona = (row.get("persona_name") or "").strip()
+        return f"Sandbox rehearsal · {persona}" if persona else "Sandbox rehearsal"
+    return row["customer_name"]
+
+
 def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
     # Tenant-scoped unconditionally. Filtering on customer_id alone was safe
     # only because every live caller passes one and customers are themselves
@@ -76,6 +131,7 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
                   i.id,
                   i.channel,
                   i.handler_kind,
+                  i.handler_bot_id,
                   COALESCE(u.name, b.name) AS handler_name,
                   i.started_at,
                   i.duration_sec,
@@ -97,6 +153,7 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
             params,
         )
     )
+    bot_names = _current_card_names(conn, {r["handler_bot_id"] for r in interactions if r["handler_bot_id"]})
     # Batch transcripts — avoid N+1 (one query per interaction).
     transcripts_by_id: dict[str, list[str]] = {row["id"]: [] for row in interactions}
     interaction_ids = list(transcripts_by_id)
@@ -122,7 +179,12 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
             {
                 "id": interaction["id"],
                 "channel": interaction["channel"],
-                "handler": {"kind": interaction["handler_kind"], "name": interaction["handler_name"] or "Unknown"},
+                "handler": {
+                    "kind": interaction["handler_kind"],
+                    "name": bot_names.get(interaction["handler_bot_id"], interaction["handler_name"]) or "Unknown"
+                    if interaction["handler_kind"] == "bot"
+                    else interaction["handler_name"] or "Unknown",
+                },
                 "startedAt": interaction["started_at"],
                 "duration": _duration(interaction["duration_sec"]),
                 "disposition": interaction["disposition"] or "Unknown",
@@ -165,6 +227,7 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                       i.channel,
                       i.direction,
                       i.handler_kind,
+                      i.handler_bot_id,
                       COALESCE(u.name, b.name) AS handled_by,
                       i.customer_id,
                       c.name AS customer_name,
@@ -177,7 +240,9 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                       i.redaction_applied,
                       i.hash,
                       i.rag_hits,
-                      i.latency_ms
+                      i.latency_ms,
+                      i.source_payload->>'environment' AS environment,
+                      i.source_payload->>'personaName' AS persona_name
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
@@ -196,6 +261,7 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
         # query, so the Calls screen got slower in direct proportion to how
         # long the deployment had been running.
         interaction_ids = [row["id"] for row in rows]
+        bot_names = _current_card_names(conn, {r["handler_bot_id"] for r in rows if r["handler_bot_id"]})
 
         def _grouped(sql: str) -> dict[str, list[dict[str, Any]]]:
             grouped: dict[str, list[dict[str, Any]]] = {}
@@ -246,7 +312,7 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
             disclosures = disclosures_by.get(row["id"], [])
             handled_by = {"kind": row["handler_kind"]}
             if row["handler_kind"] == "bot":
-                handled_by["bot"] = row["handled_by"] or "Bot"
+                handled_by["bot"] = bot_names.get(row["handler_bot_id"], row["handled_by"]) or "Bot"
             else:
                 handled_by["agent"] = row["handled_by"] or "Agent"
             calls.append(
@@ -259,7 +325,7 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                         direction=row["direction"],
                         handledBy=handled_by,
                         customerId=row["customer_id"],
-                        customerName=row["customer_name"],
+                        customerName=_caller_label(row),
                         accountId=row["account_id"],
                         disposition=row["disposition"],
                         summary=row["summary"],
@@ -272,7 +338,10 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                         transcript=transcript,
                         flags=flags,
                         phoneMasked=row["phone_primary"] or "",
-                        tags=[row["disposition"]] if row["disposition"] else [],
+                        tags=[
+                            *([row["disposition"]] if row["disposition"] else []),
+                            *(["sandbox"] if row["environment"] == "sandbox" else []),
+                        ],
                         sentimentSeries=sentiment_series,
                         disclosures=disclosures,
                         routing=["Postgres", "API"],

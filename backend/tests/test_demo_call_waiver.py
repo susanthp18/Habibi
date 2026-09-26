@@ -1,16 +1,19 @@
-"""What the demo switch may waive, and what it may never waive.
+"""What the demo button may waive, and what it may never waive.
 
 The demo endpoint dials one configured handset -- the one the operator running
 the demo is holding -- and takes no phone number, so it cannot be pointed at a
 borrower. Rehearsing on it hits `cooling_off` after a few calls, which is the
-frequency rule working correctly on the wrong subject.
+frequency rule working correctly on the wrong subject. Those frequency
+refusals are always overridden. Calling hours and the borrower's preferred
+window stay behind the operator switch, so a demo can still show the
+statutory gate.
 
-So the switch waives *when* and *how often*. It does not waive *whether*: a
-person who opted out, registered DND, or never gave a promotional basis is not
-callable for a demo either, and no switch setting changes that.
+Nothing here waives *whether*: a person who opted out, registered DND, or
+never gave a promotional basis is not callable for a demo either, and no
+switch setting changes that.
 
 This file exists because that line is the whole safety argument for having the
-switch at all, and a line nobody tests is a line that moves.
+waiver at all, and a line nobody tests is a line that moves.
 """
 
 from __future__ import annotations
@@ -81,24 +84,43 @@ def test_the_waivable_set_is_exactly_the_five_timing_rules() -> None:
     )
 
 
-# --- the switch is still the gate -------------------------------------------
+# --- frequency is always waived; hours need the switch ----------------------
 
 
-def test_the_waiver_needs_the_switch_and_the_switch_is_off_by_default() -> None:
-    """Waivable is not waived: an operator has to have turned this on."""
+def test_frequency_is_waived_even_when_the_hours_switch_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second rehearsal must not die on cooling-off while the hours gate stays.
+
+    The hours switch defaults off. Frequency is not behind that switch: the
+    button dials one configured handset, and the cap exists for borrowers.
+    """
     import inspect
-
-    src = inspect.getsource(outbound_routes.demo_outbound_call)
-    assert "platform_switches.demo_ignores_window()" in src
-    # The waiver is handed to `outbound.gate` as its `waivable` set, and only
-    # when the switch is on; off, the set is empty and nothing is waivable.
-    assert "waivable=(" in src
-    assert "_DEMO_WAIVABLE_REASONS" in src
-    assert "else frozenset()" in src
 
     import platform_switches
 
+    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kwargs: False)
+    active = outbound_routes._demo_active_waivers()
+    assert active == outbound_routes._DEMO_FREQUENCY_REASONS
+    assert contact_policy.REASON_COOLING in active
+    assert contact_policy.REASON_DAILY in active
+    assert contact_policy.REASON_WEEKLY in active
+    assert contact_policy.REASON_HOURS not in active
+    assert contact_policy.REASON_WINDOW not in active
+
+    src = inspect.getsource(outbound_routes.demo_outbound_call)
+    assert "waivable=_demo_active_waivers()" in src
+    assert "else frozenset()" not in src
     assert platform_switches.DEMO_IGNORES_WINDOW in platform_switches.KNOWN_KEYS
+
+
+def test_the_hours_switch_adds_only_the_clock_vetoes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import platform_switches
+
+    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kwargs: True)
+    assert outbound_routes._demo_active_waivers() == outbound_routes._DEMO_WAIVABLE_REASONS
 
 
 def test_every_waiver_is_written_to_the_audit_trail() -> None:

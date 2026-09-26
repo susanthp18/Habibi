@@ -71,10 +71,11 @@ KNOWN_KEYS: dict[str, str] = {
         "not the demo button."
     ),
     DEMO_IGNORES_WINDOW: (
-        "Let the demo button dial regardless of when or how often — calling "
-        "hours, preferred window, cooling-off and the daily/weekly caps. "
-        "Affects the demo number only. Never overrides consent, opt-out, DND "
-        "or the registry."
+        "Let the demo button dial outside the statutory calling hours and the "
+        "borrower's preferred window. The demo button already ignores "
+        "cooling-off and the daily/weekly caps, because it dials one "
+        "configured handset and takes no number. Never overrides consent, "
+        "opt-out, DND or the registry."
     ),
     TREATMENT_ENACT_ENABLED: (
         "Treatment executor. Off means due plans are not sent. Absence is off."
@@ -144,7 +145,11 @@ def outbound_enabled(*, engine: Any = None) -> bool:
 
 
 def demo_ignores_window(*, engine: Any = None) -> bool:
-    """May the demo button dial outside permitted hours? Off by default."""
+    """May the demo button dial outside permitted hours? Off by default.
+
+    This does not gate cooling-off or the attempt caps. Those are always
+    waived on the demo button; see ``routers.outbound._demo_active_waivers``.
+    """
     return is_enabled(DEMO_IGNORES_WINDOW, engine=engine)
 
 

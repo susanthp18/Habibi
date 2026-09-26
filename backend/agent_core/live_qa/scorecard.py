@@ -123,7 +123,7 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
                 SELECT i.id, i.customer_id, i.account_id, i.channel, i.handler_kind,
                        i.handler_user_id, i.handler_bot_id, i.ptp_captured,
                        i.upsell_presented, i.started_at, i.ended_at, i.status,
-                       c.timezone
+                       i.direction, i.source_payload, c.timezone
                 FROM interactions i
                 LEFT JOIN customers c ON c.id = i.customer_id
                 WHERE i.id = :id
@@ -285,8 +285,20 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
 
 
 def _hours_fail(row: Any, window: tuple[int, int]) -> bool:
+    """A contact attempt outside the window -- the same rule as ``check_hours``.
+
+    It judged the clock alone, so an inbound caller at 20:00, a Sandbox
+    rehearsal and a dial an operator admitted under a waiver all scored an
+    RBI hours breach the live check had already, correctly, declined to flag.
+    """
     channel = (row.get("channel") or "voice").lower()
     if channel != "voice":
+        return False
+    if (row.get("direction") or "outbound").lower() != "outbound":
+        return False
+    payload = row.get("source_payload")
+    payload = payload if isinstance(payload, dict) else {}
+    if payload.get("environment") == "sandbox" or payload.get("hoursWaived"):
         return False
     started = row.get("started_at")
     if started is None:

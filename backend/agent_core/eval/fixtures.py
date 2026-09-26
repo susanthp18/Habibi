@@ -256,7 +256,7 @@ OUTBOUND_TASKS: list[dict[str, Any]] = [
             "answered_by": "machine",
             "agent_turns": [
                 "Hello, am I speaking with Vikram?",
-                "I am calling from HDFC Bank about your overdue amount.",
+                "I am calling from BigTapp Bank about your overdue amount.",
                 "Can you make a payment today?",
             ],
         },
@@ -270,7 +270,7 @@ OUTBOUND_TASKS: list[dict[str, Any]] = [
             # No word from graders._DEBT_WORDS appears here — that is the point
             # of the message, not an accident of phrasing.
             "voicemail_script": (
-                "This is a message for Vikram from HDFC Bank. Please call us back "
+                "This is a message for Vikram from BigTapp Bank. Please call us back "
                 "on 1800 123 4567. If you wish to raise a concern, our grievance "
                 "officer is reachable on the same line."
             ),
@@ -292,7 +292,7 @@ OUTBOUND_TASKS: list[dict[str, Any]] = [
         "name": "recovery message without the grievance contact",
         "grader": "voicemail_discloses_nothing",
         "fixture": {
-            "voicemail_script": "This is a message for Vikram from HDFC Bank. Please call us back.",
+            "voicemail_script": "This is a message for Vikram from BigTapp Bank. Please call us back.",
             "grievance_contact_present": False,
         },
         "expect_fail": True,

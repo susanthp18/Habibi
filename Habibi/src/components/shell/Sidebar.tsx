@@ -28,7 +28,6 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
-  Beaker,
   GitBranch,
   Plug,
   Webhook,
@@ -36,6 +35,17 @@ import {
   Settings,
   ShieldAlert,
   ChevronsRight,
+  AudioLines,
+  Megaphone,
+  Cpu,
+  PhoneCall,
+  Wrench,
+  KeyRound,
+  History,
+  LineChart,
+  SlidersHorizontal,
+  LifeBuoy,
+  Rocket,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -94,11 +104,135 @@ const groups: NavGroup[] = [
     ],
   },
   {
+    // AgentStudio: the voice-agent engine's screens. Each item carries the
+    // permission the gateway enforces for it, so nobody sees a page that
+    // would only answer 403.
+    label: "Voice Studio",
+    items: [
+      {
+        key: "studio-agents",
+        label: "Voice agents",
+        icon: Bot,
+        to: "/studio",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-campaigns",
+        label: "Campaigns",
+        icon: Megaphone,
+        to: "/studio/campaigns",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-runs",
+        label: "Agent runs",
+        icon: History,
+        to: "/studio/usage",
+        permission: "perm-analytics-read",
+      },
+      {
+        key: "studio-files",
+        label: "Knowledge base",
+        icon: BookOpen,
+        to: "/studio/files",
+        permission: "perm-kb-read",
+      },
+      {
+        key: "studio-recordings",
+        label: "Call recordings",
+        icon: AudioLines,
+        to: "/studio/recordings",
+        permission: "perm-analytics-read",
+      },
+      {
+        key: "studio-audio-library",
+        label: "Audio library",
+        icon: AudioLines,
+        to: "/studio/audio-library",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-tools",
+        label: "Tools",
+        icon: Wrench,
+        to: "/studio/tools",
+        permission: "perm-integrations-read",
+      },
+      {
+        key: "studio-models",
+        label: "Models",
+        icon: Cpu,
+        to: "/studio/model-configurations",
+        permission: "perm-integrations-read",
+      },
+      {
+        key: "studio-guardrails",
+        label: "Guardrails",
+        icon: ShieldAlert,
+        to: "/studio/guardrails",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-checks",
+        label: "Checks",
+        icon: ClipboardCheck,
+        to: "/studio/checks",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-telephony",
+        label: "Telephony",
+        icon: PhoneCall,
+        to: "/studio/telephony-configurations",
+        permission: "perm-integrations-read",
+      },
+      {
+        key: "studio-routing",
+        label: "Agent routing",
+        icon: GitBranch,
+        to: "/studio/routing",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-releases",
+        label: "Releases",
+        icon: Rocket,
+        to: "/studio/releases",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-reports",
+        label: "Reports",
+        icon: LineChart,
+        to: "/studio/reports",
+        permission: "perm-analytics-read",
+      },
+      {
+        key: "studio-developers",
+        label: "Developers",
+        icon: KeyRound,
+        to: "/studio/api-keys",
+        permission: "perm-admin-write",
+      },
+      {
+        key: "studio-settings",
+        label: "Studio settings",
+        icon: SlidersHorizontal,
+        to: "/studio/settings",
+        permission: "perm-bot-read",
+      },
+      {
+        key: "studio-help",
+        label: "Help",
+        icon: LifeBuoy,
+        to: "/studio/docs",
+        permission: "perm-bot-read",
+      },
+    ],
+  },
+  {
     label: "Bot configuration",
     items: [
-      { key: "knowledge-base", label: "Knowledge base", icon: BookOpen, to: "/knowledge-base" },
-      { key: "prompt-studio", label: "Agent studio", icon: Bot, to: "/agent-studio" },
-      { key: "sandbox", label: "Call sandbox", icon: Beaker, to: "/sandbox" },
       { key: "routing", label: "Routing / logic", icon: GitBranch, to: "/routing" },
       { key: "integrations", label: "Integrations", icon: Plug, to: "/integrations" },
       { key: "webhooks", label: "Webhooks", icon: Webhook, to: "/webhooks" },
@@ -137,9 +271,9 @@ export function NavLinks({
   const navRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
 
-  // A detail route (/customers/CUST-1, /agent-studio/kaia-v2-4) belongs to
-  // its list's entry; the longest matching prefix wins so /agent-studio/skills
-  // lights Skills rather than Agent Studio. "/" matches only itself.
+  // A detail route (/customers/CUST-1, /studio/workflow/2) belongs to its
+  // list's entry; the longest matching prefix wins so /studio/guardrails
+  // lights Guardrails rather than Voice agents. "/" matches only itself.
   const activeKey = useMemo(() => {
     let best: { key: string; len: number } | null = null;
     for (const group of groups) {

@@ -53,6 +53,17 @@ VOICE_NATURALNESS_OVERLAY = (
     "Never stall with contentless filler like 'one moment', 'please hold', or "
     "'let me check' — those say nothing and the system already handles waiting "
     "sounds. "
+    "Do not open a turn with Thanks, Thank you, That's great, Perfect, or "
+    "I'm sorry, unless they have just told you about a hardship. Say the new "
+    "fact. Use the caller's name at most once more after the greeting -- not "
+    "at the start of every turn. Never read back what they just told you "
+    "(digits, their age, where they are going); use it. Say money in rupees "
+    "the way a person would ('four thousand rupees'), never 'INR', and dates "
+    "as a day and month ('Sunday the fourth of October'), never a date like "
+    "2026-10-04. Once they have agreed an amount and a date, confirm that once and "
+    "ask if there is anything else — do not ask again about the payment "
+    "channel, their phone number, whether it might be delayed, or how many "
+    "extra days they need. "
     "When you call a tool AFTER the caller has spoken, do say one short clause "
     "in the SAME reply as the call, before it, naming what you are doing for "
     "them — 'Sure, I can set that up.', 'Right, let's look at that dispute.' "
@@ -209,34 +220,48 @@ def build_voice_system_prompt(
 
 # Warm, varied acknowledgements — never the robotic "One moment.". Picked at
 # random so repeated tool calls don't sound like a stuck recording.
+# Spoken only when a tool is still running after a short wait and the model
+# itself has not already spoken. No "thanks" and no "let me check" — those
+# stacked on the model's own opener on VS-E6043500C0.
 _FILLERS: dict[str, tuple[str, ...]] = {
     "search_knowledge_base": (
-        "Good question, let me find that for you.",
-        "Sure, let me look that up.",
+        "I'll find that.",
+        "Checking the policy.",
     ),
     "verify_identity": (
-        "Thanks, just confirming that now.",
-        "Great, let me verify that quickly.",
+        "Checking that now.",
+        "Matching those digits.",
     ),
     "get_account_position": (
-        "Let me pull up your account.",
-        "Okay, let me take a quick look at your account.",
+        "Opening your account.",
+        "Pulling up the balance.",
     ),
     "create_promise_to_pay": (
-        "Perfect, I'm noting that down for you.",
-        "Great, let me set that up.",
+        "Noting that promise.",
+        "Saving that date.",
     ),
     "flag_dispute": (
-        "Understood, I'm logging that for you.",
-        "Okay, let me record the details of that.",
+        "Logging that dispute.",
+        "Recording those details.",
     ),
     "request_callback": (
-        "Sure, I'll arrange that callback.",
-        "No problem, setting up that callback now.",
+        "Booking that callback.",
+        "Setting that time.",
     ),
     "add_customer_note": (
-        "Got it, I'm adding a note to your account.",
-        "Sure, noting that for you.",
+        "Adding that note.",
+        "Writing that down.",
+    ),
+    # Fast CRM writes, so the still-running rule never picks them. They are
+    # here for the caller-wait rule: the second tool of a chained turn, when
+    # the caller has already sat through two generations (VS-8C1B760F1B).
+    "capture_nonpayment_reason": (
+        "Noting that down.",
+        "Got that noted.",
+    ),
+    "revise_promise_to_pay": (
+        "Moving that date.",
+        "Updating that promise.",
     ),
 }
 

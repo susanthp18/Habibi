@@ -81,6 +81,25 @@ describe("SelectField", () => {
     );
   });
 
+  it("stays controlled when its value arrives after mount", () => {
+    // The Sandbox pickers mount empty and get a value once their query lands.
+    // Handing Radix `undefined` for "unset" made it uncontrolled, and React
+    // warned "changing from uncontrolled to controlled" on every page load.
+    // Radix raises it with console.warn (react-use-controllable-state).
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    try {
+      const props = { "aria-label": "Prompt", onChange: () => {}, options: POOLS.slice(1) };
+      const { rerender } = render(<SelectField {...props} value="" placeholder="Pick a pool" />);
+      rerender(<SelectField {...props} value="mkt" placeholder="Pick a pool" />);
+      expect(screen.getByRole("combobox", { name: "Prompt" })).toHaveTextContent("Marketing pool");
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings.map((a) => String(a[0])).filter((m) => /uncontrolled/i.test(m))).toEqual([]);
+  });
+
   it("reports an empty string, not the sentinel, when none is chosen", async () => {
     const user = userEvent.setup();
     render(<Controlled initial="1600" />);

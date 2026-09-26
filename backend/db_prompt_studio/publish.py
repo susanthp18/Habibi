@@ -26,7 +26,6 @@ from db_prompt_studio.voices import (
 from db_prompt_studio.deployments import (
     DEFAULT_BOT_ID,
     _fetch_active_deployment_row,
-    _latest_kb_snapshot_id,
 )
 from db_prompt_studio.versions import (
     _DEFAULT_AZURE_TTS_VOICE,
@@ -93,7 +92,9 @@ def publish_prompt_version(
 ) -> dict[str, Any]:
     """Archive current published → promote draft → swap active prod deployment.
 
-    kb_snapshot_id: explicit Sandbox pin wins; else prior active snap, else latest.
+    kb_snapshot_id: an explicit Sandbox pin is preserved; otherwise use the
+    current indexed KB. An old deployment's snapshot must not silently exclude
+    documents indexed after that deployment was published.
     tuning: explicit AgentTuning from Sandbox Promote; else prior deployment tuning.
     """
     _mod = _db()
@@ -109,6 +110,16 @@ def publish_prompt_version(
         row = _fetch_prompt_version(conn, version_id)
     bot_id = frozen.bot_id
     assert row is not None
+    # The only server-side record that a publish happened and what it swapped
+    # in. v1.5 went live leaving nothing in the log but a 200 on the route.
+    logger.info(
+        "publish.done bot=%s pv=%s deployment=%s replaced=%s bundle=%s",
+        bot_id,
+        version_id,
+        deployed.dep_id,
+        (deployed.previously_published or {}).get("id"),
+        (compiled.bundle_hash or "")[:16],
+    )
 
     # Publishing a member is a fleet act. A door serves `compiled.fleet_flow`,
     # derived from its members' published versions, so every door that merged
@@ -581,11 +592,7 @@ def _deploy(
     prior = _fetch_active_deployment_row(
         conn, bot_id=bot_id, environment="production"
     )
-    resolved_snap = kb_snapshot_id
-    if not resolved_snap:
-        resolved_snap = prior.get("kb_snapshot_id") if prior else None
-    if not resolved_snap:
-        resolved_snap = _latest_kb_snapshot_id(conn)
+    resolved_snap = kb_snapshot_id or None
     if resolved_snap and not _one(
         conn.execute(text("SELECT 1 FROM kb_snapshots WHERE id = :id"), {"id": resolved_snap})
     ):

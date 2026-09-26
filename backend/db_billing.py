@@ -1021,11 +1021,12 @@ def upsert_budget_rule(budget_id: str, payload: dict[str, Any], rule_id: str | N
 
     with engine.begin() as conn:
         budget = conn.execute(
-            text("SELECT id FROM budgets WHERE id = :id"),
+            text("SELECT id, tenant_id FROM budgets WHERE id = :id"),
             {"id": budget_id},
         ).first()
         if not budget:
             raise LookupError("budget_not_found")
+        _scope_platform_budget(conn, budget, action="change a rule on")
 
         rid = rule_id or f"r_{uuid.uuid4().hex[:10]}"
         if rule_id:
@@ -1072,9 +1073,24 @@ def upsert_budget_rule(budget_id: str, payload: dict[str, Any], rule_id: str | N
         }
 
 
+def _scope_platform_budget(conn: Any, budget: Any, *, action: str) -> None:
+    """The platform budget (tenant_id NULL) is written only in platform scope;
+    row security refuses it otherwise. See ``platform_scope``."""
+    if budget is not None and budget[1] is None:
+        import platform_scope
+
+        platform_scope.enter(
+            conn, actor_user_id=_db()._actor_user_id(), reason=f"{action} platform budget {budget[0]}"
+        )
+
+
 def delete_budget_rule(budget_id: str, rule_id: str) -> None:
     engine = _db().engine
     with engine.begin() as conn:
+        budget = conn.execute(
+            text("SELECT id, tenant_id FROM budgets WHERE id = :id"), {"id": budget_id}
+        ).first()
+        _scope_platform_budget(conn, budget, action="delete a rule on")
         # Drop alert history first (FK)
         conn.execute(
             text("DELETE FROM budget_alert_events WHERE budget_rule_id = :id"),

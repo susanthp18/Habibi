@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = [
     "PG_CHECK_VIOLATION",
     "PG_FOREIGN_KEY_VIOLATION",
+    "PG_INSUFFICIENT_PRIVILEGE",
     "PG_NOT_NULL_VIOLATION",
     "PG_UNIQUE_VIOLATION",
     "constraint_detail",
@@ -22,6 +23,8 @@ PG_UNIQUE_VIOLATION = "23505"
 PG_FOREIGN_KEY_VIOLATION = "23503"
 PG_NOT_NULL_VIOLATION = "23502"
 PG_CHECK_VIOLATION = "23514"
+#: Also what a row-level-security WITH CHECK refusal raises.
+PG_INSUFFICIENT_PRIVILEGE = "42501"
 
 #: What the API says for each integrity class. One map, so a write path cannot
 #: call a foreign-key miss a duplicate.

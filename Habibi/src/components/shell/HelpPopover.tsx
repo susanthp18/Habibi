@@ -35,12 +35,12 @@ const SECTIONS: {
   },
   {
     title: "Bot config",
-    blurb: "Tune agent cards, skills, knowledge, and routing that drive the voice agent.",
+    blurb: "Tune the voice agents, their knowledge, guardrails, and checks.",
     links: [
-      { label: "Agent studio", to: "/agent-studio" },
-      { label: "Skills library", to: "/agent-studio/skills" },
-      { label: "Knowledge Base", to: "/knowledge-base" },
-      { label: "Call Sandbox", to: "/sandbox" },
+      { label: "Voice agents", to: "/studio" },
+      { label: "Knowledge base", to: "/studio/files" },
+      { label: "Guardrails", to: "/studio/guardrails" },
+      { label: "Checks", to: "/studio/checks" },
       { label: "Integrations", to: "/integrations" },
     ],
   },

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { entraAccountName, entraVarsPresent, loginRedirectUri, logoutRedirectUri } from "./sso";
+import {
+  SessionRenewalNeeded,
+  entraAccountName,
+  entraVarsPresent,
+  isSessionRenewal,
+  loginRedirectUri,
+  logoutRedirectUri,
+} from "./sso";
 
 describe("entraVarsPresent", () => {
   it("is false when any of client, tenant, or scope is blank", () => {
@@ -25,6 +32,13 @@ describe("redirect URIs", () => {
 
   it("returns Sign out to the landing origin", () => {
     expect(logoutRedirectUri("http://localhost:8080")).toBe("http://localhost:8080/");
+  });
+});
+
+describe("isSessionRenewal", () => {
+  it("is only the Microsoft session failure, not a missing role", () => {
+    expect(isSessionRenewal(new SessionRenewalNeeded())).toBe(true);
+    expect(isSessionRenewal(new Error("forbidden"))).toBe(false);
   });
 });
 

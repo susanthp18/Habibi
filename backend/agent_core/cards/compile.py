@@ -957,8 +957,16 @@ def _ship_gates(
         allowed_scope = set(card.tools.include) | set(card.tools.locked) | PLATFORM_SKILL_TOOLS
         extras: dict[str, list[str]] = {}
         unknown_skill_tools: dict[str, list[str]] = {}
+        from agent_core.skills.lint import is_connector_tool
+
         for pack in packs:
-            not_catalog = [n for n in pack.allowed_tools if n not in catalog_names]
+            # A connector tool is judged by G10/G18 against the card's
+            # bindings, not against the catalog it is never in.
+            not_catalog = [
+                n
+                for n in pack.allowed_tools
+                if n not in catalog_names and not is_connector_tool(n)
+            ]
             not_card = [n for n in pack.allowed_tools if n not in allowed_scope and n in catalog_names]
             if not_catalog:
                 unknown_skill_tools[pack.slug] = not_catalog
@@ -973,13 +981,15 @@ def _ship_gates(
         else:
             gates.append(_gate("G9", "signed_skills", "pass", f"{len(packs)} signed skill(s)"))
 
-    # G10 connectors — skipped until MCP_CLIENT_ENABLED. Never fake-green.
+    # G10 connectors. MCP_CLIENT_ENABLED governs remote connectors only: a
+    # first-party one is checked whatever the flag says, and a remote one is
+    # skipped -- never fake-green -- while the flag is off.
     from agent_core.platform_flags import mcp_client_enabled
 
+    remote_off = not mcp_client_enabled()
+    remote_skipped: list[str] = []
     if card is None or not card.connectors:
         gates.append(_gate("G10", "connectors", "skipped", "no connectors on card"))
-    elif not mcp_client_enabled():
-        gates.append(_gate("G10", "connectors", "skipped", "MCP client flag is off"))
     else:
         g10_issues: list[dict[str, Any]] = []
         #: Registry-outage issues, kept apart from ``g10_issues``: they are not
@@ -1040,6 +1050,9 @@ def _ship_gates(
             if conn is None:
                 g10_issues.append({"unresolved": ref.connector_id})
                 continue
+            if conn["kind"] != "first_party" and remote_off:
+                remote_skipped.append(ref.connector_id)
+                continue
             if conn["status"] != "approved":
                 g10_issues.append({"not_approved": ref.connector_id})
             # Publish is production: a sandbox-only connector fails here, not
@@ -1090,8 +1103,12 @@ def _ship_gates(
                     connector_bind_issues + lookup_issues,
                 )
             )
+        elif remote_skipped and len(remote_skipped) == len(card.connectors):
+            gates.append(_gate("G10", "connectors", "skipped", "MCP client flag is off"))
         else:
-            gates.append(_gate("G10", "connectors", "pass", f"{len(card.connectors)} connector(s)"))
+            checked = len(card.connectors) - len(remote_skipped)
+            note = f"; remote skipped (MCP client off): {', '.join(remote_skipped)}" if remote_skipped else ""
+            gates.append(_gate("G10", "connectors", "pass", f"{checked} connector(s){note}"))
 
     # G12 canary — 100% is a full ship. A split without auto-rollback cannot publish.
     pct = traffic_pct

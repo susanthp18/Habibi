@@ -404,7 +404,7 @@ CREATE INDEX IF NOT EXISTS idx_voice_sandbox_sessions_updated_at ON voice_sandbo
 -- until those arrive, so a deployment that stops here still refuses to send
 -- dunning SMS or leave voicemail. That is the correct failure -- silent and
 -- safe -- and it is better than a schema that cannot be applied at all.
-INSERT INTO tenants (id, name) VALUES ('hdfc.retail', 'HDFC Retail')
+INSERT INTO tenants (id, name) VALUES ('hdfc.retail', 'BigTapp Bank')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO persona_presets (id, tenant_id, name, config) VALUES

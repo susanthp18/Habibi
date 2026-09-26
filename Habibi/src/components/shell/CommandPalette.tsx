@@ -28,6 +28,7 @@ import {
   Webhook,
   Moon,
   type LucideIcon,
+  Rocket,
 } from "lucide-react";
 import {
   CommandDialog,
@@ -39,9 +40,9 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useCustomers } from "@/api/customers";
-import { useAgentStudioCards } from "@/api/agent-studio";
 import { useWorkItems } from "@/api/workspace";
 import { can, useMe } from "@/api/me";
+import { useStudioAgents } from "@/api/voice-studio";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { toggleTheme } from "@/lib/theme";
 
@@ -50,7 +51,6 @@ const PAGES: {
   to: string;
   icon: LucideIcon;
   keywords?: string;
-  params?: Record<string, string>;
 }[] = [
   { label: "My Workspace", to: "/", icon: Home, keywords: "home queue" },
   { label: "Conversation Inbox", to: "/inbox", icon: LayoutGrid },
@@ -69,10 +69,22 @@ const PAGES: {
   { label: "Redaction & Export", to: "/redaction", icon: FileLock2 },
   { label: "QA Scorecards", to: "/qa", icon: ClipboardCheck },
   { label: "Bot Analytics", to: "/bot-analytics", icon: Activity },
-  { label: "Knowledge Base", to: "/knowledge-base", icon: BookOpen },
-  { label: "Agent studio", to: "/agent-studio", icon: Bot, keywords: "prompt card fleet" },
-  { label: "Skills library", to: "/agent-studio/skills", icon: Bot, keywords: "skill pack ptp" },
-  { label: "Call Sandbox", to: "/sandbox", icon: Beaker },
+  { label: "Voice agents", to: "/studio", icon: Bot, keywords: "voice studio workflow agent" },
+  { label: "Knowledge base", to: "/studio/files", icon: BookOpen, keywords: "kb documents files" },
+  { label: "Guardrails", to: "/studio/guardrails", icon: ShieldAlert },
+  { label: "Checks", to: "/studio/checks", icon: Beaker, keywords: "eval test" },
+  {
+    label: "Agent routing",
+    to: "/studio/routing",
+    icon: GitBranch,
+    keywords: "inbound whatsapp objective",
+  },
+  {
+    label: "Releases",
+    to: "/studio/releases",
+    icon: Rocket,
+    keywords: "publish rollback changelog version",
+  },
   {
     label: "Pending approvals",
     to: "/floor",
@@ -102,47 +114,18 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const { data: me } = useMe();
   const { data: customers = [] } = useCustomers();
   const { data: workItems = [] } = useWorkItems("me");
-  const { data: cards = [] } = useAgentStudioCards();
-  // The card inbound traffic resolves to -- the fleet's door, not a literal.
-  const entryBotId = cards[0]?.entryBotId;
-  const pages = useMemo(() => {
-    const visible = can(me, "perm-admin-write")
-      ? PAGES
-      : PAGES.filter((page) => page.to !== "/roles");
-    return entryBotId
-      ? [
-          ...visible,
-          {
-            label: "Open the entry card",
-            to: "/agent-studio/$botId",
-            params: { botId: entryBotId },
-            icon: Bot,
-            keywords: "prompt studio active card door",
-          },
-        ]
-      : visible;
-  }, [entryBotId, me]);
+  const pages = useMemo(
+    () => (can(me, "perm-admin-write") ? PAGES : PAGES.filter((page) => page.to !== "/roles")),
+    [me],
+  );
 
+  const { data: agents = [] } = useStudioAgents({ enabled: open && can(me, "perm-bot-read") });
   const customerHits = useMemo(() => customers.slice(0, 40), [customers]);
   const queueHits = useMemo(() => workItems.slice(0, 30), [workItems]);
 
-  const go = (
-    to: string,
-    search?: Record<string, string | boolean>,
-    params?: Record<string, string>,
-  ) => {
+  const go = (to: string) => {
     onOpenChange(false);
-    void (
-      navigate as (opts: {
-        to: string;
-        search?: Record<string, unknown>;
-        params?: Record<string, string>;
-      }) => unknown
-    )({
-      to,
-      ...(search ? { search } : {}),
-      ...(params ? { params } : {}),
-    });
+    void (navigate as (opts: { to: string }) => unknown)({ to });
   };
 
   return (
@@ -170,7 +153,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
               <CommandItem
                 key={`${p.to}-${p.label}`}
                 value={`${p.label} ${p.keywords ?? ""} ${p.to}`}
-                onSelect={() => go(p.to, undefined, p.params)}
+                onSelect={() => go(p.to)}
               >
                 <Icon className="h-4 w-4 text-text-brand" />
                 <span>{p.label}</span>
@@ -178,6 +161,29 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             );
           })}
         </CommandGroup>
+        {agents.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Voice agents">
+              {agents.map((a) => (
+                <CommandItem
+                  key={`agent-${a.id}`}
+                  value={`voice agent ${a.name} ${a.id}`}
+                  onSelect={() => {
+                    onOpenChange(false);
+                    void navigate({
+                      to: "/studio/workflow/$workflowId",
+                      params: { workflowId: String(a.id) },
+                    });
+                  }}
+                >
+                  <Bot className="h-4 w-4 text-text-brand" />
+                  <span className="truncate">{a.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
         <CommandSeparator />
         <CommandGroup heading="My queue">
           {queueHits.length === 0 && (

@@ -198,8 +198,11 @@ def test_first_clause_flushes_on_comma_then_waits_for_sentence():
         return chunks
 
     chunks = asyncio.run(go())
-    assert chunks[0] == "Sure,"
-    assert any("look that up" in c for c in chunks[1:])
+    # A lone "Sure," is not its own synthesis any more (first_clause
+    # _MIN_CLAUSE_WORDS): Azure voiced it as a finished sentence and the reply
+    # sounded read aloud. The early flush is the first six whole words.
+    assert chunks[0] == "Sure, I can look that up"
+    assert any("right away" in c for c in chunks[1:])
     assert not any(c.endswith("away.") and c.startswith("Sure") for c in chunks), (
         "the rest of the sentence was released with the first clause"
     )
@@ -276,6 +279,29 @@ def test_tool_in_progress_does_not_summarise():
         ]
     )
     assert context_needs_summary(ctx) is False
+
+
+def test_summary_cut_keeps_the_assistant_that_issued_a_tool_call():
+    """VS-E6043500C0: a last-N slice opened on role=tool and the next completion 400'd."""
+    from voice.bot_pipeline import summary_cut
+
+    messages = [{"role": "system", "content": "role"}]
+    messages += [{"role": "user", "content": f"turn {i}"} for i in range(8)]
+    messages.append(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "add_customer_note"}}],
+        }
+    )
+    messages.append({"role": "tool", "tool_call_id": "call_1", "content": "noted"})
+    messages += [{"role": "user", "content": f"later {i}"} for i in range(5)]
+    cut = summary_cut(messages, 6)
+    tail = messages[cut:]
+    assert tail[0]["role"] != "tool"
+    assert tail[0].get("tool_calls")
+    assert tail[1]["role"] == "tool"
+    assert tail[1]["tool_call_id"] == "call_1"
 
 
 def test_long_completed_exchange_summarises_off_task(monkeypatch):

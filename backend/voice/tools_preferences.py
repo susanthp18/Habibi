@@ -32,18 +32,6 @@ from voice.tool_state import (
 
 logger = logging.getLogger(__name__)
 
-_PRODUCT_QUERY_HINTS = (
-    "insurance",
-    "policy",
-    "exclu",
-    "cover",
-    "premium",
-    "claim",
-    "protect360",
-    "product",
-)
-
-
 def declined_callback_offer(*, bot_text: str, customer_text: str) -> bool:
     """True when the caller refused a callback that was just offered."""
     bot = (bot_text or "").lower()
@@ -61,26 +49,28 @@ def declined_callback_offer(*, bot_text: str, customer_text: str) -> bool:
     return cust.startswith("no,") or cust.startswith("no ") or cust.startswith("don't") or cust.startswith("do not")
 
 
-def callback_reason_for_turn(reason: str | None, customer_text: str) -> str | None:
-    """Keep insurance/policy follow-ups off document_query."""
+def callback_reason_for_turn(reason: str | None, *, product_talk: bool) -> str | None:
+    """Keep insurance/policy follow-ups off document_query.
+
+    ``product_talk`` is whether the call has been about a product -- decided
+    by the knowledge-base search that settled it (``state.product_scope``), not
+    by a keyword list over the caller's last sentence, which called "can you
+    cover the fee" insurance and "my trip to Singapore" not.
+    """
     raw = (reason or "").strip() or None
-    text = (customer_text or "").lower()
-    if any(h in text for h in _PRODUCT_QUERY_HINTS):
-        if raw in {None, "document_query", "general"}:
-            return "product_query"
+    if product_talk and raw in {None, "document_query", "general"}:
+        return "product_query"
     return raw
 
 
 def build(ctx: ToolBuildContext) -> dict[str, Any]:
     """The tools of this section, keyed by the variable name build_tools used."""
     _announce = ctx._announce
-    _node = ctx._node
     _require_customer = ctx._require_customer
     _spec = ctx._spec
     session = ctx.session
     spoke_this_response = ctx.spoke_this_response
     state = ctx.state
-    upsell_node = ctx.upsell_node
     _sink_call = getattr(ctx, "_sink_call", lambda _n, default=None: default)
 
 
@@ -106,11 +96,13 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                 "ok": False,
                 "error": "declined",
                 "say": (
-                    "acknowledge they do not want a callback; say a specialist "
-                    "can still follow up if they change their mind, without booking one"
+                    "acknowledge they do not want a callback; tell them they "
+                    "can request one later, without booking one now"
                 ),
             }, None
-        reason = callback_reason_for_turn(args.get("reason"), customer_text)
+        reason = callback_reason_for_turn(
+            args.get("reason"), product_talk=getattr(state, "product_scope", None) == "product"
+        )
         # Raw (not parsed) scheduled_at: the key must be derivable before the
         # domain call, and an identical retry carries an identical string.
         #
@@ -153,17 +145,25 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
             # A booked callback is a commitment too — it unlocks the upsell on
             # the same terms a PTP does.
             state.commitment_secured = True
+            # Stays on the current node. wrap_up ends the call after one reply,
+            # so moving there hung up on the caller mid-conversation: on
+            # VS-58097BA530 a callback for an insurance question closed the
+            # collections call before the overdue was ever discussed, and on
+            # VS-36E9E26C13 nobody asked whether there was anything else. The
+            # model closes with begin_wrap_up / end_call once the caller is
+            # done -- how the hub graph has always ended.
             return (
                 {
                     "ok": True,
                     "callbackId": result.data.get("callbackId"),
                     "reason": result.data.get("reason"),
                     "windowMins": result.data.get("windowMins"),
-                    "say": result.spoken_summary or "confirm the callback time briefly",
+                    "say": (
+                        (result.spoken_summary or "confirm the callback time briefly")
+                        + " Then ask whether there is anything else before closing."
+                    ),
                 },
-                # hub has no wrap_up node: the hub's own task message covers
-                # closing, and the model calls end_call when the caller is done.
-                _node("wrap_up") if upsell_node else None,
+                None,
             )
         except Exception as exc:
             logger.exception("create_callback failed")

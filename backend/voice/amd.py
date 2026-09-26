@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # Fallback wording when no deployment/persona config is available. Every
 # deployment should render its own agent name and brand via voicemail_script().
 _DEFAULT_AGENT_NAME = "Priya"
-_DEFAULT_ISSUER = "HDFC Bank"
+_DEFAULT_ISSUER = "BigTapp Bank"
 
 #: Kept as the module's advertised constant because tests and callers import it,
 #: but it is now what it always should have been: an identification, not a

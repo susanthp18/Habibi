@@ -2,7 +2,9 @@
 
 ``outbound.place``, warm transfer and the dial endpoints call here. Unset
 ``TELEPHONY_PROVIDER`` keeps Twilio; the telephony compose overlay sets
-``asterisk``. Nothing outside the adapters should import ``twilio_ops`` or
+``asterisk``; ``studio`` hands the call to PayInt Voice Studio (the engine
+places it with its own telephony and runs the conversation, see
+``voice_studio``). Nothing outside the adapters should import ``twilio_ops`` or
 ``asterisk_ops`` to decide whether a call can be placed.
 """
 
@@ -28,10 +30,16 @@ __all__ = [
 def provider_name() -> str:
     load_env()
     raw = (env_str("TELEPHONY_PROVIDER") or "twilio").lower()
+    if raw in {"studio", "voice-studio", "agentstudio"}:
+        return "studio"
     return "asterisk" if raw in {"asterisk", "sip"} else "twilio"
 
 
 def _adapter() -> Any:
+    if provider_name() == "studio":
+        import voice_studio
+
+        return voice_studio
     if provider_name() == "asterisk":
         from voice import asterisk_ops
 

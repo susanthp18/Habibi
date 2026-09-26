@@ -126,3 +126,80 @@ def run_named_suite(
         "reportId": saved["id"],
         **result,
     }
+
+
+#: Which suite satisfies which card requirement. The gate reads by kind (any
+#: suite of that kind filed against the content counts), so this only decides
+#: which suite *this* action runs. `bot_id_for_suite` knows only the
+#: collections family; the lapse suites are the insurance card's.
+SUITES_BY_BOT: dict[str, dict[str, str]] = {
+    "insurance-v1": {"regression": "eval-regression-lapse", "redteam": "eval-redteam-lapse"},
+}
+DEFAULT_SUITES: dict[str, str] = {
+    "regression": "eval-regression-collections",
+    "redteam": "eval-redteam-collections",
+    "outbound": "eval-outbound-collections",
+}
+#: Required kinds this action cannot satisfy, and where the author can.
+_ELSEWHERE = {"twin": "run it from the Sandbox inspector's Twin tab"}
+
+
+def run_required_suites(bot_id: str, prompt_version_id: str) -> dict[str, Any]:
+    """Run every suite ``bot_id``'s card requires, filed against the stored
+    content of ``prompt_version_id`` -- the report G7/G8/G-OB9 read.
+
+    The publish dialog had no way to produce one: the nightly scheduler files
+    its runs against no version and no content, so a draft's eval gates failed
+    "has not been run" with nothing on the dialog to run them, and the only
+    remedy was a per-suite Run button two tabs away that nobody was pointed at.
+    """
+    import db
+    from agent_core.cards.schema import CardEval, is_authored, parse_card
+
+    version = db.get_prompt_version(prompt_version_id)
+    if version is None:
+        raise KeyError(f"prompt_version_not_found: {prompt_version_id}")
+    if version.get("botId") != bot_id:
+        raise ValueError("prompt_version_bot_mismatch")
+    raw = version.get("agentCard") or {}
+    # A legacy (unauthored) card is gated on the default requirement, exactly
+    # as `_eval_gate` gates it.
+    required = parse_card(raw).eval.require if is_authored(raw) else CardEval().require
+    ran: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for kind in required or []:
+        if kind in _ELSEWHERE:
+            skipped.append({"kind": kind, "reason": _ELSEWHERE[kind]})
+            continue
+        suite_id = SUITES_BY_BOT.get(bot_id, {}).get(kind) or DEFAULT_SUITES.get(kind)
+        if not suite_id:
+            skipped.append({"kind": kind, "reason": f"no {kind} suite is configured"})
+            continue
+        out = run_named_suite(
+            suite_id, origin="manual", bot_id=bot_id, prompt_version_id=prompt_version_id
+        )
+        ran.append(
+            {
+                "kind": kind,
+                "suiteId": suite_id,
+                "reportId": out["reportId"],
+                "status": out["status"],
+                "failed": out["failed"],
+                "total": out["total"],
+            }
+        )
+    logger.info(
+        "eval.run_required bot=%s pv=%s required=%s ran=%s skipped=%s",
+        bot_id,
+        prompt_version_id,
+        list(required or []),
+        [f"{r['kind']}={r['status']}" for r in ran],
+        [s["kind"] for s in skipped],
+    )
+    return {
+        "botId": bot_id,
+        "promptVersionId": prompt_version_id,
+        "status": "pass" if all(r["status"] == "pass" for r in ran) else "fail",
+        "ran": ran,
+        "skipped": skipped,
+    }

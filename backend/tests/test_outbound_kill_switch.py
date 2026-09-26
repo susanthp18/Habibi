@@ -322,12 +322,13 @@ def test_the_override_waives_timing_and_nothing_else() -> None:
     growing. It has since grown — on purpose, and recorded here rather than
     quietly:
 
-    ``cooling_off`` and the daily/weekly caps moved to the waivable side. They
-    are frequency rules, and they exist so a *borrower* is not rung repeatedly.
-    The demo endpoint takes no phone number: it dials one configured handset,
-    the one the operator running the demo is holding. Three rehearsal calls to
-    your own phone tripping the cooling-off gap is the rule applying correctly
-    to the wrong subject.
+    ``cooling_off`` and the daily/weekly caps are on the waivable side, and the
+    demo button overrides them even when the hours switch is off. They exist
+    so a *borrower* is not rung repeatedly. The demo endpoint takes no phone
+    number: it dials one configured handset, the one the operator running the
+    demo is holding. Three rehearsal calls to your own phone tripping the
+    cooling-off gap is the rule applying correctly to the wrong subject.
+    Calling hours and the preferred window stay behind the switch.
 
     The line that did not move is the one that matters. Consent, opt-out, DND,
     expiry, the promotional basis and the fail-closed "we could not read the

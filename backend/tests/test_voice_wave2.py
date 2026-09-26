@@ -30,7 +30,7 @@ def _ctx(
     spoke_fn = None if spoke is None else (lambda: spoke)
     ctx = ToolBuildContext(
         _FALLBACK_GREETING=(
-            "Hello, this is Priya from HDFC Bank Collections. "
+            "Hello, this is Priya from BigTapp Bank Collections. "
             "This call is recorded for quality and compliance. "
             "How can I help you today?"
         ),

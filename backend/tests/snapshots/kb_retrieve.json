@@ -48,7 +48,7 @@
           "heading": "What is the No Claim Discount (NCD) Protector? How does it work?",
           "matchedTerms": [],
           "score": 0.0626,
-          "snippet": "The NCD protector is an optional benefit and applies only to policyholders of 50% NCD at an additional premium. It will protect your NCD in the event of a first claim during your policy period. If a second claim is made, the normal NCD rules apply and your NCD will be reduced to 20% on your next policy renewal. The protected NCD is not transferable to another insurer. You will need to renew your policy with HDFC Assurance in order to enjoy this benefit."
+          "snippet": "The NCD protector is an optional benefit and applies only to policyholders of 50% NCD at an additional premium. It will protect your NCD in the event of a first claim during your policy period. If a second claim is made, the normal NCD rules apply and your NCD will be reduced to 20% on your next policy renewal. The protected NCD is not transferable to another insurer. You will need to renew your policy with BigTapp Assurance in order to enjoy this benefit."
         },
         {
           "chunkId": "kb-policy-fraud-c29",
@@ -238,14 +238,14 @@
         {
           "chunkId": "kb-benefits-collections-c1",
           "docId": "kb-benefits-collections",
-          "docTitle": "HDFC Retail Collections \u2014 Benefits",
+          "docTitle": "BigTapp Bank Collections \u2014 Benefits",
           "docType": "benefits",
-          "heading": "HDFC Retail Collections \u2014 Benefits",
+          "heading": "BigTapp Bank Collections \u2014 Benefits",
           "matchedTerms": [
             "emi"
           ],
           "score": 0.0342,
-          "snippet": "HDFC Retail Collections \u2014 caller benefits summary (agent reference)\n\n- Clear dues by the statement due date to avoid late fees where applicable.\n- Set a promise-to-pay with a concrete date when you need a few more days.\n- Request a hardship-review callback if you face job loss or medical emergency.\n- Update auto-debit mandates after an EMI bounce to reduce repeat failures.\n- After full clearance, request NOC / account-closure documentation through\n  the normal fulfilment process (not same-day guaranteed on the call).\n- Speak only to the verified account holder; third parties cannot receive\n  balance details."
+          "snippet": "BigTapp Bank Collections \u2014 caller benefits summary (agent reference)\n\n- Clear dues by the statement due date to avoid late fees where applicable.\n- Set a promise-to-pay with a concrete date when you need a few more days.\n- Request a hardship-review callback if you face job loss or medical emergency.\n- Update auto-debit mandates after an EMI bounce to reduce repeat failures.\n- After full clearance, request NOC / account-closure documentation through\n  the normal fulfilment process (not same-day guaranteed on the call).\n- Speak only to the verified account holder; third parties cannot receive\n  balance details."
         },
         {
           "chunkId": "faq-faq-collections-004",
@@ -260,7 +260,7 @@
         {
           "chunkId": "kb-policy-collections-c5",
           "docId": "kb-policy-collections",
-          "docTitle": "HDFC Retail Collections \u2014 Policy",
+          "docTitle": "BigTapp Bank Collections \u2014 Policy",
           "docType": "policy",
           "heading": "Hardship",
           "matchedTerms": [

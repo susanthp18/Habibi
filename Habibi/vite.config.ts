@@ -11,6 +11,9 @@ export default defineConfig({
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+    // Route tests live beside their routes; the generator warned on every
+    // start that each "does not export a Route".
+    router: { routeFileIgnorePattern: "\\.test\\." },
   },
   vite: {
     // Production on CloudUnity is reverse-proxied at /app so `/` can be the

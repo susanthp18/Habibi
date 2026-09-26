@@ -301,19 +301,6 @@ COVERAGE_HEADING_KEYWORDS = (
     "delay",
     "cover",
 )
-OTHER_PRODUCT_TOKENS = (
-    "home",
-    "maid",
-    "car",
-    "motor",
-    "family",
-    "fraud",
-    "choice",
-    "early",
-    "travel",
-    "personal accident",
-)
-
 BOOST_EXCLUSION_POLICY_DOC = 0.08
 BOOST_EXCLUSION_BENEFITS_DOC = 0.03
 BOOST_EXCLUSION_HEADING = 0.12
@@ -414,6 +401,7 @@ def _result_cache_key(
     prefer_policy: bool,
     topic: str | None,
     include_draft_answer: bool,
+    fallback_product_keys: list[str] | None = None,
 ) -> tuple:
     normalized = " ".join((q or "").lower().split())
     scope = tuple(sorted(product_keys)) if product_keys else None
@@ -434,6 +422,8 @@ def _result_cache_key(
         # lookup does not. Omitted, the two would serve each other's answers.
         topic,
         include_draft_answer,
+        # Routing falls back to this scope, so it can change the result set.
+        tuple(fallback_product_keys) if fallback_product_keys else None,
     )
 
 
@@ -569,6 +559,7 @@ class Retrieval:
     kb_snapshot_id: str | None
     product_keys: list[str] | None
     scope_from_query: bool
+    fallback_product_keys: list[str] | None
     transcript_turn_id: str | None
     q: str
     t0: float
@@ -583,7 +574,12 @@ class Retrieval:
     margin: float = 0.0
     overfetch: int = 0
     product_key_filter: list[str] = field(default_factory=list)
+    #: Soft steering for a near-miss product name: the titles it was close to,
+    #: boosted, and every other catalog title, penalised.
     product_tokens: list[str] = field(default_factory=list)
+    other_titles: list[str] = field(default_factory=list)
+    #: How the product scope was decided, when routing ran (Route.as_dict()).
+    routing: dict[str, Any] | None = None
     q_l: str = ""
     q_lit: str = ""
     rerank_info: dict[str, Any] = field(default_factory=dict)
@@ -623,16 +619,37 @@ def _retrieve_plan(rt: Retrieval) -> None:
     #
     # Never fatal: `_derived_scope` is retried without the filter below if it
     # comes back empty, so a wrong guess costs one extra query, not an answer.
+    #
+    # Routing is semantic (agent_core/product_resolver.py) and reuses the
+    # vector just computed, so it costs no model call. Only a clear winner, a
+    # title said outright, or the caller's settled fallback filters; anything
+    # less searches every product and boosts the closest titles instead.
     derived_scope: str | None = None
+    product_tokens: list[str] = []
+    other_titles: list[str] = []
+    routing: dict[str, Any] | None = None
     if not product_key_filter and scope_from_query:
         try:
-            from agent_core.context import product_key_from_text
+            from agent_core import product_resolver
 
-            derived_scope = product_key_from_text(q)
+            router = product_resolver.load(rt.kb_snapshot_id)
+            route = router.route(query_vec, text=q, fallback=rt.fallback_product_keys)
+            routing = route.as_dict()
+            if route.scoped:
+                product_key_filter = list(route.keys)
+                derived_scope = ",".join(route.keys)
+            elif route.candidates:
+                product_tokens = [
+                    t.lower() for t in (router.title(k) for k in route.candidates) if t
+                ]
+                other_titles = [
+                    t.lower()
+                    for k in router.keys()
+                    if k not in route.candidates and (t := router.title(k))
+                ]
+            logger.info("kb route · source=%s · %s · q=%r", source, route.describe(), q[:80])
         except Exception:
-            logger.debug("product scope derivation failed", exc_info=True)
-        if derived_scope:
-            product_key_filter = [derived_scope]
+            logger.warning("product routing failed -- searching unscoped", exc_info=True)
     # `prefer_policy` used to be the first term of `wants_exclusions`, which made
     # one flag do two unrelated jobs: "search the policy corpus and overfetch"
     # and "the caller is asking what is NOT covered". Those come apart badly.
@@ -683,35 +700,13 @@ def _retrieve_plan(rt: Retrieval) -> None:
             )
         )
     )
-    # Soft product family filter from the query (keeps Travel hits ahead of Home/Maid).
-    # Skipped when an explicit product_keys scope is provided (voice collections).
-    product_tokens = []
-    if not product_key_filter:
-        product_tokens = [
-            t
-            for t in (
-                "travel",
-                "home",
-                "maid",
-                "car",
-                "motor",
-                "family",
-                "fraud",
-                "choice",
-                "early",
-                "personal accident",
-                "collections",
-                "late fee",
-                "emi",
-            )
-            if t in q_l
-        ]
-
     rt.mark = mark
     rt.derived_scope = derived_scope
     rt.overfetch = overfetch
     rt.product_key_filter = product_key_filter
     rt.product_tokens = product_tokens
+    rt.other_titles = other_titles
+    rt.routing = routing
     rt.q_l = q_l
     rt.q_lit = q_lit
     rt.wants_coverage = wants_coverage
@@ -885,7 +880,7 @@ def _retrieve_search(rt: Retrieval) -> None:
         # ms warm) against silently answering "I don't know" about a documented
         # product.
         if derived_scope and not chunk_rows and not faq_rows:
-            logger.debug("derived product scope %r returned nothing; retrying wide", derived_scope)
+            logger.warning("routed product scope %r returned nothing; retrying wide", derived_scope)
             chunk_params.pop("product_keys", None)
             faq_params.pop("faq_product_keys", None)
             wide_chunk_sql = chunk_sql.replace(
@@ -901,6 +896,8 @@ def _retrieve_search(rt: Retrieval) -> None:
             faq_rows = conn.execute(text(wide_faq_sql), faq_params).mappings().all()
             derived_scope = None
             product_key_filter = []
+            if rt.routing is not None:
+                rt.routing["widened"] = True
 
     mark = _stage(stage_ms, "ann_ms", mark)
 
@@ -918,6 +915,7 @@ def _retrieve_rank(rt: Retrieval) -> None:
     chunk_rows = rt.chunk_rows
     faq_rows = rt.faq_rows
     product_tokens = rt.product_tokens
+    other_titles = rt.other_titles
     q_l = rt.q_l
     wants_coverage = rt.wants_coverage
     wants_exclusions = rt.wants_exclusions
@@ -936,9 +934,7 @@ def _retrieve_rank(rt: Retrieval) -> None:
         title_matches_other_product = (
             bool(product_tokens)
             and not title_matches_product
-            and any(
-                other in title_l for other in OTHER_PRODUCT_TOKENS if other not in product_tokens
-            )
+            and any(other in title_l for other in other_titles)
         )
         score = _apply_rank_rules(
             score,
@@ -1219,6 +1215,10 @@ def _retrieve_assemble(rt: Retrieval) -> dict[str, Any]:
         "chatModel": chat_model,
         "logId": log_id,
         "cached": False,
+        # Which product this was searched under and why -- the voice handler
+        # remembers it, the test panel shows it.
+        "productScope": list(rt.product_key_filter) or None,
+        "routing": rt.routing,
     }
     _result_cache_put(cache_key, payload)
     return payload
@@ -1243,6 +1243,10 @@ def retrieve(
     # On by default: every caller benefits, and the empty-result retry makes it
     # safe. Off for callers that deliberately want the whole corpus.
     scope_from_query: bool = True,
+    # The scope to use when routing cannot tell which product the question is
+    # about: the product the conversation already settled on, or the node's
+    # own corpus. Ignored when product_keys is given.
+    fallback_product_keys: list[str] | None = None,
     # Which turn asked. interaction_id alone is session-grained, so "which
     # retrieval backed turn 4's answer" was unanswerable. Optional: the
     # speculative prefetch and the operator's test panel have no turn.
@@ -1274,6 +1278,7 @@ def retrieve(
         prefer_policy=prefer_policy,
         topic=topic,
         include_draft_answer=include_draft_answer,
+        fallback_product_keys=fallback_product_keys,
     )
     cached = _result_cache_get(cache_key)
     if cached is not None:
@@ -1319,6 +1324,7 @@ def retrieve(
         kb_snapshot_id=kb_snapshot_id,
         product_keys=product_keys,
         scope_from_query=scope_from_query,
+        fallback_product_keys=fallback_product_keys,
         transcript_turn_id=transcript_turn_id,
         q=q,
         t0=t0,
@@ -1367,6 +1373,18 @@ def catalog(
            AND btrim(d.product_key) <> ''
     """
     params: dict[str, Any] = {"tenant_id": db.current_tenant()}
+    if kb_snapshot_id:
+        # A pinned call can only retrieve the snapshot's documents, so it must
+        # not be offered -- or scoped to -- a product outside them: the filter
+        # would match nothing and read as an empty knowledge base. The argument
+        # was accepted and ignored until the product resolver started building
+        # its vocabulary from this list.
+        sql += """
+           AND d.id IN (SELECT jsonb_array_elements_text(s.document_ids)
+                          FROM kb_snapshots s
+                         WHERE s.id = :snapshot_id AND s.tenant_id = :tenant_id)
+        """
+        params["snapshot_id"] = kb_snapshot_id
     if product_keys:
         sql += " AND lower(d.product_key) = ANY(CAST(:product_keys AS text[]))"
         params["product_keys"] = [str(k).strip().lower() for k in product_keys if str(k).strip()]

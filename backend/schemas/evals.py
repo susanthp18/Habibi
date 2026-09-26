@@ -384,6 +384,30 @@ class EvalSuiteRunResponse(BaseModel):
     trials: list[EvalTrialResponse]
 
 
+class EvalRequiredRunItemResponse(BaseModel):
+    kind: str
+    suiteId: str
+    reportId: str
+    status: Literal["pass", "fail", "error"]
+    failed: int
+    total: int
+
+
+class EvalRequiredSkipResponse(BaseModel):
+    kind: str
+    reason: str
+
+
+class EvalRequiredRunResponse(BaseModel):
+    """`run_required_suites`: every suite a card requires, run against one version."""
+
+    botId: str
+    promptVersionId: str
+    status: Literal["pass", "fail"]
+    ran: list[EvalRequiredRunItemResponse]
+    skipped: list[EvalRequiredSkipResponse]
+
+
 class EvalReportRowResponse(BaseModel):
     """`SELECT *` from eval_reports, snake_case as stored. Columns the running
     database has not gained yet are simply absent (route excludes unset)."""

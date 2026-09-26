@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 
 import { needsAccessRequest, useMe } from "@/api/me";
 import { NoAccess } from "@/components/access/NoAccess";
+import { SessionRenewal } from "@/components/access/SessionRenewal";
 import { LoadingState } from "@/components/ui/loading-state";
+import { isSessionRenewal } from "@/lib/sso";
 
 /**
  * First-login and deactivated operators can authenticate, but they have
@@ -23,7 +25,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
   if (me.isError) {
     return (
       <div className="grid h-full place-items-center p-300">
-        <NoAccess label="PayInt" error={me.error} />
+        {isSessionRenewal(me.error) ? <SessionRenewal /> : <NoAccess label="PayInt" error={me.error} />}
       </div>
     );
   }

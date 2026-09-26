@@ -582,7 +582,9 @@ def build_context(customers_export: list[dict[str, Any]], calls: list[dict[str, 
                 users[slug(name)] = name
         elif handler.get("kind") == "bot":
             name = handler.get("bot") or handler.get("name") or "CollectionsBot v2.4"
-            bots[slug(name)] = name
+            # Historical call labels must not rename a first-party bot already
+            # registered under that id (Kaia v2.4 -> Collections).
+            bots.setdefault(slug(name), name)
 
     for lead in leads:
         if lead.get("owner") and lead["owner"] != "Unassigned":
@@ -636,7 +638,7 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         "tenants",
         {
             "id": TENANT_ID,
-            "name": "HDFC Retail",
+            "name": "BigTapp Bank",
             "budget_inr": 2500000,
             "spend_share": 0.62,
             "contact_number": "18002026161",
@@ -645,9 +647,9 @@ def seed_reference_data(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             # would arrive as text and Postgres has no implicit text->jsonb cast.
             "grievance_officer": {
                 "name": "R Menon",
-                "email": "grievance@hdfcretail.example",
+                "email": "grievance@bigtapp.example",
                 "phone": "18002026161",
-                "address": "HDFC Retail, Nodal Office, Mumbai 400013",
+                "address": "BigTapp Bank, Nodal Office, Mumbai 400013",
             },
         },
     )
@@ -1020,7 +1022,7 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         "pitch": 0,
         "warmth": 62,
         "pauseMs": 320,
-        "sampleText": "Hello Rahul, this is a courtesy call from HDFC about your EMI. Do you have a minute?",
+        "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
     }
     _emp_traits = {"empathy": 82, "firmness": 40, "formality": 55, "verbosity": 60, "upsell": 20}
     _firm_traits = {"empathy": 35, "firmness": 80, "formality": 65, "verbosity": 40, "upsell": 15}
@@ -1274,7 +1276,9 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             "id": "DEP-2026-07-PROD",
             "bot_id": "kaia-v2-4",
             "prompt_version_id": "v1_4",
-            "kb_snapshot_id": "kb-snapshot-2026-07",
+            # This historical July snapshot contains only the RBI disclosure.
+            # The voice agent also answers product questions from indexed KB.
+            "kb_snapshot_id": None,
             "tts_voice_id": "en-IN-AartiNeural",
             "environment": "production",
             "status": "active",
@@ -1415,6 +1419,9 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "accountNo": "••••4821",
                 "dueDate": "the 5th",
                 "openingBot": "Hello, this is {agent_name} calling from {bank_name} regarding your loan account. This call is recorded for quality. Am I speaking with {customer_name}?",
+                # Every seeded scenario is a call we place to an overdue borrower.
+                "direction": "outbound",
+                "objective": "dpd_reminder",
             },
             "turns": [
                 {"customer": "Yes it's me. Why are you charging me a late fee? This is ridiculous!", "expectedIntent": "waiver_request", "expectedSentiment": -0.7},
@@ -1439,6 +1446,8 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "accountNo": "••••1177",
                 "dueDate": "the 1st",
                 "openingBot": "Hello, this is {agent_name} from {bank_name}. This call is recorded. Am I speaking with {customer_name}?",
+                "direction": "outbound",
+                "objective": "dpd_reminder",
             },
             "turns": [
                 {"customer": "Yes. Look, I lost my job last month. I can't pay right now.", "expectedIntent": "hardship", "expectedSentiment": -0.7},
@@ -1463,6 +1472,8 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "accountNo": "••••5522",
                 "dueDate": "today",
                 "openingBot": "Hi {customer_name}, this is {agent_name} from {bank_name}. This call is recorded. Calling about your auto loan EMI.",
+                "direction": "outbound",
+                "objective": "dpd_reminder",
             },
             "turns": [
                 {"customer": "Yes, I want to clear it right now.", "expectedIntent": "payment_intent", "expectedSentiment": 0.6},
@@ -1487,6 +1498,8 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "accountNo": "••••8804",
                 "dueDate": "overdue",
                 "openingBot": "Hello {customer_name}, {agent_name} from {bank_name}. This call is recorded. Calling regarding your outstanding balance.",
+                "direction": "outbound",
+                "objective": "dpd_reminder",
             },
             "turns": [
                 {"customer": "If you call me again I'll take you to court!", "expectedIntent": "escalation", "expectedSentiment": -0.9},
@@ -1844,7 +1857,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         {
             "id": "canned-greeting",
             "label": "Greeting",
-            "body": "Hi, this is Priya from HDFC Collections. How can I help you today?",
+            "body": "Hi, this is Priya from BigTapp Collections. How can I help you today?",
             "channel": "whatsapp",
         },
         {
@@ -2329,7 +2342,7 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
                 },
             )
 
-    upsert(conn, "export_jobs", {"id": "EX-0001", "actor_user_id": "priya-nair", "format": "zip", "scope": {"from": "2026-07-01", "to": "2026-07-21"}, "watermark": "HDFC Retail", "status": "ready", "storage_ref": f"minio://export-bundles/{TENANT_ID}/EX-0001.zip"})
+    upsert(conn, "export_jobs", {"id": "EX-0001", "actor_user_id": "priya-nair", "format": "zip", "scope": {"from": "2026-07-01", "to": "2026-07-21"}, "watermark": "BigTapp Bank", "status": "ready", "storage_ref": f"minio://export-bundles/{TENANT_ID}/EX-0001.zip"})
     first_redaction = conn.execute("SELECT id FROM redaction_records ORDER BY id LIMIT 1").fetchone()
     if first_redaction:
         insert_ignore(conn, "INSERT INTO export_job_records (export_job_id, redaction_id) VALUES (%(export_job_id)s, %(redaction_id)s) ON CONFLICT DO NOTHING", {"export_job_id": "EX-0001", "redaction_id": first_redaction[0]})

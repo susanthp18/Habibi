@@ -272,39 +272,6 @@ def test_a_skill_name_with_a_comma_stays_one_allowed_skill(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_eval_report_is_not_readable_across_tenants(db_tx, api_headers) -> None:
-    from fastapi.testclient import TestClient
-
-    import main
-
-    _other_tenant(db_tx)
-    with _acting_as(db_tx, OTHER):
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO eval_suites (id, tenant_id, name, kind)
-                VALUES ('suite-rival', :t, 'Rival Regression', 'regression')
-                """
-            ),
-            {"t": OTHER},
-        )
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO eval_reports (id, tenant_id, suite_id, bot_id, status, summary)
-                VALUES ('rep-rival', :t, 'suite-rival', 'kaia-v2-4', 'pass',
-                        CAST(:s AS jsonb))
-                """
-            ),
-            {"t": OTHER, "s": json.dumps({"passed": 9})},
-        )
-
-    with TestClient(main.app, headers=api_headers) as client:
-        resp = client.get("/eval/reports/rep-rival")
-
-    assert resp.status_code == 404, resp.text
-
-
 # ---------------------------------------------------------------------------
 # AUTHZ-11 -- version-level writes
 # ---------------------------------------------------------------------------

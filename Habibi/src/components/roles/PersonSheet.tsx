@@ -6,7 +6,7 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { RecordsAvatarMark } from "@/components/records/RecordsTable";
 import { useConfirm } from "@/components/ui/use-confirm";
 import type { DirectoryUser } from "@/api/users";
-import type { RolesCatalog } from "@/api/agent-studio";
+import type { RolesCatalog } from "@/api/roles";
 import { fmtRelative } from "@/lib/format";
 import {
   effectivePermissionIds,

@@ -200,7 +200,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO interaction_transcript (id, interaction_id, turn_index, speaker, at_sec, text, sentiment_delta, intent)
 SELECT * FROM (VALUES
-  ('LIVE-TR-01-1', 'LIVE-IX-01', 1, 'bot', 2, 'This call is recorded. I am calling from HDFC collections about your credit card EMI.', 0.00, 'disclosure'),
+  ('LIVE-TR-01-1', 'LIVE-IX-01', 1, 'bot', 2, 'This call is recorded. I am calling from BigTapp collections about your credit card EMI.', 0.00, 'disclosure'),
   ('LIVE-TR-01-2', 'LIVE-IX-01', 2, 'customer', 18, 'I already paid last week. Why are you calling again?', -0.35, 'paid_already'),
   ('LIVE-TR-01-3', 'LIVE-IX-01', 3, 'bot', 32, 'I can see a NACH bounce on the 14th. The EMI of ₹12,400 did not clear.', -0.10, 'bounce_explain'),
   ('LIVE-TR-01-4', 'LIVE-IX-01', 4, 'customer', 51, 'Then talk to a person. I am not discussing this with a bot.', -0.40, 'escalate'),

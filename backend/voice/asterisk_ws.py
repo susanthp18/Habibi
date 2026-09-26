@@ -165,7 +165,16 @@ def install_runner_hook() -> None:
         return
 
     def wrapped(app, *args, **kwargs):  # noqa: ANN001
+        from voice.sandbox_ws import register_sandbox_ws_route
+
+        from voice.llm_pool import install_serving_loop_warmers
+
         register_asterisk_runner_routes(app)
+        # The browser's Sandbox Live socket rides the same hook: this is the
+        # one place the runner's app is handed to us before it serves.
+        register_sandbox_ws_route(app)
+        # And so does the LLM warm-up, which must happen on the serving loop.
+        install_serving_loop_warmers(app)
         return orig(app, *args, **kwargs)
 
     wrapped._habibi_asterisk = True  # type: ignore[attr-defined]

@@ -68,7 +68,7 @@ export const DEFAULT_TEMPLATE: Template = {
   docType: "account_statement",
   description: "Full transaction history for the past 6 months, with running balance.",
   previewLines: [
-    "HDFC Bank · Account Statement",
+    "BigTapp Bank · Account Statement",
     "Account: {{account}} · Customer: {{name}}",
     "Period: {{period}}",
     "— Opening balance, transactions, interest, closing balance —",
@@ -84,7 +84,7 @@ export const TEMPLATES: Template[] = [
     docType: "account_statement",
     description: "12-month statement for tax filing or income verification.",
     previewLines: [
-      "HDFC Bank · 12-Month Account Statement",
+      "BigTapp Bank · 12-Month Account Statement",
       "Account: {{account}} · Customer: {{name}}",
       "Period: {{period}}",
       "Includes month-wise summary and category totals.",
@@ -99,7 +99,7 @@ export const TEMPLATES: Template[] = [
       "This is to certify that {{name}} (Account {{account}})",
       "has cleared all outstanding dues as on {{today}}.",
       "No further amounts are payable under this account.",
-      "— Authorised Signatory, HDFC Retail Collections —",
+      "— Authorised Signatory, BigTapp Retail Collections —",
     ],
   },
   {

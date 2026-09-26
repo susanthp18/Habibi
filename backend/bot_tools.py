@@ -224,6 +224,8 @@ def _tool_search_knowledge_base(ctx: ToolContext, args: dict[str, Any]) -> dict[
         recent=ctx.recent or None,
         interaction_id=ctx.interaction_id,
         bot_id=ctx.bot_id,
+        # The model's own answer to "which product" -- validated, never trusted.
+        product=args.get("product"),
     )
     if not result.ok:
         if result.error == "empty_query":

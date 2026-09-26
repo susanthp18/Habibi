@@ -47,7 +47,8 @@ const noSilentMutation = {
 };
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // src/agentstudio is generated from the vendored engine UI (scripts/vendored.mjs).
+  { ignores: ["dist", ".output", ".vinxi", "src/agentstudio/**"] },
   {
     files: ["src/api/**/*.{ts,tsx}"],
     plugins: { "silent-mutation": noSilentMutation },

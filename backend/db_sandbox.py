@@ -114,6 +114,30 @@ def _map_sandbox_scenario(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def sandbox_scenario_call(scenario_id: str | None) -> dict[str, str | None]:
+    """Which way a scenario's call goes, and what an outbound one is for.
+
+    Explicit in ``sim_persona`` (``direction``, ``objective``) because nothing
+    else can say it: every scenario has an ``openingBot`` and both directions
+    have the bot speak first. Absent means inbound, the old behaviour.
+    """
+    if not scenario_id:
+        return {"direction": "inbound", "objective": None}
+    with _db().engine.connect() as conn:
+        raw = conn.execute(
+            text(
+                "SELECT sim_persona FROM sandbox_scenarios WHERE id = :id AND tenant_id = :tenant_id"
+            ),
+            {"id": scenario_id, "tenant_id": _tenant()},
+        ).scalar()
+    sim = _as_dict(raw)
+    direction = str(sim.get("direction") or "").strip().lower()
+    return {
+        "direction": "outbound" if direction == "outbound" else "inbound",
+        "objective": str(sim.get("objective") or "").strip() or None,
+    }
+
+
 def list_sandbox_scenarios() -> list[dict[str, Any]]:
     engine = _db().engine
     with engine.connect() as conn:

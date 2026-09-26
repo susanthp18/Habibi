@@ -15,6 +15,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isVendored } from "./vendored.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const LIMITS = { "src/routes": 500, "src/components": 800, "src/api": 800 };
@@ -25,6 +26,7 @@ const BASELINE = {};
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
+    if (isVendored(p)) continue;
     if (statSync(p).isDirectory()) yield* walk(p);
     else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && name !== "generated.ts")
       yield p;
