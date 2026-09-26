@@ -10,11 +10,32 @@ ROOT=/home/azureuser/beeonix-payint
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p /home/azureuser/habibi-backups
 
+# This is a shared VM and the backup gzips the whole tree. Starved of disk or
+# CPU here it takes the host down with it, sshd included, which is exactly what
+# happened on 2026-09-26. Refuse rather than find out.
+FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
+# An unreadable df is not permission to carry on.
+[ -n "$FREE_GB" ] || { echo "could not read free space on /; refusing" >&2; exit 1; }
+echo "== preflight: ${FREE_GB}G free on / =="
+if [ "$FREE_GB" -lt 20 ]; then
+  echo "under 20G free; prune /home/azureuser/habibi-backups or docker before deploying" >&2
+  exit 1
+fi
+
+echo "== prune old backups (keep the 3 most recent) =="
+ls -1t /home/azureuser/habibi-backups/code-pre-*.tgz 2>/dev/null | tail -n +4 | while IFS= read -r old; do
+  echo "  removing $(basename "$old")"; rm -f "$old"
+done
+
 echo "== backup code =="
-tar -czf "/home/azureuser/habibi-backups/code-pre-${STAMP}.tgz" -C "$ROOT" \
-  --exclude=Habibi/node_modules --exclude=backend/.venv --exclude=backend/.env \
-  --exclude=Habibi/.env --exclude=Habibi/.env.production \
+# node_modules and virtualenvs are reinstallable and are the bulk of the tree;
+# the excludes are unanchored so they catch the engine's copies too, not just
+# the two paths that happened to be named when this script was written.
+nice -n 10 tar -czf "/home/azureuser/habibi-backups/code-pre-${STAMP}.tgz" -C "$ROOT" \
+  --exclude=node_modules --exclude=.venv --exclude=.git --exclude=.next \
+  --exclude=backend/.env --exclude=Habibi/.env --exclude=Habibi/.env.production \
   Habibi backend deploy $( [ -d "$ROOT/agentstudio" ] && echo agentstudio )
+echo "  backup is $(du -h "/home/azureuser/habibi-backups/code-pre-${STAMP}.tgz" | cut -f1)"
 
 echo "== keep secrets and node_modules =="
 cp -a "$ROOT/backend/.env" "/tmp/backend.env.$STAMP"
