@@ -33,33 +33,6 @@ export const defaultConsentFilters: ConsentFilterState = {
   segment: "all",
 };
 
-export function filterConsents(rows: ConsentRecord[], f: ConsentFilterState): ConsentRecord[] {
-  const q = f.q.trim().toLowerCase();
-  return rows.filter((r) => {
-    if (q) {
-      const hay = `${r.customerName} ${r.accountId} ${r.phone} ${r.email}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    if (f.segment !== "all" && r.segment !== f.segment) return false;
-    // Every record carries all four channels, so "has the channel" filtered
-    // nothing. A channel means: opted in (servicing) there, and for calls not
-    // on the DND registry — the customers that channel may reach.
-    if (f.channel !== "all") {
-      if (channelStatus(r, f.channel)?.status !== "opted_in") return false;
-      if (f.channel === "call" && r.onDndRegistry) return false;
-    }
-    if (f.status === "dnd" && !r.onDndRegistry && !r.channels.some((c) => c.status === "dnd"))
-      return false;
-    if (f.status === "opted_out" && !r.channels.some((c) => c.status === "opted_out")) return false;
-    if (f.status === "expiring") {
-      const days = (new Date(r.consentExpiresAt).getTime() - Date.now()) / 86400000;
-      if (days > 30) return false;
-    }
-    if (f.status === "contactable" && r.contactable.status === "red") return false;
-    return true;
-  });
-}
-
 export function daysUntil(iso: string): number {
   return Math.round((new Date(iso).getTime() - Date.now()) / 86400000);
 }

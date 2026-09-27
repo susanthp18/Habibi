@@ -218,3 +218,14 @@ def test_import_round_trip_against_the_database(db_tx) -> None:
     rows = {r["customer_id"]: r for r in csv.DictReader(io.StringIO(db_consent.export_consent_csv()))}
     assert (rows[cid]["sms_servicing"], rows[cid]["sms_promotional"]) == ("opted_in", "opted_out")
     assert rows[cid]["sms_last_opt_out_at"]
+
+
+def test_drawer_patch_keeps_the_promotional_purpose() -> None:
+    """The drawer's PATCH used to drop `purpose`, so a promotional consent saved
+    from the screen landed as servicing -- the offer gate could never pass."""
+    from schemas.compliance import ConsentPatchRequest
+
+    body = ConsentPatchRequest.model_validate(
+        {"channels": [{"channel": "whatsapp", "status": "opted_in", "purpose": "promotional"}]}
+    ).model_dump(exclude_unset=True)
+    assert body["channels"][0]["purpose"] == "promotional"

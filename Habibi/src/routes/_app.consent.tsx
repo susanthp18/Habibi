@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Upload, Download, ShieldCheck } from "lucide-react";
 import { ConsentStatsStrip } from "@/components/consent/ConsentStatsStrip";
@@ -14,10 +14,11 @@ import type {
   ConsentPreferencesPatch,
   OptOutSource,
 } from "@/api/types/consent";
-import { defaultConsentFilters, filterConsents } from "@/lib/consent";
+import { defaultConsentFilters } from "@/lib/consent";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
   useConsent,
+  useConsentStats,
   useSaveConsent,
   useRenewConsent,
   useCaptureOptOut,
@@ -48,12 +49,19 @@ export const Route = createFileRoute("/_app/consent")({
 });
 
 function ConsentPage() {
-  const { data, isPending, isError, error } = useConsent();
-  const items = data ?? EMPTY_CONSENT;
   const [filters, setFilters] = useState<ConsentFilterState>(defaultConsentFilters);
+  // The server filters; search waits for the typing to pause.
+  const [applied, setApplied] = useState<ConsentFilterState>(defaultConsentFilters);
+  useEffect(() => {
+    const t = setTimeout(() => setApplied(filters), filters.q === applied.q ? 0 : 300);
+    return () => clearTimeout(t);
+  }, [filters, applied.q]);
+  const { data, isPending, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useConsent(applied);
+  const items = useMemo(() => data?.pages.flat() ?? EMPTY_CONSENT, [data]);
+  const { data: stats } = useConsentStats();
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => filterConsents(items, filters), [items, filters]);
   // Derive the open drawer from fetched data so it stays fresh after invalidation.
   const openRecord = useMemo(() => items.find((r) => r.id === openId) ?? null, [items, openId]);
 
@@ -137,25 +145,37 @@ function ConsentPage() {
           </p>
         </header>
 
-        {!isError ? <ConsentStatsStrip all={items} /> : null}
+        {!isError ? <ConsentStatsStrip stats={stats} /> : null}
         {!isError ? (
           <ConsentFilters
             filters={filters}
             onChange={setFilters}
-            resultCount={filtered.length}
-            totalCount={items.length}
+            resultCount={items.length}
+            totalCount={stats?.customers ?? items.length}
+            more={!!hasNextPage}
           />
         ) : null}
 
         <div className="min-h-0 flex-1 overflow-auto bg-surface p-200">
           <ConsentTable
-            rows={filtered}
+            rows={items}
             onOpen={setOpenId}
             selectedId={openId}
             isLoading={isPending}
             isError={isError}
             error={error}
           />
+          {hasNextPage ? (
+            <div className="flex justify-center pt-150">
+              <button
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
+              >
+                {isFetchingNextPage ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 

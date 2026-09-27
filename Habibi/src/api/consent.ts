@@ -1,19 +1,21 @@
 // -----------------------------------------------------------------------------
 // Consent & Communication Preferences — data access seam.
-//   fetchConsent() → registry list  (GET /consent)
+//   fetchConsentPage() → one filtered registry page  (GET /consent)
 //   save / renew / opt-out / toggle DND → Phase 3A writes (widened for screen)
 //
 // Writes map to PATCH/POST endpoints; the screen shape is richer than the write
 // response, so callers invalidate + refetch.
 // -----------------------------------------------------------------------------
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import type {
   AllowedWindow,
   ChannelConsent,
+  ConsentChannelWrite,
   ConsentChannel,
+  ConsentFilterState,
   ConsentImportResult,
   ConsentImportRow,
   ConsentPreferencesPatch,
@@ -91,21 +93,71 @@ const consentRecordSchema = z.object({
   }),
 });
 
-export async function fetchConsent(): Promise<ConsentRecord[]> {
-  return apiGet<ConsentRecord[]>("/consent", { schema: z.array(consentRecordSchema) });
+/** Rows per request; "Load more" asks for the next page. */
+export const CONSENT_PAGE_SIZE = 100;
+
+/** One page of the registry, filtered on the server (GET /consent). */
+export async function fetchConsentPage(
+  f: ConsentFilterState,
+  offset: number,
+): Promise<ConsentRecord[]> {
+  const qs = new URLSearchParams({ limit: String(CONSENT_PAGE_SIZE), offset: String(offset) });
+  if (f.q.trim()) qs.set("q", f.q.trim());
+  if (f.segment !== "all") qs.set("segment", f.segment);
+  if (f.channel !== "all") qs.set("channel", f.channel);
+  if (f.status !== "all") qs.set("status", f.status);
+  return apiGet<ConsentRecord[]>(`/consent?${qs}`, { schema: z.array(consentRecordSchema) });
 }
 
-export function useConsent() {
-  return useQuery({ queryKey: ["consent"], queryFn: fetchConsent });
+export function useConsent(f: ConsentFilterState) {
+  return useInfiniteQuery({
+    queryKey: ["consent", "list", f],
+    queryFn: ({ pageParam }) => fetchConsentPage(f, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) =>
+      last.length < CONSENT_PAGE_SIZE ? undefined : pages.length * CONSENT_PAGE_SIZE,
+  });
+}
+
+const consentStatsSchema = z.object({
+  customers: z.number(),
+  dnd: z.number(),
+  optOuts30d: z.number(),
+  expiring: z.number(),
+  capsHit: z.number(),
+});
+export type ConsentStats = z.infer<typeof consentStatsSchema>;
+
+/** Header counts over the whole registry (GET /consent/stats). */
+export function useConsentStats() {
+  return useQuery({
+    queryKey: ["consent", "stats"],
+    queryFn: () => apiGet<ConsentStats>("/consent/stats", { schema: consentStatsSchema }),
+  });
 }
 
 export function consentPatchBody(
   rec: ConsentRecord,
   patch: ConsentPreferencesPatch,
   note: string,
-): { channels: ChannelConsent[]; note: string; allowedWindow?: AllowedWindow } {
-  const body: { channels: ChannelConsent[]; note: string; allowedWindow?: AllowedWindow } = {
-    channels: patch.channels,
+): { channels: ConsentChannelWrite[]; note: string; allowedWindow?: AllowedWindow } {
+  // Each row carries its servicing consent; a promotional change is its own
+  // write, sent only when the operator changed it, so opening and saving the
+  // drawer never captures a promotional consent nobody gave.
+  const promotional: ConsentChannelWrite[] = patch.channels
+    .filter(
+      (c) =>
+        c.promotional &&
+        c.promotional !== rec.channels.find((r) => r.channel === c.channel)?.promotional,
+    )
+    .map((c) => ({
+      channel: c.channel,
+      status: c.promotional!,
+      source: c.source,
+      purpose: "promotional",
+    }));
+  const body: { channels: ConsentChannelWrite[]; note: string; allowedWindow?: AllowedWindow } = {
+    channels: [...patch.channels, ...promotional],
     note: note || "Consent preferences updated.",
   };
   if (

@@ -32,16 +32,15 @@ function rec(window: AllowedWindow): ConsentRecord {
 }
 
 describe("consentPatchBody", () => {
-  const channels = [
-    {
-      channel: "sms" as const,
-      status: "opted_out" as const,
-      capturedAt: "2026-01-01T00:00:00Z",
-      source: "Agent" as const,
-      frequencyCapPerWeek: 3,
-      usedThisWeek: 0,
-    },
-  ];
+  const SMS = {
+    channel: "sms" as const,
+    status: "opted_out" as const,
+    capturedAt: "2026-01-01T00:00:00Z",
+    source: "Agent" as const,
+    frequencyCapPerWeek: 3,
+    usedThisWeek: 0,
+  };
+  const channels = [SMS];
 
   it("omits allowedWindow when the operator only toggled a channel", () => {
     const body = consentPatchBody(rec(WEEKDAYS), { channels, allowedWindow: WEEKDAYS }, "");
@@ -52,6 +51,23 @@ describe("consentPatchBody", () => {
   it("omits allowedWindow when the drawer already left it off", () => {
     const body = consentPatchBody(rec(WEEKDAYS), { channels }, "note");
     expect(body).not.toHaveProperty("allowedWindow");
+  });
+
+  it("writes a promotional consent only when the operator changed it", () => {
+    const sms = { ...SMS, promotional: null };
+    const stored = { ...rec(WEEKDAYS), channels: [sms] };
+    const unchanged = consentPatchBody(stored, { channels: stored.channels }, "");
+    expect(unchanged.channels).toHaveLength(1);
+
+    const edited = [{ ...SMS, promotional: "opted_in" as const }];
+    const body = consentPatchBody(stored, { channels: edited }, "");
+    expect(body.channels).toHaveLength(2);
+    expect(body.channels[1]).toEqual({
+      channel: "sms",
+      status: "opted_in",
+      source: "Agent",
+      purpose: "promotional",
+    });
   });
 
   it("includes allowedWindow when the operator changed the hours", () => {

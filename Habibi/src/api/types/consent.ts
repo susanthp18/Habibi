@@ -14,10 +14,14 @@ export interface ChannelConsent {
   source: OptOutSource | "Onboarding";
   frequencyCapPerWeek: number;
   usedThisWeek: number;
-  /** `status` is the servicing consent (what the contact Gate reads); this is
-   *  the promotional one — null when never captured. Read-only on the screen. */
+  /** `status` is the servicing consent (what the contact Gate reads for
+   *  collections contact); this is the promotional one, for offers — null
+   *  when never captured. */
   promotional?: ConsentStatus | null;
 }
+/** One channel write in a consent PATCH. Absent `purpose` = servicing. */
+export type ConsentChannelWrite = Partial<ChannelConsent> &
+  Pick<ChannelConsent, "channel" | "status"> & { purpose?: "servicing" | "promotional" };
 export interface AllowedWindow {
   // 0 = Sun ... 6 = Sat
   days: number[];

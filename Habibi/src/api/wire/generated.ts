@@ -222,6 +222,13 @@ export const ConsentListResponse = z.object({
   "lastDecisionReason": z.string().nullable().optional(),
   "contactable": ContactableSummaryResponse,
 }).passthrough();
+export const ConsentStatsResponse = z.object({
+  "customers": z.number(),
+  "dnd": z.number(),
+  "optOuts30d": z.number(),
+  "expiring": z.number(),
+  "capsHit": z.number(),
+}).passthrough();
 export const ConsentImportChanges = z.object({
   "opt_in": z.number(),
   "opt_out": z.number(),
@@ -2379,6 +2386,10 @@ export const DecisionTraceResponse = z.object({
   "happened": z.record(z.string(), z.unknown()),
   "feedback": z.array(z.record(z.string(), z.unknown())).optional(),
 }).passthrough();
+export const DecisionExplanationResponse = z.object({
+  "text": z.string(),
+  "source": z.enum(["llm", "rule"]),
+}).passthrough();
 export const TreatmentStageResponse = z.object({
   "key": z.string(),
   "label": z.string(),
@@ -2434,6 +2445,49 @@ export const StrategyProposalResponse = z.object({
   "decided_at": z.string().nullable().optional(),
   "decision_note": z.string().nullable().optional(),
   "created_at": z.string(),
+}).passthrough();
+export const OfferLogRowResponse = z.object({
+  "id": z.string(),
+  "created_at": z.string(),
+  "customer_id": z.string(),
+  "customer_name": z.string().nullable().optional(),
+  "mode": z.string(),
+  "chosen_product_id": z.string().nullable().optional(),
+  "product_name": z.string().nullable().optional(),
+  "score": z.number().nullable().optional(),
+  "suppression_reason": z.string().nullable().optional(),
+  "holdReasonText": z.string().nullable().optional(),
+  "presented": z.boolean().optional(),
+  "response": z.string().nullable().optional(),
+  "context": z.string().nullable().optional(),
+  "signals": z.number().optional(),
+}).passthrough();
+export const OfferTraceResponse = z.object({
+  "id": z.string(),
+  "family": z.string(),
+  "customerId": z.string(),
+  "customerName": z.string().nullable().optional(),
+  "createdAt": z.string().nullable().optional(),
+  "mode": z.string().nullable().optional(),
+  "context": z.string().nullable().optional(),
+  "signals": z.array(z.record(z.string(), z.unknown())).optional(),
+  "choice": z.record(z.string(), z.unknown()),
+  "options": z.array(z.record(z.string(), z.unknown())).optional(),
+  "suitability": z.array(z.record(z.string(), z.unknown())).optional(),
+  "delivery": z.record(z.string(), z.unknown()),
+  "versions": z.record(z.string(), z.unknown()),
+}).passthrough();
+export const OpportunitiesResponse = z.object({
+  "signals": z.array(z.record(z.string(), z.unknown())),
+  "decision": OfferTraceResponse.nullable().optional(),
+}).passthrough();
+export const SignalHealthResponse = z.object({
+  "scans": z.array(z.record(z.string(), z.unknown())),
+  "codes": z.array(z.record(z.string(), z.unknown())),
+}).passthrough();
+export const SignalFeedbackResponse = z.object({
+  "id": z.string(),
+  "feedback": z.string(),
 }).passthrough();
 export const ReachStatsResponse = z.object({
   "attempts": z.number(),
@@ -3179,6 +3233,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /export-jobs/access-roles", z.array(ExportAccessRoleResponse)],
   ["PATCH /export-jobs/{job_id}", ExportJobResponse],
   ["GET /consent", z.array(ConsentListResponse)],
+  ["GET /consent/stats", ConsentStatsResponse],
   ["POST /consent/import", ConsentImportResponse],
   ["PATCH /consent/{customer_id}", CustomerResponse],
   ["POST /consent/{customer_id}/opt-out", CustomerResponse],
@@ -3338,6 +3393,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /treatment/ops/{kind}", z.array(TreatmentOpsRowResponse)],
   ["GET /treatment/decisions", z.array(DecisionLogRowResponse)],
   ["GET /treatment/decisions/{decision_id}", DecisionTraceResponse],
+  ["POST /treatment/decisions/{decision_id}/explain", DecisionExplanationResponse],
   ["GET /treatment/health", TreatmentHealthResponse],
   ["GET /treatment/learned", z.array(LearnedRateResponse)],
   ["GET /treatment/current", TreatmentCurrentResponse],
@@ -3347,6 +3403,11 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /treatment/strategy/proposals", StrategyProposalResponse],
   ["POST /treatment/strategy/proposals/{proposal_id}/approve", StrategyProposalResponse],
   ["POST /treatment/strategy/proposals/{proposal_id}/reject", StrategyProposalResponse],
+  ["GET /offers/decisions", z.array(OfferLogRowResponse)],
+  ["GET /offers/decisions/{decision_id}", OfferTraceResponse],
+  ["GET /offers/opportunities", OpportunitiesResponse],
+  ["GET /offers/signals/health", SignalHealthResponse],
+  ["POST /offers/signals/{signal_id}/feedback", SignalFeedbackResponse],
   ["GET /outbound/stats", ReachStatsResponse],
   ["GET /outbound/attempts", z.array(CallAttemptResponse)],
   ["GET /outbound/reasons", z.array(NonpaymentReasonResponse)],

@@ -1,58 +1,48 @@
 import { Users, ShieldOff, Ban, CalendarX, AlertTriangle } from "lucide-react";
-import type { ConsentRecord } from "@/api/types/consent";
+import type { ConsentStats } from "@/api/consent";
 import { MetricsStrip } from "@/components/records/MetricsStrip";
-import { daysUntil } from "@/lib/consent";
 
-export function ConsentStatsStrip({ all }: { all: ConsentRecord[] }) {
-  const total = all.length;
-  const dnd = all.filter(
-    (r) => r.onDndRegistry || r.channels.some((c) => c.status === "dnd"),
-  ).length;
-  const optOuts30d = all.reduce(
-    (n, r) =>
-      n + r.optOutLog.filter((e) => Date.now() - new Date(e.at).getTime() < 30 * 86400000).length,
-    0,
-  );
-  const expiring = all.filter((r) => {
-    const d = daysUntil(r.consentExpiresAt);
-    return d <= 30;
-  }).length;
-  const capBreach = all.filter((r) =>
-    r.channels.some((c) => c.usedThisWeek >= c.frequencyCapPerWeek && c.status === "opted_in"),
-  ).length;
-
+/** Counts over the whole registry (GET /consent/stats), not the loaded page. */
+export function ConsentStatsStrip({ stats }: { stats: ConsentStats | undefined }) {
+  const n = (v: number | undefined) => (v === undefined ? "—" : v);
   return (
     <MetricsStrip
       className="gap-150 border-b border-border bg-surface px-250 py-150"
       tiles={[
-        { icon: Users, label: "Customers", value: total, sub: "in registry", tone: "brand" },
+        {
+          icon: Users,
+          label: "Customers",
+          value: n(stats?.customers),
+          sub: "in registry",
+          tone: "brand",
+        },
         {
           icon: ShieldOff,
           label: "DND active",
-          value: dnd,
+          value: n(stats?.dnd),
           sub: "registry or channel-level",
           tone: "warning",
         },
         {
           icon: Ban,
           label: "Opt-outs (30d)",
-          value: optOuts30d,
+          value: n(stats?.optOuts30d),
           sub: "captured across channels",
           tone: "brand",
         },
         {
           icon: CalendarX,
           label: "Expiring ≤30d",
-          value: expiring,
+          value: n(stats?.expiring),
           sub: "renewal required",
-          tone: expiring > 3 ? "warning" : "brand",
+          tone: (stats?.expiring ?? 0) > 3 ? "warning" : "brand",
         },
         {
           icon: AlertTriangle,
           label: "Frequency caps hit",
-          value: capBreach,
+          value: n(stats?.capsHit),
           sub: "paused for the week",
-          tone: capBreach > 0 ? "danger" : "brand",
+          tone: (stats?.capsHit ?? 0) > 0 ? "danger" : "brand",
         },
       ]}
     />

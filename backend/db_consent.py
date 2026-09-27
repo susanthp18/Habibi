@@ -363,107 +363,269 @@ def contactable_summary(rec: dict[str, Any], now: datetime | None = None) -> dic
     return {"status": "amber", "reasons": reasons}
 
 
-def list_consent(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Consent & Communication Preferences feed (richer than Customer 360 consent)."""
-    _mod = _db()
+#: What a screen channel's servicing consent is, per stored channel row. No
+#: servicing row means no consent (``_default_channel``), so "has status X on a
+#: channel" is read through this, never through the rows alone.
+_SERVICING_ROW = (
+    "cc.consent_id = cr.id AND COALESCE(cc.purpose, 'servicing') = 'servicing' "
+    "AND cc.channel IN ('voice', 'whatsapp', 'sms', 'email')"
+)
+_ON_DND = "(COALESCE(cr.dnd_registry, false) OR COALESCE(c.dnd, false))"
+_EXPIRES = "COALESCE(cr.expires_at, cr.created_at + interval '365 days')"
+_SEGMENT = (
+    "CASE lower(btrim(COALESCE(c.segment, 'retail'))) "
+    "WHEN 'sme' THEN 'SME' WHEN 'priority' THEN 'Priority' ELSE 'Retail' END"
+)
+
+
+def _consent_filters(
+    q: str | None, segment: str | None, channel: str | None, status: str | None
+) -> tuple[str, dict[str, Any]]:
+    """The Consent screen's filters as SQL, with the screen's own meanings
+    (the browser used to apply them to whatever page it had loaded).
+    ``contactable`` depends on the calling window at this instant, so it is
+    applied in Python by :func:`list_consent`, not here."""
+    where: list[str] = []
+    params: dict[str, Any] = {}
+    if q and q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where.append(
+            "(c.name ILIKE :q OR c.phone_primary ILIKE :q OR c.email ILIKE :q OR a.id ILIKE :q)"
+        )
+        params["q"] = f"%{term}%"
+    if segment and segment != "all":
+        where.append(f"{_SEGMENT} = :segment")
+        params["segment"] = segment
+    if channel and channel != "all":
+        # Reachable there: servicing opted in, and for calls not on DND.
+        where.append(
+            f"EXISTS (SELECT 1 FROM channel_consents cc WHERE {_SERVICING_ROW} "
+            "AND cc.channel = :channel AND cc.status = 'opted_in')"
+        )
+        params["channel"] = _consent_channel_db(channel)
+        if channel == "call":
+            where.append(f"NOT {_ON_DND}")
+    if status == "dnd":
+        where.append(
+            f"({_ON_DND} OR EXISTS (SELECT 1 FROM channel_consents cc "
+            f"WHERE {_SERVICING_ROW} AND cc.status = 'dnd'))"
+        )
+    elif status == "opted_out":
+        # Any of the four channels opted out -- a missing row counts.
+        where.append(
+            "(SELECT count(DISTINCT cc.channel) FROM channel_consents cc "
+            f"WHERE {_SERVICING_ROW} AND cc.status <> 'opted_out') < 4"
+        )
+    elif status == "expiring":
+        where.append(f"{_EXPIRES} <= now() + interval '30 days'")
+    return ("AND " + " AND ".join(where)) if where else "", params
+
+
+_CONSENT_FROM = """
+    FROM consent_records cr
+    JOIN customers c ON c.id = cr.customer_id
+     AND c.tenant_id = :tenant_id
+     /*VISIBILITY*/
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM accounts a
+      WHERE a.customer_id = c.id
+      ORDER BY
+        CASE WHEN a.id LIKE 'AC-%' THEN 0 ELSE 1 END,
+        a.created_at,
+        a.id
+      LIMIT 1
+    ) a ON true
+    WHERE true
+"""
+
+
+def list_consent(
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
+    q: str | None = None,
+    segment: str | None = None,
+    channel: str | None = None,
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    """Consent & Communication Preferences feed (richer than Customer 360 consent),
+    filtered and paged on the server so every customer in the registry is
+    reachable, not only the first page."""
     engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
+    where, params = _consent_filters(q, segment, channel, status)
+    sql = _sql(
+        f"""
+        SELECT cr.id, cr.customer_id, cr.dnd_registry, cr.expires_at,
+               cr.allowed_days, cr.allowed_hours, cr.created_at,
+               c.name AS customer_name, c.phone_primary, c.email,
+               c.timezone, c.segment, c.preferred_window, c.dnd AS customer_dnd,
+               a.id AS account_id
+        {_CONSENT_FROM} {where}
+        ORDER BY c.name, cr.id
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    base = {"tenant_id": _tenant(), **_vis_params(), **params}
     with engine.connect() as conn:
-        rows = _rows(
+        if status != "contactable":
+            rows = _rows(conn.execute(sql, {**base, "limit": page, "offset": skip}))
+            return _consent_screen_rows(conn, rows)
+        # Contactable is decided per record at this instant: walk the filtered
+        # registry in batches until the page is full.
+        # ponytail: O(registry) in the worst case; a stored "contactable now"
+        # column is the upgrade if this filter gets slow on a large book.
+        out: list[dict[str, Any]] = []
+        matched = 0
+        cursor = 0
+        while len(out) < page:
+            rows = _rows(conn.execute(sql, {**base, "limit": 500, "offset": cursor}))
+            if not rows:
+                break
+            cursor += len(rows)
+            for rec in _consent_screen_rows(conn, rows):
+                if rec["contactable"]["status"] == "red":
+                    continue
+                matched += 1
+                if matched > skip and len(out) < page:
+                    out.append(rec)
+        return out
+
+
+def _consent_screen_rows(conn: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Registry rows -> the Consent screen's records (channels, opt-outs, audit,
+    this week's usage and the contactable summary)."""
+    consent_ids = [r["id"] for r in rows]
+    customer_ids = [r["customer_id"] for r in rows]
+    channels = _consent_channels_grouped(conn, consent_ids)
+    optouts = _consent_optouts_grouped(conn, consent_ids)
+    audits = _consent_audit_grouped(conn, customer_ids)
+    usage: dict[str, dict[str, Any]] = {}
+    try:
+        import contact_policy
+
+        usage = contact_policy.ledger_usage(conn, customer_ids)
+    except Exception:
+        logger.exception("contact_policy ledger_usage failed")
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        created = r["created_at"]
+        hours_raw = r["allowed_hours"] or r["preferred_window"]
+        start_h, end_h = _parse_allowed_hours(hours_raw)
+        expires = r["expires_at"]
+        if not expires:
+            try:
+                base = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            except ValueError:
+                base = utc_now()
+            expires = (base + timedelta(days=365)).isoformat()
+        audit = audits.get(r["customer_id"]) or [
+            {
+                "id": f"A-{r['id']}",
+                "at": created,
+                "actor": "Onboarding",
+                "action": "Consent captured",
+            }
+        ]
+        stats = usage.get(r["customer_id"]) or {}
+        by_ch = stats.get("byChannel") or {}
+        complete = _ensure_channels_complete(channels.get(r["id"]) or [], created)
+        for item in complete:
+            db_ch = "voice" if item["channel"] == "call" else item["channel"]
+            if db_ch in by_ch:
+                item["usedThisWeek"] = by_ch[db_ch]
+        screen = {
+                "id": r["id"],
+                "customerId": r["customer_id"],
+                "customerName": r["customer_name"],
+                "accountId": r["account_id"] or "",
+                "phone": r["phone_primary"] or "",
+                "email": r["email"] or "",
+                "timezone": r["timezone"] or clock.DEFAULT_TIMEZONE,
+                "segment": _consent_segment(r["segment"]),
+                "channels": complete,
+                "allowedWindow": {
+                    "days": _parse_allowed_days(r["allowed_days"]),
+                    "startHour": start_h,
+                    "endHour": end_h,
+                },
+                "consentExpiresAt": expires,
+                "onDndRegistry": bool(r["dnd_registry"] or r["customer_dnd"]),
+                "optOutLog": optouts.get(r["id"]) or [],
+                "audit": audit,
+                "outreachToday": int(stats.get("outreachToday") or 0),
+                "dailyCap": int(stats.get("dailyCap") or 3),
+                "lastDecisionReason": stats.get("lastDecisionReason"),
+            }
+        screen["contactable"] = contactable_summary(screen)
+        result.append(screen)
+    return result
+
+
+def consent_stats() -> dict[str, int]:
+    """The Consent screen's header counts over the whole registry, not over the
+    page the browser happens to hold."""
+    engine = _db().engine
+    base = {"tenant_id": _tenant(), **_vis_params()}
+    with engine.connect() as conn:
+        counts = _one(
             conn.execute(
                 _sql(
-                    """
-                    SELECT cr.id, cr.customer_id, cr.dnd_registry, cr.expires_at,
-                           cr.allowed_days, cr.allowed_hours, cr.created_at,
-                           c.name AS customer_name, c.phone_primary, c.email,
-                           c.timezone, c.segment, c.preferred_window, c.dnd AS customer_dnd,
-                           a.id AS account_id
-                    FROM consent_records cr
-                    JOIN customers c ON c.id = cr.customer_id
-                     AND c.tenant_id = :tenant_id
-                     /*VISIBILITY*/
-                    LEFT JOIN LATERAL (
-                      SELECT *
-                      FROM accounts a
-                      WHERE a.customer_id = c.id
-                      ORDER BY
-                        CASE WHEN a.id LIKE 'AC-%' THEN 0 ELSE 1 END,
-                        a.created_at,
-                        a.id
-                      LIMIT 1
-                    ) a ON true
-                    ORDER BY c.name
-                    LIMIT :limit OFFSET :offset
+                    f"""
+                    SELECT count(*) AS customers,
+                           count(*) FILTER (WHERE {_ON_DND} OR EXISTS (
+                             SELECT 1 FROM channel_consents cc
+                             WHERE {_SERVICING_ROW} AND cc.status = 'dnd')) AS dnd,
+                           count(*) FILTER (WHERE {_EXPIRES} <= now() + interval '30 days') AS expiring,
+                           COALESCE(sum((SELECT count(*) FROM optout_events o
+                                         WHERE o.consent_id = cr.id
+                                           AND o.channel IN ('voice', 'whatsapp', 'sms', 'email', 'all')
+                                           AND o.occurred_at >= now() - interval '30 days')), 0)
+                             AS opt_outs_30d
+                    {_CONSENT_FROM}
                     """
                 ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
+                base,
+            )
+        ) or {}
+        # Frequency caps: only customers contacted in the last week can have hit
+        # one, so the gate's own weekly count runs over that set alone.
+        touched = _rows(
+            conn.execute(
+                _sql(
+                    f"""
+                    SELECT cr.id, cr.customer_id
+                    {_CONSENT_FROM}
+                      AND EXISTS (SELECT 1 FROM contact_events e
+                                  WHERE e.customer_id = c.id AND e.outcome = 'allowed'
+                                    AND e.occurred_at >= now() - interval '8 days')
+                    """
+                ),
+                base,
             )
         )
-        consent_ids = [r["id"] for r in rows]
-        customer_ids = [r["customer_id"] for r in rows]
-        channels = _consent_channels_grouped(conn, consent_ids)
-        optouts = _consent_optouts_grouped(conn, consent_ids)
-        audits = _consent_audit_grouped(conn, customer_ids)
-        usage: dict[str, dict[str, Any]] = {}
-        try:
+        caps_hit = 0
+        if touched:
             import contact_policy
 
-            usage = contact_policy.ledger_usage(conn, customer_ids)
-        except Exception:
-            logger.exception("contact_policy ledger_usage failed")
-        result: list[dict[str, Any]] = []
-        for r in rows:
-            created = r["created_at"]
-            hours_raw = r["allowed_hours"] or r["preferred_window"]
-            start_h, end_h = _parse_allowed_hours(hours_raw)
-            expires = r["expires_at"]
-            if not expires:
-                try:
-                    base = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
-                except ValueError:
-                    base = utc_now()
-                expires = (base + timedelta(days=365)).isoformat()
-            audit = audits.get(r["customer_id"]) or [
-                {
-                    "id": f"A-{r['id']}",
-                    "at": created,
-                    "actor": "Onboarding",
-                    "action": "Consent captured",
-                }
-            ]
-            stats = usage.get(r["customer_id"]) or {}
-            by_ch = stats.get("byChannel") or {}
-            complete = _ensure_channels_complete(channels.get(r["id"]) or [], created)
-            for item in complete:
-                db_ch = "voice" if item["channel"] == "call" else item["channel"]
-                if db_ch in by_ch:
-                    item["usedThisWeek"] = by_ch[db_ch]
-            screen = {
-                    "id": r["id"],
-                    "customerId": r["customer_id"],
-                    "customerName": r["customer_name"],
-                    "accountId": r["account_id"] or "",
-                    "phone": r["phone_primary"] or "",
-                    "email": r["email"] or "",
-                    "timezone": r["timezone"] or clock.DEFAULT_TIMEZONE,
-                    "segment": _consent_segment(r["segment"]),
-                    "channels": complete,
-                    "allowedWindow": {
-                        "days": _parse_allowed_days(r["allowed_days"]),
-                        "startHour": start_h,
-                        "endHour": end_h,
-                    },
-                    "consentExpiresAt": expires,
-                    "onDndRegistry": bool(r["dnd_registry"] or r["customer_dnd"]),
-                    "optOutLog": optouts.get(r["id"]) or [],
-                    "audit": audit,
-                    "outreachToday": int(stats.get("outreachToday") or 0),
-                    "dailyCap": int(stats.get("dailyCap") or 3),
-                    "lastDecisionReason": stats.get("lastDecisionReason"),
-                }
-            screen["contactable"] = contactable_summary(screen)
-            result.append(screen)
-        return result
+            usage = contact_policy.ledger_usage(conn, [r["customer_id"] for r in touched])
+            channels = _consent_channels_grouped(conn, [r["id"] for r in touched])
+            for r in touched:
+                by_ch = (usage.get(r["customer_id"]) or {}).get("byChannel") or {}
+                for item in channels.get(r["id"]) or []:
+                    used = by_ch.get(_consent_channel_db(item["channel"]), 0)
+                    if item["status"] == "opted_in" and used >= item["frequencyCapPerWeek"]:
+                        caps_hit += 1
+                        break
+    return {
+        "customers": int(counts.get("customers") or 0),
+        "dnd": int(counts.get("dnd") or 0),
+        "optOuts30d": int(counts.get("opt_outs_30d") or 0),
+        "expiring": int(counts.get("expiring") or 0),
+        "capsHit": caps_hit,
+    }
+
 
 def get_contact_policy(customer_id: str, channel: str = "whatsapp", purpose: str = "outreach") -> dict[str, Any]:
     """Dry-run of the contact gate for Inbox / Floor / Consent pills."""

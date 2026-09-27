@@ -24,6 +24,9 @@ class ConsentChannelPatch(BaseModel):
     optedIn: bool | None = None
     frequencyCapPerWeek: int | None = None
     source: str | None = None
+    # Which consent this row is: the contact Gate reads servicing for
+    # collections contact and promotional for offers. Absent = servicing.
+    purpose: Literal["servicing", "promotional"] | None = None
 
 
 class AllowedWindowPatch(BaseModel):
@@ -151,6 +154,18 @@ class ContactableSummaryResponse(BaseModel):
 
     status: Literal["green", "amber", "red"]
     reasons: list[str]
+
+
+class ConsentStatsResponse(BaseModel):
+    """GET /consent/stats: header counts over the whole registry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    customers: int
+    dnd: int
+    optOuts30d: int
+    expiring: int
+    capsHit: int
 
 
 class ConsentListResponse(BaseModel):

@@ -7,6 +7,7 @@ included by main.py.
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 import db
 import db_compliance
@@ -49,7 +50,7 @@ from schemas import (
     ViolationNoteResponse,
     ViolationPatchRequest,
 )
-from schemas.compliance import ConsentImportRequest, ConsentImportResponse
+from schemas.compliance import ConsentImportRequest, ConsentImportResponse, ConsentStatsResponse
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
 from agent_core.clock import utc_now
@@ -62,8 +63,21 @@ logger = logging.getLogger(__name__)
 def list_consent(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=120),
+    segment: Literal["all", "Retail", "SME", "Priority"] = "all",
+    channel: Literal["all", "call", "whatsapp", "sms", "email"] = "all",
+    status: Literal["all", "contactable", "dnd", "opted_out", "expiring"] = "all",
 ):
-    return db.list_consent(limit=limit, offset=offset)
+    """One page of the registry, filtered on the server so a customer beyond
+    the first page is still found by search and by every filter."""
+    return db_consent.list_consent(
+        limit=limit, offset=offset, q=q, segment=segment, channel=channel, status=status
+    )
+
+@router.get("/consent/stats", response_model=ConsentStatsResponse)
+def get_consent_stats():
+    """The Consent screen's header counts over the whole registry."""
+    return db_consent.consent_stats()
 
 @router.get("/consent/export", response_class=Response)
 def export_consent_registry():

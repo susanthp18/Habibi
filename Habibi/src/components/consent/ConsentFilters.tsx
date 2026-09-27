@@ -33,11 +33,14 @@ export function ConsentFilters({
   onChange,
   resultCount,
   totalCount,
+  more = false,
 }: {
   filters: ConsentFilterState;
   onChange: (f: ConsentFilterState) => void;
   resultCount: number;
   totalCount: number;
+  /** More matches exist on the server than are loaded. */
+  more?: boolean;
 }) {
   const isDirty = JSON.stringify(filters) !== JSON.stringify(defaultConsentFilters);
   return (
@@ -91,8 +94,9 @@ export function ConsentFilters({
       </div>
 
       <div className="ml-auto flex items-center gap-100 text-body-small text-text-subtlest">
-        <span>
-          {resultCount} / {totalCount}
+        <span title="Shown / customers in the registry">
+          {resultCount}
+          {more ? "+" : ""} / {totalCount}
         </span>
         {isDirty && (
           <button

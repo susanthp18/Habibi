@@ -572,6 +572,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # drawer needs; the tenant-wide export is a compliance extract.
     ("POST", "/consent/import"): CONSENT_WRITE,
     ("GET", "/consent/export"): COMPLIANCE_READ,
+    ("GET", "/consent/stats"): CONSENT_READ,
     # --- conversations / interactions --------------------------------------
     ("GET", "/calls"): INTERACTIONS_READ,
     ("GET", "/calls/{interaction_id}"): INTERACTIONS_READ,
