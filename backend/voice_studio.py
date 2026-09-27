@@ -293,6 +293,28 @@ def default_from_number() -> str:
     return env_str("TWILIO_PHONE_NUMBER")
 
 
+#: The engine's one inbound webhook: it resolves the org from the account and
+#: the agent from the called number's Voice Studio routing.
+ENGINE_INBOUND_PATH = "/api/v1/telephony/inbound/run"
+
+
+def inbound_handoff_twiml() -> str | None:
+    """TwiML that hands an inbound call PayInt's webhook received to the engine,
+    or None when the engine's public URL is not configured. Twilio signs the
+    redirected request for its new URL, so the engine verifies it as its own."""
+    from xml.sax.saxutils import escape
+
+    base = env_str("AGENTSTUDIO_PUBLIC_URL").rstrip("/")
+    if not base.startswith("https://") and not base.startswith("http://"):
+        return None
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<Response>\n"
+        f'  <Redirect method="POST">{escape(base + ENGINE_INBOUND_PATH)}</Redirect>\n'
+        "</Response>\n"
+    )
+
+
 def configured() -> bool:
     return bool(env_str("VOICE_STUDIO_API_KEY") and env_str("AGENTSTUDIO_INTERNAL_SECRET"))
 

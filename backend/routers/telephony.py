@@ -163,6 +163,24 @@ async def twilio_voice_incoming(request: Request):
     if not _twilio_signature_ok(request, form):
         raise HTTPException(status_code=403, detail="invalid_twilio_signature")
 
+    from voice import telephony
+
+    if telephony.provider_name() == "studio":
+        # Voice Studio answers every call: a number still pointed at this
+        # webhook is handed to the engine, never to the legacy runner.
+        import voice_studio
+
+        handoff = voice_studio.inbound_handoff_twiml()
+        if handoff is None:
+            logger.error("Twilio inbound CallSid=%s: AGENTSTUDIO_PUBLIC_URL unset; refusing", form.get("CallSid"))
+            return Response(
+                content=twilio_ops.twiml_say_hangup(
+                    "We're sorry, the voice agent is temporarily unavailable."
+                ),
+                media_type="application/xml",
+            )
+        return Response(content=handoff, media_type="application/xml")
+
     if not twilio_ops.configured():
         return Response(
             content=twilio_ops.twiml_say_hangup(

@@ -20,6 +20,9 @@ x-voice-studio-env: &voice-studio-env
   AGENTSTUDIO_INTERNAL_SECRET: ${AGENTSTUDIO_INTERNAL_SECRET:-dev-only-agentstudio-internal-secret}
   VOICE_STUDIO_HOOK_TOKEN: ${VOICE_STUDIO_HOOK_TOKEN:-dev-only-voice-studio-hook-token}
   TELEPHONY_PROVIDER: studio
+  # Where an inbound call that reaches PayInt's Twilio webhook is handed to the
+  # engine (voice_studio.inbound_handoff_twiml).
+  AGENTSTUDIO_PUBLIC_URL: ${AGENTSTUDIO_PUBLIC_URL:-}
 
 services:
   # Our API fronts the engine (routers/agentstudio_gateway.py) and answers
