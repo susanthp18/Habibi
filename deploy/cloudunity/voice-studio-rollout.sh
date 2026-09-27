@@ -110,7 +110,10 @@ bash "$ROOT/deploy/cloudunity/ui-production.sh"
 
 echo "== marketing site production release =="
 if [ -f /tmp/site.tgz ]; then
-  bash "$ROOT/deploy/cloudunity/site-production.sh" /tmp/site.tgz
+  # The marketing site is independent of the app: a failed site release keeps
+  # the old site serving and must not stop the nginx steps below.
+  bash "$ROOT/deploy/cloudunity/site-production.sh" /tmp/site.tgz \
+    || echo "  site release FAILED; the previous site is still serving (see output above)"
 else
   echo "  no /tmp/site.tgz; site left as it is"
 fi
