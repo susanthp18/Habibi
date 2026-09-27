@@ -79,7 +79,7 @@ COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunit
          -f docker-compose.yml -f docker-compose.agentstudio.yml)
 
 echo "== build =="
-"${COMPOSE[@]}" build api voice agentstudio_engine
+"${COMPOSE[@]}" build api agentstudio_engine
 # ml_worker: torch (CPU) + ONNX runtimes and ~800 MB of pinned models and fonts,
 # fetched once at build (Dockerfile stages `models`, `ml`); cached after.
 "${COMPOSE[@]}" build ml_worker
@@ -100,7 +100,11 @@ rm -f "$ENVF"
 
 echo "== start engine, recreate app containers =="
 "${COMPOSE[@]}" up -d --no-build agentstudio_db_init agentstudio_redis agentstudio_turn agentstudio_engine
-"${COMPOSE[@]}" up -d --no-build api voice bot_worker worker wk_batch ml_worker
+"${COMPOSE[@]}" up -d --no-build api bot_worker worker wk_batch ml_worker
+# The legacy in-house voice runner is retired: every call runs on Voice Studio
+# (TELEPHONY_PROVIDER=studio from docker-compose.agentstudio.yml). Stopped, not
+# removed, so it stays available for a rollback.
+docker stop collections_voice >/dev/null 2>&1 || true
 
 echo "== UI deps + production release =="
 docker run --rm --memory=2g --cpus=2 \
@@ -166,5 +170,8 @@ echo "engine schema: $(docker exec collections_agentstudio sh -lc 'cd /app/api &
 curl -sS -o /dev/null -w "local_api:%{http_code}\n" -m 5 http://127.0.0.1:8100/ready || true
 curl -sS -o /dev/null -w "engine:%{http_code}\n" -m 5 http://127.0.0.1:8200/api/v1/health || true
 echo "ml_worker: $(docker inspect -f '{{.State.Status}}' collections_ml_worker 2>/dev/null || echo missing)"
+# Every call on Voice Studio: the API dials through the engine and the legacy runner is off.
+echo "telephony provider: $(docker exec collections_api printenv TELEPHONY_PROVIDER 2>/dev/null || echo unset)"
+echo "legacy voice runner: $(docker inspect -f '{{.State.Status}}' collections_voice 2>/dev/null || echo absent)"
 curl -sS -o /dev/null -w "https_app:%{http_code}\n" -m 10 https://beeonixpayint.bigtapp.net/app/ || true
 echo DONE

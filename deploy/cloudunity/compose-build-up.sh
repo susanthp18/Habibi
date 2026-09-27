@@ -2,13 +2,17 @@
 set -euo pipefail
 ROOT=/home/azureuser/beeonix-payint
 cd "$ROOT/backend"
-COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml)
+COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml -f docker-compose.agentstudio.yml)
 
-echo "== rebuild api+voice =="
-"${COMPOSE[@]}" build api voice
+echo "== rebuild api =="
+"${COMPOSE[@]}" build api
 
 echo "== recreate app containers =="
-"${COMPOSE[@]}" up -d --no-build api voice bot_worker worker wk_batch
+"${COMPOSE[@]}" up -d --no-build api bot_worker worker wk_batch
+# The legacy in-house voice runner is retired: every call runs on Voice Studio
+# (TELEPHONY_PROVIDER=studio from docker-compose.agentstudio.yml). Stopped, not
+# removed, so it stays available for a rollback.
+docker stop collections_voice >/dev/null 2>&1 || true
 
 echo "== release production UI =="
 bash "$ROOT/deploy/cloudunity/ui-production.sh"

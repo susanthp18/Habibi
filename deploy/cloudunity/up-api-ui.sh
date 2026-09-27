@@ -4,13 +4,13 @@ ROOT=/home/azureuser/beeonix-payint
 cd "$ROOT/backend"
 # Existing stack was created with -p payint. Do not use the directory default
 # (backend) or compose will try to create a second Postgres volume.
-COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml)
+COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml -f docker-compose.agentstudio.yml)
 
 echo "== drop accidental backend_* leftovers if empty =="
 docker network rm backend_default 2>/dev/null || true
 docker volume rm backend_pgdata backend_minio_data backend_voice_sessions 2>/dev/null || true
 
-echo "== recreate api-family on new image; keep voice =="
+echo "== recreate api-family on new image =="
 "${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate api bot_worker worker wk_batch
 
 echo "== wait api health =="
