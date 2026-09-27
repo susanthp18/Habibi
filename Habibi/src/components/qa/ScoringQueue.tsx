@@ -2,22 +2,31 @@ import { useMemo, useState } from "react";
 import { Search, Bot, User, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Rubric, Scorecard } from "@/api/types/qa";
-import { computeTotal } from "@/lib/qa";
+import { computeTotal, needsHuman } from "@/lib/qa";
 import { ScoreBand } from "./ScoreBand";
 import { Lozenge } from "@/components/ui/lozenge";
 
-type Status = "all" | "unscored" | "ai_draft" | "final";
+type Status = "all" | "unscored" | "ai_draft" | "needs_review" | "final";
+
+const STATUS_LABEL: Record<Status, string> = {
+  all: "All",
+  unscored: "Unscored",
+  ai_draft: "AI draft",
+  needs_review: "Needs review",
+  final: "Final",
+};
 
 export function ScoringQueue({
   scorecards,
   activeId,
   onSelect,
-  rubric,
+  rubricFor,
 }: {
   scorecards: Scorecard[];
   activeId: string | null;
   onSelect: (id: string) => void;
-  rubric: Rubric;
+  /** The rubric version a card was scored on. */
+  rubricFor: (rubricId?: string | null) => Rubric;
 }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<Status>("all");
@@ -25,7 +34,9 @@ export function ScoringQueue({
 
   const filtered = useMemo(() => {
     return scorecards.filter((s) => {
-      if (status !== "all" && s.status !== status) return false;
+      if (status === "needs_review") {
+        if (!needsHuman(s)) return false;
+      } else if (status !== "all" && s.status !== status) return false;
       if (handler !== "all" && s.handledBy.kind !== handler) return false;
       if (q) {
         const t = q.toLowerCase();
@@ -53,10 +64,15 @@ export function ScoringQueue({
           />
         </div>
         <div className="flex flex-wrap gap-050">
-          {(["all", "unscored", "ai_draft", "final"] as Status[]).map((s) => (
+          {(["all", "unscored", "ai_draft", "needs_review", "final"] as Status[]).map((s) => (
             <button
               key={s}
               onClick={() => setStatus(s)}
+              title={
+                s === "needs_review"
+                  ? "AI drafts with a criterion the scorer could not settle (confidence below 0.5)"
+                  : undefined
+              }
               className={cn(
                 "rounded-full border px-100 py-025 text-body-small",
                 status === s
@@ -64,13 +80,7 @@ export function ScoringQueue({
                   : "border-border text-text-subtle hover:bg-surface-sunken",
               )}
             >
-              {s === "all"
-                ? "All"
-                : s === "ai_draft"
-                  ? "AI draft"
-                  : s === "final"
-                    ? "Final"
-                    : "Unscored"}
+              {STATUS_LABEL[s]}
             </button>
           ))}
           <span className="mx-050 h-4 w-px bg-border" />
@@ -94,7 +104,7 @@ export function ScoringQueue({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filtered.map((s) => {
-          const total = computeTotal(s, rubric);
+          const total = computeTotal(s, rubricFor(s.rubricId));
           const HandlerIcon =
             s.handledBy.kind === "bot" ? Bot : s.handledBy.kind === "handoff" ? Users2 : User;
           return (

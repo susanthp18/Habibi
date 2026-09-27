@@ -8,6 +8,8 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import text
 from typing import Any
 from agent_core.clock import utc_now
@@ -64,9 +66,36 @@ def _qa_score_float(value: Any) -> float:
         return 0.0
 
 
+def _active_rubric_id(conn: Any, rubric_id: str) -> str | None:
+    """The newest enabled version in ``rubric_id``'s family (same tenant, channel, name).
+
+    Versions are never edited in place (:func:`create_rubric_version`), so the
+    newest is the one new scorecards use; older scorecards keep their own tree.
+    """
+    return conn.execute(
+        text(
+            """
+            SELECT r.id
+            FROM qa_rubrics r
+            JOIN qa_rubrics base ON base.id = :id
+            WHERE r.enabled
+              AND r.tenant_id = base.tenant_id
+              AND r.channel = base.channel
+              AND r.name = base.name
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
+            """
+        ),
+        {"id": rubric_id},
+    ).scalar()
+
+
 def _load_rubric_tree(
-    conn: Any, rubric_id: str = _QA_DEFAULT_RUBRIC_ID
+    conn: Any, rubric_id: str | None = None
 ) -> dict[str, Any] | None:
+    """That exact rubric version, or (``rubric_id`` None) the active voice rubric."""
+    if rubric_id is None:
+        rubric_id = _active_rubric_id(conn, _QA_DEFAULT_RUBRIC_ID) or _QA_DEFAULT_RUBRIC_ID
     rubric = _one(
         conn.execute(
             text(
@@ -114,7 +143,7 @@ def _load_rubric_tree(
                 text(
                     """
                     SELECT id, section_id, label, coalesce(description, '') AS description,
-                           weight, critical_fail
+                           weight, critical_fail, coalesce(lineage_id, id) AS lineage_id
                     FROM qa_rubric_criteria
                     WHERE section_id = ANY(:ids)
                     ORDER BY weight DESC, id
@@ -131,6 +160,7 @@ def _load_rubric_tree(
                     "description": c["description"] or "",
                     "weight": _qa_score_float(c["weight"]),
                     "critical": bool(c["critical_fail"]) or None,
+                    "lineageId": c["lineage_id"],
                 }
             )
     return {
@@ -159,7 +189,7 @@ def _load_rubric_tree(
 def get_rubric(rubric_id: str | None = None) -> dict[str, Any]:
     engine = _db().engine
     with engine.connect() as conn:
-        tree = _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
+        tree = _load_rubric_tree(conn, rubric_id)
         if tree is None:
             raise KeyError("rubric_not_found")
         return tree
@@ -174,15 +204,15 @@ def load_rubric_tree(rubric_id: str | None = None) -> dict[str, Any] | None:
     """
     engine = _db().engine
     with engine.connect() as conn:
-        return _load_rubric_tree(conn, rubric_id or _QA_DEFAULT_RUBRIC_ID)
+        return _load_rubric_tree(conn, rubric_id)
 
 
 def rubric_id_for_interaction(interaction_id: str) -> str | None:
-    """Voice collections rubric, or the clerk SMS rubric. Never mix them.
+    """Active version of the voice collections rubric, or of the clerk SMS rubric.
 
-    A clerk WhatsApp/SMS must not be scored against recording-disclosure or
-    barge criteria. If the clerk rubric is missing, return None so autoscore
-    skips rather than using the voice tree.
+    Never mix them: a clerk WhatsApp/SMS must not be scored against
+    recording-disclosure or barge criteria. If the clerk rubric is missing,
+    return None so autoscore skips rather than using the voice tree.
     """
     engine = _db().engine
     with engine.connect() as conn:
@@ -192,19 +222,13 @@ def rubric_id_for_interaction(interaction_id: str) -> str | None:
                 {"id": interaction_id},
             )
         )
-        if row is None:
-            return _QA_DEFAULT_RUBRIC_ID
-        channel = str(row.get("channel") or "")
-        if (
+        channel = str((row or {}).get("channel") or "")
+        if row is not None and (
             channel in {"sms", "whatsapp"}
             or str(row.get("handler_kind") or "") == "system"
         ):
-            exists = conn.execute(
-                text("SELECT 1 FROM qa_rubrics WHERE id = :id AND enabled = true"),
-                {"id": _QA_CLERK_RUBRIC_ID},
-            ).first()
-            return _QA_CLERK_RUBRIC_ID if exists else None
-        return _QA_DEFAULT_RUBRIC_ID
+            return _active_rubric_id(conn, _QA_CLERK_RUBRIC_ID)
+        return _active_rubric_id(conn, _QA_DEFAULT_RUBRIC_ID) or _QA_DEFAULT_RUBRIC_ID
 
 
 def _qa_all_criteria(rubric: dict[str, Any]) -> list[dict[str, Any]]:
@@ -248,7 +272,8 @@ def _qa_entries_grouped(
         conn.execute(
             text(
                 """
-                SELECT scorecard_id, criterion_id, ai_suggested_score, final_score, note, accepted
+                SELECT scorecard_id, criterion_id, ai_suggested_score, final_score, note, accepted,
+                       tier, confidence, evidence, model_version
                 FROM qa_scorecard_entries
                 WHERE scorecard_id = ANY(:ids)
                 ORDER BY criterion_id
@@ -266,6 +291,10 @@ def _qa_entries_grouped(
                 "score": _qa_score_float(r["final_score"]),
                 "note": r["note"] or None,
                 "accepted": r["accepted"],
+                "tier": r["tier"],
+                "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+                "evidence": r["evidence"],
+                "modelVersion": r["model_version"],
             }
         )
     return grouped
@@ -286,6 +315,10 @@ def _qa_pad_entries(
                     "score": _qa_score_float(existing.get("score")),
                     "note": existing.get("note") or None,
                     "accepted": existing.get("accepted"),
+                    "tier": existing.get("tier"),
+                    "confidence": existing.get("confidence"),
+                    "evidence": existing.get("evidence"),
+                    "modelVersion": existing.get("modelVersion"),
                 }
             )
         else:
@@ -544,10 +577,17 @@ def qa_coverage_stats(*, days: int = 7) -> dict[str, Any]:
                     WHERE qs.status = 'ai_draft'
                       AND qs.created_at >= now() - CAST(:window AS interval)
                   )::int AS pending_review,
-                  count(*) FILTER (
-                    WHERE qs.band = 'red'
+                  -- Critical criteria scored 0 (each one caps its card at 40),
+                  -- not red-band cards: a card can be red with no critical fail.
+                  coalesce(sum((
+                    SELECT count(*)
+                    FROM qa_scorecard_entries e
+                    JOIN qa_rubric_criteria c ON c.id = e.criterion_id
+                    WHERE e.scorecard_id = qs.id AND c.critical_fail AND e.final_score = 0
+                  )) FILTER (
+                    WHERE qs.status <> 'unscored'
                       AND qs.created_at >= now() - CAST(:window AS interval)
-                  )::int AS critical
+                  ), 0)::int AS critical
                 FROM interactions i
                 LEFT JOIN qa_scorecards qs ON qs.interaction_id = i.id
                 WHERE i.tenant_id = :tenant
@@ -587,8 +627,8 @@ def create_scorecard(payload: dict[str, Any]) -> dict[str, Any]:
     engine = _db().engine
     with engine.begin() as conn:
         interaction = _ensure_interaction(conn, payload["interactionId"])
-        rubric_id = payload.get("rubricId") or _QA_DEFAULT_RUBRIC_ID
-        rubric = _load_rubric_tree(conn, rubric_id)
+        # No rubricId: the active version, so a rubric edit reaches new scorecards.
+        rubric = _load_rubric_tree(conn, payload.get("rubricId"))
         if rubric is None:
             raise KeyError("rubric_not_found")
         subject_user_id = payload.get("subjectUserId")
@@ -792,3 +832,155 @@ def patch_scorecard(scorecard_id: str, payload: dict[str, Any]) -> dict[str, Any
                 customer_id=existing["customer_id"],
             )
         return _scorecard_by_id(conn, scorecard_id)
+
+
+def mark_entries_human(scorecard_id: str, criterion_ids: list[str]) -> dict[str, Any]:
+    """A reviewer set these scores: record them as a person's decision.
+
+    What the machine had said (tier and score) is kept in ``evidence.machine``,
+    so agreement between the cascade and reviewers is measurable per criterion.
+    """
+    engine = _db().engine
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE qa_scorecard_entries
+                SET evidence = COALESCE(evidence, '{}'::jsonb) || jsonb_build_object(
+                      'machine', jsonb_build_object('tier', tier, 'score', ai_suggested_score,
+                                                    'confidence', confidence)),
+                    tier = 'human', confidence = 1
+                WHERE scorecard_id = :id AND criterion_id = ANY(:cids)
+                  AND COALESCE(tier, '') <> 'human'
+                """
+            ),
+            {"id": scorecard_id, "cids": criterion_ids},
+        )
+        return _scorecard_by_id(conn, scorecard_id)
+
+
+_VERSION_SUFFIX = re.compile(r"-v\d+$")
+
+
+def _criterion_question(c: dict[str, Any]) -> tuple[str, str]:
+    return (str(c.get("label") or "").strip(), str(c.get("description") or "").strip())
+
+
+def create_rubric_version(rubric_id: str, sections: list[dict[str, Any]]) -> dict[str, Any]:
+    """Save a rubric edit as a new version; returns the new version's tree.
+
+    Never an in-place update: scorecards and calibration sessions point at the
+    rubric row they were scored against, and editing it would silently re-mean
+    every past score. The edit becomes a new ``qa_rubrics`` row
+    (``{stem}-v{n}``, same name and channel), which is then the active version
+    (:func:`_active_rubric_id`) that new scorecards use.
+
+    Criterion ids are primary keys owned by one section of one version, so each
+    criterion in the new version gets a new id. ``lineage_id`` is what carries
+    across: a criterion sent with its predecessor's ``id`` and the same label
+    and description keeps that lineage (``{lineage}@v{n}``); weight and the
+    critical flag may change -- they set how much it counts, not what is
+    asked. A reworded or new criterion starts its own lineage. Per-criterion
+    comparisons across versions, and the scorers keyed on seeded ids
+    ("cmp-recording", ...), match on lineage.
+
+    Weights are validated by the request model (sections and each section's
+    criteria sum to 100). Editing from a version that is no longer the active
+    one is refused, so two editors cannot silently drop each other's changes.
+    """
+    engine = _db().engine
+    with engine.begin() as conn:
+        base = _one(
+            conn.execute(
+                text("SELECT id, tenant_id, name, channel FROM qa_rubrics WHERE id = :id"),
+                {"id": rubric_id},
+            )
+        )
+        if base is None:
+            raise KeyError("rubric_not_found")
+        # Lock the family so two saves cannot both become v{n}.
+        family = conn.execute(
+            text(
+                """
+                SELECT id FROM qa_rubrics
+                WHERE tenant_id = :t AND channel = :c AND name = :n
+                ORDER BY created_at, id
+                FOR UPDATE
+                """
+            ),
+            {"t": base["tenant_id"], "c": base["channel"], "n": base["name"]},
+        ).scalars().all()
+        active = _active_rubric_id(conn, rubric_id)
+        if active != rubric_id:
+            raise ValueError(f"rubric_version_stale: {active} is the active version")
+        old = _load_rubric_tree(conn, rubric_id) or {"sections": []}
+        old_by_id = {c["id"]: c for c in _qa_all_criteria(old)}
+
+        stem = _VERSION_SUFFIX.sub("", family[0])
+        n = len(family) + 1
+        while conn.execute(
+            text("SELECT 1 FROM qa_rubrics WHERE id = :id"), {"id": f"{stem}-v{n}"}
+        ).first():
+            n += 1
+        new_id, version = f"{stem}-v{n}", f"v{n}.0"
+        conn.execute(
+            text(
+                """
+                INSERT INTO qa_rubrics
+                  (id, tenant_id, name, version, enabled, channel, created_at, updated_at)
+                VALUES
+                  (:id, :t, :name, :version, true, :c, clock_timestamp(), clock_timestamp())
+                """
+            ),
+            {"id": new_id, "t": base["tenant_id"], "name": base["name"],
+             "version": version, "c": base["channel"]},
+        )
+        used: set[str] = set()
+        fresh = 0
+        for si, section in enumerate(sections, start=1):
+            section_id = f"{new_id}-s{si}"
+            conn.execute(
+                text(
+                    "INSERT INTO qa_rubric_sections (id, rubric_id, name, weight) "
+                    "VALUES (:id, :rid, :name, :weight)"
+                ),
+                {"id": section_id, "rid": new_id, "name": section["label"].strip(),
+                 "weight": section["weight"]},
+            )
+            for c in section["criteria"]:
+                prev = old_by_id.get(c.get("id") or "")
+                lineage = (
+                    prev["lineageId"]
+                    if prev
+                    and _criterion_question(prev) == _criterion_question(c)
+                    and prev["lineageId"] not in used
+                    else None
+                )
+                if lineage:
+                    used.add(lineage)
+                    criterion_id = f"{lineage}@v{n}"
+                else:
+                    fresh += 1
+                    criterion_id = f"{new_id}-c{fresh}"
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO qa_rubric_criteria
+                          (id, section_id, label, description, weight, critical_fail, lineage_id)
+                        VALUES (:id, :sid, :label, :description, :weight, :critical, :lineage)
+                        """
+                    ),
+                    {"id": criterion_id, "sid": section_id, "label": c["label"].strip(),
+                     "description": (c.get("description") or "").strip(),
+                     "weight": c["weight"], "critical": bool(c.get("critical")),
+                     "lineage": lineage},
+                )
+        _activity(
+            conn,
+            "qa_rubric",
+            new_id,
+            "rubric_version_created",
+            f"QA rubric {base['name']} {version} created",
+            f"from {rubric_id}",
+        )
+        return _load_rubric_tree(conn, new_id)

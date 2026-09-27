@@ -16,9 +16,15 @@ import {
   Hash,
   Timer,
   Radio,
+  Mic,
+  Clock,
+  UserCheck,
+  Ban,
+  Scale,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CallFlag, CallRecord } from "@/api/types/audit";
+import type { CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
 import { dispositionLabel, sentimentColor } from "@/lib/audit";
 import { fmtDateTime } from "@/lib/format";
@@ -44,7 +50,40 @@ interface Props {
 const CHANNEL_ICON = { voice: Phone, whatsapp: MessageCircle, sms: MessageSquare } as const;
 const CHANNEL_LABEL = { voice: "Voice", whatsapp: "WhatsApp", sms: "SMS" } as const;
 
-const FLAG_ICON: Record<CallFlag, { icon: typeof Flag; label: string; tone: string }> = {
+type FlagMeta = { icon: typeof Flag; label: string; tone: string };
+
+/** Every flag the guardrails and QA write (voice/persist.py, compliance detectors). */
+const FLAG_ICON: Record<string, FlagMeta> = {
+  "missing-recording-disclosure": {
+    icon: Mic,
+    label: "Recording notice missing",
+    tone: "text-text-danger",
+  },
+  "missing-mini-miranda": {
+    icon: Scale,
+    label: "Debt disclosure missing",
+    tone: "text-text-danger",
+  },
+  "identity-before-verify": {
+    icon: UserCheck,
+    label: "Account details before verification",
+    tone: "text-text-danger",
+  },
+  "hours-breach": { icon: Clock, label: "Outside calling hours", tone: "text-text-danger" },
+  "opt-out-ignored": { icon: Ban, label: "Opt-out ignored", tone: "text-text-danger" },
+  "third-party-leak": {
+    icon: EyeOff,
+    label: "Disclosed to a third party",
+    tone: "text-text-danger",
+  },
+  "rate-quoted": { icon: ShieldAlert, label: "Quoted a rate", tone: "text-text-warning" },
+  "waiver-blocked": { icon: ShieldAlert, label: "Waiver promised", tone: "text-text-warning" },
+  "authority-cap-exceeded": {
+    icon: ShieldAlert,
+    label: "Beyond authority",
+    tone: "text-text-danger",
+  },
+  "auto-escalate": { icon: ArrowLeftRight, label: "Auto-escalated", tone: "text-text-warning" },
   "compliance-miss": { icon: ShieldAlert, label: "Compliance miss", tone: "text-text-danger" },
   "sentiment-drop": { icon: TrendingDown, label: "Sentiment drop", tone: "text-text-danger" },
   escalation: { icon: ArrowLeftRight, label: "Escalated", tone: "text-text-warning" },
@@ -52,6 +91,19 @@ const FLAG_ICON: Record<CallFlag, { icon: typeof Flag; label: string; tone: stri
   "abuse-detected": { icon: AlertOctagon, label: "Abuse detected", tone: "text-text-danger" },
   "high-value": { icon: Star, label: "High value", tone: "text-text-brand" },
 };
+
+/** A flag's icon and label; prefixed flags ("prohibited:police") and ones this
+ *  screen has not learned yet still show, never silently vanish. */
+export function flagMeta(key: string): FlagMeta {
+  if (FLAG_ICON[key]) return FLAG_ICON[key];
+  if (key.startsWith("prohibited:"))
+    return {
+      icon: AlertOctagon,
+      label: `Prohibited phrase: ${key.slice(11)}`,
+      tone: "text-text-danger",
+    };
+  return { icon: Flag, label: key.replace(/[-_:]/g, " "), tone: "text-text-warning" };
+}
 
 function Sparkline({ points }: { points: { t: number; v: number }[] }) {
   if (!points || points.length < 2)
@@ -264,10 +316,9 @@ export function CallsTable({
           return (
             <div className="flex items-center gap-050">
               {flags.map((f, idx) => {
-                const key = (typeof f === "string" ? f : (f as { flag?: string })?.flag) as
-                  CallFlag | undefined;
-                const meta = key ? FLAG_ICON[key] : undefined;
-                if (!meta) return null;
+                const key = typeof f === "string" ? f : (f as { flag?: string })?.flag;
+                if (!key) return null;
+                const meta = flagMeta(key);
                 const Icon = meta.icon;
                 return (
                   <span

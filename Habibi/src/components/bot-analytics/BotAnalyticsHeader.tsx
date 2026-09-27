@@ -1,5 +1,4 @@
 import { Download } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -22,12 +21,26 @@ export function BotAnalyticsHeader({
   channel,
   onRange,
   onChannel,
+  agents,
+  botId,
+  version,
+  onAgent,
+  onExport,
 }: {
   range: RangeKey;
   channel: ChannelKey;
   onRange: (r: RangeKey) => void;
   onChannel: (c: ChannelKey) => void;
+  /** Agents with calls in range; Voice Studio ones list their published versions. */
+  agents: Array<{ botId: string; name: string; versions: string[] }>;
+  botId: string;
+  version: string;
+  /** Picking an agent clears the version; "" means all. */
+  onAgent: (botId: string, version: string) => void;
+  /** Disabled until there is data to export. */
+  onExport?: () => void;
 }) {
+  const versions = agents.find((a) => a.botId === botId)?.versions ?? [];
   return (
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
@@ -58,13 +71,39 @@ export function BotAnalyticsHeader({
             className="w-[9.375rem]"
             options={CHANNELS.map((c) => ({ value: c.key, label: c.label }))}
           />
+          <SelectField
+            aria-label="Agent"
+            value={botId}
+            onChange={(v) => onAgent(v, "")}
+            size="compact"
+            className="w-[12rem]"
+            options={[
+              { value: "", label: "All agents" },
+              // Keep a selection that has no calls in the new range visible.
+              ...(botId && !agents.some((a) => a.botId === botId)
+                ? [{ value: botId, label: botId }]
+                : []),
+              ...agents.map((a) => ({ value: a.botId, label: a.name })),
+            ]}
+          />
+          {versions.length > 0 && (
+            <SelectField
+              aria-label="Agent version"
+              value={version}
+              onChange={(v) => onAgent(botId, v)}
+              size="compact"
+              className="w-[8.5rem]"
+              options={[
+                { value: "", label: "All versions" },
+                ...versions.map((v) => ({ value: v, label: `Version ${v}` })),
+              ]}
+            />
+          )}
           <button
-            onClick={() =>
-              toast.success("Export queued", {
-                description: "Conversation analytics CSV will be ready in ~30 seconds.",
-              })
-            }
-            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
+            onClick={onExport}
+            disabled={!onExport}
+            title="Download the KPIs and daily series on screen as CSV"
+            className="inline-flex items-center gap-050 rounded-medium border border-border px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest disabled:opacity-40"
           >
             <Download className="h-3.5 w-3.5" /> Export
           </button>

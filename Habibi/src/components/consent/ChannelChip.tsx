@@ -33,7 +33,9 @@ export function ChannelChip({ cc }: { cc: ChannelConsent }) {
 
   return (
     <span
-      title={`${cc.channel} · ${cc.status.replace("_", " ")} · ${cc.usedThisWeek}/${cc.frequencyCapPerWeek} this week`}
+      title={`${cc.channel} · servicing ${cc.status.replace("_", " ")} · promotional ${
+        cc.promotional ? cc.promotional.replace("_", " ") : "not captured"
+      } · ${cc.usedThisWeek}/${cc.frequencyCapPerWeek} this week`}
       className="inline-flex items-center gap-050 rounded-medium px-075 py-025 text-body-small font-semibold"
       style={{ background: tone.bg, color: tone.fg }}
     >

@@ -99,16 +99,42 @@ _RESOLVED_DISP_PRED = """(
 )"""
 
 
-def _bot_analytics_window(range_key: str, channel: str) -> tuple[int, str, dict[str, Any]]:
+#: Voice Studio stamps the published version it ran on every call it handles.
+_VOICE_STUDIO_VERSION = "(i.source_payload -> 'voiceStudio' ->> 'versionNumber')"
+
+#: A deflected session is one the customer did not come back about within this.
+_REPEAT_CONTACT_DAYS = 7
+
+
+def _bot_analytics_window(
+    range_key: str,
+    channel: str,
+    bot_id: str | None = None,
+    version: str | None = None,
+) -> tuple[int, str, dict[str, Any], str]:
+    """(days, where_sql, params, filter_sql).
+
+    ``filter_sql`` is the non-time part (" AND ..."), for queries with their own
+    time window: the prior-period escalations and the agent picker, which drops
+    the agent filters so the picker still lists every agent.
+    """
     days = _BOT_ANALYTICS_RANGE_DAYS.get(range_key, 30)
     params: dict[str, Any] = {"days": days}
-    clauses = ["i.started_at >= (now() - make_interval(days => :days))"]
+    filters: list[str] = []
     if channel and channel != "all":
         if channel not in _BOT_ANALYTICS_CHANNELS:
             raise ValueError(f"invalid_channel: {channel}")
-        clauses.append("i.channel = :channel")
+        filters.append("i.channel = :channel")
         params["channel"] = channel
-    return days, " AND ".join(clauses), params
+    if bot_id:
+        filters.append("i.handler_bot_id = :bot_id")
+        params["bot_id"] = bot_id
+    if version:
+        filters.append(f"{_VOICE_STUDIO_VERSION} = :version")
+        params["version"] = version
+    filter_sql = "".join(f" AND {f}" for f in filters)
+    where_sql = "i.started_at >= (now() - make_interval(days => :days))" + filter_sql
+    return days, where_sql, params, filter_sql
 
 
 def _intent_label(intent_id: str) -> str:
@@ -148,6 +174,7 @@ class BotAnalyticsBuild:
     engine: Any
     params: dict[str, Any]
     where_sql: str
+    filter_sql: str = ""
     by_card_rows: list[dict[str, Any]] = field(default_factory=list)
     daily_rows: list[dict[str, Any]] = field(default_factory=list)
     esc_current: dict[str, int] = field(default_factory=dict)
@@ -157,6 +184,9 @@ class BotAnalyticsBuild:
     skill_rows: list[dict[str, Any]] = field(default_factory=list)
     turn_rows: list[dict[str, Any]] = field(default_factory=list)
     unanswered_rows: list[dict[str, Any]] = field(default_factory=list)
+    summary_row: dict[str, Any] = field(default_factory=dict)
+    lift_row: dict[str, Any] = field(default_factory=dict)
+    agent_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _bot_analytics_reads(st: BotAnalyticsBuild) -> None:
@@ -206,6 +236,10 @@ def _bot_analytics_reads(st: BotAnalyticsBuild) -> None:
                       count(*) FILTER (WHERE abandoned)::int AS abandoned,
                       count(*) FILTER (WHERE upsell_presented)::int AS upsell_presented,
                       count(*) FILTER (WHERE ptp_captured)::int AS ptp_captured,
+                      count(*) FILTER (WHERE handler_kind = 'bot')::int AS bot_sessions,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND NOT escalated
+                      )::int AS bot_contained,
                       coalesce(avg(turns), 0)::float AS avg_turns,
                       coalesce(
                         percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms),
@@ -305,7 +339,7 @@ def _bot_analytics_reads(st: BotAnalyticsBuild) -> None:
                         WHERE i.started_at >= (now() - make_interval(days => :prior_days))
                           AND i.started_at < (now() - make_interval(days => :days))
                           AND h.to_kind = 'human'
-                          {"AND i.channel = :channel" if "channel" in params else ""}
+                          {st.filter_sql}
                         GROUP BY h.reason
                         """
                     ),
@@ -440,6 +474,121 @@ def _bot_analytics_reads(st: BotAnalyticsBuild) -> None:
             )
         ) or {}
 
+        # The headline figures, over calls rather than averaged across days.
+        # Containment: bot sessions never handed to a human. Deflection:
+        # inbound bot sessions resolved without a human AND without the
+        # customer contacting again within 7 days -- only sessions old enough
+        # for that week to have passed count, or the newest calls would read
+        # as deflected merely because the customer has not called back yet.
+        st.summary_row = _one(
+            conn.execute(
+                text(
+                    f"""
+                    WITH base AS (
+                      SELECT
+                        i.handler_kind,
+                        i.direction,
+                        i.latency_ms,
+                        i.started_at <= now() - make_interval(days => :repeat_days) AS matured,
+                        {_ESCALATED_PRED} AS escalated,
+                        (i.query_resolved OR {_RESOLVED_DISP_PRED}) AS resolved,
+                        EXISTS (
+                          SELECT 1 FROM interactions r
+                          WHERE r.customer_id = i.customer_id
+                            AND r.id <> i.id
+                            AND r.direction IS DISTINCT FROM 'outbound'
+                            AND r.started_at > i.started_at
+                            AND r.started_at <= i.started_at + make_interval(days => :repeat_days)
+                        ) AS repeat_contact
+                      FROM interactions i
+                      WHERE {where_sql}
+                    )
+                    SELECT
+                      count(*) FILTER (WHERE handler_kind = 'bot')::int AS bot_sessions,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND NOT escalated
+                      )::int AS bot_contained,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND direction = 'inbound' AND matured
+                      )::int AS deflection_eligible,
+                      count(*) FILTER (
+                        WHERE handler_kind = 'bot' AND direction = 'inbound' AND matured
+                          AND resolved AND NOT escalated AND NOT repeat_contact
+                      )::int AS deflected,
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)::float
+                        AS latency_p50,
+                      percentile_cont(0.9) WITHIN GROUP (ORDER BY latency_ms)::float
+                        AS latency_p90
+                    FROM base
+                    """
+                ),
+                {**params, "repeat_days": _REPEAT_CONTACT_DAYS},
+            )
+        ) or {}
+
+        # Sentiment lift: per call, the customer's last sentiment minus their
+        # first. Per-turn signals (customer turns, in turn order) where the
+        # call-intelligence pass produced them, else the call's sentiment
+        # timeline (at_sec order). A call needs two points to have a direction.
+        st.lift_row = _one(
+            conn.execute(
+                text(
+                    f"""
+                    WITH win AS (SELECT i.id FROM interactions i WHERE {where_sql}),
+                    turn_points AS (
+                      SELECT s.interaction_id AS id, s.score::float AS score,
+                             t.turn_index AS ord
+                      FROM interaction_turn_signals s
+                      JOIN interaction_transcript t ON t.id = s.transcript_turn_id
+                      WHERE s.kind = 'sentiment' AND t.speaker = 'customer'
+                        AND s.interaction_id IN (SELECT id FROM win)
+                    ),
+                    points AS (
+                      SELECT id, score, ord FROM turn_points
+                      UNION ALL
+                      SELECT e.interaction_id, e.score::float, e.at_sec
+                      FROM interaction_sentiment e
+                      WHERE e.interaction_id IN (SELECT id FROM win)
+                        AND NOT EXISTS (SELECT 1 FROM turn_points tp WHERE tp.id = e.interaction_id)
+                    ),
+                    per_call AS (
+                      SELECT (array_agg(score ORDER BY ord DESC))[1]
+                             - (array_agg(score ORDER BY ord ASC))[1] AS lift
+                      FROM points
+                      GROUP BY id
+                      HAVING count(*) >= 2
+                    )
+                    SELECT avg(lift)::float AS lift, count(*)::int AS calls FROM per_call
+                    """
+                ),
+                params,
+            )
+        ) or {}
+
+        # The agent picker: every bot (and Voice Studio version) with calls
+        # in the range and channel, whatever agent is currently selected.
+        agent_filter = "AND i.channel = :channel" if "channel" in params else ""
+        st.agent_rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT i.handler_bot_id AS bot_id,
+                           coalesce(b.name, i.handler_bot_id) AS name,
+                           array_remove(array_agg(DISTINCT {_VOICE_STUDIO_VERSION}), NULL)
+                             AS versions
+                    FROM interactions i
+                    LEFT JOIN bots b ON b.id = i.handler_bot_id
+                    WHERE i.started_at >= (now() - make_interval(days => :days))
+                      AND i.handler_bot_id IS NOT NULL
+                      {agent_filter}
+                    GROUP BY 1, 2
+                    ORDER BY 2, 1
+                    """
+                ),
+                {k: v for k, v in params.items() if k not in ("bot_id", "version")},
+            )
+        )
+
     st.by_card_rows = by_card_rows
     st.daily_rows = daily_rows
     st.esc_current = esc_current
@@ -477,6 +626,8 @@ def _bot_analytics_shape(st: BotAnalyticsBuild) -> dict[str, Any]:
             "sentiment": round(float(r["sentiment"] or 0), 3),
             "upsellPresented": int(r["upsell_presented"] or 0),
             "ptpCaptured": int(r["ptp_captured"] or 0),
+            "botSessions": int(r["bot_sessions"] or 0),
+            "botContained": int(r["bot_contained"] or 0),
         }
         for r in daily_rows
     ]
@@ -592,14 +743,60 @@ def _bot_analytics_shape(st: BotAnalyticsBuild) -> dict[str, Any]:
         "funnelStages": funnel_stages,
         "byCard": by_card,
         "skillHistogram": skill_histogram,
+        "summary": _summary(st.summary_row, st.lift_row),
+        "agents": [
+            {
+                "botId": r["bot_id"],
+                "name": r["name"],
+                "versions": sorted(
+                    r["versions"] or [], key=lambda v: (not v.isdigit(), int(v) if v.isdigit() else 0, v)
+                ),
+            }
+            for r in st.agent_rows
+        ],
     }
 
 
-def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any]:
-    """Conversation & Bot Analytics — screen shape, aggregated live from interactions."""
+def _pct(part: int, whole: int) -> float | None:
+    return round(part / whole * 100.0, 1) if whole else None
+
+
+def _summary(row: dict[str, Any], lift: dict[str, Any]) -> dict[str, Any]:
+    """Headline KPIs; None where there is nothing to measure (the UI shows "—")."""
+    bot_sessions = int(row.get("bot_sessions") or 0)
+    eligible = int(row.get("deflection_eligible") or 0)
+    p50, p90 = row.get("latency_p50"), row.get("latency_p90")
+    lift_calls = int(lift.get("calls") or 0)
+    return {
+        "botSessions": bot_sessions,
+        "containment": _pct(int(row.get("bot_contained") or 0), bot_sessions),
+        "deflection": _pct(int(row.get("deflected") or 0), eligible),
+        "deflectionEligible": eligible,
+        "repeatContactDays": _REPEAT_CONTACT_DAYS,
+        "latencyP50": round(float(p50), 1) if p50 is not None else None,
+        "latencyP90": round(float(p90), 1) if p90 is not None else None,
+        "sentimentLift": round(float(lift["lift"]), 3) if lift_calls else None,
+        "sentimentLiftCalls": lift_calls,
+    }
+
+
+def bot_analytics(
+    range_key: str = "30d",
+    channel: str = "all",
+    bot_id: str | None = None,
+    version: str | None = None,
+) -> dict[str, Any]:
+    """Conversation & Bot Analytics — screen shape, aggregated live from interactions.
+
+    ``bot_id`` narrows to one agent (``handler_bot_id``; Voice Studio agents are
+    ``voice-studio-{workflowId}``), ``version`` to one Voice Studio published
+    version (``source_payload.voiceStudio.versionNumber``).
+    """
     if range_key not in _BOT_ANALYTICS_RANGE_DAYS:
         raise ValueError(f"invalid_range: {range_key}")
-    days, where_sql, params = _bot_analytics_window(range_key, channel)
+    days, where_sql, params, filter_sql = _bot_analytics_window(
+        range_key, channel, bot_id, version
+    )
 
     engine = _db().engine
     st = BotAnalyticsBuild(
@@ -610,6 +807,7 @@ def bot_analytics(range_key: str = "30d", channel: str = "all") -> dict[str, Any
         engine=engine,
         params=params,
         where_sql=where_sql,
+        filter_sql=filter_sql,
     )
     _bot_analytics_reads(st)
     return _bot_analytics_shape(st)

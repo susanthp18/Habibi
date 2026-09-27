@@ -121,6 +121,8 @@ export function ViolationCard({
             />
             <Link
               to="/audit"
+              search={{ id: v.callId }}
+              disabled={!v.callId}
               className="inline-flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small text-text-subtle hover:bg-surface-sunken"
             >
               <ExternalLink className="h-3 w-3" /> Open in Audit

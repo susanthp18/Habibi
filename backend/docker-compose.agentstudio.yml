@@ -32,6 +32,9 @@ services:
     environment: *voice-studio-env
   worker:
     environment: *voice-studio-env
+  # Reads each call's unmasked words back from the engine for PII detection.
+  ml_worker:
+    environment: *voice-studio-env
 
   agentstudio_db_init:
     image: pgvector/pgvector@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
@@ -135,6 +138,15 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY in backend/.env}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY in backend/.env}
       MINIO_BUCKET: agentstudio-audio
+      # Every finished run is filed in PayInt (tasks/run_integrations._notify_payint),
+      # a durable delivery authenticated with the org's "PayInt hooks" credential.
+      PAYINT_RUN_COMPLETED_URL: ${VOICE_STUDIO_HOOKS_URL:-http://api:8000/voice-studio/hooks}/run-completed
+      PAYINT_HOOK_CREDENTIAL_NAME: PayInt hooks
+      # Every dial the engine starts itself (its campaigns, the editor's "call
+      # phone") is put to PayInt's contact policy first; fails closed.
+      # services/telephony/payint_admission.py.
+      PAYINT_ADMIT_URL: ${VOICE_STUDIO_HOOKS_URL:-http://api:8000/voice-studio/hooks}/admit
+      PAYINT_HOOK_TOKEN: ${VOICE_STUDIO_HOOK_TOKEN:-dev-only-voice-studio-hook-token}
       BACKEND_API_ENDPOINT: ${AGENTSTUDIO_PUBLIC_URL:-http://localhost:8200}
       # Behind nginx: trust its X-Forwarded-Proto so request URLs read https,
       # which provider webhook signatures (Twilio) are computed over. The

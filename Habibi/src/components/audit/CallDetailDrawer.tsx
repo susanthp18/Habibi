@@ -23,7 +23,9 @@ import { AudioPlayer } from "./AudioPlayer";
 import { CallCostPanel } from "./CallCostPanel";
 import { SentimentTimeline } from "./SentimentTimeline";
 import { TranscriptView } from "./TranscriptView";
-import { apiGetBlob } from "@/api/config";
+import { useRecording, useRecordingPeaks } from "@/api/recordings";
+import { useEvidence } from "@/api/audit";
+import { AddAsCheckButton } from "@/components/voice-studio/AddAsCheckButton";
 import type { CallRecord } from "@/api/types/audit";
 import { formatDuration } from "@/lib/format";
 import { fmtDateTime } from "@/lib/format";
@@ -31,63 +33,27 @@ import { dispositionLabel } from "@/lib/audit";
 
 interface Props {
   call: CallRecord | null;
+  /** Open the player at this second (a violation's moment). */
+  startAt?: number;
   onClose: () => void;
 }
 
 const CHANNEL_ICON = { voice: Phone, whatsapp: MessageCircle, sms: MessageSquare } as const;
 
-export function CallDetailDrawer({ call, onClose }: Props) {
+export function CallDetailDrawer({ call, startAt, onClose }: Props) {
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [audioSrc, setAudioSrc] = useState<string | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const lastTickRef = useRef<number>(0);
+  // The best the viewer may hear: the original with raw-PII permission,
+  // otherwise the redacted copy (every finding beeped).
+  const recording = useRecording(call?.id ?? "", "auto");
+  const peaks = useRecordingPeaks(call?.id ?? "", !!call && call.channel === "voice");
 
   useEffect(() => {
-    setCurrentTime(0);
+    setCurrentTime(startAt ?? 0);
     setPlaying(false);
     setSpeed(1);
-    setAudioSrc((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    if (!call?.id) return;
-    let revoked = false;
-    void apiGetBlob(`/interactions/${encodeURIComponent(call.id)}/recording`)
-      .then(({ blob }) => {
-        if (revoked) return;
-        setAudioSrc(URL.createObjectURL(blob));
-      })
-      .catch(() => {
-        /* no recording yet — waveform still works as a scrubber */
-      });
-    return () => {
-      revoked = true;
-    };
-  }, [call?.id]);
-
-  useEffect(() => {
-    if (audioSrc || !playing || !call) return;
-    lastTickRef.current = performance.now();
-    const tick = (now: number) => {
-      const dt = (now - lastTickRef.current) / 1000;
-      lastTickRef.current = now;
-      setCurrentTime((t) => {
-        const next = t + dt * speed;
-        if (next >= call.duration) {
-          setPlaying(false);
-          return call.duration;
-        }
-        return next;
-      });
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [playing, speed, call, audioSrc]);
+  }, [call?.id, startAt]);
 
   const markers = useMemo(() => {
     if (!call) return [];
@@ -99,11 +65,8 @@ export function CallDetailDrawer({ call, onClose }: Props) {
           tone: "var(--success)",
           label: `Disclosure: ${d.label}`,
         })),
-      ...call.flags.map((f) => ({
-        t: Math.max(4, call.duration * 0.6),
-        tone: "var(--danger)",
-        label: `Flag: ${f}`,
-      })),
+      // Flags carry no position yet; they are listed in the header, not
+      // placed on the timeline at a made-up time.
     ];
   }, [call]);
 
@@ -162,6 +125,9 @@ export function CallDetailDrawer({ call, onClose }: Props) {
               </div>
             </div>
             <div className="flex items-center gap-050">
+              {call.routing.some((hop) => hop.startsWith("Voice Studio")) && (
+                <AddAsCheckButton interactionId={call.id} />
+              )}
               <Button asChild variant="outline" size="sm" className="h-400 gap-050 text-body-small">
                 <Link to="/customers/$customerId" params={{ customerId: call.customerId }}>
                   Customer 360
@@ -184,15 +150,34 @@ export function CallDetailDrawer({ call, onClose }: Props) {
         {/* Player + sentiment */}
         <div className="shrink-0 space-y-150 border-b border-border bg-surface-sunken px-250 py-150">
           <AudioPlayer
-            duration={call.duration}
+            duration={peaks.data?.durationSec ?? call.duration}
             currentTime={currentTime}
             playing={playing}
             speed={speed}
             onSeek={(t) => setCurrentTime(t)}
             onPlayPause={() => setPlaying((p) => !p)}
             onSpeedChange={setSpeed}
-            seedForBars={call.id}
-            src={audioSrc}
+            peaks={
+              peaks.data?.channels.customer && peaks.data.channels.agent
+                ? peaks.data.channels.customer.map((v, i) =>
+                    Math.max(v, peaks.data.channels.agent![i] ?? 0),
+                  )
+                : peaks.data?.channels.mixed
+            }
+            src={recording.kind === "ready" ? recording.src : null}
+            status={
+              recording.kind === "ready"
+                ? recording.variant === "redacted"
+                  ? "Redacted recording · PII beeped"
+                  : "Original recording"
+                : recording.kind === "pending"
+                  ? "The redacted recording is being made; it will play here shortly."
+                  : recording.kind === "none"
+                    ? "No recording for this interaction."
+                    : recording.kind === "loading"
+                      ? "Loading recording…"
+                      : "The recording could not be loaded."
+            }
           />
           <SentimentTimeline
             points={call.sentimentSeries}
@@ -314,7 +299,8 @@ export function CallDetailDrawer({ call, onClose }: Props) {
             <TabsContent value="meta" className="mt-0">
               <dl className="grid grid-cols-2 gap-x-300 gap-y-100 text-body">
                 <MetaRow k="Call ID" v={call.id} mono />
-                <MetaRow k="Log hash" v={call.hash ? `sha256:${call.hash}…` : "—"} mono />
+                <MetaRow k="Log hash" v={call.hash ? `sha256:${call.hash}` : "—"} mono />
+                <EvidenceCheck callId={call.id} linked={!!call.hash} />
                 <MetaRow k="Direction" v={call.direction ?? "—"} />
                 <MetaRow k="Channel" v={call.channel} />
                 <MetaRow k="Duration" v={formatDuration(call.duration)} mono />
@@ -332,6 +318,47 @@ export function CallDetailDrawer({ call, onClose }: Props) {
         </Tabs>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Recompute the evidence-chain link on request: the "immutable" claim, checked. */
+function EvidenceCheck({ callId, linked }: { callId: string; linked: boolean }) {
+  const [asked, setAsked] = useState(false);
+  const evidence = useEvidence(callId, asked);
+  const labels: Record<string, string> = {
+    link: "link hash",
+    predecessor: "chain order",
+    recording: "recording bytes",
+    transcript: "words as spoken",
+  };
+  return (
+    <div className="border-b border-border pb-075">
+      <dt className="text-body-small text-text-subtlest">Evidence</dt>
+      <dd className="text-body-small text-text">
+        {!linked ? (
+          "Not in the evidence chain"
+        ) : !asked ? (
+          <button
+            type="button"
+            className="text-text-brand underline"
+            onClick={() => setAsked(true)}
+          >
+            Verify now
+          </button>
+        ) : evidence.isPending ? (
+          "Verifying…"
+        ) : evidence.data ? (
+          <span className={evidence.data.ok ? "text-text-success" : "text-text-danger"}>
+            {evidence.data.ok ? "Intact" : "Tampered"}:{" "}
+            {evidence.data.checks
+              .map((c) => `${labels[c.check] ?? c.check} ${c.ok ? "✓" : "✗"}`)
+              .join(", ")}
+          </span>
+        ) : (
+          "Could not verify"
+        )}
+      </dd>
+    </div>
   );
 }
 

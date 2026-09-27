@@ -11,6 +11,7 @@ import { PiiLegend } from "@/components/redaction/PiiLegend";
 import { ExportConfigPanel } from "@/components/redaction/ExportConfigPanel";
 import { ExportAuditLog } from "@/components/redaction/ExportAuditLog";
 import { RulesSheet } from "@/components/redaction/RulesSheet";
+import { scopeAllowed } from "@/components/redaction/ExportConfigPanel";
 import {
   createExportJob,
   downloadExportJob,
@@ -20,9 +21,11 @@ import {
   toggleAudioMuted,
   toggleFindingAccepted,
   useExportJobs,
+  useRedactionRecord,
   useRedactionRecords,
   useRedactionRules,
 } from "@/api/redaction";
+import { can, useMe } from "@/api/me";
 import { Lozenge } from "@/components/ui/lozenge";
 import type {
   ExportFormat,
@@ -67,6 +70,7 @@ function RedactionPage() {
 
 function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   const queryClient = useQueryClient();
+  const { data: me } = useMe();
   const { data: remoteRecords } = useRedactionRecords();
   const { data: remoteExports } = useExportJobs();
 
@@ -78,7 +82,7 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [scope, setScope] = useState<ExportScope[]>(["transcript", "metadata"]);
   const [watermark, setWatermark] = useState("BigTapp-CONFIDENTIAL · Compliance review");
-  const [accessRole, setAccessRole] = useState("Compliance Officer");
+  const [accessRole, setAccessRole] = useState("role-compliance-officer");
 
   const recordState = remoteRecords ?? [];
   const exports = remoteExports ?? [];
@@ -101,10 +105,8 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
 
   const visibleRecords = useMemo(() => filterRecords(recordState, filter), [recordState, filter]);
 
-  const active = useMemo(
-    () => recordState.find((r) => r.id === activeId) ?? null,
-    [recordState, activeId],
-  );
+  // The queue carries summaries; the opened record is fetched whole.
+  const { data: active = null } = useRedactionRecord(activeId);
 
   const activeForRender: RedactionRecord | null = useMemo(() => {
     if (!active) return null;
@@ -118,10 +120,8 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   const stats = useMemo(() => statsFor(recordState, exports), [recordState, exports]);
 
   const toggleFinding = (findingId: string) => {
-    if (!activeId) return;
-    const base = recordState.find((r) => r.id === activeId);
-    if (!base) return;
-    const finding = base.findings.find((f) => f.id === findingId);
+    if (!active) return;
+    const finding = active.findings.find((f) => f.id === findingId);
     if (!finding) return;
     const next = !finding.accepted;
     void toggleFindingAccepted(findingId, next)
@@ -130,12 +130,10 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
   };
 
   const toggleSegment = (findingId: string) => {
-    if (!activeId) return;
-    const base = recordState.find((r) => r.id === activeId);
-    if (!base) return;
-    const seg = base.audioSegments.find((s) => s.findingId === findingId);
+    if (!active) return;
+    const seg = active.audioSegments.find((s) => s.findingId === findingId);
     if (!seg) return;
-    void toggleAudioMuted(activeId, findingId, !seg.muted)
+    void toggleAudioMuted(active.id, findingId, !seg.muted)
       .then(() => invalidateRecords())
       .catch((err: Error) => toast.error("Could not mute segment", { description: err.message }));
   };
@@ -162,10 +160,13 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
 
   const markReviewed = () => {
     if (!active) return;
-    void markRedactionReviewed(active.id)
+    const reviewed = !active.reviewed;
+    void markRedactionReviewed(active.id, reviewed)
       .then(() => {
         invalidateRecords();
-        toast.success(`Marked ${active.id} as reviewed`);
+        toast.success(
+          reviewed ? `Marked ${active.id} as reviewed` : `${active.id} reopened for review`,
+        );
       })
       .catch((err: Error) => toast.error("Could not mark reviewed", { description: err.message }));
   };
@@ -176,14 +177,14 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
     void createExportJob({
       recordIds: ids,
       format,
-      scope,
+      scope: scope.filter((s) => scopeAllowed(format, s)),
       watermark,
       actorRole: accessRole,
     })
       .then((job) => {
         invalidateExports();
-        toast.success(`${job.id} ready`, {
-          description: `${ids.length} record(s) · ${job.entitiesRedacted} PII entities`,
+        toast.success(`${job.id} queued`, {
+          description: `${ids.length} record(s) · ${job.entitiesRedacted} masked entities · building now`,
         });
         setSelected(new Set());
       })
@@ -203,7 +204,7 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
     void retryExportJob(id)
       .then(() => {
         invalidateExports();
-        toast.success(`${id} re-queued`);
+        toast.success(`${id} is being built again`);
       })
       .catch((err: Error) => toast.error("Retry failed", { description: err.message }));
   };
@@ -286,6 +287,7 @@ function RedactionWorkspace({ rules }: { rules: RedactionRules }) {
                     record={activeForRender}
                     rules={rules}
                     onToggleSegment={toggleSegment}
+                    canHearOriginal={can(me, "perm-pii-raw-read")}
                   />
                   <div className="rounded-large border border-border bg-surface p-200">
                     <div className="mb-150 flex items-center justify-between">

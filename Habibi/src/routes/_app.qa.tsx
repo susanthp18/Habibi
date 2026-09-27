@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ClipboardCheck, Scale, SlidersHorizontal } from "lucide-react";
@@ -25,7 +25,9 @@ import {
   useMoveCoachingAction,
   useCreateCoachingAction,
   useCloseCalibrationSession,
+  useCreateRubricVersion,
   useQaDisagreements,
+  useRubricsById,
 } from "@/api/qa";
 import { Lozenge } from "@/components/ui/lozenge";
 import type {
@@ -88,13 +90,20 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
   // panel — a disagreement the lead cannot see is one nobody acts on.
   const disagreements = useQaDisagreements();
   const [activeScoreId, setActiveScoreId] = useState<string | null>(null);
-  const activeRubricId = (remoteScorecards ?? []).find((s) => s.id === activeScoreId)?.rubricId;
-  const { data: channelRubric } = useRubric(activeRubricId);
 
-  // Local rubric edits (builder sheet) — live GET /rubric is the base.
-  const [rubricOverride, setRubricOverride] = useState<Rubric | null>(null);
-  const rubric = rubricOverride ?? remoteRubric;
-  const canvasRubric = rubricOverride ?? channelRubric ?? rubric;
+  // The active rubric (GET /rubric) is what the builder edits and new cards
+  // use; every card and session is totalled against the version it was
+  // scored on, so a rubric edit never re-scores history.
+  const rubric = remoteRubric;
+  const rubricsById = useRubricsById([
+    ...(remoteScorecards ?? []).map((s) => s.rubricId),
+    ...(remoteCalibrations ?? []).map((c) => c.rubricId),
+  ]);
+  const rubricFor = useCallback(
+    (id?: string | null) => (id ? rubricsById[id] : undefined) ?? rubric,
+    [rubricsById, rubric],
+  );
+  const createRubricVersion = useCreateRubricVersion();
 
   // In-progress criterion edits until Save draft / Publish.
   const [draftEntries, setDraftEntries] = useState<Record<string, ScorecardEntry[]>>({});
@@ -135,8 +144,8 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
     [scorecards, activeScoreId],
   );
   const stats = useMemo(
-    () => agentStats(scorecards, rubric, coaching),
-    [scorecards, rubric, coaching],
+    () => agentStats(scorecards, rubric, coaching, (s) => rubricFor(s.rubricId)),
+    [scorecards, rubric, coaching, rubricFor],
   );
   const activeStat = useMemo(
     () => stats.find((s) => s.agentId === (activeAgent ?? stats[0]?.agentId)) ?? null,
@@ -270,7 +279,7 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
           scorecards={scorecards}
           coaching={coaching}
           calibrations={calibrations}
-          rubric={rubric}
+          rubricFor={rubricFor}
           coverage={coverage}
         />
 
@@ -316,11 +325,11 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
                 scorecards={scorecards}
                 activeId={activeScoreId}
                 onSelect={setActiveScoreId}
-                rubric={rubric}
+                rubricFor={rubricFor}
               />
               <ScoringCanvas
                 scorecard={activeScore}
-                rubric={canvasRubric}
+                rubric={rubricFor(activeScore?.rubricId)}
                 onChangeEntries={updateEntries}
                 onPublish={publishScore}
                 onSaveDraft={saveDraft}
@@ -347,7 +356,12 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
 
           {tab === "calibration" && (
             <div className="h-full min-h-0 overflow-y-auto p-250">
-              <CalibrationView sessions={calibrations} rubric={rubric} onClose={closeCalibration} />
+              <CalibrationView
+                sessions={calibrations}
+                rubricFor={rubricFor}
+                scorecards={scorecards}
+                onClose={closeCalibration}
+              />
             </div>
           )}
 
@@ -374,10 +388,13 @@ function QaWorkspace({ remoteRubric }: { remoteRubric: Rubric }) {
       </div>
 
       <RubricBuilderSheet
+        // Remount per version so the draft starts from the rubric just saved.
+        key={rubric.id}
         open={rubricOpen}
         onClose={() => setRubricOpen(false)}
         rubric={rubric}
-        onSave={(next) => setRubricOverride(next)}
+        saving={createRubricVersion.isPending}
+        onSave={(next) => createRubricVersion.mutateAsync({ base: rubric, next })}
       />
       <NewCoachingSheet
         open={coachOpen}

@@ -1,8 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_app/audit")({
-  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { id?: string; t?: number } => ({
     id: typeof search.id === "string" ? search.id : undefined,
+    // Seconds into the call to open the player at (Compliance "Jump to audio").
+    t:
+      typeof search.t === "number"
+        ? search.t
+        : typeof search.t === "string"
+          ? Number(search.t) || undefined
+          : undefined,
   }),
   head: () => ({
     meta: [

@@ -17,7 +17,7 @@ function csvCell(value: unknown): string {
   return text;
 }
 
-function row(cells: unknown[]): string {
+export function row(cells: unknown[]): string {
   return cells.map(csvCell).join(",");
 }
 

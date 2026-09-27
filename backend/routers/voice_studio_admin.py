@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, Field
 
 import authz
 import voice_studio
@@ -175,6 +176,69 @@ async def release_rollback(workflow_id: int, request: Request, body: dict[str, A
     )
     await run_in_threadpool(gateway._audit, actor, "POST", f"/workflow/{workflow_id}/rollback", 200)
     return result
+
+
+@router.get("/voice-studio/agents/{workflow_id}/quality")
+async def release_quality(workflow_id: int, days: int = 90) -> list[dict[str, Any]]:
+    """Per released version: calls, QA, critical fails, violations, agent-spoken PII, containment, mood."""
+    import voice_studio_quality
+
+    return await run_in_threadpool(voice_studio_quality.by_version, workflow_id, days=max(1, min(days, 365)))
+
+
+@router.get("/voice-studio/runs/{run_id}/interaction")
+async def run_interaction(run_id: int) -> dict[str, Any]:
+    """The PayInt call an engine run was filed as: its recording is played
+    through PayInt (redacted unless the viewer may hear the original)."""
+    import db
+    from sqlalchemy import text
+
+    def lookup() -> dict[str, Any]:
+        with db.engine.connect() as conn:
+            row = conn.execute(text(
+                """
+                SELECT s.interaction_id,
+                       q.total_score, q.band, q.status AS qa_status,
+                       (SELECT count(*) FROM redaction_records r JOIN pii_findings f ON f.redaction_id = r.id
+                         WHERE r.interaction_id = s.interaction_id AND f.accepted) AS pii_masked,
+                       (SELECT count(*) FROM violations v WHERE v.interaction_id = s.interaction_id) AS violations,
+                       (SELECT j.status FROM call_intelligence_jobs j WHERE j.interaction_id = s.interaction_id)
+                         AS processing
+                  FROM voice_sessions s
+                  LEFT JOIN qa_scorecards q ON q.interaction_id = s.interaction_id
+                 WHERE s.id = :sid
+                """), {"sid": f"VS-studio-{run_id}"}).mappings().first()
+        if row is None:
+            return {"interactionId": None}
+        return {
+            "interactionId": row["interaction_id"],
+            "qaTotal": float(row["total_score"]) if row["total_score"] is not None else None,
+            "qaBand": row["band"], "qaStatus": row["qa_status"],
+            "piiMasked": int(row["pii_masked"] or 0), "violations": int(row["violations"] or 0),
+            "processing": row["processing"],
+        }
+
+    return await run_in_threadpool(lookup)
+
+
+class ScenarioFromCallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    interactionId: str = Field(min_length=1)  # noqa: N815
+
+
+@router.post("/voice-studio/checks/scenarios/from-call")
+async def scenario_from_call(request: Request, body: ScenarioFromCallRequest) -> dict[str, Any]:
+    """Turn a real call (a QA fail, a violation) into a scripted check."""
+    import voice_studio_checks
+
+    actor = _require(request, authz.EVAL_RUN)
+    try:
+        return await run_in_threadpool(voice_studio_checks.scenario_from_call, body.interactionId, actor)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="interaction_not_found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @router.get("/voice-studio/releases")

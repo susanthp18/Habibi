@@ -68,6 +68,11 @@ def instrument_telephony_provider(provider: "TelephonyProvider") -> "TelephonyPr
             workflow_run_id = args[2]
         organization_id = kwargs.get("organization_id")
         try:
+            # AgentStudio: every outbound dial passes PayInt's contact policy.
+            from api.services.telephony.payint_admission import admit
+
+            to_number = kwargs.get("to_number", args[0] if args else None)
+            await admit(str(to_number or ""), workflow_run_id)
             return await original(*args, **kwargs)
         except Exception as exc:
             log_failure(

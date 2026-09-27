@@ -106,11 +106,52 @@ function CompliancePage() {
     resolveMutation.mutate({ item, note });
   };
 
+  // The violations on screen, as filtered, with their evidence line: the
+  // offending turn is masked text from the transcript store.
   const handleExport = () => {
-    toast.success(`Exporting ${filtered.length} violation${filtered.length === 1 ? "" : "s"}`, {
-      description:
-        "Compliance report PDF (PII redacted, watermarked) will be ready in ~30 seconds.",
+    const header = [
+      "violation_id",
+      "call_id",
+      "occurred_at",
+      "rule",
+      "severity",
+      "status",
+      "actor_kind",
+      "actor",
+      "assignee",
+      "resolved_at",
+      "at_sec",
+      "evidence",
+    ];
+    const cell = (x: unknown) => `"${String(x ?? "").replace(/"/g, '""')}"`;
+    const rows = filtered.map((v) =>
+      [
+        v.id,
+        v.callId,
+        v.occurredAt,
+        `${v.ruleCode} ${v.ruleLabel}`,
+        v.severity,
+        v.status,
+        v.actor.kind,
+        v.actor.name,
+        v.assignee ?? "",
+        v.resolvedAt ?? "",
+        v.atSec,
+        v.evidence.offending?.text ?? v.evidence.snippet,
+      ]
+        .map(cell)
+        .join(","),
+    );
+    const blob = new Blob(["\uFEFF" + [header.join(","), ...rows].join("\n")], {
+      type: "text/csv;charset=utf-8",
     });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `compliance-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} violation${filtered.length === 1 ? "" : "s"}`);
   };
 
   const handlePolicyExport = async (fmt: "opa" | "cedar") => {

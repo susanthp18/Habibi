@@ -14,13 +14,27 @@ export function ComplianceStatsStrip({
     (v) => v.severity === "critical" && (v.status === "open" || v.status === "in_review"),
   ).length;
   const openTotal = all.filter((v) => v.status === "open" || v.status === "in_review").length;
-  const mtd = all.filter((v) => {
-    const d = new Date(v.occurredAt);
-    const now = new Date();
+  const now = new Date();
+  const thisMonth = (iso?: string | null) => {
+    if (!iso) return false;
+    const d = new Date(iso);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
-  const resolved = all.filter((v) => v.status === "resolved");
-  const avgResolve = resolved.length > 0 ? `${(resolved.length * 0.6 + 1.2).toFixed(1)}h` : "—";
+  };
+  const mtd = all.filter((v) => thisMonth(v.occurredAt)).length;
+  const last30 = all.filter(
+    (v) => now.getTime() - new Date(v.occurredAt).getTime() <= 30 * 86_400_000,
+  ).length;
+  const resolvedThisMonth = all.filter(
+    (v) => v.status === "resolved" && thisMonth(v.resolvedAt),
+  ).length;
+  // Measured: from when the violation happened to its "resolved" action.
+  const hours = all
+    .filter((v) => v.status === "resolved" && v.resolvedAt)
+    .map((v) => (new Date(v.resolvedAt!).getTime() - new Date(v.occurredAt).getTime()) / 3_600_000)
+    .filter((h) => h >= 0);
+  const avgResolve = hours.length
+    ? `${(hours.reduce((a, b) => a + b, 0) / hours.length).toFixed(1)}h`
+    : "—";
   const share = botHumanShare(filtered);
   const total = share.bot + share.human || 1;
   const botPct = Math.round((share.bot / total) * 100);
@@ -40,21 +54,21 @@ export function ComplianceStatsStrip({
           icon: ShieldAlert,
           label: "Total open",
           value: openTotal,
-          sub: `${resolved.length} resolved this month`,
+          sub: `${resolvedThisMonth} resolved this month`,
           tone: "warning",
         },
         {
           icon: Calendar,
           label: "MTD violations",
           value: mtd,
-          sub: `${all.length} in last 30d`,
+          sub: `${last30} in last 30d`,
           tone: "brand",
         },
         {
           icon: Clock,
           label: "Avg time-to-resolve",
           value: avgResolve,
-          sub: "target < 4h",
+          sub: hours.length ? `over ${hours.length} resolved · target < 4h` : "none resolved yet",
           tone: "brand",
         },
         {

@@ -868,6 +868,7 @@ export default function WorkflowRunPage() {
                     </Card>
 
                         <RunProvenance workflowId={Number(params.workflowId)}
+                            runId={Number(params.runId)}
                             definitionId={workflowRun?.definition_id ?? null}
                             direction={workflowRun?.call_type ?? null}
                             logs={workflowRun?.logs ?? null} />

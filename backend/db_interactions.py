@@ -202,7 +202,9 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
     return output
 
 
-def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+def list_calls(
+    *, limit: int | None = None, offset: int | None = None, interaction_id: str | None = None
+) -> list[dict[str, Any]]:
     """Audit-screen call list, newest first.
 
     Bounded and tenant-scoped. Both were missing: the outer query selected every
@@ -243,18 +245,22 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                       i.latency_ms,
                       i.source_payload->>'environment' AS environment,
                       i.source_payload->>'personaName' AS persona_name,
-                      i.source_payload->'languages'->'spoken' AS languages
+                      i.source_payload->'languages'->'spoken' AS languages,
+                      i.source_payload->'voiceStudio' AS studio,
+                      EXISTS (SELECT 1 FROM interaction_handoffs h WHERE h.interaction_id = i.id) AS handed_off
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
                     LEFT JOIN bots b ON b.id = i.handler_bot_id
                     WHERE i.tenant_id = :tenant_id
+                      AND (CAST(:interaction_id AS text) IS NULL OR i.id = :interaction_id)
                       /*VISIBILITY*/
                     ORDER BY i.started_at DESC NULLS LAST, i.id
                     LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"tenant_id": _tenant(), "limit": page, "offset": skip, **_vis_params()},
+                {"tenant_id": _tenant(), "limit": page, "offset": skip, "interaction_id": interaction_id,
+                 **_vis_params()},
             )
         )
         # Four child tables, one query each — not four per interaction. The
@@ -314,6 +320,10 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
             handled_by = {"kind": row["handler_kind"]}
             if row["handler_kind"] == "bot":
                 handled_by["bot"] = bot_names.get(row["handler_bot_id"], row["handled_by"]) or "Bot"
+                if row.get("handed_off"):
+                    # The bot took the call and handed it to a person.
+                    handled_by["kind"] = "handoff"
+                    handled_by["agent"] = "an agent"
             else:
                 handled_by["agent"] = row["handled_by"] or "Agent"
             calls.append(
@@ -347,11 +357,30 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                         ],
                         sentimentSeries=sentiment_series,
                         disclosures=disclosures,
-                        routing=["Postgres", "API"],
+                        routing=_routing(row),
                     )
                 )
             )
     return calls
+
+
+def _routing(row: dict[str, Any]) -> list[str]:
+    """How the call was handled, hop by hop: channel, the agent that took it
+    (for Voice Studio, the released version and the engine run), a person if
+    it was handed over."""
+    hops = [f"{row['channel']} {row['direction'] or ''}".strip()]
+    studio = row.get("studio") or {}
+    if studio.get("engineRunId"):
+        version = f" v{studio['versionNumber']}" if studio.get("versionNumber") else " (draft)"
+        hops.append(f"Voice Studio · {row.get('handled_by') or 'agent'}{version}")
+        hops.append(f"engine run {studio['engineRunId']}")
+    elif row["handler_kind"] == "bot":
+        hops.append(row.get("handled_by") or "bot")
+    else:
+        hops.append(row.get("handled_by") or "agent")
+    if row.get("handed_off"):
+        hops.append("handed to a person")
+    return hops
 
 
 def create_interaction(payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:

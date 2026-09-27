@@ -10,6 +10,8 @@ import { UnansweredTable } from "@/components/bot-analytics/UnansweredTable";
 import { LatencyChart } from "@/components/bot-analytics/LatencyChart";
 import { TurnsHistogram } from "@/components/bot-analytics/TurnsHistogram";
 import { analyticsKpis, useBotAnalytics } from "@/api/bot-analytics";
+import { botAnalyticsCsv } from "@/lib/bot-analytics";
+import { triggerCsvDownload } from "@/lib/dashboard-export";
 import type { ChannelKey, RangeKey } from "@/api/types/bot-analytics";
 import { LoadingState } from "@/components/ui/loading-state";
 import { QueryErrorBanner } from "@/components/ui/query-state";
@@ -22,12 +24,25 @@ export const Route = createLazyFileRoute("/_app/bot-analytics")({
 function BotAnalyticsPage() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [channel, setChannel] = useState<ChannelKey>("all");
+  const [botId, setBotId] = useState("");
+  const [version, setVersion] = useState("");
   const [activeIntent, setActiveIntent] = useState<string | null>(null);
 
-  const { data, isLoading, isError, error } = useBotAnalytics(range, channel);
+  const filters = { range, channel, botId: botId || undefined, version: version || undefined };
+  const { data, isLoading, isError, error } = useBotAnalytics(filters);
   const points = data?.dailySeries ?? [];
   const intentAggs = data?.intentAggs ?? [];
-  const kpis = useMemo(() => analyticsKpis(points, channel), [points, channel]);
+  const agents = data?.agents ?? [];
+  const kpis = useMemo(() => analyticsKpis(points, data?.summary), [points, data?.summary]);
+
+  // Client-side from what is on screen: the same rows, the same filters.
+  const exportCsv = () => {
+    const agentName = agents.find((a) => a.botId === botId)?.name;
+    triggerCsvDownload(
+      botAnalyticsCsv({ ...filters, agentName }, kpis, points),
+      `bot-analytics-${range}-${channel}${botId ? `-${botId}` : ""}${version ? `-v${version}` : ""}.csv`,
+    );
+  };
 
   return (
     <>
@@ -37,6 +52,14 @@ function BotAnalyticsPage() {
           channel={channel}
           onRange={setRange}
           onChannel={setChannel}
+          agents={agents}
+          botId={botId}
+          version={version}
+          onAgent={(b, v) => {
+            setBotId(b);
+            setVersion(v);
+          }}
+          onExport={data ? exportCsv : undefined}
         />
 
         {isLoading && !data ? (

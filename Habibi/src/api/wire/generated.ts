@@ -53,537 +53,6 @@ export const A2aPartnerResponse = z.object({
   "allowedSkills": z.array(z.string()),
   "status": z.string().nullable().optional(),
 }).passthrough();
-export const PersonaTraits = z.object({
-  "empathy": z.number(),
-  "firmness": z.number(),
-  "formality": z.number(),
-  "verbosity": z.number(),
-  "upsell": z.number(),
-}).passthrough();
-export const PersonaState = z.object({
-  "traits": PersonaTraits,
-  "language": z.string(),
-  "fallbackLanguages": z.array(z.string()),
-}).passthrough();
-export const VoiceConfig = z.object({
-  "voiceId": z.string(),
-  "speed": z.number(),
-  "pitch": z.number(),
-  "warmth": z.number(),
-  "pauseMs": z.number(),
-  "sampleText": z.string(),
-  "azureVoiceName": z.string().nullable().optional(),
-  "style": z.string().nullable().optional(),
-  "params": z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
-export const Guardrails = z.object({
-  "prohibited": z.array(z.string()),
-  "escalateAbuse": z.boolean(),
-  "escalateLegal": z.boolean(),
-  "neverQuoteRate": z.boolean(),
-  "neverPromiseWaiver": z.boolean(),
-  "alwaysDiscloseRecording": z.boolean(),
-  "refusePoliticsReligion": z.boolean(),
-  "maxTurns": z.number(),
-  "maxSeconds": z.number(),
-}).passthrough();
-export const FlowPosition = z.object({
-  "x": z.number().optional(),
-  "y": z.number().optional(),
-}).passthrough();
-export const FlowVariable = z.object({
-  "key": z.string(),
-  "description": z.string().optional(),
-  "type": z.enum(["string", "number", "boolean"]).optional(),
-}).passthrough();
-export const FlowNodeData = z.object({
-  "name": z.string().optional(),
-  "instructionType": z.enum(["prompt", "say"]).optional(),
-  "instructions": z.string().optional(),
-  "isStart": z.boolean().optional(),
-  "entryFor": z.array(z.string()).optional(),
-  "respondImmediately": z.boolean().optional(),
-  "entryLine": z.string().optional(),
-  "tools": z.array(z.string()).optional(),
-  "extractVariables": z.array(FlowVariable).optional(),
-  "endConversation": z.boolean().optional(),
-}).passthrough();
-export const FlowNode = z.object({
-  "id": z.string(),
-  "key": z.string(),
-  "type": z.enum(["conversation", "end"]).optional(),
-  "position": FlowPosition.optional(),
-  "data": FlowNodeData.optional(),
-}).passthrough();
-export const FlowExpressionClause = z.object({
-  "variable": z.string(),
-  "operator": z.enum(["equals", "not_equals", "contains", "not_contains", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "exists", "not_exists"]).optional(),
-  "value": z.string().nullable().optional(),
-}).passthrough();
-export const FlowCondition = z.object({
-  "type": z.enum(["prompt", "expression", "always"]).optional(),
-  "prompt": z.string().optional(),
-  "match": z.enum(["all", "any"]).optional(),
-  "clauses": z.array(FlowExpressionClause).optional(),
-}).passthrough();
-export const FlowEdgeData = z.object({
-  "condition": FlowCondition.optional(),
-}).passthrough();
-export const FlowEdge = z.object({
-  "id": z.string(),
-  "source": z.string(),
-  "target": z.string(),
-  "data": FlowEdgeData.optional(),
-}).passthrough();
-export const FlowGraph = z.object({
-  "version": z.number().optional(),
-  "globalTools": z.array(z.string()).optional(),
-  "nodes": z.array(FlowNode).optional(),
-  "edges": z.array(FlowEdge).optional(),
-}).passthrough();
-export const PinnedSkill = z.object({
-  "skill_id": z.string(),
-  "version": z.string(),
-  "pin": z.string().optional(),
-  "content_hash": z.string().optional(),
-  "signed": z.boolean().optional(),
-  "mouth": z.array(z.string()).optional(),
-}).passthrough();
-export const FrozenConnector = z.object({
-  "connector_id": z.string(),
-  "allow_prefixes": z.array(z.string()).optional(),
-  "tool_names": z.array(z.string()).optional(),
-  "digest": z.string().optional(),
-  "voice_supported": z.boolean().optional(),
-}).passthrough();
-export const ChannelGrant = z.object({
-  "channel": z.enum(["voice", "text"]),
-  "allowed": z.array(z.string()).optional(),
-  "offered": z.array(z.string()).optional(),
-}).passthrough();
-export const NodeOffer = z.object({
-  "key": z.string(),
-  "offered": z.array(z.string()).optional(),
-  "dropped": z.array(z.string()).optional(),
-}).passthrough();
-export const CompiledHashes = z.object({
-  "prompt": z.string(),
-  "persona": z.string(),
-  "guardrails": z.string(),
-  "flow": z.string(),
-  "card": z.string(),
-}).passthrough();
-export const CompiledBundle = z.object({
-  "schema_version": z.literal("1").optional(),
-  "bot_id": z.string(),
-  "prompt_version_id": z.string().nullable().optional(),
-  "source_ids": z.record(z.string(), z.string()).optional(),
-  "skills": z.array(PinnedSkill).optional(),
-  "connectors": z.array(FrozenConnector).optional(),
-  "grants": z.array(ChannelGrant).optional(),
-  "node_offers": z.array(NodeOffer).optional(),
-  "grant_by_specialist": z.record(z.string(), z.array(z.string())).optional(),
-  "human_gates": z.array(z.record(z.string(), z.unknown())).optional(),
-  "hashes": CompiledHashes,
-  "gates": z.array(z.record(z.string(), z.unknown())).optional(),
-  "prompt": z.string().optional(),
-  "persona": z.record(z.string(), z.unknown()).optional(),
-  "guardrails": z.record(z.string(), z.unknown()).optional(),
-  "flow": z.record(z.string(), z.unknown()).optional(),
-  "fleet_flow": z.record(z.string(), z.unknown()).optional(),
-  "entry_by_specialist": z.record(z.string(), z.string()).optional(),
-  "member_versions": z.record(z.string(), z.string()).optional(),
-  "agent_card": z.record(z.string(), z.unknown()).optional(),
-  "bundle_hash": z.string().optional(),
-}).passthrough();
-export const FleetRebuildResponse = z.object({
-  "doorBotId": z.string(),
-  "rebuilt": z.boolean(),
-  "reason": z.string().nullable().optional(),
-  "deploymentId": z.string().nullable().optional(),
-  "previousDeploymentId": z.string().nullable().optional(),
-  "bundleHash": z.string().nullable().optional(),
-}).passthrough();
-export const PromptVersionResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "author": z.string(),
-  "status": z.enum(["draft", "published", "archived"]),
-  "createdAt": z.string(),
-  "summary": z.string(),
-  "prompt": z.string(),
-  "persona": PersonaState,
-  "voice": VoiceConfig,
-  "guardrails": Guardrails,
-  "tuning": z.record(z.string(), z.unknown()).optional(),
-  "flow": FlowGraph.optional(),
-  "flowUnreadable": z.boolean().optional(),
-  "botId": z.string().optional(),
-  "agentCard": z.record(z.string(), z.unknown()).optional(),
-  "compiled": CompiledBundle.nullable().optional(),
-  "fleetRebuilds": z.array(FleetRebuildResponse).nullable().optional(),
-}).passthrough();
-export const FlowToolResponse = z.object({
-  "key": z.string(),
-  "description": z.string(),
-  "transitions": z.boolean(),
-  "locked": z.boolean().optional(),
-  "alwaysOn": z.boolean().optional(),
-  "channels": z.array(z.string()).optional(),
-  "kind": z.enum(["catalog", "flow_control"]).optional(),
-}).passthrough();
-export const EntryBindingResponse = z.object({
-  "id": z.string(),
-  "channel": z.string(),
-  "address": z.string().nullable().optional(),
-  "bot_id": z.string(),
-  "enabled": z.boolean().optional(),
-  "note": z.string().optional(),
-  "updated_at": z.string().nullable().optional(),
-}).passthrough();
-export const AgentStudioCardResponse = z.object({
-  "botId": z.string(),
-  "name": z.string(),
-  "version": z.string(),
-  "slug": z.string(),
-  "purpose": z.string(),
-  "channels": z.array(z.string()),
-  "skills": z.array(z.string()),
-  "toolCount": z.number(),
-  "evalStatus": z.string(),
-  "trafficPct": z.number().nullable(),
-  "deploymentStatus": z.enum(["live", "published", "draft", "empty"]),
-  "lastPublish": z.string().nullable(),
-  "promptVersionId": z.string().nullable(),
-  "draftVersionId": z.string().nullable(),
-  "hasDraft": z.boolean(),
-  "cardSource": z.enum(["draft", "published", "default", "scaffold"]),
-  "entryBotId": z.string(),
-  "entryBindings": z.array(EntryBindingResponse).optional(),
-  "takesInbound": z.boolean(),
-  "handoffFrom": z.array(z.string()),
-  "reachability": z.enum(["entry", "handoff", "direct", "unreachable", "archived"]),
-  "archivedAt": z.string().nullable(),
-  "isFirstParty": z.boolean(),
-  "agentCard": z.record(z.string(), z.unknown()),
-  "publishedCard": z.record(z.string(), z.unknown()),
-}).passthrough();
-export const PolicyEngineResponse = z.object({
-  "key": z.string(),
-  "label": z.string(),
-  "tool": z.string().nullable().optional(),
-  "mode": z.string(),
-  "source": z.string().nullable().optional(),
-}).passthrough();
-export const AgentStudioTemplateResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "sourceBotId": z.string(),
-  "purpose": z.string(),
-}).passthrough();
-export const AgentStudioArchiveResponse = z.object({
-  "ok": z.boolean(),
-  "botId": z.string(),
-  "archived": z.boolean(),
-}).passthrough();
-export const AgentStudioChangeLogRolloutResponse = z.object({
-  "trafficPct": z.number(),
-  "shadow": z.boolean().optional(),
-  "autoRollback": z.array(z.string()),
-}).passthrough();
-export const AgentStudioChangeLogEntryResponse = z.object({
-  "id": z.string(),
-  "actorUserId": z.string().nullable(),
-  "action": z.string(),
-  "botId": z.string().nullable(),
-  "at": z.string().nullable(),
-  "seq": z.number().nullable().optional(),
-  "entryHash": z.string().nullable().optional(),
-  "prevHash": z.string().nullable().optional(),
-  "versionLabel": z.string().nullable().optional(),
-  "previousVersionLabel": z.string().nullable().optional(),
-  "previousVersionId": z.string().nullable().optional(),
-  "versionId": z.string().nullable().optional(),
-  "deploymentId": z.string().nullable().optional(),
-  "summary": z.string().nullable().optional(),
-  "changed": z.array(z.string()).nullable().optional(),
-  "rollout": AgentStudioChangeLogRolloutResponse.nullable().optional(),
-  "gates": z.record(z.string(), z.string()).nullable().optional(),
-  "hashes": z.record(z.string(), z.string()).nullable().optional(),
-  "replacedDeploymentId": z.string().nullable().optional(),
-  "retiredDeploymentId": z.string().nullable().optional(),
-  "archivedAt": z.string().nullable().optional(),
-  "roleId": z.string().nullable().optional(),
-  "permissionIds": z.array(z.string()).nullable().optional(),
-  "experimentId": z.string().nullable().optional(),
-  "reason": z.string().nullable().optional(),
-  "baselineRestored": z.boolean().nullable().optional(),
-  "trafficPct": z.number().nullable().optional(),
-  "shadow": z.boolean().nullable().optional(),
-  "autoRollback": z.array(z.string()).nullable().optional(),
-  "bindingId": z.string().nullable().optional(),
-  "channel": z.string().nullable().optional(),
-  "address": z.string().nullable().optional(),
-  "enabled": z.boolean().nullable().optional(),
-  "removed": z.boolean().nullable().optional(),
-  "promptVersionId": z.string().nullable().optional(),
-  "filled": z.array(z.string()).nullable().optional(),
-  "moved": z.array(z.string()).nullable().optional(),
-  "previousDeploymentId": z.string().nullable().optional(),
-  "bundleHash": z.string().nullable().optional(),
-  "memberBotId": z.string().nullable().optional(),
-  "memberVersionId": z.string().nullable().optional(),
-  "connectorId": z.string().nullable().optional(),
-  "slug": z.string().nullable().optional(),
-  "kind": z.string().nullable().optional(),
-  "url": z.string().nullable().optional(),
-  "status": z.string().nullable().optional(),
-  "allowPrefixes": z.array(z.string()).nullable().optional(),
-  "dataClass": z.array(z.string()).nullable().optional(),
-  "allowedEnv": z.string().nullable().optional(),
-  "keyId": z.string().nullable().optional(),
-  "name": z.string().nullable().optional(),
-  "scopes": z.array(z.string()).nullable().optional(),
-  "prefix": z.string().nullable().optional(),
-  "revoked": z.boolean().nullable().optional(),
-  "rotatedFrom": z.string().nullable().optional(),
-}).passthrough();
-export const AgentStudioChainVerdictResponse = z.object({
-  "ok": z.boolean(),
-  "checked": z.number(),
-  "brokenAt": z.string().nullable(),
-  "reason": z.string().nullable(),
-}).passthrough();
-export const AgentStudioChangeLogResponse = z.object({
-  "entries": z.array(AgentStudioChangeLogEntryResponse),
-  "chain": AgentStudioChainVerdictResponse,
-  "total": z.number().optional(),
-}).passthrough();
-export const GateResult = z.object({
-  "gate": z.string(),
-  "name": z.string(),
-  "status": z.enum(["pass", "fail", "warn", "skipped"]),
-  "detail": z.string().optional(),
-  "issues": z.array(z.record(z.string(), z.unknown())).optional(),
-}).passthrough();
-export const CompileReport = z.object({
-  "bot_id": z.string(),
-  "gates": z.array(GateResult),
-  "effective_tools": z.array(z.string()).optional(),
-  "idle_tools": z.array(z.string()).optional(),
-  "idle_voice_tools": z.number().optional(),
-  "voice_tool_cap": z.number().optional(),
-  "skill_description_tokens": z.number().optional(),
-  "mission_entries": z.record(z.string(), z.string()).optional(),
-  "card": z.record(z.string(), z.unknown()).optional(),
-  "bundle": z.record(z.string(), z.unknown()).optional(),
-  "doors_merging": z.array(z.string()).optional(),
-}).passthrough();
-export const EffectiveContractResponse = z.object({
-  "source": z.enum(["published", "preview"]),
-  "botId": z.string(),
-  "promptVersionId": z.string().nullable().optional(),
-  "compiled": CompiledBundle,
-  "gates": z.array(z.record(z.string(), z.unknown())).optional(),
-}).passthrough();
-export const AgentStudioGraphNodeResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "reachability": z.enum(["entry", "handoff", "direct", "unreachable", "archived"]),
-  "deploymentStatus": z.enum(["live", "published", "draft", "empty"]),
-}).passthrough();
-export const AgentStudioGraphEdgeResponse = z.object({
-  "from": z.string(),
-  "to": z.string().nullable().optional(),
-}).passthrough();
-export const AgentStudioGraphResponse = z.object({
-  "botId": z.string(),
-  "nodes": z.array(AgentStudioGraphNodeResponse),
-  "edges": z.array(AgentStudioGraphEdgeResponse),
-}).passthrough();
-export const AgentStudioSkillSummaryResponse = z.object({
-  "id": z.string(),
-  "slug": z.string(),
-  "origin": z.string(),
-  "signatureStatus": z.string(),
-  "latestVersionId": z.string().nullable(),
-  "description": z.string(),
-  "allowedTools": z.array(z.string()),
-  "version": z.string(),
-  "status": z.string(),
-  "attachedCards": z.array(z.string()),
-  "rehearsalCards": z.array(z.string()).optional(),
-  "evalSuite": z.unknown().nullable(),
-  "contentHash": z.string(),
-  "signed": z.boolean(),
-  "hasSignedVersion": z.boolean(),
-  "bodyTokens": z.number(),
-  "referenceFiles": z.array(z.string()),
-}).passthrough();
-export const AgentStudioSkillVersionResponse = z.object({
-  "id": z.string(),
-  "skillId": z.string(),
-  "version": z.string(),
-  "status": z.string(),
-  "frontmatter": z.record(z.string(), z.unknown()),
-  "body": z.string(),
-  "allowedTools": z.array(z.string()),
-  "contentHash": z.string(),
-  "signature": z.string().nullable(),
-  "signedBy": z.string().nullable(),
-  "pack": z.record(z.string(), z.unknown()),
-  "description": z.string(),
-  "evalSuite": z.unknown().nullable(),
-  "origin": z.unknown().nullable(),
-}).passthrough();
-export const AgentStudioSkillResponse = z.object({
-  "id": z.string(),
-  "slug": z.string(),
-  "origin": z.string(),
-  "signatureStatus": z.string(),
-  "latestVersionId": z.string().nullable(),
-  "description": z.string(),
-  "allowedTools": z.array(z.string()),
-  "version": z.string(),
-  "status": z.string(),
-  "attachedCards": z.array(z.string()),
-  "rehearsalCards": z.array(z.string()).optional(),
-  "evalSuite": z.unknown().nullable(),
-  "contentHash": z.string(),
-  "signed": z.boolean(),
-  "hasSignedVersion": z.boolean(),
-  "bodyTokens": z.number(),
-  "referenceFiles": z.array(z.string()),
-  "versions": z.array(AgentStudioSkillVersionResponse).nullable().optional(),
-  "frontmatter": z.record(z.string(), z.unknown()).nullable().optional(),
-  "body": z.string().nullable().optional(),
-  "pack": z.record(z.string(), z.unknown()).nullable().optional(),
-  "markdown": z.string().nullable().optional(),
-  "lintWarnings": z.array(z.record(z.string(), z.unknown())).nullable().optional(),
-}).passthrough();
-export const AgentStudioScriptNameResponse = z.object({
-  "name": z.string(),
-}).passthrough();
-export const AgentStudioSkillDeleteResponse = z.object({
-  "ok": z.boolean(),
-  "id": z.string(),
-  "slug": z.string(),
-}).passthrough();
-export const AgentStudioScriptRunResponse = z.object({
-  "ok": z.boolean(),
-  "error": z.string().nullable().optional(),
-  "name": z.string().nullable().optional(),
-  "allowed": z.array(z.string()).nullable().optional(),
-  "remaining_emis": z.number().nullable().optional(),
-  "outstanding": z.number().nullable().optional(),
-  "installment_amount": z.number().nullable().optional(),
-  "in_window": z.boolean().nullable().optional(),
-  "outside": z.boolean().nullable().optional(),
-  "promise_date": z.string().nullable().optional(),
-  "preferred_window": z.unknown().nullable().optional(),
-}).passthrough();
-export const RolePermissionResponse = z.object({
-  "id": z.string(),
-  "module": z.string(),
-  "action": z.string(),
-  "description": z.string(),
-}).passthrough();
-export const RoleGrantResponse = z.object({
-  "role_id": z.string(),
-  "role": z.string(),
-  "permission_id": z.string(),
-}).passthrough();
-export const RoleResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "permissionIds": z.array(z.string()),
-}).passthrough();
-export const RolesCatalogResponse = z.object({
-  "permissions": z.array(RolePermissionResponse),
-  "agentPublishRoles": z.array(z.string()),
-  "grants": z.array(RoleGrantResponse),
-  "roles": z.array(RoleResponse),
-}).passthrough();
-export const FlowIssue = z.object({
-  "severity": z.enum(["error", "warning"]),
-  "code": z.string(),
-  "message": z.string(),
-  "nodeId": z.string().nullable().optional(),
-  "edgeId": z.string().nullable().optional(),
-}).passthrough();
-export const FlowValidation = z.object({
-  "ok": z.boolean(),
-  "issues": z.array(FlowIssue).optional(),
-}).passthrough();
-export const PersonaPresetResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "description": z.string(),
-  "traits": PersonaTraits,
-  "promptTemplate": z.string(),
-}).passthrough();
-export const BotDeploymentResponse = z.object({
-  "id": z.string(),
-  "botId": z.string(),
-  "promptVersionId": z.string(),
-  "kbSnapshotId": z.string().nullable(),
-  "ttsVoiceId": z.string().nullable(),
-  "environment": z.enum(["sandbox", "production"]),
-  "status": z.enum(["active", "rolled_back", "retired"]),
-  "publishedBy": z.string().nullable(),
-  "publishedAt": z.string().nullable(),
-  "rollbackDeploymentId": z.string().nullable(),
-  "voiceConfig": z.record(z.string(), z.unknown()),
-  "tuning": z.record(z.string(), z.unknown()).optional(),
-  "trafficPct": z.number().optional(),
-  "shadow": z.boolean().optional(),
-  "evalReportId": z.string().nullable().optional(),
-  "frozenTools": z.array(z.string()).nullable().optional(),
-  "bundleHash": z.string().nullable().optional(),
-}).passthrough();
-export const DeploymentExperimentResponse = z.object({
-  "id": z.string(),
-  "botId": z.string(),
-  "environment": z.string().nullable().optional(),
-  "canaryDeploymentId": z.string().nullable().optional(),
-  "baselineDeploymentId": z.string().nullable().optional(),
-  "trafficPct": z.number(),
-  "shadow": z.boolean(),
-  "autoRollback": z.array(z.string()),
-  "status": z.string().nullable().optional(),
-  "rollbackReason": z.string().nullable().optional(),
-}).passthrough();
-export const DeploymentExperimentRollbackResponse = z.object({
-  "id": z.string(),
-  "botId": z.string(),
-  "environment": z.string().nullable().optional(),
-  "canaryDeploymentId": z.string().nullable().optional(),
-  "baselineDeploymentId": z.string().nullable().optional(),
-  "trafficPct": z.number(),
-  "shadow": z.boolean(),
-  "autoRollback": z.array(z.string()),
-  "status": z.string().nullable().optional(),
-  "rollbackReason": z.string().nullable().optional(),
-  "baselineRestored": z.boolean(),
-}).passthrough();
-export const PromptLintFinding = z.object({
-  "severity": z.enum(["error", "warn", "info"]),
-  "code": z.string(),
-  "message": z.string(),
-  "span": z.record(z.string(), z.number()).nullable().optional(),
-}).passthrough();
-export const PromptLintResponse = z.object({
-  "findings": z.array(PromptLintFinding),
-}).passthrough();
-export const PromptTokenEstimateResponse = z.object({
-  "tokens": z.number(),
-  "encoding": z.string(),
-  "usdPer1M": z.number(),
-  "costUsd": z.number(),
-  "source": z.enum(["tiktoken", "heuristic"]).optional(),
-  "assembledTokens": z.number().nullable().optional(),
-  "assembledCostUsd": z.number().nullable().optional(),
-}).passthrough();
 export const BillingServiceResponse = z.object({
   "id": z.string(),
   "name": z.string(),
@@ -690,11 +159,16 @@ export const ExportJobResponse = z.object({
   "format": z.enum(["pdf", "csv", "audio-zip"]),
   "scope": z.array(z.enum(["transcript", "audio", "metadata"])),
   "watermark": z.string(),
-  "status": z.enum(["queued", "ready", "failed"]),
+  "status": z.enum(["queued", "running", "ready", "failed"]),
   "downloadCount": z.number(),
   "entitiesRedacted": z.number(),
   "kind": z.enum(["redaction", "dashboard"]).optional(),
   "mailStatus": z.string().nullable().optional(),
+  "error": z.string().nullable().optional(),
+}).passthrough();
+export const ExportAccessRoleResponse = z.object({
+  "id": z.string(),
+  "name": z.string(),
 }).passthrough();
 export const ConsentChannelResponse = z.object({
   "channel": z.enum(["call", "whatsapp", "sms", "email"]),
@@ -703,6 +177,7 @@ export const ConsentChannelResponse = z.object({
   "source": z.enum(["IVR", "Agent", "Web", "Regulator", "Bulk Import", "WhatsApp Reply", "Onboarding"]),
   "frequencyCapPerWeek": z.number(),
   "usedThisWeek": z.number(),
+  "promotional": z.enum(["opted_in", "opted_out", "dnd", "expired"]).nullable().optional(),
 }).passthrough();
 export const AllowedWindowResponse = z.object({
   "days": z.array(z.number()),
@@ -746,6 +221,35 @@ export const ConsentListResponse = z.object({
   "dailyCap": z.number().optional(),
   "lastDecisionReason": z.string().nullable().optional(),
   "contactable": ContactableSummaryResponse,
+}).passthrough();
+export const ConsentImportChanges = z.object({
+  "opt_in": z.number(),
+  "opt_out": z.number(),
+  "dnd_on": z.number(),
+  "dnd_off": z.number(),
+  "none": z.number(),
+}).passthrough();
+export const ConsentImportRowResult = z.object({
+  "row": z.number(),
+  "customerId": z.string(),
+  "channel": z.enum(["call", "whatsapp", "sms", "email"]).nullable(),
+  "status": z.string().nullable(),
+  "purpose": z.string(),
+  "dnd": z.boolean().nullable(),
+  "note": z.string(),
+  "ok": z.boolean(),
+  "error": z.string().nullable(),
+  "change": z.enum(["none", "opt_in", "opt_out", "dnd_on", "dnd_off"]),
+  "dndChange": z.enum(["dnd_on", "dnd_off"]).nullable(),
+}).passthrough();
+export const ConsentImportResponse = z.object({
+  "dryRun": z.boolean(),
+  "total": z.number(),
+  "valid": z.number(),
+  "invalid": z.number(),
+  "changes": ConsentImportChanges,
+  "applied": z.number(),
+  "results": z.array(ConsentImportRowResult),
 }).passthrough();
 export const ContactResponse = z.object({
   "phonePrimary": z.string().optional(),
@@ -939,21 +443,27 @@ export const ViolationListResponse = z.object({
   "status": z.enum(["open", "in_review", "acknowledged", "resolved"]),
   "assignee": z.string().nullable().optional(),
   "notes": z.array(ViolationNoteItemResponse).optional(),
+  "resolvedAt": z.string().nullable().optional(),
 }).passthrough();
 export const ViolationNoteResponse = z.object({
   "id": z.string(),
   "text": z.string(),
+}).passthrough();
+export const RedactionTurnSegmentResponse = z.object({
+  "text": z.string(),
+  "findingId": z.string().nullable().optional(),
 }).passthrough();
 export const RedactionTurnResponse = z.object({
   "id": z.string(),
   "t": z.number(),
   "speaker": z.enum(["bot", "agent", "customer", "system"]),
   "text": z.string(),
+  "segments": z.array(RedactionTurnSegmentResponse).nullable().optional(),
 }).passthrough();
 export const PiiFindingResponse = z.object({
   "id": z.string(),
   "turnId": z.string(),
-  "type": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"]),
+  "type": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "pincode", "name", "upi", "passport", "voter_id", "driving_licence", "secret", "custom"]),
   "start": z.number(),
   "end": z.number(),
   "text": z.string().nullable().optional(),
@@ -961,13 +471,18 @@ export const PiiFindingResponse = z.object({
   "confidence": z.number(),
   "source": z.enum(["auto", "manual"]),
   "accepted": z.boolean(),
+  "needsReview": z.boolean().optional(),
+  "detector": z.string().optional(),
+  "modelVersion": z.string().nullable().optional(),
 }).passthrough();
 export const RedactionAudioSegmentResponse = z.object({
   "atSec": z.number(),
   "durSec": z.number(),
-  "type": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"]),
+  "type": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "pincode", "name", "upi", "passport", "voter_id", "driving_licence", "secret", "custom"]),
   "findingId": z.string(),
   "muted": z.boolean(),
+  "channel": z.enum(["customer", "agent"]).nullable().optional(),
+  "aligned": z.boolean().optional(),
 }).passthrough();
 export const RedactionRecordListResponse = z.object({
   "id": z.string(),
@@ -982,9 +497,11 @@ export const RedactionRecordListResponse = z.object({
   "findings": z.array(PiiFindingResponse),
   "audioSegments": z.array(RedactionAudioSegmentResponse),
   "reviewed": z.boolean(),
+  "rawVisible": z.boolean().optional(),
+  "processing": z.string().nullable().optional(),
 }).passthrough();
 export const RedactionRuleResponse = z.object({
-  "piiType": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"]),
+  "piiType": z.enum(["card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "pincode", "name", "upi", "passport", "voter_id", "driving_licence", "secret", "custom"]),
   "enabled": z.boolean(),
   "replacement": z.string(),
   "label": z.string(),
@@ -1228,6 +745,10 @@ export const TreatmentAlternativeResponse = z.object({
   "estimand": z.string().nullable().optional(),
   "reasonCodes": z.array(z.string()).optional(),
   "components": z.record(z.string(), z.number()).optional(),
+  "explanation": z.string().nullable().optional(),
+  "timingRationale": z.string().nullable().optional(),
+  "evidence": z.record(z.string(), z.unknown()).optional(),
+  "propensity": z.number().nullable().optional(),
 }).passthrough();
 export const TreatmentSnapshotResponse = z.object({
   "action": z.string(),
@@ -1247,6 +768,8 @@ export const TreatmentSnapshotResponse = z.object({
   "latencyMs": z.number().nullable().optional(),
   "alternatives": z.array(TreatmentAlternativeResponse).optional(),
   "excluded": z.record(z.string(), z.string()).optional(),
+  "decidedAt": z.string().nullable().optional(),
+  "enacted": z.boolean().nullable().optional(),
 }).passthrough();
 export const CustomerInsightsResponse = z.object({
   "customerId": z.string(),
@@ -1280,6 +803,21 @@ export const ContactPolicyResponse = z.object({
   "nextAllowedAt": z.string().nullable().optional(),
   "policyBindingHash": z.string().nullable().optional(),
   "policyBinding": z.array(ContactPolicyBindingEntryResponse).optional(),
+}).passthrough();
+export const RecordingPeaksResponse = z.object({
+  "durationSec": z.number(),
+  "channels": z.record(z.string(), z.array(z.number())),
+}).passthrough();
+export const EvidenceCheckResponse = z.object({
+  "check": z.string(),
+  "ok": z.boolean(),
+}).passthrough();
+export const EvidenceVerificationResponse = z.object({
+  "linked": z.boolean(),
+  "ok": z.boolean(),
+  "hash": z.string().nullable().optional(),
+  "seq": z.number().nullable().optional(),
+  "checks": z.array(EvidenceCheckResponse).optional(),
 }).passthrough();
 export const InteractionCostLineResponse = z.object({
   "serviceId": z.string(),
@@ -1571,6 +1109,7 @@ export const RubricCriterionResponse = z.object({
   "description": z.string(),
   "weight": z.number(),
   "critical": z.boolean().nullable().optional(),
+  "lineageId": z.string().nullable().optional(),
 }).passthrough();
 export const RubricSectionResponse = z.object({
   "id": z.string(),
@@ -1594,6 +1133,10 @@ export const ScorecardEntryResponse = z.object({
   "score": z.number(),
   "note": z.string().nullable().optional(),
   "accepted": z.boolean().nullable().optional(),
+  "tier": z.enum(["evidence", "model", "llm", "human"]).nullable().optional(),
+  "confidence": z.number().nullable().optional(),
+  "evidence": z.record(z.string(), z.unknown()).nullable().optional(),
+  "modelVersion": z.string().nullable().optional(),
 }).passthrough();
 export const ScorecardListResponse = z.object({
   "id": z.string(),
@@ -1731,109 +1274,18 @@ export const CoachingActionResponse = z.object({
 export const CalibrationReviewerResponse = z.object({
   "reviewer": z.string(),
   "entries": z.array(ScorecardEntryResponse),
+  "submitted": z.boolean().nullable().optional(),
 }).passthrough();
 export const CalibrationSessionResponse = z.object({
   "id": z.string(),
   "name": z.string(),
   "callId": z.string(),
+  "rubricId": z.string().nullable().optional(),
   "customerName": z.string(),
   "target": z.array(ScorecardEntryResponse),
   "reviewers": z.array(CalibrationReviewerResponse),
   "status": z.enum(["active", "closed"]),
   "createdAt": z.string(),
-}).passthrough();
-export const EvalTrialResponse = z.object({
-  "taskId": z.string().nullable().optional(),
-  "name": z.string().nullable().optional(),
-  "passed": z.boolean(),
-  "verdict": z.record(z.string(), z.unknown()),
-  "fixture": z.record(z.string(), z.unknown()),
-  "error": z.string().nullable().optional(),
-}).passthrough();
-export const EvalSuiteRunResponse = z.object({
-  "suiteId": z.string(),
-  "kind": z.string(),
-  "name": z.string().nullable().optional(),
-  "reportId": z.string(),
-  "status": z.enum(["pass", "fail", "error"]),
-  "failed": z.number(),
-  "errored": z.number(),
-  "total": z.number(),
-  "trials": z.array(EvalTrialResponse),
-}).passthrough();
-export const EvalRequiredRunItemResponse = z.object({
-  "kind": z.string(),
-  "suiteId": z.string(),
-  "reportId": z.string(),
-  "status": z.enum(["pass", "fail", "error"]),
-  "failed": z.number(),
-  "total": z.number(),
-}).passthrough();
-export const EvalRequiredSkipResponse = z.object({
-  "kind": z.string(),
-  "reason": z.string(),
-}).passthrough();
-export const EvalRequiredRunResponse = z.object({
-  "botId": z.string(),
-  "promptVersionId": z.string(),
-  "status": z.enum(["pass", "fail"]),
-  "ran": z.array(EvalRequiredRunItemResponse),
-  "skipped": z.array(EvalRequiredSkipResponse),
-}).passthrough();
-export const EvalSuiteResponse = z.object({
-  "id": z.string(),
-  "kind": z.string(),
-  "name": z.string(),
-  "description": z.string().optional(),
-  "tenant_id": z.string().nullable().optional(),
-  "created_at": z.unknown().nullable().optional(),
-  "updated_at": z.unknown().nullable().optional(),
-}).passthrough();
-export const EvalReportSummaryResponse = z.object({
-  "id": z.string(),
-  "suiteId": z.string(),
-  "suiteName": z.string().nullable().optional(),
-  "kind": z.string().nullable().optional(),
-  "botId": z.string().nullable().optional(),
-  "status": z.string(),
-  "summary": z.record(z.string(), z.unknown()).optional(),
-  "origin": z.string().optional(),
-  "createdAt": z.string().nullable().optional(),
-}).passthrough();
-export const EvalReportRowResponse = z.object({
-  "id": z.string(),
-  "tenant_id": z.string().nullable().optional(),
-  "suite_id": z.string().nullable().optional(),
-  "bot_id": z.string().nullable().optional(),
-  "prompt_version_id": z.string().nullable().optional(),
-  "status": z.string().nullable().optional(),
-  "summary": z.record(z.string(), z.unknown()).nullable().optional(),
-  "created_at": z.string().nullable().optional(),
-  "origin": z.string().nullable().optional(),
-  "content_key": z.string().nullable().optional(),
-  "trials": z.array(EvalTrialResponse).optional(),
-}).passthrough();
-export const EvalScheduleRunResponse = z.object({
-  "origin": z.string(),
-  "ran": z.number(),
-  "failed": z.number(),
-  "status": z.enum(["pass", "fail"]),
-  "reports": z.array(EvalSuiteRunResponse),
-}).passthrough();
-export const EvalTaskGraduateResponse = z.object({
-  "sourceTaskId": z.string(),
-  "regressionTaskId": z.string(),
-  "suiteId": z.string(),
-  "signedSkill": z.boolean(),
-}).passthrough();
-export const SkillCritiqueResponse = z.object({
-  "id": z.string(),
-  "skillSlug": z.string().nullable().optional(),
-  "reportId": z.string().nullable().optional(),
-  "suggestedDiff": z.record(z.string(), z.unknown()).optional(),
-  "status": z.string().optional(),
-  "writesProduction": z.boolean().optional(),
-  "createdAt": z.string().nullable().optional(),
 }).passthrough();
 export const QaDisagreementResponse = z.object({
   "interactionId": z.string().nullable().optional(),
@@ -1847,19 +1299,6 @@ export const QaDisagreementsResponse = z.object({
   "applied": z.boolean(),
   "count": z.number(),
   "items": z.array(QaDisagreementResponse),
-}).passthrough();
-export const TwinCorpusRowResponse = z.object({
-  "id": z.string(),
-  "source": z.string(),
-  "sourceRef": z.string(),
-  "outcome": z.record(z.string(), z.unknown()),
-  "taskId": z.string().nullable().optional(),
-  "createdAt": z.string().nullable().optional(),
-}).passthrough();
-export const TwinCorpusGrowResponse = z.object({
-  "created": z.number(),
-  "skipped": z.number(),
-  "source": z.string(),
 }).passthrough();
 export const WorkRuntimeJobResponse = z.object({
   "id": z.string(),
@@ -2496,174 +1935,6 @@ export const ProviderPoolStatus = z.object({
   "sessionsBound": z.number(),
   "keys": z.array(ProviderPoolKey).optional(),
 }).passthrough();
-export const KbRetrievalResultItem = z.object({
-  "chunkId": z.string(),
-  "docId": z.string(),
-  "docTitle": z.string(),
-  "docType": z.string().nullable().optional(),
-  "heading": z.string(),
-  "snippet": z.string(),
-  "score": z.number(),
-  "matchedTerms": z.array(z.string()),
-}).passthrough();
-export const KbRoutingScore = z.object({
-  "productKey": z.string(),
-  "score": z.number(),
-}).passthrough();
-export const KbRouting = z.object({
-  "tier": z.string(),
-  "keys": z.array(z.string()).optional(),
-  "score": z.number().nullable().optional(),
-  "margin": z.number().nullable().optional(),
-  "candidates": z.array(z.string()).optional(),
-  "scores": z.array(KbRoutingScore).optional(),
-  "widened": z.boolean().optional(),
-}).passthrough();
-export const KbRetrieveResponse = z.object({
-  "results": z.array(KbRetrievalResultItem),
-  "draftAnswer": z.string().nullable().optional(),
-  "latencyMs": z.number(),
-  "embeddingModel": z.string(),
-  "chatModel": z.string().nullable().optional(),
-  "logId": z.string(),
-  "margin": z.number().optional(),
-  "stageMs": z.record(z.string(), z.number()).optional(),
-  "reranked": z.boolean().optional(),
-  "cached": z.boolean().optional(),
-  "productScope": z.array(z.string()).nullable().optional(),
-  "routing": KbRouting.nullable().optional(),
-}).passthrough();
-export const KbStatsResponse = z.object({
-  "docs": z.number(),
-  "activeDocs": z.number(),
-  "faqs": z.number(),
-  "chunks": z.number(),
-  "gaps": z.number(),
-  "lastIndexed": z.string(),
-  "avgScore": z.number(),
-}).passthrough();
-export const KbDocumentResponse = z.object({
-  "id": z.string(),
-  "title": z.string(),
-  "filename": z.string(),
-  "type": z.enum(["policy", "sop", "product", "compliance", "faq", "benefits"]),
-  "version": z.string(),
-  "status": z.enum(["draft", "indexing", "indexed", "stale", "failed"]),
-  "enabled": z.boolean(),
-  "chunks": z.number(),
-  "chunkSize": z.number(),
-  "overlap": z.number(),
-  "embeddingModel": z.string(),
-  "updatedBy": z.string(),
-  "lastIndexed": z.string(),
-  "tags": z.array(z.string()),
-}).passthrough();
-export const KbUploadResponse = z.object({
-  "document": KbDocumentResponse,
-  "jobId": z.string().nullable().optional(),
-}).passthrough();
-export const KbDeleteDocumentResponse = z.object({
-  "deleted": z.boolean(),
-  "documentId": z.string(),
-  "faqsDeleted": z.number().optional(),
-  "minioObjectsRemoved": z.number().optional(),
-}).passthrough();
-export const KbChunkResponse = z.object({
-  "id": z.string(),
-  "docId": z.string(),
-  "index": z.number(),
-  "heading": z.string(),
-  "tokens": z.number(),
-  "text": z.string(),
-  "hits": z.number(),
-}).passthrough();
-export const KbReindexResponse = z.object({
-  "jobId": z.string(),
-  "documentId": z.string(),
-  "status": z.string().optional(),
-}).passthrough();
-export const KbPurgeResponse = z.object({
-  "scope": z.enum(["all", "uploads", "corpus"]),
-  "documentsDeleted": z.number(),
-  "faqsDeleted": z.number(),
-  "minioObjectsRemoved": z.number().optional(),
-  "documentIds": z.array(z.string()).optional(),
-}).passthrough();
-export const KbIngestSourceDbResponse = z.object({
-  "products": z.array(z.string()),
-  "jobsDrained": z.number(),
-  "faqsUpserted": z.number(),
-  "docs": z.number(),
-  "chunks": z.number(),
-  "faqs": z.number(),
-}).passthrough();
-export const KbSnapshotResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "documentIds": z.array(z.string()).optional(),
-  "faqIds": z.array(z.string()).optional(),
-  "documentCount": z.number().optional(),
-  "faqCount": z.number().optional(),
-  "createdAt": z.string().nullable().optional(),
-}).passthrough();
-export const KbReindexAllResponse = z.object({
-  "jobIds": z.array(z.string()),
-  "count": z.number(),
-  "snapshot": KbSnapshotResponse.nullable().optional(),
-}).passthrough();
-export const KbIndexJobResponse = z.object({
-  "id": z.string(),
-  "documentId": z.string(),
-  "status": z.string(),
-  "chunkSize": z.number().nullable().optional(),
-  "chunkOverlap": z.number().nullable().optional(),
-  "embeddingModel": z.string().nullable().optional(),
-  "startedAt": z.string().nullable().optional(),
-  "completedAt": z.string().nullable().optional(),
-  "error": z.string().nullable().optional(),
-  "createdAt": z.string(),
-  "updatedAt": z.string(),
-}).passthrough();
-export const KbFaqResponse = z.object({
-  "id": z.string(),
-  "question": z.string(),
-  "answer": z.string(),
-  "intent": z.string(),
-  "enabled": z.boolean(),
-  "updatedAt": z.string(),
-  "linkedDocId": z.string().nullable().optional(),
-}).passthrough();
-export const KbGapResponse = z.object({
-  "id": z.string(),
-  "text": z.string(),
-  "hits": z.number(),
-  "lastSeen": z.string(),
-  "topIntent": z.string(),
-  "hasKbDoc": z.boolean(),
-  "hasFaq": z.boolean(),
-  "resolved": z.boolean(),
-  "suggestedFix": z.enum(["kb", "prompt", "both"]),
-  "linkedDocumentId": z.string().nullable().optional(),
-  "linkedFaqId": z.string().nullable().optional(),
-  "linkedPromptVersionId": z.string().nullable().optional(),
-}).passthrough();
-export const KbProductPhrasing = z.object({
-  "id": z.string(),
-  "text": z.string(),
-  "origin": z.enum(["title", "document", "generated", "operator"]),
-  "createdAt": z.string().nullable().optional(),
-}).passthrough();
-export const KbProductResponse = z.object({
-  "productKey": z.string(),
-  "title": z.string(),
-  "docCount": z.number().optional(),
-  "summary": z.string().nullable().optional(),
-  "status": z.enum(["pending", "ready", "failed"]),
-  "error": z.string().nullable().optional(),
-  "generatedAt": z.string().nullable().optional(),
-  "model": z.string().nullable().optional(),
-  "phrasings": z.array(KbProductPhrasing).optional(),
-}).passthrough();
 export const OfferHealthResponse = z.object({
   "window": z.string(),
   "includesSimulated": z.boolean(),
@@ -2767,6 +2038,8 @@ export const TreatmentNextResponse = z.object({
   "latencyMs": z.number().nullable().optional(),
   "alternatives": z.array(TreatmentAlternativeResponse).optional(),
   "excluded": z.record(z.string(), z.string()).optional(),
+  "decidedAt": z.string().nullable().optional(),
+  "enacted": z.boolean().nullable().optional(),
   "contract": TreatmentActionContractResponse.nullable().optional(),
 }).passthrough();
 export const TreatmentReasonCountResponse = z.object({
@@ -3067,6 +2340,100 @@ export const TreatmentOpsRowResponse = z.object({
   "rationale": z.string().nullable().optional(),
   "presentationId": z.string().nullable().optional(),
   "presentationStatus": z.string().nullable().optional(),
+}).passthrough();
+export const DecisionLogRowResponse = z.object({
+  "id": z.string(),
+  "created_at": z.string(),
+  "customer_id": z.string(),
+  "customer_name": z.string().nullable().optional(),
+  "account_id": z.string().nullable().optional(),
+  "trigger_kind": z.string(),
+  "trigger_ref": z.string().nullable().optional(),
+  "mode": z.string(),
+  "variant": z.string().nullable().optional(),
+  "chosen_action": z.string().nullable().optional(),
+  "chosen_channel": z.string().nullable().optional(),
+  "scheduled_at": z.string().nullable().optional(),
+  "expected_value": z.number().nullable().optional(),
+  "suppression_reason": z.string().nullable().optional(),
+  "holdReasonText": z.string().nullable().optional(),
+  "explore_kind": z.string().nullable().optional(),
+  "enacted": z.boolean().optional(),
+  "enacted_at": z.string().nullable().optional(),
+  "outcome": z.string().nullable().optional(),
+  "rationale": z.string().nullable().optional(),
+}).passthrough();
+export const DecisionTraceResponse = z.object({
+  "id": z.string(),
+  "family": z.string(),
+  "customerId": z.string(),
+  "customerName": z.string().nullable().optional(),
+  "accountId": z.string().nullable().optional(),
+  "createdAt": z.string().nullable().optional(),
+  "mode": z.string().nullable().optional(),
+  "variant": z.string().nullable().optional(),
+  "whyNow": z.record(z.string(), z.unknown()),
+  "options": z.array(z.record(z.string(), z.unknown())),
+  "choice": z.record(z.string(), z.unknown()),
+  "versions": z.record(z.string(), z.unknown()),
+  "happened": z.record(z.string(), z.unknown()),
+  "feedback": z.array(z.record(z.string(), z.unknown())).optional(),
+}).passthrough();
+export const TreatmentStageResponse = z.object({
+  "key": z.string(),
+  "label": z.string(),
+  "does": z.string(),
+  "lastAt": z.string().nullable().optional(),
+  "status": z.enum(["ok", "late", "never"]),
+  "lastResult": z.record(z.string(), z.unknown()).nullable().optional(),
+}).passthrough();
+export const TreatmentHealthResponse = z.object({
+  "mode": z.string(),
+  "enactSwitchOn": z.boolean(),
+  "labelsOn": z.boolean(),
+  "stages": z.array(TreatmentStageResponse),
+  "feeds": z.array(z.record(z.string(), z.unknown())),
+  "blockers": z.array(z.record(z.string(), z.unknown())),
+}).passthrough();
+export const LearnedRateResponse = z.object({
+  "metric": z.string(),
+  "key": z.string(),
+  "label": z.string(),
+  "source": z.string(),
+  "value": z.number(),
+  "prior": z.number().nullable().optional(),
+  "successes": z.number().nullable().optional(),
+  "trials": z.number().nullable().optional(),
+  "windowDays": z.number().nullable().optional(),
+}).passthrough();
+export const TreatmentCurrentResponse = z.object({
+  "decision": DecisionTraceResponse.nullable().optional(),
+}).passthrough();
+export const StrategySettingResponse = z.object({
+  "key": z.string(),
+  "group": z.string(),
+  "label": z.string(),
+  "help": z.string(),
+  "value": z.unknown().optional(),
+  "source": z.enum(["configured", "environment", "default"]),
+  "type": z.string(),
+  "minimum": z.number().nullable().optional(),
+  "maximum": z.number().nullable().optional(),
+  "choices": z.array(z.string()).nullable().optional(),
+}).passthrough();
+export const StrategyProposalResponse = z.object({
+  "id": z.string(),
+  "changes": z.record(z.string(), z.unknown()),
+  "reason": z.string(),
+  "evidence": z.record(z.string(), z.unknown()).optional(),
+  "impact": z.record(z.string(), z.unknown()).optional(),
+  "proposed_by": z.string(),
+  "proposed_via": z.string(),
+  "status": z.string(),
+  "decided_by": z.string().nullable().optional(),
+  "decided_at": z.string().nullable().optional(),
+  "decision_note": z.string().nullable().optional(),
+  "created_at": z.string(),
 }).passthrough();
 export const ReachStatsResponse = z.object({
   "attempts": z.number(),
@@ -3452,6 +2819,8 @@ export const BotAnalyticsDailyPointResponse = z.object({
   "sentiment": z.number(),
   "upsellPresented": z.number().optional(),
   "ptpCaptured": z.number().optional(),
+  "botSessions": z.number().optional(),
+  "botContained": z.number().optional(),
 }).passthrough();
 export const BotAnalyticsIntentSentimentResponse = z.object({
   "positive": z.number(),
@@ -3509,6 +2878,22 @@ export const BotAnalyticsSkillBucketResponse = z.object({
   "skillId": z.string(),
   "activations": z.number(),
 }).passthrough();
+export const BotAnalyticsSummaryResponse = z.object({
+  "botSessions": z.number(),
+  "containment": z.number().nullable().optional(),
+  "deflection": z.number().nullable().optional(),
+  "deflectionEligible": z.number(),
+  "repeatContactDays": z.number(),
+  "latencyP50": z.number().nullable().optional(),
+  "latencyP90": z.number().nullable().optional(),
+  "sentimentLift": z.number().nullable().optional(),
+  "sentimentLiftCalls": z.number(),
+}).passthrough();
+export const BotAnalyticsAgentOptionResponse = z.object({
+  "botId": z.string(),
+  "name": z.string(),
+  "versions": z.array(z.string()).optional(),
+}).passthrough();
 export const BotAnalyticsResponse = z.object({
   "dailySeries": z.array(BotAnalyticsDailyPointResponse),
   "intentAggs": z.array(BotAnalyticsIntentAggResponse),
@@ -3518,6 +2903,8 @@ export const BotAnalyticsResponse = z.object({
   "funnelStages": z.array(BotAnalyticsFunnelStageResponse),
   "byCard": z.array(BotAnalyticsCardAggResponse).optional(),
   "skillHistogram": z.array(BotAnalyticsSkillBucketResponse).optional(),
+  "summary": BotAnalyticsSummaryResponse.nullable().optional(),
+  "agents": z.array(BotAnalyticsAgentOptionResponse).optional(),
 }).passthrough();
 export const MeResponse = z.object({
   "id": z.string(),
@@ -3603,6 +2990,28 @@ export const PlatformSwitchFlipResponse = z.object({
   "key": z.string(),
   "enabled": z.boolean(),
 }).passthrough();
+export const RolePermissionResponse = z.object({
+  "id": z.string(),
+  "module": z.string(),
+  "action": z.string(),
+  "description": z.string(),
+}).passthrough();
+export const RoleGrantResponse = z.object({
+  "role_id": z.string(),
+  "role": z.string(),
+  "permission_id": z.string(),
+}).passthrough();
+export const RoleResponse = z.object({
+  "id": z.string(),
+  "name": z.string(),
+  "permissionIds": z.array(z.string()),
+}).passthrough();
+export const RolesCatalogResponse = z.object({
+  "permissions": z.array(RolePermissionResponse),
+  "agentPublishRoles": z.array(z.string()),
+  "grants": z.array(RoleGrantResponse),
+  "roles": z.array(RoleResponse),
+}).passthrough();
 export const RoutingActionResponse = z.object({
   "key": z.enum(["route_tier2", "route_specialist", "handoff_human", "play_disclosure", "send_sms", "log_flag", "stop_upsell", "slow_tts", "escalate_supervisor"]),
   "params": z.record(z.string(), z.string()).nullable().optional(),
@@ -3657,205 +3066,6 @@ export const RoutingAuditEntryResponse = z.object({
   "action": z.enum(["created", "edited", "reordered", "toggled", "deleted", "duplicated"]),
   "summary": z.string(),
 }).passthrough();
-export const PaymentEventWebhookResponse = z.object({
-  "ok": z.boolean(),
-  "eventId": z.string().nullable().optional(),
-  "idempotent": z.boolean().nullable().optional(),
-  "status": z.string().nullable().optional(),
-  "firstTouch": z.string().nullable().optional(),
-  "intentId": z.string().nullable().optional(),
-  "suppressionReason": z.string().nullable().optional(),
-}).passthrough();
-export const SimulationTwinResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "state": z.record(z.string(), z.unknown()),
-  "createdAt": z.string().nullable().optional(),
-  "updatedAt": z.string().nullable().optional(),
-}).passthrough();
-export const TwinQueuesResponse = z.object({
-  "whatsapp": z.array(z.record(z.string(), z.unknown())),
-  "sms": z.array(z.record(z.string(), z.unknown())),
-  "voice": z.array(z.record(z.string(), z.unknown())),
-}).passthrough();
-export const TwinOutcomeResponse = z.object({
-  "queues": TwinQueuesResponse,
-  "ledger": z.record(z.string(), z.unknown()),
-  "dialled": z.boolean(),
-  "doubleSms": z.boolean(),
-}).passthrough();
-export const TwinGraderResponse = z.object({
-  "passed": z.boolean(),
-  "bounce_ladder": z.record(z.string(), z.unknown()),
-  "no_dial": z.record(z.string(), z.unknown()),
-}).passthrough();
-export const TwinRunResponse = z.object({
-  "id": z.string(),
-  "twinId": z.string(),
-  "scenario": z.string(),
-  "status": z.string(),
-  "outcome": TwinOutcomeResponse,
-  "grader": TwinGraderResponse,
-}).passthrough();
-export const SandboxRunResponse = z.object({
-  "id": z.string(),
-  "scenarioId": z.string().nullable().optional(),
-  "deploymentId": z.string().nullable().optional(),
-  "promptVersionId": z.string(),
-  "kbSnapshotId": z.string().nullable().optional(),
-  "status": z.enum(["running", "completed", "failed"]),
-  "openingMessage": z.string().nullable().optional(),
-  "promptVersion": PromptVersionResponse,
-  "context": z.record(z.string(), z.string()),
-  "turnBudget": z.number().nullable().optional(),
-}).passthrough();
-export const SandboxPersonaResponse = z.object({
-  "name": z.string(),
-  "phoneLast4": z.string(),
-  "product": z.string(),
-  "dpd": z.number(),
-  "overdue": z.number(),
-  "mood": z.string(),
-  "language": z.string(),
-}).passthrough();
-export const SandboxScenarioTurnResponse = z.object({
-  "customer": z.string(),
-  "expectedIntent": z.string().nullable().optional(),
-  "expectedSentiment": z.number().nullable().optional(),
-}).passthrough();
-export const SandboxScenarioResponse = z.object({
-  "id": z.string(),
-  "title": z.string(),
-  "summary": z.string(),
-  "difficulty": z.enum(["easy", "medium", "hard"]),
-  "intents": z.array(z.string()),
-  "persona": SandboxPersonaResponse,
-  "openingBot": z.string(),
-  "turns": z.array(SandboxScenarioTurnResponse),
-}).passthrough();
-export const SandboxGroundedChunkResponse = z.object({
-  "chunkId": z.string(),
-  "docTitle": z.string(),
-  "heading": z.string().optional(),
-  "snippet": z.string().optional(),
-}).passthrough();
-export const SandboxRunTurnResponse = z.object({
-  "id": z.string(),
-  "turnIndex": z.number(),
-  "role": z.enum(["bot", "customer", "system"]),
-  "text": z.string(),
-  "detectedIntent": z.string().nullable().optional(),
-  "intent": z.string().nullable().optional(),
-  "sentiment": z.number().nullable().optional(),
-  "sentimentLabel": z.string().nullable().optional(),
-  "chunkIds": z.array(z.string()).optional(),
-  "retrievedChunkIds": z.array(z.string()).optional(),
-  "groundedIn": z.array(SandboxGroundedChunkResponse).optional(),
-  "guardrailFlags": z.array(z.string()).optional(),
-  "latencyMs": z.number().nullable().optional(),
-  "tokens": z.number().nullable().optional(),
-  "tokenCount": z.number().nullable().optional(),
-  "ts": z.number().optional(),
-  "createdAt": z.string().nullable().optional(),
-  "systemKind": z.enum(["info", "warn", "success"]).nullable().optional(),
-}).passthrough();
-export const SandboxRunDetailResponse = z.object({
-  "id": z.string(),
-  "scenarioId": z.string().nullable().optional(),
-  "deploymentId": z.string().nullable().optional(),
-  "promptVersionId": z.string().nullable().optional(),
-  "kbSnapshotId": z.string().nullable().optional(),
-  "startedByUserId": z.string().nullable().optional(),
-  "status": z.enum(["running", "completed", "failed"]),
-  "aggregateLatencyMs": z.number().nullable().optional(),
-  "aggregateTokens": z.number().nullable().optional(),
-  "createdAt": z.string().nullable().optional(),
-  "updatedAt": z.string().nullable().optional(),
-  "turns": z.array(SandboxRunTurnResponse).optional(),
-}).passthrough();
-export const SandboxCustomerTurn = z.object({
-  "id": z.string(),
-  "role": z.literal("customer").optional(),
-  "text": z.string(),
-  "intent": z.string(),
-  "intentScores": z.record(z.string(), z.number()),
-  "sentiment": z.number(),
-  "sentimentLabel": z.enum(["positive", "neutral", "negative"]),
-}).passthrough();
-export const SandboxChunkHit = z.object({
-  "chunkId": z.string(),
-  "docId": z.string().nullable().optional(),
-  "docTitle": z.string().nullable().optional(),
-  "heading": z.string().nullable().optional(),
-  "snippet": z.string().nullable().optional(),
-  "score": z.number().nullable().optional(),
-}).passthrough();
-export const SandboxBotTurn = z.object({
-  "id": z.string(),
-  "role": z.literal("bot").optional(),
-  "text": z.string(),
-  "chunkIds": z.array(z.string()),
-  "chunks": z.array(SandboxChunkHit).optional(),
-  "latencyMs": z.number(),
-  "tokens": z.number(),
-  "guardrailFlags": z.array(z.string()),
-  "intent": z.string(),
-  "sentiment": z.number(),
-  "sentimentLabel": z.enum(["positive", "neutral", "negative"]),
-  "retrievalLogId": z.string().nullable().optional(),
-  "retrieveLatencyMs": z.number().nullable().optional(),
-  "chatLatencyMs": z.number().nullable().optional(),
-  "halted": z.boolean().optional(),
-  "toolCalls": z.array(z.record(z.string(), z.unknown())).optional(),
-}).passthrough();
-export const SandboxTurnResponse = z.object({
-  "runId": z.string(),
-  "promptVersionId": z.string(),
-  "compiledBundleHash": z.string().nullable().optional(),
-  "flowStatus": z.enum(["walked", "validated_not_executed_in_text_rehearsal", "not_authored"]).nullable().optional(),
-  "nodeKey": z.string().nullable().optional(),
-  "offeredTools": z.array(z.string()).nullable().optional(),
-  "customerTurn": SandboxCustomerTurn,
-  "botTurn": SandboxBotTurn,
-}).passthrough();
-export const TuningPresetResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "tuning": z.record(z.string(), z.unknown()),
-}).passthrough();
-export const VoiceCapacityResponse = z.object({
-  "enabled": z.boolean(),
-  "maxConcurrentCalls": z.number(),
-  "activeCalls": z.number(),
-  "availableSlots": z.number().nullable().optional(),
-  "highWaterMark": z.number(),
-  "admittedTotal": z.number(),
-  "rejectedTotal": z.number(),
-  "longestCallSeconds": z.number(),
-}).passthrough();
-export const VoiceStatusResponse = z.object({
-  "ok": z.boolean(),
-  "webrtcUrl": z.string().nullable().optional(),
-  "transport": z.enum(["websocket", "webrtc"]).optional(),
-  "detail": z.string(),
-  "capacity": VoiceCapacityResponse.nullable().optional(),
-}).passthrough();
-export const VoiceSandboxStartResponse = z.object({
-  "sessionId": z.string(),
-  "webrtcUrl": z.string(),
-  "sandboxRunId": z.string().nullable().optional(),
-  "transport": z.enum(["websocket", "webrtc"]).optional(),
-  "wsUrl": z.string().nullable().optional(),
-}).passthrough();
-export const VoiceSandboxStopResponse = z.object({
-  "ok": z.boolean(),
-  "sessionId": z.string(),
-}).passthrough();
-export const VoiceSandboxTuneResponse = z.object({
-  "ok": z.boolean(),
-  "tuning": z.record(z.string(), z.unknown()),
-  "apply": z.string(),
-}).passthrough();
 export const TwilioOutboundCallResponse = z.object({
   "placed": z.boolean().nullable().optional(),
   "attemptId": z.string().nullable().optional(),
@@ -3879,78 +3089,14 @@ export const TwilioVoiceStatusResponse = z.object({
   "supervisorPhone": z.string().nullable().optional(),
   "hint": z.string(),
 }).passthrough();
-export const TtsCatalogVoiceItem = z.object({
-  "shortName": z.string(),
-  "displayName": z.string(),
-  "localName": z.string().optional(),
-  "gender": z.string(),
-  "locale": z.string(),
-  "localeName": z.string().optional(),
-  "voiceType": z.string(),
-  "status": z.string(),
-  "priceTier": z.string(),
-  "isPremium": z.boolean().optional(),
-  "approxUsdPer1MChars": z.number().nullable().optional(),
-  "styles": z.array(z.string()).optional(),
-  "personalities": z.array(z.string()).optional(),
-  "scenarios": z.array(z.string()).optional(),
-  "wordsPerMinute": z.number().nullable().optional(),
-  "sampleRateHertz": z.number().nullable().optional(),
-  "modelSeries": z.array(z.string()).optional(),
-  "removedAt": z.string().nullable().optional(),
-  "enabledForPicker": z.boolean().optional(),
-  "providerId": z.string().optional(),
-  "raw": z.record(z.string(), z.unknown()).nullable().optional(),
-}).passthrough();
-export const TtsCatalogListResponse = z.object({
-  "items": z.array(TtsCatalogVoiceItem),
-  "total": z.number(),
-  "nextCursor": z.string().nullable().optional(),
-  "lastSyncedAt": z.string().nullable().optional(),
-  "defaultVoice": z.string(),
-  "premiumHiddenByDefault": z.boolean().optional(),
-}).passthrough();
-export const TtsSyncRunResponse = z.object({
-  "id": z.string(),
-  "source": z.string().nullable().optional(),
-  "fetchedCount": z.number().optional(),
-  "upserted": z.number().optional(),
-  "softRemoved": z.number().optional(),
-  "unchanged": z.number().optional(),
-  "error": z.string().nullable().optional(),
-  "region": z.string().optional(),
-  "defaultVoice": z.string().nullable().optional(),
-  "startedAt": z.string().nullable().optional(),
-  "finishedAt": z.string().nullable().optional(),
-  "providers": z.record(z.string(), z.number()).optional(),
-}).passthrough();
-export const TtsPriceTierResponse = z.object({
-  "tier": z.string(),
-  "label": z.string(),
-  "approxUsdPer1MChars": z.number().nullable().optional(),
-  "isPremium": z.boolean().optional(),
-  "notes": z.string().optional(),
-}).passthrough();
-export const TtsVoiceWarning = z.object({
-  "shortName": z.string(),
-  "code": z.string(),
-  "message": z.string(),
-  "fallbackVoice": z.string(),
-}).passthrough();
-export const SttTranscribeResponse = z.object({
-  "text": z.string(),
-  "latencyMs": z.number(),
-  "language": z.string(),
-  "recognitionStatus": z.string().nullable().optional(),
-}).passthrough();
-export const TtsProviderCountResponse = z.object({
-  "providerId": z.string(),
-  "count": z.number(),
-}).passthrough();
-export const TtsLocaleCountResponse = z.object({
-  "locale": z.string(),
-  "localeName": z.string(),
-  "count": z.number(),
+export const PaymentEventWebhookResponse = z.object({
+  "ok": z.boolean(),
+  "eventId": z.string().nullable().optional(),
+  "idempotent": z.boolean().nullable().optional(),
+  "status": z.string().nullable().optional(),
+  "firstTouch": z.string().nullable().optional(),
+  "intentId": z.string().nullable().optional(),
+  "suppressionReason": z.string().nullable().optional(),
 }).passthrough();
 export const EventTypeSampleResponse = z.object({
   "event": z.string(),
@@ -4024,64 +3170,16 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /a2a/partners", A2aPartnerResponse],
   ["GET /a2a/tasks", z.array(A2aTaskResponse)],
   ["POST /a2a/tasks/{task_id}/signal", A2aTaskResponse],
-  ["GET /prompt-versions", z.array(PromptVersionResponse)],
-  ["POST /prompt-versions", PromptVersionResponse],
-  ["GET /prompt-versions/published", PromptVersionResponse],
-  ["GET /prompt-versions/{version_id}", PromptVersionResponse],
-  ["PATCH /prompt-versions/{version_id}", PromptVersionResponse],
-  ["GET /flow/tools", z.array(FlowToolResponse)],
-  ["GET /flow/built-in", FlowGraph],
-  ["GET /flow/transitions", z.record(z.string(), z.array(z.string()))],
-  ["GET /flow/variables", z.array(z.string())],
-  ["GET /flow/reserved-keys", z.record(z.string(), z.string())],
-  ["GET /agent-studio/cards", z.array(AgentStudioCardResponse)],
-  ["GET /agent-studio/policy-engines", z.array(PolicyEngineResponse)],
-  ["GET /agent-studio/entry-bindings", z.array(EntryBindingResponse)],
-  ["PUT /agent-studio/entry-bindings", EntryBindingResponse],
-  ["DELETE /agent-studio/entry-bindings/{binding_id}", EntryBindingResponse],
-  ["GET /agent-studio/templates", z.array(AgentStudioTemplateResponse)],
-  ["POST /agent-studio/cards/clone", AgentStudioCardResponse],
-  ["GET /agent-studio/cards/{bot_id}", AgentStudioCardResponse],
-  ["PATCH /agent-studio/cards/{bot_id}", PromptVersionResponse],
-  ["POST /agent-studio/cards/{bot_id}/archive", AgentStudioArchiveResponse],
-  ["POST /agent-studio/cards/{bot_id}/restore", AgentStudioArchiveResponse],
-  ["GET /agent-studio/change-log", AgentStudioChangeLogResponse],
-  ["POST /agent-studio/cards/{bot_id}/compile", CompileReport],
-  ["GET /agent-studio/cards/{bot_id}/effective-contract", EffectiveContractResponse],
-  ["POST /agent-studio/cards/{bot_id}/publish", PromptVersionResponse],
-  ["GET /agent-studio/cards/{bot_id}/graph", AgentStudioGraphResponse],
-  ["GET /agent-studio/skills", z.array(AgentStudioSkillSummaryResponse)],
-  ["POST /agent-studio/skills", AgentStudioSkillResponse],
-  ["GET /agent-studio/skills/scripts", z.array(AgentStudioScriptNameResponse)],
-  ["GET /agent-studio/skills/{skill_id}", AgentStudioSkillResponse],
-  ["PATCH /agent-studio/skills/{skill_id}", AgentStudioSkillResponse],
-  ["DELETE /agent-studio/skills/{skill_id}", AgentStudioSkillDeleteResponse],
-  ["POST /agent-studio/skills/{skill_id}/sign", AgentStudioSkillResponse],
-  ["POST /agent-studio/skills/{skill_id}/revert", AgentStudioSkillResponse],
-  ["POST /agent-studio/skills/{skill_id}/clone", AgentStudioSkillResponse],
-  ["POST /agent-studio/skills/import", AgentStudioSkillResponse],
-  ["POST /agent-studio/skills/run-script", AgentStudioScriptRunResponse],
-  ["GET /roles", RolesCatalogResponse],
-  ["PATCH /roles/{role_id}/permissions", RoleResponse],
-  ["POST /flow/validate", FlowValidation],
-  ["GET /persona-presets", z.array(PersonaPresetResponse)],
-  ["GET /bot-deployments", z.array(BotDeploymentResponse)],
-  ["GET /bot-deployments/active", BotDeploymentResponse],
-  ["GET /bot-deployments/experiments", z.array(DeploymentExperimentResponse)],
-  ["POST /bot-deployments/experiments/{experiment_id}/rollback", DeploymentExperimentRollbackResponse],
-  ["POST /prompt-versions/{version_id}/publish", PromptVersionResponse],
-  ["POST /prompt-versions/lint", PromptLintResponse],
-  ["POST /prompt-versions/estimate-tokens", PromptTokenEstimateResponse],
-  ["POST /prompt-versions/{version_id}/restore-as-draft", PromptVersionResponse],
-  ["POST /prompt-versions/{version_id}/discard", PromptVersionResponse],
-  ["POST /bot-deployments/{deployment_id}/rollback", BotDeploymentResponse],
+  ["POST /studio-api/_ws-ticket", z.record(z.string(), z.unknown())],
   ["GET /billing", BillingOverviewResponse],
   ["POST /billing/budgets/{budget_id}/rules", BillingBudgetRuleResponse],
   ["PATCH /billing/budgets/{budget_id}/rules/{rule_id}", BillingBudgetRuleResponse],
   ["GET /export-jobs", z.array(ExportJobResponse)],
   ["POST /export-jobs", ExportJobResponse],
+  ["GET /export-jobs/access-roles", z.array(ExportAccessRoleResponse)],
   ["PATCH /export-jobs/{job_id}", ExportJobResponse],
   ["GET /consent", z.array(ConsentListResponse)],
+  ["POST /consent/import", ConsentImportResponse],
   ["PATCH /consent/{customer_id}", CustomerResponse],
   ["POST /consent/{customer_id}/opt-out", CustomerResponse],
   ["GET /compliance/rule-coverage", RuleCoverageResponse],
@@ -4113,6 +3211,8 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /customers/{customer_id}", CustomerResponse],
   ["GET /customers/{customer_id}/insights", CustomerInsightsResponse],
   ["GET /customers/{customer_id}/contact-policy", ContactPolicyResponse],
+  ["GET /interactions/{interaction_id}/recording/peaks", RecordingPeaksResponse],
+  ["GET /interactions/{interaction_id}/evidence", EvidenceVerificationResponse],
   ["GET /interactions/{interaction_id}/cost", InteractionCostResponse],
   ["GET /interactions/{interaction_id}/trace", z.array(TurnTraceResponse)],
   ["GET /products", z.array(ProductResponse)],
@@ -4143,6 +3243,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /customers/{customer_id}/outreach", CustomerOutreachResponse],
   ["GET /customers/{customer_id}/outbound/hours", z.array(OutboundHourResponse)],
   ["GET /rubric", RubricResponse],
+  ["POST /qa/rubrics/{rubric_id}/versions", RubricResponse],
   ["GET /scorecards", z.array(ScorecardListResponse)],
   ["POST /scorecards", ScorecardListResponse],
   ["GET /qa/coverage", QaCoverageResponse],
@@ -4152,19 +3253,10 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /coaching-actions", CoachingActionResponse],
   ["PATCH /coaching-actions/{action_id}", CoachingActionResponse],
   ["GET /calibration-sessions", z.array(CalibrationSessionResponse)],
+  ["POST /qa/calibration-sessions", CalibrationSessionResponse],
+  ["PUT /qa/calibration-sessions/{session_id}/scores", CalibrationSessionResponse],
   ["PATCH /calibration-sessions/{session_id}", CalibrationSessionResponse],
-  ["POST /eval/suites/{suite_id}/run", EvalSuiteRunResponse],
-  ["POST /eval/cards/{bot_id}/run-required", EvalRequiredRunResponse],
-  ["GET /eval/suites", z.array(EvalSuiteResponse)],
-  ["GET /eval/reports", z.array(EvalReportSummaryResponse)],
-  ["GET /eval/reports/{report_id}", EvalReportRowResponse],
-  ["POST /eval/schedule/run", EvalScheduleRunResponse],
-  ["POST /eval/tasks/{task_id}/graduate", EvalTaskGraduateResponse],
-  ["GET /eval/critiques", z.array(SkillCritiqueResponse)],
-  ["POST /eval/reports/{report_id}/critique", z.array(SkillCritiqueResponse)],
   ["GET /eval/disagreements", QaDisagreementsResponse],
-  ["GET /eval/twin-corpus", z.array(TwinCorpusRowResponse)],
-  ["POST /eval/twin-corpus/grow", TwinCorpusGrowResponse],
   ["GET /work-runtime/jobs/{job_id}", WorkRuntimeJobResponse],
   ["GET /work-items", z.array(WorkItemResponse)],
   ["GET /workspace/summary", WorkspaceSummaryResponse],
@@ -4228,30 +3320,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /providers/bindings", ProviderBindingItem],
   ["DELETE /providers/bindings/{binding_id}", OkResponse],
   ["GET /providers/pools", z.array(ProviderPoolStatus)],
-  ["POST /kb/gaps/{gap_id}/promote-skill", AgentStudioSkillResponse],
-  ["POST /kb/retrieve", KbRetrieveResponse],
-  ["GET /kb/stats", KbStatsResponse],
-  ["GET /kb/documents", z.array(KbDocumentResponse)],
-  ["POST /kb/documents", KbUploadResponse],
-  ["GET /kb/documents/{document_id}", KbDocumentResponse],
-  ["PATCH /kb/documents/{document_id}", KbUploadResponse],
-  ["DELETE /kb/documents/{document_id}", KbDeleteDocumentResponse],
-  ["GET /kb/documents/{document_id}/chunks", z.array(KbChunkResponse)],
-  ["POST /kb/documents/{document_id}/reindex", KbReindexResponse],
-  ["POST /kb/documents/purge", KbPurgeResponse],
-  ["POST /kb/ingest/source-db", KbIngestSourceDbResponse],
-  ["POST /kb/reindex-all", KbReindexAllResponse],
-  ["GET /kb/index-jobs/{job_id}", KbIndexJobResponse],
-  ["POST /kb/documents/{document_id}/versions", KbUploadResponse],
-  ["GET /kb/faqs", z.array(KbFaqResponse)],
-  ["POST /kb/faqs", KbFaqResponse],
-  ["PATCH /kb/faqs/{faq_id}", KbFaqResponse],
-  ["GET /kb/gaps", z.array(KbGapResponse)],
-  ["POST /kb/gaps/{gap_id}/link", KbGapResponse],
-  ["GET /kb/snapshots", z.array(KbSnapshotResponse)],
-  ["POST /kb/snapshots", KbSnapshotResponse],
-  ["GET /kb/products", z.array(KbProductResponse)],
-  ["POST /kb/products/{product_key}/phrasings", KbProductResponse],
   ["GET /offers/health", OfferHealthResponse],
   ["POST /offers/{decisionId}/response", OfferResponseResponse],
   ["GET /demo/outbound-call", DemoOutboundTargetResponse],
@@ -4268,6 +3336,17 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /treatment/decisions/{decision_id}/enact", TreatmentEnactResponse],
   ["GET /treatment/cases", z.array(TreatmentCaseResponse)],
   ["GET /treatment/ops/{kind}", z.array(TreatmentOpsRowResponse)],
+  ["GET /treatment/decisions", z.array(DecisionLogRowResponse)],
+  ["GET /treatment/decisions/{decision_id}", DecisionTraceResponse],
+  ["GET /treatment/health", TreatmentHealthResponse],
+  ["GET /treatment/learned", z.array(LearnedRateResponse)],
+  ["GET /treatment/current", TreatmentCurrentResponse],
+  ["POST /treatment/decide", DecisionTraceResponse],
+  ["GET /treatment/strategy", z.array(StrategySettingResponse)],
+  ["GET /treatment/strategy/proposals", z.array(StrategyProposalResponse)],
+  ["POST /treatment/strategy/proposals", StrategyProposalResponse],
+  ["POST /treatment/strategy/proposals/{proposal_id}/approve", StrategyProposalResponse],
+  ["POST /treatment/strategy/proposals/{proposal_id}/reject", StrategyProposalResponse],
   ["GET /outbound/stats", ReachStatsResponse],
   ["GET /outbound/attempts", z.array(CallAttemptResponse)],
   ["GET /outbound/reasons", z.array(NonpaymentReasonResponse)],
@@ -4313,6 +3392,8 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /access-requests/{request_id}/deny", AccessRequestWriteResponse],
   ["GET /platform/switches", PlatformSwitchesResponse],
   ["PATCH /platform/switches/{key}", PlatformSwitchFlipResponse],
+  ["GET /roles", RolesCatalogResponse],
+  ["PATCH /roles/{role_id}/permissions", RoleResponse],
   ["GET /routing-rules", z.array(RoutingRuleListResponse)],
   ["POST /routing-rules", RoutingRuleListResponse],
   ["GET /routing-rules/{rule_id}/executions", z.array(RoutingRuleExecutionResponse)],
@@ -4321,31 +3402,44 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /routing-rules/simulate", RoutingSimulateResponse],
   ["POST /routing-rules/reorder", z.array(RoutingRuleListResponse)],
   ["GET /routing-audit", z.array(RoutingAuditEntryResponse)],
-  ["POST /sandbox/payment-events", PaymentEventWebhookResponse],
-  ["GET /twins", z.array(SimulationTwinResponse)],
-  ["POST /twins/{twin_id}/run", TwinRunResponse],
-  ["POST /sandbox/runs", SandboxRunResponse],
-  ["GET /sandbox/scenarios", z.array(SandboxScenarioResponse)],
-  ["GET /sandbox/runs/{run_id}", SandboxRunDetailResponse],
-  ["POST /sandbox/runs/{run_id}/turns", SandboxTurnResponse],
-  ["POST /sandbox/runs/{run_id}/complete", IdStatusResponse],
-  ["GET /sandbox/tuning/presets", z.array(TuningPresetResponse)],
   ["GET /calls", z.array(CallResponse)],
-  ["GET /voice/status", VoiceStatusResponse],
-  ["POST /voice/sandbox/start", VoiceSandboxStartResponse],
-  ["POST /voice/sandbox/{session_id}/stop", VoiceSandboxStopResponse],
-  ["POST /voice/sandbox/{session_id}/tune", VoiceSandboxTuneResponse],
+  ["GET /calls/{interaction_id}", CallResponse],
   ["POST /twilio/voice/outbound", TwilioOutboundCallResponse],
   ["GET /twilio/voice/status", TwilioVoiceStatusResponse],
-  ["GET /tts-voices/catalog", TtsCatalogListResponse],
-  ["GET /tts-voices/catalog/sync-runs", z.array(TtsSyncRunResponse)],
-  ["GET /tts-voices/catalog/{short_name}", TtsCatalogVoiceItem],
-  ["GET /tts-voices/pricing", z.array(TtsPriceTierResponse)],
-  ["GET /tts-voices/catalog-warning", TtsVoiceWarning.nullable()],
-  ["POST /tts-voices/catalog/sync", TtsSyncRunResponse],
-  ["POST /stt/transcribe", SttTranscribeResponse],
-  ["GET /tts-voices/catalog-provider-counts", z.array(TtsProviderCountResponse)],
-  ["GET /tts-voices/catalog-locale-counts", z.array(TtsLocaleCountResponse)],
+  ["GET /voice-studio/routing", z.record(z.string(), z.unknown())],
+  ["PUT /voice-studio/routing", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/routing/check", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/guardrails/{workflow_id}", z.record(z.string(), z.unknown())],
+  ["PUT /voice-studio/guardrails/{workflow_id}", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/checks/scenarios", z.array(z.record(z.string(), z.unknown()))],
+  ["GET /voice-studio/checks", z.array(z.record(z.string(), z.unknown()))],
+  ["POST /voice-studio/checks", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/agents/{workflow_id}/preflight", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/agents/{workflow_id}/publish", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/agents/{workflow_id}/rollback", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/agents/{workflow_id}/quality", z.array(z.record(z.string(), z.unknown()))],
+  ["GET /voice-studio/runs/{run_id}/interaction", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/checks/scenarios/from-call", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/releases", z.array(z.record(z.string(), z.unknown()))],
+  ["POST /voice-studio/releases/reconcile", z.array(z.record(z.string(), z.unknown()))],
+  ["POST /voice-studio/tools/{tool_uuid}/revisions/{revision}/review", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/mcp-keys", z.array(z.record(z.string(), z.unknown()))],
+  ["POST /voice-studio/mcp-keys", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/mcp-keys/{key_id}/rotate", z.record(z.string(), z.unknown())],
+  ["DELETE /voice-studio/mcp-keys/{key_id}", z.record(z.string(), z.string())],
+  ["POST /voice-studio/prompt/lint", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/checks/simulate", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/tools/{name}", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/precall", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/transfer", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/admit", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/run-completed", z.record(z.string(), z.unknown())],
+  ["GET /studio-mcp", z.unknown()],
+  ["POST /studio-mcp", z.unknown()],
+  ["DELETE /studio-mcp", z.unknown()],
+  ["GET /studio-mcp/", z.unknown()],
+  ["POST /studio-mcp/", z.unknown()],
+  ["DELETE /studio-mcp/", z.unknown()],
   ["POST /webhooks/payments/{provider}", PaymentWebhookResponse],
   ["POST /webhooks/collections/payment-events", PaymentEventWebhookResponse],
   ["GET /event-types", z.array(EventTypeResponse)],

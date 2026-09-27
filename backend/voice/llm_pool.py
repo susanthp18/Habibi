@@ -149,7 +149,7 @@ def build_completion_kwargs(
 ) -> tuple[dict, str, str]:
     """Deployment-appropriate request kwargs plus the token-param fallback name.
 
-    Reasoning deployments (o1/o3/o4/gpt-5) reject a custom ``temperature`` and
+    Reasoning deployments (o1/o3/o4/gpt-5/gpt-6) reject a custom ``temperature`` and
     require ``max_completion_tokens``. Every completion this module and
     voice.spike issue goes through here — the diagnostics used to hardcode
     ``temperature=0.2`` and 400 on exactly the deployments they exist to probe.
@@ -161,6 +161,8 @@ def build_completion_kwargs(
         else ("max_tokens", "max_completion_tokens")
     )
     kwargs: dict = {"model": deployment}
+    if deployment.lower() == "gpt-6-luna":
+        kwargs["reasoning_effort"] = "none"
     if temperature is not None and not reasoning:
         kwargs["temperature"] = temperature
     kwargs[primary] = max_output_tokens

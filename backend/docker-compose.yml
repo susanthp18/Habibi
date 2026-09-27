@@ -1,7 +1,7 @@
 # Collections Agent — data plane + app processes.
 #
-# Connection budget (defaults below, sum ≈ 25):
-#   api 5+5=10  +  worker 3+2=5  +  bot_worker 3+2=5  +  voice 3+2=5
+# Connection budget (defaults below, sum ≈ 28):
+#   api 5+5=10  +  worker 3+2=5  +  bot_worker 3+2=5  +  voice 3+2=5  +  ml_worker 2+1=3
 # Stay under Postgres max_connections (100) − reserved (~10).
 # Do NOT raise uvicorn --workers without re-budgeting.
 #
@@ -183,6 +183,46 @@ services:
       timeout: 3s
       retries: 3
       start_period: 20s
+
+  # Call intelligence: PII masking, the redacted recording, conversation
+  # signals and QA for every finished call, on small CPU models baked into the
+  # image (Dockerfile `ml`, call_intel/). Bounded to 2 GB / 2 CPUs: the pass is
+  # batch, so a backlog waits rather than taking memory from the call path.
+  # Scale with more replicas; jobs are claimed SKIP LOCKED.
+  ml_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ml
+    image: "${IMAGE_PREFIX:-}collections-ml:${IMAGE_TAG:-local}"
+    container_name: collections_ml_worker
+    restart: unless-stopped
+    cap_drop: [ALL]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
+      DB_PROCESS_ROLE: ml_worker
+      DB_POOL_SIZE: ${ML_WORKER_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${ML_WORKER_DB_MAX_OVERFLOW:-1}
+      ML_THREADS: "2"
+      APP_RELEASE: ${IMAGE_TAG:-local}
+    mem_limit: ${ML_WORKER_MEM_LIMIT:-2g}
+    cpus: ${ML_WORKER_CPUS:-2}
+    command: ["python", "-m", "call_intel.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
 
   # W6's batch plane: the daily feature snapshot, the PIT-skew audit and the
   # decision cost rollup. Separate from `worker` because it is role-scoped --

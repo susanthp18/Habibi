@@ -246,9 +246,11 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
     if hours_fail and "hours-breach" not in flags:
         flags.append("hours-breach")
 
+    # Rules are keyed on the seeded ids; a later rubric version's criterion
+    # carries that id as its lineage (db_qa.create_rubric_version).
     entries = [
-        _entry_for(
-            cid=c["id"],
+        {**_entry_for(
+            cid=c.get("lineageId") or c["id"],
             flags=flags,
             disclosures=disclosures,
             verified=verified,
@@ -257,7 +259,7 @@ def _score(interaction_id: str) -> dict[str, Any] | None:
             ptp_written=ptp_written,
             upsell_presented=bool(row["upsell_presented"]),
             offer_suppressed=offer_suppressed,
-        )
+        ), "criterionId": c["id"]}
         for c in criteria
     ]
 

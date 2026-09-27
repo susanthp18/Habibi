@@ -15,7 +15,7 @@ import storage
 from fastapi import APIRouter
 
 from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
-from fastapi import HTTPException, Response
+from fastapi import HTTPException, Query, Response
 from schemas import (
     AccessRequestApproveRequest,
     AccessRequestCreateRequest,
@@ -104,10 +104,18 @@ def export_dashboard_csv(range: str = "30d", segment: str = "all", team: str = "
     )
 
 @router.get("/bot-analytics", response_model=BotAnalyticsResponse)
-def get_bot_analytics(range: str = "30d", channel: str = "all"):
-    """Live aggregates from interactions — not the stub analytics_* tables."""
+def get_bot_analytics(
+    range: str = "30d",
+    channel: str = "all",
+    bot_id: str | None = Query(default=None, alias="botId"),
+    version: str | None = None,
+):
+    """Live aggregates from interactions — not the stub analytics_* tables.
+
+    ``botId`` narrows to one agent, ``version`` to one Voice Studio published version.
+    """
     try:
-        return db.bot_analytics(range, channel)
+        return db.bot_analytics(range, channel, bot_id, version)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

@@ -215,8 +215,13 @@ def rollup_interaction(
     # stored channel, so every WhatsApp rollup was summarised as a voice call.
     channel_hint: str | None = None,
     force_summary: bool = False,
+    keep_disposition: bool = False,
 ) -> dict[str, Any]:
-    """Compute and persist session-level capture fields from transcript + promises."""
+    """Compute and persist session-level capture fields from transcript + promises.
+
+    ``keep_disposition``: the channel reported the outcome itself (the Voice
+    Studio engine's mapped disposition), so the heuristic must not replace it.
+    """
     primary = dominant_transcript_intent(conn, interaction_id)
     cust_n, bot_n = _turn_counts(conn, interaction_id)
     ptp = _promise_on_interaction(conn, interaction_id)
@@ -277,7 +282,7 @@ def rollup_interaction(
     existing_disp = (existing.get("disposition") or "").strip()
     # A handoff already filed `escalated`. force_summary must not replace it
     # with disposition_from_flags (completed / query_handled / …).
-    if existing_disp.lower() != "escalated" and (
+    if existing_disp.lower() != "escalated" and not (keep_disposition and existing_disp) and (
         force_summary or not existing_disp
     ):
         sets.append("disposition = :disposition")

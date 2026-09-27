@@ -1,42 +1,28 @@
 import { useMemo } from "react";
-import { ClipboardCheck, Clock, TrendingUp, Users, Scale } from "lucide-react";
+import { ClipboardCheck, Clock, TrendingUp, Users, Scale, ShieldAlert } from "lucide-react";
 import type { Rubric, Scorecard, CoachingAction, CalibrationSession } from "@/api/types/qa";
+import type { QaCoverage } from "@/api/qa";
 import { computeTotal } from "@/lib/qa";
-import { Lozenge } from "@/components/ui/lozenge";
 import { MetricsStrip } from "@/components/records/MetricsStrip";
-
-const SEED = (
-  <Lozenge
-    title="Seed data — coaching/calibration not yet wired to the live backend"
-    tone="neutral"
-    className="ml-auto tracking-normal"
-  >
-    seed
-  </Lozenge>
-);
 
 export function QaStatsStrip({
   scorecards,
   coaching,
   calibrations,
-  rubric,
+  rubricFor,
   coverage,
 }: {
   scorecards: Scorecard[];
   coaching: CoachingAction[];
   calibrations: CalibrationSession[];
-  rubric: Rubric;
-  coverage?: {
-    coverage: number | null;
-    scored: number;
-    completed: number;
-    pendingReview: number;
-  } | null;
+  /** The rubric version a card or session was scored on. */
+  rubricFor: (rubricId?: string | null) => Rubric;
+  coverage?: QaCoverage | null;
 }) {
   const stats = useMemo(() => {
     const finals = scorecards.filter((s) => s.status === "final");
     const avg = finals.length
-      ? finals.reduce((a, s) => a + computeTotal(s, rubric), 0) / finals.length
+      ? finals.reduce((a, s) => a + computeTotal(s, rubricFor(s.rubricId)), 0) / finals.length
       : 0;
     const pending =
       coverage?.pendingReview ?? scorecards.filter((s) => s.status !== "final").length;
@@ -45,10 +31,12 @@ export function QaStatsStrip({
     const variances = calibrations
       .filter((c) => c.status === "active")
       .map((s) => {
+        const rubric = rubricFor(s.rubricId);
         const targetTotal = computeTotal({ entries: s.target }, rubric);
-        const devs = s.reviewers.map((r) =>
-          Math.abs(computeTotal({ entries: r.entries }, rubric) - targetTotal),
-        );
+        // A reviewer who has not scored yet has no variance to measure.
+        const devs = s.reviewers
+          .filter((r) => r.submitted !== false)
+          .map((r) => Math.abs(computeTotal({ entries: r.entries }, rubric) - targetTotal));
         return Math.max(0, ...devs);
       });
     const variance = variances.length ? variances.reduce((a, b) => a + b, 0) / variances.length : 0;
@@ -61,8 +49,10 @@ export function QaStatsStrip({
       variance,
       covPct,
       completed: coverage?.completed,
+      criticalFails: coverage?.criticalFails,
+      windowDays: coverage?.windowDays ?? 7,
     };
-  }, [scorecards, coaching, calibrations, rubric, coverage]);
+  }, [scorecards, coaching, calibrations, rubricFor, coverage]);
 
   return (
     <MetricsStrip
@@ -84,7 +74,7 @@ export function QaStatsStrip({
           icon: TrendingUp,
           label: "Avg score",
           value: stats.avg.toFixed(1),
-          sub: "Weighted, last 30 days",
+          sub: "Published scorecards in the queue",
         },
         {
           variant: "card",
@@ -96,11 +86,18 @@ export function QaStatsStrip({
         },
         {
           variant: "card",
+          icon: ShieldAlert,
+          label: `Critical fails (${stats.windowDays}d)`,
+          value: stats.criticalFails ?? "—",
+          sub: "Critical criteria scored 0",
+          tone: stats.criticalFails ? "danger" : "neutral",
+        },
+        {
+          variant: "card",
           icon: Users,
           label: "Coaching open",
           value: stats.open,
           sub: "Assigned + in progress",
-          badge: SEED,
         },
         {
           variant: "card",
@@ -109,7 +106,6 @@ export function QaStatsStrip({
           value: `±${stats.variance.toFixed(1)}`,
           sub: "Reviewer vs target",
           tone: stats.variance > 8 ? "danger" : "success",
-          badge: SEED,
         },
       ]}
     />

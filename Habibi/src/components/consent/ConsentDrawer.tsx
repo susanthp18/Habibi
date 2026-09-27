@@ -66,6 +66,13 @@ export function ConsentDrawer({
   const [optSource, setOptSource] = useState<OptOutSource>("Agent");
   const [optNote, setOptNote] = useState("");
 
+  // Re-seed when the stored consent changes, not only when another record
+  // opens: after "Log opt-out" or the DND toggle the local matrix still held
+  // the old statuses, and the next "Save changes" wrote them back — silently
+  // undoing the opt-out. A refetch that changes nothing keeps unsaved edits.
+  const storedKey = record
+    ? JSON.stringify([record.id, record.channels, record.allowedWindow])
+    : "";
   useEffect(() => {
     if (record) {
       setChannels(record.channels);
@@ -73,7 +80,8 @@ export function ConsentDrawer({
       setNote("");
       setOptNote("");
     }
-  }, [record?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- storedKey is the record's content
+  }, [storedKey]);
 
   if (!record) return null;
 

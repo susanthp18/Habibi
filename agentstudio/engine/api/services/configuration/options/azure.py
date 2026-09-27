@@ -1,4 +1,4 @@
-AZURE_MODELS = ["gpt-4.1-mini"]
+AZURE_MODELS = ["gpt-4.1-mini", "gpt-6-luna"]
 
 AZURE_REALTIME_MODELS = [
     "gpt-realtime",

@@ -47,6 +47,13 @@ _PII_LABELS: dict[str, str] = {
     "account": "Account #",
     "ifsc": "IFSC",
     "aadhaar": "Aadhaar",
+    "pincode": "PIN code",
+    "name": "Person name",
+    "upi": "UPI id",
+    "passport": "Passport",
+    "voter_id": "Voter id",
+    "driving_licence": "Driving licence",
+    "secret": "OTP / PIN / verification",
     "custom": "Custom pattern",
 }
 
@@ -102,7 +109,8 @@ def _pii_findings_grouped(
             text(
                 """
                 SELECT id, redaction_id, type, masked, confidence, accepted,
-                       transcript_turn_id, start_offset, end_offset
+                       transcript_turn_id, start_offset, end_offset,
+                       detector, model_version, needs_review
                 FROM pii_findings
                 WHERE redaction_id = ANY(:ids)
                 ORDER BY redaction_id, created_at, id
@@ -133,8 +141,11 @@ def _pii_findings_grouped(
                 "text": raw,
                 "masked": masked,
                 "confidence": float(r["confidence"] or 0),
-                "source": "auto",
+                "source": "manual" if (r["detector"] or "") == "manual" else "auto",
                 "accepted": bool(r["accepted"]),
+                "needsReview": bool(r["needs_review"]),
+                "detector": r["detector"] or "pattern",
+                "modelVersion": r["model_version"],
             }
         )
     return grouped
@@ -148,11 +159,12 @@ def _redaction_audio_grouped(conn: Any, redaction_ids: list[str]) -> dict[str, l
             text(
                 """
                 SELECT s.redaction_id, s.at_sec, s.duration_sec, s.muted, s.finding_id,
+                       s.start_ms, s.end_ms, s.channel, s.source,
                        COALESCE(f.type, 'custom') AS type
                 FROM redaction_audio_segments s
                 LEFT JOIN pii_findings f ON f.id = s.finding_id
                 WHERE s.redaction_id = ANY(:ids)
-                ORDER BY s.redaction_id, s.at_sec, s.id
+                ORDER BY s.redaction_id, COALESCE(s.start_ms, s.at_sec * 1000), s.id
                 """
             ),
             {"ids": redaction_ids},
@@ -164,13 +176,17 @@ def _redaction_audio_grouped(conn: Any, redaction_ids: list[str]) -> dict[str, l
         finding_id = r["finding_id"] or ""
         if not finding_id:
             continue
+        start_ms = r["start_ms"] if r["start_ms"] is not None else int(r["at_sec"] or 0) * 1000
+        end_ms = r["end_ms"] if r["end_ms"] is not None else start_ms + int(r["duration_sec"] or 0) * 1000
         grouped.setdefault(r["redaction_id"], []).append(
             {
-                "atSec": int(r["at_sec"] or 0),
-                "durSec": float(r["duration_sec"] or 0),
+                "atSec": start_ms / 1000,
+                "durSec": (end_ms - start_ms) / 1000,
                 "type": pii_type,
                 "findingId": finding_id,
                 "muted": bool(r["muted"]),
+                "channel": r["channel"],
+                "aligned": (r["source"] or "aligned") == "aligned",
             }
         )
     return grouped
@@ -208,40 +224,6 @@ def _redaction_transcripts_grouped(
     return grouped
 
 
-def _apply_masks_to_transcript(
-    turns: list[dict[str, Any]],
-    findings: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Replace finding spans with masked values so the payload never leaks raw PII
-    for viewers who are not allowed to see it."""
-    by_turn: dict[str, list[dict[str, Any]]] = {}
-    for f in findings:
-        if f.get("turnId") and f.get("end", 0) > f.get("start", 0):
-            by_turn.setdefault(f["turnId"], []).append(f)
-    if not by_turn:
-        return turns
-    out: list[dict[str, Any]] = []
-    for turn in turns:
-        spans = sorted(by_turn.get(turn["id"], []), key=lambda x: x["start"], reverse=True)
-        # `turn_text`, not `text` — the module-level sqlalchemy `text` import is
-        # shadowed for the rest of the function otherwise, and any SQL added
-        # here later would fail with a confusing TypeError.
-        turn_text = turn["text"]
-        invalid = False
-        for f in spans:
-            start, end = int(f["start"]), int(f["end"])
-            if not (0 <= start < end <= len(turn_text)):
-                invalid = True
-                break
-            turn_text = turn_text[:start] + (f.get("masked") or "") + turn_text[end:]
-        if invalid:
-            # Fail closed: do not leave raw PII when offsets are corrupt.
-            masked_bits = [str(f.get("masked") or "[redacted]") for f in spans]
-            turn_text = " ".join(masked_bits) if masked_bits else "[redacted]"
-        out.append({**turn, "text": turn_text})
-    return out
-
-
 _REDACTION_LIST_SQL = """
     SELECT
       rr.id,
@@ -252,7 +234,8 @@ _REDACTION_LIST_SQL = """
       i.channel,
       i.started_at,
       i.duration_sec,
-      COALESCE(u.name, b.name, 'Unassigned') AS handler
+      COALESCE(u.name, b.name, 'Unassigned') AS handler,
+      (SELECT j.status FROM call_intelligence_jobs j WHERE j.interaction_id = rr.interaction_id) AS intel_status
     FROM redaction_records rr
     JOIN customers c ON c.id = rr.customer_id
     JOIN interactions i ON i.id = rr.interaction_id
@@ -263,17 +246,64 @@ _REDACTION_LIST_SQL = """
 """
 
 
-def _redaction_rows_to_screen(conn: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _raw_turns(conn: Any, interaction_id: str, stored: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """The call's turns as spoken, for a viewer allowed raw PII.
+
+    Findings on a Voice Studio call are offsets into the words as the engine
+    heard them (the stored transcript is masked at rest). None when those
+    words are not available: the caller then shows the masked text.
+    """
+    payload = conn.execute(
+        text("SELECT source_payload FROM interactions WHERE id = :id"), {"id": interaction_id}
+    ).scalar() or {}
+    studio = (payload or {}).get("voiceStudio") or {}
+    if not studio.get("engineRunId"):
+        return stored  # other channels: findings index the stored text
+    from call_intel.inputs import _engine_turns
+
+    spoken = _engine_turns(studio)
+    if spoken is None or len(spoken) != len(stored):
+        return None
+    return [{**turn, "text": said.text} for turn, said in zip(stored, spoken)]
+
+
+def _segments(turn_text: str, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The turn as a run of plain text and finding spans, ready to render."""
+    out: list[dict[str, Any]] = []
+    pos = 0
+    for f in sorted(findings, key=lambda f: f["start"]):
+        start, end = int(f["start"]), int(f["end"])
+        if not (pos <= start < end <= len(turn_text)):
+            continue
+        if start > pos:
+            out.append({"text": turn_text[pos:start]})
+        out.append({"text": turn_text[start:end], "findingId": f["id"]})
+        pos = end
+    if pos < len(turn_text):
+        out.append({"text": turn_text[pos:]})
+    return out
+
+
+def _redaction_rows_to_screen(
+    conn: Any, rows: list[dict[str, Any]], *, detail: bool = False
+) -> list[dict[str, Any]]:
+    """Records for the hub. The queue carries no transcript and no raw PII;
+    ``detail`` (one record, opened by a reviewer) renders every turn: as the
+    words were spoken with each finding marked, for a viewer allowed raw PII,
+    or the stored (masked) text for everyone else."""
     if not rows:
         return []
-    allow_raw = _actor_can_view_raw_pii(conn)
+    allow_raw = _actor_can_view_raw_pii(conn) if detail else False
     redaction_ids = [r["id"] for r in rows]
     interaction_ids = [r["call_id"] for r in rows]
-    transcripts = _redaction_transcripts_grouped(conn, interaction_ids)
+    transcripts = _redaction_transcripts_grouped(conn, interaction_ids) if detail else {}
+    raw_by_call: dict[str, list[dict[str, Any]] | None] = {}
     turn_text_by_id: dict[str, str] = {}
-    for turns in transcripts.values():
-        for t in turns:
-            turn_text_by_id[t["id"]] = t["text"]
+    if allow_raw:
+        for call_id, turns in transcripts.items():
+            raw_by_call[call_id] = _raw_turns(conn, call_id, turns)
+            for t in raw_by_call[call_id] or []:
+                turn_text_by_id[t["id"]] = t["text"]
     findings_by = _pii_findings_grouped(
         conn, redaction_ids, allow_raw=allow_raw, turn_text_by_id=turn_text_by_id
     )
@@ -282,9 +312,17 @@ def _redaction_rows_to_screen(conn: Any, rows: list[dict[str, Any]]) -> list[dic
     out: list[dict[str, Any]] = []
     for r in rows:
         findings = findings_by.get(r["id"], [])
-        turns = transcripts.get(r["call_id"], [])
-        if not allow_raw:
-            turns = _apply_masks_to_transcript(turns, findings)
+        turns: list[dict[str, Any]] = []
+        raw = raw_by_call.get(r["call_id"])
+        if detail:
+            by_turn: dict[str, list[dict[str, Any]]] = {}
+            for f in findings:
+                by_turn.setdefault(f["turnId"], []).append(f)
+            if raw is not None:
+                turns = [{**t, "segments": _segments(t["text"], by_turn.get(t["id"], []))} for t in raw]
+            else:
+                # The stored text is already masked; the findings list carries the decisions.
+                turns = [{**t, "segments": [{"text": t["text"]}]} for t in transcripts.get(r["call_id"], [])]
         occurred = r["started_at"]
         out.append(
             {
@@ -300,6 +338,8 @@ def _redaction_rows_to_screen(conn: Any, rows: list[dict[str, Any]]) -> list[dic
                 "findings": findings,
                 "audioSegments": audio_by.get(r["id"], []),
                 "reviewed": bool(r["reviewed"]),
+                "rawVisible": raw is not None,
+                "processing": r.get("intel_status"),
             }
         )
     return out
@@ -362,7 +402,7 @@ def get_redaction_record(redaction_id: str) -> dict[str, Any]:
         )
         if row is None:
             raise KeyError("redaction_record_not_found")
-        return _redaction_rows_to_screen(conn, [row])[0]
+        return _redaction_rows_to_screen(conn, [row], detail=True)[0]
 
 
 def list_redaction_rules() -> list[dict[str, Any]]:
@@ -393,7 +433,8 @@ def list_redaction_rules() -> list[dict[str, Any]]:
 def _map_redaction_rule(pii_type: str, row: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "piiType": pii_type,
-        "enabled": bool(row["enabled"]) if row else False,
+        # No row = the tenant never turned it off: detection is on by default.
+        "enabled": bool(row["enabled"]) if row else True,
         "replacement": (row["replacement"] if row else f"[REDACTED-{pii_type.upper()}]"),
         "label": _PII_LABELS[pii_type],
     }
@@ -426,7 +467,7 @@ def get_redaction_rule(pii_type: str) -> dict[str, Any] | None:
 
 _EXPORT_FORMATS = frozenset({"pdf", "csv", "audio-zip"})
 _EXPORT_SCOPES = frozenset({"transcript", "audio", "metadata"})
-_EXPORT_STATUSES = frozenset({"queued", "ready", "failed"})
+_EXPORT_STATUSES = frozenset({"queued", "running", "ready", "failed"})
 
 
 def patch_pii_finding(finding_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -463,7 +504,41 @@ def patch_pii_finding(finding_id: str, payload: dict[str, Any]) -> dict[str, Any
             "PII finding updated",
             note=f"{finding_id}:accepted={accepted}",
         )
-        return {"id": finding_id, "accepted": accepted, "redactionId": row["redaction_id"]}
+    _apply_decision(row["redaction_id"], masks_more=accepted)
+    return {"id": finding_id, "accepted": accepted, "redactionId": row["redaction_id"]}
+
+
+def _apply_decision(redaction_id: str, *, masks_more: bool) -> None:
+    """Make a reviewer's mask decision real in the evidence itself.
+
+    The stored transcript is re-masked at once (no model needed). The beeps
+    are re-timed by the ml_worker (word alignment needs the speech model);
+    until it has, a redacted recording that would now mask *less* than
+    decided is withdrawn -- playback and exports wait rather than leak.
+    """
+    from call_intel import inputs, jobs, stages
+
+    d = _db()
+    with d.engine.connect() as conn:
+        interaction_id = conn.execute(
+            text("SELECT interaction_id FROM redaction_records WHERE id = :id"), {"id": redaction_id}
+        ).scalar()
+    if interaction_id is None:
+        return
+    try:
+        call = inputs.load(interaction_id)
+        if call is not None:
+            stages.remask_transcript(call)
+        if masks_more:
+            with d.engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM interaction_media WHERE interaction_id = :ix AND kind = 'redacted_audio'"),
+                    {"ix": interaction_id},
+                )
+        jobs.enqueue(interaction_id)
+        jobs.rerun_from(interaction_id, "audio")
+    except Exception:
+        logger.exception("redaction decision on %s not applied to the evidence", redaction_id)
 
 
 def patch_audio_segment_mute(
@@ -503,11 +578,19 @@ def patch_audio_segment_mute(
             "Audio segment muted" if muted else "Audio segment unmuted",
             note=f"{finding_id}:muted={bool(muted)}",
         )
-        return {
-            "redactionId": redaction_id,
-            "findingId": finding_id,
-            "muted": bool(muted),
-        }
+    # A mute toggle needs no re-timing: re-render the redacted copy now.
+    from voice.redaction_export import write_redacted_wav
+
+    with d.engine.connect() as conn:
+        interaction_id = conn.execute(
+            text("SELECT interaction_id FROM redaction_records WHERE id = :id"), {"id": redaction_id}
+        ).scalar()
+    write_redacted_wav(interaction_id, redaction_id)
+    return {
+        "redactionId": redaction_id,
+        "findingId": finding_id,
+        "muted": bool(muted),
+    }
 
 
 def patch_redaction_record(
@@ -587,7 +670,16 @@ def patch_redaction_rule(pii_type: str, payload: dict[str, Any]) -> dict[str, An
             )
         )
         if row is None:
-            raise KeyError("redaction_rule_not_found")
+            if pii_type not in _PII_LABELS:
+                raise KeyError("redaction_rule_not_found")
+            # A type the tenant never configured is on by default; the first
+            # change to it creates the row.
+            row = {"id": d._id("RRC")}
+            conn.execute(
+                text("INSERT INTO redaction_rule_configs (id, tenant_id, pii_type, replacement, enabled) "
+                     "VALUES (:id, :t, :p, :r, true)"),
+                {"id": row["id"], "t": d.current_tenant(), "p": pii_type, "r": f"[REDACTED-{pii_type.upper()}]"},
+            )
         sets: list[str] = []
         params: dict[str, Any] = {"id": row["id"]}
         if "enabled" in payload and payload["enabled"] is not None:
@@ -638,6 +730,9 @@ def _parse_scope_blob(raw: Any) -> dict[str, Any]:
         "team": str(raw.get("team") or "all"),
         "emailTo": str(raw.get("emailTo") or ""),
         "mailStatus": raw.get("mailStatus"),
+        "accessRoleId": raw.get("accessRoleId"),
+        "sha256": raw.get("sha256"),
+        "sizeBytes": raw.get("sizeBytes"),
     }
 
 
@@ -666,6 +761,7 @@ def _map_export_job(row: dict[str, Any], record_ids: list[str]) -> dict[str, Any
         "entitiesRedacted": meta["entitiesRedacted"],
         "kind": kind,
         "mailStatus": str(mail) if mail else None,
+        "error": row.get("error"),
     }
 
 
@@ -682,71 +778,6 @@ def _export_jobs_has_kind_column(conn: Any) -> bool:
             )
         ).scalar()
     )
-
-
-def _materialize_export_zip(
-    job_id: str, record_ids: list[str], scope_parts: list[str], fmt: str
-) -> tuple[str | None, str]:
-    """Write the zip to MinIO (or local fallback). Returns (storage_ref, status)."""
-    from pathlib import Path
-
-    from voice.redaction_export import build_export_zip, write_redacted_wav
-
-    d = _db()
-    try:
-        with d.engine.connect() as conn:
-            for rid in record_ids:
-                rec = d._one(
-                    conn.execute(
-                        text(
-                            """
-                            SELECT r.id, r.interaction_id
-                            FROM redaction_records r
-                            JOIN interactions i ON i.id = r.interaction_id
-                            WHERE r.id = :id AND i.tenant_id = :tenant
-                            """
-                        ),
-                        {"id": rid, "tenant": d.current_tenant()},
-                    )
-                )
-                if rec is None:
-                    continue
-                muted = conn.execute(
-                    text(
-                        """
-                        SELECT count(*) FROM redaction_audio_segments
-                        WHERE redaction_id = :id AND muted = true
-                        """
-                    ),
-                    {"id": rid},
-                ).scalar()
-                if int(muted or 0) > 0 or "audio" in scope_parts:
-                    try:
-                        write_redacted_wav(rec["interaction_id"], rid)
-                    except Exception:
-                        logger.exception("redacted wav for %s failed", rid)
-        blob = build_export_zip(job_id, record_ids, scope_parts)
-        key = f"export-bundles/{d.current_tenant()}/{job_id}.zip"
-        storage_ref: str | None = None
-        try:
-            import storage
-
-            if storage.is_configured():
-                storage_ref = storage.put_bytes(
-                    key, blob, "application/zip", bucket=storage.RECORDINGS_BUCKET
-                )
-        except Exception:
-            logger.exception("export zip minio upload failed")
-        if not storage_ref:
-            local_dir = Path(__file__).resolve().parent / ".cache" / "export-bundles"
-            local_dir.mkdir(parents=True, exist_ok=True)
-            (local_dir / f"{job_id}.zip").write_bytes(blob)
-            storage_ref = f"local://export-bundles/{job_id}.zip"
-        _ = fmt
-        return storage_ref, "ready"
-    except Exception:
-        logger.exception("export zip failed job=%s", job_id)
-        return None, "failed"
 
 
 def download_export_job(job_id: str) -> dict[str, Any]:
@@ -808,21 +839,21 @@ def download_export_job(job_id: str) -> dict[str, Any]:
         if kind != "dashboard":
             import authz
 
-            if not authz.has_permission(d._actor_user_id(), authz.COMPLIANCE_READ):
+            uid = d._actor_user_id()
+            if not authz.has_permission(uid, authz.COMPLIANCE_READ):
                 raise PermissionError("forbidden")
+            # The access role chosen at export: holders of it (and admins) only.
+            role = meta.get("actorRole") or ""
+            if role and not authz.has_permission(uid, authz.ADMIN_WRITE) and \
+                    authz._normalize_role(role) not in authz.actor_roles(uid):
+                raise PermissionError(f"export restricted to {role}")
     from voice.recordings import _load_bytes
 
     if kind == "dashboard" or fmt == "csv":
-        return {
-            "bytes": _load_bytes(ref),
-            "filename": f"{job_id}.csv",
-            "mimeType": "text/csv",
-        }
-    return {
-        "bytes": _load_bytes(ref),
-        "filename": f"{job_id}.zip",
-        "mimeType": "application/zip",
-    }
+        return {"bytes": _load_bytes(ref), "filename": f"{job_id}.csv", "mimeType": "text/csv"}
+    if fmt == "pdf":
+        return {"bytes": _load_bytes(ref), "filename": f"{job_id}.pdf", "mimeType": "application/pdf"}
+    return {"bytes": _load_bytes(ref), "filename": f"{job_id}.zip", "mimeType": "application/zip"}
 
 
 def list_export_jobs(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
@@ -1042,9 +1073,18 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
             {"ids": record_ids},
         ).scalar()
         job_id = d._id("EX")
+        # Who may download it: a real role of this tenant, enforced at download.
+        wanted = str(payload.get("actorRole") or "role-compliance-officer").strip()
+        role = d._one(conn.execute(
+            text("SELECT id, name FROM roles WHERE tenant_id = :t AND (id = :r OR lower(name) = lower(:r))"),
+            {"t": d.current_tenant(), "r": wanted},
+        ))
+        if role is None:
+            raise ValueError(f"unknown_access_role:{wanted}")
         meta = {
             "parts": scope_parts,
-            "actorRole": payload.get("actorRole") or "Compliance Officer",
+            "actorRole": role["name"],
+            "accessRoleId": role["id"],
             "downloadCount": 0,
             "entitiesRedacted": int(entities or 0),
         }
@@ -1087,18 +1127,9 @@ def create_export_job(payload: dict[str, Any]) -> dict[str, Any]:
             "Export job created",
             note=f"{len(record_ids)} records",
         )
-    storage_ref, status = _materialize_export_zip(job_id, record_ids, scope_parts, fmt)
+    # Built by the ml_worker (call_intel/exports.py); the log shows it queued,
+    # then ready or failed with the reason.
     with d.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE export_jobs
-                SET status = :status, storage_ref = :ref, updated_at = now()
-                WHERE id = :id
-                """
-            ),
-            {"id": job_id, "status": status, "ref": storage_ref},
-        )
         row = d._one(
             conn.execute(
                 text(
@@ -1146,24 +1177,25 @@ def patch_export_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         status = row["status"]
         if payload.get("bumpDownload"):
             meta["downloadCount"] = int(meta["downloadCount"]) + 1
+        requeue = False
         if "status" in payload and payload["status"] is not None:
-            st = str(payload["status"]).lower()
-            if st == "completed":
-                st = "ready"
-            if st not in _EXPORT_STATUSES:
-                raise ValueError("invalid_export_status")
-            status = st
+            # Retry: a failed export is built again. A status cannot be set by
+            # hand -- "ready" means the worker filed the bundle.
+            if str(payload["status"]).lower() != "queued" or status != "failed":
+                raise ValueError("only_a_failed_export_can_be_retried")
+            status, requeue = "queued", True
         conn.execute(
             text(
                 """
                 UPDATE export_jobs
                 SET scope = CAST(:scope AS jsonb),
                     status = :status,
+                    error = CASE WHEN :requeue THEN NULL ELSE error END,
                     updated_at = now()
                 WHERE id = :id
                 """
             ),
-            {"id": job_id, "scope": json.dumps(meta), "status": status},
+            {"id": job_id, "scope": json.dumps(meta), "status": status, "requeue": requeue},
         )
         full = d._one(
             conn.execute(
@@ -1191,3 +1223,12 @@ def patch_export_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         ]
         assert full is not None
         return _map_export_job(full, links)
+
+
+def list_export_access_roles() -> list[dict[str, Any]]:
+    """This tenant's roles, for restricting who may download an export."""
+    d = _db()
+    with d.engine.connect() as conn:
+        return d._rows(conn.execute(
+            text("SELECT id, name FROM roles WHERE tenant_id = :t ORDER BY name"), {"t": d.current_tenant()}
+        ))

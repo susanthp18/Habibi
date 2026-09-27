@@ -1,5 +1,6 @@
 """Execute integrations (QA analysis, webhooks) after workflow run completion."""
 
+import os
 import random
 from datetime import UTC, datetime
 from typing import Any, Dict, Optional
@@ -215,6 +216,12 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 project_id=langfuse_config.get("project_id"),
                 traces_public=langfuse_config.get("traces_public", False),
             )
+
+        # AgentStudio: PayInt files every call, whatever nodes the agent has.
+        try:
+            await _notify_payint(workflow_run, organization_id, workflow_run_id)
+        except Exception as e:  # PayInt's reconcile sweep still files the run
+            logger.warning(f"PayInt run-completed notice not queued: {e}")
 
         # Step 2: Get workflow definition from the run's pinned version
         workflow_definition = workflow_run.definition.workflow_json
@@ -457,6 +464,55 @@ def _custom_headers(webhook_data: WebhookNodeData) -> list[dict]:
         for h in webhook_data.custom_headers or []
         if h.key and h.value
     ]
+
+
+#: AgentStudio: the delivery key of the PayInt notice (one per run, idempotent).
+PAYINT_DELIVERY_NODE_ID = "payint-run-completed"
+
+
+async def _notify_payint(
+    workflow_run: WorkflowRunModel, organization_id: int, workflow_run_id: int
+) -> None:
+    """Tell PayInt a run finished, as a durable webhook delivery.
+
+    Configured by ``PAYINT_RUN_COMPLETED_URL``; authenticated with the org's
+    bearer credential named ``PAYINT_HOOK_CREDENTIAL_NAME`` (the one PayInt's
+    seed creates for its tool hooks), resolved at send time like any webhook
+    credential. Retries and dead-lettering are the delivery task's.
+    """
+    url = os.getenv("PAYINT_RUN_COMPLETED_URL", "").strip()
+    if not url:
+        return
+    name = os.getenv("PAYINT_HOOK_CREDENTIAL_NAME", "PayInt hooks")
+    credentials = await db_client.get_credentials_for_organization(organization_id)
+    credential = next((c for c in credentials if c.name == name), None)
+    if credential is None:
+        logger.warning(f"No '{name}' credential in org {organization_id}; PayInt not notified")
+        return
+    delivery, created = await db_client.create_webhook_delivery(
+        workflow_run_id=workflow_run_id,
+        organization_id=organization_id,
+        endpoint_url=url,
+        payload={
+            "workflow_run_id": workflow_run_id,
+            "workflow_id": workflow_run.workflow_id,
+        },
+        max_attempts=DEFAULT_WEBHOOK_DELIVERY_CONFIG["max_attempts"],
+        http_method="POST",
+        webhook_name="PayInt: file the call",
+        custom_headers=None,
+        credential_uuid=credential.credential_uuid,
+        webhook_node_id=PAYINT_DELIVERY_NODE_ID,
+    )
+    if not created:
+        return
+    from api.tasks.arq import enqueue_job
+
+    await enqueue_job(
+        FunctionNames.DELIVER_WEBHOOK,
+        delivery.id,
+        _job_id=f"webhook-delivery-{delivery.id}-0",
+    )
 
 
 async def _enqueue_webhook_delivery(

@@ -34,6 +34,15 @@ export function useRedactionRecords() {
   });
 }
 
+/** One record opened for review: every turn rendered, raw words for raw-PII viewers. */
+export function useRedactionRecord(id: string | null) {
+  return useQuery({
+    queryKey: ["redaction-records", id],
+    queryFn: () => apiGet<RedactionRecord>(`/redaction-records/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  });
+}
+
 export async function fetchRedactionRules(): Promise<RedactionRules> {
   // GET /redaction-rules returns every PII type the vocabulary knows, labelled.
   const rows = await apiGet<RedactionRuleApi[]>("/redaction-rules");
@@ -61,6 +70,20 @@ export function useExportJobs() {
   return useQuery({
     queryKey: ["export-jobs"],
     queryFn: fetchExportJobs,
+    // Exports are built in the background: follow them until they settle.
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((j) => j.status === "queued" || j.status === "running")
+        ? 3000
+        : false,
+  });
+}
+
+/** Roles an export can be restricted to; download is enforced against them. */
+export function useExportAccessRoles() {
+  return useQuery({
+    queryKey: ["export-access-roles"],
+    queryFn: () => apiGet<{ id: string; name: string }[]>("/export-jobs/access-roles"),
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -76,8 +99,8 @@ export async function toggleAudioMuted(
   await apiPatch(`/redaction-records/${redactionId}/audio-mute`, { findingId, muted });
 }
 
-export async function markRedactionReviewed(redactionId: string): Promise<void> {
-  await apiPatch(`/redaction-records/${redactionId}`, { reviewed: true });
+export async function markRedactionReviewed(redactionId: string, reviewed = true): Promise<void> {
+  await apiPatch(`/redaction-records/${redactionId}`, { reviewed });
 }
 
 export async function patchRedactionRuleEnabled(
@@ -109,6 +132,7 @@ export async function downloadExportJob(jobId: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/** Build a failed export again. */
 export async function retryExportJob(jobId: string): Promise<ExportJob> {
-  return apiPatch<ExportJob>(`/export-jobs/${jobId}`, { status: "ready" });
+  return apiPatch<ExportJob>(`/export-jobs/${jobId}`, { status: "queued" });
 }

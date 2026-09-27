@@ -821,6 +821,351 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
     return {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
 
 
+def admit_engine_call(body: dict[str, Any]) -> dict[str, Any]:
+    """May the engine dial this number? For calls the engine starts itself
+    (its own campaigns, the editor's "call phone"); PayInt's dialler admits
+    its calls in ``outbound.place`` and passes the attempt id, so those are
+    not admitted twice.
+
+    A number that is a customer goes through the same contact policy as every
+    other contact (DND, consent, calling window, frequency caps), and the call
+    is counted in the ledger. A number that is not a customer is refused unless
+    it is one of the tenant's test numbers (``VOICE_STUDIO_TEST_NUMBERS``):
+    the engine does not dial strangers on the bank's behalf.
+    """
+    import re
+
+    import contact_policy
+    import db
+    from db_whatsapp import _find_customer_by_phone
+
+    if body.get("attempt_id"):
+        return {"admitted": True, "reason": "payint_dialler"}
+    digits = re.sub(r"\D+", "", str(body.get("to_number") or ""))
+    testers = {re.sub(r"\D+", "", n)[-10:] for n in env_str("VOICE_STUDIO_TEST_NUMBERS").split(",") if n.strip()}
+    with db.engine.begin() as conn:
+        if digits and digits[-10:] in testers:
+            db._activity(conn, "voice_studio_run", str(body.get("workflow_run_id") or ""), "test_call_admitted",
+                         "Engine test call to an allow-listed number", f"…{digits[-4:]}")
+            return {"admitted": True, "reason": "test_number"}
+        customer = _find_customer_by_phone(conn, digits)
+        if customer is None:
+            db._activity(conn, "voice_studio_run", str(body.get("workflow_run_id") or ""), "engine_call_refused",
+                         "Engine call refused: not a customer or test number", f"…{digits[-4:]}")
+            return {"admitted": False, "reason": "unknown_number"}
+        decision = contact_policy.admit(
+            conn,
+            customer_id=customer["id"],
+            channel="voice",
+            purpose="outreach",
+            source="voice-studio-engine",
+            related_id=f"engine-run:{body.get('workflow_run_id')}",
+            endpoint=digits,
+        )
+    return {"admitted": bool(decision.allowed), "reason": decision.reason, "customerId": customer["id"]}
+
+
+#: The engine's knowledge-base tool; each call is one RAG hit on the interaction.
+KB_TOOL = "retrieve_from_knowledge_base"
+
+
+def transcript_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The run's spoken turns in order: every bot utterance and every final
+    customer transcription. Turn ``i`` here is ``interaction_transcript``
+    turn_index ``i``; the call-intelligence pass relies on that to read the
+    unmasked words back from the engine."""
+    return [
+        e for e in events
+        if e.get("type") in ("rtf-bot-text", "rtf-user-transcription")
+        and (e.get("type") == "rtf-bot-text" or (e.get("payload") or {}).get("final"))
+        and ((e.get("payload") or {}).get("text") or "").strip()
+    ]
+
+
+def spoken_text(event: dict[str, Any]) -> str:
+    """A turn's words as filed (markdown emphasis the agent emits is not spoken)."""
+    return str((event.get("payload") or {}).get("text") or "").replace("**", "").strip()
+
+
+def _engine_pcm(key: str) -> tuple[bytes, int, int]:
+    """(pcm, sample rate, channels) of a 16-bit WAV the engine stored.
+
+    The engine and PayInt share one MinIO; the engine writes to its own bucket.
+    """
+    import io
+    import wave
+
+    import storage
+
+    data = storage.get_bytes(f"minio://{env_str('AGENTSTUDIO_AUDIO_BUCKET', 'agentstudio-audio')}/{key}")
+    with wave.open(io.BytesIO(data)) as wf:
+        if wf.getsampwidth() != 2:
+            raise ValueError(f"{key}: expected 16-bit PCM, got {8 * wf.getsampwidth()}-bit")
+        return wf.readframes(wf.getnframes()), wf.getframerate(), wf.getnchannels()
+
+
+def file_recording(interaction_id: str, run: dict[str, Any]) -> dict[str, Any] | None:
+    """Copy the call audio into PayInt's recordings bucket, once.
+
+    Stereo (customer left, agent right) from the engine's aligned per-speaker
+    tracks, like the previous runtime wrote, so redaction can beep one speaker
+    and QA can tell who spoke. The copy is the evidence Audit, Redaction and
+    exports read: hashed, sized and under PayInt's retention, whatever the
+    engine later does with its own files.
+    """
+    import db
+    from voice import recording
+
+    with db.engine.connect() as conn:
+        if conn.execute(
+            text("SELECT 1 FROM interaction_media WHERE interaction_id = :ix AND kind = 'audio' "
+                 "AND (storage_ref LIKE 'minio://%' OR storage_ref LIKE 'local://%')"),
+            {"ix": interaction_id},
+        ).first():
+            return None
+    user_key, bot_key = run.get("user_recording_url"), run.get("bot_recording_url")
+    try:
+        if user_key and bot_key:
+            user, rate, _ = _engine_pcm(str(user_key))
+            bot, bot_rate, _ = _engine_pcm(str(bot_key))
+            if rate != bot_rate:
+                raise ValueError(f"track rates differ: user {rate} Hz, bot {bot_rate} Hz")
+            return recording.upload_recording(
+                interaction_id=interaction_id,
+                pcm=recording._interleave_stereo(user, bot),
+                sample_rate=rate,
+                num_channels=2,
+            )
+        if run.get("recording_url"):
+            pcm, rate, channels = _engine_pcm(str(run["recording_url"]))
+            return recording.upload_recording(
+                interaction_id=interaction_id, pcm=pcm, sample_rate=rate, num_channels=channels
+            )
+    except Exception:
+        # The transcript and outcome still file; the reconciliation sweep retries.
+        logger.exception("voice studio: recording for run %s not filed", run.get("id"))
+    return None
+
+
+def meter_run(interaction_id: str, run: dict[str, Any]) -> None:
+    """The call's model, speech and recognition spend, from the engine's usage."""
+    import usage_meter
+
+    usage = run.get("usage_info") or {}
+    ref = f"voice-studio-run:{run.get('id')}"
+    for service, u in (usage.get("llm") or {}).items():
+        usage_meter.record_chat_usage(
+            prompt_tokens=u.get("prompt_tokens"),
+            completion_tokens=u.get("completion_tokens"),
+            total_tokens=u.get("total_tokens"),
+            model=str(service).rsplit("|||", 1)[-1] or None,
+            source_ref=ref,
+            interaction_id=interaction_id,
+        )
+    for service, chars in (usage.get("tts") or {}).items():
+        usage_meter.record_tts_usage(
+            chars=int(chars or 0),
+            voice=str(service).rsplit("|||", 1)[-1] or None,
+            source_ref=ref,
+            interaction_id=interaction_id,
+        )
+    # Streaming recognition listens for the whole call; the engine reports no
+    # separate STT usage for Azure, so the call length is the billed quantity.
+    seconds = usage.get("call_duration_seconds")
+    if seconds:
+        usage_meter.record_stt_usage(
+            audio_bytes=0, minutes=float(seconds) / 60.0, source_ref=ref,
+            interaction_id=interaction_id, model="streaming",
+        )
+
+
+def _place_tool_calls(interaction_id: str, turn_times: list[datetime | None]) -> None:
+    """Attach each tool call to the transcript turn it answered.
+
+    Tools run live, before the transcript exists, so they are written without a
+    turn; at filing each goes to the last turn that started before it ran.
+    """
+    import db
+
+    with db.engine.begin() as conn:
+        turns = conn.execute(
+            text("SELECT id, turn_index FROM interaction_transcript WHERE interaction_id = :ix"),
+            {"ix": interaction_id},
+        ).all()
+        ids = {int(r.turn_index): r.id for r in turns}
+        calls = conn.execute(
+            text("SELECT id, created_at FROM bot_tool_calls "
+                 "WHERE interaction_id = :ix AND transcript_turn_id IS NULL"),
+            {"ix": interaction_id},
+        ).all()
+        for call in calls:
+            before = [i for i, at in enumerate(turn_times) if at and at <= call.created_at and i in ids]
+            if before:
+                conn.execute(
+                    text("UPDATE bot_tool_calls SET transcript_turn_id = :t WHERE id = :id"),
+                    {"t": ids[before[-1]], "id": call.id},
+                )
+
+
+def _version_number(workflow_id: Any, definition_id: Any) -> int | None:
+    """The published version a run executed; None for a draft or when unknown."""
+    if not definition_id:
+        return None
+    try:
+        versions = engine_call("GET", f"/workflow/{workflow_id}/versions?limit=50") or []
+    except httpx.HTTPError:
+        logger.warning("voice studio: versions of workflow %s unavailable", workflow_id)
+        return None
+    return next((v.get("version_number") for v in versions if v.get("id") == definition_id), None)
+
+
+def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 100) -> dict[str, int]:
+    """File every finished engine call the webhook missed, and repair bad audio refs.
+
+    The webhook is the fast path; this is the guarantee. A run is due once it
+    has settled (no live call lasts ``settle_minutes`` without the engine
+    marking it), is a customer contact, and has no PayInt session yet.
+    ``complete_run`` is idempotent, so a run the webhook files concurrently is
+    filed once.
+    """
+    import db
+    import voice_studio_checks
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    # Naive UTC: the engine compares against its naive created_at, and a "+00:00"
+    # offset would arrive as a space in the query string.
+    since = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
+    until = (now - timedelta(minutes=settle_minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+    runs: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        body = engine_call("GET", f"/organizations/usage/runs?start_date={since}&end_date={until}"
+                                  f"&page={page}&limit=100") or {}
+        runs.extend(body.get("runs") or [])
+        if page >= int(body.get("total_pages") or 1):
+            break
+    due = [
+        r for r in runs
+        if (r.get("gathered_context") or {}).get("call_status")
+        and (r.get("initial_context") or {}).get("channel") != "whatsapp"
+        and not voice_studio_checks.is_test(r.get("initial_context") or {})
+        and (r.get("recording_url") or (r.get("initial_context") or {}).get("attempt_id"))
+    ]
+    with db.engine.connect() as conn:
+        filed = {
+            row[0] for row in conn.execute(
+                text("SELECT provider_call_id FROM voice_sessions WHERE id = ANY(:ids) "
+                     "UNION SELECT provider_call_id FROM call_attempts "
+                     "WHERE provider = :p AND provider_call_id = ANY(:runs) "
+                     "AND state NOT IN ('reserved','dialing','ringing','answered','live')"),
+                {"ids": [_session_id(r["id"]) for r in due], "p": PROVIDER,
+                 "runs": [str(r["id"]) for r in due]},
+            )
+        }
+        # Calls filed before the recording fix hold the engine's bare key.
+        broken = conn.execute(
+            text("SELECT m.id, m.interaction_id, s.provider_call_id, i.handler_bot_id "
+                 "FROM interaction_media m JOIN interactions i ON i.id = m.interaction_id "
+                 "JOIN voice_sessions s ON s.interaction_id = m.interaction_id AND s.id LIKE 'VS-studio-%' "
+                 "WHERE m.kind = 'audio' AND m.storage_ref NOT LIKE 'minio://%' "
+                 "AND m.storage_ref NOT LIKE 'local://%' LIMIT 20")
+        ).all()
+    report = {"seen": len(runs), "filed": 0, "repaired": 0, "failed": 0}
+    for run in [r for r in due if str(r["id"]) not in filed][:limit]:
+        try:
+            complete_run({"workflow_run_id": run["id"], "workflow_id": run["workflow_id"]})
+            report["filed"] += 1
+        except Exception:
+            report["failed"] += 1
+            logger.exception("voice studio reconcile: run %s not filed", run.get("id"))
+    for media in broken:
+        workflow_id = str(media.handler_bot_id or "").removeprefix("voice-studio-")
+        try:
+            run = engine_call("GET", f"/workflow/{workflow_id}/runs/{media.provider_call_id}") or {}
+            if file_recording(media.interaction_id, run):
+                with db.engine.begin() as conn:
+                    conn.execute(text("DELETE FROM interaction_media WHERE id = :id"), {"id": media.id})
+                report["repaired"] += 1
+        except Exception:
+            report["failed"] += 1
+            logger.exception("voice studio reconcile: audio of %s not repaired", media.interaction_id)
+    # Calls filed before the release was recorded on the interaction: add it,
+    # and redo their pass -- without it PII detection ran on the masked store
+    # and could not re-mask the transcript from the words as spoken.
+    with db.engine.connect() as conn:
+        unmarked = conn.execute(text(
+            "SELECT i.id, s.provider_call_id, i.handler_bot_id FROM interactions i "
+            "JOIN voice_sessions s ON s.interaction_id = i.id AND s.id LIKE 'VS-studio-%' "
+            "WHERE NOT (i.source_payload ? 'voiceStudio') AND i.handler_bot_id LIKE 'voice-studio-%' LIMIT 50"
+        )).all()
+    report["provenance"] = 0
+    for row in unmarked:
+        workflow_id = str(row.handler_bot_id).removeprefix("voice-studio-")
+        try:
+            run = engine_call("GET", f"/workflow/{workflow_id}/runs/{row.provider_call_id}") or {}
+        except httpx.HTTPError:
+            logger.warning("voice studio reconcile: run %s unavailable", row.provider_call_id)
+            continue
+        import json
+
+        with db.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb) WHERE id = :ix"),
+                {"ix": row.id, "p": json.dumps({"voiceStudio": {
+                    "engineRunId": int(row.provider_call_id), "workflowId": int(workflow_id),
+                    "definitionId": run.get("definition_id"),
+                    "versionNumber": _version_number(workflow_id, run.get("definition_id")),
+                }})},
+            )
+        from call_intel import jobs as call_intel_jobs
+
+        call_intel_jobs.enqueue(row.id, rerun=True)
+        report["provenance"] += 1
+    # Calls filed before the evidence chain existed get their link, in filing order.
+    import evidence_chain
+
+    with db.engine.connect() as conn:
+        unchained = conn.execute(text(
+            "SELECT i.id, i.source_payload->'voiceStudio' AS studio, "
+            "(SELECT m.hash FROM interaction_media m WHERE m.interaction_id = i.id AND m.kind = 'audio' "
+            " AND m.storage_ref LIKE 'minio://%' ORDER BY m.created_at DESC LIMIT 1) AS recording_sha "
+            "FROM interactions i JOIN voice_sessions s ON s.interaction_id = i.id AND s.id LIKE 'VS-studio-%' "
+            "WHERE i.source_payload ? 'voiceStudio' AND i.status IN ('completed', 'abandoned') "
+            "AND NOT EXISTS (SELECT 1 FROM interaction_evidence_chain c WHERE c.interaction_id = i.id) "
+            "ORDER BY i.started_at LIMIT 50"
+        )).all()
+    report["chained"] = 0
+    for row in unchained:
+        from call_intel.inputs import _engine_turns
+
+        spoken = _engine_turns(row.studio)
+        if spoken is None:
+            continue
+        evidence_chain.append(row.id, [(t.speaker, t.text) for t in spoken], row.recording_sha)
+        report["chained"] += 1
+    # Calls filed before the call-intelligence pass existed, or whose enqueue
+    # failed, join the queue.
+    with db.engine.begin() as conn:
+        report["queued"] = conn.execute(text(
+            "INSERT INTO call_intelligence_jobs (id, tenant_id, interaction_id) "
+            "SELECT 'CIJ-' || substr(md5(i.id), 1, 12), i.tenant_id, i.id FROM interactions i "
+            "JOIN voice_sessions s ON s.interaction_id = i.id AND s.id LIKE 'VS-studio-%' "
+            "WHERE i.status IN ('completed', 'abandoned') "
+            "AND NOT EXISTS (SELECT 1 FROM call_intelligence_jobs j WHERE j.interaction_id = i.id) "
+            "LIMIT 200 ON CONFLICT (interaction_id) DO NOTHING"
+        )).rowcount
+    if broken:
+        # A webhook retry could file the bare key twice; once a readable copy
+        # exists every unreadable row for that call is dead weight.
+        with db.engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM interaction_media m WHERE m.id = ANY(:ids) AND EXISTS ("
+                " SELECT 1 FROM interaction_media g WHERE g.interaction_id = m.interaction_id"
+                " AND g.kind = 'audio' AND g.storage_ref LIKE 'minio://%')"
+            ), {"ids": [b.id for b in broken]})
+    return report
+
+
 def complete_run(body: dict[str, Any]) -> dict[str, Any]:
     """The engine's post-call webhook: file the call and advance the attempt."""
     import db
@@ -845,21 +1190,38 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
     events = ((run.get("logs") or {}).get("realtime_feedback_events")) or []
     status = str(gathered.get("call_status") or "").lower()
 
-    turns = [
-        e for e in events
-        if e.get("type") in ("rtf-bot-text", "rtf-user-transcription")
-        and (e.get("type") == "rtf-bot-text" or (e.get("payload") or {}).get("final"))
-        and ((e.get("payload") or {}).get("text") or "").strip()
-    ]
+    turns = transcript_events(events)
     first_at = _ts((turns[0].get("payload") or {}).get("timestamp")) if turns else None
     last_at = _ts((turns[-1].get("payload") or {}).get("end_timestamp")) if turns else None
-    duration = int((last_at - first_at).total_seconds()) if first_at and last_at else None
+    measured = (run.get("usage_info") or {}).get("call_duration_seconds")
+    duration = (int(round(float(measured))) if measured is not None
+                else int((last_at - first_at).total_seconds()) if first_at and last_at else None)
+    # The engine measures the gap from the caller stopping to the agent
+    # speaking once per turn; it becomes that bot turn's response time.
+    latency_ms = {
+        e.get("turn"): int(float((e.get("payload") or {}).get("latency_seconds") or 0) * 1000)
+        for e in events if e.get("type") == "rtf-latency-measured"
+    }
+    rag_hits = sum(
+        1 for e in events
+        if e.get("type") == "rtf-function-call-end" and (e.get("payload") or {}).get("function_name") == KB_TOOL
+    )
 
     connected = status not in _UNCONNECTED and bool(turns)
     interaction_id = None
     if connected:
         interaction_id = ensure_interaction(run_id, ctx, started_at=first_at)
         session_id = _session_id(run_id)
+        with db.engine.connect() as conn:
+            filed = conn.execute(
+                text("SELECT status FROM voice_sessions WHERE id = :id"), {"id": session_id}
+            ).scalar() in ("ended", "failed")
+        if filed:
+            # A redelivered notice (the engine's retry, the reconcile sweep, the
+            # seeded webhook node): the call is filed once, and re-completing it
+            # would move its end time and re-add its media.
+            logger.info("voice studio: run %s already filed as %s", run_id, interaction_id)
+            return {"ok": True, "interactionId": interaction_id, "duplicate": True}
         with db.engine.connect() as conn:
             already = conn.execute(
                 text("SELECT count(*) FROM interaction_transcript WHERE interaction_id = :ix"),
@@ -870,47 +1232,79 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
             for index, event in enumerate(turns):
                 payload = event.get("payload") or {}
                 at = _ts(payload.get("timestamp"))
+                is_bot = event["type"] == "rtf-bot-text"
                 persist.append_transcript_turn(
                     interaction_id=interaction_id,
                     turn_index=index,
-                    speaker="bot" if event["type"] == "rtf-bot-text" else "customer",
-                    text_content=str(payload.get("text")).replace("**", "").strip(),
+                    speaker="bot" if is_bot else "customer",
+                    text_content=spoken_text(event),
                     at_sec=max(0.0, (at - first_at).total_seconds()) if at and first_at else float(index),
+                    ttfb_ms=latency_ms.get(event.get("turn")) if is_bot else None,
                 )
-                said = str(payload.get("text")).replace("**", "").strip()
+                said = spoken_text(event)
                 if event["type"] == "rtf-bot-text":
                     pairs.append((heard, said, max(0.0, (at - first_at).total_seconds()) if at and first_at else 0.0))
                     heard = ""
                 else:
                     heard = f"{heard} {said}".strip()
             flag_turns(interaction_id, ctx, pairs)
+            _place_tool_calls(interaction_id, [_ts((e.get("payload") or {}).get("timestamp")) for e in turns])
+            meter_run(interaction_id, run)
+            import json
+
+            # Which agent release handled the call: per-version quality in
+            # Voice Studio, and the Audit record's routing, key off this.
+            provenance = {"voiceStudio": {
+                "engineRunId": run_id,
+                "workflowId": workflow_id,
+                "definitionId": run.get("definition_id"),
+                "versionNumber": _version_number(workflow_id, run.get("definition_id")),
+            }}
             languages = call_languages(gathered, turns)
             if languages:
-                import json
+                provenance["languages"] = languages
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb) "
+                         "WHERE id = :ix"),
+                    {"p": json.dumps(provenance), "ix": interaction_id},
+                )
+        file_recording(interaction_id, run)
+        try:
+            import evidence_chain
 
-                with db.engine.begin() as conn:
-                    conn.execute(
-                        text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb) "
-                             "WHERE id = :ix"),
-                        {"p": json.dumps({"languages": languages}), "ix": interaction_id},
-                    )
-        recording = run.get("recording_url") or body.get("recording_url")
-        if recording:
-            persist.record_media(
-                interaction_id=interaction_id,
-                kind="audio",
-                storage_ref=str(recording),
-                duration_sec=duration,
-                mime_type="audio/wav",
-                size_bytes=None,
+            with db.engine.connect() as conn:
+                recording_sha = conn.execute(
+                    text("SELECT hash FROM interaction_media WHERE interaction_id = :ix AND kind = 'audio' "
+                         "AND storage_ref LIKE 'minio://%' ORDER BY created_at DESC LIMIT 1"),
+                    {"ix": interaction_id},
+                ).scalar()
+            # The words as spoken and the recording, chained: Audit's "immutable" is checkable.
+            evidence_chain.append(
+                interaction_id,
+                [("bot" if e["type"] == "rtf-bot-text" else "customer", spoken_text(e)) for e in turns],
+                recording_sha,
             )
+        except Exception:
+            logger.exception("voice studio: evidence chain link not written for %s", interaction_id)
+        spoken = [v for v in latency_ms.values() if v > 0]
         persist.complete_voice_call(
             session_id=session_id,
             interaction_id=interaction_id,
             status="completed",
             disposition=str(gathered.get("mapped_call_disposition") or gathered.get("call_disposition") or "") or None,
             providers=(ctx.get("runtime_configuration") or None),
+            duration_sec=duration,
+            latency_ms=int(sorted(spoken)[len(spoken) // 2]) if spoken else None,
+            rag_hits=rag_hits,
         )
+        try:
+            from call_intel import jobs as call_intel_jobs
+
+            # PII masking, the redacted recording, signals and QA: the batch pass.
+            call_intel_jobs.enqueue(interaction_id)
+        except Exception:
+            logger.exception("voice studio: call intelligence not queued for %s", interaction_id)
 
     if ctx.get("attempt_id"):
         carrier_status = status if status in _UNCONNECTED else "completed"

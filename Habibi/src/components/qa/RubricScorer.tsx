@@ -59,13 +59,17 @@ export function RubricScorer({
                               Critical
                             </span>
                           )}
-                          {liveLocked && (
-                            <span
-                              className="inline-flex items-center gap-025 rounded bg-background-brand-subtlest px-050 py-025 text-body-small font-semibold text-text-brand"
-                              title="Scored from live evidence — the model cannot overwrite this"
-                            >
-                              <Lock className="h-3 w-3" /> Live
-                            </span>
+                          {entry.tier ? (
+                            <TierBadge entry={entry} />
+                          ) : (
+                            liveLocked && (
+                              <span
+                                className="inline-flex items-center gap-025 rounded bg-background-brand-subtlest px-050 py-025 text-body-small font-semibold text-text-brand"
+                                title="Scored from live evidence — the model cannot overwrite this"
+                              >
+                                <Lock className="h-3 w-3" /> Live
+                              </span>
+                            )
                           )}
                         </div>
                         <div className="text-body-small text-text-subtle">{c.description}</div>
@@ -124,5 +128,48 @@ export function RubricScorer({
         );
       })}
     </div>
+  );
+}
+
+const TIERS = {
+  evidence: {
+    label: "Evidence",
+    hint: "Decided by rules on the call's own facts (flags, disclosures, tools)",
+  },
+  model: { label: "Signals", hint: "Decided by small models on the call (sentiment, intents)" },
+  llm: { label: "Judge", hint: "Decided by the QA judge on the masked transcript" },
+  human: { label: "Reviewer", hint: "Set by a person" },
+} as const;
+
+/** Who decided this criterion, and how sure it was; low confidence asks for a person. */
+function TierBadge({ entry }: { entry: ScorecardEntry }) {
+  const tier = TIERS[entry.tier ?? "model"];
+  const confidence = entry.confidence ?? null;
+  const unsure = entry.tier !== "human" && confidence != null && confidence < 0.5;
+  const turns = (entry.evidence as { turns?: number[] } | null)?.turns;
+  const title = [
+    tier.hint,
+    confidence != null ? `confidence ${Math.round(confidence * 100)}%` : null,
+    turns?.length ? `turns ${turns.join(", ")}` : null,
+    entry.modelVersion ? `by ${entry.modelVersion}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-025 rounded px-050 py-025 text-body-small font-semibold",
+        unsure
+          ? "bg-background-warning-subtler text-text-warning-bolder"
+          : "bg-background-brand-subtlest text-text-brand",
+      )}
+    >
+      {entry.tier === "evidence" && <Lock className="h-3 w-3" />}
+      {unsure ? "Needs review" : tier.label}
+      {!unsure && confidence != null && entry.tier !== "evidence" && entry.tier !== "human"
+        ? ` ${Math.round(confidence * 100)}%`
+        : ""}
+    </span>
   );
 }

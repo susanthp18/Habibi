@@ -461,6 +461,9 @@ def _calibration_sessions(sql: str, params: dict[str, Any]) -> list[dict[str, An
                     "entries": _scores_to_entries(
                         r["scores"], criterion_cache[rubric_id]
                     ),
+                    # A reviewer invited to a session has no scores yet; their
+                    # padded zeros are not a score to measure variance on.
+                    "submitted": bool(r["scores"]),
                 }
             )
         out: list[dict[str, Any]] = []
@@ -474,6 +477,7 @@ def _calibration_sessions(sql: str, params: dict[str, Any]) -> list[dict[str, An
                     "id": s["id"],
                     "name": s.get("name") or f"Calibration · {s['interaction_id']}",
                     "callId": s["interaction_id"],
+                    "rubricId": rid,
                     "customerName": s.get("customer_name") or "—",
                     "target": _scores_to_entries(
                         s.get("target_scores") or {}, criterion_cache[rid]
@@ -529,6 +533,140 @@ def patch_calibration_session(
                 note=st,
             )
     # Re-read via the same mapper, single row.
+    row = get_calibration_session(session_id)
+    if row is None:
+        raise KeyError("calibration_session_not_found")
+    return row
+
+
+def create_calibration_session(
+    interaction_id: str, reviewer_user_ids: list[str]
+) -> dict[str, Any]:
+    """A calibration session over one scored call, with the reviewers invited.
+
+    The target is the call's scorecard as it stands (published or AI draft)
+    and the session uses that scorecard's rubric version, so reviewers are
+    compared on the same criteria. An unscored call has no target to
+    calibrate against and is refused.
+    """
+    d = _db()
+    reviewers = list(dict.fromkeys(r for r in reviewer_user_ids if r))
+    if not reviewers:
+        raise ValueError("calibration_reviewers_required")
+    session_id = d._id("CAL")
+    with d.engine.begin() as conn:
+        d._ensure_interaction(conn, interaction_id)
+        card = d._one(
+            conn.execute(
+                text(
+                    "SELECT id, rubric_id FROM qa_scorecards "
+                    "WHERE interaction_id = :ix AND status <> 'unscored'"
+                ),
+                {"ix": interaction_id},
+            )
+        )
+        if card is None:
+            raise ValueError("calibration_needs_scored_call")
+        target = {
+            r["criterion_id"]: float(r["final_score"])
+            for r in d._rows(
+                conn.execute(
+                    text(
+                        "SELECT criterion_id, final_score FROM qa_scorecard_entries "
+                        "WHERE scorecard_id = :id AND final_score IS NOT NULL"
+                    ),
+                    {"id": card["id"]},
+                )
+            )
+        }
+        for uid in reviewers:
+            d._qa_ensure_user(conn, uid)
+        conn.execute(
+            text(
+                """
+                INSERT INTO calibration_sessions (id, interaction_id, rubric_id, target_scores)
+                VALUES (:id, :ix, :rid, CAST(:target AS jsonb))
+                """
+            ),
+            {"id": session_id, "ix": interaction_id, "rid": card["rubric_id"],
+             "target": json.dumps(target)},
+        )
+        for uid in reviewers:
+            conn.execute(
+                text(
+                    "INSERT INTO calibration_reviewer_scores (id, session_id, reviewer_user_id) "
+                    "VALUES (:id, :sid, :uid)"
+                ),
+                {"id": f"{session_id}-{uid}", "sid": session_id, "uid": uid},
+            )
+        d._activity(
+            conn,
+            "calibration_session",
+            session_id,
+            "created",
+            "Calibration session created",
+            note=f"{len(reviewers)} reviewers",
+        )
+    row = get_calibration_session(session_id)
+    if row is None:
+        raise KeyError("calibration_session_not_found")
+    return row
+
+
+def submit_calibration_scores(session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """An invited reviewer's scores for a calibration session.
+
+    Only a reviewer the session invited, only while it is active; every
+    criterion of the session's rubric version must be scored 0-5. The variance
+    from the target (the call's scorecard when the session opened) is the mean
+    absolute difference per criterion -- what the calibration measures.
+    """
+    d = _db()
+    actor = d._actor_user_id()
+    with d.engine.begin() as conn:
+        session = d._one(conn.execute(
+            text(
+                """
+                SELECT cs.id, cs.status, cs.rubric_id, cs.target_scores
+                FROM calibration_sessions cs
+                JOIN interactions i ON i.id = cs.interaction_id
+                WHERE cs.id = :id AND i.tenant_id = :tenant_id
+                FOR UPDATE OF cs
+                """
+            ),
+            {"id": session_id, "tenant_id": d.current_tenant()},
+        ))
+        if session is None:
+            raise KeyError("calibration_session_not_found")
+        if _cal_status(session["status"]) != "active":
+            raise ValueError("calibration_session_closed")
+        seat = conn.execute(
+            text("SELECT id FROM calibration_reviewer_scores WHERE session_id = :s AND reviewer_user_id = :u"),
+            {"s": session_id, "u": actor},
+        ).scalar()
+        if seat is None:
+            raise PermissionError("not_invited_to_this_calibration")
+        criteria = _criterion_ids(conn, session["rubric_id"] or "rubric-v1")
+        scores: dict[str, float] = {}
+        for e in payload.get("entries") or []:
+            cid, score = str(e.get("criterionId") or ""), e.get("score")
+            if cid not in criteria:
+                raise ValueError(f"unknown_criterion:{cid}")
+            if not isinstance(score, (int, float)) or not 0 <= float(score) <= 5:
+                raise ValueError(f"score_out_of_range:{cid}")
+            scores[cid] = float(score)
+        missing = [c for c in criteria if c not in scores]
+        if missing:
+            raise ValueError(f"unscored_criteria:{','.join(missing)}")
+        target = {e["criterionId"]: e["score"] for e in _scores_to_entries(session["target_scores"] or {}, criteria)}
+        variance = round(sum(abs(scores[c] - target.get(c, 0.0)) for c in criteria) / len(criteria), 2)
+        conn.execute(
+            text("UPDATE calibration_reviewer_scores SET scores = CAST(:sc AS jsonb), notes = :n, "
+                 "variance_from_target = :v, updated_at = now() WHERE id = :id"),
+            {"sc": json.dumps(scores), "n": payload.get("notes"), "v": variance, "id": seat},
+        )
+        d._activity(conn, "calibration_session", session_id, "scored", "Calibration scores submitted",
+                    note=f"variance {variance}")
     row = get_calibration_session(session_id)
     if row is None:
         raise KeyError("calibration_session_not_found")

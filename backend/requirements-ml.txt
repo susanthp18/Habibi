@@ -1,0 +1,21 @@
+# ml_worker (call_intel): the call-intelligence pass on CPU.
+# Installed on top of requirements.txt and constrained by it (-c), like the
+# voice layer, so the api and ml images from one commit agree on shared pins.
+# requirements-ml.lock is the hashed 3.12 linux resolve of this file.
+#
+# torch comes from the PyTorch CPU index: the default PyPI wheel bundles CUDA
+# (~2.5 GB) for a box with no GPU. gliner needs it for its pre/post-processing;
+# the models themselves run in onnxruntime (int8).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
+gliner==0.2.29
+onnxruntime==1.30.0
+faster-whisper==1.2.1
+tokenizers==0.23.2
+huggingface_hub==1.33.0
+# Time-boxed matching for tenants' custom redaction patterns.
+regex==2026.9.10
+# Evidence exports (call_intel/exports.py): watermarked PDF transcripts,
+# shaped with HarfBuzz so Hindi, Tamil and Arabic render correctly.
+fpdf2==2.8.8
+uharfbuzz==0.56.2

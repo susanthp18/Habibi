@@ -32,7 +32,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.concurrency import run_in_threadpool
 from starlette.background import BackgroundTask
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 import authz
 from api_support import ROUTER_DEPENDENCIES, Utf8JSONResponse
@@ -199,6 +199,20 @@ async def mint_ws_ticket(request: Request, body: dict) -> dict:
     return {"ticket": _tickets.mint(actor, path), "expiresInSeconds": int(_TICKET_TTL_S)}
 
 
+def _can_see_raw_pii(actor: str | None) -> bool:
+    return bool(actor) and authz.has_permission(actor, authz.PII_RAW_READ)
+
+
+def _raw_media(engine_path: str, request: Request) -> bool:
+    """A signed URL for call audio or a raw transcript, or a public download of one."""
+    if engine_path.startswith("/public/download/"):
+        return True
+    if engine_path == "/s3/signed-url":
+        key = (request.query_params.get("key") or "").lstrip("/")
+        return key.startswith(("recordings/", "transcripts/"))
+    return False
+
+
 def _engine_path(path: str) -> str:
     """Engine path below /api/v1. The UI's generated client sends the full
     ``/api/v1/...`` path; both spellings address the same route."""
@@ -206,7 +220,7 @@ def _engine_path(path: str) -> str:
     return path[len("/api/v1"):] if path.startswith("/api/v1/") else path
 
 
-async def _proxy(request: Request, path: str) -> StreamingResponse:
+async def _proxy(request: Request, path: str) -> Response:
     method = request.method.upper()
     engine_path = _engine_path(path)
     actor = _actor(request)
@@ -216,6 +230,12 @@ async def _proxy(request: Request, path: str) -> StreamingResponse:
         # Releases go through /voice-studio/agents/{id}/publish: the same gate
         # (validate_publish) plus a changelog note and the releasing user.
         raise HTTPException(status_code=409, detail="Publish from Voice Studio with a changelog note")
+    raw_pii = await run_in_threadpool(_can_see_raw_pii, actor)
+    if not raw_pii and _raw_media(engine_path, request):
+        # Call audio and raw transcripts are heard through PayInt (redacted,
+        # audited: /interactions/{id}/recording), not signed straight from storage.
+        raise HTTPException(status_code=403, detail="Recordings play from PayInt, redacted; "
+                                                    "the original needs raw-PII permission")
     raw: bytes | None = None
     if method in _WRITE and _PHONE_NUMBER.match(engine_path):
         # Inbound routing changes go through the audited, preflighted Routing
@@ -254,6 +274,16 @@ async def _proxy(request: Request, path: str) -> StreamingResponse:
         await resp.aclose()
         if method in _WRITE and 200 <= resp.status_code < 300:
             await run_in_threadpool(_audit, actor, method, engine_path, resp.status_code)
+
+    import voice_studio_privacy
+
+    if not raw_pii and resp.status_code == 200 and voice_studio_privacy.needs_masking(method, engine_path):
+        # Run views carry the conversation as spoken: masked for this viewer.
+        body = await resp.aread()
+        await done()
+        masked = await run_in_threadpool(voice_studio_privacy.mask_payload, engine_path, body)
+        return Response(content=masked, status_code=200, media_type="application/json",
+                        headers={"Cache-Control": "private, no-store"})
 
     return StreamingResponse(
         resp.aiter_raw(),

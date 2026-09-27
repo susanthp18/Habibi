@@ -40,28 +40,49 @@ def test_recording_get_403_without_perm(gated_client: TestClient) -> None:
     assert res.status_code == 403, res.text
 
 
-def test_recording_get_streams_wav(gated_client: TestClient, monkeypatch) -> None:
+def test_recording_get_streams_the_redacted_copy_without_raw_pii(gated_client: TestClient, monkeypatch) -> None:
+    """The unredacted recording is raw PII: a viewer without PII_RAW_READ hears
+    the redacted copy by default and is refused the original."""
+    import authz
     from voice import recordings
 
     wav = _wav()
+    asked: list[str] = []
 
     def _stream(interaction_id: str, *, variant: str = "original"):
         assert interaction_id == "CL-REC"
-        assert variant == "original"
-        return {
-            "bytes": wav,
-            "mimeType": "audio/wav",
-            "mediaId": "MED-1",
-            "kind": "audio",
-            "durationSec": 1,
-        }
+        asked.append(variant)
+        return {"bytes": wav, "mimeType": "audio/wav", "mediaId": "MED-1", "kind": "redacted_audio",
+                "durationSec": 1}
 
     monkeypatch.setattr(recordings, "stream_recording", _stream)
     monkeypatch.setattr(recordings, "log_recording_download", lambda *a, **k: None)
+    real = authz.has_permission
+    monkeypatch.setattr(authz, "has_permission",
+                        lambda uid, perm: False if perm == authz.PII_RAW_READ else real(uid, perm))
     res = gated_client.get("/interactions/CL-REC/recording", headers=_hdr("arjun-mehta"))
     assert res.status_code == 200, res.text
-    assert res.content == wav
+    assert res.content == wav and asked == ["redacted"]
+    assert res.headers.get("x-recording-variant") == "redacted"
     assert "audio/wav" in (res.headers.get("content-type") or "")
+    refused = gated_client.get("/interactions/CL-REC/recording?variant=original", headers=_hdr("arjun-mehta"))
+    assert refused.status_code == 403, refused.text
+
+
+def test_recording_get_says_when_the_redacted_copy_is_not_ready(gated_client: TestClient, monkeypatch) -> None:
+    import authz
+    from voice import recordings
+
+    def _stream(interaction_id: str, *, variant: str = "original"):
+        raise KeyError("recording_not_found")
+
+    monkeypatch.setattr(recordings, "stream_recording", _stream)
+    monkeypatch.setattr(recordings, "media_for_interaction", lambda ix, variant="original": {"id": "MED-1"})
+    real = authz.has_permission
+    monkeypatch.setattr(authz, "has_permission",
+                        lambda uid, perm: False if perm == authz.PII_RAW_READ else real(uid, perm))
+    res = gated_client.get("/interactions/CL-REC/recording", headers=_hdr("arjun-mehta"))
+    assert res.status_code == 409 and res.json()["detail"] == "redaction_pending"
 
 
 def test_recording_get_fails_closed_when_audit_write_fails(

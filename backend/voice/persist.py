@@ -767,7 +767,11 @@ def complete_voice_call(
     disposition: str | None = None,
     avg_sentiment: float | None = None,
     providers: dict[str, Any] | None = None,
+    duration_sec: int | None = None,
 ) -> None:
+    """``duration_sec``: the call's measured length, when the channel knows it.
+    Without it the duration is started_at to now, which for a call filed after
+    the fact (the Voice Studio webhook) includes the post-call delay."""
     ended = _now()
     st = status if status in ("completed", "abandoned", "failed") else "completed"
     sent_label = sentiment_label(avg_sentiment) if avg_sentiment is not None else None
@@ -777,8 +781,8 @@ def complete_voice_call(
             text("SELECT started_at FROM interactions WHERE id = :id"),
             {"id": interaction_id},
         ).mappings().first()
-        duration = None
-        if row and row.get("started_at"):
+        duration = duration_sec
+        if duration is None and row and row.get("started_at"):
             started = row["started_at"]
             if started.tzinfo is None:
                 started = started.replace(tzinfo=timezone.utc)
@@ -828,6 +832,7 @@ def complete_voice_call(
                     interaction_id,
                     channel_hint="voice",
                     force_summary=not bool(summary),
+                    keep_disposition=bool(disposition),
                 )
         except Exception:
             logger.exception("capture rollup failed for %s", interaction_id)

@@ -61,6 +61,9 @@ class BotAnalyticsDailyPointResponse(BaseModel):
     sentiment: float
     upsellPresented: int = 0
     ptpCaptured: int = 0
+    # Bot-handled sessions, and those never handed to a human (containment).
+    botSessions: int = 0
+    botContained: int = 0
 
 
 class BotAnalyticsIntentSentimentResponse(BaseModel):
@@ -143,10 +146,42 @@ class BotAnalyticsSkillBucketResponse(BaseModel):
     activations: int
 
 
+class BotAnalyticsSummaryResponse(BaseModel):
+    """Headline KPIs computed over calls (not averaged across days). None = nothing to measure."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    botSessions: int
+    # % of bot sessions never handed to a human.
+    containment: float | None = None
+    # % of inbound bot sessions resolved with no human handoff and no repeat
+    # contact from the customer within repeatContactDays; only sessions at
+    # least that old are eligible.
+    deflection: float | None = None
+    deflectionEligible: int
+    repeatContactDays: int
+    latencyP50: float | None = None
+    latencyP90: float | None = None
+    # Mean per call of (last customer sentiment - first), on the -1..1 scale.
+    sentimentLift: float | None = None
+    sentimentLiftCalls: int
+
+
+class BotAnalyticsAgentOptionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    botId: str
+    name: str
+    # Voice Studio published versions seen in the window; empty for other bots.
+    versions: list[str] = []
+
+
 class BotAnalyticsResponse(BaseModel):
     """Conversation & Bot Analytics screen shape — live aggregates from interactions.
 
-    KPIs are not included; the frontend derive them via computeKpis(dailySeries).
+    ``summary`` carries the headline KPIs that cannot be derived from daily
+    rows (true percentiles, deflection, sentiment lift); the frontend derives
+    the rest via computeKpis(dailySeries).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -159,6 +194,8 @@ class BotAnalyticsResponse(BaseModel):
     funnelStages: list[BotAnalyticsFunnelStageResponse]
     byCard: list[BotAnalyticsCardAggResponse] = []
     skillHistogram: list[BotAnalyticsSkillBucketResponse] = []
+    summary: BotAnalyticsSummaryResponse | None = None
+    agents: list[BotAnalyticsAgentOptionResponse] = []
 
 
 # ── Platform ─────────────────────────────────────────────────────────────────

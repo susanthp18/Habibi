@@ -506,6 +506,10 @@ def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> 
                     FROM consent_records cr
                     JOIN channel_consents cc ON cc.consent_id = cr.id
                     WHERE cr.customer_id = :customer_id
+                      -- The contact policy's purpose. After an opt-out a channel
+                      -- also has a promotional row; without this the screen showed
+                      -- whichever came last.
+                      AND cc.purpose = 'servicing'
                     ORDER BY cc.channel
                     """
                 ),
@@ -1002,6 +1006,7 @@ from db_redaction import (  # noqa: E402
     actor_is_admin as actor_is_admin,
     create_export_job as create_export_job,
     download_export_job as download_export_job,
+    list_export_access_roles as list_export_access_roles,
     get_redaction_record as get_redaction_record,
     get_redaction_rule as get_redaction_rule,
     list_export_jobs as list_export_jobs,
@@ -1089,6 +1094,8 @@ from db_prompt_studio import (  # noqa: E402
 )
 
 from db_coaching import (  # noqa: E402
+    create_calibration_session as create_calibration_session,
+    submit_calibration_scores as submit_calibration_scores,
     create_coaching_action as create_coaching_action,
     list_calibration_sessions as list_calibration_sessions,
     list_coaching_actions as list_coaching_actions,
@@ -1106,6 +1113,7 @@ from db_qa import (  # noqa: E402
     _QA_CLERK_RUBRIC_ID as _QA_CLERK_RUBRIC_ID,
     _QA_DEFAULT_RUBRIC_ID as _QA_DEFAULT_RUBRIC_ID,
     _QA_STATUSES as _QA_STATUSES,
+    _active_rubric_id as _active_rubric_id,
     _SCORECARD_LIST_SQL as _SCORECARD_LIST_SQL,
     _load_rubric_tree as _load_rubric_tree,
     _qa_all_criteria as _qa_all_criteria,
@@ -1123,11 +1131,13 @@ from db_qa import (  # noqa: E402
     _qa_upsert_entries as _qa_upsert_entries,
     _scorecard_by_id as _scorecard_by_id,
     _scorecard_rows_to_screen as _scorecard_rows_to_screen,
+    create_rubric_version as create_rubric_version,
     create_scorecard as create_scorecard,
     get_rubric as get_rubric,
     list_scorecards as list_scorecards,
     load_rubric_tree as load_rubric_tree,
     patch_scorecard as patch_scorecard,
+    mark_entries_human as mark_entries_human,
     qa_coverage_stats as qa_coverage_stats,
     rubric_id_for_interaction as rubric_id_for_interaction,
 )

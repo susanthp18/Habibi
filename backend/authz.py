@@ -307,6 +307,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/voice-studio/hooks/precall"),
         ("POST", "/voice-studio/hooks/transfer"),
         ("POST", "/voice-studio/hooks/run-completed"),
+        ("POST", "/voice-studio/hooks/admit"),
         ("POST", "/api/offer"),
         ("PATCH", "/api/offer"),
         ("POST", "/voice-rtc/api/offer"),
@@ -351,6 +352,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/voice-studio/routing/check"): BOT_READ,
     ("PUT", "/voice-studio/routing"): AGENT_PUBLISH,
     ("GET", "/voice-studio/agents/{workflow_id}/preflight"): BOT_READ,
+    ("GET", "/voice-studio/agents/{workflow_id}/quality"): BOT_READ,
+    ("GET", "/voice-studio/runs/{run_id}/interaction"): BOT_READ,
+    ("POST", "/voice-studio/checks/scenarios/from-call"): EVAL_RUN,
     ("POST", "/voice-studio/agents/{workflow_id}/publish"): AGENT_PUBLISH,
     ("POST", "/voice-studio/agents/{workflow_id}/rollback"): AGENT_PUBLISH,
     ("GET", "/voice-studio/releases"): BOT_READ,
@@ -442,10 +446,14 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # --- QA / coaching -----------------------------------------------------
     ("GET", "/calibration-sessions"): QA_REVIEW,
     ("PATCH", "/calibration-sessions/{session_id}"): QA_WRITE,
+    ("POST", "/qa/calibration-sessions"): QA_WRITE,
+    ("PUT", "/qa/calibration-sessions/{session_id}/scores"): QA_REVIEW,
     ("GET", "/coaching-actions"): QA_REVIEW,
     ("POST", "/coaching-actions"): QA_WRITE,
     ("PATCH", "/coaching-actions/{action_id}"): QA_WRITE,
     ("GET", "/rubric"): QA_REVIEW,
+    # A rubric edit is a new version; old scorecards keep theirs.
+    ("POST", "/qa/rubrics/{rubric_id}/versions"): QA_WRITE,
     ("GET", "/scorecards"): QA_REVIEW,
     ("GET", "/qa/coverage"): QA_REVIEW,
     ("GET", "/qa/interactions/{interaction_id}/pack"): COMPLIANCE_READ,
@@ -494,14 +502,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/treatment/decisions/{decision_id}/feedback"): COLLECTIONS_WRITE,
     ("POST", "/treatment/decisions/{decision_id}/enact"): COLLECTIONS_WRITE,
     ("GET", "/treatment/ops/{kind}"): COLLECTIONS_READ,
-    # --- outbound attempt ledger (O0) --------------------------------------
-    # Reach figures are an analytics read; the dial log names borrowers and is
-    # a collections read. Splitting them means a floor analyst can be shown the
-    # answer rate without also being shown who was called.
-    ("GET", "/outbound/stats"): ANALYTICS_READ,
-    ("GET", "/outbound/reasons"): ANALYTICS_READ,
-    ("GET", "/outbound/attempts"): COLLECTIONS_READ,
-    ("GET", "/customers/{customer_id}/outbound/hours"): COLLECTIONS_READ,
     ("GET", "/treatment/decisions"): COLLECTIONS_READ,
     ("GET", "/treatment/decisions/{decision_id}"): COLLECTIONS_READ,
     ("GET", "/treatment/current"): COLLECTIONS_READ,
@@ -519,6 +519,14 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/treatment/strategy/proposals/{proposal_id}/approve"): POLICY_APPROVE,
     ("POST", "/treatment/strategy/proposals/{proposal_id}/reject"): POLICY_APPROVE,
     ("POST", "/treatment/decide"): COLLECTIONS_WRITE,
+    # --- outbound attempt ledger (O0) --------------------------------------
+    # Reach figures are an analytics read; the dial log names borrowers and is
+    # a collections read. Splitting them means a floor analyst can be shown the
+    # answer rate without also being shown who was called.
+    ("GET", "/outbound/stats"): ANALYTICS_READ,
+    ("GET", "/outbound/reasons"): ANALYTICS_READ,
+    ("GET", "/outbound/attempts"): COLLECTIONS_READ,
+    ("GET", "/customers/{customer_id}/outbound/hours"): COLLECTIONS_READ,
     # --- campaigns, cadence, pools, obligations (O3/O4) --------------------
     # Reading a run is a collections read; creating one, adding borrowers to it
     # or starting it rings real phones and is a write. Starting is separated
@@ -560,8 +568,13 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/consent"): CONSENT_READ,
     ("PATCH", "/consent/{customer_id}"): CONSENT_WRITE,
     ("POST", "/consent/{customer_id}/opt-out"): CONSENT_WRITE,
+    # Bulk import writes through the drawer's own paths, so it needs what the
+    # drawer needs; the tenant-wide export is a compliance extract.
+    ("POST", "/consent/import"): CONSENT_WRITE,
+    ("GET", "/consent/export"): COMPLIANCE_READ,
     # --- conversations / interactions --------------------------------------
     ("GET", "/calls"): INTERACTIONS_READ,
+    ("GET", "/calls/{interaction_id}"): INTERACTIONS_READ,
     ("GET", "/conversations"): INTERACTIONS_READ,
     ("GET", "/conversations/{conversation_id}"): INTERACTIONS_READ,
     ("POST", "/conversations/{conversation_id}/messages"): INTERACTIONS_WRITE,
@@ -573,6 +586,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/interactions/{interaction_id}/cost"): BILLING_READ,
     ("GET", "/interactions/{interaction_id}/export"): INTERACTIONS_READ,
     ("GET", "/interactions/{interaction_id}/recording"): INTERACTIONS_READ,
+    ("GET", "/interactions/{interaction_id}/recording/peaks"): INTERACTIONS_READ,
+    ("GET", "/interactions/{interaction_id}/evidence"): INTERACTIONS_READ,
     ("GET", "/interactions/{interaction_id}/trace"): INTERACTIONS_READ,
     ("GET", "/handoff/active"): INTERACTIONS_READ,
     ("GET", "/handoff/queue"): INTERACTIONS_READ,
@@ -582,6 +597,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/handoff/{interaction_id}/suggestions/{suggestion_id}/accept"): INTERACTIONS_WRITE,
     # --- compliance / redaction --------------------------------------------
     ("GET", "/export-jobs"): COMPLIANCE_READ,
+    ("GET", "/export-jobs/access-roles"): COMPLIANCE_READ,
     # ANALYTICS_READ is the floor so leadership can email a dashboard CSV.
     # Redaction ZIPs still require COMPLIANCE_WRITE inside the handler.
     ("POST", "/export-jobs"): ANALYTICS_READ,

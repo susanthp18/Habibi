@@ -12,12 +12,13 @@ const STATUSES: { id: ConsentFilterState["status"]; label: string }[] = [
   { id: "expiring", label: "Expiring ≤30d" },
 ];
 
+// A channel narrows to customers opted in on it (calls: and not on DND).
 const CHANNELS: { id: "all" | ConsentChannel; label: string }[] = [
-  { id: "all", label: "All channels" },
-  { id: "call", label: CHANNEL_LABEL.call },
-  { id: "whatsapp", label: CHANNEL_LABEL.whatsapp },
-  { id: "sms", label: CHANNEL_LABEL.sms },
-  { id: "email", label: CHANNEL_LABEL.email },
+  { id: "all", label: "Any channel" },
+  { id: "call", label: `Opted in: ${CHANNEL_LABEL.call}` },
+  { id: "whatsapp", label: `Opted in: ${CHANNEL_LABEL.whatsapp}` },
+  { id: "sms", label: `Opted in: ${CHANNEL_LABEL.sms}` },
+  { id: "email", label: `Opted in: ${CHANNEL_LABEL.email}` },
 ];
 
 const SEGMENTS: { id: ConsentFilterState["segment"]; label: string }[] = [
@@ -57,7 +58,7 @@ export function ConsentFilters({
         value={filters.channel}
         onChange={(v) => onChange({ ...filters, channel: v as ConsentFilterState["channel"] })}
         size="compact"
-        className="w-[9.375rem]"
+        className="w-[11rem]"
         options={CHANNELS.map((c) => ({ value: c.id, label: c.label }))}
       />
 

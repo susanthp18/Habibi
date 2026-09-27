@@ -16,12 +16,15 @@ from schemas import (
     QaCoverageResponse,
     QaDisagreementsResponse,
     QaInteractionPackResponse,
+    CalibrationScoresSubmitRequest,
+    CalibrationSessionCreateRequest,
     CalibrationSessionPatchRequest,
     CalibrationSessionResponse,
     CoachingActionCreateRequest,
     CoachingActionPatchRequest,
     CoachingActionResponse,
     RubricResponse,
+    RubricVersionCreateRequest,
     ScorecardCreateRequest,
     ScorecardListResponse,
     ScorecardPatchRequest,
@@ -40,6 +43,13 @@ def get_rubric(rubric_id: str | None = Query(default=None, alias="rubricId")):
         return db.get_rubric(rubric_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.post("/qa/rubrics/{rubric_id}/versions", response_model=RubricResponse)
+def create_rubric_version(rubric_id: str, payload: RubricVersionCreateRequest):
+    """Save a rubric edit as a new version; new scorecards use it, old ones keep theirs."""
+    return _handle_write(
+        db.create_rubric_version, rubric_id, payload.model_dump()["sections"]
+    )
 
 @router.get("/scorecards", response_model=list[ScorecardListResponse])
 def list_scorecards(
@@ -68,7 +78,11 @@ def create_scorecard(payload: ScorecardCreateRequest):
 @router.patch("/scorecards/{scorecard_id}", response_model=ScorecardListResponse)
 def patch_scorecard(scorecard_id: str, payload: ScorecardPatchRequest):
     # exclude_unset (not exclude_none) so present keys are intentional.
-    return _handle_write(db.patch_scorecard, scorecard_id, payload.model_dump(exclude_unset=True))
+    body = payload.model_dump(exclude_unset=True)
+    result = _handle_write(db.patch_scorecard, scorecard_id, body)
+    edited = [e["criterionId"] for e in body.get("entries") or [] if e.get("score") is not None]
+    # Scores from this route are a reviewer's: mark them, keeping what the machine said.
+    return db.mark_entries_human(scorecard_id, edited) if edited else result
 
 @router.get("/coaching-actions", response_model=list[CoachingActionResponse])
 def list_coaching_actions(
@@ -93,6 +107,17 @@ def list_calibration_sessions(
     offset: int = Query(default=0, ge=0),
 ):
     return db.list_calibration_sessions(limit=limit, offset=offset)
+
+@router.post("/qa/calibration-sessions", response_model=CalibrationSessionResponse)
+def create_calibration_session(payload: CalibrationSessionCreateRequest):
+    return _handle_write(
+        db.create_calibration_session, payload.interactionId, payload.reviewerUserIds
+    )
+
+@router.put("/qa/calibration-sessions/{session_id}/scores", response_model=CalibrationSessionResponse)
+def submit_calibration_scores(session_id: str, payload: CalibrationScoresSubmitRequest):
+    """The acting reviewer's scores; only a reviewer the session invited."""
+    return _handle_write(db.submit_calibration_scores, session_id, payload.model_dump())
 
 @router.patch(
     "/calibration-sessions/{session_id}",

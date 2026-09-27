@@ -35,6 +35,8 @@ export interface Violation {
   status: ViolationStatus;
   assignee?: string;
   notes: ViolationNote[];
+  /** When it was resolved (the resolve action in the activity log). */
+  resolvedAt?: string | null;
 }
 // ---------- filters ----------
 export type CompDateRange = "today" | "7d" | "30d" | "all";

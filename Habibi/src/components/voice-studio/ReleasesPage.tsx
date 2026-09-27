@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { useReleases, useStudioAgents } from "@/api/voice-studio";
+import { useReleaseQuality, useReleases, useStudioAgents } from "@/api/voice-studio";
+import { VersionQualityTable } from "./VersionQualityTable";
 import { QueryState } from "@/components/ui/query-state";
 import { SelectField } from "@/components/ui/select";
 import {
@@ -26,6 +27,7 @@ export default function ReleasesPage() {
   const releases = useReleases(agent === ALL ? null : Number(agent), 200);
   const names = new Map((agents.data ?? []).map((a) => [a.id, a.name]));
   const rows = releases.data ?? [];
+  const quality = useReleaseQuality(agent === ALL ? null : Number(agent));
 
   return (
     <div className="mx-auto max-w-[72rem] space-y-300 p-300">
@@ -46,6 +48,14 @@ export default function ReleasesPage() {
           ...(agents.data ?? []).map((a) => ({ value: String(a.id), label: a.name })),
         ]}
       />
+      {agent !== ALL && (
+        <section className="space-y-100">
+          <h2 className="heading-small font-semibold">Versions on real calls (last 90 days)</h2>
+          <QueryState query={quality} label="version quality">
+            <VersionQualityTable rows={quality.data ?? []} />
+          </QueryState>
+        </section>
+      )}
       <QueryState
         query={releases}
         label="releases"

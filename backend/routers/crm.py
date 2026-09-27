@@ -52,6 +52,8 @@ from schemas import (
     FollowupPatchRequest,
     IdStatusResponse,
     InteractionCostResponse,
+    RecordingPeaksResponse,
+    EvidenceVerificationResponse,
     InteractionCreateRequest,
     InteractionWrapUpRequest,
     LeadCreateRequest,
@@ -152,20 +154,33 @@ def export_interaction(
 @router.get("/interactions/{interaction_id}/recording", response_class=Response)
 def get_interaction_recording(
     interaction_id: str,
-    variant: str = Query("original", pattern="^(original|redacted)$"),
+    variant: str = Query("auto", pattern="^(auto|original|redacted)$"),
 ):
-    """Stream the operator WAV (stereo audio, or sip_audio fallback)."""
+    """Stream the call recording (stereo: customer left, agent right).
+
+    The unredacted recording is raw PII -- card numbers, OTPs, dates of birth
+    as spoken -- so it needs ``PII_RAW_READ``, the same grant as raw PII in
+    the Redaction hub. Everyone else hears the redacted copy, with each
+    finding beeped. ``auto`` picks the best the caller may hear.
+    """
     import authz
     from db_core import _actor_user_id
     from voice.recordings import log_recording_download, stream_recording
 
-    if variant == "redacted":
-        uid = (_actor_user_id() or "").strip()
-        if not uid or not authz.has_permission(uid, authz.COMPLIANCE_READ):
-            raise HTTPException(status_code=403, detail="redacted_requires_compliance_read")
+    uid = (_actor_user_id() or "").strip()
+    raw_allowed = bool(uid) and authz.has_permission(uid, authz.PII_RAW_READ)
+    if variant == "auto":
+        variant = "original" if raw_allowed else "redacted"
+    if variant == "original" and not raw_allowed:
+        raise HTTPException(status_code=403, detail="original_requires_raw_pii")
     try:
         payload = stream_recording(interaction_id, variant=variant)
     except KeyError:
+        from voice.recordings import media_for_interaction
+
+        if variant == "redacted" and media_for_interaction(interaction_id, variant="original"):
+            # The call has audio; its redacted copy is still being made.
+            raise HTTPException(status_code=409, detail="redaction_pending") from None
         raise HTTPException(status_code=404, detail="recording_not_found") from None
     except Exception as exc:
         logger.exception("recording stream failed interaction=%s", interaction_id)
@@ -182,8 +197,52 @@ def get_interaction_recording(
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
             "Cache-Control": "private, no-store",
+            "X-Recording-Variant": variant,
+            "Access-Control-Expose-Headers": "X-Recording-Variant",
         },
     )
+
+@router.get("/interactions/{interaction_id}/recording/peaks", response_model=RecordingPeaksResponse)
+def get_interaction_recording_peaks(interaction_id: str, bins: int = Query(240, ge=20, le=2000)):
+    """The recording's loudness per channel in ``bins`` buckets, for drawing a
+    waveform. Shape only -- no audio, nothing that could be listened back."""
+    from voice.recordings import media_for_interaction, recording_peaks
+
+    media = media_for_interaction(interaction_id, variant="original")
+    if media is None:
+        raise HTTPException(status_code=404, detail="recording_not_found")
+    try:
+        return recording_peaks(str(media["id"]), str(media["storage_ref"]), bins)
+    except Exception as exc:
+        logger.exception("recording peaks failed interaction=%s", interaction_id)
+        raise HTTPException(status_code=503, detail="recording_unavailable") from exc
+
+
+@router.get("/interactions/{interaction_id}/evidence", response_model=EvidenceVerificationResponse)
+def verify_interaction_evidence(interaction_id: str):
+    """Recompute the call's evidence-chain link: hash, predecessor, recording
+    bytes, and -- for a Voice Studio call -- the words as the engine heard them."""
+    from sqlalchemy import text
+
+    import evidence_chain
+
+    turns = None
+    with db.engine.connect() as conn:
+        payload = conn.execute(
+            text("SELECT source_payload FROM interactions WHERE id = :id"), {"id": interaction_id}
+        ).scalar()
+    studio = (payload or {}).get("voiceStudio") or {}
+    if studio.get("engineRunId"):
+        from call_intel.inputs import _engine_turns
+
+        spoken = _engine_turns(studio)
+        turns = [(t.speaker, t.text) for t in spoken] if spoken is not None else None
+    try:
+        return evidence_chain.verify(interaction_id, turns=turns)
+    except Exception as exc:
+        logger.exception("evidence verification failed interaction=%s", interaction_id)
+        raise HTTPException(status_code=503, detail="evidence_unavailable") from exc
+
 
 @router.get("/interactions/{interaction_id}/cost", response_model=InteractionCostResponse)
 def get_interaction_cost(interaction_id: str):

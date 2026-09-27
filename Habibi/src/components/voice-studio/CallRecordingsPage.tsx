@@ -1,12 +1,60 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { client } from "@/agentstudio/client/client.gen";
 import type { UsageHistoryResponse } from "@/agentstudio/client/types.gen";
-import { MediaPreviewDialog } from "@/agentstudio/components/MediaPreviewDialog";
+import { useRecording } from "@/api/recordings";
+import { useRunInteraction } from "@/api/voice-studio";
 import { detailFromError } from "@/agentstudio/lib/apiError";
 import { formatDateTime } from "@/agentstudio/lib/dateTime";
 import { useOrganizationTimezone } from "@/agentstudio/hooks/useOrganizationTimezone";
+
+/**
+ * A run's recording, played through PayInt: the redacted copy (every finding
+ * beeped), or the original for a viewer with raw-PII permission -- the same
+ * rule and audit as the Audit and Redaction pages. The engine does not sign
+ * call audio for the browser.
+ */
+function RunRecording({ runId }: { runId: number }) {
+  const link = useRunInteraction(runId);
+  const interactionId = link.data?.interactionId ?? "";
+  const recording = useRecording(interactionId, "auto");
+  if (link.isPending) return <p className="text-sm text-muted-foreground">Finding the call…</p>;
+  if (!interactionId)
+    return (
+      <p className="text-sm text-muted-foreground">
+        This run was not filed as a customer call (a test or unconnected run), so it has no PayInt
+        recording.
+      </p>
+    );
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {recording.kind === "ready" ? (
+        // The call's transcript on the run page is the caption track.
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <audio src={recording.src} controls className="min-w-[20rem] flex-1" />
+      ) : (
+        <span className="text-sm text-muted-foreground">
+          {recording.kind === "loading"
+            ? "Loading recording…"
+            : recording.kind === "pending"
+              ? "The redacted recording is still being made."
+              : recording.kind === "none"
+                ? "No recording."
+                : "The recording could not be loaded."}
+        </span>
+      )}
+      {recording.kind === "ready" && (
+        <span className="text-xs text-muted-foreground">
+          {recording.variant === "redacted" ? "Redacted: personal data beeped" : "Original"}
+        </span>
+      )}
+      <Link to="/audit" search={{ id: interactionId }} className="text-sm underline">
+        Open in Audit
+      </Link>
+    </div>
+  );
+}
 
 const telephonyFilter = JSON.stringify([
   { attribute: "callChannel", type: "radio", value: { status: "telephony" } },
@@ -18,7 +66,7 @@ export default function CallRecordingsPage() {
   const [data, setData] = useState<UsageHistoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const preview = MediaPreviewDialog();
+  const [playing, setPlaying] = useState<number | null>(null);
   const timezone = useOrganizationTimezone();
 
   useEffect(() => {
@@ -95,36 +143,39 @@ export default function CallRecordingsPage() {
                 </thead>
                 <tbody>
                   {data.runs.map((run) => (
-                    <tr key={run.id} className="border-t">
-                      <td className="p-3">{formatDateTime(run.created_at, timezone)}</td>
-                      <td className="p-3">{run.workflow_name || `Agent ${run.workflow_id}`}</td>
-                      <td className="p-3">{run.call_type || "Unknown"}</td>
-                      <td className="p-3">{Math.round(run.call_duration_seconds || 0)}s</td>
-                      <td className="p-3">
-                        <Link
-                          to="/studio/workflow/$workflowId/run/$runId"
-                          params={{ workflowId: String(run.workflow_id), runId: String(run.id) }}
-                          className="underline"
-                        >
-                          #{run.id}
-                        </Link>
-                      </td>
-                      <td className="p-3">
-                        <button
-                          className="underline disabled:opacity-50"
-                          disabled={!run.recording_url}
-                          onClick={() =>
-                            void preview.openPreview(
-                              run.recording_url ?? null,
-                              run.transcript_url ?? null,
-                              run.id,
-                            )
-                          }
-                        >
-                          Play
-                        </button>
-                      </td>
-                    </tr>
+                    <Fragment key={run.id}>
+                      <tr className="border-t">
+                        <td className="p-3">{formatDateTime(run.created_at, timezone)}</td>
+                        <td className="p-3">{run.workflow_name || `Agent ${run.workflow_id}`}</td>
+                        <td className="p-3">{run.call_type || "Unknown"}</td>
+                        <td className="p-3">{Math.round(run.call_duration_seconds || 0)}s</td>
+                        <td className="p-3">
+                          <Link
+                            to="/studio/workflow/$workflowId/run/$runId"
+                            params={{ workflowId: String(run.workflow_id), runId: String(run.id) }}
+                            className="underline"
+                          >
+                            #{run.id}
+                          </Link>
+                        </td>
+                        <td className="p-3">
+                          <button
+                            className="underline disabled:opacity-50"
+                            disabled={!run.recording_url}
+                            onClick={() => setPlaying(playing === run.id ? null : run.id)}
+                          >
+                            {playing === run.id ? "Close" : "Play"}
+                          </button>
+                        </td>
+                      </tr>
+                      {playing === run.id && (
+                        <tr className="border-t bg-muted/30">
+                          <td colSpan={6} className="p-3">
+                            <RunRecording runId={run.id} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -151,7 +202,6 @@ export default function CallRecordingsPage() {
           </div>
         </>
       )}
-      {preview.dialog}
     </div>
   );
 }

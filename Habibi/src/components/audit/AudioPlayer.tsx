@@ -12,9 +12,12 @@ interface Props {
   onSeek: (t: number) => void;
   onPlayPause: () => void;
   onSpeedChange: (s: number) => void;
-  seedForBars: string;
-  /** Object URL for the real WAV. When set, playback is driven by <audio>. */
+  /** Loudness per bucket (0..1) from the real recording. */
+  peaks?: number[];
+  /** Object URL for the recording. Without one there is nothing to play. */
   src?: string | null;
+  /** What is (or is not) playing, shown under the controls. */
+  status?: string;
 }
 
 const SPEEDS = [1, 1.5, 2];
@@ -27,29 +30,25 @@ export function AudioPlayer({
   onSeek,
   onPlayPause,
   onSpeedChange,
-  seedForBars,
+  peaks,
   src,
+  status,
 }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // Draw the real loudness, bucketed down to 80 bars; flat until it loads.
   const bars = useMemo(() => {
-    let h = 2166136261;
-    for (let i = 0; i < seedForBars.length; i++) {
-      h ^= seedForBars.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    const out: number[] = [];
-    for (let i = 0; i < 80; i++) {
-      h += 0x6d2b79f5;
-      let t = h;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      const v = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      out.push(0.2 + v * 0.8);
-    }
-    return out;
-  }, [seedForBars]);
+    if (!peaks?.length) return Array.from({ length: 80 }, () => 0.08);
+    const per = peaks.length / 80;
+    return Array.from({ length: 80 }, (_, i) => {
+      const slice = peaks.slice(
+        Math.floor(i * per),
+        Math.max(Math.floor(i * per) + 1, Math.floor((i + 1) * per)),
+      );
+      return Math.max(0.06, Math.min(1, Math.max(...slice) * 1.4));
+    });
+  }, [peaks]);
 
   const pct = Math.max(0, Math.min(1, currentTime / Math.max(duration, 0.001)));
 
@@ -97,6 +96,8 @@ export function AudioPlayer({
   return (
     <div className="rounded-medium border border-border bg-surface p-150">
       {src ? (
+        // The call's transcript, shown beside the player, is its caption track.
+        // eslint-disable-next-line jsx-a11y/media-has-caption
         <audio
           ref={audioRef}
           src={src}
@@ -120,6 +121,7 @@ export function AudioPlayer({
         <Button
           size="icon"
           className="h-9 w-9"
+          disabled={!src}
           onClick={onPlayPause}
           aria-label={playing ? "Pause" : "Play"}
         >
@@ -174,6 +176,7 @@ export function AudioPlayer({
           </div>
           <div className="mt-050 flex justify-between font-mono text-body-small text-text-subtlest">
             <span>{formatDuration(currentTime)}</span>
+            {status ? <span className="font-sans">{status}</span> : null}
             <span>{formatDuration(duration)}</span>
           </div>
         </div>

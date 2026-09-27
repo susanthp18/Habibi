@@ -720,3 +720,32 @@ class OutboundHourResponse(BaseModel):
     attempts: int
     answered: int
     answerRate: float | None = None
+
+
+class RecordingPeaksResponse(BaseModel):
+    """A recording's loudness per channel, for drawing its waveform."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    durationSec: float
+    # "customer" and "agent" for a stereo recording, "mixed" for mono.
+    channels: dict[str, list[float]]
+
+
+class EvidenceCheckResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    check: str
+    ok: bool
+
+
+class EvidenceVerificationResponse(BaseModel):
+    """The call's evidence-chain link, recomputed now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    linked: bool
+    ok: bool
+    hash: str | None = None
+    seq: int | None = None
+    checks: list[EvidenceCheckResponse] = []

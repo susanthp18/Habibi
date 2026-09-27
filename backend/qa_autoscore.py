@@ -311,6 +311,50 @@ def score_interaction(
         return None
 
 
+def judge(
+    interaction_id: str,
+    criteria: list[dict[str, Any]],
+    evidence: str,
+) -> dict[str, tuple[float, str]] | None:
+    """Tier 2 of the call-intelligence QA cascade: score only ``criteria``.
+
+    The small models and the call's own evidence settle what they can; what
+    they could not is sent here with what they found, so the judge reads fewer
+    criteria and does not rediscover known facts. Same masked, fenced
+    transcript, same forced tool call and coverage gate as ``score_interaction``.
+    None when it cannot score (disabled, too little transcript, Azure busy or
+    down, partial answer): the caller leaves those criteria for a person.
+    """
+    import azure_openai
+    import transcript_view
+
+    if not criteria:
+        return {}
+    transcript = transcript_view.fenced_transcript(interaction_id, limit=TRANSCRIPT_TURNS)
+    if not transcript:
+        return None
+    rubric = {"sections": [{"label": "Criteria to score", "criteria": criteria}]}
+    try:
+        result = azure_openai.chat_with_tools(
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT + "\n" + _render_rubric(rubric)
+                 + "\n\nWhat automated checks already established about this call (trust it; "
+                   "do not re-derive it):\n" + evidence},
+                {"role": "user", "content": transcript},
+            ],
+            tools=[_tool_schema(criteria)],
+            tool_choice={"type": "function", "function": {"name": _TOOL_NAME}},
+            temperature=0.0,
+            max_completion_tokens=800,
+            profile=azure_openai.PROFILE_ANALYSIS,
+        )
+    except Exception:
+        logger.warning("qa judge unavailable · ix=%s", interaction_id, exc_info=True)
+        return None
+    payload = _parse(result)
+    return _validate(payload, criteria) if payload is not None else None
+
+
 def _parse(result: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
@@ -430,6 +474,11 @@ _SELECT_SQL = """
      WHERE i.tenant_id = :tenant_id
        AND i.status = 'completed'
        AND i.handler_kind = 'bot'
+       -- Calls the call-intelligence pass owns are scored by its cascade
+       -- (call_intel.qa), which calls the judge only where it is needed.
+       AND NOT EXISTS (
+             SELECT 1 FROM call_intelligence_jobs j WHERE j.interaction_id = i.id
+           )
        AND i.ended_at BETWEEN now() - CAST(:max_age AS interval)
                           AND now() - CAST(:min_age AS interval)
        AND (

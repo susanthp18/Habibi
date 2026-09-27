@@ -32,13 +32,29 @@ function spark(data: number[], tone: StatTone) {
   );
 }
 
+const NONE = "—";
+const pct = (v: number | null) => (v == null ? NONE : `${v.toFixed(1)}%`);
+const secs = (ms: number | null) => (ms == null ? NONE : `${(ms / 1000).toFixed(2)}s`);
+
 export function HeroStrip({ kpis }: { kpis: Kpis }) {
   const containment: StatTone =
-    kpis.containment >= 80 ? "success" : kpis.containment >= 65 ? "warning" : "danger";
+    kpis.containment == null
+      ? "neutral"
+      : kpis.containment >= 80
+        ? "success"
+        : kpis.containment >= 65
+          ? "warning"
+          : "danger";
   const escalation: StatTone = kpis.escalation > 20 ? "danger" : "warning";
   const ptp: StatTone = kpis.ptpRate >= 15 ? "success" : "warning";
-  const latency: StatTone = kpis.latencyP90 > VOICE_TTFA_SLO_MS ? "warning" : "success";
-  const csat: StatTone = kpis.csatProxy >= 75 ? "success" : "warning";
+  const latency: StatTone =
+    kpis.latencyP90 == null
+      ? "neutral"
+      : kpis.latencyP90 > VOICE_TTFA_SLO_MS
+        ? "warning"
+        : "success";
+  const lift: StatTone =
+    kpis.sentimentLift == null ? "neutral" : kpis.sentimentLift >= 0 ? "success" : "warning";
   return (
     <MetricsStrip
       className="border-b border-border bg-surface px-250 py-150 md:grid-cols-4 xl:grid-cols-8"
@@ -47,8 +63,12 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           variant: "card",
           icon: ShieldCheck,
           label: "Containment",
-          value: `${kpis.containment.toFixed(1)}%`,
-          sub: `${kpis.sessions.toLocaleString()} sessions`,
+          value: pct(kpis.containment),
+          sub: (
+            <span title="Bot sessions never handed to a human, over all bot sessions in range.">
+              {kpis.sessions.toLocaleString()} sessions · no human handoff
+            </span>
+          ),
           tone: containment,
           footer: spark(kpis.containmentSpark, containment),
         },
@@ -56,8 +76,16 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           variant: "card",
           icon: Bot,
           label: "Deflection",
-          value: `${kpis.deflection.toFixed(1)}%`,
-          sub: "Resolved without human",
+          value: pct(kpis.deflection),
+          sub: (
+            <span
+              title={`Inbound bot sessions resolved with no human handoff and no repeat contact from the customer within ${kpis.repeatContactDays} days. Only sessions at least ${kpis.repeatContactDays} days old count.`}
+            >
+              {kpis.deflectionEligible
+                ? `No human, no repeat in ${kpis.repeatContactDays}d · ${kpis.deflectionEligible} inbound`
+                : `Needs inbound sessions ${kpis.repeatContactDays}+ days old`}
+            </span>
+          ),
           footer: spark(kpis.sessionsSpark, "brand"),
         },
         {
@@ -98,19 +126,28 @@ export function HeroStrip({ kpis }: { kpis: Kpis }) {
           variant: "card",
           icon: Timer,
           label: "Latency p90",
-          value: `${(kpis.latencyP90 / 1000).toFixed(2)}s`,
-          sub: `p50 ${(kpis.latencyP50 / 1000).toFixed(2)}s · SLO ${VOICE_TTFA_SLO_MS}ms`,
+          value: secs(kpis.latencyP90),
+          sub: `p50 ${secs(kpis.latencyP50)} · SLO ${VOICE_TTFA_SLO_MS}ms · over calls`,
           tone: latency,
           footer: spark(kpis.latencySpark, latency),
         },
         {
           variant: "card",
           icon: Smile,
-          label: "CSAT proxy",
-          value: kpis.csatProxy.toFixed(0),
-          sub: `Sent ${kpis.avgSentiment.toFixed(2)}`,
-          tone: csat,
-          footer: spark(kpis.sentimentSpark, csat),
+          label: "Sentiment lift",
+          value:
+            kpis.sentimentLift == null
+              ? NONE
+              : `${kpis.sentimentLift > 0 ? "+" : ""}${kpis.sentimentLift.toFixed(2)}`,
+          sub: (
+            <span title="Per call: the customer's last sentiment minus their first (scale -1 to 1, so -2 to +2), averaged over calls with at least two readings. Positive means callers ended happier than they started.">
+              {kpis.sentimentLiftCalls
+                ? `Last − first customer turn · ${kpis.sentimentLiftCalls} calls`
+                : "No sentiment signals in range"}
+            </span>
+          ),
+          tone: lift,
+          footer: spark(kpis.sentimentSpark, lift),
         },
       ]}
     />

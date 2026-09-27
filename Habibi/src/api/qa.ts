@@ -4,7 +4,7 @@
 //   Coaching / calibration: GET + POST/PATCH (fast-follow)
 // -----------------------------------------------------------------------------
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   CalibrationSession,
@@ -14,7 +14,7 @@ import type {
   Scorecard,
   ScorecardEntry,
 } from "@/api/types/qa";
-import { apiGet, apiPatch, apiPost } from "./config";
+import { apiGet, apiPatch, apiPost, apiPut } from "./config";
 import { currentActor } from "./me";
 import { toast } from "sonner";
 
@@ -32,6 +32,7 @@ export type QaCoverage = {
   scored: number;
   coverage: number | null;
   pendingReview: number;
+  /** Critical criteria scored 0 in the window (not red-band scorecards). */
   criticalFails: number;
 };
 
@@ -59,6 +60,64 @@ export function useRubric(rubricId?: string | null) {
     queryKey: ["rubric", rubricId ?? "default"],
     queryFn: () => fetchRubric(rubricId),
     staleTime: 5 * 60_000,
+  });
+}
+
+function byRubricId(results: Array<{ data?: Rubric }>): Record<string, Rubric> {
+  const out: Record<string, Rubric> = {};
+  for (const r of results) if (r.data) out[r.data.id] = r.data;
+  return out;
+}
+
+/**
+ * Every rubric version the given scorecards / sessions were scored on. A card
+ * is totalled against its own version: after a rubric edit the active rubric
+ * no longer has an old card's criteria, and would read it as all zeros.
+ */
+export function useRubricsById(ids: Array<string | null | undefined>) {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))].sort();
+  return useQueries({
+    queries: unique.map((id) => ({
+      queryKey: ["rubric", id],
+      queryFn: () => fetchRubric(id),
+      staleTime: 5 * 60_000,
+    })),
+    combine: byRubricId,
+  });
+}
+
+/**
+ * Save an edited rubric as a new version (POST /qa/rubrics/{id}/versions).
+ * New scorecards use it; existing ones keep the version they were scored on.
+ * Criteria keep their predecessor's id so the server can carry the lineage.
+ */
+export async function createRubricVersion(base: Rubric, next: Rubric): Promise<Rubric> {
+  return apiPost<Rubric>(`/qa/rubrics/${encodeURIComponent(base.id)}/versions`, {
+    sections: next.sections.map((s) => ({
+      label: s.label,
+      weight: s.weight,
+      criteria: s.criteria.map((c) => ({
+        id: c.id,
+        label: c.label,
+        description: c.description,
+        weight: c.weight,
+        critical: !!c.critical,
+      })),
+    })),
+  });
+}
+
+export function useCreateRubricVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { base: Rubric; next: Rubric }) => createRubricVersion(v.base, v.next),
+    onSuccess: (saved) => {
+      void qc.invalidateQueries({ queryKey: ["rubric"] });
+      toast.success(`Rubric saved as ${saved.version}`, {
+        description: "New scorecards use it; scored calls keep the version they were scored on.",
+      });
+    },
   });
 }
 
@@ -129,6 +188,13 @@ export async function patchCalibrationSession(
   return apiPatch<CalibrationSession>(`/calibration-sessions/${id}`, patch);
 }
 
+export async function createCalibrationSession(v: {
+  interactionId: string;
+  reviewerUserIds: string[];
+}): Promise<CalibrationSession> {
+  return apiPost<CalibrationSession>("/qa/calibration-sessions", v);
+}
+
 export type { Rubric, Scorecard, ScorecardEntry, CoachingAction, CalibrationSession };
 
 // ---------- mutations ----------
@@ -185,6 +251,20 @@ export function useCreateCoachingAction() {
   });
 }
 
+export function useCreateCalibrationSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: createCalibrationSession,
+    onSuccess: (session) => {
+      void qc.invalidateQueries({ queryKey: ["calibration-sessions"] });
+      toast.success("Calibration session opened", {
+        description: `${session.customerName} · ${session.reviewers.length} reviewers`,
+      });
+    },
+  });
+}
+
 export function useCloseCalibrationSession() {
   const qc = useQueryClient();
   return useMutation({
@@ -230,5 +310,24 @@ export function useQaDisagreements(limit = 50) {
     queryKey: ["eval-disagreements", limit],
     queryFn: () => fetchQaDisagreements(limit),
     staleTime: 60_000,
+  });
+}
+
+/** The acting reviewer's scores for a calibration session they were invited to. */
+export function useSubmitCalibrationScores() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (v: { sessionId: string; entries: { criterionId: string; score: number }[] }) =>
+      apiPut<CalibrationSession>(
+        `/qa/calibration-sessions/${encodeURIComponent(v.sessionId)}/scores`,
+        {
+          entries: v.entries,
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calibration-sessions"] });
+      toast.success("Calibration scores submitted");
+    },
   });
 }

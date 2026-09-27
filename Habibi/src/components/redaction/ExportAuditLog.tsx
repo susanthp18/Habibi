@@ -70,6 +70,11 @@ export function ExportAuditLog({ jobs, onDownload, onRetry }: Props) {
                     <Download className="h-3 w-3" /> Download
                   </button>
                 )}
+                {j.status === "failed" && j.error && (
+                  <span className="mr-auto text-body-small text-text-danger" title={j.error}>
+                    {j.error.length > 70 ? j.error.slice(0, 70) + "…" : j.error}
+                  </span>
+                )}
                 {j.status === "failed" && (
                   <button
                     onClick={() => onRetry(j.id)}
@@ -96,6 +101,7 @@ function StatusPill({ status }: { status: ExportJob["status"] }) {
   const map = {
     ready: { icon: CheckCircle2, bg: "var(--success-bg)", fg: "var(--success)", label: "Ready" },
     queued: { icon: Clock, bg: "var(--warning-bg)", fg: "var(--warning)", label: "Queued" },
+    running: { icon: Clock, bg: "var(--warning-bg)", fg: "var(--warning)", label: "Building" },
     failed: { icon: AlertCircle, bg: "var(--danger-bg)", fg: "var(--danger)", label: "Failed" },
   } as const;
   const s = map[status];

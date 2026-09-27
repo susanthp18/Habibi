@@ -182,6 +182,33 @@ def _maybe_scan_for_violations() -> None:
         logger.exception("compliance sweep failed")
 
 
+# Voice Studio calls are filed by the engine's post-call delivery; this sweep
+# files any it missed (engine restart, PayInt down) and repairs audio refs
+# filed before the recording fix. Cheap when there is nothing to do: one
+# engine listing and one indexed lookup.
+_STUDIO_RECONCILE_INTERVAL_S = 600.0
+_last_studio_reconcile = 0.0
+
+
+def _maybe_reconcile_voice_studio() -> None:
+    global _last_studio_reconcile
+
+    now = time.monotonic()
+    if now - _last_studio_reconcile < _STUDIO_RECONCILE_INTERVAL_S:
+        return
+    _last_studio_reconcile = now
+    try:
+        import voice_studio
+
+        if voice_studio.preflight():
+            return  # Voice Studio is not configured on this deployment
+        report = voice_studio.reconcile_runs()
+        if report["filed"] or report["repaired"] or report["failed"]:
+            logger.info("voice studio reconcile %s", report)
+    except Exception:
+        logger.exception("voice studio reconcile failed")
+
+
 # Product routing profiles follow the documents they were written from: a new
 # product, a re-ingest or a prompt change regenerates them here, with no
 # migration or manual step (kb_products.py). Cheap when nothing changed -- one
@@ -414,6 +441,13 @@ def _maybe_policy_jobs() -> None:
         logger.exception("policy jobs failed")
 
 
+def _maybe_decision_jobs() -> None:
+    """The decision engine's schedule: snapshots, nightly learning, weekly training."""
+    import decision_jobs
+
+    decision_jobs.tick(_daily, utc_now())
+
+
 def main() -> None:
     import actor_context
 
@@ -441,13 +475,7 @@ def main() -> None:
         _maybe_revalidate_open_leads()
         _maybe_sweep_due_followups()
         _maybe_scan_for_violations()
-def _maybe_decision_jobs() -> None:
-    """The decision engine's schedule: snapshots, nightly learning, weekly training."""
-    import decision_jobs
-
-    decision_jobs.tick(_daily, utc_now())
-
-
+        _maybe_reconcile_voice_studio()
         _maybe_purge_rate_limit_counters()
         _maybe_autoscore_interactions()
         _maybe_garden_kb_gaps()
@@ -455,6 +483,7 @@ def _maybe_decision_jobs() -> None:
         _maybe_run_eval_schedule()
         _maybe_drain_mcp_tasks()
         _maybe_policy_jobs()
+        _maybe_decision_jobs()
         return process_one(db.engine)
 
     work_loop.run(step, poll=args.poll, name="kb worker")
@@ -462,4 +491,3 @@ def _maybe_decision_jobs() -> None:
 
 if __name__ == "__main__":
     main()
-        _maybe_decision_jobs()

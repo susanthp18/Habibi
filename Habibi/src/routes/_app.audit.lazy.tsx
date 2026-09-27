@@ -7,7 +7,7 @@ import { CallsTable } from "@/components/audit/CallsTable";
 import { CallDetailDrawer } from "@/components/audit/CallDetailDrawer";
 import type { AuditFilterState } from "@/api/types/audit";
 import { defaultFilters, filterCalls } from "@/lib/audit";
-import { useCalls } from "@/api/audit";
+import { useCall, useCallPages } from "@/api/audit";
 import { createExportJob, fetchRedactionRecords } from "@/api/redaction";
 import { planAuditExport } from "@/lib/audit-export";
 import { mutationErrorMessage } from "@/lib/mutation-errors";
@@ -20,22 +20,27 @@ export const Route = createLazyFileRoute("/_app/audit")({
 });
 
 function AuditPage() {
-  const { id } = Route.useSearch();
+  const { id, t } = Route.useSearch();
   const [filters, setFilters] = useState<AuditFilterState>(defaultFilters);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(id ?? null);
 
-  const { data: calls = [], isLoading, isError, error } = useCalls();
+  const pages = useCallPages();
+  const { isLoading, isError, error } = pages;
+  const calls = useMemo(() => pages.data?.pages.flat() ?? [], [pages.data]);
 
   useEffect(() => {
     if (id) setOpenId(id);
   }, [id]);
 
   const rows = useMemo(() => filterCalls(calls, filters), [calls, filters]);
-  const openCall = useMemo(
+  const loaded = useMemo(
     () => rows.find((r) => r.id === openId) ?? calls.find((c) => c.id === openId) ?? null,
     [calls, openId, rows],
   );
+  // A deep link to a call outside the loaded pages is fetched on its own.
+  const single = useCall(openId && !loaded ? openId : null);
+  const openCall = loaded ?? single.data ?? null;
 
   const handleExport = () => {
     const ids = selected.size > 0 ? Array.from(selected) : rows.map((r) => r.id);
@@ -118,11 +123,29 @@ function AuditPage() {
               isError={isError}
               error={error}
             />
+            {pages.hasNextPage && (
+              <div className="flex justify-center pt-100">
+                <button
+                  type="button"
+                  onClick={() => void pages.fetchNextPage()}
+                  disabled={pages.isFetchingNextPage}
+                  className="rounded-medium border border-border px-150 py-050 text-body-small text-text hover:bg-surface-sunken"
+                >
+                  {pages.isFetchingNextPage
+                    ? "Loading…"
+                    : `Load older calls (${calls.length} loaded)`}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <CallDetailDrawer call={openCall} onClose={() => setOpenId(null)} />
+      <CallDetailDrawer
+        call={openCall}
+        startAt={openCall?.id === id ? t : undefined}
+        onClose={() => setOpenId(null)}
+      />
     </>
   );
 }

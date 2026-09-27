@@ -296,3 +296,56 @@ export function useSimulateCustomer(workflowId: number) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["voice-studio", "checks", workflowId] }),
   });
 }
+
+/** One released version of an agent, judged on its real calls (call intelligence). */
+export interface VersionQuality {
+  /** null: calls on a draft, before it was published. */
+  version: number | null;
+  calls: number;
+  scored: number;
+  qaAvg: number | null;
+  criticalFailPct: number | null;
+  violationsPer100: number | null;
+  /** Calls on which the agent itself spoke personal data it must not. */
+  agentPiiCalls: number;
+  containmentPct: number | null;
+  avgSentiment: number | null;
+}
+
+export function useReleaseQuality(workflowId: number | null, days = 90) {
+  return useQuery({
+    queryKey: ["voice-studio", "quality", workflowId, days],
+    queryFn: () =>
+      apiGet<VersionQuality[]>(`/voice-studio/agents/${workflowId}/quality?days=${days}`),
+    enabled: workflowId != null,
+    staleTime: 60_000,
+  });
+}
+
+/** Turn a real call into a scripted Checks scenario (masked values replaced by test ones). */
+export function scenarioFromCall(interactionId: string) {
+  return apiPost<{ id: string; name: string; turns: number }>(
+    "/voice-studio/checks/scenarios/from-call",
+    { interactionId },
+  );
+}
+
+/** What PayInt made of an engine run: the call it was filed as, and its compliance and QA. */
+export interface RunIntel {
+  /** null: a test or unconnected run, never filed as a customer call. */
+  interactionId: string | null;
+  qaTotal?: number | null;
+  qaBand?: string | null;
+  qaStatus?: string | null;
+  piiMasked?: number;
+  violations?: number;
+  /** The call-intelligence pass: queued | running | done | failed. */
+  processing?: string | null;
+}
+
+export function useRunInteraction(runId: number) {
+  return useQuery({
+    queryKey: ["voice-studio", "run-interaction", runId],
+    queryFn: () => apiGet<RunIntel>(`/voice-studio/runs/${runId}/interaction`),
+  });
+}

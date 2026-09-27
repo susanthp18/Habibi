@@ -58,6 +58,64 @@ class ConsentChannelResponse(BaseModel):
     source: Literal["IVR", "Agent", "Web", "Regulator", "Bulk Import", "WhatsApp Reply", "Onboarding"]
     frequencyCapPerWeek: int
     usedThisWeek: int
+    #: `status` is the servicing consent (what the contact Gate reads); this is
+    #: the promotional one, None when it was never captured.
+    promotional: Literal["opted_in", "opted_out", "dnd", "expired"] | None = None
+
+
+class ConsentImportRow(BaseModel):
+    """One CSV row as the browser parsed it. Values are checked per row by
+    ``db_consent._plan_import`` so one bad cell is a row error, not a 422."""
+
+    customer_id: str | None = None
+    channel: str | None = None
+    status: str | None = None
+    purpose: str | None = None
+    dnd: str | bool | None = None
+    note: str | None = None
+
+
+class ConsentImportRequest(BaseModel):
+    rows: list[ConsentImportRow] = Field(min_length=1, max_length=5000)
+    dryRun: bool = True
+
+
+class ConsentImportRowResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    row: int
+    customerId: str
+    channel: Literal["call", "whatsapp", "sms", "email"] | None
+    status: str | None
+    purpose: str
+    dnd: bool | None
+    note: str
+    ok: bool
+    error: str | None
+    change: Literal["none", "opt_in", "opt_out", "dnd_on", "dnd_off"]
+    dndChange: Literal["dnd_on", "dnd_off"] | None
+
+
+class ConsentImportChanges(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opt_in: int
+    opt_out: int
+    dnd_on: int
+    dnd_off: int
+    none: int
+
+
+class ConsentImportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dryRun: bool
+    total: int
+    valid: int
+    invalid: int
+    changes: ConsentImportChanges
+    applied: int
+    results: list[ConsentImportRowResult]
 
 
 class AllowedWindowResponse(BaseModel):
@@ -174,6 +232,8 @@ class ViolationListResponse(BaseModel):
     status: Literal["open", "in_review", "acknowledged", "resolved"]
     assignee: str | None = None
     notes: list[ViolationNoteItemResponse] = []
+    # When it was resolved (the resolve action in the activity log).
+    resolvedAt: str | None = None
 
 
 class ViolationPatchRequest(BaseModel):
@@ -196,7 +256,8 @@ class ViolationNoteCreateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 PiiEntityType = Literal[
-    "card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar", "custom"
+    "card", "pan", "phone", "email", "address", "dob", "account", "ifsc", "aadhaar",
+    "pincode", "name", "upi", "passport", "voter_id", "driving_licence", "secret", "custom",
 ]
 
 
@@ -213,6 +274,19 @@ class PiiFindingResponse(BaseModel):
     confidence: float
     source: Literal["auto", "manual"]
     accepted: bool
+    # Low confidence: masked, and waiting for a reviewer to confirm.
+    needsReview: bool = False
+    # pattern | context | crm | model | custom:<rule id>
+    detector: str = "pattern"
+    # The model that found it (repo@revision), when a model did.
+    modelVersion: str | None = None
+
+
+class RedactionTurnSegmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    findingId: str | None = None
 
 
 class RedactionTurnResponse(BaseModel):
@@ -222,16 +296,21 @@ class RedactionTurnResponse(BaseModel):
     t: int
     speaker: Literal["bot", "agent", "customer", "system"]
     text: str
+    # The turn as plain runs and finding spans; record detail only.
+    segments: list[RedactionTurnSegmentResponse] | None = None
 
 
 class RedactionAudioSegmentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    atSec: int
+    atSec: float
     durSec: float
     type: PiiEntityType
     findingId: str
     muted: bool
+    channel: Literal["customer", "agent"] | None = None
+    # False when the words could not be timed exactly and a wider stretch is beeped.
+    aligned: bool = True
 
 
 class RedactionRecordListResponse(BaseModel):
@@ -251,6 +330,10 @@ class RedactionRecordListResponse(BaseModel):
     findings: list[PiiFindingResponse]
     audioSegments: list[RedactionAudioSegmentResponse]
     reviewed: bool
+    # Detail only: the transcript shows the words as spoken (raw-PII viewers).
+    rawVisible: bool = False
+    # The call-intelligence pass on this call: queued | running | done | failed.
+    processing: str | None = None
 
 
 class RedactionRuleResponse(BaseModel):

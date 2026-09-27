@@ -1,26 +1,30 @@
 import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { Rubric, RubricCriterion, RubricSection } from "@/api/types/qa";
+import { rubricProblems } from "@/lib/qa";
 
 export function RubricBuilderSheet({
   open,
   onClose,
   rubric,
   onSave,
+  saving = false,
 }: {
   open: boolean;
   onClose: () => void;
   rubric: Rubric;
-  onSave: (r: Rubric) => void;
+  /** Resolves once the new version is saved; the sheet closes then. */
+  onSave: (r: Rubric) => Promise<unknown>;
+  saving?: boolean;
 }) {
   const [draft, setDraft] = useState<Rubric>(rubric);
   if (!open) return null;
 
   const totalWeight = draft.sections.reduce((a, s) => a + s.weight, 0);
   const validSum = totalWeight === 100;
+  const problems = rubricProblems(draft);
 
   const updateSection = (id: string, patch: Partial<RubricSection>) => {
     setDraft({
@@ -75,7 +79,8 @@ export function RubricBuilderSheet({
           <div>
             <div className="text-body font-semibold text-text">Edit rubric — {draft.name}</div>
             <div className="text-body-small text-text-subtlest">
-              Version {draft.version} · applies to all future scorecards.
+              Editing {draft.version} · saves as a new version. New scorecards use it; scored calls
+              keep the version they were scored on.
             </div>
           </div>
           <button onClick={onClose} className="rounded p-050 hover:bg-surface-sunken">
@@ -115,6 +120,17 @@ export function RubricBuilderSheet({
                   onChange={(e) => updateSection(section.id, { label: e.target.value })}
                   className="flex-1 rounded border border-border bg-surface px-100 py-050 text-body-small font-semibold text-text"
                 />
+                <span
+                  className={cn(
+                    "text-body-small",
+                    section.criteria.reduce((a, c) => a + c.weight, 0) === 100
+                      ? "text-text-subtlest"
+                      : "font-semibold text-text-danger-bolder",
+                  )}
+                  title="Criterion weights within a section sum to 100"
+                >
+                  {section.criteria.reduce((a, c) => a + c.weight, 0)}/100
+                </span>
                 <label className="flex items-center gap-050 text-body-small text-text-subtle">
                   Weight
                   <input
@@ -199,6 +215,15 @@ export function RubricBuilderSheet({
         </div>
 
         <div className="flex items-center justify-end gap-100 border-t border-border px-200 py-150">
+          {problems.length > 0 && (
+            <span
+              className="mr-auto text-body-small text-text-danger-bolder"
+              title={problems.join("\n")}
+            >
+              {problems[0]}
+              {problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}
+            </span>
+          )}
           <button
             onClick={onClose}
             className="rounded-medium border border-border px-150 py-075 text-body-small hover:bg-surface-sunken"
@@ -206,15 +231,13 @@ export function RubricBuilderSheet({
             Cancel
           </button>
           <button
-            disabled={!validSum}
+            disabled={problems.length > 0 || saving}
             onClick={() => {
-              onSave(draft);
-              toast.success("Rubric saved", { description: `${draft.name} · ${draft.version}` });
-              onClose();
+              onSave(draft).then(onClose, () => undefined);
             }}
             className="rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-medium text-text-inverse hover:bg-background-brand-bold-pressed disabled:opacity-40"
           >
-            Save rubric
+            {saving ? "Saving…" : "Save as new version"}
           </button>
         </div>
       </SheetContent>

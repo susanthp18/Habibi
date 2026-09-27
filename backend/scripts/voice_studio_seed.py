@@ -11,7 +11,8 @@ What it creates in the engine (as the system actor, via the internal API):
   * transfer    transfer_to_human (dynamic)     -> /voice-studio/hooks/transfer
   * agent       "Collections - overdue reminder": greeting (inbound pre-call
                 lookup), identity, position, resolution, closings, API
-                trigger, post-call webhook -> /voice-studio/hooks/run-completed
+                trigger (the engine itself posts every finished run to
+                /voice-studio/hooks/run-completed with this credential)
   * API key     "PayInt dialler"       -> VOICE_STUDIO_API_KEY in --env-file
   * telephony   Twilio from TWILIO_*, with TWILIO_PHONE_NUMBER as caller id
 Every approved tool that exists is validated (endpoint, credential, context
@@ -427,12 +428,9 @@ def build_definition(
                       "position": {"x": 320 * (i % 4), "y": 200 * (i // 4)}, "data": data})
     nodes.append({"id": "trigger", "type": "trigger", "position": {"x": -320, "y": 0},
                   "data": {"name": "API trigger", "trigger_path": trigger_path, "enabled": True}})
-    nodes.append({"id": "webhook", "type": "webhook", "position": {"x": -320, "y": 220},
-                  "data": {"name": "PayInt: file the call", "enabled": True, "http_method": "POST",
-                           "endpoint_url": f"{hooks}/run-completed", "credential_uuid": credential,
-                           "payload_template": {"workflow_run_id": "{{workflow_run_id}}",
-                                                "workflow_id": "{{workflow_id}}",
-                                                "recording_url": "{{recording_url}}"}}})
+    # No webhook node: the engine notifies PayInt of every finished run itself
+    # (PAYINT_RUN_COMPLETED_URL, engine tasks/run_integrations._notify_payint),
+    # so agents built in the editor are filed too.
     edges = [{"id": f"e-{a}-{b}", "source": a, "target": b,
               "data": {"label": label, "condition": cond, "allow_failed_action": b == "end_failed"}}
              for a, b, label, cond in spec_edges]

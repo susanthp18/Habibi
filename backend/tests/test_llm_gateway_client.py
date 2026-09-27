@@ -213,7 +213,7 @@ def test_the_three_processes_agree_on_what_a_reasoning_deployment_is(monkeypatch
 
     monkeypatch.delenv("AZURE_OPENAI_REASONING_MODEL", raising=False)
     monkeypatch.delenv("AZURE_OPENAI_VOICE_REASONING_MODEL", raising=False)
-    for name in ("gpt-5-mini", "prod-o3", "gpt-4o", "o1-preview"):
+    for name in ("gpt-5-mini", "gpt-6-luna", "prod-o3", "gpt-4o", "o1-preview"):
         assert (
             azure_openai._is_reasoning_deployment(name)
             == llm_pool._is_reasoning_deployment(name)
@@ -222,3 +222,22 @@ def test_the_three_processes_agree_on_what_a_reasoning_deployment_is(monkeypatch
     monkeypatch.setenv("AZURE_OPENAI_VOICE_REASONING_MODEL", "true")
     assert llm_pool._is_reasoning_deployment("gpt-4o") is True
     assert azure_openai._is_reasoning_deployment("gpt-4o") is False  # the text override is its own
+
+
+def test_gpt_6_luna_voice_requests_disable_reasoning(monkeypatch) -> None:
+    from voice import llm_pool, tuning_apply
+
+    monkeypatch.delenv("AZURE_OPENAI_REASONING_MODEL", raising=False)
+    monkeypatch.delenv("AZURE_OPENAI_VOICE_REASONING_MODEL", raising=False)
+    settings = tuning_apply.build_llm_settings_kwargs(
+        {}, model="gpt-6-luna", system_instruction="test"
+    )
+    assert settings["extra"] == {"reasoning_effort": "none"}
+    assert "temperature" not in settings
+
+    kwargs, _, _ = llm_pool.build_completion_kwargs(
+        "gpt-6-luna", max_output_tokens=16, temperature=0.1
+    )
+    assert kwargs["reasoning_effort"] == "none"
+    assert "temperature" not in kwargs
+    assert kwargs["max_completion_tokens"] == 16

@@ -46,6 +46,21 @@ def test_service_factory_tags_success_with_authoritative_ownership():
     assert metadata.error_owner.value == "user"
 
 
+def test_azure_gpt_6_luna_disables_reasoning_without_temperature():
+    with patch("api.services.pipecat.service_factory.AzureLLMService") as service:
+        create_llm_service_from_provider(
+            provider="azure",
+            model="gpt-6-luna",
+            api_key="test-key",
+            endpoint="https://example.openai.azure.com/",
+        )
+
+    settings = service.call_args.kwargs["settings"]
+    assert settings.model == "gpt-6-luna"
+    assert settings.extra == {"reasoning_effort": "none"}
+    assert "temperature" not in settings.extra
+
+
 def test_managed_service_constructor_failure_is_attributed_to_dograh(monkeypatch):
     captured = []
     monkeypatch.setattr(

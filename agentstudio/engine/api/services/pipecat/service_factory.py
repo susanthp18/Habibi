@@ -1195,10 +1195,15 @@ def create_llm_service_from_provider(
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
             _validate_runtime_service_url(endpoint, "endpoint")
+        settings = (
+            AzureLLMSettings(model=model, extra={"reasoning_effort": "none"})
+            if model.lower() == "gpt-6-luna"
+            else AzureLLMSettings(model=model, temperature=0.1)
+        )
         return AzureLLMService(
             api_key=api_key,
             endpoint=endpoint,
-            settings=AzureLLMSettings(model=model, temperature=0.1),
+            settings=settings,
         )
     elif provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(

@@ -15,6 +15,13 @@ export const ENTITY_TYPES: PiiEntityType[] = [
   "account",
   "ifsc",
   "aadhaar",
+  "pincode",
+  "name",
+  "upi",
+  "passport",
+  "voter_id",
+  "driving_licence",
+  "secret",
   "custom",
 ];
 
@@ -29,6 +36,13 @@ export const ENTITY_COLORS: Record<PiiEntityType, string> = {
   account: "#1F845A", // accent-green-bolder
   ifsc: "#6B6E76", // accent-gray-bolder
   aadhaar: "#AE4787", // accent-magenta-bolder
+  pincode: "#A54800", // accent-orange-boldest
+  name: "#0055CC", // accent-blue-boldest
+  upi: "#4C6B1F", // accent-lime-boldest
+  passport: "#5E4DB2", // accent-purple-boldest
+  voter_id: "#206A83", // accent-teal-boldest
+  driving_licence: "#7F5F01", // accent-yellow-boldest
+  secret: "#AE2E24", // accent-red-boldest
   custom: "#5B7F24", // accent-lime-bolder
 };
 
@@ -51,11 +65,17 @@ export function filterRecords(all: RedactionRecord[], f: RecordFilter): Redactio
 
 // ---- stat helpers ----
 
-export function statsFor(records: RedactionRecord[], exports_: ExportJob[]) {
+const DAY_MS = 86_400_000;
+
+export function statsFor(records: RedactionRecord[], exports_: ExportJob[], now = Date.now()) {
   const totalFindings = records.reduce((s, r) => s + r.findings.length, 0);
-  const pendingReview = records.filter((r) => !r.reviewed && r.findings.length > 0).length;
-  const monthlyExports = exports_.length;
-  const entitiesMasked = exports_.reduce((s, e) => s + e.entitiesRedacted, 0);
-  const failed = exports_.filter((e) => e.status === "failed").length;
+  // Waiting on a person: a low-confidence mask nobody has confirmed yet.
+  const pendingReview = records.filter(
+    (r) => !r.reviewed && r.findings.some((f) => f.needsReview),
+  ).length;
+  const recent = exports_.filter((e) => now - new Date(e.at).getTime() <= 30 * DAY_MS);
+  const monthlyExports = recent.length;
+  const entitiesMasked = recent.reduce((s, e) => s + e.entitiesRedacted, 0);
+  const failed = recent.filter((e) => e.status === "failed").length;
   return { totalFindings, pendingReview, monthlyExports, entitiesMasked, failed };
 }

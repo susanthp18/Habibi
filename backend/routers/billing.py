@@ -18,6 +18,7 @@ from schemas import (
     BudgetRuleUpsertRequest,
     ExportJobCreateRequest,
     ExportJobPatchRequest,
+    ExportAccessRoleResponse,
     ExportJobResponse,
 )
 
@@ -93,6 +94,11 @@ def list_export_jobs(
     offset: int = Query(default=0, ge=0),
 ):
     return db.list_export_jobs(limit=limit, offset=offset)
+
+@router.get("/export-jobs/access-roles", response_model=list[ExportAccessRoleResponse])
+def list_export_access_roles():
+    """The roles an evidence export can be restricted to (enforced at download)."""
+    return db.list_export_access_roles()
 
 @router.post("/export-jobs", response_model=ExportJobResponse)
 def create_export_job(payload: ExportJobCreateRequest):

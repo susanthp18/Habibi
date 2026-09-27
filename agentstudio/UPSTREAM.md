@@ -14,7 +14,10 @@
 
 The delta covers:
 - **Engine API:** internal auth, the removed cloud (MPS) calls, local knowledge-base parsing, transcription, workflow generation and the voice catalog, Azure voice delivery and preview, version restore for rollback, tool provenance on run events, approved tool revisions, draft-only MCP authoring (with tool submission and agent speech settings), multilingual Azure speech (continuous language identification, a voice per language that follows the caller across handoffs, Tamil lexical transcripts, Arabic amounts spelled out), the voice catalog's tiers, prices and filters, a call outcome per exit (end nodes) and call outcomes over MCP, knowledge search in the documents' language, a workflow Tidy up that arranges the conversation above a row of exits, and the white-label text.
-- **Engine UI source:** the PayInt host slots (`@/host/<Slot>`, see below) and the regenerated API client.
+- **PayInt integration points** (configured by environment, inert when unset):
+  - every finished run is posted to PayInt as a durable webhook delivery (`tasks/run_integrations._notify_payint`; `PAYINT_RUN_COMPLETED_URL`);
+  - every outbound dial the engine starts itself goes through PayInt's contact policy first and fails closed (`services/telephony/payint_admission.py`, hooked in `failure_reporting.instrument_telephony_provider`; `PAYINT_ADMIT_URL`, `PAYINT_HOOK_TOKEN`).
+- **Engine UI source:** the PayInt host slots (`@/host/<Slot>`, see below; the run page passes `runId` to RunProvenance) and the regenerated API client.
 
 ## The ported UI
 `Habibi/src/agentstudio/` is generated from `engine/ui/src` by `Habibi/scripts/port-agentstudio.mjs`. Never edit it by hand; change the engine UI source and re-run the port.

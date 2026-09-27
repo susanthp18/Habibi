@@ -50,6 +50,15 @@ def list_calls(
     is deliberately smaller than for flat lists."""
     return db.list_calls(limit=limit, offset=offset)
 
+
+@router.get("/calls/{interaction_id}", response_model=CallResponse)
+def get_call(interaction_id: str):
+    """One call, for a deep link (Compliance "Open in Audit") outside the loaded page."""
+    rows = db.list_calls(limit=1, interaction_id=interaction_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="call_not_found")
+    return rows[0]
+
 def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
     """Validate X-Twilio-Signature.
 

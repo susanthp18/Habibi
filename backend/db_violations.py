@@ -179,7 +179,7 @@ def _violation_rows_to_screen(
         actor_kind = "bot" if r["actor_kind"] == "bot" else "human"
         actor_name = r["actor_bot_name"] if actor_kind == "bot" else r["actor_user_name"]
         if not actor_name:
-            actor_name = "Kaia v2.4" if actor_kind == "bot" else "Unknown agent"
+            actor_name = "Unnamed bot" if actor_kind == "bot" else "Unknown agent"
         evidence = _build_violation_evidence(
             transcripts.get(call_id) or [],
             at_sec,
@@ -201,6 +201,7 @@ def _violation_rows_to_screen(
                 "status": _violation_status_screen(r["status"]),
                 "assignee": r["assignee"] or None,
                 "notes": notes.get(r["id"]) or [],
+                "resolvedAt": r["resolved_at"].isoformat() if r.get("resolved_at") else None,
             }
         )
     return result
@@ -213,7 +214,10 @@ _VIOLATION_LIST_SQL = """
            COALESCE(i.started_at, v.created_at) AS occurred_at,
            u.name AS assignee,
            au.name AS actor_user_name,
-           b.name AS actor_bot_name
+           b.name AS actor_bot_name,
+           (SELECT max(ae.at) FROM activity_events ae
+             WHERE ae.entity_type = 'violation' AND ae.entity_id = v.id
+               AND ae.label = 'Violation resolved') AS resolved_at
     FROM violations v
     JOIN customers c ON c.id = v.customer_id
     JOIN compliance_rules cr ON cr.id = v.rule_id

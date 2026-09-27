@@ -58,6 +58,13 @@ async def transfer(request: Request, authorization: str | None = Header(default=
     return await run_in_threadpool(voice_studio.transfer_destination, await _json(request))
 
 
+@router.post(f"{PREFIX}/admit")
+async def admit(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    """Before the engine dials on its own: PayInt's contact policy decides."""
+    _authorised(authorization)
+    return await run_in_threadpool(voice_studio.admit_engine_call, await _json(request))
+
+
 @router.post(f"{PREFIX}/run-completed")
 async def run_completed(request: Request, authorization: str | None = Header(default=None)) -> dict:
     _authorised(authorization)

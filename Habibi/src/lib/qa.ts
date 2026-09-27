@@ -69,12 +69,53 @@ export function bandColor(band: ScoreBand): { text: string; bg: string; border: 
   };
 }
 
+/**
+ * Why the server would refuse this rubric (POST /qa/rubrics/{id}/versions):
+ * sections sum to 100, and each section has criteria that sum to 100.
+ */
+export function rubricProblems(rubric: Rubric): string[] {
+  const out: string[] = [];
+  const near = (n: number) => Math.abs(n - 100) <= 0.01;
+  const sectionSum = rubric.sections.reduce((a, s) => a + s.weight, 0);
+  if (!rubric.sections.length) out.push("Add a section.");
+  else if (!near(sectionSum)) out.push(`Section weights sum to ${sectionSum}, not 100.`);
+  for (const s of rubric.sections) {
+    const name = s.label.trim() || "Untitled section";
+    if (!s.label.trim()) out.push("Every section needs a name.");
+    if (s.weight <= 0) out.push(`${name}: weight must be above 0.`);
+    if (!s.criteria.length) {
+      out.push(`${name}: add at least one criterion.`);
+      continue;
+    }
+    const within = s.criteria.reduce((a, c) => a + c.weight, 0);
+    if (!near(within)) out.push(`${name}: criterion weights sum to ${within}, not 100.`);
+    if (s.criteria.some((c) => !c.label.trim()))
+      out.push(`${name}: every criterion needs a label.`);
+    if (s.criteria.some((c) => c.weight <= 0))
+      out.push(`${name}: criterion weights must be above 0.`);
+  }
+  return out;
+}
+
+/** An AI draft with a cell the cascade could not settle (it marks those 0.3). */
+export function needsHuman(sc: Scorecard): boolean {
+  return (
+    sc.status === "ai_draft" && sc.entries.some((e) => e.confidence != null && e.confidence < 0.5)
+  );
+}
+
 // ---------- agent stats ----------
 
+/**
+ * `rubricOf` gives each card the rubric version it was scored on; sections
+ * are matched to the active rubric's by label, so a version whose section was
+ * renamed or dropped simply does not count toward that section.
+ */
 export function agentStats(
   all: Scorecard[],
   rubric: Rubric,
   coaching: CoachingAction[],
+  rubricOf: (sc: Scorecard) => Rubric = () => rubric,
 ): AgentQaStat[] {
   const byAgent = new Map<string, Scorecard[]>();
   for (const s of all) {
@@ -85,13 +126,16 @@ export function agentStats(
   }
   const out: AgentQaStat[] = [];
   for (const [agentId, cards] of byAgent.entries()) {
-    const totals = cards.map((c) => computeTotal(c, rubric));
+    const totals = cards.map((c) => computeTotal(c, rubricOf(c)));
     const avg = totals.reduce((a, b) => a + b, 0) / (totals.length || 1);
     const half = Math.max(1, Math.floor(cards.length / 2));
     const recent = totals.slice(0, half).reduce((a, b) => a + b, 0) / half;
     const prior = totals.slice(half).reduce((a, b) => a + b, 0) / Math.max(1, totals.length - half);
     const sectionScores = rubric.sections.map((s) => {
-      const vals = cards.map((c) => sectionTotal(s, c.entries));
+      const vals = cards.flatMap((c) => {
+        const own = rubricOf(c).sections.find((x) => x.label === s.label);
+        return own ? [sectionTotal(own, c.entries)] : [];
+      });
       return { section: s.label, value: vals.reduce((a, b) => a + b, 0) / (vals.length || 1) };
     });
     const weakest = sectionScores.slice().sort((a, b) => a.value - b.value)[0]?.section ?? "—";

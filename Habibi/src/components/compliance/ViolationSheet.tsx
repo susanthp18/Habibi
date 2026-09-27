@@ -8,6 +8,7 @@ import type { Violation } from "@/api/types/compliance";
 import { severityColor, severityBg, statusLabel } from "@/lib/compliance";
 import { fmtDateTime, formatDuration } from "@/lib/format";
 import { Lozenge } from "@/components/ui/lozenge";
+import { AddAsCheckButton } from "@/components/voice-studio/AddAsCheckButton";
 import { SelectField } from "@/components/ui/select";
 
 export function ViolationSheet({
@@ -193,18 +194,22 @@ export function ViolationSheet({
           <div className="flex flex-wrap gap-100">
             <Link
               to="/audit"
+              search={{ id: v.callId }}
+              disabled={!v.callId}
               className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Open in Audit
             </Link>
-            <button
-              type="button"
-              disabled
-              title="Audio seek from compliance is not wired yet — open Audit for playback"
-              className="inline-flex cursor-not-allowed items-center gap-050 rounded-medium border border-border bg-surface-sunken px-150 py-075 text-body-small text-text-subtlest opacity-60"
+            <Link
+              to="/audit"
+              search={{ id: v.callId, t: Math.max(0, v.atSec - 3) }}
+              disabled={!v.callId}
+              title="Open the call's recording a few seconds before the violation"
+              className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text hover:bg-surface-sunken"
             >
               <FileAudio className="h-3.5 w-3.5" /> Jump to audio {formatDuration(v.atSec)}
-            </button>
+            </Link>
+            {v.actor.kind === "bot" && v.callId && <AddAsCheckButton interactionId={v.callId} />}
           </div>
         </div>
       </SheetContent>

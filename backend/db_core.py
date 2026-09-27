@@ -192,7 +192,7 @@ DB_MAX_OVERFLOW = max(0, _env_int("DB_MAX_OVERFLOW", 10))
 DB_POOL_RECYCLE = max(60, _env_int("DB_POOL_RECYCLE", 1800))
 # API path default 15s; workers/voice default 60s unless DB_STATEMENT_TIMEOUT_MS set.
 _PROCESS_ROLE = (os.getenv("DB_PROCESS_ROLE") or "api").strip().lower()
-_DEFAULT_STATEMENT_TIMEOUT_MS = 60000 if _PROCESS_ROLE in {"worker", "bot_worker", "voice"} else 15000
+_DEFAULT_STATEMENT_TIMEOUT_MS = 60000 if _PROCESS_ROLE in {"worker", "bot_worker", "voice", "ml_worker"} else 15000
 DB_STATEMENT_TIMEOUT_MS = max(1000, _env_int("DB_STATEMENT_TIMEOUT_MS", _DEFAULT_STATEMENT_TIMEOUT_MS))
 # The three that were missing. A pool with no `pool_timeout` waits forever for
 # a connection when the pool is exhausted; a session with no

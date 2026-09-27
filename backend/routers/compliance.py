@@ -10,9 +10,10 @@ import logging
 
 import db
 import db_compliance
+import db_consent
 
 from fastapi import APIRouter
-from fastapi import HTTPException, Query
+from fastapi import HTTPException, Query, Response
 from schemas import (
     ComplaintPackResponse,
     ComplianceRescanResponse,
@@ -48,6 +49,7 @@ from schemas import (
     ViolationNoteResponse,
     ViolationPatchRequest,
 )
+from schemas.compliance import ConsentImportRequest, ConsentImportResponse
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
 from agent_core.clock import utc_now
@@ -62,6 +64,32 @@ def list_consent(
     offset: int = Query(default=0, ge=0),
 ):
     return db.list_consent(limit=limit, offset=offset)
+
+@router.get("/consent/export", response_class=Response)
+def export_consent_registry():
+    """The whole registry for the tenant as CSV -- every customer, not a page."""
+    return Response(
+        content=db_consent.export_consent_csv(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="consent-registry-{utc_now():%Y%m%d}.csv"'
+            )
+        },
+    )
+
+@router.post("/consent/import", response_model=ConsentImportResponse)
+def import_consent(payload: ConsentImportRequest):
+    """Bulk consent from a CSV the browser parsed: dry run first, then apply.
+
+    Valid rows are written through the drawer's own write paths (activity
+    event and consent change-log entry per customer), in one transaction.
+    """
+    rows = [r.model_dump() for r in payload.rows]
+    try:
+        return db_consent.import_consent(rows, dry_run=payload.dryRun)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.patch("/consent/{customer_id}", response_model=CustomerResponse)
 def patch_consent(customer_id: str, payload: ConsentPatchRequest):

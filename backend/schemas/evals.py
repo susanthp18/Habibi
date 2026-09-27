@@ -7,9 +7,9 @@ router of the same name serves these. ``schemas/__init__`` re-exports every name
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 # The authored flow graph is a domain model, not a transport shape — it is
 # shared verbatim by the API, the validator and the voice runtime, so it is
@@ -67,6 +67,13 @@ class ScorecardEntryResponse(BaseModel):
     score: float
     note: str | None = None
     accepted: bool | None = None
+    # Who decided it: evidence (rules on the call's facts), model (small
+    # model signals), llm (the judge), or human.
+    tier: Literal["evidence", "model", "llm", "human"] | None = None
+    confidence: float | None = None
+    # Turn indexes, flags or timings the decision rests on.
+    evidence: dict[str, Any] | None = None
+    modelVersion: str | None = None
 
 
 class ScorecardListResponse(BaseModel):
@@ -96,6 +103,8 @@ class RubricCriterionResponse(BaseModel):
     description: str
     weight: float
     critical: bool | None = None
+    # Same lineage = the same question across rubric versions (sql/72).
+    lineageId: str | None = None
 
 
 class RubricSectionResponse(BaseModel):
@@ -116,6 +125,55 @@ class RubricResponse(BaseModel):
     name: str
     version: str
     sections: list[RubricSectionResponse]
+
+
+_Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class RubricCriterionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The predecessor's criterion id; with an unchanged label and description
+    # the criterion keeps its lineage across versions.
+    id: str | None = None
+    label: _Label
+    description: str = ""
+    weight: float = Field(gt=0, le=100)
+    critical: bool = False
+
+
+class RubricSectionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    label: _Label
+    weight: float = Field(gt=0, le=100)
+    criteria: list[RubricCriterionInput] = Field(min_length=1)
+
+
+class RubricVersionCreateRequest(BaseModel):
+    """POST /qa/rubrics/{rubric_id}/versions -- the edited rubric, saved as a new version.
+
+    Weights are percentages: sections sum to 100, and so do each section's
+    criteria (as in the seeded rubric), which is what the total computes from.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sections: list[RubricSectionInput] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _weights_sum_to_100(self) -> "RubricVersionCreateRequest":
+        total = sum(s.weight for s in self.sections)
+        if abs(total - 100) > 0.01:
+            raise ValueError(f"section weights must sum to 100 (got {total:g})")
+        for s in self.sections:
+            within = sum(c.weight for c in s.criteria)
+            if abs(within - 100) > 0.01:
+                raise ValueError(
+                    f"criterion weights in section '{s.label}' must sum to 100 (got {within:g})"
+                )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +234,8 @@ class CalibrationReviewerResponse(BaseModel):
 
     reviewer: str
     entries: list[ScorecardEntryResponse]
+    # False until the reviewer has scored the call; their entries are padding.
+    submitted: bool | None = None
 
 
 class CalibrationSessionResponse(BaseModel):
@@ -184,11 +244,35 @@ class CalibrationSessionResponse(BaseModel):
     id: str
     name: str
     callId: str
+    rubricId: str | None = None
     customerName: str
     target: list[ScorecardEntryResponse]
     reviewers: list[CalibrationReviewerResponse]
     status: CalibrationStatus
     createdAt: str
+
+
+class CalibrationSessionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    interactionId: str
+    reviewerUserIds: list[str] = Field(min_length=1)
+
+
+class CalibrationScoreInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterionId: str
+    score: float = Field(ge=0, le=5)
+
+
+class CalibrationScoresSubmitRequest(BaseModel):
+    """An invited reviewer's score for every criterion of the session's rubric."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[CalibrationScoreInput] = Field(min_length=1)
+    notes: str | None = None
 
 
 class CalibrationSessionPatchRequest(BaseModel):

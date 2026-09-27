@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,26 @@ def stream_recording(interaction_id: str, *, variant: str = "original") -> dict[
         "kind": row["kind"],
         "durationSec": row.get("duration_sec"),
     }
+
+
+@lru_cache(maxsize=256)
+def recording_peaks(media_id: str, storage_ref: str, bins: int) -> dict[str, Any]:
+    """Peak amplitude (0..1) per bucket for each channel. Cached per media row:
+    a filed recording never changes, a re-filed one gets a new id."""
+    import io
+    import wave
+
+    import numpy as np
+
+    with wave.open(io.BytesIO(_load_bytes(storage_ref))) as wf:
+        channels, rate = wf.getnchannels(), wf.getframerate()
+        pcm = np.frombuffer(wf.readframes(wf.getnframes()), dtype="<i2").reshape(-1, channels)
+    names = ["customer", "agent"] if channels == 2 else ["mixed"]
+    out: dict[str, list[float]] = {}
+    for c, name in enumerate(names):
+        chunks = np.array_split(np.abs(pcm[:, c].astype(np.int32)), bins)
+        out[name] = [round(float(ch.max()) / 32768, 3) if ch.size else 0.0 for ch in chunks]
+    return {"durationSec": round(len(pcm) / rate, 3), "channels": out}
 
 
 def log_recording_download(

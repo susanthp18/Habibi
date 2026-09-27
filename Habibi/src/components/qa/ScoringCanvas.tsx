@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Send, Save, UserPlus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCalls } from "@/api/audit";
+import { useCall } from "@/api/audit";
 import type { Rubric, Scorecard, ScorecardEntry } from "@/api/types/qa";
 import { allCriteria, computeTotal } from "@/lib/qa";
 import { formatDuration } from "@/lib/format";
@@ -26,12 +26,8 @@ export function ScoringCanvas({
   onAssignCoaching: (scorecard: Scorecard) => void;
 }) {
   const [tab, setTab] = useState<"rubric" | "transcript">("rubric");
-  const { data: calls } = useCalls();
-
-  const call = useMemo(
-    () => (scorecard ? calls?.find((c) => c.id === scorecard.callId) : undefined),
-    [scorecard, calls],
-  );
+  // By id, not a search of the first /calls page: older calls were "No transcript".
+  const { data: call } = useCall(scorecard?.callId ?? null);
   const total = useMemo(
     () => (scorecard ? computeTotal(scorecard, rubric) : 0),
     [scorecard, rubric],

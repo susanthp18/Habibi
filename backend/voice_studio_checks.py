@@ -73,6 +73,61 @@ def scenarios() -> list[dict[str, Any]]:
     ]
 
 
+#: A masked value replayed to the agent as a plausible test value: the check
+#: must exercise the same path (verification, promise) without real PII.
+_REPLAY = {
+    "[NAME]": "Test Customer", "[REDACTED]": "one two three four", "[PHONE]": "nine eight seven six five "
+    "four three two one zero", "[DOB]": "first of January nineteen ninety", "[EMAIL]": "test at example dot com",
+    "[ADDRESS]": "12 Park Street, Chennai", "[ACCOUNT]": "one two three four five six", "[PAN]": "ABCDE1234F",
+    "[AADHAAR]": "two three four one two three four one two three four six", "[PINCODE]": "six zero zero zero "
+    "zero one", "[UPI]": "test at upi",
+}
+
+
+def scenario_from_call(interaction_id: str, actor: str | None) -> dict[str, Any]:
+    """A scripted check from a real call: its customer turns, masked values
+    replaced by test ones, so a fix to the agent is proven on the exact
+    conversation that went wrong before it is published."""
+    import json
+    import re
+
+    import db
+
+    with db.engine.begin() as conn:
+        ix = conn.execute(
+            text("SELECT id, direction, source_payload FROM interactions WHERE id = :id"), {"id": interaction_id}
+        ).mappings().first()
+        if ix is None:
+            raise KeyError("interaction_not_found")
+        turns = conn.execute(
+            text("SELECT text FROM interaction_transcript WHERE interaction_id = :id AND speaker = 'customer' "
+                 "ORDER BY turn_index"),
+            {"id": interaction_id},
+        ).scalars().all()
+        lines = []
+        for said in turns:
+            for mask, value in _REPLAY.items():
+                said = said.replace(mask, value)
+            said = re.sub(r"\*{4} \*{4} \*{4} (\d{4})", r"4111 1111 1111 \1", said)
+            if said.strip():
+                lines.append({"customer": said.strip()})
+        if not lines:
+            raise ValueError("no_customer_turns")
+        scenario_id = db._id("SCN")
+        languages = ((ix["source_payload"] or {}).get("languages") or {}).get("spoken") or []
+        conn.execute(
+            text("INSERT INTO sandbox_scenarios (id, tenant_id, name, sim_persona, turns) "
+                 "VALUES (:id, :t, :name, CAST(:persona AS jsonb), CAST(:turns AS jsonb))"),
+            {"id": scenario_id, "t": db.current_tenant(),
+             "name": f"From call {interaction_id}",
+             "persona": json.dumps({"name": "Test Customer", "direction": ix["direction"] or "outbound",
+                                    "language": languages[0] if languages else "English",
+                                    "sourceInteractionId": interaction_id, "createdBy": actor}),
+             "turns": json.dumps(lines)},
+        )
+    return {"id": scenario_id, "name": f"From call {interaction_id}", "turns": len(lines)}
+
+
 def _persona(scenario_id: str | None) -> dict[str, Any]:
     if scenario_id:
         for s in scenarios():

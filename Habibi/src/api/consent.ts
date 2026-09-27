@@ -14,13 +14,15 @@ import type {
   AllowedWindow,
   ChannelConsent,
   ConsentChannel,
+  ConsentImportResult,
+  ConsentImportRow,
   ConsentPreferencesPatch,
   ConsentRecord,
   OptOutSource,
 } from "@/api/types/consent";
 import { allowedWindowsEqual } from "@/lib/consent";
 import type { QueryClient } from "@tanstack/react-query";
-import { apiGet, apiPatch, apiPost } from "./config";
+import { apiGet, apiGetBlob, apiPatch, apiPost } from "./config";
 import { customerSchema } from "./customers";
 import { toast } from "sonner";
 
@@ -57,6 +59,7 @@ const consentRecordSchema = z.object({
       source: z.enum([...optOutSourceSchema.options, "Onboarding"]),
       frequencyCapPerWeek: z.number(),
       usedThisWeek: z.number(),
+      promotional: z.enum(["opted_in", "opted_out", "dnd", "expired"]).nullable().optional(),
     }),
   ),
   allowedWindow: z.object({
@@ -167,6 +170,98 @@ export async function toggleDnd(rec: ConsentRecord, on: boolean): Promise<void> 
     },
     { schema: customerSchema },
   );
+}
+
+// ---------- bulk import / registry export ----------
+
+const importChangeSchema = z.enum(["none", "opt_in", "opt_out", "dnd_on", "dnd_off"]);
+const consentImportResultSchema = z.object({
+  dryRun: z.boolean(),
+  total: z.number(),
+  valid: z.number(),
+  invalid: z.number(),
+  changes: z.object({
+    none: z.number(),
+    opt_in: z.number(),
+    opt_out: z.number(),
+    dnd_on: z.number(),
+    dnd_off: z.number(),
+  }),
+  applied: z.number(),
+  results: z.array(
+    z.object({
+      row: z.number(),
+      customerId: z.string(),
+      channel: consentChannelSchema.nullable(),
+      status: z.string().nullable(),
+      purpose: z.string(),
+      dnd: z.boolean().nullable(),
+      note: z.string(),
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      change: importChangeSchema,
+      dndChange: z.enum(["dnd_on", "dnd_off"]).nullable(),
+    }),
+  ),
+});
+
+/** POST /consent/import — `dryRun` validates and previews; false applies the valid rows. */
+export async function importConsent(
+  rows: ConsentImportRow[],
+  dryRun: boolean,
+): Promise<ConsentImportResult> {
+  return apiPost<ConsentImportResult>(
+    "/consent/import",
+    { rows, dryRun },
+    // One transaction for up to 5,000 rows: give it longer than a click.
+    { schema: consentImportResultSchema, timeoutMs: 180_000 },
+  );
+}
+
+export function usePreviewConsentImport() {
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (rows: ConsentImportRow[]) => importConsent(rows, true),
+  });
+}
+
+export function useApplyConsentImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: (rows: ConsentImportRow[]) => importConsent(rows, false),
+    onSuccess: (r) => {
+      invalidateConsentReads(qc);
+      toast.success(`Imported ${r.applied} change${r.applied === 1 ? "" : "s"}`, {
+        description:
+          r.invalid > 0
+            ? `${r.invalid} invalid row${r.invalid === 1 ? "" : "s"} skipped. Each change is in the customer's audit trail.`
+            : "Each change is in the customer's audit trail.",
+      });
+    },
+  });
+}
+
+/** GET /consent/export — the tenant's whole registry, saved as a CSV file. */
+export async function downloadConsentRegistry(): Promise<void> {
+  const { blob, headers } = await apiGetBlob("/consent/export");
+  const name =
+    headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ||
+    `consent-registry-${new Date().toISOString().slice(0, 10)}.csv`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function useExportConsentRegistry() {
+  return useMutation({
+    meta: { errors: "toast" },
+    mutationFn: downloadConsentRegistry,
+    onSuccess: () => toast.success("Consent registry exported"),
+  });
 }
 
 // ---------- mutations ----------

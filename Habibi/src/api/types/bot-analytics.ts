@@ -32,6 +32,9 @@ export interface DailyPoint {
   upsellPresented?: number;
   /** Sessions that captured a promise-to-pay. */
   ptpCaptured?: number;
+  /** Bot-handled sessions, and those never handed to a human. */
+  botSessions?: number;
+  botContained?: number;
 }
 export interface EscalationReason {
   id: string;
@@ -56,15 +59,23 @@ export interface TurnsBucket {
 }
 export interface Kpis {
   sessions: number;
-  containment: number; // %
-  deflection: number; // % (contained / total received queries) — same as containment for PoC
+  /** % of bot sessions never handed to a human; null with no bot sessions. */
+  containment: number | null;
+  /** % of inbound bot sessions resolved, never handed off, and not followed by
+   *  a repeat contact within repeatContactDays; null when none is old enough. */
+  deflection: number | null;
+  deflectionEligible: number;
+  repeatContactDays: number;
   escalation: number; // %
   abandonment: number; // %
   avgTurns: number;
-  latencyP50: number;
-  latencyP90: number;
+  /** True percentiles over the calls in range (ms); null without latency data. */
+  latencyP50: number | null;
+  latencyP90: number | null;
   avgSentiment: number;
-  csatProxy: number; // derived
+  /** Mean per call of last minus first customer sentiment (-2..2); null without signals. */
+  sentimentLift: number | null;
+  sentimentLiftCalls: number;
   upsellRate: number; // % of sessions with upsell presented
   ptpRate: number; // % of sessions with PTP captured
   containmentSpark: number[];

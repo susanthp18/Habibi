@@ -244,6 +244,13 @@
     }
   },
   "bot_analytics": {
+    "agents": [
+      {
+        "botId": "str",
+        "name": "str",
+        "versions": []
+      }
+    ],
     "byCard": [
       {
         "botId": "str",
@@ -260,6 +267,8 @@
       {
         "abandoned": "int",
         "avgTurns": "float",
+        "botContained": "int",
+        "botSessions": "int",
         "contained": "int",
         "date": "str",
         "escalated": "int",
@@ -305,6 +314,17 @@
       }
     ],
     "skillHistogram": [],
+    "summary": {
+      "botSessions": "int",
+      "containment": "float",
+      "deflection": "float",
+      "deflectionEligible": "int",
+      "latencyP50": "float",
+      "latencyP90": "float",
+      "repeatContactDays": "int",
+      "sentimentLift": "float",
+      "sentimentLiftCalls": "int"
+    },
     "turnsHistogram": [
       {
         "count": "int",

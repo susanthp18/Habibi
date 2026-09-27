@@ -2,6 +2,7 @@ import { FileText, FileSpreadsheet, FileArchive, ShieldCheck, Play } from "lucid
 import type { ExportFormat, ExportScope } from "@/api/types/redaction";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
+import { useExportAccessRoles } from "@/api/redaction";
 
 interface Props {
   selectedCount: number;
@@ -20,13 +21,22 @@ interface Props {
 const FORMATS: Array<{ id: ExportFormat; label: string; icon: typeof FileText; hint: string }> = [
   { id: "pdf", label: "PDF", icon: FileText, hint: "Watermarked transcript" },
   { id: "csv", label: "CSV", icon: FileSpreadsheet, hint: "Metadata rows only" },
-  { id: "audio-zip", label: "Audio ZIP", icon: FileArchive, hint: "WAV + beeped segments" },
+  { id: "audio-zip", label: "Audio ZIP", icon: FileArchive, hint: "Redacted WAV + manifest" },
 ];
 const SCOPES: ExportScope[] = ["transcript", "audio", "metadata"];
-const ROLES = ["Compliance officer", "DPO", "Head of collections", "External auditor (read-only)"];
+
+/** What each format can carry: a PDF cannot hold audio; a CSV is metadata; the ZIP always has the recording. */
+export function scopeAllowed(format: ExportFormat, scope: ExportScope): boolean {
+  if (format === "csv") return scope === "metadata";
+  if (format === "pdf") return scope !== "audio";
+  return true;
+}
 
 export function ExportConfigPanel(p: Props) {
-  const canExport = p.selectedCount > 0 && p.scope.length > 0 && p.watermark.trim().length > 0;
+  const roles = useExportAccessRoles();
+  const scope = p.scope.filter((s) => scopeAllowed(p.format, s));
+  const canExport =
+    p.selectedCount > 0 && scope.length > 0 && p.watermark.trim().length > 0 && !!p.accessRole;
   const toggleScope = (s: ExportScope) => {
     p.onScope(p.scope.includes(s) ? p.scope.filter((x) => x !== s) : [...p.scope, s]);
   };
@@ -69,9 +79,15 @@ export function ExportConfigPanel(p: Props) {
           {SCOPES.map((s) => (
             <label
               key={s}
+              title={
+                scopeAllowed(p.format, s)
+                  ? undefined
+                  : `A ${p.format.toUpperCase()} cannot carry ${s}`
+              }
               className={cn(
                 "inline-flex cursor-pointer items-center gap-050 rounded-full border px-100 py-025 text-body-small capitalize",
-                p.scope.includes(s)
+                !scopeAllowed(p.format, s) && "cursor-not-allowed opacity-40",
+                scope.includes(s)
                   ? "border-border-brand bg-background-brand-subtlest text-text-brand"
                   : "border-border text-text-subtle",
               )}
@@ -79,7 +95,8 @@ export function ExportConfigPanel(p: Props) {
               <input
                 type="checkbox"
                 className="h-3 w-3 accent-[var(--background-brand-bold)]"
-                checked={p.scope.includes(s)}
+                checked={scope.includes(s)}
+                disabled={!scopeAllowed(p.format, s)}
                 onChange={() => toggleScope(s)}
               />
               {s}
@@ -99,13 +116,15 @@ export function ExportConfigPanel(p: Props) {
       </div>
 
       <div>
-        <div className="mb-050 text-body-small font-semibold text-text-subtlest">Access</div>
+        <div className="mb-050 text-body-small font-semibold text-text-subtlest">
+          Access · only this role can download
+        </div>
         <SelectField
           aria-label="Access"
           value={p.accessRole}
           onChange={p.onAccessRole}
           size="compact"
-          options={ROLES.map((r) => ({ value: r, label: r }))}
+          options={(roles.data ?? []).map((r) => ({ value: r.id, label: r.name }))}
         />
       </div>
 

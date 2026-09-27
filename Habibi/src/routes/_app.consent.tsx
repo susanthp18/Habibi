@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { Upload, Download, ShieldCheck } from "lucide-react";
 import { ConsentStatsStrip } from "@/components/consent/ConsentStatsStrip";
 import { ConsentFilters } from "@/components/consent/ConsentFilters";
 import { ConsentTable } from "@/components/consent/ConsentTable";
 import { ConsentDrawer } from "@/components/consent/ConsentDrawer";
+import { ConsentImportDialog } from "@/components/consent/ConsentImportDialog";
+import { can, useMe } from "@/api/me";
 import type {
   ConsentFilterState,
   ConsentRecord,
@@ -22,6 +22,7 @@ import {
   useRenewConsent,
   useCaptureOptOut,
   useToggleDnd,
+  useExportConsentRegistry,
 } from "@/api/consent";
 
 const EMPTY_CONSENT: ConsentRecord[] = [];
@@ -47,19 +48,10 @@ export const Route = createFileRoute("/_app/consent")({
 });
 
 function ConsentPage() {
-  const queryClient = useQueryClient();
   const { data, isPending, isError, error } = useConsent();
   const items = data ?? EMPTY_CONSENT;
   const [filters, setFilters] = useState<ConsentFilterState>(defaultConsentFilters);
   const [openId, setOpenId] = useState<string | null>(null);
-
-  const invalidate = () => {
-    // A consent write moves contactableNow on the 360 pill and the inbox
-    // thread list, both read from other keys.
-    void queryClient.invalidateQueries({ queryKey: ["consent"] });
-    void queryClient.invalidateQueries({ queryKey: ["customer"] });
-    void queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  };
 
   const filtered = useMemo(() => filterConsents(items, filters), [items, filters]);
   // Derive the open drawer from fetched data so it stays fresh after invalidation.
@@ -97,15 +89,12 @@ function ConsentPage() {
     dndMutation.mutate({ rec, on });
   };
 
-  const handleImport = () =>
-    toast.success("Bulk import queued", {
-      description:
-        "Upload a CSV of {account_id, channel, status} rows. Preview will run before applying.",
-    });
-  const handleExport = () =>
-    toast.success(`Exporting ${filtered.length} record${filtered.length === 1 ? "" : "s"}`, {
-      description: "Consent registry CSV (with opt-out log) will be ready in ~15 seconds.",
-    });
+  const [importOpen, setImportOpen] = useState(false);
+  const exportMutation = useExportConsentRegistry();
+  const { data: me } = useMe();
+  // Disabled only once `me` says no: the routes answer 403 either way.
+  const canImport = !me || can(me, "perm-consent-write");
+  const canExport = !me || can(me, "perm-compliance-read");
 
   return (
     <>
@@ -120,16 +109,25 @@ function ConsentPage() {
             </Lozenge>
             <div className="ml-auto flex items-center gap-100">
               <button
-                onClick={handleImport}
-                className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-subtle hover:bg-surface-sunken"
+                onClick={() => setImportOpen(true)}
+                disabled={!canImport}
+                title={canImport ? undefined : "Needs the consent write permission"}
+                className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-subtle hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Upload className="h-3.5 w-3.5" /> Import CSV
               </button>
               <button
-                onClick={handleExport}
-                className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest"
+                onClick={() => exportMutation.mutate()}
+                disabled={!canExport || exportMutation.isPending}
+                title={
+                  canExport
+                    ? "Every customer in the registry, not only those loaded here"
+                    : "Needs the compliance read permission"
+                }
+                className="inline-flex items-center gap-050 rounded-medium border border-border bg-surface px-150 py-075 text-body-small text-text-brand hover:bg-background-brand-subtlest disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Download className="h-3.5 w-3.5" /> Export registry
+                <Download className="h-3.5 w-3.5" />{" "}
+                {exportMutation.isPending ? "Exporting…" : "Export registry"}
               </button>
             </div>
           </div>
@@ -169,6 +167,7 @@ function ConsentPage() {
         onCaptureOptOut={onCaptureOptOut}
         onToggleDnd={onToggleDnd}
       />
+      <ConsentImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </>
   );
 }

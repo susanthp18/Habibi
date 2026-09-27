@@ -198,6 +198,8 @@ export type ApiInit<T> = {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   schema?: TransportSchema<T>;
+  /** Overrides the 30s default for a write known to run long (bulk imports). */
+  timeoutMs?: number;
 };
 
 /** Thin typed GET helper for the live API. */
@@ -240,7 +242,7 @@ async function apiSend<T>(
     headers,
     credentials: "include",
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal: requestSignal(init?.signal),
+    signal: requestSignal(init?.signal, init?.timeoutMs),
   });
   if (!res.ok) {
     throw new ApiError(

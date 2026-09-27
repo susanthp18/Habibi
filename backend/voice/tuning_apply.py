@@ -353,7 +353,9 @@ def build_llm_settings_kwargs(
         "model": model,
         "system_instruction": system_instruction,
     }
-    # Reasoning deployments (o-series / GPT-5) reject temperature and the other
+    if model.lower() == "gpt-6-luna":
+        kwargs["extra"] = {"reasoning_effort": "none"}
+    # Reasoning deployments (o-series / GPT-5 / GPT-6) reject temperature and the other
     # sampling params — omit them so live turns don't 400. Matches the prewarm
     # logic in llm_pool and azure_openai.
     if not _is_reasoning_model(model):

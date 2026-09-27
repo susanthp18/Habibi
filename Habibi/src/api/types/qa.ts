@@ -13,6 +13,8 @@ export interface RubricCriterion {
   description: string;
   weight: number; // relative within section, %
   critical?: boolean;
+  /** Same lineage = the same question across rubric versions. */
+  lineageId?: string | null;
 }
 export interface RubricSection {
   id: string;
@@ -32,6 +34,12 @@ export interface ScorecardEntry {
   score: number; // 0..5 (final)
   note?: string;
   accepted?: boolean;
+  /** Who decided it: rules on the call's facts, small-model signals, the LLM judge, or a reviewer. */
+  tier?: "evidence" | "model" | "llm" | "human" | null;
+  confidence?: number | null;
+  /** Turn indexes, flags or timings the decision rests on. */
+  evidence?: Record<string, unknown> | null;
+  modelVersion?: string | null;
 }
 export interface Scorecard {
   id: string;
@@ -62,13 +70,17 @@ export interface CoachingAction {
 export interface CalibrationReviewerScore {
   reviewer: string;
   entries: ScorecardEntry[];
+  /** False until the reviewer has scored; their entries are padding. */
+  submitted?: boolean | null;
 }
 export interface CalibrationSession {
   id: string;
   name: string;
   callId: string;
+  /** The rubric version the session is scored on. */
+  rubricId?: string | null;
   customerName: string;
-  target: ScorecardEntry[]; // target scores
+  target: ScorecardEntry[]; // the call's scorecard when the session opened
   reviewers: CalibrationReviewerScore[];
   status: "active" | "closed";
   createdAt: string;

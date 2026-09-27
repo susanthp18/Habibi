@@ -187,7 +187,7 @@ ExportFormat = Literal["pdf", "csv", "audio-zip"]
 ExportScope = Literal["transcript", "audio", "metadata"]
 
 
-ExportStatus = Literal["queued", "ready", "failed"]
+ExportStatus = Literal["queued", "running", "ready", "failed"]
 
 
 ExportKind = Literal["redaction", "dashboard"]
@@ -209,6 +209,15 @@ class ExportJobResponse(BaseModel):
     entitiesRedacted: int
     kind: ExportKind = "redaction"
     mailStatus: str | None = None
+    # Why a failed export could not be built (e.g. a call still being redacted).
+    error: str | None = None
+
+
+class ExportAccessRoleResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
 
 
 class ExportJobCreateRequest(BaseModel):
@@ -219,7 +228,8 @@ class ExportJobCreateRequest(BaseModel):
     format: ExportFormat = "pdf"
     scope: list[ExportScope] = Field(default_factory=lambda: ["transcript"])
     watermark: str = ""
-    actorRole: str = "Compliance Officer"
+    # The role allowed to download the bundle: a role id or name of this tenant.
+    actorRole: str = "role-compliance-officer"
     range: str = "30d"
     segment: str = "all"
     team: str = "all"

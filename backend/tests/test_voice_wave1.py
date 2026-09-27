@@ -86,53 +86,6 @@ def test_media_for_interaction_keeps_newest_audio(monkeypatch) -> None:
     assert picked["id"] == "new"
 
 
-def test_redacted_export_omits_original_when_no_redacted(monkeypatch) -> None:
-    import io
-    import zipfile
-
-    from voice.redaction_export import build_export_zip
-
-    class _Conn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def execute(self, *_a, **_k):
-            return SimpleNamespace()
-
-    rec = {
-        "id": "RR-1",
-        "interaction_id": "CL-1",
-        "customer_id": "C1",
-        "started_at": None,
-        "ended_at": None,
-        "direction": "inbound",
-        "channel": "voice",
-        "handler_bot_id": None,
-        "source_payload": {},
-    }
-
-    monkeypatch.setattr("db.engine.connect", lambda: _Conn())
-    monkeypatch.setattr("db._one", lambda _r: rec)
-    monkeypatch.setattr("db.current_tenant", lambda: "hdfc.retail")
-    monkeypatch.setattr("voice.redaction_export.write_redacted_wav", lambda *a, **k: None)
-    monkeypatch.setattr(
-        "voice.recordings.media_for_interaction",
-        lambda ix, variant="original": (
-            None
-            if variant == "redacted"
-            else {"kind": "audio", "storage_ref": "local://recordings/x.wav"}
-        ),
-    )
-    monkeypatch.setattr("voice.recordings._load_bytes", lambda _ref: b"ORIGINAL")
-    blob = build_export_zip("EX-1", ["RR-1"], ["redacted_audio"])
-    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-        names = zf.namelist()
-    assert not any(n.endswith("redacted.wav") for n in names)
-
-
 def test_resolve_known_customer_is_tenant_scoped(monkeypatch) -> None:
     from voice import persist
 

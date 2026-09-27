@@ -38,6 +38,7 @@ _UNTYPED_BY_DESIGN = frozenset(
         "POST /tts/preview",  # audio bytes, vendor content type
         "GET /billing/export.csv",  # CSV download
         "GET /dashboard.csv",  # CSV download
+        "GET /consent/export",  # CSV download
         "GET /export-jobs/{job_id}/download",  # zip download
         "DELETE /kb/faqs/{faq_id}",  # 204, no body
         "DELETE /kb/products/phrasings/{phrasing_id}",  # 204, no body

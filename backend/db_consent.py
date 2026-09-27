@@ -156,31 +156,60 @@ def _consent_channels_grouped(conn: Any, consent_ids: list[str]) -> dict[str, li
         conn.execute(
             text(
                 """
-                SELECT consent_id, channel, status, source, captured_at,
+                SELECT consent_id, channel, purpose, status, source, captured_at,
                        weekly_frequency_cap, used_this_week, created_at
                 FROM channel_consents
                 WHERE consent_id = ANY(:ids)
-                ORDER BY channel
+                ORDER BY channel, purpose
                 """
             ),
             {"ids": consent_ids},
         )
     )
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    return _group_channel_rows(rows)
+
+
+def _screen_status(raw: str | None) -> str:
+    return raw if raw in {"opted_in", "opted_out", "dnd", "expired"} else "opted_out"
+
+
+def _group_channel_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """One screen channel per (consent, channel): the **servicing** row.
+
+    An opt-out writes a servicing and a promotional row per channel, and this
+    used to append both, so the screen showed whichever sorted last -- a
+    re-opt-in (servicing) looked as if it had not stuck. The channel's status
+    is the servicing row, the purpose the contact Gate reads
+    (``capture.latest_consent_by_channel``); the promotional row rides along as
+    ``promotional``, None when it was never captured. A channel with only a
+    promotional row has no servicing consent: it gets the opted-out default,
+    carrying the promotional fact.
+    """
+    servicing: dict[tuple[str, str], dict[str, Any]] = {}
+    promotional: dict[tuple[str, str], dict[str, Any]] = {}
     for r in rows:
         mapped = _consent_channel_screen(r["channel"])
         if mapped is None or mapped == "all":
             continue
-        grouped.setdefault(r["consent_id"], []).append(
-            {
-                "channel": mapped,
-                "status": r["status"] if r["status"] in {"opted_in", "opted_out", "dnd", "expired"} else "opted_out",
-                "capturedAt": r["captured_at"] or r["created_at"],
-                "source": _consent_source_screen(r["source"]),
-                "frequencyCapPerWeek": int(r["weekly_frequency_cap"] or 3),
-                "usedThisWeek": int(r["used_this_week"] or 0),
+        promo = (r.get("purpose") or "servicing") == "promotional"
+        (promotional if promo else servicing)[(r["consent_id"], mapped)] = r
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for key in sorted(servicing.keys() | promotional.keys()):
+        consent_id, channel = key
+        s, p = servicing.get(key), promotional.get(key)
+        if s is None:
+            item = _default_channel(channel, p["captured_at"] or p["created_at"])
+        else:
+            item = {
+                "channel": channel,
+                "status": _screen_status(s["status"]),
+                "capturedAt": s["captured_at"] or s["created_at"],
+                "source": _consent_source_screen(s["source"]),
+                "frequencyCapPerWeek": int(s["weekly_frequency_cap"] or 3),
+                "usedThisWeek": int(s["used_this_week"] or 0),
             }
-        )
+        item["promotional"] = _screen_status(p["status"]) if p else None
+        grouped.setdefault(consent_id, []).append(item)
     return grouped
 
 def _consent_optouts_grouped(conn: Any, consent_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
@@ -256,23 +285,28 @@ def _ensure_channels_complete(channels: list[dict[str, Any]], fallback_at: str) 
         if ch in by_channel:
             complete.append(by_channel[ch])
         else:
-            # No consent row means no consent. Synthesising "opted_in" made the
-            # Consent screen assert a permission nobody captured — the one
-            # place in the product where the answer must never be inferred.
-            complete.append(
-                {
-                    "channel": ch,
-                    "status": "opted_out",
-                    "capturedAt": fallback_at,
-                    # Stays "Onboarding" — the screen's `source` is a closed
-                    # union (ChannelConsent in consent-seed.ts) and the status
-                    # is what carries the correction.
-                    "source": "Onboarding",
-                    "frequencyCapPerWeek": 3,
-                    "usedThisWeek": 0,
-                }
-            )
+            complete.append(_default_channel(ch, fallback_at))
     return complete
+
+
+def _default_channel(channel: str, captured_at: Any) -> dict[str, Any]:
+    """A channel with no servicing row.
+
+    No consent row means no consent. Synthesising "opted_in" made the Consent
+    screen assert a permission nobody captured — the one place in the product
+    where the answer must never be inferred.
+    """
+    return {
+        "channel": channel,
+        "status": "opted_out",
+        "capturedAt": captured_at,
+        # Stays "Onboarding" — the screen's `source` is a closed union
+        # (ChannelConsent in consent-seed.ts) and the status carries the correction.
+        "source": "Onboarding",
+        "frequencyCapPerWeek": 3,
+        "usedThisWeek": 0,
+        "promotional": None,
+    }
 
 _SCREEN_CHANNELS = ("call", "whatsapp", "sms", "email")
 
@@ -529,228 +563,538 @@ def patch_consent(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     text rather than an operator edit. Each field whose parsed value matches the
     stored string is left byte-identical; only a real edit is written.
     """
-    _mod = _db()
     engine = _db().engine
     with engine.begin() as conn:
-        _assert_tenant_owns_customer(conn, customer_id)
-        _ensure_customer(conn, customer_id)
-        consent_id = _ensure_consent_record(conn, customer_id)
-
-        dnd_val = None
-        if "dnd" in payload:
-            dnd_val = payload["dnd"]
-        elif "onDndRegistry" in payload:
-            dnd_val = payload["onDndRegistry"]
-        if dnd_val is not None:
-            conn.execute(
-                text("UPDATE customers SET dnd = :dnd WHERE id = :id"),
-                {"dnd": bool(dnd_val), "id": customer_id},
-            )
-            conn.execute(
-                text("UPDATE consent_records SET dnd_registry = :dnd WHERE id = :id"),
-                {"dnd": bool(dnd_val), "id": consent_id},
-            )
-
-        if "consentExpiresAt" in payload and payload["consentExpiresAt"] is not None:
-            conn.execute(
-                text("UPDATE consent_records SET expires_at = :expires_at WHERE id = :id"),
-                {"expires_at": payload["consentExpiresAt"], "id": consent_id},
-            )
-
-        if "allowedWindow" in payload and payload["allowedWindow"] is not None:
-            aw = payload["allowedWindow"]
-            if not isinstance(aw, dict):
-                aw = aw.model_dump() if hasattr(aw, "model_dump") else dict(aw)
-            stored = _one(
-                conn.execute(
-                    text(
-                        """
-                        SELECT cr.allowed_days, cr.allowed_hours, c.preferred_window
-                        FROM consent_records cr
-                        JOIN customers c ON c.id = cr.customer_id
-                        WHERE cr.id = :id
-                        """
-                    ),
-                    {"id": consent_id},
-                )
-            )
-            days_raw = stored["allowed_days"] if stored else None
-            # GET uses allowed_hours, then preferred_window. Match that view so
-            # a round-trip of either column is recognised as an echo.
-            hours_raw = (stored["allowed_hours"] or stored["preferred_window"]) if stored else None
-            incoming_days = _incoming_window_days(aw)
-            incoming_hours = _incoming_window_hours(aw)
-            # Preserve each stored string when its parsed value round-trips
-            # unchanged. A whole-window skip still rewrote days on an hours
-            # edit (Mon–Sat → Mon-Mon) and hours on a days edit.
-            if incoming_days is not None and not _window_days_echo_stored(
-                incoming_days, days_raw
-            ):
-                conn.execute(
-                    text("UPDATE consent_records SET allowed_days = :days WHERE id = :id"),
-                    {"days": _format_allowed_days(incoming_days), "id": consent_id},
-                )
-            if incoming_hours is not None and not _window_hours_echo_stored(
-                incoming_hours, hours_raw
-            ):
-                hours_str = _format_allowed_hours(*incoming_hours)
-                conn.execute(
-                    text("UPDATE consent_records SET allowed_hours = :hours WHERE id = :id"),
-                    {"hours": hours_str, "id": consent_id},
-                )
-                conn.execute(
-                    text("UPDATE customers SET preferred_window = :hours WHERE id = :id"),
-                    {"hours": hours_str, "id": customer_id},
-                )
-
-        for item in payload.get("channels") or []:
-            if not isinstance(item, dict):
-                item = item.model_dump() if hasattr(item, "model_dump") else dict(item)
-            channel_value = _consent_channel_db(item["channel"])
-            status = _channel_status_from_patch(item)
-            source = item.get("source") or "Agent"
-            cap = item.get("frequencyCapPerWeek")
-            # Servicing unless the screen says otherwise. This is the only way a
-            # promotional consent can be captured, and it has to exist: a gate
-            # nobody can satisfy is not a compliance control, it is an outage
-            # with a paragraph number attached.
-            purpose = str(item.get("purpose") or "servicing").strip().lower()
-            if purpose not in ("servicing", "promotional"):
-                purpose = "servicing"
-            params: dict[str, Any] = {
-                "id": f"{consent_id}-{channel_value}-{purpose}",
-                "consent_id": consent_id,
-                "channel": channel_value,
-                "purpose": purpose,
-                "status": status,
-                "source": source,
-                "cap": cap,
-            }
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO channel_consents
-                      (id, consent_id, channel, purpose, status, source,
-                       weekly_frequency_cap, used_this_week, captured_at)
-                    VALUES
-                      (:id, :consent_id, :channel, :purpose, :status, :source,
-                       COALESCE(:cap, 3), 0, now())
-                    ON CONFLICT (consent_id, channel, purpose)
-                    DO UPDATE SET
-                      status = EXCLUDED.status,
-                      source = EXCLUDED.source,
-                      weekly_frequency_cap = COALESCE(:cap, channel_consents.weekly_frequency_cap),
-                      captured_at = now()
-                    """
-                ),
-                params,
-            )
-
-        note = (payload.get("note") or "").strip()
-        if "consentExpiresAt" in payload and payload.get("consentExpiresAt"):
-            kind, label = "consent_renewed", note or "Consent renewed for 12 months."
-        elif dnd_val is not None and not payload.get("channels") and "allowedWindow" not in payload:
-            kind = "dnd_updated"
-            label = note or ("Added to DND registry (calls blocked)." if dnd_val else "Removed from DND registry.")
-        else:
-            kind, label = "consent_updated", note or "Consent preferences updated."
-        _activity(conn, "customer", customer_id, kind, label, note or None, customer_id)
-        # On the consent chain: what was written, hashed, so a later edit of
-        # the row is visible against the last authorised one.
-        from agent_core import change_log
-
-        change_log.record_consent_change(
-            conn,
-            tenant_id=current_tenant(),
-            actor_user_id=_actor_user_id(),
-            customer_id=customer_id,
-            change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
-        )
-
+        _patch_consent_tx(conn, customer_id, payload)
     customer = _db().get_customer(customer_id)
     if customer is None:
         raise KeyError("customer_not_found")
     return customer
 
+
+def _patch_consent_tx(conn: Any, customer_id: str, payload: dict[str, Any]) -> None:
+    """The write half of :func:`patch_consent`, inside the caller's transaction.
+
+    Split out so the bulk import writes through exactly this path -- the same
+    rows, activity event and change-log entry as a save from the drawer.
+    """
+    _assert_tenant_owns_customer(conn, customer_id)
+    _ensure_customer(conn, customer_id)
+    consent_id = _ensure_consent_record(conn, customer_id)
+
+    dnd_val = None
+    if "dnd" in payload:
+        dnd_val = payload["dnd"]
+    elif "onDndRegistry" in payload:
+        dnd_val = payload["onDndRegistry"]
+    if dnd_val is not None:
+        conn.execute(
+            text("UPDATE customers SET dnd = :dnd WHERE id = :id"),
+            {"dnd": bool(dnd_val), "id": customer_id},
+        )
+        conn.execute(
+            text("UPDATE consent_records SET dnd_registry = :dnd WHERE id = :id"),
+            {"dnd": bool(dnd_val), "id": consent_id},
+        )
+
+    if "consentExpiresAt" in payload and payload["consentExpiresAt"] is not None:
+        conn.execute(
+            text("UPDATE consent_records SET expires_at = :expires_at WHERE id = :id"),
+            {"expires_at": payload["consentExpiresAt"], "id": consent_id},
+        )
+
+    if "allowedWindow" in payload and payload["allowedWindow"] is not None:
+        aw = payload["allowedWindow"]
+        if not isinstance(aw, dict):
+            aw = aw.model_dump() if hasattr(aw, "model_dump") else dict(aw)
+        stored = _one(
+            conn.execute(
+                text(
+                    """
+                    SELECT cr.allowed_days, cr.allowed_hours, c.preferred_window
+                    FROM consent_records cr
+                    JOIN customers c ON c.id = cr.customer_id
+                    WHERE cr.id = :id
+                    """
+                ),
+                {"id": consent_id},
+            )
+        )
+        days_raw = stored["allowed_days"] if stored else None
+        # GET uses allowed_hours, then preferred_window. Match that view so
+        # a round-trip of either column is recognised as an echo.
+        hours_raw = (stored["allowed_hours"] or stored["preferred_window"]) if stored else None
+        incoming_days = _incoming_window_days(aw)
+        incoming_hours = _incoming_window_hours(aw)
+        # Preserve each stored string when its parsed value round-trips
+        # unchanged. A whole-window skip still rewrote days on an hours
+        # edit (Mon–Sat → Mon-Mon) and hours on a days edit.
+        if incoming_days is not None and not _window_days_echo_stored(
+            incoming_days, days_raw
+        ):
+            conn.execute(
+                text("UPDATE consent_records SET allowed_days = :days WHERE id = :id"),
+                {"days": _format_allowed_days(incoming_days), "id": consent_id},
+            )
+        if incoming_hours is not None and not _window_hours_echo_stored(
+            incoming_hours, hours_raw
+        ):
+            hours_str = _format_allowed_hours(*incoming_hours)
+            conn.execute(
+                text("UPDATE consent_records SET allowed_hours = :hours WHERE id = :id"),
+                {"hours": hours_str, "id": consent_id},
+            )
+            conn.execute(
+                text("UPDATE customers SET preferred_window = :hours WHERE id = :id"),
+                {"hours": hours_str, "id": customer_id},
+            )
+
+    for item in payload.get("channels") or []:
+        if not isinstance(item, dict):
+            item = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        channel_value = _consent_channel_db(item["channel"])
+        status = _channel_status_from_patch(item)
+        source = item.get("source") or "Agent"
+        cap = item.get("frequencyCapPerWeek")
+        # Servicing unless the screen says otherwise. This is the only way a
+        # promotional consent can be captured, and it has to exist: a gate
+        # nobody can satisfy is not a compliance control, it is an outage
+        # with a paragraph number attached.
+        purpose = str(item.get("purpose") or "servicing").strip().lower()
+        if purpose not in ("servicing", "promotional"):
+            purpose = "servicing"
+        params: dict[str, Any] = {
+            "id": f"{consent_id}-{channel_value}-{purpose}",
+            "consent_id": consent_id,
+            "channel": channel_value,
+            "purpose": purpose,
+            "status": status,
+            "source": source,
+            "cap": cap,
+        }
+        conn.execute(
+            text(
+                """
+                INSERT INTO channel_consents
+                  (id, consent_id, channel, purpose, status, source,
+                   weekly_frequency_cap, used_this_week, captured_at)
+                VALUES
+                  (:id, :consent_id, :channel, :purpose, :status, :source,
+                   COALESCE(:cap, 3), 0, now())
+                ON CONFLICT (consent_id, channel, purpose)
+                DO UPDATE SET
+                  status = EXCLUDED.status,
+                  source = EXCLUDED.source,
+                  weekly_frequency_cap = COALESCE(:cap, channel_consents.weekly_frequency_cap),
+                  captured_at = now()
+                """
+            ),
+            params,
+        )
+
+    note = (payload.get("note") or "").strip()
+    if "consentExpiresAt" in payload and payload.get("consentExpiresAt"):
+        kind, label = "consent_renewed", note or "Consent renewed for 12 months."
+    elif dnd_val is not None and not payload.get("channels") and "allowedWindow" not in payload:
+        kind = "dnd_updated"
+        label = note or ("Added to DND registry (calls blocked)." if dnd_val else "Removed from DND registry.")
+    else:
+        kind, label = "consent_updated", note or "Consent preferences updated."
+    _activity(conn, "customer", customer_id, kind, label, note or None, customer_id)
+    # On the consent chain: what was written, hashed, so a later edit of
+    # the row is visible against the last authorised one.
+    from agent_core import change_log
+
+    change_log.record_consent_change(
+        conn,
+        tenant_id=current_tenant(),
+        actor_user_id=_actor_user_id(),
+        customer_id=customer_id,
+        change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
+    )
+
+
 def opt_out(customer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _mod = _db()
     engine = _db().engine
+    with engine.begin() as conn:
+        _opt_out_tx(conn, customer_id, payload)
+    customer = _db().get_customer(customer_id)
+    if customer is None:
+        raise KeyError("customer_not_found")
+    return customer
+
+
+def _opt_out_tx(conn: Any, customer_id: str, payload: dict[str, Any]) -> None:
+    """The write half of :func:`opt_out`, inside the caller's transaction."""
     channel_raw = payload["channel"]
     affected = list(_CONSENT_CHANNEL_ORDER) if channel_raw == "all" else [channel_raw]
     source = payload.get("source") or "Agent"
     note = (payload.get("note") or "").strip() or None
     actor_kind, actor_user_id, _bot = _actor()
-    with engine.begin() as conn:
-        _ensure_customer(conn, customer_id)
-        consent_id = _ensure_consent_record(conn, customer_id)
-        for ch in affected:
-            channel_value = _consent_channel_db(ch)
-            # An opt-out closes **both** purposes, and closes the promotional
-            # one even where no promotional consent was ever captured.
-            #
-            # Somebody who says "stop contacting me" has not opted out of
-            # servicing while leaving marketing open, and reading it that way
-            # would be the most self-serving construction available. The
-            # promotional row is inserted rather than merely updated so that a
-            # later promotional capture has an explicit opt-out to overwrite,
-            # deliberately, rather than an absence to fill in.
-            for consent_purpose in ("servicing", "promotional"):
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO channel_consents
-                          (id, consent_id, channel, purpose, status, source, captured_at)
-                        VALUES
-                          (:id, :consent_id, :channel, :purpose, 'opted_out', :source, now())
-                        ON CONFLICT (consent_id, channel, purpose)
-                        DO UPDATE SET status = 'opted_out', source = EXCLUDED.source,
-                                      captured_at = EXCLUDED.captured_at
-                        """
-                    ),
-                    {
-                        "id": f"{consent_id}-{channel_value}-{consent_purpose}",
-                        "consent_id": consent_id,
-                        "channel": channel_value,
-                        "purpose": consent_purpose,
-                        "source": source,
-                    },
-                )
-        # Screen shape stores one opt-out event (channel may be "all").
-        event_channel = "all" if channel_raw == "all" else _consent_channel_db(channel_raw)
+    _ensure_customer(conn, customer_id)
+    consent_id = _ensure_consent_record(conn, customer_id)
+    for ch in affected:
+        channel_value = _consent_channel_db(ch)
+        # An opt-out closes **both** purposes, and closes the promotional
+        # one even where no promotional consent was ever captured.
+        #
+        # Somebody who says "stop contacting me" has not opted out of
+        # servicing while leaving marketing open, and reading it that way
+        # would be the most self-serving construction available. The
+        # promotional row is inserted rather than merely updated so that a
+        # later promotional capture has an explicit opt-out to overwrite,
+        # deliberately, rather than an absence to fill in.
+        for consent_purpose in ("servicing", "promotional"):
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO channel_consents
+                      (id, consent_id, channel, purpose, status, source, captured_at)
+                    VALUES
+                      (:id, :consent_id, :channel, :purpose, 'opted_out', :source, now())
+                    ON CONFLICT (consent_id, channel, purpose)
+                    DO UPDATE SET status = 'opted_out', source = EXCLUDED.source,
+                                  captured_at = EXCLUDED.captured_at
+                    """
+                ),
+                {
+                    "id": f"{consent_id}-{channel_value}-{consent_purpose}",
+                    "consent_id": consent_id,
+                    "channel": channel_value,
+                    "purpose": consent_purpose,
+                    "source": source,
+                },
+            )
+    # Screen shape stores one opt-out event (channel may be "all").
+    event_channel = "all" if channel_raw == "all" else _consent_channel_db(channel_raw)
+    conn.execute(
+        text(
+            """
+            INSERT INTO optout_events
+              (id, consent_id, channel, source, actor_kind, actor_user_id, note)
+            VALUES
+              (:id, :consent_id, :channel, :source, :actor_kind, :actor_user_id, :note)
+            """
+        ),
+        {
+            "id": _id("OPTOUT"),
+            "consent_id": consent_id,
+            "channel": event_channel,
+            "source": source,
+            # A worker relaying the carrier's STOP is `system` with no
+            # user; a person on the consent screen is `human` with one.
+            "actor_kind": actor_kind,
+            "actor_user_id": actor_user_id,
+            "note": note,
+        },
+    )
+    label = f"Opt-out captured via {source} ({channel_raw})."
+    _activity(conn, "customer", customer_id, "opt_out", label, note, customer_id)
+    from agent_core import change_log
+
+    change_log.record_consent_change(
+        conn,
+        tenant_id=current_tenant(),
+        actor_user_id=_actor_user_id(),
+        customer_id=customer_id,
+        change={"kind": "opt_out", "channel": channel_raw, "source": source},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bulk import / registry export
+# ---------------------------------------------------------------------------
+
+#: The Consent screen's own ceiling for one upload; the request model enforces it too.
+MAX_IMPORT_ROWS = 5000
+
+_IMPORT_CHANNELS = {"voice": "call", "call": "call", "whatsapp": "whatsapp", "sms": "sms", "email": "email"}
+_IMPORT_BOOL = {"true": True, "yes": True, "y": True, "1": True, "false": False, "no": False, "n": False, "0": False}
+_IMPORT_NOTE_MAX = 500
+
+
+def _import_state(conn: Any, customer_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Per tenant customer named in the file: DND as the screen reads it, and
+    each stored ``(screen channel, purpose) -> status``. Absent = not this tenant's."""
+    if not customer_ids:
+        return {}
+    rows = _rows(
         conn.execute(
             text(
                 """
-                INSERT INTO optout_events
-                  (id, consent_id, channel, source, actor_kind, actor_user_id, note)
-                VALUES
-                  (:id, :consent_id, :channel, :source, :actor_kind, :actor_user_id, :note)
+                SELECT c.id, c.dnd, cr.dnd_registry, cc.channel, cc.purpose, cc.status
+                FROM customers c
+                LEFT JOIN consent_records cr ON cr.customer_id = c.id
+                LEFT JOIN channel_consents cc ON cc.consent_id = cr.id
+                WHERE c.tenant_id = :tid AND c.id = ANY(:ids)
                 """
             ),
-            {
-                "id": _id("OPTOUT"),
-                "consent_id": consent_id,
-                "channel": event_channel,
-                "source": source,
-                # A worker relaying the carrier's STOP is `system` with no
-                # user; a person on the consent screen is `human` with one.
-                "actor_kind": actor_kind,
-                "actor_user_id": actor_user_id,
-                "note": note,
-            },
+            {"tid": _tenant(), "ids": customer_ids},
         )
-        label = f"Opt-out captured via {source} ({channel_raw})."
-        _activity(conn, "customer", customer_id, "opt_out", label, note, customer_id)
-        from agent_core import change_log
+    )
+    state: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        s = state.setdefault(r["id"], {"dnd": False, "status": {}})
+        s["dnd"] = s["dnd"] or bool(r["dnd"] or r["dnd_registry"])
+        ch = _consent_channel_screen(r["channel"]) if r["channel"] else None
+        if ch and ch != "all":
+            s["status"][(ch, r["purpose"] or "servicing")] = r["status"]
+    return state
 
-        change_log.record_consent_change(
-            conn,
-            tenant_id=current_tenant(),
-            actor_user_id=_actor_user_id(),
-            customer_id=customer_id,
-            change={"kind": "opt_out", "channel": channel_raw, "source": source},
+
+def _plan_import(rows: list[dict[str, Any]], state: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Validate every row and say what it would change. Pure: no reads, no writes.
+
+    ``row`` is 1-based over the data rows (the header is not counted). A row is
+    refused, never guessed at: an unknown customer, channel, status or purpose,
+    a second row for the same customer/channel/purpose, or a DND value that
+    contradicts an earlier row for the same customer.
+    """
+    results: list[dict[str, Any]] = []
+    seen: dict[tuple[str, str, str], int] = {}
+    dnd_plan: dict[str, tuple[bool, int]] = {}
+    for i, raw in enumerate(rows, start=1):
+        cid = str(raw.get("customer_id") or "").strip()
+        channel = _IMPORT_CHANNELS.get(str(raw.get("channel") or "").strip().lower())
+        status = str(raw.get("status") or "").strip().lower()
+        purpose = str(raw.get("purpose") or "").strip().lower() or "servicing"
+        dnd_raw = raw.get("dnd")
+        dnd_text = str(dnd_raw).strip().lower() if dnd_raw is not None else ""
+        dnd = _IMPORT_BOOL.get(dnd_text) if dnd_text else None
+        note = str(raw.get("note") or "").strip()[:_IMPORT_NOTE_MAX]
+        out: dict[str, Any] = {
+            "row": i,
+            "customerId": cid,
+            "channel": channel,
+            "status": status or None,
+            "purpose": purpose,
+            "dnd": dnd,
+            "note": note,
+            "ok": False,
+            "error": None,
+            "change": "none",
+            "dndChange": None,
+        }
+        results.append(out)
+        if not cid:
+            out["error"] = "customer_id is required"
+        elif cid not in state:
+            out["error"] = f"Customer {cid} not found"
+        elif channel is None:
+            out["error"] = f"Unknown channel '{raw.get('channel') or ''}' (voice, whatsapp, sms, email)"
+        elif status not in ("opted_in", "opted_out"):
+            out["error"] = f"Unknown status '{raw.get('status') or ''}' (opted_in, opted_out)"
+        elif purpose not in ("servicing", "promotional"):
+            out["error"] = f"Unknown purpose '{purpose}' (servicing, promotional)"
+        elif dnd_text and dnd is None:
+            out["error"] = f"dnd must be true or false, not '{dnd_raw}'"
+        elif (cid, channel, purpose) in seen:
+            out["error"] = f"Duplicate of row {seen[(cid, channel, purpose)]}"
+        elif dnd is not None and cid in dnd_plan and dnd_plan[cid][0] != dnd:
+            out["error"] = f"dnd contradicts row {dnd_plan[cid][1]}"
+        if out["error"]:
+            continue
+        out["ok"] = True
+        seen[(cid, channel, purpose)] = i
+        if state[cid]["status"].get((channel, purpose)) != status:
+            out["change"] = "opt_in" if status == "opted_in" else "opt_out"
+        if dnd is not None and cid not in dnd_plan:
+            dnd_plan[cid] = (dnd, i)
+            if dnd != state[cid]["dnd"]:
+                out["dndChange"] = "dnd_on" if dnd else "dnd_off"
+                if out["change"] == "none":
+                    out["change"] = out["dndChange"]
+    return results
+
+
+def _import_label(parts: list[str], notes: list[str]) -> str:
+    label = "Bulk import: " + "; ".join(parts) + "."
+    user = " / ".join(dict.fromkeys(n for n in notes if n))
+    return f"{label} {user}" if user else label
+
+
+def _apply_import(conn: Any, results: list[dict[str, Any]]) -> int:
+    """Write the planned changes through the drawer's own write paths.
+
+    A servicing opt-out is an opt-out (``_opt_out_tx``: both purposes closed,
+    an opt-out event logged); everything else is a consent save
+    (``_patch_consent_tx``), one per customer, DND included. Opt-outs go first
+    so a promotional opt-in in the same file is the last word on that purpose.
+    Returns the number of changes written.
+    """
+    per_customer: dict[str, dict[str, Any]] = {}
+    for r in results:
+        if not r["ok"]:
+            continue
+        plan = per_customer.setdefault(
+            r["customerId"], {"optouts": [], "channels": [], "parts": [], "notes": [], "dnd": None}
         )
-    customer = _db().get_customer(customer_id)
-    if customer is None:
-        raise KeyError("customer_not_found")
-    return customer
+        if r["dndChange"]:
+            plan["dnd"] = r["dnd"]
+            plan["notes"].append(r["note"])
+        if r["change"] not in ("opt_in", "opt_out"):
+            continue
+        if r["change"] == "opt_out" and r["purpose"] == "servicing":
+            plan["optouts"].append(r)
+            continue
+        plan["channels"].append(
+            {"channel": r["channel"], "status": r["status"], "purpose": r["purpose"], "source": "Bulk Import"}
+        )
+        plan["parts"].append(f"{r['channel']} {r['status'].replace('_', ' ')} ({r['purpose']})")
+        plan["notes"].append(r["note"])
+    applied = 0
+    for cid, plan in per_customer.items():
+        for r in plan["optouts"]:
+            _opt_out_tx(
+                conn,
+                cid,
+                {"channel": r["channel"], "source": "Bulk Import", "note": r["note"] or "Bulk import"},
+            )
+            applied += 1
+        if not plan["channels"] and plan["dnd"] is None:
+            continue
+        payload: dict[str, Any] = {}
+        parts = list(plan["parts"])
+        if plan["channels"]:
+            payload["channels"] = plan["channels"]
+            applied += len(plan["channels"])
+        if plan["dnd"] is not None:
+            payload["dnd"] = plan["dnd"]
+            parts.append("added to DND registry" if plan["dnd"] else "removed from DND registry")
+            applied += 1
+        payload["note"] = _import_label(parts, plan["notes"])
+        _patch_consent_tx(conn, cid, payload)
+    return applied
 
+
+def import_consent(rows: list[dict[str, Any]], *, dry_run: bool) -> dict[str, Any]:
+    """Validate a CSV's rows and, unless ``dry_run``, apply the valid ones.
+
+    One transaction: the file lands whole or not at all, so a failure halfway
+    cannot leave half a regulator's list applied. A dry run writes nothing.
+    """
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise ValueError(f"at most {MAX_IMPORT_ROWS} rows per import")
+    ids = sorted({str(r.get("customer_id") or "").strip() for r in rows} - {""})
+    engine = _db().engine
+    with engine.begin() as conn:
+        results = _plan_import(rows, _import_state(conn, ids))
+        applied = 0 if dry_run else _apply_import(conn, results)
+    changes = {k: 0 for k in ("opt_in", "opt_out", "dnd_on", "dnd_off", "none")}
+    for r in results:
+        if r["ok"]:
+            changes[r["change"]] += 1
+            if r["dndChange"] and r["dndChange"] != r["change"]:
+                changes[r["dndChange"]] += 1
+    valid = sum(1 for r in results if r["ok"])
+    return {
+        "dryRun": dry_run,
+        "total": len(results),
+        "valid": valid,
+        "invalid": len(results) - valid,
+        "changes": changes,
+        "applied": applied,
+        "results": results,
+    }
+
+
+#: (CSV column prefix, stored channel)
+_EXPORT_CHANNELS = (("voice", "voice"), ("whatsapp", "whatsapp"), ("sms", "sms"), ("email", "email"))
+
+
+def export_consent_csv() -> str:
+    """The tenant's whole registry as CSV, one row per customer the caller may see.
+
+    Every customer, not only those with a consent record: a borrower with none
+    is exported as ``not_captured`` rather than left out, which is the question
+    a regulator's extract is asking. Status per channel and purpose is the
+    stored row; the window is the screen's reading of it.
+    """
+    engine = _db().engine
+    with engine.connect() as conn:
+        rows = _rows(
+            conn.execute(
+                _sql(
+                    """
+                    SELECT c.id, c.name, c.segment, c.dnd AS customer_dnd, c.preferred_window,
+                           cr.id AS consent_id, cr.dnd_registry, cr.allowed_days,
+                           cr.allowed_hours, cr.expires_at
+                    FROM customers c
+                    LEFT JOIN consent_records cr ON cr.customer_id = c.id
+                    WHERE c.tenant_id = :tenant_id
+                      /*VISIBILITY*/
+                    ORDER BY c.name, c.id
+                    """
+                ),
+                {"tenant_id": _tenant(), **_vis_params()},
+            )
+        )
+        consent_ids = [r["consent_id"] for r in rows if r["consent_id"]]
+        statuses: dict[tuple[str, str, str], str] = {}
+        last_optout: dict[tuple[str, str], str] = {}
+        if consent_ids:
+            for r in _rows(
+                conn.execute(
+                    text(
+                        "SELECT consent_id, channel, purpose, status FROM channel_consents "
+                        "WHERE consent_id = ANY(:ids)"
+                    ),
+                    {"ids": consent_ids},
+                )
+            ):
+                statuses[(r["consent_id"], r["channel"], r["purpose"] or "servicing")] = r["status"]
+            for r in _rows(
+                conn.execute(
+                    text(
+                        "SELECT consent_id, channel, max(occurred_at) AS at FROM optout_events "
+                        "WHERE consent_id = ANY(:ids) GROUP BY consent_id, channel"
+                    ),
+                    {"ids": consent_ids},
+                )
+            ):
+                last_optout[(r["consent_id"], r["channel"])] = str(r["at"] or "")
+    # A registry extract leaves the building: who took it, and how much, is audit.
+    with engine.begin() as conn:
+        _activity(conn, "consent_registry", _tenant(), "consent_exported", "Consent registry exported",
+                  f"{len(rows)} customers")
+    return _registry_csv(rows, statuses, last_optout)
+
+
+def _registry_csv(
+    rows: list[dict[str, Any]],
+    statuses: dict[tuple[str, str, str], str],
+    last_optout: dict[tuple[str, str], str],
+) -> str:
+    import csv
+    import io
+
+    buf = io.StringIO()
+    out = csv.writer(buf)
+    header = ["customer_id", "customer_name", "segment", "dnd", "allowed_window", "consent_expires_at"]
+    for name, _ch in _EXPORT_CHANNELS:
+        header += [f"{name}_servicing", f"{name}_promotional", f"{name}_last_opt_out_at"]
+    out.writerow(header)
+    for r in rows:
+        cid = r["consent_id"]
+        start_h, end_h = _parse_allowed_hours(r["allowed_hours"] or r["preferred_window"])
+        days = _format_allowed_days(_parse_allowed_days(r["allowed_days"]))
+        line = [
+            r["id"],
+            r["name"] or "",
+            _consent_segment(r["segment"]),
+            "true" if (r["customer_dnd"] or r["dnd_registry"]) else "false",
+            f"{days} {start_h:02d}:00-{end_h:02d}:00",
+            str(r["expires_at"] or ""),
+        ]
+        for _name, ch in _EXPORT_CHANNELS:
+            line.append(statuses.get((cid, ch, "servicing"), "not_captured"))
+            line.append(statuses.get((cid, ch, "promotional"), "not_captured"))
+            line.append(max(last_optout.get((cid, ch), ""), last_optout.get((cid, "all"), "")))
+        out.writerow([_csv_safe(v) for v in line])
+    return buf.getvalue()
+
+
+def _csv_safe(value: Any) -> str:
+    """Neutralise spreadsheet formula injection in a customer-supplied cell."""
+    s = str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s

@@ -264,7 +264,7 @@ VOICE_REASONING_OVERRIDE_ENVS: tuple[str, ...] = (
 
 
 def _reasoning_override(envs: tuple[str, ...] = REASONING_OVERRIDE_ENVS) -> bool | None:
-    """Explicit config: reasoning models (o-series / GPT-5) reject a custom
+    """Explicit config: reasoning models (o-series / GPT-5 / GPT-6) reject a custom
     ``temperature`` and require ``max_completion_tokens``. Deployment names are
     user-defined aliases (an o-series model may be named ``prod-chat``), so an
     explicit flag must be able to force the behaviour. The first of ``envs``
@@ -300,6 +300,8 @@ def _is_reasoning_deployment(
         d.startswith(("o1", "o3", "o4"))
         or "gpt-5" in d
         or "gpt5" in d
+        or "gpt-6" in d
+        or "gpt6" in d
         or "-o1" in d
         or "-o3" in d
         or "-o4" in d

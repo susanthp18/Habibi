@@ -13,7 +13,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { apiErrorMessage } from "@/api/config";
-import { usePublishAgent, useReleasePreflight } from "@/api/voice-studio";
+import { usePublishAgent, useReleasePreflight, useReleaseQuality } from "@/api/voice-studio";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,6 +53,11 @@ export default function PublishDialog({
   const [note, setNote] = useState("");
   const gate = preflight.data;
   const noteOk = note.trim().length >= 3;
+  // How the version being replaced did on real calls: the bar the draft must clear.
+  const quality = useReleaseQuality(open ? workflowId : null);
+  const live = quality.data?.find(
+    (q) => gate?.liveVersion != null && q.version === gate.liveVersion,
+  );
 
   const submit = () =>
     publish.mutate(
@@ -101,6 +106,15 @@ export default function PublishDialog({
             </SectionMessage>
           ) : (
             <SectionMessage variant="success" icon={CircleCheck} title="Release checks passed" />
+          )}
+          {live && (
+            <p className="text-body-small text-text-subtle">
+              Live v{live.version} on {live.calls} real call{live.calls === 1 ? "" : "s"}: QA{" "}
+              {live.qaAvg ?? "—"}, critical fails {live.criticalFailPct ?? 0}%,{" "}
+              {live.violationsPer100 ?? 0} violations per 100 calls
+              {live.agentPiiCalls > 0 ? `, agent spoke personal data on ${live.agentPiiCalls}` : ""}
+              . <Link to="/studio/releases">Compare versions</Link>
+            </p>
           )}
           {gate && gate.lastCheck === null && (
             <SectionMessage variant="warning" icon={AlertTriangle} title="No rehearsal on record">
