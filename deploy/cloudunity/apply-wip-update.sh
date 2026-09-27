@@ -33,7 +33,8 @@ tar -xzf /tmp/backend.tgz -C "$ROOT"
 cp -a "/tmp/backend.env.$STAMP" "$ROOT/backend/.env"
 if [ -f "/tmp/habibi.env.production.$STAMP" ]; then
   cp -a "/tmp/habibi.env.production.$STAMP" "$ROOT/Habibi/.env.production"
-  # `vite dev` ignores .env.production; payint_ui is a dev server.
+  # Keep the local env copy for older operator workflows; the production
+  # release compiles VITE_* values from .env.production.
   cp -a "$ROOT/Habibi/.env.production" "$ROOT/Habibi/.env"
   chmod 600 "$ROOT/Habibi/.env"
 fi
@@ -53,13 +54,16 @@ echo "== recreate app containers =="
 docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
   api voice bot_worker worker wk_batch
 
-echo "== restart UI (keep node_modules; npm ci if lock changed) =="
-docker restart payint_ui
+echo "== release production UI =="
+docker run --rm --memory=2g --cpus=2 \
+  -v "$ROOT/Habibi:/app" -w /app node:22-bookworm \
+  npm install --no-audit --no-fund --loglevel=error
+bash "$ROOT/deploy/cloudunity/ui-production.sh"
 
 echo "== wait health =="
 for i in $(seq 1 60); do
   if docker inspect -f '{{.State.Health.Status}}' collections_api 2>/dev/null | grep -q healthy \
-     && curl -sS -o /dev/null -m 3 -w '' http://127.0.0.1:3108/app/; then
+     && curl -sS -o /dev/null -m 3 -w '' https://beeonixpayint.bigtapp.net/app/; then
     echo "up after ${i} tries"
     break
   fi

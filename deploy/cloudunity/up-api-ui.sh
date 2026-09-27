@@ -12,7 +12,6 @@ docker volume rm backend_pgdata backend_minio_data backend_voice_sessions 2>/dev
 
 echo "== recreate api-family on new image; keep voice =="
 "${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate api bot_worker worker wk_batch
-docker restart payint_ui
 
 echo "== wait api health =="
 for i in $(seq 1 40); do

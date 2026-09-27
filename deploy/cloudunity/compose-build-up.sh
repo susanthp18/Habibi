@@ -10,8 +10,8 @@ echo "== rebuild api+voice =="
 echo "== recreate app containers =="
 "${COMPOSE[@]}" up -d --no-build api voice bot_worker worker wk_batch
 
-echo "== restart UI =="
-docker restart payint_ui
+echo "== release production UI =="
+bash "$ROOT/deploy/cloudunity/ui-production.sh"
 
 echo "== wait api health =="
 for i in $(seq 1 80); do

@@ -4,7 +4,7 @@ Shared VM (`20.205.178.161`). Other products already occupy 80/443, 5432–5439,
 
 | Process | Bind | Why this port |
 |---|---|---|
-| Habibi UI | `127.0.0.1:3108` | 8080 is SearxNG |
+| Habibi UI | `127.0.0.1:3110` / `3111` | alternate production slots; 3108 is the stopped legacy dev server |
 | FastAPI | `127.0.0.1:8100` | keep a PayInt block; 8000 is unused but 8001+ are taken |
 | Voice | `127.0.0.1:7860` | free |
 | Postgres | `127.0.0.1:5440` | 5432–5439 taken |
@@ -25,12 +25,23 @@ Compose project name stays `backend` (directory name) unless you set `-p payint`
 
 ## UI
 
-```bash
-cd Habibi
-cp ../deploy/cloudunity/habibi.env.example .env.production
-npm run build
-npx vite preview --host 127.0.0.1 --port 3108
-```
+Set the Git-ignored `Habibi/.env.production`, then run
+`bash deploy/cloudunity/ui-production.sh` on the VM. It typechecks and builds
+with Nitro's Node preset and `/app/` base, snapshots an immutable release,
+checks the candidate on the alternate loopback port, and switches only this
+vhost's nginx upstream after the HTML and static assets pass probes. The old
+container and release remain available for rollback. Do not serve `vite dev`
+on the public vhost: its first visit to a route compiles CSS and modules on
+demand and can blank the Studio screen.
+
+## Marketing site (`/`)
+
+`Site/` sits beside the repo, not in it. `pack-release.sh` rebuilds it
+(prerendered, one HTML file per route) into `dist/site.tgz`, and the rollout
+runs `site-production.sh /tmp/site.tgz`: a pinned nginx container per release
+on loopback 3112/3113, probed, then the host's `upstream payint_site` is
+switched. The legacy `payint_site` dev container (3109) is stopped, not
+removed, for rollback.
 
 ## nginx (after DNS already points here)
 

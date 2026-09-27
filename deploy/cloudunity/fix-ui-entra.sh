@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# payint_ui runs `vite dev`, which ignores .env.production. Copy Entra client
-# vars into .env and restart the UI. Never prints secret values.
+# Rebuild PayInt's production UI after Entra configuration changes.
+# Never prints secret values.
 set -euo pipefail
 
 HAB=/home/azureuser/beeonix-payint/Habibi
@@ -33,19 +33,8 @@ if missing:
     raise SystemExit("missing or empty: " + ",".join(missing))
 PY
 
-echo "===== restart payint_ui ====="
-docker restart payint_ui
-sleep 4
-for i in $(seq 1 30); do
-  if curl -sS -o /dev/null -m 3 -w '' http://127.0.0.1:3108/app/; then
-    echo "ui up after ${i}"
-    break
-  fi
-  sleep 2
-done
+bash /home/azureuser/beeonix-payint/deploy/cloudunity/ui-production.sh
 
 curl -sS -o /dev/null -w "https_app:%{http_code}\n" -m 10 https://beeonixpayint.bigtapp.net/app/ || true
 curl -sS -o /dev/null -w "https_me_noauth:%{http_code}\n" -m 10 https://beeonixpayint.bigtapp.net/api/me || true
-echo "===== payint_ui tail ====="
-docker logs payint_ui --since 2m 2>&1 | tail -20
 echo DONE

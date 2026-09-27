@@ -39,8 +39,11 @@ echo "== recreate app containers =="
 docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env -f docker-compose.yml up -d --no-build \
   api voice bot_worker worker wk_batch
 
-echo "== restart UI =="
-docker restart payint_ui
+echo "== release production UI =="
+docker run --rm --memory=2g --cpus=2 \
+  -v "$ROOT/Habibi:/app" -w /app node:22-bookworm \
+  npm install --no-audit --no-fund --loglevel=error
+bash "$ROOT/deploy/cloudunity/ui-production.sh"
 
 echo "== wait health =="
 for i in $(seq 1 80); do

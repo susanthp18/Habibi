@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Roll PayInt Voice Studio onto CloudUnity: overlay the laptop trees
 # (/tmp/{habibi,backend,agentstudio,deploy}.tgz), fill missing secrets, build and
-# start the engine next to the API, apply sql/66-69 (Voice Studio tables) and
+# start the engine next to the API, apply sql/66-75 (Voice Studio tables, call
+# intelligence, QA rubric versions, the evidence chain, decision intelligence), start the ml_worker
+# (PII masking, redacted recordings, signals, QA cascade, evidence exports) and
 # add the nginx locations. Never runs alembic (0156 stays unapplied) and never
 # prints a secret. Seeding the engine is a separate step (see README).
 set -euo pipefail
@@ -50,7 +52,7 @@ cp -a "/tmp/backend.env.$STAMP" "$ROOT/backend/.env"
 cp -a "/tmp/compose.env.$STAMP" "$ROOT/deploy/cloudunity/compose.env"
 if [ -f "/tmp/habibi.env.production.$STAMP" ]; then
   cp -a "/tmp/habibi.env.production.$STAMP" "$ROOT/Habibi/.env.production"
-  cp -a "$ROOT/Habibi/.env.production" "$ROOT/Habibi/.env"   # payint_ui is `vite dev`
+  cp -a "$ROOT/Habibi/.env.production" "$ROOT/Habibi/.env"   # older operator scripts read .env
   chmod 600 "$ROOT/Habibi/.env"
 fi
 [ -d "/tmp/habibi-node_modules.$STAMP" ] && sudo mv "/tmp/habibi-node_modules.$STAMP" "$ROOT/Habibi/node_modules"
@@ -70,7 +72,7 @@ done
 # tarball by pack-release.sh; without it we can only stamp a date, which is how
 # DEPLOYED_SHA went stale before.
 SHA=$(cat "$ROOT/deploy/cloudunity/RELEASE_SHA" 2>/dev/null || echo unknown-sha)
-echo "$STAMP $SHA overlay + PayInt Voice Studio engine; sql/66-69 by hand; backend alembic not run (the engine migrates itself at start)" > "$ROOT/DEPLOYED_SHA"
+echo "$STAMP $SHA overlay + PayInt Voice Studio engine + ml_worker; sql/66-75 by hand; backend alembic not run (the engine migrates itself at start)" > "$ROOT/DEPLOYED_SHA"
 
 cd "$ROOT/backend"
 COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunity/compose.env
@@ -78,9 +80,12 @@ COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunit
 
 echo "== build =="
 "${COMPOSE[@]}" build api voice agentstudio_engine
+# ml_worker: torch (CPU) + ONNX runtimes and ~800 MB of pinned models and fonts,
+# fetched once at build (Dockerfile stages `models`, `ml`); cached after.
+"${COMPOSE[@]}" build ml_worker
 
-echo "== schema: sql/66-70 Voice Studio tables and account currency (additive) =="
-for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql          sql/70_account_currency.sql; do
+echo "== schema: sql/66-75 (additive): Voice Studio, account currency, call intelligence, rubric versions, evidence chain, decision intelligence =="
+for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql          sql/70_account_currency.sql sql/71_call_intelligence.sql          sql/72_qa_rubric_versions.sql sql/73_evidence_chain.sql          sql/75_decision_intelligence.sql; do
   docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 < "$f"
 done
 
@@ -95,13 +100,20 @@ rm -f "$ENVF"
 
 echo "== start engine, recreate app containers =="
 "${COMPOSE[@]}" up -d --no-build agentstudio_db_init agentstudio_redis agentstudio_turn agentstudio_engine
-"${COMPOSE[@]}" up -d --no-build api voice bot_worker worker wk_batch
+"${COMPOSE[@]}" up -d --no-build api voice bot_worker worker wk_batch ml_worker
 
-echo "== UI deps + restart =="
-# The tree was replaced under payint_ui's bind mount: restart to re-attach first.
-docker restart payint_ui
-docker exec payint_ui sh -c "cd /app && npm install --no-audit --no-fund --loglevel=error"
-docker restart payint_ui
+echo "== UI deps + production release =="
+docker run --rm --memory=2g --cpus=2 \
+  -v "$ROOT/Habibi:/app" -w /app node:22-bookworm \
+  npm install --no-audit --no-fund --loglevel=error
+bash "$ROOT/deploy/cloudunity/ui-production.sh"
+
+echo "== marketing site production release =="
+if [ -f /tmp/site.tgz ]; then
+  bash "$ROOT/deploy/cloudunity/site-production.sh" /tmp/site.tgz
+else
+  echo "  no /tmp/site.tgz; site left as it is"
+fi
 
 echo "== nginx =="
 CONF=/etc/nginx/sites-available/beeonixpayint_config
@@ -119,6 +131,23 @@ PY
     sudo cp -a "/home/azureuser/habibi-backups/beeonixpayint_config.$STAMP" "$CONF"; echo "nginx -t failed; restored"; exit 1
   fi
 fi
+# Added after the first Voice Studio rollout, so not in the block above on a
+# host that already has it: close the engine's bearer-of-link downloads.
+if ! sudo grep -q "location ^~ /api/v1/public/download/" "$CONF"; then
+  sudo cp -a "$CONF" "/home/azureuser/habibi-backups/beeonixpayint_config.download.$STAMP"
+  sudo python3 - "$CONF" <<'PY'
+import sys
+conf = sys.argv[1]
+s = open(conf).read()
+anchor = "    location ~ ^/api/v1/(telephony|public|agent-stream)/ {"
+assert s.count(anchor) >= 1, "engine public location not found"
+block = ("    location ^~ /api/v1/public/download/ {\n        return 404;\n    }\n\n")
+open(conf, "w").write(s.replace(anchor, block + anchor))
+PY
+  if sudo nginx -t; then sudo systemctl reload nginx; else
+    sudo cp -a "/home/azureuser/habibi-backups/beeonixpayint_config.download.$STAMP" "$CONF"; echo "nginx -t failed; restored"; exit 1
+  fi
+fi
 
 echo "== health =="
 for i in $(seq 1 80); do
@@ -133,5 +162,6 @@ docker ps --filter name=payint_ --format '{{.Names}} {{.Status}}'
 echo "engine schema: $(docker exec collections_agentstudio sh -lc 'cd /app/api && /opt/venv/bin/alembic current 2>/dev/null | tail -1' 2>/dev/null || echo unavailable)"
 curl -sS -o /dev/null -w "local_api:%{http_code}\n" -m 5 http://127.0.0.1:8100/ready || true
 curl -sS -o /dev/null -w "engine:%{http_code}\n" -m 5 http://127.0.0.1:8200/api/v1/health || true
+echo "ml_worker: $(docker inspect -f '{{.State.Status}}' collections_ml_worker 2>/dev/null || echo missing)"
 curl -sS -o /dev/null -w "https_app:%{http_code}\n" -m 10 https://beeonixpayint.bigtapp.net/app/ || true
 echo DONE
