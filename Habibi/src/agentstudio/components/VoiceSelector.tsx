@@ -40,6 +40,8 @@ interface VoiceSelectorProps {
     /** AgentStudio: the unsaved delivery on the form; a row's play button
      * previews the voice with these, not with defaults. */
     previewSettings?: Omit<VoicePreviewRequest, "voice">;
+    /** AgentStudio: the voice the style belongs to; other voices preview without it, as on a call. */
+    styleVoice?: string;
 }
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
@@ -52,6 +54,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     allowManualInput = true,
     className,
     previewSettings,
+    styleVoice,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
@@ -185,9 +188,18 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         if (stylesOnly && !(voice.styles?.length)) return false;
         return true;
     });
+    // Voices native to the language first, then others of that language, then
+    // multilingual voices that also speak it (a Tamil list opens on Tamil voices).
+    const rankLanguage = (languageFilter !== ALL_FILTER_VALUE ? languageFilter : language || "").toLowerCase();
+    const nativeRank = (voice: VoiceInfo) => {
+        const own = (voice.language || "").toLowerCase();
+        if (!rankLanguage || own === rankLanguage) return 0;
+        return own.split("-")[0] === rankLanguage.split("-")[0] ? 1 : 2;
+    };
+    filteredVoices.sort((a, b) => nativeRank(a) - nativeRank(b));
     if (sortByCost) {
         filteredVoices.sort(
-            (a, b) => (a.cost_per_minute ?? Infinity) - (b.cost_per_minute ?? Infinity) || a.name.localeCompare(b.name),
+            (a, b) => (a.cost_per_minute ?? Infinity) - (b.cost_per_minute ?? Infinity) || nativeRank(a) - nativeRank(b) || a.name.localeCompare(b.name),
         );
     }
 
@@ -260,7 +272,12 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         let source = previewUrl;
         if (!source) {
             try {
-                source = await fetchVoicePreviewUrl(provider, { ...previewSettings, voice: voiceId });
+                const ownStyle = styleVoice === undefined || voiceId === styleVoice;
+                source = await fetchVoicePreviewUrl(provider, {
+                    ...previewSettings,
+                    ...(ownStyle ? {} : { style: undefined, style_degree: undefined }),
+                    voice: voiceId,
+                });
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Could not preview this voice");
                 setPlayingPreview(null);

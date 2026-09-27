@@ -126,7 +126,8 @@ export function VoiceMapField({
                         showFilters
                         value={value[code] ?? ""}
                         // Styles belong to the agent's own voice, as on a call.
-                        previewSettings={{ ...previewSettings, style: undefined, language: code }}
+                        previewSettings={{ ...previewSettings, language: code }}
+                        styleVoice={fallbackVoice ?? ""}
                         onChange={(voice) => onChange({ ...value, [code]: voice })}
                     />
                 </div>

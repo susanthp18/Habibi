@@ -1137,17 +1137,25 @@ async def _run_pipeline_impl(
         # AgentStudio: callers who switch language mid-call. The tracker follows
         # Azure's per-phrase language and tells the model when it changes.
         language_tracker = None
-        stt_languages = list(getattr(getattr(user_config, "stt", None), "languages", None) or [])
+        stt_config = getattr(user_config, "stt", None)
         if (
             stt is not None
-            and (getattr(user_config.stt, "language_id_mode", None) or "single") != "single"
-            and stt_languages
+            and (getattr(stt_config, "language_id_mode", None) or "single") != "single"
+            and getattr(stt_config, "languages", None)
         ):
+            from api.services.configuration.azure_speech_capabilities import (
+                normalize_languages,
+            )
             from api.services.pipecat.call_language import CallLanguageTracker
 
+            # The main language first, as the recognizer is given them.
+            stt_languages = normalize_languages(
+                getattr(stt_config, "language", None), stt_config.languages
+            )
             engine.caller_languages = stt_languages
             language_tracker = CallLanguageTracker(
                 initial=stt_languages[0],
+                languages=stt_languages,
                 on_change=engine.record_caller_language,
                 name=f"{call_worker_name}::CallLanguage",
             )

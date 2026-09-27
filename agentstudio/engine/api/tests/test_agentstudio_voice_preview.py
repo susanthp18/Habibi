@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from api.services.voice_catalog_local import (
     _azure_tier,
+    _price_meter,
     azure_delivery,
     azure_preview_ssml,
 )
@@ -50,9 +51,14 @@ def test_preview_rejects_a_voice_name_that_could_inject_ssml():
 
 
 def test_hd_voices_are_labelled_as_premium():
-    assert _azure_tier("en-US-Ava:DragonHDLatestNeural", "Neural") == "hd"
+    # VoiceType values as Azure's southeastasia voice list reports them.
+    assert _azure_tier("en-US-Ava:DragonHDLatestNeural", "NeuralHD") == "hd"
+    assert _azure_tier("en-US-Tiana:DragonHDFlashLatestNeural", "Neural") == "neural"
     assert _azure_tier("en-IN-AartiNeural", "Neural") == "neural"
-    assert _azure_tier("hi-IN-Kavya:MAI-Voice-2", "Neural") == "mai"
+    assert _azure_tier("hi-IN-Kavya:MAI-Voice-2", "NeuralHD") == "mai"
+    # Billing follows VoiceType: full MAI at the HD rate, Flash at neural.
+    assert _price_meter("NeuralHD") == "hd"
+    assert _price_meter("Neural") == "neural"
 
 
 def test_a_voice_speaks_its_own_and_secondary_locales_and_its_language():

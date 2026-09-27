@@ -842,6 +842,7 @@ class PipecatEngine:
         )
         agent.tools = ToolsSchema(standard_tools=functions)
         agent.system_prompt = prompt
+        await self._follow_caller_language(agent)
         if apply_settings:
             await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
 
@@ -1570,12 +1571,35 @@ class PipecatEngine:
         """The language the caller is speaking now, on a multilingual call."""
         return (self._call_context_vars or {}).get("caller_language")
 
-    def record_caller_language(self, language: str, spoken: list[str]) -> None:
-        """Follow the caller's language: a call variable for prompts, and the
-        languages heard so far on the run record."""
+    async def record_caller_language(self, language: str, spoken: list[str]) -> None:
+        """Follow the caller's language: a call variable for prompts, the
+        speaking agent's voice, and the languages heard and the number of
+        switches on the run record."""
+        previous = self.caller_language
         if self._call_context_vars is not None:
             self._call_context_vars["caller_language"] = language
         self._gathered_context["languages_spoken"] = list(spoken)
+        if previous is not None and previous != language:
+            self._gathered_context["language_switches"] = (
+                int(self._gathered_context.get("language_switches") or 0) + 1
+            )
+        await self._follow_caller_language(self.active_agent)
+
+    async def _follow_caller_language(self, agent: AgentRuntime) -> None:
+        """Point ``agent``'s voice at the caller's language.
+
+        An Azure voice map picks a voice by each sentence's script; the
+        caller's language settles which voice speaks text whose script
+        several languages share (English and French are both Latin). Also
+        how an agent taking over the call starts in the caller's language.
+        """
+        language = (self.__dict__.get("_call_context_vars") or {}).get("caller_language")
+        tts = getattr(agent, "tts", None)
+        if not language or not getattr(getattr(tts, "_settings", None), "voice_map", None):
+            return
+        from pipecat.services.settings import TTSSettings
+
+        await tts._update_settings(TTSSettings(language=language))
 
     @property
     def transfer_coordinator(self):

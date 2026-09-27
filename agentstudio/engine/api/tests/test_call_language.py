@@ -65,3 +65,42 @@ def test_rules_name_the_languages_and_scripts():
     assert "English, Hindi, Tamil" in rule and "never transliterate" in rule
     assert "Tamil script" in switch_note("ta-IN")
     assert "Arabic script" in switch_note("ar-AE")
+
+
+@pytest.mark.asyncio
+async def test_only_the_agents_languages_count():
+    changes: list = []
+    tracker = CallLanguageTracker(initial="en-IN", languages=["en-IN", "hi-IN", "ar-AE"],
+                                  on_change=lambda lang, spoken: changes.append(lang))
+    tracker.push_frame = lambda frame, direction=None: _noop()
+    assert tracker._listed("ar-SA") == "ar-AE"  # refinement labels Arabic ar-SA
+    assert tracker._listed("ta-IN") is None  # not this agent's: ignored
+    assert tracker._listed("hi-IN") == "hi-IN"
+
+
+async def _noop():
+    return None
+
+
+@pytest.mark.asyncio
+async def test_the_voice_follows_the_caller_into_a_shared_script():
+    """English and French are both Latin: the caller's language picks the voice,
+    on a switch and for an agent that takes over the call."""
+    from types import SimpleNamespace
+
+    from pipecat.services.azure.tts import AzureTTSService
+
+    from api.services.workflow.pipecat_engine import PipecatEngine
+
+    tts = AzureTTSService(api_key="k", region="southeastasia", settings=AzureTTSService.Settings(
+        voice="en-US-AvaNeural", language="en-US",
+        voice_map={"en-US": "en-US-AvaNeural", "fr-FR": "fr-FR-DeniseNeural"},
+    ))
+    assert tts._voice_segments("Merci beaucoup.")[0][0] == "en-US-AvaNeural"
+    engine = PipecatEngine.__new__(PipecatEngine)
+    engine._call_context_vars = {"caller_language": "fr-FR"}
+    await engine._follow_caller_language(SimpleNamespace(tts=tts))
+    assert tts._voice_segments("Merci beaucoup.")[0][:2] == ("fr-FR-DeniseNeural", "fr-FR")
+    # No voice map: nothing to follow, the agent's language is left alone.
+    plain = SimpleNamespace(_settings=SimpleNamespace(voice_map=None))
+    await engine._follow_caller_language(SimpleNamespace(tts=plain))

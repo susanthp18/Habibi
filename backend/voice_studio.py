@@ -805,6 +805,18 @@ def flag_turns(interaction_id: str, ctx: dict[str, Any], pairs: list[tuple[str, 
             logger.exception("voice studio: guardrail check failed on %s", interaction_id)
 
 
+def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The languages of a multilingual call, for the interaction record and QA:
+    those heard, how often the caller switched, and each transcript turn's
+    language (by turn index). None for a call with no language evidence."""
+    by_turn = [(e.get("payload") or {}).get("language") for e in turns]
+    spoken = list(gathered.get("languages_spoken") or []) or list(dict.fromkeys(
+        lang for e, lang in zip(turns, by_turn) if lang and e.get("type") == "rtf-user-transcription"))
+    if not spoken:
+        return None
+    return {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
+
+
 def complete_run(body: dict[str, Any]) -> dict[str, Any]:
     """The engine's post-call webhook: file the call and advance the attempt."""
     import db
@@ -868,6 +880,16 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
                 else:
                     heard = f"{heard} {said}".strip()
             flag_turns(interaction_id, ctx, pairs)
+            languages = call_languages(gathered, turns)
+            if languages:
+                import json
+
+                with db.engine.begin() as conn:
+                    conn.execute(
+                        text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb) "
+                             "WHERE id = :ix"),
+                        {"p": json.dumps({"languages": languages}), "ix": interaction_id},
+                    )
         recording = run.get("recording_url") or body.get("recording_url")
         if recording:
             persist.record_media(

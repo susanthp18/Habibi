@@ -13,7 +13,7 @@
 - The diffs ignore line endings, because Windows checkouts convert them.
 
 The delta covers:
-- **Engine API:** internal auth, the removed cloud (MPS) calls, local knowledge-base parsing, transcription, workflow generation and the voice catalog, Azure voice delivery and preview, version restore for rollback, tool provenance on run events, approved tool revisions, draft-only MCP authoring (with tool submission and agent speech settings), multilingual Azure speech (continuous language identification, a voice per language, Tamil lexical transcripts, Arabic amounts spelled out), the voice catalog's tiers, prices and filters, and the white-label text.
+- **Engine API:** internal auth, the removed cloud (MPS) calls, local knowledge-base parsing, transcription, workflow generation and the voice catalog, Azure voice delivery and preview, version restore for rollback, tool provenance on run events, approved tool revisions, draft-only MCP authoring (with tool submission and agent speech settings), multilingual Azure speech (continuous language identification, a voice per language that follows the caller across handoffs, Tamil lexical transcripts, Arabic amounts spelled out), the voice catalog's tiers, prices and filters, and the white-label text.
 - **Engine UI source:** the PayInt host slots (`@/host/<Slot>`, see below) and the regenerated API client.
 
 ## The ported UI

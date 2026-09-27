@@ -46,6 +46,19 @@ def test_ascii_digits_reads_every_script():
     assert voice_studio.ascii_digits(None) == ""
 
 
+def test_call_languages_records_what_was_spoken():
+    turns = [
+        {"type": "rtf-user-transcription", "payload": {"text": "hi", "language": "en-IN"}},
+        {"type": "rtf-bot-text", "payload": {"text": "नमस्ते", "language": "hi-IN"}},
+        {"type": "rtf-user-transcription", "payload": {"text": "हाँ जी", "language": "hi-IN"}},
+    ]
+    got = voice_studio.call_languages({"languages_spoken": ["en-IN", "hi-IN"], "language_switches": 1}, turns)
+    assert got == {"spoken": ["en-IN", "hi-IN"], "switches": 1, "turns": ["en-IN", "hi-IN", "hi-IN"]}
+    # No tracker record: the caller's transcripts still say which languages.
+    assert voice_studio.call_languages({}, turns)["spoken"] == ["en-IN", "hi-IN"]
+    assert voice_studio.call_languages({}, [{"type": "rtf-bot-text", "payload": {"text": "x"}}]) is None
+
+
 def test_inbound_requires_intent_path_before_account_help(monkeypatch):
     tools = _tools(monkeypatch)
     definition = _definition()

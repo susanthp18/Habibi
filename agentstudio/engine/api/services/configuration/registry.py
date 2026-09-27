@@ -1593,6 +1593,30 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
         description="Voice per language (locale -> voice name), for agents that speak several languages.",
     )
 
+    @field_validator("voice_map")
+    @classmethod
+    def _voice_map_entries(cls, value: dict[str, str]) -> dict[str, str]:
+        # Both halves are written into SSML: locale codes and voice names only.
+        # A language left without a voice falls back to `voice`.
+        import re
+
+        token = re.compile(r"^[\w:-]{1,80}$")
+        entries = {str(k).strip(): str(v).strip() for k, v in (value or {}).items() if v and str(v).strip()}
+        bad = [f"{k} -> {v}" for k, v in entries.items() if not (token.match(k) and token.match(v))]
+        if bad:
+            raise ValueError("Invalid voice per language: " + ", ".join(bad))
+        return entries
+
+    @field_validator("voice")
+    @classmethod
+    def _voice_name(cls, value: str) -> str:
+        import re
+
+        value = (value or "").strip()
+        if not re.match(r"^[\w:-]{1,80}$", value):
+            raise ValueError(f"Invalid Azure voice name {value!r}.")
+        return value
+
 
 SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Smallest AI",

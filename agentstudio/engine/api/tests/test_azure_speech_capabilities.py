@@ -60,3 +60,9 @@ def test_arabic_amounts_are_spelled_out_and_nothing_else_is():
     assert "3750.50" in spell_arabic_amounts("المبلغ 3750.50 درهم.")
     assert "15-10-2026" in spell_arabic_amounts("قبل 15-10-2026.")
     assert spell_arabic_amounts("Your amount is 12,500 rupees.") == "Your amount is 12,500 rupees."
+    # Identifiers are not amounts: they stay digits, read out exactly.
+    assert "4417 8823 1190" in spell_arabic_amounts("رقم حسابك 4417 8823 1190.")
+    assert "REF-99812" in spell_arabic_amounts("المرجع REF-99812 من فضلك.")
+    assert "2026" in spell_arabic_amounts("في عام 2026 تم الاتفاق.")
+    assert "خمسمائة" in spell_arabic_amounts("ادفع AED 500 اليوم.")
+    assert "ألف" in spell_arabic_amounts("بمبلغ 1000 اليوم.")

@@ -315,18 +315,20 @@ class AzureSTTService(STTService):
             return AutoDetectSourceLanguageConfig()  # open range
         return None
 
-    def _detected_language(self, result) -> str:
+    def _detected_language(self, result, *, final: bool = True) -> str:
         """The language Azure recognized ``result`` in.
 
         Azure reports it in a result property and says ``"unknown"`` when it
         cannot tell; such a phrase keeps the language of the one before it.
+        Only final results are remembered: an interim guess can be wrong.
         """
         if self._language_id_mode() != "single":
             detected = result.properties.get(
                 PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult
             )
             if detected and detected.lower() != "unknown":
-                self._last_language = detected
+                if final:
+                    self._last_language = detected
                 return detected
         return self._last_language or self._recognition_language()
 
@@ -518,7 +520,9 @@ class AzureSTTService(STTService):
         if event.result.reason == ResultReason.RecognizingSpeech and len(event.result.text) > 0:
             # Technically either source could be a raw string, but Language is
             # a StrEnum so downstream handles either.
-            language = cast("Language | None", self._detected_language(event.result))
+            language = cast(
+                "Language | None", self._detected_language(event.result, final=False)
+            )
             frame = InterimTranscriptionFrame(
                 event.result.text,
                 self._user_id,

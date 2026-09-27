@@ -117,9 +117,13 @@ class UserConfigurationValidator:
         """Every language an Azure agent listens for needs a voice that speaks it.
 
         A caller who switches to Tamil must not be answered in silence or by a
-        voice that cannot read Tamil. Checked against the region's live voice
-        list; if Azure cannot be reached the check is skipped rather than
-        blocking the save.
+        voice that cannot read Tamil. The voice for a language is the one a
+        call would use: its own entry in the voice map, else a map entry in
+        the same script, else the main voice. Checked against the region's
+        live voice list. If Azure cannot be reached, a voice named for the
+        language (``ta-IN-...``) still passes; anything that needs the list to
+        prove it (a multilingual voice) fails the save rather than going live
+        unchecked.
         """
         stt, tts = configuration.stt, configuration.tts
         azure = ServiceProviders.AZURE_SPEECH.value
@@ -133,23 +137,39 @@ class UserConfigurationValidator:
         import httpx
 
         from api.services.voice_catalog_local import _azure, voice_speaks
+        from pipecat.services.azure.tts import _script_of_locale
+
+        voice_map = dict(getattr(tts, "voice_map", None) or {})
+
+        def voice_for(language: str) -> str:
+            if voice_map.get(language):
+                return voice_map[language]
+            script = _script_of_locale(language)
+            same_script = [v for loc, v in voice_map.items() if _script_of_locale(loc) == script]
+            return same_script[0] if same_script else tts.voice
 
         key = tts.api_key[0] if isinstance(tts.api_key, list) else tts.api_key
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
                 catalog = {v["voice_id"]: v for v in await _azure(client, key, tts.region)}
         except (httpx.HTTPError, ValueError, KeyError):
-            return []
-        voice_map = dict(getattr(tts, "voice_map", None) or {})
-        missing = []
+            catalog = None
+        missing, unconfirmed = [], []
         for language in stt.languages or []:
-            voice = catalog.get(voice_map.get(language) or tts.voice)
-            if voice is None or not voice_speaks(voice, language):
-                missing.append(language)
-        if not missing:
-            return []
-        return [{"model": "tts", "message": "No voice speaks " + ", ".join(missing)
-                 + ": choose one for each under Voice per language."}]
+            name = voice_for(language)
+            if catalog is not None:
+                voice = catalog.get(name)
+                if voice is None or not voice_speaks(voice, language):
+                    missing.append(language)
+            elif not voice_speaks({"locales": ["-".join(str(name).split("-")[:2])]}, language):
+                unconfirmed.append(f"{name} ({language})")
+        if missing:
+            return [{"model": "tts", "message": "No voice speaks " + ", ".join(missing)
+                     + ": choose one for each under Voice per language."}]
+        if unconfirmed:
+            return [{"model": "tts", "message": "Could not reach Azure's voice list to confirm "
+                     + ", ".join(unconfirmed) + " speaks that language; try saving again."}]
+        return []
 
     def _validate_service(
         self,

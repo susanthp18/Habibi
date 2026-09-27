@@ -150,12 +150,21 @@ _TIER_LABELS = {"neural": "Neural", "hd": "HD (premium rate)", "mai": "MAI (prev
 
 
 def _azure_tier(short_name: str, voice_type: str) -> str:
-    """``neural``, ``hd`` (DragonHD / HD voices) or ``mai``."""
+    """``neural``, ``hd`` (billed at the HD rate) or ``mai``.
+
+    HD Flash voices (``DragonHDFlash``) are billed as standard neural, so
+    they are ``neural`` despite the name.
+    """
     if "MAI-Voice" in short_name:
         return "mai"
-    if "HD" in short_name or voice_type.endswith("HD"):
-        return "hd"
-    return "neural"
+    return "hd" if voice_type == "NeuralHD" else "neural"
+
+
+def _price_meter(voice_type: str) -> str:
+    """The meter a voice bills on. Azure's own ``VoiceType`` says which:
+    ``NeuralHD`` (HD, full MAI-Voice) is the HD rate; ``Neural`` (standard,
+    HD Flash, MAI-Voice Flash) the neural rate."""
+    return "hd" if voice_type == "NeuralHD" else "neural"
 
 
 # --- Prices --------------------------------------------------------------------
@@ -216,7 +225,8 @@ async def _azure(client: httpx.AsyncClient, key: str, region: str) -> list[dict]
             continue
         short = str(v.get("ShortName") or "")
         styles = [st for st in (v.get("StyleList") or []) if st]
-        tier = _azure_tier(short, str(v.get("VoiceType") or ""))
+        voice_type = str(v.get("VoiceType") or "")
+        tier = _azure_tier(short, voice_type)
         secondary = [loc for loc in (v.get("SecondaryLocaleList") or []) if loc]
         tag = v.get("VoiceTag") or {}
         tags = [t for t in (tag.get("TailoredScenarios") or []) + (tag.get("VoicePersonalities") or []) if t]
@@ -224,7 +234,7 @@ async def _azure(client: httpx.AsyncClient, key: str, region: str) -> list[dict]
             wpm = int(v.get("WordsPerMinute") or 0) or None
         except (TypeError, ValueError):
             wpm = None
-        price = prices.get(tier)
+        price = prices.get(_price_meter(voice_type))
         detail = f"{_TIER_LABELS[tier]} · {v.get('LocaleName') or v.get('Locale')}"
         if secondary:
             detail += f" · speaks {len(secondary) + 1} languages"
@@ -263,7 +273,7 @@ def voice_speaks(voice: dict, locale: str) -> bool:
 
 # --- Delivery and preview ---------------------------------------------------
 
-_SAFE_TOKEN = re.compile(r"^[A-Za-z0-9:_-]{1,80}$")
+_SAFE_TOKEN = re.compile(r"^[\w:-]{1,80}$")
 
 
 def azure_delivery(config: Any) -> dict[str, str]:

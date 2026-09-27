@@ -242,7 +242,8 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                       i.rag_hits,
                       i.latency_ms,
                       i.source_payload->>'environment' AS environment,
-                      i.source_payload->>'personaName' AS persona_name
+                      i.source_payload->>'personaName' AS persona_name,
+                      i.source_payload->'languages'->'spoken' AS languages
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
                     LEFT JOIN users u ON u.id = i.handler_user_id
@@ -341,6 +342,8 @@ def list_calls(*, limit: int | None = None, offset: int | None = None) -> list[d
                         tags=[
                             *([row["disposition"]] if row["disposition"] else []),
                             *(["sandbox"] if row["environment"] == "sandbox" else []),
+                            # A multilingual call: the languages it was held in.
+                            *[str(lang) for lang in (row["languages"] or [])],
                         ],
                         sentimentSeries=sentiment_series,
                         disclosures=disclosures,

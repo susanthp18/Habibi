@@ -19,6 +19,12 @@ southeastasia resource:
 
 from __future__ import annotations
 
+import re
+
+# A BCP-47 locale such as "hi-IN" or "zh-Hans-CN"; also what makes a
+# language safe to write into SSML.
+_LOCALE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$")
+
 MAX_CANDIDATE_LANGUAGES = 10
 RECOMMENDED_MAX_LANGUAGES = 3
 
@@ -61,6 +67,9 @@ def stt_errors(*, language: str | None, languages: list[str] | None, mode: str,
         return [f"Unknown language detection mode {mode!r}."]
     candidates = normalize_languages(language, languages)
     errors: list[str] = []
+    malformed = [lang for lang in candidates if not _LOCALE.fullmatch(lang)]
+    if malformed:
+        errors.append("Not a language code: " + ", ".join(malformed) + " (use e.g. hi-IN).")
     if mode == "continuous":
         if len(candidates) < 2:
             errors.append("Switching languages needs at least two languages.")

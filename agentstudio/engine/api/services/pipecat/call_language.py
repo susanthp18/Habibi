@@ -6,9 +6,12 @@ turns that per-phrase signal into the call's current language:
 
 * a switch needs a phrase of at least two words, or two short phrases in a
   row, so a stray "ok" or a name does not flip the conversation;
+* only the agent's languages count: a detection outside them (open-range
+  refinement can label a Tamil phrase Arabic) is taken as the listed language
+  of the same base language, or ignored;
 * on a switch it tells the model, in the conversation itself, before the
-  caller's words reach it; the voice then follows the reply's script (see the
-  Azure voice map), so nothing else needs to change;
+  caller's words reach it, and reports the new language (``on_change``) so
+  the voice follows it too (see ``PipecatEngine.record_caller_language``);
 * every language heard is kept, for the call record.
 """
 
@@ -59,19 +62,31 @@ class CallLanguageTracker(FrameProcessor):
         self,
         *,
         initial: str,
+        languages: list[str] | None = None,
         on_change: Callable[[str, list[str]], Awaitable[None] | None] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.current = initial
+        # None: every detected language counts.
+        self.languages = list(dict.fromkeys([initial, *languages])) if languages else None
         self.spoken: list[str] = []
         self._pending: str | None = None
         self._on_change = on_change
 
+    def _listed(self, detected: str) -> str | None:
+        """``detected`` as one of the agent's languages, or None."""
+        if self.languages is None or detected in self.languages:
+            return detected
+        base = detected.split("-")[0].lower()
+        return next((lang for lang in self.languages if lang.split("-")[0].lower() == base), None)
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, TranscriptionFrame) and frame.language and frame.text.strip():
-            await self._observe(str(frame.language), len(frame.text.split()))
+            language = self._listed(str(frame.language))
+            if language is not None:
+                await self._observe(language, len(frame.text.split()))
         await self.push_frame(frame, direction)
 
     async def _observe(self, language: str, words: int) -> None:

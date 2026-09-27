@@ -1,6 +1,6 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
---- pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:08:26.634963300 +0530
-+++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 11:55:25.969293900 +0530
+--- pipecat/src/pipecat/services/azure/stt.py	2026-09-27 13:01:03.676408000 +0530
++++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
 @@ -11,6 +11,7 @@
  """
  
@@ -139,7 +139,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      def can_generate_metrics(self) -> bool:
          """Check if this service can generate performance metrics.
-@@ -226,6 +252,95 @@
+@@ -226,6 +252,97 @@
          """
          return language_to_azure_language(language)
  
@@ -206,18 +206,20 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            return AutoDetectSourceLanguageConfig()  # open range
 +        return None
 +
-+    def _detected_language(self, result) -> str:
++    def _detected_language(self, result, *, final: bool = True) -> str:
 +        """The language Azure recognized ``result`` in.
 +
 +        Azure reports it in a result property and says ``"unknown"`` when it
 +        cannot tell; such a phrase keeps the language of the one before it.
++        Only final results are remembered: an interim guess can be wrong.
 +        """
 +        if self._language_id_mode() != "single":
 +            detected = result.properties.get(
 +                PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult
 +            )
 +            if detected and detected.lower() != "unknown":
-+                self._last_language = detected
++                if final:
++                    self._last_language = detected
 +                return detected
 +        return self._last_language or self._recognition_language()
 +
@@ -235,7 +237,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _apply_profanity(self):
          """Apply the current ``profanity`` setting to the speech config.
  
-@@ -254,28 +369,21 @@
+@@ -254,28 +371,21 @@
          """Apply a settings delta and reconnect if a recognizer setting changed."""
          changed = await super()._update_settings(delta)
  
@@ -276,7 +278,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              await self._disconnect()
              await self._connect()
  
-@@ -344,8 +452,15 @@
+@@ -344,8 +454,15 @@
              audio_config = AudioConfig(stream=self._audio_stream)
  
              self._speech_recognizer = SpeechRecognizer(
@@ -293,7 +295,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              self._speech_recognizer.recognizing.connect(self._on_handle_recognizing)
              self._speech_recognizer.recognized.connect(self._on_handle_recognized)
              self._speech_recognizer.canceled.connect(self._on_handle_canceled)
-@@ -376,17 +491,15 @@
+@@ -376,17 +493,15 @@
          if event.result.reason == ResultReason.RecognizedSpeech and len(event.result.text) > 0:
              # Technically either source could be a raw string, but Language is
              # a StrEnum so downstream handles either.
@@ -314,7 +316,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  self._user_id,
                  time_now_iso8601(),
                  language,
-@@ -394,7 +507,7 @@
+@@ -394,7 +509,7 @@
                  finalized=True,
              )
              asyncio.run_coroutine_threadsafe(
@@ -323,20 +325,18 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              )
              # Report usage before the transcription frame so tracing can attach
              # it to the STT span the frame closes (submissions run in order).
-@@ -405,10 +518,7 @@
-         if event.result.reason == ResultReason.RecognizingSpeech and len(event.result.text) > 0:
+@@ -406,8 +521,7 @@
              # Technically either source could be a raw string, but Language is
              # a StrEnum so downstream handles either.
--            language = cast(
+             language = cast(
 -                "Language | None",
 -                getattr(event.result, "language", None) or assert_given(self._settings.language),
--            )
-+            language = cast("Language | None", self._detected_language(event.result))
++                "Language | None", self._detected_language(event.result, final=False)
+             )
              frame = InterimTranscriptionFrame(
                  event.result.text,
-                 self._user_id,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-27 12:08:26.637516100 +0530
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-27 13:01:03.677684700 +0530
 +++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-27 11:57:36.593934900 +0530
 @@ -94,6 +94,13 @@
              ``"enhancePronunciation=true"``). Which keys apply depends on the
@@ -534,7 +534,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _escape_text(self, text: str) -> str:
          """Escapes XML/SSML reserved characters according to Microsoft documentation.
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
---- pipecat/src/pipecat/services/mcp_service.py	2026-09-27 12:08:26.765220400 +0530
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-27 13:01:03.793475900 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
 @@ -39,7 +39,7 @@
  
@@ -591,7 +591,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  read_stream, write_stream = streams[0], streams[1]
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
---- pipecat/tests/test_azure_stt.py	2026-09-27 12:08:27.143073100 +0530
+--- pipecat/tests/test_azure_stt.py	2026-09-27 13:01:04.111848000 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530
 @@ -164,3 +164,45 @@
  
@@ -640,7 +640,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        service = self._service()
 +        assert service._detected_language(SimpleNamespace()) == "en-IN"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' pipecat/tests/test_azure_tts.py engine/pipecat/tests/test_azure_tts.py
---- pipecat/tests/test_azure_tts.py	2026-09-27 12:08:27.144067900 +0530
+--- pipecat/tests/test_azure_tts.py	2026-09-27 13:01:04.111848000 +0530
 +++ engine/pipecat/tests/test_azure_tts.py	2026-09-27 11:57:36.673304800 +0530
 @@ -209,3 +209,61 @@
          "</lang>"
