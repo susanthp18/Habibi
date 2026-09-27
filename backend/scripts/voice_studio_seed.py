@@ -86,7 +86,7 @@ TOOLS: list[dict[str, Any]] = [
         "name": "promise_to_pay",
         "description": "Record the customer's promise to pay. Only after they commit to an amount and a date.",
         "parameters": [
-            {"name": "amount", "type": "number", "required": True, "description": "Amount in rupees."},
+            {"name": "amount", "type": "number", "required": True, "description": "Amount in the account's currency, as a number."},
             {"name": "date", "type": "string", "required": True, "description": "Payment date, YYYY-MM-DD."},
             {"name": "reason", "type": "string", "required": False,
              "description": "Only when this changes an existing promise: customer_requested_delay, salary_delayed, "
@@ -109,6 +109,15 @@ TOOLS: list[dict[str, Any]] = [
             {"name": "type", "type": "string", "required": True,
              "description": "One of: amount_mismatch, not_my_transaction, already_paid, service_issue, other."},
             {"name": "summary", "type": "string", "required": True, "description": "One sentence."},
+        ],
+    },
+    {
+        "name": "record_opt_out",
+        "description": ("Record that the person asked not to be contacted again. Call it as soon as they ask, "
+                        "before or after verification; share no account detail. Not for a wrong number."),
+        "parameters": [
+            {"name": "scope", "type": "string", "required": True,
+             "description": "this_channel, or all when they ask never to be contacted by any means."},
         ],
     },
 ]
@@ -372,19 +381,19 @@ def build_definition(
     channel: str = "outbound",
 ) -> dict[str, Any]:
     outbound_tools = {
-        "start": [],
-        "verify": ["verify_identity", "transfer_to_human"],
-        "position": ["account_position", "flag_dispute", "transfer_to_human"],
-        "resolve": ["promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human"],
+        "start": ["record_opt_out"],
+        "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
+        "position": ["account_position", "flag_dispute", "transfer_to_human", "record_opt_out"],
+        "resolve": ["promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
     }
     inbound_tools = {
-        "start": ["transfer_to_human"], "general": ["transfer_to_human"],
-        "verify": ["verify_identity", "transfer_to_human"],
-        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human"],
+        "start": ["transfer_to_human", "record_opt_out"], "general": ["transfer_to_human", "record_opt_out"],
+        "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
+        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
     }
     whatsapp_tools = {
-        "start": ["transfer_to_human"], "verify": ["verify_identity", "transfer_to_human"],
-        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human"],
+        "start": ["transfer_to_human", "record_opt_out"], "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
+        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
     }
     specs = {
         "outbound": (NODES, EDGES, GLOBAL_PROMPT, outbound_tools),

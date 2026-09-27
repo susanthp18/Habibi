@@ -40,6 +40,7 @@ The guide tool is the authoritative source for prompt-authoring craft (global gu
 1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
 2. Build a typed tool definition and call `create_tool`. The request schema is authoritative for allowed tool categories and config fields.
 3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `create_workflow` for a new workflow or `save_workflow` when editing an existing workflow.
+4. A tool edit is a draft revision. When it is ready, call `submit_tool_revision` with its live policy (risk, channels, identity, context fields, success path, result schema). A named reviewer approves it in Voice Studio; approval is never available here.
 
 ### Reading documentation
 1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
@@ -60,7 +61,7 @@ The guide tool is the authoritative source for prompt-authoring craft (global gu
 3. `list_node_types` / `get_node_type` — consult to learn the fields available on the node types you intend to use.
 4. `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before writing each node's prompt. For a `globalNode`, also call `get_voice_prompting_guide` with `topic="common_guidelines"` and place that content in the global node nearly verbatim, adapting only user-provided details such as language, persona, company, transfer target, or qualification scope.
 5. Author SDK TypeScript from scratch. The `new Workflow({ name: "..." })` call is required — `name` becomes the workflow's display name.
-6. `create_workflow` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow` (which writes a draft).
+6. `create_workflow` — persists a new workflow whose only version is a **draft** v1. Returns the new `workflow_id`. Nothing is live: publishing (which also activates its API triggers) is done by a person in Voice Studio. For subsequent edits use `save_workflow`, which updates that draft.
 
 ## Allowed source shape
 

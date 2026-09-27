@@ -9,6 +9,10 @@ class WorkflowRunInputs:
     use_draft: bool = False
 
 
+class WorkflowNotPublishedError(ValueError):
+    """A live run was asked of an agent that has never been published."""
+
+
 def published_definition(workflow) -> object | None:
     """The live definition of ``workflow``: released, else current."""
     return getattr(workflow, "released_definition", None) or getattr(
@@ -57,6 +61,13 @@ async def prepare_workflow_run_inputs(
     target_definition = await definition_to_run(
         workflow_client, workflow, use_draft=use_draft
     )
+    # A draft-only agent (authored over MCP, not yet published) has nothing a
+    # live caller may run. Say so here rather than fail later on a None
+    # definition deep inside the pipeline.
+    if target_definition is None and not use_draft:
+        raise WorkflowNotPublishedError(
+            f"Agent {getattr(workflow, 'id', '?')} has no published version"
+        )
 
     default_context = {}
     if include_template_context:

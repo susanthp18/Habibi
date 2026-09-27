@@ -478,6 +478,9 @@ export function ToolRevisionPanel({
                         >
                             <span className="font-medium">r{revision.revision}</span>
                             <Badge className={STATE_STYLE[revision.state]}>{revision.state}</Badge>
+                            {revision.state === "approved" && revision.reviewedBy === revision.authoredBy && (
+                                <span className="text-xs text-amber-600">self-approved by an admin</span>
+                            )}
                             <span className="font-mono text-xs text-muted-foreground">
                                 {revision.digest.slice(0, 8)}
                             </span>

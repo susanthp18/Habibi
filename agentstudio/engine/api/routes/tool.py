@@ -388,21 +388,16 @@ async def list_tool_revisions(tool_uuid: str, user: UserModel = Depends(get_user
 @router.post("/{tool_uuid}/revisions/{revision}/submit")
 async def submit_tool_revision(tool_uuid: str, revision: int, request: dict,
                                user: UserModel = Depends(get_user)) -> dict:
-    from api.services.tool_revisions import LiveToolPolicy, validate_live_snapshot
+    from api.services.tool_revisions import submit_revision
 
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
-    rows = await db_client.get_tool_revisions(tool_uuid, user.selected_organization_id)
-    row = next((r for r in rows if r.revision == revision), None)
-    if row is None or row != rows[0]:
-        raise HTTPException(status_code=404, detail="Latest tool revision not found")
     try:
-        policy = LiveToolPolicy.model_validate(request)
-        validate_live_snapshot(row.snapshot, policy)
-        reviewed = await db_client.review_tool_revision(
-            tool_uuid, revision, user.selected_organization_id,
-            actor_id=user.id, state="submitted", policy=policy.model_dump(),
+        reviewed = await submit_revision(
+            tool_uuid, revision, user.selected_organization_id, user.id, request,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"toolUuid": tool_uuid, "revision": revision, "state": reviewed.state,
@@ -460,13 +455,18 @@ async def review_tool_revision(tool_uuid: str, revision: int, request: dict,
         row = await db_client.review_tool_revision(
             tool_uuid, revision, user.selected_organization_id,
             actor_id=user.id, state=state,
+            # PayInt decides who may review their own work (its admins). This
+            # route is unreachable except from PayInt's server: the gateway
+            # denies it and no MCP tool calls it.
+            allow_self_review=request.get("allow_self_review") is True,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=404, detail="Tool revision not found")
     return {"toolUuid": tool_uuid, "revision": revision, "state": row.state,
-            "digest": row.digest}
+            "digest": row.digest,
+            "selfReviewed": row.reviewed_by is not None and row.reviewed_by == row.authored_by}
 
 
 @router.delete("/{tool_uuid}")

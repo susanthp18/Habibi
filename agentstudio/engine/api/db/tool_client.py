@@ -262,7 +262,14 @@ class ToolClient(BaseDBClient):
     async def review_tool_revision(
         self, tool_uuid: str, revision: int, organization_id: int,
         *, actor_id: int, state: str, policy: dict | None = None,
+        allow_self_review: bool = False,
     ) -> ToolRevisionModel | None:
+        """Move a revision along draft -> submitted -> approved/rejected -> revoked.
+
+        An author may not review their own revision unless ``allow_self_review``
+        is set. Only PayInt sets it, and only for its administrators; the audit
+        trail shows such a review because reviewer and author are the same.
+        """
         async with self.async_session() as session:
             tool = await session.scalar(select(ToolModel).where(
                 ToolModel.tool_uuid == tool_uuid,
@@ -288,7 +295,7 @@ class ToolClient(BaseDBClient):
                 row.state = state
                 row.policy = policy or {}
             elif state in {"approved", "rejected"} and row.state == "submitted":
-                if row.authored_by == actor_id:
+                if row.authored_by == actor_id and not allow_self_review:
                     raise ValueError("tool_author_cannot_review")
                 row.state = state
                 row.reviewed_by = actor_id

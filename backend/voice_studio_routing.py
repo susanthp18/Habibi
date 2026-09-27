@@ -21,6 +21,9 @@ APPROVED_ARGUMENTS: dict[str, dict[str, str]] = {
     "request_callback": {"when": "string"},
     "flag_dispute": {"type": "string", "summary": "string"},
     "transfer_to_human": {},
+    # "this_channel" or "all". Needs no identity check: it only
+    # restricts contact and discloses nothing.
+    "record_opt_out": {"scope": "string"},
 }
 REQUIRED_PRESETS = {
     "workflow_run_id": "number", "agent_id": "string", "direction": "string",
@@ -152,6 +155,9 @@ def validate_definition(definition: dict[str, Any], *, channel: str | None = Non
     names = {str(tool.get("name")) for tool in used.values()}
     if channel in {"outbound", "inbound", "whatsapp"} and "verify_identity" not in names:
         errors.append("The agent must attach approved verify_identity before account actions.")
+    # "Stop contacting me" must be honoured in the conversation it is said in.
+    if channel in {"outbound", "inbound", "whatsapp"} and "record_opt_out" not in names:
+        errors.append("The agent must attach approved record_opt_out so a stop-contact request is recorded.")
     start = next((n for n in nodes if n.get("type") == "startCall"), {})
     start_data = start.get("data") or {}
     start_id = start.get("id")

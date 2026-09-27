@@ -24,6 +24,7 @@ import pytest
 
 from api.mcp_server import instructions as instructions_module
 from api.mcp_server.server import mcp
+from api.mcp_server.tools import agent_settings as agent_settings_module
 from api.mcp_server.tools import create_workflow as create_workflow_module
 from api.mcp_server.tools import save_workflow as save_workflow_module
 
@@ -46,6 +47,7 @@ _TOOL_VERB_PREFIXES = frozenset(
         "add",
         "remove",
         "set",
+        "submit",
     }
 )
 
@@ -98,6 +100,7 @@ async def test_guide_only_references_registered_tools():
     [
         ("save_workflow", save_workflow_module),
         ("create_workflow", create_workflow_module),
+        ("update_agent_settings", agent_settings_module),
     ],
 )
 async def test_tool_documents_every_error_code_it_returns(tool_name, module):

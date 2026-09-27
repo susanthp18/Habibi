@@ -449,6 +449,11 @@ async def create_campaign(
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow_graph import WorkflowGraph
 
+        if workflow.released_definition is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Publish this agent before starting a campaign with it.",
+            )
         workflow_def = workflow.released_definition.workflow_json
         if workflow_def:
             try:

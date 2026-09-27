@@ -111,6 +111,47 @@ class WorkflowClient(BaseDBClient):
             await session.refresh(new_workflow)
         return new_workflow
 
+    async def create_workflow_draft(
+        self,
+        name: str,
+        workflow_definition: dict,
+        user_id: int,
+        organization_id: int = None,
+    ) -> WorkflowModel:
+        """A new agent whose only version is a draft v1.
+
+        Nothing is released: no published definition, no tool bindings and no
+        released pointer, so the runtime, routing and triggers cannot reach it
+        until someone publishes it. Authoring over MCP creates agents this way;
+        publication stays a human step.
+        """
+        async with self.async_session() as session:
+            try:
+                new_workflow = WorkflowModel(
+                    name=name,
+                    workflow_definition=workflow_definition,
+                    user_id=user_id,
+                    organization_id=organization_id,
+                )
+                session.add(new_workflow)
+                await session.flush()
+                session.add(WorkflowDefinitionModel(
+                    workflow_json=workflow_definition,
+                    workflow_id=new_workflow.id,
+                    is_current=False,
+                    status="draft",
+                    version_number=1,
+                    workflow_configurations=new_workflow.workflow_configurations or {},
+                    template_context_variables=new_workflow.template_context_variables
+                    or {},
+                ))
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(new_workflow)
+        return new_workflow
+
     # ------------------------------------------------------------------
     # Versioning methods
     # ------------------------------------------------------------------

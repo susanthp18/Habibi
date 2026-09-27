@@ -893,6 +893,14 @@ async def publish_workflow(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Triggers follow the released version: a draft's trigger path is not
+    # callable until the draft it belongs to is published.
+    await db_client.sync_triggers_for_workflow(
+        workflow_id=workflow_id,
+        organization_id=user.selected_organization_id,
+        trigger_paths=extract_trigger_paths(published.workflow_json),
+    )
+
     capture_event(
         distinct_id=str(user.provider_id),
         event=PostHogEvent.WORKFLOW_PUBLISHED,
@@ -1054,8 +1062,11 @@ async def update_workflow_status(
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
+            # A draft-only agent (authored over MCP) has no released version.
             "workflow_definition": mask_workflow_definition(
                 workflow.released_definition.workflow_json
+                if workflow.released_definition
+                else workflow.workflow_definition
             ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
@@ -1349,14 +1360,9 @@ async def update_workflow(
             organization_id=user.selected_organization_id,
         )
 
-        # Sync agent triggers if workflow definition was updated
-        if workflow_definition:
-            trigger_paths = extract_trigger_paths(workflow_definition)
-            await db_client.sync_triggers_for_workflow(
-                workflow_id=workflow.id,
-                organization_id=user.selected_organization_id,
-                trigger_paths=trigger_paths,
-            )
+        # Triggers are not synced here: this saves a draft, and a draft's
+        # trigger path goes live when it is published (publish_workflow).
+        # Availability was asserted above so publishing cannot collide.
 
         # Return draft content if one exists (save creates a draft)
         draft = await db_client.get_draft_version(workflow_id)

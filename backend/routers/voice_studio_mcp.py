@@ -21,8 +21,14 @@ _READ_TOOLS = frozenset({
     "get_node_type", "get_workflow", "get_workflow_code", "list_credentials",
     "list_documents", "list_node_types", "list_recordings", "list_tools",
     "list_workflows", "get_tool_revisions", "get_voice_prompting_guide", "list_docs", "read_doc", "search_docs",
+    "get_agent_settings",
 })
-_EDIT_TOOLS = frozenset({"create_workflow", "create_tool", "save_workflow", "update_tool"})
+# Everything here writes drafts or asks for review. Approving a tool revision
+# and publishing an agent are deliberately absent: a named person does those.
+_EDIT_TOOLS = frozenset({
+    "create_workflow", "create_tool", "save_workflow", "update_tool",
+    "submit_tool_revision", "update_agent_settings",
+})
 _FORWARD = {"accept", "content-type", "mcp-protocol-version", "mcp-session-id", "last-event-id"}
 _DROP = {"connection", "keep-alive", "transfer-encoding", "content-length", "server", "date"}
 _client: httpx.AsyncClient | None = None

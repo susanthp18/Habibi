@@ -49,9 +49,15 @@ def review(tool_uuid: str, revision: int, decision: str, actor: str) -> dict[str
     elif decision == "revoked" and current.get("state") not in {"approved", "legacy"}:
         raise ValueError("Only a callable revision can be revoked")
 
+    import authz
     import db
     from agent_core import change_log
 
+    # Administrators may review a revision they authored themselves (including
+    # one written through their own MCP key); everyone else needs a second
+    # person. A self-review is marked in the audit path and is visible in the
+    # revision history, where reviewer and author are then the same.
+    self_review = authz.has_permission(actor, authz.ADMIN_WRITE)
     path = f"/tools/{tool_uuid}/revisions/{revision}/{decision}/{current['digest']}"
     with db.engine.begin() as conn:
         change_log.record_agentstudio_change(
@@ -61,7 +67,7 @@ def review(tool_uuid: str, revision: int, decision: str, actor: str) -> dict[str
     try:
         result = voice_studio.engine_call(
             "POST", f"/tools/{tool_uuid}/revisions/{revision}/review",
-            json={"decision": decision}, actor=actor,
+            json={"decision": decision, "allow_self_review": self_review}, actor=actor,
         )
     except Exception:
         with db.engine.begin() as conn:
@@ -70,6 +76,8 @@ def review(tool_uuid: str, revision: int, decision: str, actor: str) -> dict[str
                 entry_id=f"as-{uuid.uuid4().hex}", method="POST", path=path, status=502,
             )
         raise
+    if (result or {}).get("selfReviewed"):
+        path += "/self"
     with db.engine.begin() as conn:
         change_log.record_agentstudio_change(
             conn, tenant_id=db.current_tenant(), actor_user_id=actor,

@@ -1,16 +1,17 @@
 """MCP tool that accepts LLM-authored SDK TypeScript and creates a new workflow.
 
 Companion to `save_workflow`: where `save_workflow` updates an existing
-workflow as a new draft, `create_workflow` brings a workflow into being
-in one shot. The resulting workflow is published as version 1 — there
-is no prior published version to protect, so we skip the draft step.
+workflow's draft, `create_workflow` brings a workflow into being. The new
+workflow's only version is a draft v1: an assistant authors, a person
+publishes. Nothing it creates is callable, routable or triggerable until
+then -- API triggers are activated by publishing, not here.
 
 Execution flow mirrors `save_workflow`:
     1. Parse via the Node TS validator — AST-only, never executes the code.
     2. Pydantic validation via `ReactFlowDTO.model_validate`.
     3. Graph and resolved custom-tool name validation.
-    4. Persist via `db_client.create_workflow` — workflow row + v1
-       published definition in a single transaction.
+    4. Persist via `db_client.create_workflow_draft` — workflow row + v1
+       draft definition in a single transaction.
 
 Each failure path returns an `error_code` via `_error_result`. Those
 codes and their meanings are documented in the `create_workflow`
@@ -62,7 +63,7 @@ def _format_errors(errors: list[dict[str, Any]]) -> str:
 
 @traced_tool
 async def create_workflow(code: str) -> dict[str, Any]:
-    """Parse SDK TypeScript and create a new published workflow.
+    """Parse SDK TypeScript and create a new workflow as a draft.
 
     `code` is TypeScript source using `@dograh/sdk`. The workflow name
     comes from `new Workflow({ name: "..." })` — it is required.
@@ -76,9 +77,10 @@ async def create_workflow(code: str) -> dict[str, Any]:
         const done     = wf.addTyped(endCall({ name: "Done", prompt: "Bye." }));
         wf.edge(greeting, done, { label: "done", condition: "conversation complete" });
 
-    On success the new workflow is published as version 1. Use
-    `save_workflow(workflow_id, code)` for subsequent edits — those go to
-    a draft.
+    On success the new workflow exists as a draft v1 and nothing is live:
+    a person publishes it in Voice Studio, which also activates its API
+    triggers. Use `save_workflow(workflow_id, code)` for subsequent edits —
+    they update the same draft.
 
     On failure the result has `created: false`, a machine-readable
     `error_code`, and a human-readable `error` (with file:line:column
@@ -94,10 +96,6 @@ async def create_workflow(code: str) -> dict[str, Any]:
       name is required and there is no prior workflow to fall back to.
     - `trigger_path_conflict` — a trigger node's path is already used by
       another workflow in this organization; rename it and resubmit.
-    - `tool_not_approved` — a node calls a tool whose latest revision is
-      not approved, or that is not active here. v1 is published on
-      creation, and a released agent may only call reviewed revisions:
-      have a reviewer approve the tool in Voice Studio, then resubmit.
     - `bridge_error` — internal/transient; retry once, then surface it.
     """
     user = await authenticate_mcp_request()
@@ -169,18 +167,14 @@ async def create_workflow(code: str) -> dict[str, Any]:
                 "trigger_path_conflict", str(e), trigger_paths=e.trigger_paths
             )
 
-    # 5. Persist as a new workflow with v1 published. v1 is a release, so it
-    # pins each node's reviewed tool revision; a tool nobody has approved yet
-    # stops the release rather than shipping an agent whose tools do nothing.
-    try:
-        workflow = await db_client.create_workflow(
-            name,
-            payload,
-            user.id,
-            user.selected_organization_id,
-        )
-    except ValueError as e:
-        return _error_result("tool_not_approved", str(e))
+    # 5. Persist as a draft. Tool revisions are pinned, and triggers
+    # activated, when a person publishes it -- not here.
+    workflow = await db_client.create_workflow_draft(
+        name,
+        payload,
+        user.id,
+        user.selected_organization_id,
+    )
 
     capture_event(
         distinct_id=str(user.provider_id),
@@ -193,19 +187,13 @@ async def create_workflow(code: str) -> dict[str, Any]:
         },
     )
 
-    if trigger_paths:
-        await db_client.sync_triggers_for_workflow(
-            workflow_id=workflow.id,
-            organization_id=user.selected_organization_id,
-            trigger_paths=trigger_paths,
-        )
-
     return {
         "created": True,
         "workflow_id": workflow.id,
         "name": workflow.name,
         "status": workflow.status,
         "version_number": 1,
+        "version_status": "draft",
         "node_count": len(payload["nodes"]),
         "edge_count": len(payload["edges"]),
     }

@@ -84,7 +84,9 @@ def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict
     persona = _persona(ctx.get("rehearsal"))
     run = str(ctx.get("workflow_run_id") or "")
     if name == "verify_identity":
-        digits = "".join(ch for ch in str(args.get("value") or "") if ch.isdigit())
+        from voice_studio import ascii_digits
+
+        digits = ascii_digits(args.get("value"))
         if len(digits) != 4:
             return {"ok": False, "error": "need_four_digits", "say": "Ask for exactly four digits."}
         known = {str(persona.get("phoneLast4") or ""), str(persona.get("accountNo") or "")[-4:]} - {""}
@@ -104,6 +106,8 @@ def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict
             "minimum_due_value": persona.get("minimumDue"),
             "product_name": persona.get("product"),
         }
+    if name == "record_opt_out":
+        return {"ok": True, "rehearsal": True, "note": "Test conversation: no opt-out was recorded."}
     if name in ("promise_to_pay", "request_callback", "flag_dispute"):
         if name == "promise_to_pay" and run not in _verified_runs:
             return {"ok": False, "error": "identity_not_verified", "say": "Verify the customer's identity first."}

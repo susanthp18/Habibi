@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -447,12 +448,21 @@ def _tool_account_position(ctx: dict[str, Any], args: dict[str, Any], interactio
     return {"ok": True, **_account_position(ctx.get("customer_id"), ctx.get("account_id"))}
 
 
+def ascii_digits(value: Any) -> str:
+    """The decimal digits in ``value`` as ASCII, whatever script they came in.
+
+    A caller speaking Arabic, Hindi or Tamil can have their digits transcribed
+    as "٤٥٦٧" or "४५६७"; stored identifiers are ASCII, so compare in ASCII.
+    """
+    return "".join(str(unicodedata.decimal(ch)) for ch in str(value or "") if ch.isdecimal())
+
+
 def _tool_verify_identity(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
     import db
     from voice import persist
 
     method = str(args.get("method") or "phone_last4").lower()
-    value = "".join(ch for ch in str(args.get("value") or "") if ch.isdigit())
+    value = ascii_digits(args.get("value"))
     direction = str(ctx.get("direction") or "inbound")
     # Outbound: we chose whom to call, so the factor must be something only
     # they know -- the last four of the registered mobile, never the account
@@ -592,12 +602,47 @@ def _tool_flag_dispute(ctx: dict[str, Any], args: dict[str, Any], interaction_id
     return result.to_llm()
 
 
+def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
+    """The person asked us to stop contacting them: record it, now.
+
+    No identity check: this only restricts contact and discloses nothing, and
+    whoever answers the registered number or WhatsApp thread may ask for it.
+    ``scope`` "all" closes every channel; the default closes this one.
+    Contact policy then blocks further calls and messages on it.
+    """
+    import actor_context
+    import db
+
+    customer_id = str(ctx.get("customer_id") or "")
+    if not customer_id:
+        return {"ok": False, "error": "no_customer",
+                "say": "Apologise, say you will pass the request on, and end the conversation politely."}
+    whatsapp = ctx.get("channel") == "whatsapp"
+    scope = str(args.get("scope") or "this_channel").lower()
+    channel = "all" if scope == "all" else ("whatsapp" if whatsapp else "call")
+    actor_context.bind_service_actor("bot", bot_id=f"voice-studio:{ctx.get('workflow_id') or 'agent'}")
+    try:
+        db.opt_out(customer_id, {
+            "channel": channel,
+            "source": "WhatsApp Reply" if whatsapp else "Agent",
+            "note": f"Asked the Voice Studio agent to stop contact (interaction {interaction_id}).",
+        })
+    except KeyError:
+        return {"ok": False, "error": "no_customer",
+                "say": "Apologise, say you will pass the request on, and end the conversation politely."}
+    return {"ok": True, "channel": channel,
+            "say": ("Confirm they will not be contacted on this channel again"
+                    if channel != "all" else "Confirm they will not be contacted again")
+                   + ", thank them, and end the conversation."}
+
+
 TOOLS = {
     "account_position": _tool_account_position,
     "verify_identity": _tool_verify_identity,
     "promise_to_pay": _tool_promise_to_pay,
     "request_callback": _tool_request_callback,
     "flag_dispute": _tool_flag_dispute,
+    "record_opt_out": _tool_record_opt_out,
 }
 
 #: Engine-injected call ids, never supplied by the model.

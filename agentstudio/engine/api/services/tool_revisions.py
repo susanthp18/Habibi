@@ -211,3 +211,25 @@ def validate_live_snapshot(snapshot: dict[str, Any], policy: LiveToolPolicy) -> 
         presets = {str(p.get("name")) for p in config.get("preset_parameters") or []}
         if policy.idempotency_parameter not in parameters | presets:
             raise ValueError("idempotency parameter is missing from the tool schema")
+
+
+async def submit_revision(tool_uuid: str, revision: int, organization_id: int,
+                          actor_id: int, policy: dict[str, Any]) -> Any:
+    """Submit the latest draft revision with its live policy (REST and MCP).
+
+    Submitting asks for review; it never approves. Raises ``LookupError`` when
+    ``revision`` is not the tool's latest, ``ValueError`` for a policy the
+    snapshot cannot satisfy.
+    """
+    from api.db import db_client
+
+    rows = await db_client.get_tool_revisions(tool_uuid, organization_id)
+    row = next((r for r in rows if r.revision == revision), None)
+    if row is None or row != rows[0]:
+        raise LookupError("Latest tool revision not found")
+    parsed = LiveToolPolicy.model_validate(policy)
+    validate_live_snapshot(row.snapshot, parsed)
+    return await db_client.review_tool_revision(
+        tool_uuid, revision, organization_id,
+        actor_id=actor_id, state="submitted", policy=parsed.model_dump(),
+    )

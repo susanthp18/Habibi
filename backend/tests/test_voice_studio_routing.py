@@ -11,7 +11,7 @@ def _definition(*, channel="inbound"):
     return {"nodes": [
         {"id": "global", "type": "globalNode", "data": {"prompt": f"{channel} customer help"}},
         start,
-        {"id": "general", "type": "agentNode", "data": {"name": "General information"}},
+        {"id": "general", "type": "agentNode", "data": {"name": "General information", "tool_uuids": ["optout"]}},
         {"id": "verify", "type": "agentNode", "data": {"tool_uuids": ["verify"]}},
         {"id": "help", "type": "agentNode", "data": {"tool_uuids": ["position"]}},
         {"id": "trigger", "type": "trigger", "data": {"enabled": True, "trigger_path": "safe-path"}},
@@ -25,7 +25,25 @@ def _tools(monkeypatch):
     monkeypatch.setattr(routing, "_check_tool", lambda tool, credential: [])
     revision = {"state": "approved", "policy": {"channels": ["inbound"]}}
     return {"verify": {"name": "verify_identity", "_revision": revision},
-            "position": {"name": "account_position", "_revision": revision}}
+            "position": {"name": "account_position", "_revision": revision},
+            "optout": {"name": "record_opt_out", "_revision": revision}}
+
+
+def test_channel_agent_must_honour_stop_contact(monkeypatch):
+    tools = _tools(monkeypatch)
+    definition = _definition()
+    definition["nodes"][2]["data"]["tool_uuids"] = []
+    checked = routing.validate_definition(definition, channel="inbound", active_tools=tools, credential_uuid="credential")
+    assert not checked["ok"]
+    assert any("record_opt_out" in error for error in checked["errors"])
+
+
+def test_ascii_digits_reads_every_script():
+    assert voice_studio.ascii_digits("٤٥٦٧") == "4567"  # Arabic-Indic
+    assert voice_studio.ascii_digits("४५६७") == "4567"  # Devanagari
+    assert voice_studio.ascii_digits("௪௫௬௭") == "4567"  # Tamil
+    assert voice_studio.ascii_digits("45 67") == "4567"
+    assert voice_studio.ascii_digits(None) == ""
 
 
 def test_inbound_requires_intent_path_before_account_help(monkeypatch):

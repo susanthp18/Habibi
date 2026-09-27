@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from api.mcp_server.instructions import DOGRAH_MCP_INSTRUCTIONS
+from api.mcp_server.tools.agent_settings import get_agent_settings, update_agent_settings
 from api.mcp_server.tools.catalog import (
     list_credentials,
     list_documents,
@@ -15,7 +16,7 @@ from api.mcp_server.tools.node_types import get_node_type, list_node_types
 from api.mcp_server.tools.save_workflow import save_workflow
 from api.mcp_server.tools.tool_creation import create_tool
 from api.mcp_server.tools.tool_update import update_tool
-from api.mcp_server.tools.tool_revisions import get_tool_revisions
+from api.mcp_server.tools.tool_revisions import get_tool_revisions, submit_tool_revision
 from api.mcp_server.tools.voice_prompting_guide import get_voice_prompting_guide
 from api.mcp_server.tools.workflows import get_workflow, list_workflows
 
@@ -25,6 +26,9 @@ for _tool in (
     create_workflow,
     create_tool,
     update_tool,
+    submit_tool_revision,
+    get_agent_settings,
+    update_agent_settings,
     get_node_type,
     get_tool_revisions,
     get_workflow,
