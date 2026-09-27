@@ -74,6 +74,12 @@ def _f(value: Any, default: float | None = None) -> float | None:
         return default
 
 
+
+def _tenant() -> str:
+    import db
+
+    return db.current_tenant()
+
 def generate(
     conn: Any,
     *,
@@ -96,9 +102,13 @@ def generate(
                    ticket_min, ticket_max, roi, roi_numeric,
                    margin_score, is_active, channels
             FROM products
+            WHERE tenant_id = :tenant
             ORDER BY id
             """
-        )
+        ),
+        # One bank's catalogue is not another's: the read used to have no
+        # tenant filter and leaned on row security alone.
+        {"tenant": _tenant()},
     ).mappings().all()
 
     relations = _relations(conn)
@@ -262,9 +272,11 @@ def _live_campaigns(conn: Any) -> tuple[dict[str, dict[str, Any]], set[str]]:
                      AND (ends_at IS NULL OR ends_at >= now())
                    ) AS is_live
             FROM product_campaigns
+            WHERE tenant_id = :tenant
             ORDER BY product_id, priority DESC, id
             """
-        )
+        ),
+        {"tenant": _tenant()},
     ).mappings().all()
 
     best: dict[str, dict[str, Any]] = {}

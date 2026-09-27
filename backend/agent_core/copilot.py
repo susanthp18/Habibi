@@ -145,28 +145,20 @@ def _treatment(customer_id: str | None) -> dict[str, Any]:
     try:
         import db
 
+        from agent_core.treatment import decisions
+
+        # The same next best action the customer card shows: real, recent,
+        # collections only. The latest row of any kind used to be read here,
+        # simulated and weeks-old ones included.
         with db.engine.connect() as conn:
-            row = db._one(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id, chosen_action, chosen_channel, rationale,
-                               enacted, enacted_by, scheduled_at
-                          FROM treatment_decisions
-                         WHERE customer_id = :cid
-                         ORDER BY created_at DESC
-                         LIMIT 1
-                        """
-                    ),
-                    {"cid": customer_id},
-                )
-            )
+            row = decisions.current(conn, customer_id=customer_id, tenant_id=db.current_tenant())
         if not row:
             return empty
         return {
             "decisionId": row["id"],
-            "action": row.get("chosen_action"),
-            "channel": row.get("chosen_channel"),
+            # A held decision is not a plan: its rationale says why it held.
+            "action": "wait" if row.get("suppression_reason") else row.get("chosen_action"),
+            "channel": None if row.get("suppression_reason") else row.get("chosen_channel"),
             "rationale": row.get("rationale"),
             "enacted": bool(row.get("enacted")),
             "enactedBy": row.get("enacted_by"),

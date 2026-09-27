@@ -109,7 +109,7 @@ export function QuickActionsRail({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <Section title="Recommended actions">
+        <Section title={nba.length ? "Recommended actions" : "Quick actions"}>
           <div className="space-y-075">
             {ranked.slice(0, 4).map((item, i) => (
               <Button

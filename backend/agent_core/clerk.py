@@ -32,6 +32,10 @@ AUTHORITY_HITL = "authority_hitl"
 
 HITL_ACTIONS = frozenset({A.FIELD_VISIT, A.LEGAL_NOTICE, "apply_goodwill"})
 
+#: LMS work items the executor raises. They carry no ``action``; they are
+#: requests for a person with servicing authority.
+SERVICING_WORK = frozenset({"emi_date_change", "self_service_plan", "o6_lms_workitem"})
+
 WORKFLOW_BY_TRIGGER = {
     "bounce": BOUNCE,
     "broken_ptp": BROKEN_PTP,
@@ -147,6 +151,14 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
         return _finish_a2a_remote(payload)
     if wf in {DOC_SLA, CALLBACK, "field_visit", "legal_notice"}:
         return {"noted": True, "workflowType": wf, "ref": payload.get("triggerRef") or payload.get("decisionId")}
+    if wf in SERVICING_WORK:
+        # An amendment to the repayment contract (due date, catch-up plan,
+        # a re-presentment the LMS must raise). Never applied by a bot: it
+        # waits for servicing staff, the same way field and legal do.
+        if job.get("approvedBy"):
+            return {"applied": True, "workflowType": wf, "decisionId": payload.get("decisionId"), "by": "human"}
+        park_input_required(job["id"], f"servicing:{wf}")
+        raise _Parked()
 
     action = str(payload.get("action") or "")
     if action in HITL_ACTIONS or wf == AUTHORITY_HITL:
@@ -167,8 +179,12 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
     from agent_core.treatment import config as treatment_config
     from agent_core.treatment import decisions
 
+    from agent_core.treatment import kill_switch
+
     if treatment_config.mode() != treatment_config.MODE_LIVE:
         return {"skipped": True, "reason": "not_live", "decisionId": decision_id}
+    if not kill_switch.enact_allowed():
+        return {"skipped": True, "reason": "enact_switch_off", "decisionId": decision_id}
 
     with db.engine.begin() as conn:
         row = decisions.claim_by_id(conn, str(decision_id))
@@ -183,7 +199,9 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
                     "decisionId": decision_id,
                     "ref": existing.get("enacted_ref"),
                 }
-            return {"skipped": True, "reason": "decision_gone", "decisionId": decision_id}
+            # Suppressed, shadow, not yet due, or claimed by the executor:
+            # the executor's own claim picks up a due live plan at its moment.
+            return {"skipped": True, "reason": "not_claimable", "decisionId": decision_id}
         acted, note = treatment_enact.enact_one(conn, row, enacted_by="clerk_agent")
     return {
         "acted": acted,

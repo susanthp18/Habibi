@@ -438,6 +438,13 @@ class PostgresFeatureProvider:
         for r in rows:
             if r.get("response") == "declined" and r.get("chosen_product_id"):
                 declined.add(str(r["chosen_product_id"]))
+                # A decline dates the cool-down even when nothing was ever
+                # presented (the customer raised it and said no), or the
+                # cool-down never starts.
+                at = r.get("created_at")
+                if isinstance(at, datetime):
+                    at = as_utc(at)
+                    last_offer_at = max(last_offer_at or at, at)
             if r.get("presented"):
                 at = r.get("created_at")
                 if isinstance(at, datetime):
@@ -466,6 +473,10 @@ class PostgresFeatureProvider:
             pid = e.get("product_id")
             if e["kind"] == "offer_declined" and pid:
                 declined.add(str(pid))
+                at = e.get("at")
+                if isinstance(at, datetime):
+                    at = as_utc(at)
+                    last_offer_at = max(last_offer_at or at, at)
             elif e["kind"] == "offer_presented":
                 at = e.get("at")
                 if isinstance(at, datetime):

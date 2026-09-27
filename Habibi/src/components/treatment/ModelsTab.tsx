@@ -19,14 +19,6 @@ import {
   useTreatmentModels,
 } from "@/api/treatment";
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
 import {
   EmptyPanel,
   MODEL_STATUS_TONE,
@@ -49,19 +41,16 @@ export function ModelsTab({ days }: { days: number }) {
           <div className="flex flex-col gap-200">
             {h.alerts.length > 0 && (
               <div className="flex flex-col gap-100">
-                {h.alerts.map((alert, i) => {
-                  const isObject = typeof alert === "object" && alert !== null;
-                  return (
-                    <SectionMessage
-                      key={isObject ? alert.metric : `${alert}-${i}`}
-                      variant="warning"
-                      icon={AlertTriangle}
-                      title={isObject ? humanise(alert.metric) : "Model alert"}
-                    >
-                      {isObject ? alert.message : alert}
-                    </SectionMessage>
-                  );
-                })}
+                {h.alerts.map((alert, i) => (
+                  <SectionMessage
+                    key={`${alert.check}-${i}`}
+                    variant={alert.level === "alert" ? "error" : "warning"}
+                    icon={AlertTriangle}
+                    title={humanise(alert.check)}
+                  >
+                    {alert.detail}
+                  </SectionMessage>
+                ))}
               </div>
             )}
 
@@ -83,13 +72,16 @@ export function ModelsTab({ days }: { days: number }) {
             </div>
 
             <div className="grid gap-200 lg:grid-cols-2">
-              <Panel title="Feature drift" description="PSI against the training distribution.">
+              <Panel
+                title="Feature drift"
+                description="How far each input has moved since the model was trained, in standard deviations. Large moves mean the model is scoring a population it never saw."
+              >
                 {h.featureDrift.available && h.featureDrift.features.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Feature</TableHead>
-                        <TableHead className="text-right">PSI</TableHead>
+                        <TableHead className="text-right">Shift (σ)</TableHead>
                         <TableHead>Verdict</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -98,11 +90,15 @@ export function ModelsTab({ days }: { days: number }) {
                         <TableRow key={f.feature}>
                           <TableCell>{humanise(f.feature)}</TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {fmtNum(f.psi, 3)}
+                            {fmtNum(f.shiftSigma, 2)}
                           </TableCell>
                           <TableCell>
-                            <Lozenge tone={f.drifted ? "warning" : "success"}>
-                              {f.drifted ? "Drifted" : "Stable"}
+                            <Lozenge
+                              tone={
+                                f.level === "alert" ? "danger" : f.level === "warn" ? "warning" : "success"
+                              }
+                            >
+                              {f.level === "alert" ? "Drifted" : f.level === "warn" ? "Moving" : "Stable"}
                             </Lozenge>
                           </TableCell>
                         </TableRow>
@@ -121,12 +117,15 @@ export function ModelsTab({ days }: { days: number }) {
                 )}
               </Panel>
 
-              <Panel title="Reach calibration" description={h.reachCalibration.quantity}>
+              <Panel
+                title="Reach calibration"
+                description="When the engine said an attempt had X% chance of reaching someone, how often it actually did."
+              >
                 {h.reachCalibration.bins.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-right">Bin</TableHead>
+                        <TableHead className="text-right">Predicted band</TableHead>
                         <TableHead className="text-right">n</TableHead>
                         <TableHead className="text-right">Predicted</TableHead>
                         <TableHead className="text-right">Observed</TableHead>
@@ -134,10 +133,8 @@ export function ModelsTab({ days }: { days: number }) {
                     </TableHeader>
                     <TableBody>
                       {h.reachCalibration.bins.map((b) => (
-                        <TableRow key={b.bin}>
-                          <TableCell className="text-right tabular-nums">
-                            {fmtRate(b.bin, 0)}
-                          </TableCell>
+                        <TableRow key={b.range}>
+                          <TableCell className="text-right tabular-nums">{b.range}</TableCell>
                           <TableCell className="text-right tabular-nums">{fmtNum(b.n)}</TableCell>
                           <TableCell className="text-right tabular-nums">
                             {fmtRate(b.predicted)}
@@ -159,7 +156,17 @@ export function ModelsTab({ days }: { days: number }) {
               </Panel>
             </div>
 
-            {h.upliftCalibration.available ? null : (
+            {h.upliftCalibration.available ? (
+              <SectionMessage
+                variant={h.upliftCalibration.level === "ok" ? "success" : "warning"}
+                icon={CircleSlash}
+                title="Predicted lift against measured lift"
+              >
+                The engine predicted an average lift of {fmtRate(h.upliftCalibration.predictedMeanTau)};
+                the comparison group measured {fmtRate(h.upliftCalibration.measuredAte)}.{" "}
+                {h.upliftCalibration.note}
+              </SectionMessage>
+            ) : (
               <SectionMessage
                 variant="information"
                 icon={CircleSlash}
@@ -344,7 +351,3 @@ export function ModelsTab({ days }: { days: number }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Cases — GET /treatment/cases + GET /treatment/next
-// ---------------------------------------------------------------------------

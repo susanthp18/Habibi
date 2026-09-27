@@ -356,10 +356,14 @@ def check_product_eligibility(
                 for f in flags
             ],
         },
+        # Never an instruction to raise the product: on a collections call an
+        # offer is scored and delivered later on a consented channel (§9.7).
+        # This answers a customer who asked, and nothing more.
         spoken_summary=(
-            "mention the product in one short sentence and ask if they want details"
+            "only if the customer asked about this product: tell them they can apply "
+            "and offer to note their interest; never bring it up yourself"
             if eligible
-            else "do not pitch this product; move on without explaining the internal reason"
+            else "do not discuss this product further; move on without explaining the internal reason"
         ),
     )
 

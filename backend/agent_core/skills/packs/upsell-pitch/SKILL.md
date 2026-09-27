@@ -1,6 +1,6 @@
 ---
 name: upsell-pitch
-description: After the primary query is resolved, speak one reco-engine product. Never invent a product id. capture_lead or decline_offer only. Reco suppression stays quiet.
+description: After the primary query is resolved, let the offer engine record what could be offered later on a consented channel. Never mention a product yourself; answer only a product the customer raises.
 allowed-tools:
   - recommend_next_offer
   - check_product_eligibility
@@ -20,15 +20,15 @@ metadata:
 
 # Upsell pitch
 
-The reco engine chooses. The mouth speaks at most one product, late in the call, after the collections ask is handled.
+The offer engine chooses, and the offer is delivered later on a separate, consented message. The mouth never mentions a product on this call.
 
 ## Steps
 
-1. Call `recommend_next_offer`. If the engine stays quiet, do not freelance.
-2. Optionally `check_product_eligibility` for the returned product id.
-3. On interest, `capture_lead`. On refusal, `decline_offer`.
+1. Call `recommend_next_offer` once. It records the offer and returns nothing to say.
+2. Only if the customer raises a product themselves: answer from the knowledge base, `check_product_eligibility` if they ask whether they qualify.
+3. On their interest, `capture_lead`. On their refusal, `decline_offer`.
 
 ## Never
 
-- Never name a product that was not in the reco payload.
+- Never name, hint at or describe a product the customer did not raise.
 - Never pitch during hardship, dispute, or abuse.

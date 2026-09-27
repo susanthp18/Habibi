@@ -132,6 +132,7 @@ def _rows(conn: Any, *, include_simulated: bool) -> list[dict[str, Any]]:
                 FROM treatment_decisions
                 WHERE mode = ANY(:modes)
                   AND feature_schema_version = :schema
+                  AND COALESCE(to_jsonb(treatment_decisions) ->> 'action_family', '') <> 'offer'
                 ORDER BY created_at ASC
                 """
             ),
@@ -682,6 +683,7 @@ def train_uplift(
     corpus: str,
     min_control: int,
     segment_ladder: bool = True,
+    shrinkage: tuple[float | None, str] = (None, "shrinkage k was not measured"),
 ) -> dict[str, Any] | None:
     """T-learner: one fit per arm, τ is the difference.
 
@@ -804,9 +806,19 @@ def train_uplift(
                 logger.info(
                     "  rejected %-24s %s", row["segment"], row.get("reason"),
                 )
+        k, basis = shrinkage
+        if k is None:
+            # An unmeasurable k is a refusal, not a fallback to 750: a segment
+            # served without a measured pull toward the pool is the segment's
+            # own noise, and the pooled tau stands for everyone.
+            logger.warning("segments withheld: %s", basis)
+            promoted = []
+            control_block["shrinkageRefusal"] = basis
+        else:
+            control_block["shrinkageK"] = k
+            control_block["shrinkageBasis"] = basis
         control_block["segments"] = promoted
         control_block["segmentVersion"] = SEGMENT_VERSION
-        control_block["shrinkageK"] = models.DEFAULT_SHRINKAGE_K
         metrics["segmentLadder"] = report
         metrics["segmentsPromoted"] = len(promoted)
 
@@ -1268,8 +1280,12 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    from agent_core.treatment import hierarchy
+
     with db.engine.connect() as conn:
         rows = _rows(conn, include_simulated=args.include_simulated)
+        borrower = hierarchy.measure(conn)["levels"].get("borrower") or {}
+    shrinkage = (borrower.get("k"), str(borrower.get("basis") or "the panel could not be read"))
     if not rows:
         logger.error("no decisions at feature schema %s to train on", SCHEMA_VERSION)
         return 1
@@ -1316,6 +1332,7 @@ def main() -> int:
                 corpus=corpus,
                 min_control=args.min_control,
                 segment_ladder=not args.no_segments,
+                shrinkage=shrinkage,
             )
         if artifact is None:
             continue

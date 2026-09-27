@@ -54,9 +54,12 @@ export function OfferPolicyBlock({
             {p?.productName ?? "Eligible product"}
             {p?.suggestedAmount != null ? ` · ${fmtOfferAmount(p.suggestedAmount)}` : ""}
           </p>
-          {p?.talkTrack ? (
-            <p className="text-body-small leading-snug text-text-subtle">“{p.talkTrack}”</p>
-          ) : null}
+          {/* Never a script to read out: an offer is not raised on a
+              collections conversation. It goes out separately, with consent. */}
+          <p className="text-body-small leading-snug text-text-subtle">
+            Do not raise this on the call. It is sent separately, only with the customer’s consent;
+            capture a lead only if they ask about it themselves.
+          </p>
           {p?.preferredWindow ? (
             <p className="text-body-small text-text-subtlest">Window · {p.preferredWindow}</p>
           ) : null}

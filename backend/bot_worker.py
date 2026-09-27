@@ -153,6 +153,11 @@ def process_one_any() -> bool:
     # which one it is depends on whether the offer was ever delivered.
     if _iteration % SETTLE_EVERY == 1:
         _run_stage("offer_followthrough", lambda: offer_followthrough.process_one(db.engine))
+    # Offers reach customers only here: consented, on the promotional channel.
+    from agent_core.reco import sender as offer_sender
+
+    if _run_stage("offer_sender", lambda: offer_sender.process_one(db.engine)):
+        return True
     try:
         from agent_core.clerk import process_one as clerk_one, sweep_overdue
 

@@ -35,6 +35,12 @@ def enact_allowed() -> bool:
 
 
 def labels_allowed() -> bool:
+    """On unless switched off. Labelling reads outcomes and contacts nobody.
+
+    It used to default off, and with it off the escalation ladder never
+    climbed, nothing could be learned, and every gate downstream refused for
+    want of a single label.
+    """
     if _pytest():
         return True
-    return env_bool("TREATMENT_LABELS_ENABLED")
+    return env_bool("TREATMENT_LABELS_ENABLED", True)

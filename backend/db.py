@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +11,6 @@ from sqlalchemy import text
 import contact_window
 from agent_core import clock
 import visibility
-from env_utils import env_float
 
 from db_core import (
     DEFAULT_DETAIL_LIMIT as DEFAULT_DETAIL_LIMIT,
@@ -675,51 +673,22 @@ def get_customer_insights(customer_id: str) -> dict[str, Any] | None:
 
 
 def _treatment_snapshot(conn: Any, customer_id: str) -> dict[str, Any] | None:
-    """What the decision engine would do for this borrower, right now.
+    """The borrower's next best action: the engine's latest recorded decision.
 
-    The third policy on this card, and the one that was missing. It already
-    carried two real snapshots — the offer policy and the authority matrix —
-    while the "next best action" list beside them was a hand-written ladder
-    that consulted neither the contact policy nor the decision log.
-
-    Never raises, and returns None rather than a placeholder on failure: an
-    absent engine row leaves the card showing its case-handling items, which is
-    a degraded view. A fabricated one would be a wrong recommendation with a
-    rupee figure attached to it.
-
-    ``recommend_treatment`` is called with persist='preview' so opening a
-    customer writes zero decision rows. Event and sweep callers remain the
-    only persistent decision producers. The preview is memoised per customer
-    for ``TREATMENT_PREVIEW_TTL_S`` (60 s): every open of a card ran the whole
-    engine -- features, candidates, veto, score -- and a desk that opens and
-    re-opens the same borrower paid it each time for the same answer.
+    Read from the decision log, not re-run. The card used to run a fresh,
+    randomised, unsaved preview on every open, so it could disagree with the
+    cases panel, the copilot and itself a minute later, and nobody could say
+    afterwards what it had shown. Now every surface reads the same row
+    (``decisions.current``) and links to its trace. None when there is no
+    recent decision; "Decide now" records one.
     """
-    now = time.monotonic()
-    cached = _PREVIEW_CACHE.get(customer_id)
-    if cached and now - cached[0] < _PREVIEW_TTL_S:
-        return cached[1]
     try:
-        from agent_core.treatment import Trigger, recommend_treatment
+        import decision_trace
 
-        result = recommend_treatment(
-            customer_id=customer_id,
-            trigger=Trigger(kind="manual"),
-            conn=conn,
-            persist="preview",
-        )
-        payload = result.to_payload()
+        return decision_trace.snapshot(conn, customer_id)
     except Exception:
         logger.exception("treatment snapshot failed for customer=%s", customer_id)
         return None
-    if len(_PREVIEW_CACHE) > 512:
-        _PREVIEW_CACHE.clear()
-    _PREVIEW_CACHE[customer_id] = (now, payload)
-    return payload
-
-
-#: customer_id -> (monotonic, payload). Process-local, like authz's grant cache.
-_PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
-_PREVIEW_TTL_S = env_float("TREATMENT_PREVIEW_TTL_S", 60.0)
 
 
 def _note_contracts(conn: Any, customer_id: str) -> list[dict[str, Any]]:

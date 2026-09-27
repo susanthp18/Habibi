@@ -1,5 +1,8 @@
+import { useState } from "react";
 import {
   ArrowRight,
+  HelpCircle,
+  RefreshCw,
   CalendarClock,
   CalendarSync,
   FileText,
@@ -15,6 +18,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDecideNow } from "@/api/treatment-trace";
+import { DecisionTraceSheet } from "@/components/treatment/DecisionTraceSheet";
 import type { NbaActionKind, NbaItem } from "@/api/types/customer-insights";
 import { nbaPrimaryLabel } from "@/lib/nba-destinations";
 import { StatusChip, type ChipTone } from "./StatusChip";
@@ -51,16 +56,41 @@ type Handlers = {
   onAction: (item: NbaItem) => void;
 };
 
-export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & Handlers) {
+export function NextBestActionCard({
+  items,
+  onAction,
+  customerId,
+}: { items: NbaItem[]; customerId?: string } & Handlers) {
   const list = items ?? [];
   const primary = list[0];
   const rest = list.slice(1);
+  const engineRow = primary?.source === "treatment_engine";
+  const [traceId, setTraceId] = useState<string | null>(null);
+  const decide = useDecideNow();
 
   return (
     <div className="rounded-large border border-border bg-surface">
-      <div className="border-b border-border px-200 py-150">
-        <div className="text-body-small font-semibold text-text">Next best action</div>
-        <div className="text-body-small text-text-subtlest">Ranked for this account right now</div>
+      <div className="flex items-start justify-between gap-100 border-b border-border px-200 py-150">
+        <div>
+          <div className="text-body-small font-semibold text-text">Next best action</div>
+          <div className="text-body-small text-text-subtlest">
+            {engineRow
+              ? "The decision engine's latest recorded decision, then the case checklist"
+              : "No recent engine decision for this account; case checklist below"}
+          </div>
+        </div>
+        {customerId ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={decide.isPending}
+            onClick={() =>
+              decide.mutate({ customerId }, { onSuccess: (t) => setTraceId(t.id) })
+            }
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Decide now
+          </Button>
+        ) : null}
       </div>
 
       {primary ? (
@@ -84,18 +114,26 @@ export function NextBestActionCard({ items, onAction }: { items: NbaItem[] } & H
               </p>
             </div>
           </div>
-          {nbaPrimaryLabel(primary) ? (
-            <Button
-              size="sm"
-              className="mt-150 h-400 bg-background-brand-bold hover:bg-background-brand-bold-hovered"
-              onClick={() => onAction(primary)}
-            >
-              {nbaPrimaryLabel(primary)}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
+          <div className="mt-150 flex flex-wrap gap-100">
+            {nbaPrimaryLabel(primary) ? (
+              <Button
+                size="sm"
+                className="h-400 bg-background-brand-bold hover:bg-background-brand-bold-hovered"
+                onClick={() => onAction(primary)}
+              >
+                {nbaPrimaryLabel(primary)}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+            {engineRow && primary.decisionId ? (
+              <Button size="sm" variant="outline" onClick={() => setTraceId(primary.decisionId ?? null)}>
+                <HelpCircle className="h-3.5 w-3.5" /> Why?
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
+      <DecisionTraceSheet decisionId={traceId} onClose={() => setTraceId(null)} />
 
       {rest.length > 0 ? (
         <ul className="divide-y divide-border">

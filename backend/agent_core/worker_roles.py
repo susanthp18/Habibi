@@ -32,6 +32,7 @@ ROLES: dict[str, frozenset[str]] = {
             "treatment_followthrough",
             "treatment_sweep",
             "offer_followthrough",
+            "offer_sender",
         }
     ),
     "integration": frozenset(

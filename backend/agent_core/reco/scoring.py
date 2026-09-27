@@ -62,6 +62,8 @@ class ScoredOffer:
             "pConvert": self.p_convert,
             "expectedValue": self.expected_value,
             "components": {k: round(v, 4) for k, v in self.components.items()},
+            # The ranking's own one-line reading, kept for the decision trace.
+            "explanation": self.explanation,
         }
 
 

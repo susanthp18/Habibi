@@ -775,12 +775,10 @@ RECOMMEND_NEXT_OFFER = _r(
     ToolSpec(
         name="recommend_next_offer",
         description=(
-            "Ask the offer engine what — if anything — is worth mentioning to this "
-            "customer right now. Returns at most a couple of pre-approved offers, "
-            "each with a product id and an indicative amount, or suppressed=true "
-            "meaning say nothing about products at all. Never invent a product id "
-            "and never pitch anything this tool did not return. Call it before "
-            "mentioning any product, and before closing the call."
+            "Let the offer engine record what could be offered to this customer "
+            "later, through a separate consented message. On this call it always "
+            "returns nothing to say: do not mention, hint at or describe any "
+            "product or offer. Call it once before closing the call."
         ),
         args=(),
         channels=BOTH,
@@ -791,7 +789,7 @@ DECLINE_OFFER = _r(
     ToolSpec(
         name="decline_offer",
         description=(
-            "Record that the customer said no to the product you just mentioned. "
+            "Record that the customer said no to a product they themselves raised. "
             "Call it as soon as they decline, then move on without pressing. This "
             "is what stops us raising the same product with them again."
         ),

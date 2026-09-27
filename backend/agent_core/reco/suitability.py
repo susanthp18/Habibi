@@ -128,3 +128,113 @@ def objection(
         if at <= utc_now():
             return REASON_EXPIRED
     return None
+
+
+# ---------------------------------------------------------------------------
+# The rulebook that writes findings
+# ---------------------------------------------------------------------------
+
+#: Who made a rulebook finding. A person's finding carries their user id and
+#: is never overwritten by the rulebook while it is current.
+RULES_ASSESSOR = "suitability-rules-v1"
+FINDING_DAYS = 30
+
+#: Holds under which nothing is suitable, whatever the product.
+_BLOCKING_HOLDS = ("hardship", "complaint", "bereavement", "legal", "no_upsell",
+                   "deceased", "cease_and_desist")
+
+
+def assess(
+    conn: Any,
+    *,
+    customer_id: str,
+    product_ids: list[str],
+    remedial: frozenset[str] | set[str] = frozenset(),
+    tenant_id: str | None = None,
+) -> dict[str, str]:
+    """Write a rulebook finding per product; returns ``{product_id: verdict}``.
+
+    Unsuitable when the borrower is in arrears (except for a remedial product
+    such as debt consolidation), holds any protective hold, has an open
+    dispute, or said on a call in the last 30 days that they are in hardship,
+    dispute the debt, or want contact to stop. The facts it read are the
+    evidence. A current finding by a person is left alone.
+    """
+    import uuid
+    from datetime import timedelta
+
+    import db
+
+    tenant = tenant_id or db.current_tenant()
+    facts = conn.execute(
+        text(
+            """
+            SELECT
+              (SELECT COALESCE(max(a.dpd), 0) FROM accounts a WHERE a.customer_id = :c) AS dpd,
+              (SELECT string_agg(DISTINCT h.kind, ',') FROM treatment_holds h
+                WHERE h.customer_id = :c AND h.released_at IS NULL
+                  AND (h.expires_at IS NULL OR h.expires_at > now())
+                  AND h.kind = ANY(:holds)) AS holds,
+              (SELECT count(*) FROM disputes d
+                WHERE d.customer_id = :c AND d.status NOT IN ('resolved','closed','rejected')) AS disputes
+            """
+        ),
+        {"c": customer_id, "holds": list(_BLOCKING_HOLDS)},
+    ).mappings().first() or {}
+    speech = ""
+    try:
+        with conn.begin_nested():
+            speech = conn.execute(
+                text(
+                    """
+                    SELECT string_agg(DISTINCT fact_key, ',') FROM perception_facts
+                     WHERE customer_id = :c AND fact_key = ANY(:keys)
+                       AND provenance = 'borrower_utterance'
+                       AND (fact_value = 'true'::jsonb OR fact_value = '"true"'::jsonb)
+                       AND superseded_at IS NULL AND abstained IS FALSE
+                       AND observed_at > now() - interval '30 days'
+                    """
+                ),
+                {"c": customer_id, "keys": ["hardship_claimed", "dispute_claimed", "consent_withdrawal", "legal_threat"]},
+            ).scalar() or ""
+    except Exception:
+        speech = ""
+    dpd = int(facts.get("dpd") or 0)
+    holds = facts.get("holds") or ""
+    disputes = int(facts.get("disputes") or 0)
+    base_ref = f"{RULES_ASSESSOR}; dpd={dpd}; holds={holds or 'none'}; disputes={disputes}; said={speech or 'nothing'}"
+
+    out: dict[str, str] = {}
+    for pid in product_ids:
+        existing = current(conn, customer_id=customer_id, product_id=pid, tenant_id=tenant)
+        if existing and existing.get("assessor") != RULES_ASSESSOR:
+            expires = as_utc(existing.get("expires_at")) if existing.get("expires_at") else None
+            if expires is None or expires > utc_now():
+                out[pid] = str(existing["verdict"])
+                continue
+        reasons = []
+        if dpd > 0 and pid not in remedial:
+            reasons.append("in arrears")
+        if holds:
+            reasons.append(f"hold: {holds}")
+        if disputes:
+            reasons.append("open dispute")
+        if speech:
+            reasons.append(f"said on a call: {speech}")
+        verdict = "unsuitable" if reasons else "suitable"
+        conn.execute(
+            text(
+                """
+                INSERT INTO suitability_assessments
+                  (id, tenant_id, customer_id, product_id, expires_at, assessor, verdict, evidence_ref)
+                VALUES (:id, :t, :c, :p, :exp, :a, :v, :e)
+                """
+            ),
+            {
+                "id": f"SUIT-{uuid.uuid4().hex[:12].upper()}", "t": tenant, "c": customer_id, "p": pid,
+                "exp": utc_now() + timedelta(days=FINDING_DAYS), "a": RULES_ASSESSOR, "v": verdict,
+                "e": base_ref + (f"; because {', '.join(reasons)}" if reasons else ""),
+            },
+        )
+        out[pid] = verdict
+    return out

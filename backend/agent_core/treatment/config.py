@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
 from sqlalchemy import text as sqltext
 
@@ -431,6 +431,10 @@ class Policy:
     # Minimum gap before the same case is re-decided, whatever the last attempt
     # concluded. Stops a no-answer at 09:00 becoming a second dial at 09:05.
     retry_backoff_hours: float
+    # What the engine has learned from its own outcomes, as evidence counts
+    # ``{(metric, key): (successes, trials)}`` (``beliefs.load``). The scorer
+    # blends them into its starting assumptions; empty means assumptions only.
+    learned: Mapping[tuple[str, str], tuple[int, int]] = field(default_factory=dict)
 
 
 def policy(*, conn: Any = None, portfolio_id: str = "") -> Policy:
@@ -460,7 +464,18 @@ def policy(*, conn: Any = None, portfolio_id: str = "") -> Policy:
         planning_horizon_hours=max(1, count("TREATMENT_HORIZON_HOURS", 72)),
         max_attempts_per_case=max(1, count("TREATMENT_MAX_ATTEMPTS_PER_CASE", 5)),
         retry_backoff_hours=max(0.0, value("TREATMENT_RETRY_BACKOFF_HOURS", 12.0)),
+        learned=_learned(conn),
     )
+
+
+def _learned(conn: Any) -> Mapping[tuple[str, str], tuple[int, int]]:
+    from agent_core.treatment import beliefs
+
+    try:
+        return beliefs.load(conn, tenant_id=engine_config._tenant())
+    except Exception:
+        logger.exception("learned response rates unavailable; using starting assumptions")
+        return {}
 
 
 #: How long to wait before concluding an attempt went unanswered, per action.

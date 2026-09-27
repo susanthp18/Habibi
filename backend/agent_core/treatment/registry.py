@@ -266,6 +266,7 @@ def corpus_objections(conn: Any, *, tenant_id: str) -> list[str]:
                       count(*) FILTER (WHERE cure_outcome IS NOT NULL) AS cure_labelled
                     FROM treatment_decisions
                     WHERE tenant_id = :tenant AND mode = 'live'
+                      AND COALESCE(to_jsonb(treatment_decisions) ->> 'action_family', '') <> 'offer'
                     """
                 ),
                 {"tenant": tenant_id, "control": CONTROL_VARIANT},

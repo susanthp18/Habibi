@@ -380,7 +380,12 @@ def list_treatment_cases(
     """
     engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
-    where = ["c.tenant_id = :tenant_id", "td.trigger_ref IS NOT NULL"]
+    where = [
+        "c.tenant_id = :tenant_id",
+        "td.trigger_ref IS NOT NULL",
+        "td.mode <> 'simulated'",
+        "COALESCE(to_jsonb(td) ->> 'action_family', '') <> 'offer'",
+    ]
     params: dict[str, Any] = {
         "tenant_id": _tenant(),
         "limit": page,
@@ -606,7 +611,7 @@ def treatment_insights(days: int = 14) -> dict[str, Any]:
     from agent_core.treatment import decisions as treatment_decisions
 
     with engine.connect() as conn:
-        return treatment_decisions.insights(conn, days=days)
+        return treatment_decisions.insights(conn, days=days, tenant_id=_tenant())
 
 
 def treatment_metrics(days: int = 28, *, include_simulated: bool = False) -> dict[str, Any]:

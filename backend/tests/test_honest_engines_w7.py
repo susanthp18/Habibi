@@ -200,10 +200,13 @@ def test_building_twice_produces_the_same_panel(db_tx) -> None:
             at=at,
         )
     first = panel.build(db_tx, now=NOW, since=start - timedelta(days=1))
+    after_first = db_tx.execute(text("SELECT count(*) FROM analysis_panel")).scalar()
     second = panel.build(db_tx, now=NOW, since=start - timedelta(days=1))
+    after_second = db_tx.execute(text("SELECT count(*) FROM analysis_panel")).scalar()
     assert first == second
-    total = db_tx.execute(text("SELECT count(*) FROM analysis_panel")).scalar()
-    assert total == first["cases"]
+    # Idempotent: the rebuild upserts, it never adds. (The table is no longer
+    # empty before a test -- the nightly job builds the panel now.)
+    assert after_second == after_first
 
 
 def test_a_case_our_executor_cancelled_is_censored_not_a_failure(db_tx) -> None:

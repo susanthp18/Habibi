@@ -37,6 +37,7 @@ import {
   humanise,
   HOLD_KINDS,
   HOLD_SOURCES,
+  TWO_PERSON_RELEASE,
   useCreateTreatmentHold,
   useReleaseTreatmentHold,
   useTreatmentHolds,
@@ -45,14 +46,6 @@ import {
   type TreatmentHold,
 } from "@/api/treatment";
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
 import { HOLD_TONE, Panel, StateGate } from "./chrome";
 import { fmtDateTime } from "@/lib/format";
 
@@ -386,6 +379,9 @@ export function ReleaseHoldDialog({
           <DialogTitle>Release this hold</DialogTitle>
           <DialogDescription>
             {label ? `${label}. ` : ""}Outreach becomes possible again as soon as this is lifted.
+            {hold && TWO_PERSON_RELEASE.has(String(hold.kind))
+              ? " This kind of hold needs a second person: whoever placed it cannot release it."
+              : ""}
           </DialogDescription>
         </DialogHeader>
 

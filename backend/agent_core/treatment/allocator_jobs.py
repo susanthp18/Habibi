@@ -97,6 +97,7 @@ def demands(
             WHERE mode = ANY(:modes)
               AND created_at >= now() - make_interval(hours => :hours)
               AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)
+              AND COALESCE(to_jsonb(treatment_decisions) ->> 'action_family', '') <> 'offer'
             ORDER BY COALESCE(account_id, customer_id), created_at DESC
             """
         ),
@@ -159,10 +160,14 @@ def solve_book(
     allocation = allocate.solve(
         book, capacity, plan_date=day, floor=config.policy().min_expected_value
     )
+    shock = allocate.shock_report(book, capacity, floor=config.policy().min_expected_value)
     out: dict[str, Any] = {
         "census": census,
         "allocation": allocation.to_log(),
         "resources": allocate.resource_report(conn, tenant_id=tenant_id),
+        # The write switch's price-stability gate reads this off the job's
+        # result; the two full solve logs stay out of the ledger.
+        "shock": {k: v for k, v in shock.items() if k not in {"base", "shocked"}},
     }
     if persist:
         out["persisted"] = allocate.persist(conn, allocation, tenant_id=tenant_id)

@@ -502,6 +502,23 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/outbound/reasons"): ANALYTICS_READ,
     ("GET", "/outbound/attempts"): COLLECTIONS_READ,
     ("GET", "/customers/{customer_id}/outbound/hours"): COLLECTIONS_READ,
+    ("GET", "/treatment/decisions"): COLLECTIONS_READ,
+    ("GET", "/treatment/decisions/{decision_id}"): COLLECTIONS_READ,
+    ("GET", "/treatment/current"): COLLECTIONS_READ,
+    ("GET", "/treatment/health"): ANALYTICS_READ,
+    ("GET", "/treatment/learned"): ANALYTICS_READ,
+    ("GET", "/treatment/strategy"): ANALYTICS_READ,
+    ("GET", "/offers/decisions"): LEADS_READ,
+    ("GET", "/offers/decisions/{decision_id}"): LEADS_READ,
+    ("GET", "/offers/opportunities"): LEADS_READ,
+    ("GET", "/offers/signals/health"): LEADS_READ,
+    ("POST", "/offers/signals/{signal_id}/feedback"): LEADS_WRITE,
+    ("POST", "/treatment/decisions/{decision_id}/explain"): COLLECTIONS_READ,
+    ("GET", "/treatment/strategy/proposals"): ANALYTICS_READ,
+    ("POST", "/treatment/strategy/proposals"): POLICY_PUBLISH,
+    ("POST", "/treatment/strategy/proposals/{proposal_id}/approve"): POLICY_APPROVE,
+    ("POST", "/treatment/strategy/proposals/{proposal_id}/reject"): POLICY_APPROVE,
+    ("POST", "/treatment/decide"): COLLECTIONS_WRITE,
     # --- campaigns, cadence, pools, obligations (O3/O4) --------------------
     # Reading a run is a collections read; creating one, adding borrowers to it
     # or starting it rings real phones and is a write. Starting is separated

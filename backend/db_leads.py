@@ -972,7 +972,25 @@ def patch_lead(lead_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             events.append(("lead_updated", "Lead updated", None))
         for kind, label, note in events:
             _activity(conn, "lead", lead_id, kind, label, note, row["customer_id"])
-        return _lead_by_id(conn, lead_id)
+        result = _lead_by_id(conn, lead_id)
+    if next_stage and next_stage != current_stage:
+        _label_offer_decision(lead_id, next_stage)
+    return result
+
+
+def _label_offer_decision(lead_id: str, stage: str) -> None:
+    """A lead the promotional sender raised labels the offer that chose it."""
+    try:
+        from agent_core.reco import sender
+
+        with _db().engine.connect() as conn:
+            decision_id = conn.execute(
+                text("SELECT to_jsonb(l) ->> 'decision_id' FROM leads l WHERE l.id = :id"),
+                {"id": lead_id},
+            ).scalar()
+        sender.label_from_lead(None, decision_id=decision_id, stage=stage)
+    except Exception:
+        logger.exception("offer label from lead %s failed", lead_id)
 
 def revalidate_lead_eligibility(lead_id: str, channel: str | None = None) -> dict[str, Any]:
     """Re-evaluate a lead's eligibility against today's facts.

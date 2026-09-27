@@ -1028,6 +1028,9 @@ def scan(
     from agent_core.treatment import schema_ready
 
     clauses = ["mode = ANY(:modes)", "outcome IS NOT NULL", "propensity IS NOT NULL"]
+    family = schema_ready.collections_only(conn).replace(" AND ", "", 1)
+    if family:
+        clauses.append(family)
     params: dict[str, Any] = {"modes": list(modes)}
     if variant:
         clauses.append("variant = :variant")
@@ -1232,6 +1235,7 @@ def treatment_effect(
                    count(*) FILTER (WHERE outcome = ANY(:cured))::int AS cured
             FROM treatment_decisions
             WHERE mode = ANY(:modes) AND outcome IS NOT NULL
+              AND COALESCE(to_jsonb(treatment_decisions) ->> 'action_family', '') <> 'offer'
             GROUP BY 1
             """
         ),

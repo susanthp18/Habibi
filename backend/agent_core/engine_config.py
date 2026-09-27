@@ -202,6 +202,10 @@ SPEC: dict[str, Spec] = {
     "RECO_W_FATIGUE": Spec("float", minimum=0.0, maximum=1.0),
     "RECO_W_EXIT_INTENT": Spec("float", minimum=0.0, maximum=1.0),
     "RECO_REQUIRE_COMMITMENT": Spec("bool"),
+    "RECO_GREEDINESS": Spec("float", minimum=0.0, maximum=1.0),
+    "RECO_SIGNAL_PRODUCTS": Spec("json"),
+    "RECO_REMEDIAL_PRODUCTS": Spec("json"),
+    "RECO_PROMO_CONTROL_SHARE": Spec("float", minimum=0.0, maximum=0.5),
     "RECO_AB_SPLIT": Spec("str"),
     "RECO_VARIANTS": Spec("json"),
     # -- workers --------------------------------------------------------------

@@ -320,6 +320,14 @@ class TreatmentAlternativeResponse(BaseModel):
     #: scorer reports are its own business, and pinning them here would make
     #: adding a term to the scorer a schema change.
     components: dict[str, float] = {}
+    #: The scorer's one-line reading of this option, and when it would happen.
+    explanation: str | None = None
+    timingRationale: str | None = None
+    #: Where each probability came from: ``{"reach": {"source": "learned",
+    #: "value", "prior", "successes", "trials", "windowDays"}, "resolve": ...}``.
+    evidence: dict[str, Any] = {}
+    #: The chance the chooser would have picked this option (exploration).
+    propensity: float | None = None
 
 
 class TreatmentSnapshotResponse(BaseModel):
@@ -353,6 +361,10 @@ class TreatmentSnapshotResponse(BaseModel):
     alternatives: list[TreatmentAlternativeResponse] = []
     #: action -> veto reason, for the actions arbitration ruled out.
     excluded: dict[str, str] = {}
+    #: When the recorded decision was made, and whether it was carried out.
+    #: Present on the customer card, which reads the log rather than the engine.
+    decidedAt: str | None = None
+    enacted: bool | None = None
 
 
 class CallResponse(BaseModel):

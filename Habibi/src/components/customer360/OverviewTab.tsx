@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { InsightsPanel } from "./InsightsPanel";
 import { NextBestActionCard } from "./NextBestActionCard";
+import { CustomerOpportunities } from "@/components/offers/OpportunitiesPanel";
 import { BehaviorMetricsStrip } from "./BehaviorMetricsStrip";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { authorityPolicyFromNext, useApplyAuthority, useAuthorityNext } from "@/api/authority";
@@ -86,9 +87,14 @@ export function OverviewTab({
           capturing={captureMut.isPending}
         />
       ) : null}
+      <CustomerOpportunities customerId={insights.customerId} />
       <div className="grid gap-200 lg:grid-cols-2">
         <InsightsPanel bullets={insights.summary} />
-        <NextBestActionCard items={insights.nba} onAction={onNbaAction} />
+        <NextBestActionCard
+          items={insights.nba}
+          onAction={onNbaAction}
+          customerId={insights.customerId}
+        />
       </div>
       <ActivityTimeline items={insights.activity} />
     </div>

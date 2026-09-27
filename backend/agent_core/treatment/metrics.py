@@ -32,6 +32,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from agent_core.treatment.schema_ready import collections_only
+
 #: `customers.timezone` holds display labels ("Asia/Kolkata (IST)") in
 #: seeded data. An unrecognised zone does not fail one row -- it aborts the
 #: transaction. One definition, shared with contact_policy._zone's policy.
@@ -51,12 +53,12 @@ CONTROL_ARM = "null_treatment"
 #: of three on the minimum detectable effect in an unknown direction.
 MIN_PANEL_WEEKS = 8.0
 
-#: Superseded by the power gate in :func:`causal`. Kept as the historical value
-#: only so a reader of an older artifact can see what the blunt row count was;
-#: nothing reads it. The gate now counts *clusters* against
-#: :data:`cluster.MIN_CLUSTERS`, because a hundred decisions on four borrowers
-#: is four observations, not a hundred.
-MIN_ARM_N = 100
+def _q(conn: Any, sql: str) -> Any:
+    """Keep mirrored offer decisions out of a collections metric."""
+    return text(
+        sql.replace("AND d.action_family_filter", collections_only(conn, "d").strip() or "AND TRUE")
+        .replace("AND action_family_filter", collections_only(conn).strip() or "AND TRUE")
+    )
 
 
 def _scalar(row: Any, key: str, default: float = 0.0) -> float:
@@ -200,10 +202,12 @@ def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
     # below, caught here only because the corpus was large enough for zero to be
     # obviously wrong.
     money = conn.execute(
-        text(
+        _q(
+            conn,
             """
             SELECT
-              COALESCE(sum(le.amount), 0)::float AS recovered,
+              -- Payments post as negative ledger amounts; recovery is their size.
+              COALESCE(sum(abs(le.amount)), 0)::float AS recovered,
               count(DISTINCT le.id)::int AS payments
             FROM ledger_entries le
             JOIN accounts a ON a.id = le.account_id
@@ -217,6 +221,7 @@ def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
                   AND d.enacted
                   AND d.created_at >= now() - make_interval(days => :days)
                   AND d.created_at <= le.posted_at
+                  AND d.action_family_filter
               )
             """
         ),
@@ -224,7 +229,8 @@ def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
     ).mappings().first()
 
     spend = conn.execute(
-        text(
+        _q(
+            conn,
             """
             SELECT COALESCE(sum((c.entry ->> 'cost')::numeric), 0)::float AS spend
             FROM treatment_decisions d
@@ -234,6 +240,7 @@ def causal(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
               AND d.variant <> :arm
               AND d.created_at >= now() - make_interval(days => :days)
               AND c.entry ->> 'action' = d.chosen_action
+              AND d.action_family_filter
             """
         ),
         {"days": days, "modes": modes, "arm": CONTROL_ARM},
@@ -285,7 +292,8 @@ def efficiency(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
     happened on the phones.
     """
     row = conn.execute(
-        text(
+        _q(
+            conn,
             """
             SELECT
               count(*) FILTER (WHERE outcome IN ('paid','ptp'))::int AS resolutions,
@@ -295,6 +303,7 @@ def efficiency(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
             FROM treatment_decisions
             WHERE mode = ANY(:modes)
               AND created_at >= now() - make_interval(days => :days)
+              AND action_family_filter
             """
         ),
         {"modes": modes, "days": days},
@@ -316,7 +325,7 @@ def efficiency(conn: Any, *, days: int, modes: list[str]) -> dict[str, Any]:
     recovered = conn.execute(
         text(
             """
-            SELECT COALESCE(sum(amount), 0)::float AS recovered
+            SELECT COALESCE(sum(abs(amount)), 0)::float AS recovered
             FROM ledger_entries
             WHERE type = 'payment'
               AND posted_at >= now() - make_interval(days => :days)
@@ -510,7 +519,8 @@ def borrower_experience(conn: Any, *, days: int, modes: list[str]) -> dict[str, 
     one missed instalment behind eleven borrowers contacted once.
     """
     row = conn.execute(
-        text(
+        _q(
+            conn,
             """
             WITH per_case AS (
               SELECT customer_id, trigger_kind, trigger_ref,
@@ -519,6 +529,7 @@ def borrower_experience(conn: Any, *, days: int, modes: list[str]) -> dict[str, 
               FROM treatment_decisions
               WHERE mode = ANY(:modes)
                 AND created_at >= now() - make_interval(days => :days)
+                AND action_family_filter
               GROUP BY 1, 2, 3
             )
             SELECT count(*)::int AS cases,
@@ -672,18 +683,18 @@ def withheld_cases(
     row = conn.execute(
         text(
             """
-            SELECT count(*) FILTER (WHERE variant = 'control')::int AS control_cases,
+            SELECT count(*) FILTER (WHERE variant = :arm)::int AS control_cases,
                    count(*)::int AS cases,
                    count(DISTINCT customer_id)
-                     FILTER (WHERE variant = 'control')::int AS control_customers,
-                   count(*) FILTER (WHERE variant = 'control' AND mature)::int
+                     FILTER (WHERE variant = :arm)::int AS control_customers,
+                   count(*) FILTER (WHERE variant = :arm AND mature)::int
                      AS mature_control_cases
             FROM analysis_panel
             WHERE randomised_at >= now() - make_interval(days => :days)
               AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)
             """
         ),
-        {"days": days, "tenant": tenant_id},
+        {"days": days, "tenant": tenant_id, "arm": CONTROL_ARM},
     ).mappings().first()
     cases = int((row or {}).get("cases") or 0)
     control = int((row or {}).get("control_cases") or 0)

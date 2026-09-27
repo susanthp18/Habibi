@@ -1,11 +1,11 @@
-/** Cases -- GET /treatment/cases, and the next-treatment panel for the selected one. */
+/** Cases -- GET /treatment/cases, and the current decision for the selected one. */
 import { useEffect, useState } from "react";
-import { Inbox, ShieldOff, Sparkles } from "lucide-react";
+import { Inbox, RefreshCw, ShieldOff, Sparkles } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Switch } from "@/components/ui/switch";
-import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -14,25 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  fmtInr,
-  fmtNum,
-  fmtRate,
-  humanise,
-  useTreatmentCases,
-  useTreatmentNext,
-  type TreatmentCase,
-} from "@/api/treatment";
+import { fmtNum, humanise, useTreatmentCases, type TreatmentCase } from "@/api/treatment";
+import { useCurrentDecision, useDecideNow } from "@/api/treatment-trace";
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
-import { EmptyPanel, Panel, Stat, StateGate } from "./chrome";
+import { TraceBody } from "./DecisionTraceSheet";
+import { EmptyPanel, Panel, StateGate } from "./chrome";
 import { fmtDateTime } from "@/lib/format";
 
 export function CasesTab({ customerId }: { customerId?: string }) {
@@ -157,17 +143,18 @@ export function CasesTab({ customerId }: { customerId?: string }) {
 }
 
 export function NextTreatmentPanel({ selected }: { selected: TreatmentCase | null }) {
-  const next = useTreatmentNext(selected?.customerId, selected?.accountId ?? null, "manual");
+  const current = useCurrentDecision(selected?.customerId, selected?.accountId ?? null);
+  const decide = useDecideNow();
 
   if (!selected) {
     return (
       <Panel
-        title="Next best treatment"
-        description="Select a case above to ask the engine what it would do right now."
+        title="Next best action"
+        description="Select a case above to see the engine's current decision for that borrower."
       >
         <EmptyPanel
           title="No case selected"
-          body="Pick a row to see the chosen action, the alternatives it beat, and everything vetoed before scoring."
+          body="Pick a row to see what the engine decided, every option it weighed, and why."
           icon={Sparkles}
         />
       </Panel>
@@ -176,97 +163,35 @@ export function NextTreatmentPanel({ selected }: { selected: TreatmentCase | nul
 
   return (
     <Panel
-      title={`Next best treatment — ${selected.customerName}`}
-      description="Read-only for the caller. The engine writes a decision row; outside live mode it enacts nothing."
+      title={`Next best action — ${selected.customerName}`}
+      description="The engine's latest recorded decision for this borrower, the same one the customer card and the agent copilot show."
+      actions={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={decide.isPending}
+          onClick={() =>
+            decide.mutate({ customerId: selected.customerId, accountId: selected.accountId })
+          }
+        >
+          <RefreshCw className="mr-075 h-3.5 w-3.5" /> Decide now
+        </Button>
+      }
     >
-      <StateGate query={next} loadingLabel="Asking the engine">
-        {(d) => (
-          <div className="flex flex-col gap-150">
-            <div className="flex flex-wrap items-center gap-100">
-              <Lozenge tone={d.suppressed ? "warning" : "success"} size="spacious">
-                {humanise(d.actionLabel || d.action)}
-              </Lozenge>
-              <Lozenge tone={d.mode === "live" ? "success" : "information"}>
-                {humanise(d.mode)} mode
-              </Lozenge>
-              {d.variant ? <Lozenge>{humanise(d.variant)}</Lozenge> : null}
-              {d.suppressed && d.reason ? (
-                <Lozenge tone="warning">
-                  <ShieldOff aria-hidden /> {humanise(d.reason)}
-                </Lozenge>
-              ) : null}
-            </div>
-
-            <p className="text-body text-text">{d.rationale}</p>
-
-            <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
-              <Stat label="Expected value" value={fmtInr(d.expectedValueInr)} />
-              <Stat label="Scheduled for" value={fmtDateTime(d.at)} />
-              <Stat label="Propensity" value={fmtRate(d.propensity)} />
-              <Stat label="Latency" value={`${fmtNum(d.latencyMs)} ms`} />
-            </div>
-
-            {d.alternatives.length > 0 && (
-              <div>
-                <h3 className="mb-100 text-body-small font-semibold text-text-subtle">
-                  Alternatives considered
-                </h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Action</TableHead>
-                      <TableHead className="text-right">Expected value</TableHead>
-                      <TableHead className="text-right">Reach</TableHead>
-                      <TableHead className="text-right">Resolve</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {d.alternatives.map((alt) => (
-                      <TableRow key={alt.action}>
-                        <TableCell>{humanise(alt.action)}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtInr(alt.expectedValue)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtRate(alt.pReach)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtRate(alt.pResolve)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {fmtInr(alt.cost)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-
-            {Object.keys(d.excluded).length > 0 && (
-              <div>
-                <h3 className="mb-100 text-body-small font-semibold text-text-subtle">
-                  Vetoed before scoring
-                </h3>
-                <ul className="flex flex-wrap gap-100">
-                  {Object.entries(d.excluded).map(([action, why]) => (
-                    <li key={action} className="flex items-center gap-050">
-                      <Lozenge tone="neutral">
-                        {humanise(action)} · {humanise(why)}
-                      </Lozenge>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+      <StateGate query={current} loadingLabel="Loading the current decision">
+        {(d) =>
+          d.decision ? (
+            <TraceBody t={d.decision} />
+          ) : (
+            <EmptyPanel
+              title="No recent decision"
+              body="Nothing has triggered a decision for this borrower in the last week. “Decide now” asks the engine and records its answer without carrying it out."
+              icon={ShieldOff}
+            />
+          )
+        }
       </StateGate>
     </Panel>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Holds — GET/POST /treatment/holds + POST /treatment/holds/{id}/release
-// ---------------------------------------------------------------------------

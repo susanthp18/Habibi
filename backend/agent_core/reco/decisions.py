@@ -286,6 +286,15 @@ def mirror_update(conn: Any, assignments: str, params: Mapping[str, Any]) -> Non
         logger.exception("offer decision mirror update failed for %s", params.get("id"))
 
 
+def suppress(conn: Any, decision_id: str, reason: str) -> None:
+    """Hold an undelivered offer back, with the reason, in both logs."""
+    conn.execute(
+        text("UPDATE offer_decisions SET suppression_reason = :r WHERE id = :id"),
+        {"id": decision_id, "r": reason},
+    )
+    mirror_update(conn, "suppression_reason = :r", {"id": decision_id, "r": reason})
+
+
 def mark_presented(decision_id: str | None) -> None:
     """The offer was actually spoken. Distinct from having been chosen."""
     if not decision_id:

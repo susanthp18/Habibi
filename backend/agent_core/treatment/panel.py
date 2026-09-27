@@ -87,6 +87,7 @@ WITH scoped AS (
      AND d.created_at >= :since
      AND (CAST(:tenant AS TEXT) IS NULL OR d.tenant_id = :tenant)
      AND (CAST(:customers AS TEXT[]) IS NULL OR d.customer_id = ANY(:customers))
+     AND COALESCE(to_jsonb(d) ->> 'action_family', '') <> 'offer'
 ),
 marked AS (
   SELECT *,

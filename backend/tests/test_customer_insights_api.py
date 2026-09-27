@@ -44,7 +44,7 @@ def client(monkeypatch):
 HEADERS = {"X-API-Key": "insights-test-key", "X-Actor-User-Id": "priya-nair"}
 
 
-def test_the_insights_endpoint_serialises_the_engine_row(client) -> None:
+def test_the_insights_endpoint_serialises_the_engine_row(client, db_tx) -> None:
     """The endpoint 500'd for every customer. This is the regression itself.
 
     Deliberately does not assert *which* action the engine reaches. Whether a
@@ -58,15 +58,21 @@ def test_the_insights_endpoint_serialises_the_engine_row(client) -> None:
     import typing
 
     import schemas
+    from agent_core.treatment import Trigger, recommend_treatment
 
+    # The card shows the recorded decision; record one (shadow: never enacted).
+    recommend_treatment(
+        customer_id="anita-desai", trigger=Trigger(kind="manual", ref="manual:insights-test"),
+        conn=db_tx, force_mode="shadow",
+    )
     res = client.get("/customers/anita-desai/insights", headers=HEADERS)
     assert res.status_code == 200, res.text
     body = res.json()
 
     assert body["customerId"] == "anita-desai"
-    assert body["treatment"] is not None, "the engine always answers; None means it raised"
-    # GET insights is a preview: it must not persist a decision row.
-    assert body["treatment"]["decisionId"] is None
+    assert body["treatment"] is not None, "a recorded decision must reach the card"
+    # The card reads the log: what it shows is a decision somebody can trace.
+    assert body["treatment"]["decisionId"]
 
     engine_rows = [item for item in body["nba"] if item.get("source") == "treatment_engine"]
     assert engine_rows, "the engine's row should rank first, not be absent"

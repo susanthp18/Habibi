@@ -139,6 +139,7 @@ def _calibration_rows(
                 ) AS c(entry) ON true
                 WHERE d.mode = ANY(:modes)
                   AND d.created_at >= now() - make_interval(days => :days)
+                  AND COALESCE(to_jsonb(d) ->> 'action_family', '') <> 'offer'
                 ORDER BY d.created_at DESC
                 LIMIT :limit
                 """
@@ -187,6 +188,7 @@ def _drift_rows(
                 WHERE d.mode = ANY(:modes)
                   AND d.created_at >= now() - make_interval(days => :days)
                   AND (NOT :contacting OR d.chosen_channel IS NOT NULL)
+                  AND COALESCE(to_jsonb(d) ->> 'action_family', '') <> 'offer'
                 ORDER BY d.created_at DESC
                 LIMIT :limit
                 """

@@ -159,7 +159,7 @@ def test_no_call_path_reads_a_talk_track_off_a_recommendation() -> None:
     one caller can go around is not a gate, so this asserts the going-around is
     gone rather than that the gate exists.
     """
-    for name in ("voice/tools.py", "bot_tools.py"):
+    for name in ("voice/tools.py", "voice/tools_offers.py", "voice/tools_probe.py", "bot_tools.py"):
         code = [
             line
             for line in (BACKEND / name).read_text(encoding="utf-8").splitlines()

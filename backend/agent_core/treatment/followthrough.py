@@ -37,6 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from agent_core.clock import as_utc
+from agent_core.treatment.schema_ready import collections_only
 from agent_core.treatment import actions as A, config, decisions, kill_switch
 from agent_core.treatment.features import CONNECT_MIN_SECONDS, Trigger
 from agent_core.clock import utc_now
@@ -77,6 +78,11 @@ OBSERVATION_WINDOW = timedelta(days=14)
 UNRESOLVED = frozenset(
     {"no_answer", "refused", "undeliverable", "reached", "unresolved"}
 )
+
+#: v2: evidence linked to the decision (its call outcome, its call's
+#: disposition, its send, an operator's correction) outranks the
+#: customer-and-time-window match v1 relied on alone.
+LABEL_DEFINITION = "w3-v2"
 
 #: How many decisions to attribute in one pass. Bounded so a backlog cannot
 #: monopolise the worker.
@@ -124,7 +130,7 @@ def attribute_outcomes(
               -- control-arm wait is the counterfactual observation, and it is
               -- the row the whole uplift estimate is measured against.
               -- _outcome_for still refuses to label an ordinary shadow wait.
-              AND created_at >= now() - interval '30 days'{scope}
+              AND created_at >= now() - interval '30 days'{scope}{collections_only(conn)}
             -- Least-recently-examined first, never-examined before that.
             --
             -- Ordering by created_at alone deadlocked the loop. A row that
@@ -159,7 +165,7 @@ def attribute_outcomes(
             observed_days=(instant - since).days if (since := as_utc(row.get("created_at"))) else None,
             event_at=instant,
             label_mature_at=instant + timedelta(days=90) if cure is None else instant,
-            label_definition_version="w3-v1",
+            label_definition_version=LABEL_DEFINITION,
         )
         labelled += 1
 
@@ -190,10 +196,16 @@ def _outcome_for(conn: Any, row: dict[str, Any], *, now: datetime) -> str | None
     if since is None:
         return None
 
+    corrected = _operator_correction(conn, row)
+    if corrected:
+        return corrected
     if _superseded(conn, row):
         return "superseded"
     if _paid_since(conn, row, since):
         return "paid"
+    linked = _linked_outcome(conn, row) if enacted else None
+    if linked:
+        return linked
     if _promised_since(conn, row, since):
         return "ptp"
 
@@ -223,6 +235,90 @@ def _outcome_for(conn: Any, row: dict[str, Any], *, now: datetime) -> str | None
     if now - since >= grace:
         return "no_answer"
     return None
+
+
+#: A structured call outcome (call_closer) as a treatment label. Connection
+#: first: a call that never connected says nothing about the conversation.
+_CONNECTION_OUTCOME = {
+    "no_answer": "no_answer", "busy": "no_answer", "rejected": "no_answer",
+    "voicemail": "no_answer", "ivr_only": "no_answer", "bot_unreachable": "no_answer",
+    "failed": "undeliverable", "invalid_number": "undeliverable",
+    "wrong_party": "undeliverable",
+}
+_BUSINESS_OUTCOME = {
+    "ptp_captured": "ptp", "ptp_recommitted": "ptp", "part_payment_agreed": "ptp",
+    "plan_agreed": "ptp", "paid_in_call": "paid",
+    "refused": "refused", "opt_out_requested": "refused",
+    "wrong_number": "undeliverable",
+}
+#: The Voice Studio exit a call ended at (``interactions.disposition``).
+_DISPOSITION_OUTCOME = {
+    "promise_to_pay": "ptp", "promise_on_track": "ptp",
+    "opted_out": "refused", "wrong_number": "undeliverable",
+    "voicemail": "no_answer", "no_response": "no_answer",
+    "third_party_not_available": "no_answer", "third_party_caller": "no_answer",
+}
+
+
+def _linked_outcome(conn: Any, row: dict[str, Any]) -> str | None:
+    """What the decision's own contact produced, read through its id.
+
+    The customer-and-window match below it attributes any call or promise in
+    the window to this decision, including ones a human or another campaign
+    made. The links here cannot be confused that way.
+    """
+    decision_id = row["id"]
+    try:
+        outcome = conn.execute(
+            text(
+                """
+                SELECT o.connection, o.business, i.disposition
+                  FROM call_attempts a
+                  LEFT JOIN call_outcomes o ON o.attempt_id = a.id
+                  LEFT JOIN interactions i ON i.id = a.interaction_id
+                 WHERE a.decision_id = :id
+                 ORDER BY a.reserved_at DESC
+                 LIMIT 1
+                """
+            ),
+            {"id": decision_id},
+        ).mappings().first()
+    except Exception:
+        return None
+    if outcome:
+        if outcome["business"] in _BUSINESS_OUTCOME:
+            return _BUSINESS_OUTCOME[outcome["business"]]
+        if outcome["disposition"] in _DISPOSITION_OUTCOME:
+            return _DISPOSITION_OUTCOME[outcome["disposition"]]
+        if outcome["connection"] in _CONNECTION_OUTCOME:
+            return _CONNECTION_OUTCOME[outcome["connection"]]
+        if outcome["connection"] == "connected" or outcome["disposition"]:
+            return "reached"
+    failed = conn.execute(
+        text(
+            "SELECT 1 FROM whatsapp_outbound_jobs WHERE decision_id = :id AND status = 'failed' LIMIT 1"
+        ),
+        {"id": decision_id},
+    ).fetchone()
+    return "undeliverable" if failed else None
+
+
+def _operator_correction(conn: Any, row: dict[str, Any]) -> str | None:
+    """A person said what happened. Their word outranks every inference."""
+    try:
+        corrected = conn.execute(
+            text(
+                """
+                SELECT corrected_outcome FROM decision_feedback
+                 WHERE decision_id = :id AND corrected_outcome IS NOT NULL
+                 ORDER BY created_at DESC LIMIT 1
+                """
+            ),
+            {"id": row["id"]},
+        ).scalar()
+    except Exception:
+        return None
+    return corrected if corrected in decisions.OUTCOMES else None
 
 
 def _withheld_on_purpose(row: dict[str, Any]) -> bool:
@@ -454,7 +550,7 @@ def open_cases(conn: Any, *, limit: int = 5) -> list[dict[str, Any]]:
     """
     rows = conn.execute(
         text(
-            """
+            f"""
             SELECT * FROM (
               SELECT DISTINCT ON (customer_id, trigger_kind, trigger_ref)
                      id, customer_id, account_id, trigger_kind, trigger_ref,
@@ -464,6 +560,7 @@ def open_cases(conn: Any, *, limit: int = 5) -> list[dict[str, Any]]:
                 AND mode <> 'simulated'
                 AND trigger_kind = ANY(:kinds)
                 AND created_at >= now() - interval '30 days'
+                {collections_only(conn)}
               ORDER BY customer_id, trigger_kind, trigger_ref, created_at DESC, id DESC
             ) latest
             WHERE latest.outcome = ANY(:unresolved)

@@ -15,19 +15,34 @@ export const Route = createLazyFileRoute("/_app/treatment")({
   component: TreatmentPage,
 });
 
+import { CasesTab } from "@/components/treatment/CasesTab";
+import { DecisionsTab } from "@/components/treatment/DecisionsTab";
+import { HoldsTab } from "@/components/treatment/HoldsTab";
 import { InsightsTab } from "@/components/treatment/InsightsTab";
 import { ModelsTab } from "@/components/treatment/ModelsTab";
-import { CasesTab } from "@/components/treatment/CasesTab";
-import { HoldsTab } from "@/components/treatment/HoldsTab";
 import { OpsTab } from "@/components/treatment/OpsTab";
+import { ResultsTab } from "@/components/treatment/ResultsTab";
+import { StrategyTab } from "@/components/treatment/StrategyTab";
+import { TodayTab } from "@/components/treatment/TodayTab";
 
-const WINDOWS = [7, 14, 28, 90] as const;
-const TABS = ["insights", "models", "cases", "holds", "mandates", "field", "legal"] as const;
+const WINDOWS = [1, 7, 14, 28, 90] as const;
+const TABS = [
+  "today",
+  "decisions",
+  "results",
+  "strategy",
+  "cases",
+  "holds",
+  "mandates",
+  "field",
+  "legal",
+  "advanced",
+] as const;
 
 export function TreatmentPage() {
-  const [days, setDays] = useState<number>(14);
+  const [days, setDays] = useState<number>(7);
   const search = useSearch({ strict: false });
-  const tab = TABS.find((t) => t === search.tab) ?? "insights";
+  const tab = TABS.find((t) => t === search.tab) ?? "today";
   const navigate = useNavigate();
 
   return (
@@ -37,8 +52,8 @@ export function TreatmentPage() {
           <div className="min-w-0">
             <h1 className="text-body font-semibold text-text">Decision intelligence</h1>
             <p className="text-body-small text-text-subtle">
-              What the treatment engine decided, why it was suppressed, and whether the models
-              behind it are still calibrated.
+              What the engine decided for each borrower and why, what happened next, whether it
+              is working, and what it has learned.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-100">
@@ -52,7 +67,7 @@ export function TreatmentPage() {
               <SelectContent>
                 {WINDOWS.map((w) => (
                   <SelectItem key={w} value={String(w)}>
-                    Last {w} days
+                    {w === 1 ? "Today" : `Last ${w} days`}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -73,23 +88,39 @@ export function TreatmentPage() {
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           <TabsList className="h-10 w-full shrink-0 justify-start overflow-x-auto px-300">
-            <TabsTrigger value="insights">Insights</TabsTrigger>
-            <TabsTrigger value="models">Model health</TabsTrigger>
+            <TabsTrigger value="today">Today</TabsTrigger>
+            <TabsTrigger value="decisions">Decisions</TabsTrigger>
+            <TabsTrigger value="results">Is it working?</TabsTrigger>
+            <TabsTrigger value="strategy">Strategy</TabsTrigger>
             <TabsTrigger value="cases">Cases</TabsTrigger>
+            <TabsTrigger value="holds">Holds</TabsTrigger>
             <TabsTrigger value="mandates">Mandates</TabsTrigger>
             <TabsTrigger value="field">Field</TabsTrigger>
             <TabsTrigger value="legal">Legal</TabsTrigger>
-            <TabsTrigger value="holds">Holds</TabsTrigger>
+            <TabsTrigger value="advanced">Advanced</TabsTrigger>
           </TabsList>
 
-          <TabsContent
-            value="insights"
-            className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200"
-          >
-            <InsightsTab days={days} />
+          <TabsContent value="today" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <TodayTab days={days} />
           </TabsContent>
-          <TabsContent value="models" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
-            <ModelsTab days={days} />
+          <TabsContent value="decisions" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <DecisionsTab customerId={search.customerId} />
+          </TabsContent>
+          <TabsContent value="results" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <ResultsTab days={days} />
+          </TabsContent>
+          <TabsContent value="strategy" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <StrategyTab />
+          </TabsContent>
+          <TabsContent value="advanced" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
+            <div className="flex flex-col gap-300">
+              <p className="text-body-small text-text-subtle">
+                For data scientists: the full scoreboard, model calibration and drift, and the
+                champion/challenger ledger.
+              </p>
+              <InsightsTab days={days} />
+              <ModelsTab days={days} />
+            </div>
           </TabsContent>
           <TabsContent value="cases" className="mt-0 min-h-0 flex-1 overflow-y-auto px-300 py-200">
             <CasesTab customerId={search.customerId} />

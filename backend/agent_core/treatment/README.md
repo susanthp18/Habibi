@@ -5,7 +5,7 @@ mandate re-presentment, an EMI date change, SMS, WhatsApp, a bot call, an agent
 call, a field visit or a statutory notice — and does it as a gated pipeline
 rather than as prompt text.
 
-Two of those nine reach nobody, and that is the difference between asking *"who
+Several of those ten reach nobody, and that is the difference between asking *"who
 should we call?"* and asking *"what intervention should we make, if any?"*. See
 **The action space** below.
 
@@ -45,7 +45,6 @@ randomising and then checking compliance is experimenting on borrowers.
 | Candidates | `timing.py` | *when* would each action actually happen? |
 | Veto | `policy.py` → `contact_policy.evaluate` | may we, at that instant? |
 | Score | `scoring.py` | what is each one worth, in rupees? |
-| Rerank | `rerank.py` | *(optional)* reorder the approved list, draft one line |
 | Arbitrate | `arbitration.py` | should anything happen at all? |
 | Log | `decisions.py` | what did we decide, and why not the others? |
 | Enact | `enact.py` | live mode only, and the gate runs again at send time |
@@ -753,9 +752,11 @@ visits collapse from 272 to zero, and `represent_mandate` absorbs the displaced
 demand. It also found that the binding constraint was agent *minutes* rather
 than field slots — 45 minutes a visit is what actually runs out.
 
-`TREATMENT_DUAL_PRICING` is off by default and the write is a separate switch
-from the read, on purpose: an optimiser amplifies estimator error rather than
-correcting it, so solve first, look at the numbers, then decide.
+`TREATMENT_DUAL_PRICING` is off by default and can only ever turn the price
+off: the price reaches `costs.for_action` only when every write-switch gate in
+`allocate.write_switch_objections` passes. An optimiser amplifies estimator
+error rather than correcting it, so solve first, look at the numbers, then
+decide.
 
 ## The corpus
 
@@ -895,12 +896,12 @@ and register it in `scoring.build_scorer`. A scorer cannot add an action, cannot
 overturn a veto, and cannot reach the database. That is what makes swapping one
 safe.
 
-**An LLM** belongs in `rerank.py` and only there. It may reorder an approved
-list and write one sentence; it may not introduce an action, change a channel or
-an instant, or put a figure on screen that nothing computed — the rationale is
-rejected outright if it contains a number absent from the payload it was given.
-Borrower speech reaches that context through the account summary, so the guard
-is enforced in code rather than requested in the prompt.
+**An LLM** never ranks or chooses. It may explain a stored decision in plain
+language and propose configuration changes that a second person approves; it may
+not introduce an action, change a channel or an instant, or put a figure on
+screen that nothing computed — an explanation is rejected outright if it
+contains a number absent from the decision trace it was given, and the
+deterministic `narrate.rationale` stays the audit artefact.
 
 ## Guarantees worth not breaking
 

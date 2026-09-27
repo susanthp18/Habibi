@@ -194,10 +194,13 @@ def _treatment_nba(treatment: dict[str, Any] | None) -> dict[str, Any] | None:
         return {
             "id": "nba-treatment",
             "rank": 1,
-            "title": "Hold — no contact is worth making yet",
+            # The hold's own reason, not a generic "not worth it": a hardship
+            # hold, a stale bank feed and the comparison group are different
+            # sentences with different fixes.
+            "title": "Hold: " + str(treatment.get("reasonText") or "no contact is worth making yet"),
             "reason": str(
-                treatment.get("reasonText")
-                or treatment.get("rationale")
+                treatment.get("rationale")
+                or treatment.get("reasonText")
                 or "The engine found nothing worth more than silence."
             ),
             "action": "wait",

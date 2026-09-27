@@ -4,10 +4,9 @@ Every decision — including every silence — carries a line written here. It g
 on the work queue, into the decision log, and in front of whoever has to defend
 the contact later.
 
-Deterministic on purpose. The LLM re-ranker may replace this sentence when it
-is switched on and its output survives the invention check, but the default
-path must produce something correct without a network call, because the
-sentence is also the audit artefact: "we did not ring this borrower on the 4th
+Deterministic on purpose. An LLM may offer a plainer explanation beside it,
+but never replaces it: the sentence is the audit artefact, and it has to be
+correct without a network call: "we did not ring this borrower on the 4th
 because they were on a hardship hold" has to be true whether or not a model was
 reachable that day.
 """
@@ -59,6 +58,49 @@ _CONTACT_PHRASE = {
     "channel_expired": "channel consent has expired",
     "no_customer": "no borrower record",
     "consent_unreadable": "consent could not be read",
+}
+
+#: Why an individual action was blocked before scoring. Stable codes from
+#: ``policy`` and ``bank_boundary.freshness``, in words a supervisor can act on.
+_VETO_PHRASE = {
+    "bucket_disallows_action": "not allowed for this DPD bucket by policy",
+    "account_not_delinquent": "the account is not overdue",
+    "account_closed": "the account is closed",
+    "no_phone_on_file": "no phone number on file",
+    "no_channel_address": "no address on file for this channel",
+    "digital_not_exhausted": "cheaper channels have not been tried enough yet",
+    "field_not_proportionate": "a visit is not proportionate to the amount owed",
+    "field_already_dispatched": "a field visit is already under way",
+    "field_prerequisites_unmet": "a visit's prerequisites are not met",
+    "legal_prerequisites_unmet": "a legal notice's prerequisites are not met",
+    "legal_notice_already_served": "a legal notice was already served",
+    "ladder_advance_too_far": "too big a step up the escalation ladder at once",
+    "third_party_contact": "would contact a third party",
+    "stale_snapshot": "today's account data has not been built yet",
+    "nothing_owed": "nothing is owed",
+    "no_mandate_on_file": "no auto-debit mandate on file",
+    "mandate_not_active": "the auto-debit mandate is not active",
+    "no_unpaid_cycle_to_present": "no unpaid instalment to present",
+    "mandate_return_blocks_retry": "the last debit return rules out a retry",
+    "mandate_presentation_limit": "the debit has been presented the maximum times",
+    "mandate_retry_too_soon": "too soon to present the debit again",
+    "emi_date_already_aligned": "the EMI date already follows the salary credit",
+    "salary_timing_unknown": "salary timing is unknown",
+    "technical_return_not_borrower_fault": "the last return was a bank-side technical failure",
+    "self_service_plan_already_open": "a self-service plan is already open",
+    "no_digital_surface_to_offer_on": "no app or portal to offer a plan on",
+    "arrears_not_yet_worth_a_plan": "the arrears are too small for a plan",
+    "ratio_ceiling": "the contact ratio for this borrower is at its ceiling",
+    "control_arm": "held back: this borrower is in the comparison group",
+    "freshness:resolver_unavailable": "bank data freshness could not be checked",
+    "freshness:wait_only": "bank data feeds are stale, so only waiting is allowed",
+    "freshness:non_contacting": "bank data feeds are stale, so no contact is allowed",
+    "freshness:mandate_stale": "the bank's mandate feed is stale",
+    "freshness:endpoint_stale": "the bank's contact-details feed is stale",
+    "freshness:c8_feed_stale": "the bank's consent feed is stale or missing",
+    "freshness:field_stale": "the bank's field-capacity feed is stale",
+    "freshness:c10_absent": "no microfinance protection feed from the bank",
+    "freshness:c7_reserved_cap": "the field capacity reserved by the bank is used up",
 }
 
 #: Speech-derived suppressions, in the borrower's favour by construction — each
@@ -118,7 +160,11 @@ def humanise(reason: str | None) -> str:
     if reason.startswith(CONTACT_PREFIX):
         code = reason[len(CONTACT_PREFIX) :]
         return _CONTACT_PHRASE.get(code, code.replace("_", " "))
-    return _SUPPRESSION_PHRASE.get(reason, reason.replace("_", " "))
+    if reason in _VETO_PHRASE:
+        return _VETO_PHRASE[reason]
+    if reason.startswith("policy:"):
+        return f"blocked by policy rule {reason[len('policy:'):]}"
+    return _SUPPRESSION_PHRASE.get(reason, reason.replace("_", " ").replace(":", ": "))
 
 
 def rationale(

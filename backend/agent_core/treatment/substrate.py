@@ -32,6 +32,13 @@ SNAPSHOT_MAX_AGE = timedelta(hours=4)
 DEFAULT_LAG_BYTES = 16 * 1024 * 1024
 
 
+def _primary_allowed() -> bool:
+    """Outside dev, only with the explicit single-server opt-in (``wk_batch``)."""
+    from env_utils import env_bool
+
+    return env_name() in NON_PROD_ENVS or env_bool("W6_ALLOW_PRIMARY_REPORTING")
+
+
 class SnapshotUnavailable(RuntimeError):
     """Layer 0 is active but no safe snapshot can serve this decision."""
 
@@ -239,7 +246,7 @@ def build_daily_snapshot(
     """Build on a reporting source, persist Parquet, then load the primary."""
     if source_kind not in {"reporting", "scratch"}:
         raise ValueError("invalid_snapshot_source")
-    if source_kind != "reporting" and env_name() not in NON_PROD_ENVS:
+    if source_kind != "reporting" and not _primary_allowed():
         raise RuntimeError("production_snapshot_requires_reporting_source")
     primary_lsn = _lsn(sink_conn, "pg_current_wal_flush_lsn()")
     source_lsn = (
@@ -366,10 +373,15 @@ def build_daily_snapshot(
             handle.write(json.dumps(row, default=str, sort_keys=True) + "\n")
     import duckdb
 
+    def literal(path: Path) -> str:
+        return "'" + str(path).replace("'", "''") + "'"
+
     with duckdb.connect() as local:
+        # DuckDB will not bind a parameter as a COPY target, so both paths --
+        # ours, from mkdtemp -- are written as quoted literals.
         local.execute(
-            "COPY (SELECT * FROM read_json_auto(?)) TO ? (FORMAT PARQUET)",
-            [str(json_path), str(parquet_path)],
+            f"COPY (SELECT * FROM read_json_auto({literal(json_path)})) "
+            f"TO {literal(parquet_path)} (FORMAT PARQUET)"
         )
         parquet_count = int(
             local.execute("SELECT count(*) FROM read_parquet(?)", [str(parquet_path)]).fetchone()[0]
@@ -510,7 +522,7 @@ def run_pit_skew(
     sample_percent: int = 1,
 ) -> dict[str, Any]:
     """Recompute a deterministic decision sample and record, never repair, skew."""
-    if source_kind != "reporting" and env_name() not in NON_PROD_ENVS:
+    if source_kind != "reporting" and not _primary_allowed():
         raise RuntimeError("production_pit_requires_reporting_source")
     rate = max(1, min(100, int(sample_percent)))
     run_id = f"PIT-{uuid.uuid4().hex[:16].upper()}"

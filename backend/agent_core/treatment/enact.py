@@ -1121,22 +1121,6 @@ def _outbox_send(
         raise NoExecutor(f"outbox_failed:{code}") from exc
 
 
-    return _enqueue_work(
-        conn,
-        workflow_type="self_service_plan",
-        customer_id=customer["id"],
-        payload={
-            "decisionId": decision["id"],
-            "accountId": decision.get("account_id"),
-            "rationale": (decision.get("rationale") or "")[:500],
-            "contractVersion": contract.get("version") if contract else None,
-            "actionContractId": contract.get("contract_id") if contract else None,
-            "actionContractDigest": contract.get("digest") if contract else None,
-        },
-        idempotency_key=f"self-service-plan:{decision['id']}",
-    )
-
-
 def _dispatch_field_visit(
     conn: Any,
     *,

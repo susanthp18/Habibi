@@ -33,7 +33,7 @@ from agent_core.reco.features import (
     SCHEMA_VERSION,
     build_features,
 )
-from agent_core.reco import rerank
+from agent_core.reco import rerank, suitability
 from agent_core.reco.scoring import ScoredOffer, build_scorer
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,11 @@ DEFERRED_SAY = (
     "do not mention any product, offer, top-up or upgrade; continue with the "
     "conversation and do not explain why"
 )
+
+
+#: The offer engine's own veto stack (eligibility, suitability, collections
+#: holds, promotional consent), versioned apart from the treatment engine's.
+VETO_STACK_VERSION = "offer-veto-v2"
 
 
 @dataclass(frozen=True)
@@ -105,14 +110,91 @@ class RecommendationResult:
             # Empty, always. Kept as a key rather than dropped so the callers
             # that branch on `payload["offers"]` keep their shape.
             "offers": [],
-            "deferred": bool(self.offers),
             # An offer that may not be spoken is, from the model's side of the
             # boundary, indistinguishable from no offer — and must be, or the
-            # absence itself becomes the signal it asks about.
+            # absence itself becomes the signal it asks about. So no
+            # "deferred" flag and no suppression reason cross the boundary:
+            # both differed between a scored offer and none.
             "suppressed": True,
-            **({"suppressionReason": self.reason} if self.reason else {}),
             "say": DEFERRED_SAY,
         }
+
+
+PROMOTIONAL = "promotional"
+
+#: Which products a buying signal points to. Configurable per tenant as
+#: ``RECO_SIGNAL_PRODUCTS`` (a JSON object of the same shape).
+SIGNAL_PRODUCTS: dict[str, list[str]] = {
+    "vehicle_purchase": ["auto-loan", "personal-loan"],
+    "home_renovation": ["personal-loan", "topup-loan"],
+    "home_purchase": ["personal-loan"],
+    "new_job_or_raise": ["credit-card", "cc-limit-upgrade", "personal-loan"],
+    "business_expansion": ["personal-loan", "gold-loan"],
+    "marriage": ["personal-loan", "bundled-insurance"],
+    "child_education": ["personal-loan", "bundled-insurance"],
+    "travel": ["credit-card", "cc-limit-upgrade"],
+    "insurance_need": ["bundled-insurance"],
+    "credit_limit_need": ["cc-limit-upgrade", "credit-card"],
+    "high_interest_debt": ["debt-consolidation"],
+    "gold_holding": ["gold-loan"],
+}
+
+#: Products that help a borrower already behind (they may be offered in
+#: arrears). Configurable as ``RECO_REMEDIAL_PRODUCTS`` (a JSON list).
+REMEDIAL_PRODUCTS = ("debt-consolidation",)
+
+#: How much one confident signal can lift a product's score (0..1 scale).
+SIGNAL_WEIGHT = 0.25
+
+
+def _signal_products() -> dict[str, list[str]]:
+    from agent_core import engine_config
+
+    raw = engine_config.raw("RECO_SIGNAL_PRODUCTS", None)
+    return dict(raw) if isinstance(raw, dict) else SIGNAL_PRODUCTS
+
+
+def _remedial_products() -> frozenset[str]:
+    from agent_core import engine_config
+
+    raw = engine_config.raw("RECO_REMEDIAL_PRODUCTS", None)
+    return frozenset(raw if isinstance(raw, list) else REMEDIAL_PRODUCTS)
+
+
+def _signal_boost(scored: list[ScoredOffer], cited: list[dict[str, Any]]) -> list[ScoredOffer]:
+    """Raise the products a customer's own words point to, and say so."""
+    mapping = _signal_products()
+    out = []
+    for offer in scored:
+        lift, codes = 0.0, []
+        for sig in cited:
+            code = str(sig.get("code") or "")
+            if offer.product_id in mapping.get(code, []) or sig.get("productHint") == offer.product_id:
+                lift += SIGNAL_WEIGHT * float(sig.get("confidence") or 0.0)
+                codes.append(f"signal:{code}")
+        if lift:
+            offer = replace(
+                offer,
+                score=min(1.0, offer.score + lift),
+                reason_codes=tuple(offer.reason_codes) + tuple(codes),
+                components={**offer.components, "signals": round(lift, 4)},
+            )
+        out.append(offer)
+    return sorted(out, key=lambda o: -o.score)
+
+
+def _promotional_consent_gate(conn: Any, customer_id: str) -> str | None:
+    """A promotional decision needs promotional consent on some channel.
+
+    Missing consent is a refusal here, unlike the in-call rule: nothing about
+    a promotional message is a servicing conversation the customer is having.
+    """
+    import capture
+
+    for channel in ("whatsapp", "voice", "sms", "email"):
+        if capture.promotional_consent(conn, customer_id, channel) == "opted_in":
+            return None
+    return "no_promotional_consent"
 
 
 def recommend(
@@ -125,8 +207,16 @@ def recommend(
     provider: FeatureProvider | None = None,
     force_mode: str | None = None,
     variant: str | None = None,
+    context: str = "call",
+    cited_signals: list[dict[str, Any]] | None = None,
 ) -> RecommendationResult:
     """Run the pipeline. Never raises.
+
+    ``context="promotional"`` is the opportunity sweep deciding what to send
+    later on a consented promotional channel, not a call: it requires
+    promotional consent, writes the suitability finding it needs, lets the
+    buying signals the customer expressed raise the products they point to,
+    and cites those signals in the decision log.
 
     ``variant`` is the per-session A/B override (``session.extra["recoVariant"]``).
     When absent, the customer is bucketed deterministically by ``RECO_AB_SPLIT``
@@ -163,6 +253,8 @@ def recommend(
             mode=mode,
             arm=arm,
             started=started,
+            context=context,
+            cited_signals=list(cited_signals or []),
         )
     except Exception:
         # The audio path must survive anything this module does wrong.
@@ -187,9 +279,15 @@ def _recommend(
     mode: str,
     arm: config.Variant | None,
     started: float,
+    context: str = "call",
+    cited_signals: list[dict[str, Any]] | None = None,
 ) -> RecommendationResult:
     policy = config.policy()
     arm_name = arm.name if arm else None
+    promotional = context == PROMOTIONAL
+    if promotional:
+        # No call, so nothing to wait for a promise on.
+        policy = replace(policy, require_commitment=False)
 
     # The caller owns this connection for the whole pipeline — features,
     # eligibility, and the decision-log INSERT. Opening a second one here is
@@ -210,6 +308,15 @@ def _recommend(
         decline_cooldown_days=policy.decline_cooldown_days,
         family_cooldown_days=policy.family_cooldown_days,
     )
+    if promotional and pool:
+        # The finding the suitability gate needs, written before the gate reads
+        # it: without a writer every offer was refused as "no assessment".
+        suitability.assess(
+            conn,
+            customer_id=customer_id,
+            product_ids=[c.product_id for c in pool],
+            remedial=_remedial_products(),
+        )
     vetted, vetoed = _apply_eligibility(
         conn, customer_id=customer_id, channel=channel, pool=pool
     )
@@ -218,6 +325,8 @@ def _recommend(
     # trained artifact scored against it — is unaffected by a gate that is
     # not a feature.
     hold_reason = _collections_hold(conn, customer_id)
+    if promotional and not hold_reason:
+        hold_reason = _promotional_consent_gate(conn, customer_id)
     excluded.update(vetoed)
 
     scorer = build_scorer(
@@ -232,6 +341,8 @@ def _recommend(
     if rerank.llm_rerank_enabled():
         scorer = rerank.LLMReranker(scorer)
     scored = scorer.score(features, signals, vetted)
+    if cited_signals:
+        scored = _signal_boost(scored, cited_signals)
 
     verdict = arbitration.arbitrate(
         features=features,
@@ -259,18 +370,26 @@ def _recommend(
     )
 
     latency_ms = int((time.perf_counter() - started) * 1000)
-    top = verdict.offers[0] if verdict.offers else None
 
-    from agent_core import logging_contract
+    from agent_core import engine_config, logging_contract
     import db
     import policy_binding
     import policy_rules
 
+    # Exploration, for real: the draw used to be made at greediness 1.0 and its
+    # pick then ignored in favour of offers[0], so every logged propensity was
+    # 1.0 and no offer other than the top one could ever be learned about.
     drawn = logging_contract.draw(
         [o.product_id for o in (verdict.offers or [])] or ["none"],
-        greediness=1.0,
+        greediness=engine_config.number("RECO_GREEDINESS", 1.0),
         arm_probability=1.0,
     )
+    if drawn and verdict.offers and 0 < drawn.index < len(verdict.offers):
+        picked = verdict.offers[drawn.index]
+        verdict = replace(
+            verdict, offers=[picked] + [o for o in verdict.offers if o is not picked]
+        )
+    top = verdict.offers[0] if verdict.offers else None
     try:
         rules = policy_rules.resolve(
             conn,
@@ -297,6 +416,11 @@ def _recommend(
         features={
             **features.to_log(),
             "call": signals.to_log(),
+            "context": context,
+            # What the customer said that this decision relies on: signal ids,
+            # codes and confidence. The evidence line itself stays in the
+            # masked transcript and is rendered on read.
+            "citedSignals": list(cited_signals or []),
             "loggingContract": {
                 "version": logging_contract.CONTRACT_VERSION,
                 "armPropensity": drawn.arm_propensity if drawn else 1.0,
@@ -315,7 +439,7 @@ def _recommend(
         arm_propensity=drawn.arm_propensity if drawn else 1.0,
         action_propensity=drawn.action_propensity if drawn else 1.0,
         replay_nonce=drawn.nonce if drawn else None,
-        veto_stack_version=logging_contract.VETO_STACK_VERSION,
+        veto_stack_version=VETO_STACK_VERSION,
         engine_image_digest=logging_contract.engine_image_digest(),
         config_version=logging_contract.config_version(),
         lambda_bucket=lambda_bucket,

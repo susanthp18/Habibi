@@ -441,6 +441,13 @@ def main() -> None:
         _maybe_revalidate_open_leads()
         _maybe_sweep_due_followups()
         _maybe_scan_for_violations()
+def _maybe_decision_jobs() -> None:
+    """The decision engine's schedule: snapshots, nightly learning, weekly training."""
+    import decision_jobs
+
+    decision_jobs.tick(_daily, utc_now())
+
+
         _maybe_purge_rate_limit_counters()
         _maybe_autoscore_interactions()
         _maybe_garden_kb_gaps()
@@ -455,3 +462,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+        _maybe_decision_jobs()

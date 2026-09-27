@@ -9,12 +9,32 @@ from __future__ import annotations
 import logging
 
 import asyncio
+from datetime import datetime
 import db
 import db_outbound
 import os
 
 from fastapi import APIRouter
 from fastapi import Header, HTTPException, Query
+from schemas.outbound import (
+    OfferLogRowResponse,
+    OfferTraceResponse,
+    OpportunitiesResponse,
+    SignalFeedbackRequest,
+    SignalFeedbackResponse,
+    SignalHealthResponse,
+    DecisionExplanationResponse,
+    StrategyDecisionRequest,
+    StrategyProposalRequest,
+    StrategyProposalResponse,
+    StrategySettingResponse,
+    DecisionLogRowResponse,
+    DecisionTraceResponse,
+    LearnedRateResponse,
+    TreatmentCurrentResponse,
+    TreatmentDecideRequest,
+    TreatmentHealthResponse,
+)
 from schemas import (
     AgentObligationResponse,
     AuthorityApplyRequest,
@@ -543,6 +563,173 @@ def list_treatment_ops(
         raise HTTPException(status_code=404, detail="unknown_ops_kind")
     return db.list_treatment_ops(
         kind=kind, customer_id=customerId, limit=limit, offset=offset
+    )
+
+@router.get("/treatment/decisions", response_model=list[DecisionLogRowResponse])
+def list_treatment_decisions(
+    customerId: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+    outcome: str | None = Query(default=None),
+    held: bool | None = Query(default=None),
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    format: str = Query(default="json", pattern="^(json|csv)$"),
+):
+    """The decision log, newest first; ``format=csv`` for an auditor's export."""
+    import decision_trace
+    from fastapi.responses import PlainTextResponse
+
+    rows = decision_trace.list_decisions(
+        customer_id=customerId, action=action, outcome=outcome, held=held,
+        since=since, until=until, limit=limit, offset=offset,
+    )
+    if format == "csv":
+        return PlainTextResponse(
+            decision_trace.to_csv(rows),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="decisions.csv"'},
+        )
+    return rows
+
+@router.get("/treatment/decisions/{decision_id}", response_model=DecisionTraceResponse)
+def treatment_decision_trace(decision_id: str):
+    """One decision end to end: why now, every option and why it lost or was
+    blocked, how the choice was made, and what happened afterwards."""
+    import decision_trace
+
+    try:
+        return decision_trace.trace(decision_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="decision_not_found") from exc
+
+@router.post("/treatment/decisions/{decision_id}/explain", response_model=DecisionExplanationResponse)
+def treatment_decision_explain(decision_id: str):
+    """A plain-language explanation of one decision, written only from its
+    trace; the rule-written rationale when the model is unavailable or strays."""
+    import decision_ai
+
+    try:
+        return decision_ai.explain(decision_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="decision_not_found") from exc
+
+@router.get("/treatment/health", response_model=TreatmentHealthResponse)
+def treatment_health(days: int = Query(default=1, ge=1, le=30)):
+    """Is every stage of the engine running, are the bank feeds fresh, and
+    what is stopping contact right now."""
+    import decision_trace
+
+    return decision_trace.health(days)
+
+@router.get("/treatment/learned", response_model=list[LearnedRateResponse])
+def treatment_learned():
+    """Each starting assumption beside what the engine has learned from outcomes."""
+    import decision_trace
+
+    return decision_trace.learned_rates()
+
+@router.get("/treatment/current", response_model=TreatmentCurrentResponse)
+def treatment_current(customerId: str = Query(...), accountId: str | None = Query(default=None)):
+    """The account's next best action: its latest real decision, as a trace.
+    The same answer the customer card, the cases panel and the copilot use."""
+    import decision_trace
+
+    return {"decision": decision_trace.current(customerId, accountId)}
+
+@router.post("/treatment/decide", response_model=DecisionTraceResponse)
+def treatment_decide_now(body: TreatmentDecideRequest):
+    """Ask the engine now and keep the answer (recorded in shadow: logged and
+    traceable, never carried out)."""
+    import decision_trace
+
+    return _handle_write(
+        decision_trace.decide_now, customer_id=body.customerId, account_id=body.accountId
+    )
+
+@router.get("/treatment/strategy", response_model=list[StrategySettingResponse])
+def treatment_strategy():
+    """Every setting the engine runs on, in plain words, with where it came from."""
+    import strategy
+
+    return strategy.settings()
+
+@router.get("/treatment/strategy/proposals", response_model=list[StrategyProposalResponse])
+def treatment_strategy_proposals(status: str | None = Query(default=None)):
+    import strategy
+
+    return strategy.proposals(status)
+
+@router.post("/treatment/strategy/proposals", response_model=StrategyProposalResponse)
+def treatment_strategy_propose(body: StrategyProposalRequest):
+    """Propose a change. It applies only when someone else approves it."""
+    import strategy
+
+    return _handle_write(
+        strategy.propose, body.changes, reason=body.reason, author=db._actor_user_id() or "unknown"
+    )
+
+@router.post("/treatment/strategy/proposals/{proposal_id}/approve", response_model=StrategyProposalResponse)
+def treatment_strategy_approve(proposal_id: str, body: StrategyDecisionRequest | None = None):
+    import strategy
+
+    return _handle_write(
+        strategy.decide, proposal_id, approve=True,
+        decider=db._actor_user_id() or "unknown", note=body.note if body else None,
+    )
+
+@router.post("/treatment/strategy/proposals/{proposal_id}/reject", response_model=StrategyProposalResponse)
+def treatment_strategy_reject(proposal_id: str, body: StrategyDecisionRequest | None = None):
+    import strategy
+
+    return _handle_write(
+        strategy.decide, proposal_id, approve=False,
+        decider=db._actor_user_id() or "unknown", note=body.note if body else None,
+    )
+
+@router.get("/offers/decisions", response_model=list[OfferLogRowResponse])
+def list_offer_decisions(
+    customerId: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    """Offer decisions, newest first, each one traceable."""
+    import offer_trace
+
+    return offer_trace.log(customer_id=customerId, limit=limit, offset=offset)
+
+@router.get("/offers/decisions/{decision_id}", response_model=OfferTraceResponse)
+def offer_decision_trace(decision_id: str):
+    """One offer: the signals it cited, every product and why it lost or was
+    blocked, the suitability finding, and whether it was sent and answered."""
+    import offer_trace
+
+    try:
+        return offer_trace.trace(decision_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="decision_not_found") from exc
+
+@router.get("/offers/opportunities", response_model=OpportunitiesResponse)
+def offer_opportunities(customerId: str = Query(...)):
+    """What this customer said that a product could serve, and the latest offer."""
+    import offer_trace
+
+    return offer_trace.opportunities(customerId)
+
+@router.get("/offers/signals/health", response_model=SignalHealthResponse)
+def offer_signal_health(days: int = Query(default=30, ge=1, le=180)):
+    import offer_trace
+
+    return offer_trace.signal_health(days)
+
+@router.post("/offers/signals/{signal_id}/feedback", response_model=SignalFeedbackResponse)
+def offer_signal_feedback(signal_id: str, body: SignalFeedbackRequest):
+    """Mark a detected signal right or wrong; this measures the extractor."""
+    import offer_trace
+
+    return _handle_write(
+        offer_trace.signal_feedback, signal_id, body.verdict, by=db._actor_user_id() or "unknown"
     )
 
 @router.get("/outbound/stats", response_model=ReachStatsResponse)

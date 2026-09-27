@@ -332,6 +332,11 @@ def _finalize_treatment_send(
     decision_id = (job.get("decision_id") or "").strip()
     if not decision_id:
         return
+    if decision_id.startswith("OD-"):
+        # A promotional offer: delivered is what "presented" means for it.
+        from agent_core.reco import decisions as reco_log
+
+        reco_log.mark_presented(decision_id)
     try:
         from agent_core.treatment import attempts, decisions, reservations
 

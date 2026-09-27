@@ -9,24 +9,6 @@ import { type LozengeTone } from "@/components/ui/lozenge";
 import { SectionMessage } from "@/components/ui/section-message";
 import { fmtNum, fmtRate } from "@/api/treatment";
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
-
 export function ErrorPanel({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   return (
     <div className="flex flex-col gap-150 py-200">
@@ -166,13 +148,16 @@ export const HOLD_TONE: Record<string, LozengeTone> = {
   complaint: "warning",
   bereavement: "discovery",
   legal: "danger",
+  cease_and_desist: "danger",
+  deceased: "discovery",
   no_upsell: "warning",
 };
 
 export const SERVING_TONE: Record<string, LozengeTone> = {
   ok: "success",
+  absent: "neutral",
   unregistered: "warning",
-  stale: "warning",
+  drifted: "danger",
   missing: "danger",
 };
 
@@ -187,7 +172,3 @@ export const VERDICT_TONE: Record<string, LozengeTone> = {
   rejected: "danger",
   skipped: "neutral",
 };
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------

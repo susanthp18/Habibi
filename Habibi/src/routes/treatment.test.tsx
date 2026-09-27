@@ -31,6 +31,16 @@ beforeEach(() => {
       ...(call.body as object),
     }),
     "GET /treatment/ops/{kind}": [],
+    "GET /treatment/health": {
+      mode: "shadow",
+      enactSwitchOn: false,
+      labelsOn: true,
+      stages: [
+        { key: "decide", label: "Deciding", does: "decides", lastAt: null, status: "never" },
+      ],
+      feeds: [{ feed: "C8", lastReceivedAt: null, lagHours: null }],
+      blockers: [{ code: "freshness:c8_feed_stale", text: "the bank's consent feed is stale or missing", borrowers: 3 }],
+    },
   });
 });
 
@@ -41,12 +51,16 @@ afterEach(() => {
 const mount = () => mountAt("/treatment", <TreatmentPage />);
 
 describe("/treatment", () => {
-  it("shows the window's decision count from the insights read", { timeout: 30_000 }, async () => {
+  it("opens on Today: the decision count, the stages and what is blocking contact", { timeout: 30_000 }, async () => {
     mount();
     await screen.findByText(String(insights.decisions), {}, { timeout: 15_000 });
     expect(
-      wire.calls.some((c) => c.path === "/treatment/insights" && c.search.includes("days=14")),
+      wire.calls.some((c) => c.path === "/treatment/insights" && c.search.includes("days=7")),
     ).toBe(true);
+    // Shadow mode says what it means, and a missing feed says what it blocks.
+    await screen.findAllByText(/shadow mode/i, {}, { timeout: 15_000 });
+    expect(screen.getByText(/consent feed is stale or missing/i)).toBeTruthy();
+    expect(screen.getByText(/never ran/i)).toBeTruthy();
   });
 
   it(

@@ -90,6 +90,21 @@ def w13_ready(conn: Any) -> bool:
     return has_column(conn, "capacity_duals", "feasible")
 
 
+def collections_only(conn: Any, alias: str = "") -> str:
+    """SQL fragment that keeps the offer family out of a collections read.
+
+    W12 mirrors every offer decision into ``treatment_decisions`` with
+    ``action_family='offer'``. Labels, metrics, OPE, training and the executor
+    are about collections treatment; an offer row in any of them is a label,
+    a count or a training example about the wrong decision. Empty on a
+    database behind 0121, where no offer row can exist.
+    """
+    if not w12_ready(conn):
+        return ""
+    prefix = f"{alias}." if alias else ""
+    return f" AND {prefix}action_family IS DISTINCT FROM 'offer'"
+
+
 def suitability_ready(conn: Any) -> bool:
     """Whether a suitability finding can be read at all on this database.
 

@@ -1,4 +1,4 @@
-"""Deterministic reference adapters. No external side effects."""
+"""Outbound adapters. Reference ones only acknowledge; the platform adapter says the platform performs the action itself."""
 
 from __future__ import annotations
 
@@ -71,16 +71,39 @@ class ReferenceAdapter:
         return [r for r in self._receipts if str(r.get("at") or "") >= stamp]
 
 
+class PlatformAdapter(ReferenceAdapter):
+    """The platform carries the action out itself.
+
+    For a lender whose binding says the platform sends: messages go out on the
+    platform's own WhatsApp and SMS providers, and LMS amendments land on the
+    platform's work queue for servicing staff. The acknowledgement records that
+    the platform accepted the action; delivery receipts come back through those
+    providers, keyed on the decision id, not through this adapter.
+
+    Only for contracts the platform can actually perform. A debit on a payment
+    rail (O2) is never "sent" by the platform.
+    """
+
+    CODES = frozenset({"O1", "O6"})
+
+    def send(self, contract: dict[str, Any]) -> dict[str, Any]:
+        ack = super().send(contract)
+        ack["provider_ref"] = f"platform:{self.code}:{ack['idempotency_key']}"
+        ack["submitted"] = True
+        return ack
+
+
 REGISTRY: dict[str, ReferenceAdapter] = {
     code: ReferenceAdapter(code) for code in ("O1", "O2", "O3", "O4", "O5", "O6")
 }
+PLATFORM: dict[str, ReferenceAdapter] = {code: PlatformAdapter(code) for code in PlatformAdapter.CODES}
 
 
-def dispatch(code: str) -> ReferenceAdapter:
-    adapter = REGISTRY.get(code)
-    if adapter is None:
-        raise KeyError(f"unknown_outbound:{code}")
-    return adapter
+def dispatch(code: str, adapter: str = "reference") -> ReferenceAdapter:
+    found = (PLATFORM if adapter == "platform" else REGISTRY).get(code)
+    if found is None:
+        raise KeyError(f"unknown_outbound:{adapter}:{code}")
+    return found
 
 
 def send_with_outbox(
@@ -108,8 +131,10 @@ def send_with_outbox(
     ).mappings().first()
     if binding is None or binding["state"] == "blocked":
         raise RuntimeError(f"outbound_binding_unready:{contract_code}")
-    if binding["adapter"] != "reference":
+    if binding["adapter"] not in {"reference", "platform"}:
         raise RuntimeError(f"real_adapter_unavailable:{binding['adapter']}")
+    if binding["adapter"] == "platform" and contract_code not in PlatformAdapter.CODES:
+        raise RuntimeError(f"platform_cannot_perform:{contract_code}")
     channel = str(action_contract.get("channel") or "")
     if contract_code == "O1" and channel in {"sms", "whatsapp"}:
         template_id = str(action_contract.get("template_id") or "")
@@ -140,7 +165,7 @@ def send_with_outbox(
                 contract_code=contract_code,
             )
             raise mappings.UnknownMapping(mappings.DLT, template_id)
-    adapter = dispatch(contract_code)
+    adapter = dispatch(contract_code, str(binding["adapter"]))
     existing = outbox.get(
         conn, tenant_id=tenant_id, idempotency_key=idempotency_key
     )

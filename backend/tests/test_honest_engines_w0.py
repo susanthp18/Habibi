@@ -80,8 +80,10 @@ def test_bot_worker_uses_redacting_setup() -> None:
 def test_get_and_snapshot_are_preview() -> None:
     holds = (BACKEND / "db_treatment_holds.py").read_text(encoding="utf-8")
     assert 'persist="preview"' in holds
+    # The customer card no longer runs the engine at all: it reads the one
+    # recorded decision every surface reads, so opening it writes nothing.
     db = (BACKEND / "db.py").read_text(encoding="utf-8")
-    assert 'persist="preview"' in db
+    assert "recommend_treatment" not in db and "decision_trace.snapshot" in db
     engine = (BACKEND / "agent_core" / "treatment" / "engine.py").read_text(
         encoding="utf-8"
     )

@@ -1,11 +1,11 @@
 """The action space, and the DPD ladder that bounds it.
 
-Nine actions, one of which is silence. ``WAIT`` being a first-class action
+Ten actions, one of which is silence. ``WAIT`` being a first-class action
 rather than the absence of one is the design decision the rest of the module
 hangs on: it means "do nothing" carries an expected value that competes on the
 same axis as everything else, gets logged with a reason, and can win.
 
-Two of the nine do not contact the borrower at all, and adding them is what
+Several of the ten do not contact the borrower at all, and adding them is what
 changes the question the engine can ask from *"who should we call?"* to *"what
 intervention should we make, if any?"*. In Indian retail lending the
 highest-yield early-bucket action is frequently not a contact: it is

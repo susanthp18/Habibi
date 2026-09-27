@@ -1,19 +1,18 @@
 // -----------------------------------------------------------------------------
-// Decision intelligence — data access seam for the nine /treatment/* endpoints.
+// Decision intelligence — the aggregate reads and the holds, cases and ops
+// queues. One decision end to end, the log, health and learning live in
+// ./treatment-trace.ts.
 //
-// The treatment engine has been writing a shadow corpus since it shipped and
-// nothing rendered it, so "is it safe to switch on?" was only answerable by
-// hand. These are the nine reads/writes that back the operator console:
-//
-//   GET  /treatment/next                    → what the engine would do, now
-//   GET  /treatment/insights                → coverage + suppression mix
-//   GET  /treatment/metrics                 → S17 scoreboard (causal, cost)
+//   GET  /treatment/insights                → decisions, holds, actions, outcomes
+//   GET  /treatment/metrics                 → lift, efficiency, conduct, capacity
 //   GET  /treatment/model-health            → drift + calibration
 //   GET  /treatment/models                  → champion/challenger ledger
 //   GET  /treatment/holds                   → active + released holds
 //   POST /treatment/holds                   → place a hold
 //   POST /treatment/holds/{id}/release      → lift one
 //   GET  /treatment/cases                   → the ladder, one row per case
+//   GET  /treatment/ops/{kind}              → mandate / field / legal queues
+//   POST /treatment/decisions/{id}/enact    → a supervisor carries one out
 //
 // Every numeric field the backend can leave undetermined is `number | null`.
 // Null means the denominator was zero or the arm was too thin — which is NOT
@@ -24,47 +23,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost } from "./config";
-
-// ---------------------------------------------------------------------------
-// GET /treatment/next
-// ---------------------------------------------------------------------------
-
-/** One scored action the engine considered but did not choose. */
-export type TreatmentCandidate = {
-  action: string;
-  channel: string | null;
-  at: string | null;
-  expectedValue: number;
-  pReach: number;
-  pResolve: number;
-  cost: number;
-  reasonCodes: string[];
-  components: Record<string, number>;
-};
-
-export type TreatmentNext = {
-  action: string;
-  actionLabel: string;
-  channel: string | null;
-  at: string | null;
-  expectedValueInr: number;
-  suppressed: boolean;
-  reason: string | null;
-  reasonText: string | null;
-  rationale: string;
-  decisionId: string | null;
-  propensity: number | null;
-  policyVersion: number;
-  /** off | shadow | live. Outside live the engine decides and enacts nothing. */
-  mode: string;
-  variant: string | null;
-  latencyMs: number;
-  alternatives: TreatmentCandidate[];
-  /** action → why it was vetoed before scoring. */
-  excluded: Record<string, string>;
-  /** Absent for a suppressed or `wait` decision — a contract authorises action. */
-  contract?: Record<string, unknown>;
-};
 
 // ---------------------------------------------------------------------------
 // GET /treatment/insights
@@ -90,10 +48,12 @@ export type TreatmentInsights = {
 // ---------------------------------------------------------------------------
 
 export type CalibrationBin = {
-  bin: number;
+  /** e.g. "0.2-0.3": the band of predicted probability. */
+  range: string;
   n: number;
   predicted: number;
   observed: number;
+  gap?: number;
 };
 
 export type TreatmentModelHealth = {
@@ -114,20 +74,31 @@ export type TreatmentModelHealth = {
     reason?: string;
     treatedN: number;
     controlN: number;
-    predictedTau?: number | null;
+    predictedMeanTau?: number | null;
     measuredAte?: number | null;
+    gap?: number | null;
+    level?: "ok" | "warn" | "alert" | (string & {});
+    note?: string;
   };
   featureDrift: {
     available: boolean;
     reason?: string;
-    features: Array<{ feature: string; psi: number | null; drifted?: boolean }>;
+    features: Array<{
+      feature: string;
+      trainedMean?: number;
+      recentMean?: number;
+      /** How far the recent mean has moved, in training standard deviations. */
+      shiftSigma: number | null;
+      n?: number;
+      level: "ok" | "warn" | "alert" | (string & {});
+    }>;
   };
   models: {
     reach: string | null;
     uplift: string | null;
     upliftSegments: number;
   };
-  alerts: Array<{ metric: string; message: string } | string>;
+  alerts: Array<{ level: string; check: string; detail: string }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -142,9 +113,12 @@ export type TreatmentMetrics = {
     reason?: string;
     controlN: number;
     treatedN: number;
-    ate?: number | null;
-    stderr?: number | null;
-    significant?: boolean;
+    controlCureRate?: number | null;
+    treatedCureRate?: number | null;
+    /** Treated cure rate minus control cure rate: the lift. */
+    incrementalCureRate?: number | null;
+    incrementalCureRateInterval?: { value: number; low: number; high: number } | null;
+    attributableRecoveryInr?: number | null;
     incrementalRecoveryPerRupee?: number | null;
   };
   efficiency: {
@@ -250,7 +224,7 @@ export type TreatmentModelRecord = {
  */
 export type TreatmentServingCheck = {
   target: string;
-  state: "ok" | "unregistered" | "stale" | "missing" | (string & {});
+  state: "ok" | "unregistered" | "absent" | "drifted" | "missing" | (string & {});
   detail: string;
 };
 
@@ -269,8 +243,18 @@ export const HOLD_KINDS = [
   "complaint",
   "bereavement",
   "legal",
+  "cease_and_desist",
+  "deceased",
   "no_upsell",
 ] as const;
+
+/** Kinds a second person must release (the backend refuses the author). */
+export const TWO_PERSON_RELEASE: ReadonlySet<string> = new Set([
+  "legal",
+  "cease_and_desist",
+  "deceased",
+  "bereavement",
+]);
 
 export type HoldKind = (typeof HOLD_KINDS)[number];
 
@@ -335,18 +319,8 @@ export type TreatmentCase = {
 };
 
 // ---------------------------------------------------------------------------
-// Fetchers — one per endpoint, each with its mock branch.
+// Fetchers — one per endpoint.
 // ---------------------------------------------------------------------------
-
-export async function fetchTreatmentNext(
-  customerId: string,
-  accountId?: string | null,
-  trigger = "manual",
-): Promise<TreatmentNext> {
-  const params = new URLSearchParams({ customerId, trigger });
-  if (accountId) params.set("accountId", accountId);
-  return apiGet<TreatmentNext>(`/treatment/next?${params.toString()}`);
-}
 
 export async function fetchTreatmentInsights(days = 14): Promise<TreatmentInsights> {
   return apiGet<TreatmentInsights>(`/treatment/insights?days=${days}`);
@@ -446,22 +420,6 @@ export async function fetchTreatmentCases(query: CaseQuery = {}): Promise<Treatm
 // staleTime is generous on the aggregates: they are rolling windows over the
 // decision log, and refetching per render buys nothing but scans.
 // ---------------------------------------------------------------------------
-
-export function useTreatmentNext(
-  customerId: string | null | undefined,
-  accountId?: string | null,
-  trigger = "manual",
-) {
-  return useQuery({
-    queryKey: ["treatment-next", customerId, accountId ?? null, trigger],
-    queryFn: () => fetchTreatmentNext(customerId!, accountId, trigger),
-    // The engine writes a decision row on every call — never fire it without a
-    // borrower, and never on a window refocus.
-    enabled: Boolean(customerId),
-    refetchOnWindowFocus: false,
-    staleTime: 30_000,
-  });
-}
 
 export function useTreatmentInsights(days = 14) {
   return useQuery({

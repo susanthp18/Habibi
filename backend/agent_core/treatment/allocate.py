@@ -1119,6 +1119,18 @@ def write_switch_objections(conn: Any, *, tenant_id: str) -> list[str]:
             #    field slots and bot concurrency. A price solved against an
             #    environment variable prices somebody's guess.
             objections.append("capacity_not_from_feed")
+        # 3. |Δλ|/λ under a 5% capacity shock, filed by the nightly solve.
+        solved = guarded(
+            "price_shock",
+            lambda: _last_result(conn, tenant_id=tenant_id, job=JOB_CAPACITY_SOLVE) or {},
+        )
+        shock = (solved or {}).get("shock") if isinstance(solved, dict) else None
+        if not isinstance(shock, dict):
+            objections.append("price_shock_not_measured")
+        elif not shock.get("evaluable"):
+            objections.append("price_shock_unpriced_book")
+        elif not shock.get("clears"):
+            objections.append(f"price_shock_worst={float(shock.get('worst') or 0):.3f}")
 
     # 6. Objective-mismatch regret measured. §10.4: "before the write switch is
     #    flipped we publish the regret of greedy-EV-plus-λ against a

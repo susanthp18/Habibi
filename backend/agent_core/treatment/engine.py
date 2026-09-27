@@ -408,6 +408,9 @@ def _decide(
                     "vetoStackVersion": logging_contract.VETO_STACK_VERSION,
                     "engineImageDigest": logging_contract.engine_image_digest(),
                     "lambdaBucket": lambda_bucket,
+                    # How exploratory the chooser was, so a reader can tell an
+                    # explored pick from the top-ranked one after the fact.
+                    "greediness": config.greediness(conn=conn),
                 },
             },
             candidates=_candidate_log(

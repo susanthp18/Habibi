@@ -20,14 +20,6 @@ import {
   useTreatmentMetrics,
 } from "@/api/treatment";
 
-// ---------------------------------------------------------------------------
-// Shared state scaffolding
-//
-// Loading, empty and error are rendered by one component so no section can
-// quietly skip one. The error branch renders INSTEAD of the data — a failed
-// live call must never fall through to a half-populated table, because a
-// plausible-looking number with no backend behind it is worse than a gap.
-// ---------------------------------------------------------------------------
 import { BarList, EmptyPanel, Panel, Stat, StateGate } from "./chrome";
 
 export function InsightsTab({ days }: { days: number }) {
@@ -162,10 +154,21 @@ export function InsightsTab({ days }: { days: number }) {
             >
               {m.causal.available ? (
                 <div className="grid grid-cols-2 gap-150 md:grid-cols-4">
-                  <Stat label="Treatment effect" value={fmtRate(m.causal.ate ?? null)} />
-                  <Stat label="Standard error" value={fmtRate(m.causal.stderr ?? null, 2)} />
-                  <Stat label="Treated arm" value={fmtNum(m.causal.treatedN)} />
-                  <Stat label="Control arm" value={fmtNum(m.causal.controlN)} />
+                  <Stat
+                    label="Extra cure rate from contact"
+                    value={fmtRate(m.causal.incrementalCureRate ?? null)}
+                    hint={
+                      m.causal.incrementalCureRateInterval
+                        ? `range ${fmtRate(m.causal.incrementalCureRateInterval.low)} to ${fmtRate(m.causal.incrementalCureRateInterval.high)}`
+                        : undefined
+                    }
+                  />
+                  <Stat
+                    label="Cure rate, contacted vs comparison group"
+                    value={`${fmtRate(m.causal.treatedCureRate ?? null)} vs ${fmtRate(m.causal.controlCureRate ?? null)}`}
+                  />
+                  <Stat label="Contacted cases" value={fmtNum(m.causal.treatedN)} />
+                  <Stat label="Comparison cases" value={fmtNum(m.causal.controlN)} />
                 </div>
               ) : (
                 <SectionMessage
@@ -294,7 +297,3 @@ export function InsightsTab({ days }: { days: number }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Model health — GET /treatment/model-health + GET /treatment/models
-// ---------------------------------------------------------------------------

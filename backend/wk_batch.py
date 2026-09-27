@@ -66,7 +66,12 @@ def reporting_engine() -> tuple[Engine, str]:
     """Return the dedicated standby engine or an explicitly allowed scratch source."""
     url = (os.getenv("REPORTING_DATABASE_URL") or "").strip()
     if not url:
-        if env_name() in NON_PROD_ENVS and env_bool("W6_ALLOW_PRIMARY_REPORTING"):
+        if env_bool("W6_ALLOW_PRIMARY_REPORTING"):
+            # A single-server deployment has no standby. Reading the primary
+            # is an explicit, logged choice there; without it the snapshot
+            # never builds and every decision is vetoed as stale.
+            if env_name() not in NON_PROD_ENVS:
+                logger.warning("W6 reporting reads the primary (W6_ALLOW_PRIMARY_REPORTING)")
             return db.engine, "scratch"
         raise RuntimeError("REPORTING_DATABASE_URL_required")
     if url == db.DATABASE_URL:
@@ -187,7 +192,12 @@ def process_one(engine: Engine, *, source_engine: Engine | None = None) -> bool:
     if str(job["workflow_type"]) in PRIMARY_SOURCE_JOBS:
         source_engine, source_kind, owned_source = engine, "primary", False
     elif source_engine is None:
-        source_engine, source_kind = reporting_engine()
+        try:
+            source_engine, source_kind = reporting_engine()
+        except RuntimeError as exc:
+            # Claimed already: a job left 'working' here would never run again.
+            _finish(engine, str(job["id"]), ok=False, error=str(exc))
+            return True
     lock_name = f"wk-batch:{job['workflow_type']}:{job['idempotency_key']}"
     try:
         with engine.connect() as sink:

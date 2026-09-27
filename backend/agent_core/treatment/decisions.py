@@ -32,6 +32,7 @@ from db_core import writer, reader
 
 from sqlalchemy import text
 from agent_core.clock import utc_now
+from agent_core.treatment.schema_ready import collections_only
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,7 @@ def planned_actions(
                       -- cancellation freezes the borrower for 24 hours.
                       AND outcome IS NULL
                       AND created_at >= now() - interval '24 hours'
+                      {collections_only(active)}
                     """
                 ),
                 {"cid": customer_id, "kind": trigger_kind, "ref": trigger_ref},
@@ -268,61 +270,6 @@ def planned_actions(
     except Exception:
         logger.exception("planned-action read failed for customer=%s", customer_id)
         return frozenset()
-
-
-def already_planned(
-    conn: Any,
-    *,
-    customer_id: str,
-    trigger_kind: str,
-    trigger_ref: str | None,
-    action: str,
-) -> bool:
-    """Is an identical, unspent plan already on the books?
-
-    Keyed on the trigger reference where there is one, because that is what
-    makes a repeat genuinely a repeat. Without it a worker that ran twice would
-    dial the same borrower twice about the same bounce, and the borrower would
-    experience the retry as harassment rather than as diligence.
-    """
-    try:
-        params: dict[str, Any] = {
-            "cid": customer_id,
-            "kind": trigger_kind,
-            "action": action,
-            "ref": trigger_ref,
-        }
-        clause = (
-            "trigger_ref = :ref" if trigger_ref else "trigger_ref IS NULL"
-        )
-        row = conn.execute(
-            text(
-                f"""
-                SELECT 1 FROM treatment_decisions
-                WHERE customer_id = :cid
-                  AND trigger_kind = :kind
-                  AND {clause}
-                  AND chosen_action = :action
-                  AND suppression_reason IS NULL
-                  AND enacted IS FALSE
-                  -- A plan the executor claimed and deliberately did not carry
-                  -- out (no executor, consent withdrawn, borrower paid) is not
-                  -- "already planned" — it is a decision that needs making
-                  -- again. Without this the first cancellation freezes the
-                  -- borrower for 24 hours.
-                  AND outcome IS NULL
-                  AND created_at >= now() - interval '24 hours'
-                LIMIT 1
-                """
-            ),
-            params,
-        ).fetchone()
-        return row is not None
-    except Exception:
-        logger.exception("duplicate-plan check failed for %s", customer_id)
-        # Fail closed: an unreadable log means assume a plan exists, which can
-        # only under-contact.
-        return True
 
 
 def mark_enacted(
@@ -467,6 +414,7 @@ def claim_due(conn: Any, *, limit: int = 1, owner: str | None = None) -> list[di
               AND scheduled_at <= now()
               AND created_at >= now() - interval '7 days'
               {lease_sql}
+              {collections_only(conn)}
             ORDER BY scheduled_at ASC
             FOR NO KEY UPDATE SKIP LOCKED
             LIMIT :limit
@@ -501,16 +449,70 @@ def get(conn: Any, decision_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
-    """Lock one plan for the clerk. None if already enacted or claimed elsewhere."""
+#: How long a decision stays the account's next best action. Past this the
+#: situation has moved on (the executor stops claiming plans at the same age)
+#: and the honest answer is "no current decision", not a stale one.
+CURRENT_FOR = "7 days"
+
+
+def current(
+    conn: Any,
+    *,
+    customer_id: str,
+    account_id: str | None = None,
+    tenant_id: str | None = None,
+) -> dict[str, Any] | None:
+    """The account's next best action: its latest real, recent decision.
+
+    One source for every surface — the customer card, the cases panel and the
+    agent copilot all read this, so they cannot disagree. A hold is a decision
+    too and is returned as one; simulated rows and offer decisions are not.
+    """
     row = conn.execute(
         text(
+            f"""
+            SELECT * FROM treatment_decisions
+             WHERE customer_id = :cid
+               AND (CAST(:aid AS text) IS NULL OR account_id = :aid)
+               AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)
+               AND mode <> 'simulated'
+               AND created_at >= now() - interval '{CURRENT_FOR}'
+               {collections_only(conn)}
+             -- A live plan still waiting to be carried out is what will
+             -- happen next, whatever has been previewed since.
+             ORDER BY (mode = 'live' AND suppression_reason IS NULL
+                       AND NOT enacted AND outcome IS NULL) DESC,
+                      created_at DESC, id DESC
+             LIMIT 1
             """
+        ),
+        {"cid": customer_id, "aid": account_id, "tenant": tenant_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
+    """Lock one plan for the clerk, on the same terms the executor uses.
+
+    None if it is enacted, claimed elsewhere, suppressed, not live, or not yet
+    due. A plan timed for a salary credit or tomorrow's calling window is left
+    for ``claim_due`` to pick up at its moment; enacting it on the job drain
+    would throw the timing away.
+    """
+    row = conn.execute(
+        text(
+            f"""
             SELECT * FROM treatment_decisions
             WHERE id = :id
               AND enacted IS FALSE
-              AND mode <> 'simulated'
+              AND mode = 'live'
+              AND suppression_reason IS NULL
               AND outcome IS NULL
+              AND chosen_action IS NOT NULL
+              AND chosen_action <> 'wait'
+              AND scheduled_at IS NOT NULL
+              AND scheduled_at <= now()
+              {collections_only(conn)}
             FOR NO KEY UPDATE SKIP LOCKED
             """
         ),
@@ -519,79 +521,89 @@ def claim_by_id(conn: Any, decision_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def insights(conn: Any, *, days: int = 14) -> dict[str, Any]:
+def insights(conn: Any, *, days: int = 14, tenant_id: str | None = None) -> dict[str, Any]:
     """The shadow-rollout scoreboard.
 
     Deliberately shaped around the decision a collections head has to make —
     "is this safe to switch on?" — rather than around what is easy to query.
     Coverage says whether it would do anything; the suppression breakdown says
     what is stopping it; the ladder mix says whether it is about to send vans.
+
+    Real decisions only: simulator rows and mirrored offer decisions are not
+    this book, and the tenant is explicit rather than left to row security.
+    Expected value is summed over cases (the latest decision per trigger), not
+    over decisions, so a case the sweep re-decides daily is counted once.
     """
     window = f"{max(1, int(days))} days"
-    totals = conn.execute(
-        text(
-            f"""
-            SELECT
-              count(*)::int AS decisions,
-              -- "Would this have done something?" — the question the shadow
-              -- fortnight is asked. Keyed on the action rather than on
-              -- suppression_reason, because in shadow mode every actionable
-              -- decision carries reason='shadow_mode' and counting those as
-              -- suppressed would report zero coverage in exactly the mode this
-              -- report exists to serve.
-              count(*) FILTER (
-                WHERE chosen_action IS NOT NULL AND chosen_action <> 'wait'
-              )::int AS actionable,
-              count(*) FILTER (WHERE enacted)::int AS enacted,
-              count(DISTINCT customer_id)::int AS customers,
-              COALESCE(sum(expected_value) FILTER (
-                WHERE chosen_action IS NOT NULL AND chosen_action <> 'wait'
-              ), 0) AS expected_value_inr,
-              COALESCE(avg(latency_ms), 0)::int AS avg_latency_ms
-            FROM treatment_decisions
-            WHERE created_at >= now() - interval '{window}'
-            """
-        )
+    scope = (
+        f"created_at >= now() - interval '{window}' AND mode <> 'simulated'"
+        " AND (CAST(:tenant AS text) IS NULL OR tenant_id = :tenant)"
+        + collections_only(conn)
+    )
+    params = {"tenant": tenant_id}
+
+    def q(sql: str) -> Any:
+        return conn.execute(text(sql.replace("{scope}", scope)), params)
+
+    totals = q(
+        """
+        SELECT
+          count(*)::int AS decisions,
+          -- "Would this have done something?" Keyed on the action rather than
+          -- on suppression_reason: in shadow mode every actionable decision
+          -- carries reason='shadow_mode'.
+          count(*) FILTER (
+            WHERE chosen_action IS NOT NULL AND chosen_action <> 'wait'
+          )::int AS actionable,
+          count(*) FILTER (WHERE enacted)::int AS enacted,
+          count(DISTINCT customer_id)::int AS customers,
+          COALESCE(avg(latency_ms), 0)::int AS avg_latency_ms
+        FROM treatment_decisions
+        WHERE {scope}
+        """
     ).mappings().first()
-    suppression = conn.execute(
-        text(
-            f"""
-            SELECT COALESCE(suppression_reason, 'none') AS reason, count(*)::int AS n
-            FROM treatment_decisions
-            WHERE created_at >= now() - interval '{window}'
-            GROUP BY 1 ORDER BY 2 DESC
-            """
-        )
+    expected = q(
+        """
+        SELECT COALESCE(sum(expected_value), 0) AS inr FROM (
+          SELECT DISTINCT ON (customer_id, trigger_kind, trigger_ref)
+                 expected_value, chosen_action
+          FROM treatment_decisions
+          WHERE {scope}
+          ORDER BY customer_id, trigger_kind, trigger_ref, created_at DESC
+        ) latest
+        WHERE chosen_action IS NOT NULL AND chosen_action <> 'wait'
+        """
+    ).scalar()
+    suppression = q(
+        """
+        SELECT suppression_reason AS reason, count(*)::int AS n
+        FROM treatment_decisions
+        WHERE {scope} AND suppression_reason IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC
+        """
     ).mappings().all()
-    by_action = conn.execute(
-        text(
-            f"""
-            SELECT COALESCE(chosen_action, 'none') AS action, count(*)::int AS n,
-                   COALESCE(avg(expected_value), 0)::numeric(14,2) AS avg_ev
-            FROM treatment_decisions
-            WHERE created_at >= now() - interval '{window}'
-              AND chosen_action IS NOT NULL AND chosen_action <> 'wait'
-            GROUP BY 1 ORDER BY 2 DESC
-            """
-        )
+    by_action = q(
+        """
+        SELECT chosen_action AS action, count(*)::int AS n,
+               COALESCE(avg(expected_value), 0)::numeric(14,2) AS avg_ev
+        FROM treatment_decisions
+        WHERE {scope} AND chosen_action IS NOT NULL AND chosen_action <> 'wait'
+        GROUP BY 1 ORDER BY 2 DESC
+        """
     ).mappings().all()
-    by_mode = conn.execute(
-        text(
-            f"""
-            SELECT mode, count(*)::int AS n FROM treatment_decisions
-            WHERE created_at >= now() - interval '{window}'
-            GROUP BY 1 ORDER BY 1
-            """
-        )
+    by_mode = q(
+        """
+        SELECT mode, count(*)::int AS n FROM treatment_decisions
+        WHERE {scope}
+        GROUP BY 1 ORDER BY 1
+        """
     ).mappings().all()
-    outcomes = conn.execute(
-        text(
-            f"""
-            SELECT outcome, count(*)::int AS n FROM treatment_decisions
-            WHERE created_at >= now() - interval '{window}' AND outcome IS NOT NULL
-            GROUP BY 1 ORDER BY 2 DESC
-            """
-        )
+    outcomes = q(
+        """
+        SELECT outcome, count(*)::int AS n FROM treatment_decisions
+        WHERE {scope} AND outcome IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC
+        """
     ).mappings().all()
 
     t = dict(totals or {})
@@ -604,7 +616,7 @@ def insights(conn: Any, *, days: int = 14) -> dict[str, Any]:
         "coverage": round(actionable / decisions, 4) if decisions else 0.0,
         "enacted": int(t.get("enacted") or 0),
         "customers": int(t.get("customers") or 0),
-        "expectedValueInr": float(t.get("expected_value_inr") or 0),
+        "expectedValueInr": float(expected or 0),
         "avgLatencyMs": int(t.get("avg_latency_ms") or 0),
         "suppression": [{"reason": r["reason"], "count": r["n"]} for r in suppression],
         "byAction": [

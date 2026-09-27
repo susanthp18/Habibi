@@ -1,3 +1,4 @@
+import { OpportunitiesQueue } from "@/components/offers/OpportunitiesPanel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -166,7 +167,8 @@ function UpsellPage() {
                 Upsell & leads manager
               </h1>
               <p className="text-body-small text-text-subtle">
-                Eligibility-gated leads from voice & chat — pipeline, follow-ups, and conversion.
+                Offers decided from what customers said, and the leads they became: pipeline,
+                follow-ups and conversion.
               </p>
             </div>
           </div>
@@ -184,6 +186,7 @@ function UpsellPage() {
         </header>
 
         <MetricsStrip m={metrics} />
+        <OpportunitiesQueue />
         <OfferHealthPanel />
         <FiltersBar
           filters={filters}

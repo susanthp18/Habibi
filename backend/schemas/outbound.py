@@ -887,3 +887,207 @@ class AuthorityApplyResponse(BaseModel):
     amount: float
     accountId: str
     decisionId: str | None = None
+
+
+# ── Decision intelligence: the trace, the log, health, learning ──────────────
+
+
+class TreatmentDecideRequest(BaseModel):
+    """Ask the engine now for one borrower; recorded in shadow, never enacted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    customerId: str
+    accountId: str | None = None
+
+
+class DecisionTraceResponse(BaseModel):
+    """One decision end to end (``decision_trace.trace``). Sections are open
+    dicts on purpose: they are read back from what was logged at the time, and
+    the log carries whatever that version of the engine recorded."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    family: str
+    customerId: str
+    customerName: str | None = None
+    accountId: str | None = None
+    createdAt: datetime | None = None
+    mode: str | None = None
+    variant: str | None = None
+    whyNow: dict[str, Any]
+    options: list[dict[str, Any]]
+    choice: dict[str, Any]
+    versions: dict[str, Any]
+    happened: dict[str, Any]
+    feedback: list[dict[str, Any]] = []
+
+
+class TreatmentCurrentResponse(BaseModel):
+    decision: DecisionTraceResponse | None = None
+
+
+class DecisionLogRowResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    created_at: datetime
+    customer_id: str
+    customer_name: str | None = None
+    account_id: str | None = None
+    trigger_kind: str
+    trigger_ref: str | None = None
+    mode: str
+    variant: str | None = None
+    chosen_action: str | None = None
+    chosen_channel: str | None = None
+    scheduled_at: datetime | None = None
+    expected_value: float | None = None
+    suppression_reason: str | None = None
+    holdReasonText: str | None = None
+    explore_kind: str | None = None
+    enacted: bool = False
+    enacted_at: datetime | None = None
+    outcome: str | None = None
+    rationale: str | None = None
+
+
+class TreatmentStageResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    key: str
+    label: str
+    does: str
+    lastAt: datetime | None = None
+    status: Literal["ok", "late", "never"]
+    lastResult: dict[str, Any] | None = None
+
+
+class TreatmentHealthResponse(BaseModel):
+    mode: str
+    enactSwitchOn: bool
+    labelsOn: bool
+    stages: list[TreatmentStageResponse]
+    feeds: list[dict[str, Any]]
+    blockers: list[dict[str, Any]]
+
+
+class LearnedRateResponse(BaseModel):
+    metric: str
+    key: str
+    label: str
+    source: str
+    value: float
+    prior: float | None = None
+    successes: int | None = None
+    trials: int | None = None
+    windowDays: int | None = None
+
+
+class DecisionExplanationResponse(BaseModel):
+    text: str
+    source: Literal["llm", "rule"]
+
+
+class StrategySettingResponse(BaseModel):
+    key: str
+    group: str
+    label: str
+    help: str
+    value: Any = None
+    source: Literal["configured", "environment", "default"]
+    type: str
+    minimum: float | None = None
+    maximum: float | None = None
+    choices: list[str] | None = None
+
+
+class StrategyProposalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    changes: dict[str, Any]
+    reason: str
+
+
+class StrategyDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = None
+
+
+class StrategyProposalResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    changes: dict[str, Any]
+    reason: str
+    evidence: dict[str, Any] = {}
+    impact: dict[str, Any] = {}
+    proposed_by: str
+    proposed_via: str
+    status: str
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    decision_note: str | None = None
+    created_at: datetime
+
+
+class OfferTraceResponse(BaseModel):
+    """One offer decision end to end (``offer_trace.trace``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    family: str
+    customerId: str
+    customerName: str | None = None
+    createdAt: datetime | None = None
+    mode: str | None = None
+    context: str | None = None
+    signals: list[dict[str, Any]] = []
+    choice: dict[str, Any]
+    options: list[dict[str, Any]] = []
+    suitability: list[dict[str, Any]] = []
+    delivery: dict[str, Any]
+    versions: dict[str, Any]
+
+
+class OfferLogRowResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    created_at: datetime
+    customer_id: str
+    customer_name: str | None = None
+    mode: str
+    chosen_product_id: str | None = None
+    product_name: str | None = None
+    score: float | None = None
+    suppression_reason: str | None = None
+    holdReasonText: str | None = None
+    presented: bool = False
+    response: str | None = None
+    context: str | None = None
+    signals: int = 0
+
+
+class OpportunitiesResponse(BaseModel):
+    signals: list[dict[str, Any]]
+    decision: OfferTraceResponse | None = None
+
+
+class SignalHealthResponse(BaseModel):
+    scans: list[dict[str, Any]]
+    codes: list[dict[str, Any]]
+
+
+class SignalFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["right", "wrong"]
+
+
+class SignalFeedbackResponse(BaseModel):
+    id: str
+    feedback: str

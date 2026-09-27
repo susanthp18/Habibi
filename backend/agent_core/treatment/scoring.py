@@ -30,9 +30,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import money_inr
-from typing import Any, Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
-from agent_core.treatment import actions as A
+from agent_core.treatment import actions as A, beliefs
 from agent_core.treatment.config import Costs, Policy
 from agent_core.treatment.features import AccountFeatures, Trigger
 from agent_core.numbers import clamp
@@ -177,6 +177,11 @@ class ScoredAction:
     #: ``[allocate-dual-price-double-counted-in-next-days-demand]``; the
     #: identity that holds it in place is in ``tests/test_ev_identity.py``.
     capacity_price: float = 0.0
+    #: Where each probability came from: the borrower's own history, what the
+    #: engine has learned from its outcomes (with the counts), or the starting
+    #: assumption. ``{"reach": {...}, "resolve": {...}}``; the decision trace
+    #: shows it beside the number.
+    evidence: dict[str, Any] = field(default_factory=dict)
 
     @property
     def pre_dual_expected_value(self) -> float:
@@ -205,6 +210,9 @@ class ScoredAction:
             "capacityPrice": round(self.capacity_price, 2),
             "reasonCodes": list(self.reason_codes),
             "components": {k: round(v, 4) for k, v in self.components.items()},
+            "explanation": self.explanation,
+            "timingRationale": self.timing_rationale,
+            "evidence": self.evidence,
         }
 
 
@@ -248,7 +256,11 @@ class Recommender(Protocol):
 
 
 def p_reach(
-    action: str, features: AccountFeatures, *, at: datetime | None
+    action: str,
+    features: AccountFeatures,
+    *,
+    at: datetime | None,
+    learned: Mapping[tuple[str, str], tuple[int, int]] | None = None,
 ) -> tuple[float, bool]:
     """Chance one attempt reaches a person. Returns (p, used_history).
 
@@ -268,7 +280,7 @@ def p_reach(
 
     observed = features.connect_rate.get(channel)
     used_history = observed is not None
-    base = observed if observed is not None else REACH_PRIOR.get(channel, 0.3)
+    base = observed if observed is not None else reach_estimate(channel, learned).value
 
     if channel == "voice" and at is not None and features.responsive_hours:
         from agent_core.treatment.features import zone
@@ -282,6 +294,23 @@ def p_reach(
     return clamp(base, 0.01, 0.95), used_history
 
 
+def reach_estimate(
+    channel: str, learned: Mapping[tuple[str, str], tuple[int, int]] | None
+) -> "beliefs.Estimate":
+    """The channel's reach rate before this borrower's own adjustments."""
+    return beliefs.blend(REACH_PRIOR.get(channel, 0.3), (learned or {}).get(("reach", channel)))
+
+
+def resolve_estimate(
+    action: str, learned: Mapping[tuple[str, str], tuple[int, int]] | None
+) -> "beliefs.Estimate":
+    """The action's cure-if-reached rate before the multipliers below."""
+    prior = RESOLVE_PRIOR.get(action, 0.0)
+    if prior <= 0:
+        return beliefs.Estimate(0.0, "prior", 0.0)
+    return beliefs.blend(prior, (learned or {}).get(("resolve", action)))
+
+
 def p_resolve(
     action: str,
     features: AccountFeatures,
@@ -289,9 +318,10 @@ def p_resolve(
     *,
     now: datetime,
     timed_with_credit: bool,
+    learned: Mapping[tuple[str, str], tuple[int, int]] | None = None,
 ) -> float:
     """Chance the account is cured given the message landed."""
-    base = RESOLVE_PRIOR.get(action, 0.0)
+    base = resolve_estimate(action, learned).value
     if base <= 0:
         return 0.0
 
@@ -537,10 +567,28 @@ class EVScorer:
             and candidate.at
             and candidate.at >= features.next_credit_at
         )
-        reach, used_history = p_reach(action, features, at=candidate.at)
-        resolve = p_resolve(
-            action, features, trigger, now=now, timed_with_credit=timed_with_credit
+        reach, used_history = p_reach(
+            action, features, at=candidate.at, learned=policy.learned
         )
+        resolve = p_resolve(
+            action,
+            features,
+            trigger,
+            now=now,
+            timed_with_credit=timed_with_credit,
+            learned=policy.learned,
+        )
+        channel = A.spec(action).channel
+        evidence: dict[str, Any] = {
+            "reach": (
+                {"source": "history", "value": round(features.connect_rate[channel], 4)}
+                if used_history and channel
+                else reach_estimate(channel, policy.learned).to_log()
+                if channel
+                else {"source": "delivery", "value": round(reach, 4)}
+            ),
+            "resolve": resolve_estimate(action, policy.learned).to_log(),
+        }
         decay = urgency_decay(
             candidate.at,
             now=now,
@@ -600,6 +648,7 @@ class EVScorer:
             explanation=self._explain(action, ev, reach, resolve, cost, fatigue),
             timing_rationale=candidate.timing_rationale,
             reason_codes=tuple(reasons),
+            evidence=evidence,
             components={
                 "exposure": exposure,
                 "value_at_stake": value,

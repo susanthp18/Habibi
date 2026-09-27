@@ -289,7 +289,9 @@ def test_no_reachable_say_in_the_offer_path_names_a_product() -> None:
     """
     from agent_core.reco import engine as reco_engine
 
-    for name in ("bot_tools.py", "voice/tools.py", "bot_runtime.py"):
+    # The handlers moved out of voice/tools.py; scan where they live now.
+    for name in ("bot_tools.py", "voice/tools.py", "voice/tools_offers.py",
+                 "voice/tools_probe.py", "bot_runtime.py", "agent_core/tools/domain.py"):
         code = "\n".join(
             line
             for line in (BACKEND / name).read_text(encoding="utf-8").splitlines()
