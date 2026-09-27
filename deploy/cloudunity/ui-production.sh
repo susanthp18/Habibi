@@ -49,15 +49,13 @@ docker run --rm --memory=3g --cpus=2 \
 test -f "$UI/.output/server/index.mjs"
 grep -q '"preset": "node-server"' "$UI/.output/nitro.json"
 
-echo '== snapshot an immutable release and preserve old hashed assets =='
+echo '== snapshot an immutable release =='
+# Only this build's assets: Nitro serves the files in its build manifest, so
+# hashed files copied in from an older release would never be served. A tab
+# still on the old build that asks for a chunk that is gone is reloaded by the
+# router (module-not-found), which is the recovery that actually works.
 mkdir -p "$RELEASE/.output"
 rsync -a "$UI/.output/" "$RELEASE/.output/"
-if [[ "$CURRENT" == 3110 || "$CURRENT" == 3111 ]]; then
-  OLD_NAME="payint_ui_prod_$CURRENT"
-  OLD_OUTPUT=$(docker inspect "$OLD_NAME" --format '{{range .Mounts}}{{if eq .Destination "/app/.output"}}{{.Source}}{{end}}{{end}}')
-  test -d "$OLD_OUTPUT/public/assets"
-  rsync -a --ignore-existing "$OLD_OUTPUT/public/assets/" "$RELEASE/.output/public/assets/"
-fi
 
 NAME="payint_ui_prod_$NEXT"
 if docker container inspect "$NAME" >/dev/null 2>&1; then
@@ -90,9 +88,11 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 [[ "$READY" == true ]] || { echo 'Candidate UI did not become ready' >&2; exit 1; }
-ASSET=$(find "$RELEASE/.output/public/assets" -maxdepth 1 -name '*.js' -printf '%f\n' -quit)
-test -n "$ASSET"
-[[ $(curl -sS -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:$NEXT/app/assets/$ASSET") == 200 ]]
+# Probe an asset the page actually references, not an arbitrary file on disk.
+ASSET=$(curl -sS -m 5 "http://127.0.0.1:$NEXT/app/studio/releases" | grep -aoE '/app/assets/[^"]+[.]js' | head -1 || true)
+[[ -n "$ASSET" ]] || { echo 'Candidate page references no script asset' >&2; exit 1; }
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:$NEXT$ASSET") == 200 ]] ||
+  { echo "Candidate does not serve its own asset $ASSET" >&2; exit 1; }
 if curl -sS -m 5 "http://127.0.0.1:$NEXT/app/studio/releases" | grep -aqE '/@vite/|/@id/virtual:tanstack-start-dev'; then
   echo 'Candidate still serves development modules' >&2
   exit 1
