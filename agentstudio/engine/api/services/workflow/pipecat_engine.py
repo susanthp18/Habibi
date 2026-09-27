@@ -1131,6 +1131,13 @@ class PipecatEngine:
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
+        # AgentStudio: an exit that stands for one outcome records it now, so
+        # the call ends with it rather than with a classifier's guess. An
+        # outcome already recorded (a transfer, an end-call reason) wins.
+        if node.call_disposition and not self._gathered_context.get(
+            CALL_DISPOSITION_CONTEXT_KEY
+        ):
+            self.set_call_disposition(node.call_disposition)
         # Setup LLM context with prompts and functions.
         await self._setup_llm_context(node)
 

@@ -62,6 +62,23 @@ def group_indian(digits: str) -> str:
     return ",".join(groups + [tail])
 
 
+def spoken_money(amount: object, currency: str | None = "INR") -> str | None:
+    """A whole amount with its currency, as an agent says it to the customer.
+
+    Rupees keep the symbol and lakh grouping (₹12,50,000); any other currency
+    is its ISO code with Western grouping (AED 12,500), which every voice reads
+    correctly. None when there is no amount.
+    """
+    try:
+        whole = abs(int(round(float(amount))))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    code = (currency or "INR").upper()
+    if code == "INR":
+        return f"₹{group_indian(str(whole))}"
+    return f"{code} {whole:,}"
+
+
 def inr(amount: float | None, *, none: str = NULL_DISPLAY) -> str:
     """Indian digit grouping — ₹12,34,567, not Python's Western ₹1,234,567.
 

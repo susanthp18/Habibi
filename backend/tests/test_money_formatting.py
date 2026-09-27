@@ -271,3 +271,12 @@ def test_inr_compact_uses_lowercase_k_and_no_spaces():
         rendered = money_inr.inr_compact(value)
         assert " " not in rendered, rendered
     assert money_inr.inr_compact(1_500).endswith("k")
+
+
+def test_spoken_money_follows_the_account_currency():
+    from money_inr import spoken_money
+
+    assert spoken_money(1_250_000, "INR") == "₹12,50,000"
+    assert spoken_money(12_500, "AED") == "AED 12,500"
+    assert spoken_money(12_500.4, None) == "₹12,500"
+    assert spoken_money(None, "AED") is None

@@ -3,194 +3,126 @@ import { ReactFlowInstance } from "@xyflow/react";
 
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 
-// Node dimensions
-const NODE_WIDTH = 350;
-const NODE_HEIGHT = 120;
-const VERTICAL_SPACING = 150; // Vertical spacing between stacked nodes
-const SECTION_HORIZONTAL_GAP = 500; // Horizontal gap between sections
+// Fallback card size before React Flow has measured a node (BaseNode is
+// 320-400px wide and grows with its prompt).
+const NODE_WIDTH = 360;
+const NODE_HEIGHT = 200;
+const GAP_X = 120; // between cards side by side
+const GAP_Y = 160; // between rows
+const SECTION_GAP = 240; // between the conversation and the side columns
 
-const WORKFLOW_NODE_TYPES = new Set([
-    NodeType.START_CALL,
-    NodeType.AGENT_NODE,
-    NodeType.END_CALL,
-]);
+const isStart = (n: FlowNode) => n.type === NodeType.START_CALL;
+const isEnd = (n: FlowNode) => n.type === NodeType.END_CALL;
+const isConversation = (n: FlowNode) => n.type === NodeType.START_CALL || n.type === NodeType.AGENT_NODE;
+const isLeftRail = (n: FlowNode) => n.type === NodeType.GLOBAL_NODE || n.type === NodeType.TRIGGER;
 
-function isRightRailNode(type: string): boolean {
-    if (type === NodeType.WEBHOOK || type === NodeType.QA) {
-        return true;
+const size = (n: FlowNode) => ({
+    width: n.measured?.width ?? NODE_WIDTH,
+    height: n.measured?.height ?? NODE_HEIGHT,
+});
+
+/** Stack ``column`` top-down at ``x`` from ``top``. */
+function stack(column: FlowNode[], x: number, top: number): FlowNode[] {
+    let y = top;
+    return column.map((node) => {
+        const placed = { ...node, position: { x, y } };
+        y += size(node).height + GAP_Y / 2;
+        return placed;
+    });
+}
+
+/**
+ * A readable layout for any workflow graph.
+ *
+ * The conversation (start and agent nodes) is laid out top-down by dagre
+ * using the cards' real sizes; loops back to earlier steps are ignored for
+ * ranking. Every exit (end node) goes in one row underneath, ordered by the
+ * nodes that lead to it, so shared exits such as "stop contact" no longer
+ * drag the flow apart. Global and trigger nodes sit in a column on the left,
+ * everything else (webhooks, QA) on the right.
+ */
+export function arrangeNodes(nodes: FlowNode[], edges: FlowEdge[]): FlowNode[] {
+    const conversation = nodes.filter(isConversation);
+    if (conversation.length === 0) return nodes;
+    const ends = nodes.filter(isEnd);
+    const left = nodes.filter(isLeftRail).sort((a, b) =>
+        (a.type === NodeType.GLOBAL_NODE ? 0 : 1) - (b.type === NodeType.GLOBAL_NODE ? 0 : 1));
+    const right = nodes.filter((n) => !isConversation(n) && !isEnd(n) && !isLeftRail(n));
+
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'TB', nodesep: GAP_X, ranksep: GAP_Y, acyclicer: 'greedy', ranker: 'network-simplex' });
+    g.setDefaultEdgeLabel(() => ({}));
+    // Start first, so dagre ranks from it.
+    [...conversation].sort((a, b) => Number(isStart(b)) - Number(isStart(a)))
+        .forEach((n) => g.setNode(n.id, size(n)));
+    const inConversation = new Set(conversation.map((n) => n.id));
+    edges.filter((e) => inConversation.has(e.source) && inConversation.has(e.target) && e.source !== e.target)
+        .forEach((e) => g.setEdge(e.source, e.target));
+    dagre.layout(g);
+
+    const placed = new Map<string, FlowNode>();
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const node of conversation) {
+        const { x, y } = g.node(node.id);
+        const { width, height } = size(node);
+        const position = { x: x - width / 2, y: y - height / 2 };
+        placed.set(node.id, { ...node, position });
+        minX = Math.min(minX, position.x);
+        maxX = Math.max(maxX, position.x + width);
+        minY = Math.min(minY, position.y);
+        maxY = Math.max(maxY, position.y + height);
     }
-    return (
-        !WORKFLOW_NODE_TYPES.has(type as NodeType) &&
-        type !== NodeType.TRIGGER &&
-        type !== NodeType.GLOBAL_NODE
-    );
+
+    // Exits: one row under the flow, ordered by where their callers are.
+    const centreOf = (id: string) => {
+        const n = placed.get(id);
+        return n ? n.position.x + size(n).width / 2 : (minX + maxX) / 2;
+    };
+    const anchor = (end: FlowNode) => {
+        const sources = edges.filter((e) => e.target === end.id).map((e) => centreOf(e.source));
+        return sources.length ? sources.reduce((a, b) => a + b, 0) / sources.length : maxX;
+    };
+    const orderedEnds = [...ends].sort((a, b) => anchor(a) - anchor(b));
+    const rowWidth = orderedEnds.reduce((w, n) => w + size(n).width, 0) + GAP_X * Math.max(0, orderedEnds.length - 1);
+    let x = (minX + maxX) / 2 - rowWidth / 2;
+    const endsY = maxY + GAP_Y;
+    for (const end of orderedEnds) {
+        placed.set(end.id, { ...end, position: { x, y: endsY } });
+        x += size(end).width + GAP_X;
+    }
+    const flowLeft = Math.min(minX, (minX + maxX) / 2 - rowWidth / 2);
+    const flowRight = Math.max(maxX, (minX + maxX) / 2 + rowWidth / 2);
+
+    const leftWidth = Math.max(0, ...left.map((n) => size(n).width));
+    stack(left, flowLeft - SECTION_GAP - leftWidth, minY).forEach((n) => placed.set(n.id, n));
+    stack(right, flowRight + SECTION_GAP, minY).forEach((n) => placed.set(n.id, n));
+
+    return nodes.map((n) => placed.get(n.id) ?? n);
+}
+
+/** Whether any two cards overlap: the graph needs arranging. */
+export function hasOverlaps(nodes: FlowNode[]): boolean {
+    const boxes = nodes.map((n) => ({ ...n.position, ...size(n) }));
+    for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+            const a = boxes[i]!, b = boxes[j]!;
+            if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 export const layoutNodes = (
     nodes: FlowNode[],
     edges: FlowEdge[],
-    rankdir: 'TB' | 'LR',
+    _rankdir: 'TB' | 'LR',
     rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>
 ) => {
-    // Separate nodes by type
-    const triggerNodes = nodes.filter(n => n.type === NodeType.TRIGGER);
-    const globalNodes = nodes.filter(n => n.type === NodeType.GLOBAL_NODE);
-    const workflowNodes = nodes.filter(n => WORKFLOW_NODE_TYPES.has(n.type as NodeType));
-    const rightSideNodes = nodes.filter(n => isRightRailNode(n.type));
-
-    // If no workflow nodes, just return original nodes
-    if (workflowNodes.length === 0) {
-        return nodes;
-    }
-
-    // Layout workflow nodes using dagre
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir, nodesep: 400, ranksep: 300 });
-    g.setDefaultEdgeLabel(() => ({}));
-
-    // Sort workflow nodes so startCall comes first and endCall comes last
-    const sortedWorkflowNodes = [...workflowNodes].sort((a, b) => {
-        if (a.type === 'startCall' || a.type === NodeType.START_CALL) return -1;
-        if (b.type === 'startCall' || b.type === NodeType.START_CALL) return 1;
-        if (a.type === 'endCall' || a.type === NodeType.END_CALL) return 1;
-        if (b.type === 'endCall' || b.type === NodeType.END_CALL) return -1;
-        return 0;
-    });
-
-    sortedWorkflowNodes.forEach((node) => {
-        g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-    });
-
-    // Only include edges between workflow nodes
-    const workflowNodeIds = new Set(workflowNodes.map(n => n.id));
-    const workflowEdges = edges.filter(e =>
-        workflowNodeIds.has(e.source) && workflowNodeIds.has(e.target)
-    );
-
-    workflowEdges.forEach((edge) => {
-        g.setEdge(edge.source, edge.target);
-    });
-
-    dagre.layout(g);
-
-    // Group workflow nodes by their Y position (rank/depth level)
-    const nodesByRank = new Map<number, { node: FlowNode; dagreNode: dagre.Node }[]>();
-    sortedWorkflowNodes.forEach((node) => {
-        const dagreNode = g.node(node.id);
-        const rankY = Math.round(dagreNode.y / 50) * 50;
-        if (!nodesByRank.has(rankY)) {
-            nodesByRank.set(rankY, []);
-        }
-        nodesByRank.get(rankY)!.push({ node, dagreNode });
-    });
-
-    const horizontalStagger = 600;
-    const ranks = Array.from(nodesByRank.keys()).sort((a, b) => a - b);
-
-    // Calculate workflow bounds
-    let workflowMinX = Infinity;
-    let workflowMaxX = -Infinity;
-    let workflowMinY = Infinity;
-    let workflowMaxY = -Infinity;
-
-    const positionedWorkflowNodes = sortedWorkflowNodes.map((node) => {
-        const dagreNode = g.node(node.id);
-        const rankY = Math.round(dagreNode.y / 50) * 50;
-        const rankIndex = ranks.indexOf(rankY);
-        const nodesAtRank = nodesByRank.get(rankY)!;
-
-        let xOffset = 0;
-
-        // Apply zigzag pattern for single nodes at each rank
-        if (nodesAtRank.length === 1) {
-            if (node.type !== 'startCall' && node.type !== NodeType.START_CALL &&
-                node.type !== 'endCall' && node.type !== NodeType.END_CALL) {
-                xOffset = (rankIndex % 2 === 0) ? -horizontalStagger : horizontalStagger;
-            }
-        }
-
-        const x = dagreNode.x + xOffset;
-        const y = dagreNode.y;
-
-        workflowMinX = Math.min(workflowMinX, x);
-        workflowMaxX = Math.max(workflowMaxX, x + NODE_WIDTH);
-        workflowMinY = Math.min(workflowMinY, y);
-        workflowMaxY = Math.max(workflowMaxY, y + NODE_HEIGHT);
-
-        return {
-            ...node,
-            position: { x, y }
-        };
-    });
-
-    // Calculate center Y of the workflow for vertical alignment
-    const workflowCenterY = (workflowMinY + workflowMaxY) / 2;
-    const workflowTopY = workflowMinY;
-
-    // Position global nodes to the left of the workflow, close to it
-    const globalNodesX = workflowMinX - SECTION_HORIZONTAL_GAP;
-    const positionedGlobalNodes = globalNodes.map((node, index) => {
-        const totalHeight = globalNodes.length * NODE_HEIGHT + (globalNodes.length - 1) * VERTICAL_SPACING;
-        const startY = workflowCenterY - totalHeight / 2;
-        return {
-            ...node,
-            position: {
-                x: globalNodesX,
-                y: startY + index * (NODE_HEIGHT + VERTICAL_SPACING)
-            }
-        };
-    });
-
-    // Position trigger nodes to the left of global nodes (or workflow if no global)
-    const triggerNodesX = globalNodes.length > 0
-        ? globalNodesX - SECTION_HORIZONTAL_GAP
-        : workflowMinX - SECTION_HORIZONTAL_GAP;
-    const positionedTriggerNodes = triggerNodes.map((node, index) => {
-        const totalHeight = triggerNodes.length * NODE_HEIGHT + (triggerNodes.length - 1) * VERTICAL_SPACING;
-        const startY = workflowTopY + (workflowMaxY - workflowMinY) / 2 - totalHeight / 2;
-        return {
-            ...node,
-            position: {
-                x: triggerNodesX,
-                y: startY + index * (NODE_HEIGHT + VERTICAL_SPACING)
-            }
-        };
-    });
-
-    const webhookNodesX = workflowMaxX + SECTION_HORIZONTAL_GAP;
-    const rightSideStartY = rightSideNodes.length > 0
-        ? workflowCenterY - (
-            rightSideNodes.length * NODE_HEIGHT +
-            (rightSideNodes.length - 1) * VERTICAL_SPACING
-        ) / 2
-        : workflowCenterY;
-
-    const positionedRightSideNodes = rightSideNodes.map((node, index) => ({
-        ...node,
-        position: {
-            x: webhookNodesX,
-            y: rightSideStartY + index * (NODE_HEIGHT + VERTICAL_SPACING)
-        }
-    }));
-
-    // Combine all positioned nodes
-    const allPositionedNodes = [
-        ...positionedTriggerNodes,
-        ...positionedGlobalNodes,
-        ...positionedWorkflowNodes,
-        ...positionedRightSideNodes,
-    ];
-
-    // Create a map for quick lookup
-    const positionedNodeMap = new Map(allPositionedNodes.map(n => [n.id, n]));
-
-    // Return nodes in original order but with new positions
-    const newNodes = nodes.map(node => positionedNodeMap.get(node.id) || node);
-
-    // Fit view to the new layout
+    const arranged = arrangeNodes(nodes, edges);
     setTimeout(() => {
-        rfInstance.current?.fitView({ padding: 0.2, duration: 200, maxZoom: 0.75 });
+        rfInstance.current?.fitView({ padding: 0.15, duration: 200 });
     }, 0);
-
-    return newNodes;
+    return arranged;
 };

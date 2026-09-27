@@ -176,22 +176,17 @@ def save_guardrails(workflow_id: int, guardrails: dict[str, Any], actor: str | N
 # ---------------------------------------------------------------------------
 
 
-def _spoken_inr(value: Any) -> str | None:
-    import money_inr
-
-    try:
-        return f"₹{money_inr.group_indian(str(abs(int(round(float(value))))))}"
-    except (TypeError, ValueError):
-        return None
-
-
 def _position_context(position: dict[str, Any]) -> dict[str, Any]:
+    from money_inr import spoken_money
+
+    currency = position.get("currency") or "INR"
     return {
         "account_id": position.get("accountId"),
         "account_tail": position.get("accountTail"),
         "days_past_due": position.get("dpd"),
-        "outstanding_amount": _spoken_inr(position.get("outstandingInr")),
-        "minimum_due": _spoken_inr(position.get("minimumDueInr")),
+        "currency": currency,
+        "outstanding_amount": spoken_money(position.get("outstandingInr"), currency),
+        "minimum_due": spoken_money(position.get("minimumDueInr"), currency),
         "minimum_due_value": position.get("minimumDueInr"),
         "product_name": position.get("productName"),
         "account_status": position.get("status"),
@@ -218,12 +213,15 @@ def outbound_context(conn: Any, attempt_id: str, custom: dict[str, str]) -> dict
     }
     context = m.get("context") or {}
     ctx.update(_position_context(context.get("position") or {}))
+    from money_inr import spoken_money
+
     if custom.get("account_id"):
         ctx["account_id"] = custom["account_id"]
     promise = context.get("promise") or {}
     if promise:
         ctx["open_promise_date"] = promise.get("promisedDate") or promise.get("date")
-        ctx["open_promise_amount"] = _spoken_inr(promise.get("amountInr") or promise.get("amount"))
+        ctx["open_promise_amount"] = spoken_money(promise.get("amountInr") or promise.get("amount"),
+                                                  ctx.get("currency"))
     if custom.get("demo"):
         ctx["demo"] = True
     return {k: v for k, v in ctx.items() if v not in (None, "")}
@@ -432,7 +430,13 @@ def _account_position(customer_id: str | None, account_id: str | None) -> dict[s
         last = mission_mod._last_contact(conn, customer_id) if customer_id else None
     out = _position_context(position)
     if promise:
-        out["open_promise"] = promise
+        from money_inr import spoken_money
+
+        # In the account's currency: the stored key says Inr for every account.
+        out["open_promise"] = {
+            "amount": spoken_money(promise.get("amountInr"), out.get("currency")),
+            **{k: v for k, v in promise.items() if k != "amountInr"},
+        }
     if last:
         out["last_contact"] = last
     return {k: v for k, v in out.items() if v not in (None, "")}

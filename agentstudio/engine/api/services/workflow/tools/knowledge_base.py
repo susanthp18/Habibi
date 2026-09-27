@@ -356,6 +356,12 @@ def get_knowledge_base_tool(
                         "description": (
                             "The search query to find relevant information. "
                             "Be specific and use natural language. "
+                            # AgentStudio: a Tamil or Arabic question finds
+                            # little in English documents; the answer is still
+                            # given in the caller's language.
+                            "Write it in the language the documents are written in "
+                            "(English unless you know otherwise), whatever language "
+                            "the caller is speaking. "
                             "Example: 'What is the refund policy for canceled orders?'"
                         ),
                     }

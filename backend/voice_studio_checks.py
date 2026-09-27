@@ -48,8 +48,10 @@ _TEMPLATE_LEAK = re.compile(r"\[[a-z][a-z0-9_]*\]|\{\{[^}]*\}\}|(?<!\{)\{[a-z][a
 _verified_runs: set[str] = set()
 
 
-def _inr(value: Any) -> str | None:
-    return voice_studio._spoken_inr(value)
+def _money(value: Any, currency: Any = None) -> str | None:
+    from money_inr import spoken_money
+
+    return spoken_money(value, currency)
 
 
 def scenarios() -> list[dict[str, Any]]:
@@ -100,9 +102,10 @@ def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict
                     "say": "Verify the customer's identity before discussing the account."}
         return {
             "ok": True, "rehearsal": True,
-            "outstanding_amount": _inr(persona.get("overdue")),
+            "currency": persona.get("currency") or "INR",
+            "outstanding_amount": _money(persona.get("overdue"), persona.get("currency")),
             "days_past_due": persona.get("dpd"),
-            "minimum_due": _inr(persona.get("minimumDue")),
+            "minimum_due": _money(persona.get("minimumDue"), persona.get("currency")),
             "minimum_due_value": persona.get("minimumDue"),
             "product_name": persona.get("product"),
         }

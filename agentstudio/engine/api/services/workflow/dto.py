@@ -505,6 +505,7 @@ class AgentNodeData(
     property_order=(
         "name",
         "prompt",
+        "call_disposition",
         "add_global_prompt",
         "extraction_enabled",
         "extraction_prompt",
@@ -559,6 +560,38 @@ class EndCallNodeData(
     _ExtractionNodeDataMixin,
 ):
     is_end: bool = spec_field(default=True, spec_exclude=True)
+    # AgentStudio: the outcome an exit stands for, recorded when the call
+    # ends here. Empty leaves it to the call outcome classifier.
+    call_disposition: Optional[str] = spec_field(
+        default=None,
+        ui_type=PropertyType.string,
+        display_name="Call outcome",
+        description=(
+            "Outcome code recorded when the call ends here, for example "
+            "wrong_number or opted_out. Leave empty to let the call outcome "
+            "classifier choose from the agent's call outcomes."
+        ),
+        llm_hint=(
+            "Set it when this exit always means one outcome (voicemail, wrong "
+            "number, not verified, opted out). Leave it empty on an exit several "
+            "outcomes share, such as a goodbye after different agreements."
+        ),
+        placeholder="e.g. wrong_number",
+        max_length=64,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]*$",
+    )
+
+    @field_validator("call_disposition", mode="before")
+    @classmethod
+    def _outcome_code(cls, value: object) -> object:
+        import re
+
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        code = str(value).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", code):
+            raise ValueError("Call outcome must be a code like wrong_number (letters, digits, _ or -).")
+        return code
 
 
 @node_spec(

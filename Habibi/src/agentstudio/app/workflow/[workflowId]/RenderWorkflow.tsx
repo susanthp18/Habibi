@@ -34,7 +34,7 @@ import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowVersionDiffDialog } from './components/WorkflowVersionDiffDialog';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
-import { layoutNodes } from './utils/layoutNodes';
+import { arrangeNodes, hasOverlaps, layoutNodes } from './utils/layoutNodes';
 
 const edgeTypes = {
     custom: CustomEdge,
@@ -287,6 +287,21 @@ function RenderWorkflow({
         setVersionDiffPair(null);
         setIsVersionPanelOpen(true);
     }, []);
+
+    // AgentStudio: flows authored over MCP can arrive with cards stacked on
+    // each other. Once the cards are measured, arrange an overlapping graph --
+    // on screen only; it is saved with the next save.
+    const arrangedFor = useRef<string | null>(null);
+    useEffect(() => {
+        const key = String(activeVersionId ?? 'current');
+        if (arrangedFor.current === key || nodes.length === 0) return;
+        if (!nodes.every((node) => node.measured?.width)) return;
+        arrangedFor.current = key;
+        if (hasOverlaps(nodes)) {
+            setNodes(arrangeNodes(nodes, edges));
+            setTimeout(() => rfInstance.current?.fitView({ padding: 0.15, duration: 200 }), 0);
+        }
+    }, [nodes, edges, activeVersionId, setNodes, rfInstance]);
 
     const handleSelectVersion = useCallback((version: WorkflowVersionResponse) => {
         setActiveVersionId(version.id);
@@ -753,18 +768,19 @@ function RenderWorkflow({
                                             <TooltipTrigger asChild>
                                                 <Button
                                                     variant="outline"
-                                                    size="icon"
+                                                    size="sm"
                                                     onClick={() => {
                                                         setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
                                                         setIsDirty(true);
                                                     }}
-                                                    className="bg-white shadow-sm hover:shadow-md h-8 w-8"
+                                                    className="bg-white shadow-sm hover:shadow-md h-8 gap-1.5"
                                                 >
                                                     <BrushCleaning className="h-4 w-4" />
+                                                    Tidy up
                                                 </Button>
                                             </TooltipTrigger>
                                             <TooltipContent side="top">
-                                                <p>Tidy Up</p>
+                                                <p>Arrange the flow top to bottom, with every exit in a row underneath</p>
                                             </TooltipContent>
                                         </Tooltip>
                                     )}

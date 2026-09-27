@@ -79,8 +79,8 @@ COMPOSE=(docker-compose -p payint --env-file .env --env-file ../deploy/cloudunit
 echo "== build =="
 "${COMPOSE[@]}" build api voice agentstudio_engine
 
-echo "== schema: sql/66-69 Voice Studio (agents, releases, MCP keys, release attempts; additive) =="
-for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql; do
+echo "== schema: sql/66-70 Voice Studio tables and account currency (additive) =="
+for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql          sql/70_account_currency.sql; do
   docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 < "$f"
 done
 

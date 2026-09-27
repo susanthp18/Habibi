@@ -337,6 +337,7 @@ def test_all_registered_node_models_inherit_base_node_data():
             [
                 "name",
                 "prompt",
+                "call_disposition",
                 "add_global_prompt",
                 "extraction_enabled",
                 "extraction_prompt",

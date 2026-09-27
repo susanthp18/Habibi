@@ -136,6 +136,7 @@ class Node:
         self.tool_uuids = getattr(data, "tool_uuids", None)
         self.document_uuids = getattr(data, "document_uuids", None)
         self.mcp_tool_filters = getattr(data, "mcp_tool_filters", None)
+        self.call_disposition = getattr(data, "call_disposition", None)
         mode = getattr(data, "pre_call_fetch_mode", PreCallFetchMode.disabled)
         self.pre_call_fetch_mode = mode.value if hasattr(mode, "value") else mode
         self.pre_call_fetch_url = getattr(data, "pre_call_fetch_url", None)

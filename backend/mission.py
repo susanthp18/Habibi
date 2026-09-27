@@ -118,7 +118,7 @@ def _account_position(conn: Any, account_id: str | None) -> dict[str, Any]:
         text(
             """
             SELECT a.id, a.dpd, a.outstanding, a.minimum_due, a.status,
-                   a.product_id, p.name AS product_name
+                   a.currency, a.product_id, p.name AS product_name
             FROM accounts a
             LEFT JOIN products p ON p.id = a.product_id
             WHERE a.id = :id
@@ -143,6 +143,8 @@ def _account_position(conn: Any, account_id: str | None) -> dict[str, Any]:
         "minimumDueInr": float(row["minimum_due"]) if row["minimum_due"] is not None else None,
         "status": row["status"],
         "productName": row["product_name"],
+        # The amounts above are in this currency, whatever their key says.
+        "currency": row["currency"] or "INR",
     }
 
 
@@ -484,11 +486,14 @@ def briefing(mission: dict[str, Any]) -> str:
 
     ctx = mission.get("context") or {}
     position = ctx.get("position") or {}
+    from money_inr import spoken_money
+
+    currency = position.get("currency")
     if position.get("outstandingInr") is not None:
         tail = position.get("accountTail")
-        bits = [f"outstanding is ₹{_inr(position['outstandingInr'])}"]
+        bits = [f"outstanding is {spoken_money(position['outstandingInr'], currency)}"]
         if position.get("minimumDueInr") is not None:
-            bits.append(f"minimum due ₹{_inr(position['minimumDueInr'])}")
+            bits.append(f"minimum due {spoken_money(position['minimumDueInr'], currency)}")
         if position.get("dpd"):
             bits.append(f"{position['dpd']} days overdue")
         lines.append(
@@ -502,7 +507,7 @@ def briefing(mission: dict[str, Any]) -> str:
         state = "was not kept" if promise.get("status") == "broken" else "is open"
         late = f", {promise['daysLate']} days ago" if promise.get("daysLate") else ""
         lines.append(
-            f"They promised ₹{_inr(promise['amountInr'])} by "
+            f"They promised {spoken_money(promise['amountInr'], currency)} by "
             f"{clock.spoken_date(promise.get('promisedDate'))}{late} and that promise {state}. "
             "Refer to it without reproach."
         )

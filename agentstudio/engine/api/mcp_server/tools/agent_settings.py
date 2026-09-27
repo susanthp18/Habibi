@@ -55,6 +55,7 @@ async def _settings(workflow_id: int, organization_id: int, configs: dict) -> di
         "workflow_id": workflow_id,
         "source": "agent" if own else "organization",
         **{name: _public(getattr(effective, name, None)) for name in _SECTIONS},
+        "call_dispositions": list(configs.get("call_dispositions") or []),
     }
 
 
@@ -78,8 +79,10 @@ async def update_agent_settings(
     stt: dict | None = None,
     tts: dict | None = None,
     llm: dict | None = None,
+    call_dispositions: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Change an agent's speech-to-text, voice or model settings, as a draft.
+    """Change an agent's speech-to-text, voice or model settings, or its call
+    outcomes, as a draft.
 
     Each argument is a partial section merged over the agent's current one
     (its own settings, else the organization's). Nothing is live until the
@@ -88,6 +91,10 @@ async def update_agent_settings(
     - tts: {"voice": "en-IN-NeerjaNeural", "voice_map": {"hi-IN": "hi-IN-SwaraNeural",
       "ta-IN": "ta-IN-PallaviNeural"}, "speed": 1.0, "style": "empathetic"}
     - llm: {"model": "gpt-4.1"}
+    - call_dispositions: [{"code": "promise_to_pay", "description": "The customer
+      committed to an amount and date and promise_to_pay succeeded."}, ...] --
+      replaces the agent's list. The classifier picks one of these when a call
+      ends at an exit without its own call_disposition.
 
     Keys and other secrets are never accepted here; set them in Voice Studio.
     Changing a section's provider also needs its key, so it is done there too.
@@ -101,8 +108,8 @@ async def update_agent_settings(
     """
     user = await authenticate_mcp_request()
     changes = {name: fields for name, fields in (("stt", stt), ("tts", tts), ("llm", llm)) if fields}
-    if not changes:
-        return _error_result("invalid_settings", "Pass at least one of stt, tts or llm.")
+    if not changes and call_dispositions is None:
+        return _error_result("invalid_settings", "Pass at least one of stt, tts, llm or call_dispositions.")
     secrets = sorted(f"{name}.{field}" for name, fields in changes.items()
                      for field in fields if field in _SECRET_FIELDS)
     if secrets:
@@ -112,25 +119,28 @@ async def update_agent_settings(
     if workflow is None:
         return _error_result("not_found", f"Workflow {workflow_id} not found")
 
-    base = configs.get(WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY)
-    if not base:
-        resolved = await get_resolved_ai_model_configuration(
-            organization_id=user.selected_organization_id,
-        )
-        if resolved.organization_configuration is None:
-            return _error_result("invalid_settings", "The organization has no model configuration to start from.")
-        base = resolved.organization_configuration.model_dump(mode="json", exclude_none=True)
-    base = copy.deepcopy(base)
-    pipeline = (base.get("byok") or {}).get("pipeline")
-    if not pipeline:
-        return _error_result("invalid_settings", "Agent settings apply to speech pipelines (bring-your-own-key mode).")
-    for name, fields in changes.items():
-        current = pipeline.get(name) or {}
-        if fields.get("provider") and fields["provider"] != current.get("provider"):
-            return _error_result("provider_change", f"Change the {name} provider in Voice Studio, where its key is set.")
-        pipeline[name] = {**current, **fields}
-    configs[WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY] = base
-    configs.pop("model_overrides", None)
+    if call_dispositions is not None:
+        configs["call_dispositions"] = call_dispositions
+    if changes:
+        base = configs.get(WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY)
+        if not base:
+            resolved = await get_resolved_ai_model_configuration(
+                organization_id=user.selected_organization_id,
+            )
+            if resolved.organization_configuration is None:
+                return _error_result("invalid_settings", "The organization has no model configuration to start from.")
+            base = resolved.organization_configuration.model_dump(mode="json", exclude_none=True)
+        base = copy.deepcopy(base)
+        pipeline = (base.get("byok") or {}).get("pipeline")
+        if not pipeline:
+            return _error_result("invalid_settings", "Agent settings apply to speech pipelines (bring-your-own-key mode).")
+        for name, fields in changes.items():
+            current = pipeline.get(name) or {}
+            if fields.get("provider") and fields["provider"] != current.get("provider"):
+                return _error_result("provider_change", f"Change the {name} provider in Voice Studio, where its key is set.")
+            pipeline[name] = {**current, **fields}
+        configs[WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY] = base
+        configs.pop("model_overrides", None)
 
     # The editor's own save path: validation, secret merge and draft write.
     from api.routes.workflow import UpdateWorkflowRequest, update_workflow
