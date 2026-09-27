@@ -1041,6 +1041,42 @@ def _version_number(workflow_id: Any, definition_id: Any) -> int | None:
     return next((v.get("version_number") for v in versions if v.get("id") == definition_id), None)
 
 
+def _engine_runs(since: str, until: str) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        body = engine_call("GET", f"/organizations/usage/runs?start_date={since}&end_date={until}"
+                                  f"&page={page}&limit=100") or {}
+        runs.extend(body.get("runs") or [])
+        if page >= int(body.get("total_pages") or 1):
+            break
+    return runs
+
+
+def _workflow_resolver(runs: list[dict[str, Any]], until: str):
+    """engine run id -> workflow id. The bot id carries it (``voice-studio-<id>``)
+    except on calls filed before it did (plain ``voice-studio``); those are
+    looked up in the engine's own run listing, a year back, fetched once."""
+    from datetime import timedelta
+
+    known = {str(r["id"]): int(r["workflow_id"]) for r in runs if r.get("workflow_id") is not None}
+    wide: dict[str, int] | None = None
+
+    def resolve(run_id: Any, handler_bot_id: Any) -> int | None:
+        nonlocal wide
+        suffix = str(handler_bot_id or "").removeprefix("voice-studio-")
+        if suffix.isdigit():
+            return int(suffix)
+        if str(run_id) in known:
+            return known[str(run_id)]
+        if wide is None:
+            since = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S")
+            wide = {str(r["id"]): int(r["workflow_id"]) for r in _engine_runs(since, until)
+                    if r.get("workflow_id") is not None}
+        return wide.get(str(run_id))
+
+    return resolve
+
+
 def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 100) -> dict[str, int]:
     """File every finished engine call the webhook missed, and repair bad audio refs.
 
@@ -1059,13 +1095,8 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
     # offset would arrive as a space in the query string.
     since = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
     until = (now - timedelta(minutes=settle_minutes)).strftime("%Y-%m-%dT%H:%M:%S")
-    runs: list[dict[str, Any]] = []
-    for page in range(1, 11):
-        body = engine_call("GET", f"/organizations/usage/runs?start_date={since}&end_date={until}"
-                                  f"&page={page}&limit=100") or {}
-        runs.extend(body.get("runs") or [])
-        if page >= int(body.get("total_pages") or 1):
-            break
+    runs = _engine_runs(since, until)
+    workflow_of = _workflow_resolver(runs, until)
     due = [
         r for r in runs
         if (r.get("gathered_context") or {}).get("call_status")
@@ -1101,12 +1132,18 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
             report["failed"] += 1
             logger.exception("voice studio reconcile: run %s not filed", run.get("id"))
     for media in broken:
-        workflow_id = str(media.handler_bot_id or "").removeprefix("voice-studio-")
         try:
+            workflow_id = workflow_of(media.provider_call_id, media.handler_bot_id)
+            if workflow_id is None:
+                raise LookupError(f"engine run {media.provider_call_id} not in the engine's run listing")
             run = engine_call("GET", f"/workflow/{workflow_id}/runs/{media.provider_call_id}") or {}
             if file_recording(media.interaction_id, run):
                 with db.engine.begin() as conn:
                     conn.execute(text("DELETE FROM interaction_media WHERE id = :id"), {"id": media.id})
+                    if media.handler_bot_id != f"voice-studio-{workflow_id}":
+                        # Filed as plain "voice-studio": name the agent now it is known.
+                        conn.execute(text("UPDATE interactions SET handler_bot_id = :bot WHERE id = :ix"),
+                                     {"bot": ensure_bot(conn, workflow_id), "ix": media.interaction_id})
                 report["repaired"] += 1
         except Exception:
             report["failed"] += 1
@@ -1118,11 +1155,15 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
         unmarked = conn.execute(text(
             "SELECT i.id, s.provider_call_id, i.handler_bot_id FROM interactions i "
             "JOIN voice_sessions s ON s.interaction_id = i.id AND s.id LIKE 'VS-studio-%' "
-            "WHERE NOT (i.source_payload ? 'voiceStudio') AND i.handler_bot_id LIKE 'voice-studio-%' LIMIT 50"
+            "WHERE NOT (i.source_payload ? 'voiceStudio') "
+            "AND (i.handler_bot_id LIKE 'voice-studio-%' OR i.handler_bot_id = 'voice-studio') LIMIT 50"
         )).all()
     report["provenance"] = 0
     for row in unmarked:
-        workflow_id = str(row.handler_bot_id).removeprefix("voice-studio-")
+        workflow_id = workflow_of(row.provider_call_id, row.handler_bot_id)
+        if workflow_id is None:
+            logger.warning("voice studio reconcile: run %s has no known agent", row.provider_call_id)
+            continue
         try:
             run = engine_call("GET", f"/workflow/{workflow_id}/runs/{row.provider_call_id}") or {}
         except httpx.HTTPError:
@@ -1132,8 +1173,9 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
 
         with db.engine.begin() as conn:
             conn.execute(
-                text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb) WHERE id = :ix"),
-                {"ix": row.id, "p": json.dumps({"voiceStudio": {
+                text("UPDATE interactions SET source_payload = source_payload || CAST(:p AS jsonb), "
+                     "handler_bot_id = :bot WHERE id = :ix"),
+                {"ix": row.id, "bot": ensure_bot(conn, workflow_id), "p": json.dumps({"voiceStudio": {
                     "engineRunId": int(row.provider_call_id), "workflowId": int(workflow_id),
                     "definitionId": run.get("definition_id"),
                     "versionNumber": _version_number(workflow_id, run.get("definition_id")),

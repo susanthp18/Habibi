@@ -94,3 +94,25 @@ def test_detectors_hold_the_eval_gate_without_the_model() -> None:
     report = pii_eval.run(use_model=False)
     assert report["structuredRecall"] >= pii_eval.GATE["structured"], report["notes"]
     assert report["precision"] >= pii_eval.GATE["precision"], report["notes"]
+
+
+def test_reconcile_resolves_the_agent_of_calls_filed_without_one(monkeypatch) -> None:
+    """Early calls were filed as plain "voice-studio"; the repair built
+    /workflow/voice-studio/runs/7 and the engine answered 422 on every sweep.
+    The agent now comes from the bot id, else the engine's own run listing
+    (fetched once, a year back)."""
+    import voice_studio
+
+    fetched: list[str] = []
+
+    def listing(since: str, until: str) -> list[dict]:
+        fetched.append(since)
+        return [{"id": 7, "workflow_id": 3}, {"id": 8, "workflow_id": 3}]
+
+    monkeypatch.setattr(voice_studio, "_engine_runs", listing)
+    resolve = voice_studio._workflow_resolver([{"id": 42, "workflow_id": 9}], "2026-09-27T00:00:00")
+    assert resolve(1, "voice-studio-5") == 5
+    assert resolve(42, "voice-studio") == 9 and fetched == []
+    assert resolve(7, "voice-studio") == 3 and resolve(8, None) == 3
+    assert resolve(99, "voice-studio") is None
+    assert len(fetched) == 1
