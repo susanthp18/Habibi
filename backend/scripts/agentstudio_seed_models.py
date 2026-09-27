@@ -6,14 +6,20 @@ provider settings the rest of the platform already uses (backend .env), so a
 fresh engine is usable without anyone pasting keys into a form:
 
     LLM         Azure OpenAI  (AZURE_OPENAI_VOICE_* deployment)
-    Transcriber Deepgram      (DEEPGRAM_API_KEYS, DEEPGRAM_STT_MODEL, multilingual)
+    Transcriber Azure Speech  (AZURE_SPEECH_KEY / _REGION, AZURE_SPEECH_STT_LANGUAGE)
     Voice       Azure Speech  (AZURE_SPEECH_KEY / _REGION / _TTS_VOICE_DEFAULT)
     Embeddings  Azure OpenAI  (AZURE_OPENAI_EMBEDDING_DEPLOYMENT, 1536 dims)
+
+The organization transcribes in one language; an agent whose callers may
+switch language sets its own list in Voice Studio (Azure language
+identification). ``--stt-only`` changes just the transcriber and keeps every
+other section as saved (voices, models, keys).
 
 Idempotent; re-run after rotating a key. Secrets are never printed.
 
     docker exec collections_api python -m scripts.agentstudio_seed_models --actor priya-nair
     docker exec collections_api python -m scripts.agentstudio_seed_models --actor priya-nair --dry-run
+    docker exec collections_api python -m scripts.agentstudio_seed_models --actor priya-nair --stt-only
 """
 
 from __future__ import annotations
@@ -35,8 +41,16 @@ def _require(name: str) -> str:
     return value
 
 
+def build_stt() -> dict:
+    return {
+        "provider": "azure_speech",
+        "region": _require("AZURE_SPEECH_REGION"),
+        "language": env_str("AZURE_SPEECH_STT_LANGUAGE", "en-IN"),
+        "api_key": _require("AZURE_SPEECH_KEY"),
+    }
+
+
 def build_configuration() -> dict:
-    deepgram_keys = [k.strip() for k in _require("DEEPGRAM_API_KEYS").split(",") if k.strip()]
     return {
         "version": 2,
         "mode": "byok",
@@ -49,12 +63,7 @@ def build_configuration() -> dict:
                     "endpoint": _require("AZURE_OPENAI_VOICE_ENDPOINT"),
                     "api_key": _require("AZURE_OPENAI_VOICE_API_KEY"),
                 },
-                "stt": {
-                    "provider": "deepgram",
-                    "model": env_str("DEEPGRAM_STT_MODEL", "nova-3"),
-                    "language": "multi",
-                    "api_key": deepgram_keys if len(deepgram_keys) > 1 else deepgram_keys[0],
-                },
+                "stt": build_stt(),
                 "tts": {
                     "provider": "azure_speech",
                     "region": _require("AZURE_SPEECH_REGION"),
@@ -88,12 +97,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--actor", required=True, help="users.id recorded as the engine user making the change")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--stt-only", action="store_true",
+                        help="replace only the transcriber; keep the saved voice, models and keys")
     args = parser.parse_args()
-
-    config = build_configuration()
-    print(json.dumps(_redacted(config), indent=2))
-    if args.dry_run:
-        return
 
     import db
 
@@ -103,6 +109,23 @@ def main() -> None:
         "X-User-Id": args.actor,
         "X-Org-Id": db.current_tenant(),
     }
+    if args.stt_only:
+        # The saved configuration comes back with its keys masked; the engine
+        # restores masked keys from what it stores, so only the transcriber changes.
+        current = httpx.get(f"{engine_url}/api/v1/organizations/model-configurations/v2",
+                            headers=headers, timeout=30)
+        current.raise_for_status()
+        config = current.json().get("configuration") or {}
+        pipeline = ((config.get("byok") or {}).get("pipeline"))
+        if config.get("mode") != "byok" or not pipeline:
+            sys.exit("the organization has no speech pipeline configuration to update; run without --stt-only")
+        pipeline["stt"] = build_stt()
+    else:
+        config = build_configuration()
+    print(json.dumps(_redacted(config), indent=2))
+    if args.dry_run:
+        return
+
     resp = httpx.put(
         f"{engine_url}/api/v1/organizations/model-configurations/v2",
         json=config,

@@ -167,6 +167,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                     final=False,
                     user_id=frame.user_id,
                     timestamp=frame.timestamp,
+                    language=str(frame.language) if frame.language else None,
                 )
             )
         # Handle user transcriptions (final) - WebSocket only
@@ -178,6 +179,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                     final=True,
                     user_id=frame.user_id,
                     timestamp=frame.timestamp,
+                    language=str(frame.language) if frame.language else None,
                 )
             )
         # Handle engine-queued speech (transition/tool messages) marked for
@@ -327,6 +329,7 @@ def register_turn_log_handlers(
     transcript_coordinator: "TranscriptLogCoordinator",
     user_aggregator,
     assistant_aggregator,
+    language_of_turn=None,
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
@@ -342,6 +345,7 @@ def register_turn_log_handlers(
                 text=message.content,
                 timestamp=message.timestamp,
                 end_timestamp=getattr(message, "end_timestamp", None),
+                language=language_of_turn() if language_of_turn else None,
             )
         except Exception as e:
             logger.error(f"Failed to coordinate user turn transcript: {e}")

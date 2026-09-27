@@ -32,11 +32,14 @@ def build_user_transcription_event(
     timestamp: str | None = None,
     end_timestamp: str | None = None,
     user_id: str | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "text": text,
         "final": final,
     }
+    if language:
+        payload["language"] = language
     if timestamp is not None:
         payload["timestamp"] = timestamp
     if end_timestamp is not None:

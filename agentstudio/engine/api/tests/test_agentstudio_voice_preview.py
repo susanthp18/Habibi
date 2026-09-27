@@ -50,5 +50,22 @@ def test_preview_rejects_a_voice_name_that_could_inject_ssml():
 
 
 def test_hd_voices_are_labelled_as_premium():
-    assert _azure_tier("en-US-Ava:DragonHDLatestNeural", "Neural").startswith("HD")
-    assert _azure_tier("en-IN-AartiNeural", "Neural") == "Neural"
+    assert _azure_tier("en-US-Ava:DragonHDLatestNeural", "Neural") == "hd"
+    assert _azure_tier("en-IN-AartiNeural", "Neural") == "neural"
+    assert _azure_tier("hi-IN-Kavya:MAI-Voice-2", "Neural") == "mai"
+
+
+def test_a_voice_speaks_its_own_and_secondary_locales_and_its_language():
+    from api.services.voice_catalog_local import voice_speaks
+
+    ava = {"language": "en-US", "locales": ["en-US", "hi-IN", "ta-IN", "ar-SA"]}
+    assert voice_speaks(ava, "ta-IN") and voice_speaks(ava, "ar-AE")
+    assert not voice_speaks({"language": "en-IN", "locales": ["en-IN"]}, "ta-IN")
+
+
+def test_preview_speaks_a_sample_in_the_language_previewed():
+    from api.services.voice_catalog_local import PREVIEW_TEXT, preview_text_for
+
+    assert preview_text_for("ta-IN", "ta-IN-PallaviNeural") != PREVIEW_TEXT
+    assert preview_text_for(None, "ar-AE-FatimaNeural").startswith("مرحباً")
+    assert preview_text_for("en-IN", "en-US-AvaMultilingualNeural") == PREVIEW_TEXT

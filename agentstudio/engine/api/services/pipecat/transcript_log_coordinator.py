@@ -37,6 +37,7 @@ class _TranscriptSide:
     emitted: bool = False
     node_id: str | None = None
     node_name: str | None = None
+    language: str | None = None
 
 
 @dataclass
@@ -169,10 +170,13 @@ class TranscriptLogCoordinator:
         timestamp: str | None,
         end_timestamp: str | None = None,
         event_timestamp: str | None = None,
+        language: str | None = None,
     ) -> None:
         async with self._lock:
             state = self._select_user_turn()
             side = state.user
+            if language:
+                side.language = language
             first_text = side.text is None
             side.text = text if first_text else f"{side.text}\n{text}"
             if first_text:
@@ -261,6 +265,7 @@ class TranscriptLogCoordinator:
             final=True,
             timestamp=side.speech_start_timestamp or side.transcript_timestamp,
             end_timestamp=side.speech_end_timestamp,
+            language=side.language,
         )
         await self._append(state, side, event)
 

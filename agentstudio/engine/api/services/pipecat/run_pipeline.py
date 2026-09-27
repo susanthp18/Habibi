@@ -1134,6 +1134,23 @@ async def _run_pipeline_impl(
             termination_funnel,
         )
     else:
+        # AgentStudio: callers who switch language mid-call. The tracker follows
+        # Azure's per-phrase language and tells the model when it changes.
+        language_tracker = None
+        stt_languages = list(getattr(getattr(user_config, "stt", None), "languages", None) or [])
+        if (
+            stt is not None
+            and (getattr(user_config.stt, "language_id_mode", None) or "single") != "single"
+            and stt_languages
+        ):
+            from api.services.pipecat.call_language import CallLanguageTracker
+
+            engine.caller_languages = stt_languages
+            language_tracker = CallLanguageTracker(
+                initial=stt_languages[0],
+                on_change=engine.record_caller_language,
+                name=f"{call_worker_name}::CallLanguage",
+            )
         pipeline = build_pipeline(
             transport,
             stt,
@@ -1153,6 +1170,7 @@ async def _run_pipeline_impl(
             pipeline_metrics_aggregator,
             termination_funnel,
             answer_supervisor=answer_supervisor,
+            language_tracker=language_tracker,
         )
 
     # Create pipeline task with audio configuration
@@ -1268,6 +1286,7 @@ async def _run_pipeline_impl(
         transcript_log_coordinator,
         user_context_aggregator,
         assistant_context_aggregator,
+        language_of_turn=lambda: engine.caller_language,
     )
 
     # Register event handlers — resolve provider_id for PostHog tracking

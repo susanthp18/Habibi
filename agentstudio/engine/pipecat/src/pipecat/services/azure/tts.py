@@ -94,6 +94,13 @@ class AzureTTSSettings(TTSSettings):
             ``"enhancePronunciation=true"``). Which keys apply depends on the
             voice's base model; standard neural voices ignore the attribute.
         volume: Volume level (e.g., "+20%", "loud", "x-soft").
+        voice_map: Voice per locale (e.g. ``{"hi-IN": "hi-IN-SwaraNeural",
+            "ta-IN": "ta-IN-PallaviNeural"}``) for text in several languages.
+            Each run of text is spoken by the voice for its script's language
+            (Devanagari, Tamil, Arabic, Latin); ``voice`` speaks the rest. Latin
+            text goes to ``language`` when that is a Latin-script locale in the
+            map. A short Latin run inside other-script text (a name, "OK") stays
+            with its surroundings rather than switching voice mid-sentence.
     """
 
     emphasis: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
@@ -105,6 +112,83 @@ class AzureTTSSettings(TTSSettings):
     style_degree: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
     voice_parameters: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
     volume: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    voice_map: dict[str, str] | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+
+
+# Unicode blocks of the scripts a voice map routes on; everything else
+# (digits, punctuation, spaces) belongs to the run around it.
+_SCRIPT_BLOCKS = (
+    ("hi", 0x0900, 0x097F),  # Devanagari (Hindi, Marathi, ...)
+    ("ta", 0x0B80, 0x0BFF),  # Tamil
+    ("ar", 0x0600, 0x06FF),  # Arabic
+    ("ar", 0x0750, 0x077F),
+    ("ar", 0x08A0, 0x08FF),
+    ("ar", 0xFB50, 0xFDFF),
+    ("ar", 0xFE70, 0xFEFF),
+)
+_LATIN = "latin"
+# A Latin run this short inside other-script text is spoken by the voice
+# around it: Indian and Arabic voices read embedded English words naturally.
+_MAX_EMBEDDED_LATIN_WORDS = 3
+
+
+def _script_of(char: str) -> str | None:
+    code = ord(char)
+    for script, low, high in _SCRIPT_BLOCKS:
+        if low <= code <= high:
+            return script
+    if char.isalpha() and code < 0x0250:
+        return _LATIN
+    return None
+
+
+_LOCALE_SCRIPTS = {
+    "hi": "hi", "mr": "hi", "ne": "hi",
+    "ta": "ta",
+    "ar": "ar", "ur": "ar", "fa": "ar",
+}
+# Languages written in a script this module does not route on; never "Latin".
+_OTHER_SCRIPT_LANGUAGES = frozenset({
+    "bn", "el", "gu", "he", "ja", "kn", "ko", "ml", "pa", "ru", "si", "te", "th", "uk", "zh",
+})
+
+
+def _script_of_locale(locale: str) -> str | None:
+    language = locale.split("-")[0].lower()
+    if language in _LOCALE_SCRIPTS:
+        return _LOCALE_SCRIPTS[language]
+    return None if language in _OTHER_SCRIPT_LANGUAGES else _LATIN
+
+
+def split_by_script(text: str) -> list[tuple[str, str]]:
+    """Split ``text`` into ``(script, run)`` pieces, neutral characters attached.
+
+    Short Latin runs between other-script runs are folded into them.
+    """
+    runs: list[list[str]] = []
+    for char in text:
+        script = _script_of(char)
+        if runs and (script is None or script == runs[-1][0]):
+            runs[-1][1] += char
+        elif script is None:
+            runs.append([None, char])
+        elif runs and runs[-1][0] is None:
+            runs[-1] = [script, runs[-1][1] + char]
+        else:
+            runs.append([script, char])
+    if any(script not in (None, _LATIN) for script, _ in runs):
+        for index, run in enumerate(runs):
+            if run[0] == _LATIN and len(run[1].split()) <= _MAX_EMBEDDED_LATIN_WORDS:
+                neighbour = runs[index - 1] if index else runs[index + 1] if index + 1 < len(runs) else None
+                if neighbour is not None and neighbour[0] not in (None, _LATIN):
+                    run[0] = neighbour[0]
+    merged: list[list[str]] = []
+    for script, piece in runs:
+        if merged and (script is None or merged[-1][0] == script):
+            merged[-1][1] += piece
+        else:
+            merged.append([script, piece])
+    return [(script or _LATIN, piece) for script, piece in merged]
 
 
 class AzureBaseTTSService:
@@ -194,29 +278,68 @@ class AzureBaseTTSService:
         """
         return language_to_azure_language(language)
 
-    def _construct_ssml(self, text: str) -> str:
-        language = self._settings.language
+    def _voice_segments(self, text: str) -> list[tuple[str, str, str]]:
+        """``(voice, locale, text)`` pieces: one per script run when a voice map is set."""
+        voice = str(self._settings.voice)
+        language = str(self._settings.language or "")
+        voice_map = self._settings.voice_map or {}
+        if not voice_map:
+            return [(voice, language, text)]
 
+        def locale_for(script: str) -> str | None:
+            def matches(locale: str) -> bool:
+                return _script_of_locale(locale) == script
+
+            if language in voice_map and matches(language):
+                return language
+            return next((locale for locale in voice_map if matches(locale)), None)
+
+        segments: list[tuple[str, str, str]] = []
+        for script, piece in split_by_script(text):
+            locale = locale_for(script)
+            target = (voice_map[locale], locale) if locale else (voice, language)
+            if segments and segments[-1][:2] == target:
+                segments[-1] = (*target, segments[-1][2] + piece)
+            else:
+                segments.append((*target, piece))
+        return segments
+
+    def _construct_ssml(self, text: str) -> str:
+        segments = self._voice_segments(text)
+        ssml = (
+            f"<speak version='1.0' xml:lang='{segments[0][1]}' "
+            "xmlns='http://www.w3.org/2001/10/synthesis' "
+            "xmlns:mstts='http://www.w3.org/2001/mstts'>"
+        )
+        for voice, locale, piece in segments:
+            ssml += self._voice_ssml(voice, locale, piece)
+        return ssml + "</speak>"
+
+    def _voice_ssml(self, voice: str, language: str, text: str) -> str:
         # Escape special characters
         escaped_text = self._escape_text(text)
+        own_voice = voice == self._settings.voice
 
-        voice_attrs = f"name='{self._settings.voice}'"
-        if self._settings.voice_parameters:
+        voice_attrs = f"name='{voice}'"
+        if self._settings.voice_parameters and own_voice:
             voice_attrs += f" parameters='{self._settings.voice_parameters}'"
 
         ssml = (
-            f"<speak version='1.0' xml:lang='{language}' "
-            "xmlns='http://www.w3.org/2001/10/synthesis' "
-            "xmlns:mstts='http://www.w3.org/2001/mstts'>"
             f"<voice {voice_attrs}>"
             "<mstts:silence type='Sentenceboundary' value='20ms' />"
         )
 
-        if self._settings.force_locale:
+        # A multilingual voice picks its language from the text. It is pinned
+        # only on request: pinned to a locale outside its set it speaks nothing.
+        pin_locale = bool(self._settings.force_locale)
+        if pin_locale:
             ssml += f"<lang xml:lang='{language}'>"
 
-        if self._settings.style:
-            ssml += f"<mstts:express-as style='{self._settings.style}'"
+        # Styles and roles are chosen for the agent's own voice; another
+        # language's voice may not offer them.
+        style = self._settings.style if own_voice else None
+        if style:
+            ssml += f"<mstts:express-as style='{style}'"
             if self._settings.style_degree:
                 ssml += f" styledegree='{self._settings.style_degree}'"
             if self._settings.role:
@@ -246,15 +369,13 @@ class AzureBaseTTSService:
         if prosody_attrs:
             ssml += "</prosody>"
 
-        if self._settings.style:
+        if style:
             ssml += "</mstts:express-as>"
 
-        if self._settings.force_locale:
+        if pin_locale:
             ssml += "</lang>"
 
-        ssml += "</voice></speak>"
-
-        return ssml
+        return ssml + "</voice>"
 
     def _escape_text(self, text: str) -> str:
         """Escapes XML/SSML reserved characters according to Microsoft documentation.

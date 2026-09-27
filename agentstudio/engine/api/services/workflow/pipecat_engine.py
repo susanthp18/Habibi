@@ -176,6 +176,10 @@ class PipecatEngine:
         # Set by run setup on every cascade call; a realtime call gets none
         # and so can never transfer.
         self._agent_factory = None
+        # Set by run setup when callers may switch language: the languages the
+        # agent listens for. The current one is the call variable
+        # ``caller_language``, kept by the CallLanguageTracker.
+        self.caller_languages: list[str] | None = None
         self._transfer_coordinator = None
         self.context = context
         self._call_context_vars = call_context_vars
@@ -829,6 +833,10 @@ class PipecatEngine:
             format_prompt=self._format_prompt,
             has_recordings=self._has_recordings,
         )
+        if self.__dict__.get("caller_languages"):
+            from api.services.pipecat.call_language import multilingual_reply_rule
+
+            prompt = f"{prompt}\n\n{multilingual_reply_rule(self.caller_languages)}"
         functions = await compose_functions_for_node(
             node=node, custom_tool_manager=manager
         )
@@ -1556,6 +1564,18 @@ class PipecatEngine:
         failing silently.
         """
         return self.__dict__.get("_agent_factory") is not None
+
+    @property
+    def caller_language(self) -> str | None:
+        """The language the caller is speaking now, on a multilingual call."""
+        return (self._call_context_vars or {}).get("caller_language")
+
+    def record_caller_language(self, language: str, spoken: list[str]) -> None:
+        """Follow the caller's language: a call variable for prompts, and the
+        languages heard so far on the run record."""
+        if self._call_context_vars is not None:
+            self._call_context_vars["caller_language"] = language
+        self._gathered_context["languages_spoken"] = list(spoken)
 
     @property
     def transfer_coordinator(self):

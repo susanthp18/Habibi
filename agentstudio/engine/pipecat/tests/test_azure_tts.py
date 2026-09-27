@@ -209,3 +209,61 @@ def test_construct_ssml_force_locale_wraps_nested_style_and_prosody(service_clas
         "</lang>"
         "</voice></speak>"
     )
+
+
+@pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
+def test_voice_map_speaks_each_script_with_its_voice(service_class):
+    """A reply in two scripts is one SSML document with one voice per run."""
+    service = service_class(
+        api_key="test-key",
+        region="eastus",
+        settings=service_class.Settings(
+            voice="en-IN-NeerjaNeural",
+            language="en-IN",
+            style="empathetic",
+            voice_map={"en-IN": "en-IN-NeerjaNeural", "ta-IN": "ta-IN-PallaviNeural"},
+        ),
+    )
+
+    ssml = service._construct_ssml("நான் நாளை அழைக்கிறேன். Thank you for your time today.")
+
+    assert ssml.count("<voice ") == 2
+    tamil, english = ssml.split("</voice>")[:2]
+    assert "ta-IN-PallaviNeural" in tamil and "express-as" not in tamil
+    assert "en-IN-NeerjaNeural" in english and "express-as style='empathetic'" in english
+
+
+@pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
+def test_voice_map_keeps_a_short_english_word_with_its_sentence(service_class):
+    service = service_class(
+        api_key="test-key",
+        region="eastus",
+        settings=service_class.Settings(
+            voice="en-IN-NeerjaNeural",
+            language="hi-IN",
+            voice_map={"en-IN": "en-IN-NeerjaNeural", "hi-IN": "hi-IN-SwaraNeural"},
+        ),
+    )
+
+    ssml = service._construct_ssml("ठीक है, मैं WhatsApp पर link भेज दूँगी।")
+
+    assert ssml.count("<voice ") == 1 and "hi-IN-SwaraNeural" in ssml
+
+
+@pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
+def test_multilingual_voice_detects_the_language_itself(service_class):
+    service = service_class(
+        api_key="test-key",
+        region="eastus",
+        settings=service_class.Settings(
+            voice="en-US-AvaMultilingualNeural",
+            language="en-IN",
+            voice_map={"hi-IN": "en-US-AvaMultilingualNeural"},
+        ),
+    )
+
+    ssml = service._construct_ssml("आपका धन्यवाद।")
+
+    # Pinned to a locale outside its set a multilingual voice is silent, so it
+    # is left to detect the language from the text.
+    assert "<lang" not in ssml and "en-US-AvaMultilingualNeural" in ssml

@@ -164,3 +164,45 @@ class TestAzureSTTFinalizedFlag(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAzureSTTLanguageIdentification:
+    """A multilingual recognizer reports each phrase's detected language."""
+
+    def _service(self, **settings):
+        return AzureSTTService(
+            api_key="fake",
+            region="southeastasia",
+            settings=AzureSTTService.Settings(language="en-IN", **settings),
+        )
+
+    def _result(self, detected):
+        from azure.cognitiveservices.speech import PropertyId
+
+        return SimpleNamespace(
+            properties={PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult: detected}
+        )
+
+    def test_continuous_mode_uses_the_universal_endpoint(self):
+        from azure.cognitiveservices.speech import PropertyId
+
+        service = self._service(languages=["en-IN", "hi-IN", "ta-IN"], language_id_mode="continuous")
+        config = service._speech_config
+        assert config.get_property(PropertyId.SpeechServiceConnection_LanguageIdMode) == "Continuous"
+        assert "universal/v2" in (config.get_property(PropertyId.SpeechServiceConnection_Endpoint) or "")
+        assert service._auto_detect_config() is not None
+
+    def test_one_language_is_not_identification(self):
+        service = self._service(languages=["en-IN"], language_id_mode="continuous")
+        assert service._language_id_mode() == "single"
+        assert service._auto_detect_config() is None
+
+    def test_detected_language_is_reported_and_unknown_keeps_the_last(self):
+        service = self._service(languages=["en-IN", "hi-IN"], language_id_mode="continuous")
+        assert service._detected_language(self._result("hi-IN")) == "hi-IN"
+        assert service._detected_language(self._result("Unknown")) == "hi-IN"
+        assert service._detected_language(self._result(None)) == "hi-IN"
+
+    def test_single_mode_reports_the_configured_language(self):
+        service = self._service()
+        assert service._detected_language(SimpleNamespace()) == "en-IN"

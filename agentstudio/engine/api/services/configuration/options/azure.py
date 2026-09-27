@@ -76,6 +76,18 @@ AZURE_SPEECH_TTS_LANGUAGES = [
     "pl-PL",
     "sv-SE",
     "hi-IN",
+    "ta-IN",
+    "ar-AE",
+    "ar-EG",
+    "ar-KW",
+    "ar-QA",
+    "bn-IN",
+    "te-IN",
+    "mr-IN",
+    "gu-IN",
+    "kn-IN",
+    "ml-IN",
+    "ur-IN",
 ]
 
 AZURE_SPEECH_TTS_VOICES = [
@@ -122,6 +134,18 @@ AZURE_SPEECH_STT_LANGUAGES = [
     "nl-NL",
     "pl-PL",
     "hi-IN",
+    "ta-IN",
+    "ar-AE",
+    "ar-EG",
+    "ar-KW",
+    "ar-QA",
+    "bn-IN",
+    "te-IN",
+    "mr-IN",
+    "gu-IN",
+    "kn-IN",
+    "ml-IN",
+    "ur-IN",
 ]
 
 AZURE_EMBEDDING_MODELS = [

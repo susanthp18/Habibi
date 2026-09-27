@@ -40,7 +40,7 @@ async def _provider_key(organization_id: int, provider: str) -> str | None:
 
 
 def _voice(voice_id, name, *, description=None, accent=None, gender=None, language=None,
-           preview_url=None, styles=None):
+           preview_url=None, styles=None, **extra):
     return {
         "styles": list(styles or []),
         "voice_id": str(voice_id),
@@ -50,6 +50,7 @@ def _voice(voice_id, name, *, description=None, accent=None, gender=None, langua
         "gender": (gender or "").lower() or None,
         "language": language,
         "preview_url": preview_url,
+        **extra,
     }
 
 
@@ -145,10 +146,61 @@ async def _azure_credentials(organization_id: int) -> tuple[str, str] | None:
     return None
 
 
+_TIER_LABELS = {"neural": "Neural", "hd": "HD (premium rate)", "mai": "MAI (preview)"}
+
+
 def _azure_tier(short_name: str, voice_type: str) -> str:
+    """``neural``, ``hd`` (DragonHD / HD voices) or ``mai``."""
+    if "MAI-Voice" in short_name:
+        return "mai"
     if "HD" in short_name or voice_type.endswith("HD"):
-        return "HD (premium rate)"
-    return "Neural"
+        return "hd"
+    return "neural"
+
+
+# --- Prices --------------------------------------------------------------------
+# Azure's public retail price list, per region, for the meters a voice agent
+# uses. List prices: an enterprise agreement may be lower.
+_PRICE_METERS = {
+    "neural": "S1 Neural Text To Speech Characters",  # per 1M characters
+    "hd": "Neural HD Text to Speech Characters",  # per 1M characters
+    "stt": "S1 Speech To Text",  # per hour
+    "language_id": "S1 Speech to Text Enhanced Feature Audio",  # per hour, per feature
+}
+# Last known southeastasia list prices, when the price list cannot be reached.
+_FALLBACK_PRICES = {"neural": 15.0, "hd": 22.0, "stt": 1.0, "language_id": 0.3}
+_PRICE_TTL_SECONDS = 24 * 3600
+_price_cache: dict[str, tuple[float, dict[str, float]]] = {}
+# Characters a minute of speech takes: words per minute times ~6 characters a
+# word (letters plus the space), Azure's billing unit.
+_CHARS_PER_WORD = 6
+
+
+async def speech_prices(region: str) -> dict[str, float]:
+    """USD list prices for ``region``: per 1M characters (voices), per hour (recognition)."""
+    import time
+
+    cached = _price_cache.get(region)
+    if cached and time.monotonic() - cached[0] < _PRICE_TTL_SECONDS:
+        return cached[1]
+    prices = dict(_FALLBACK_PRICES)
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            r = await client.get(
+                "https://prices.azure.com/api/retail/prices",
+                params={"$filter": f"armRegionName eq '{region}' and productName eq 'Azure Speech' "
+                                   "and priceType eq 'Consumption'"},
+            )
+            r.raise_for_status()
+            by_meter = {item.get("meterName"): item.get("retailPrice")
+                        for item in r.json().get("Items", [])}
+        for key, meter in _PRICE_METERS.items():
+            if isinstance(by_meter.get(meter), (int, float)):
+                prices[key] = float(by_meter[meter])
+    except (httpx.HTTPError, ValueError):
+        pass
+    _price_cache[region] = (time.monotonic(), prices)
+    return prices
 
 
 async def _azure(client: httpx.AsyncClient, key: str, region: str) -> list[dict]:
@@ -157,13 +209,25 @@ async def _azure(client: httpx.AsyncClient, key: str, region: str) -> list[dict]
         headers={"Ocp-Apim-Subscription-Key": key},
     )
     r.raise_for_status()
+    prices = await speech_prices(region)
     out = []
     for v in r.json():
         if str(v.get("Status") or "GA") == "Deprecated":
             continue
         short = str(v.get("ShortName") or "")
         styles = [st for st in (v.get("StyleList") or []) if st]
-        detail = f"{_azure_tier(short, str(v.get('VoiceType') or ''))} · {v.get('LocaleName') or v.get('Locale')}"
+        tier = _azure_tier(short, str(v.get("VoiceType") or ""))
+        secondary = [loc for loc in (v.get("SecondaryLocaleList") or []) if loc]
+        tag = v.get("VoiceTag") or {}
+        tags = [t for t in (tag.get("TailoredScenarios") or []) + (tag.get("VoicePersonalities") or []) if t]
+        try:
+            wpm = int(v.get("WordsPerMinute") or 0) or None
+        except (TypeError, ValueError):
+            wpm = None
+        price = prices.get(tier)
+        detail = f"{_TIER_LABELS[tier]} · {v.get('LocaleName') or v.get('Locale')}"
+        if secondary:
+            detail += f" · speaks {len(secondary) + 1} languages"
         if styles:
             detail += f" · styles: {', '.join(styles)}"
         out.append(
@@ -175,9 +239,26 @@ async def _azure(client: httpx.AsyncClient, key: str, region: str) -> list[dict]
                 gender=v.get("Gender"),
                 language=v.get("Locale"),
                 styles=styles,
+                locales=[v.get("Locale"), *[loc for loc in secondary if loc != v.get("Locale")]],
+                multilingual=bool(secondary) or "Multilingual" in short,
+                tier=tier,
+                status=str(v.get("Status") or "GA"),
+                tags=tags,
+                words_per_minute=wpm,
+                price_per_million_chars=price,
+                cost_per_minute=(round(price * wpm * _CHARS_PER_WORD / 1_000_000, 4)
+                                 if price and wpm else None),
             )
         )
     return out
+
+
+def voice_speaks(voice: dict, locale: str) -> bool:
+    """Whether a catalog voice can speak ``locale``: one of its own locales, or
+    the same language (an ``ar-SA`` voice speaks to an ``ar-AE`` caller)."""
+    language = locale.split("-")[0].lower()
+    return any(loc == locale or str(loc).split("-")[0].lower() == language
+               for loc in voice.get("locales") or [voice.get("language")] if loc)
 
 
 # --- Delivery and preview ---------------------------------------------------
@@ -230,6 +311,22 @@ PREVIEW_TEXT = (
     "Hello, this is a courtesy call about your account. "
     "I can help you with your payment today. Is now a good time?"
 )
+# A sample in the language being previewed: English read by a Tamil voice
+# says nothing about how it sounds to a Tamil caller.
+PREVIEW_TEXTS = {
+    "en": PREVIEW_TEXT,
+    "hi": "नमस्ते, यह आपके खाते के बारे में एक सौजन्य कॉल है। क्या अभी बात करने का सही समय है?",
+    "ta": "வணக்கம், இது உங்கள் கணக்கு பற்றிய ஒரு மரியாதை அழைப்பு. இப்போது பேச உங்களுக்கு நேரம் இருக்கிறதா?",
+    "ar": "مرحباً، هذه مكالمة ودية بخصوص حسابك. هل هذا وقت مناسب للحديث؟",
+    "te": "నమస్కారం, ఇది మీ ఖాతా గురించి ఒక మర్యాదపూర్వక కాల్. ఇప్పుడు మాట్లాడటానికి సమయం ఉందా?",
+    "kn": "ನಮಸ್ಕಾರ, ಇದು ನಿಮ್ಮ ಖಾತೆಯ ಬಗ್ಗೆ ಸೌಜನ್ಯದ ಕರೆ. ಈಗ ಮಾತನಾಡಲು ಸಮಯವಿದೆಯೇ?",
+    "ml": "നമസ്കാരം, ഇത് നിങ്ങളുടെ അക്കൗണ്ടിനെക്കുറിച്ചുള്ള ഒരു സൗഹൃദ കോൾ ആണ്. ഇപ്പോൾ സംസാരിക്കാൻ സമയമുണ്ടോ?",
+}
+
+
+def preview_text_for(language: str | None, voice: str) -> str:
+    code = (language or "-".join(voice.split("-")[:2])).split("-")[0].lower()
+    return PREVIEW_TEXTS.get(code, PREVIEW_TEXT)
 _PREVIEW_MAX_CHARS = 300
 # ponytail: per-process LRU; previews repeat while someone tunes a voice.
 # Move to Redis if several workers serve the studio and preview billing matters.
@@ -244,18 +341,27 @@ async def preview_voice(*, organization_id: int, provider: str, params: Any) -> 
             status_code=404,
             detail=f"Spoken previews are available for Azure voices; {provider} voices play their own sample.",
         )
+    # What is on the form, saved or not: a key typed but not yet saved is used
+    # for this preview only; a masked one means "the saved key".
+    typed_key = str(getattr(params, "api_key", None) or "").strip()
     creds = await _azure_credentials(organization_id)
-    if creds is None:
-        raise HTTPException(status_code=400, detail="Save an Azure Speech key under Models to preview voices.")
-    key, saved_region = creds
+    if typed_key and "*" not in typed_key:
+        key, saved_region = typed_key, (creds[1] if creds else "eastus")
+    elif creds is not None:
+        key, saved_region = creds
+    else:
+        raise HTTPException(status_code=400, detail="Enter an Azure Speech key under Models to preview voices.")
     region = str(getattr(params, "region", None) or saved_region)
     if not _SAFE_TOKEN.match(region):
         raise HTTPException(status_code=400, detail="Invalid region")
-    text = (str(getattr(params, "text", None) or "").strip() or PREVIEW_TEXT)[:_PREVIEW_MAX_CHARS]
+    text = (str(getattr(params, "text", None) or "").strip()
+            or preview_text_for(getattr(params, "language", None), str(params.voice)))[:_PREVIEW_MAX_CHARS]
     speed = min(max(float(getattr(params, "speed", None) or 1.0), 0.5), 2.0)
     ssml = azure_preview_ssml(voice=str(params.voice), language=getattr(params, "language", None),
                               speed=speed, delivery=azure_delivery(params), text=text)
-    cache_key = (organization_id, region, ssml)
+    import hashlib
+
+    cache_key = (organization_id, region, hashlib.sha256(key.encode()).hexdigest()[:16], ssml)
     if cache_key in _preview_cache:
         _preview_cache.move_to_end(cache_key)
         return _preview_cache[cache_key]
@@ -294,6 +400,10 @@ async def list_voices(
     q: str | None = None,
     gender: str | None = None,
     accent: str | None = None,
+    tier: str | None = None,
+    multilingual: bool | None = None,
+    has_styles: bool | None = None,
+    status: str | None = None,
 ) -> dict:
     if provider == "sarvam":
         voices = _sarvam(model)
@@ -335,6 +445,7 @@ async def list_voices(
         "genders": sorted({v["gender"] for v in voices if v["gender"]}),
         "accents": sorted({v["accent"] for v in voices if v["accent"]}),
         "languages": sorted({v["language"] for v in voices if v["language"]}),
+        "tiers": sorted({v["tier"] for v in voices if v.get("tier")}),
     }
 
     def keep(v: dict) -> bool:
@@ -342,7 +453,21 @@ async def list_voices(
             return False
         if accent and (v["accent"] or "").lower() != accent.lower():
             return False
-        if language and not (v["language"] or "").lower().startswith(language.lower()[:2]):
+        # A full locale ("ta-IN") or a language ("ta"); multilingual voices
+        # count for every language they speak.
+        if language and not (
+            voice_speaks(v, language) if "-" in language
+            else any(str(loc).lower().startswith(language.lower()[:2])
+                     for loc in v.get("locales") or [v["language"] or ""])
+        ):
+            return False
+        if tier and v.get("tier") != tier:
+            return False
+        if multilingual is not None and bool(v.get("multilingual")) != multilingual:
+            return False
+        if has_styles and not v.get("styles"):
+            return False
+        if status and (v.get("status") or "GA").lower() != status.lower():
             return False
         if q and q.lower() not in f"{v['name']} {v['description'] or ''}".lower():
             return False

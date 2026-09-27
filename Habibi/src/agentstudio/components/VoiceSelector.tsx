@@ -4,7 +4,7 @@ import { ChevronDown, Loader2, Search, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { getVoicesApiV1UserConfigurationsVoicesProviderGet } from "@/agentstudio/client/sdk.gen";
-import { VoiceInfo } from "@/agentstudio/client/types.gen";
+import type { VoiceInfo, VoicePreviewRequest } from "@/agentstudio/client/types.gen";
 import { Button } from "@/agentstudio/components/ui/button";
 import { Checkbox } from "@/agentstudio/components/ui/checkbox";
 import { Input } from "@/agentstudio/components/ui/input";
@@ -19,6 +19,14 @@ import { fetchVoicePreviewUrl, PREVIEW_PROVIDERS } from "@/agentstudio/lib/voice
 type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime" | "azure_speech";
 const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech"];
 const ALL_FILTER_VALUE = "__all__";
+const TIER_LABELS: Record<string, string> = { neural: "Neural", hd: "HD", mai: "MAI" };
+
+// AgentStudio: what a voice costs to speak, from the region's list price.
+const formatCost = (voice: VoiceInfo) => {
+    if (voice.cost_per_minute != null) return `≈ $${voice.cost_per_minute.toFixed(3)}/min`;
+    if (voice.price_per_million_chars != null) return `$${voice.price_per_million_chars}/1M chars`;
+    return null;
+};
 
 interface VoiceSelectorProps {
     provider: string;
@@ -29,6 +37,9 @@ interface VoiceSelectorProps {
     showFilters?: boolean;
     allowManualInput?: boolean;
     className?: string;
+    /** AgentStudio: the unsaved delivery on the form; a row's play button
+     * previews the voice with these, not with defaults. */
+    previewSettings?: Omit<VoicePreviewRequest, "voice">;
 }
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
@@ -40,12 +51,17 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     showFilters = false,
     allowManualInput = true,
     className,
+    previewSettings,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
     const [languageFilter, setLanguageFilter] = useState(ALL_FILTER_VALUE);
     const [accentFilter, setAccentFilter] = useState(ALL_FILTER_VALUE);
+    const [tierFilter, setTierFilter] = useState(ALL_FILTER_VALUE);
+    const [multilingualOnly, setMultilingualOnly] = useState(false);
+    const [stylesOnly, setStylesOnly] = useState(false);
+    const [sortByCost, setSortByCost] = useState(false);
     const [isManualInput, setIsManualInput] = useState(false);
     const [manualVoiceId, setManualVoiceId] = useState(value || "");
     const [voices, setVoices] = useState<VoiceInfo[]>([]);
@@ -160,17 +176,33 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         );
         if (!matchesSearch) return false;
         if (genderFilter !== ALL_FILTER_VALUE && (voice.gender || "").toLowerCase() !== genderFilter) return false;
-        if (languageFilter !== ALL_FILTER_VALUE && (voice.language || "").toLowerCase() !== languageFilter) return false;
+        // A multilingual voice counts for every language it speaks.
+        const spoken = (voice.locales?.length ? voice.locales : [voice.language || ""]).map((l) => l.toLowerCase());
+        if (languageFilter !== ALL_FILTER_VALUE && !spoken.includes(languageFilter)) return false;
         if (accentFilter !== ALL_FILTER_VALUE && (voice.accent || "").toLowerCase() !== accentFilter) return false;
+        if (tierFilter !== ALL_FILTER_VALUE && voice.tier !== tierFilter) return false;
+        if (multilingualOnly && !voice.multilingual) return false;
+        if (stylesOnly && !(voice.styles?.length)) return false;
         return true;
     });
+    if (sortByCost) {
+        filteredVoices.sort(
+            (a, b) => (a.cost_per_minute ?? Infinity) - (b.cost_per_minute ?? Infinity) || a.name.localeCompare(b.name),
+        );
+    }
 
     const genderOptions = Array.from(
         new Set(voices.map((voice) => voice.gender?.toLowerCase()).filter(Boolean) as string[]),
     ).sort();
     const languageOptions = Array.from(
-        new Set(voices.map((voice) => voice.language?.toLowerCase()).filter(Boolean) as string[]),
+        new Set(
+            voices
+                .flatMap((voice) => (voice.locales?.length ? voice.locales : [voice.language || ""]))
+                .map((locale) => locale.toLowerCase())
+                .filter(Boolean),
+        ),
     ).sort();
+    const tierOptions = Array.from(new Set(voices.map((voice) => voice.tier).filter(Boolean) as string[])).sort();
     const accentOptions = Array.from(
         new Set(voices.map((voice) => voice.accent?.toLowerCase()).filter(Boolean) as string[]),
     ).sort();
@@ -228,7 +260,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         let source = previewUrl;
         if (!source) {
             try {
-                source = await fetchVoicePreviewUrl(provider, { voice: voiceId });
+                source = await fetchVoicePreviewUrl(provider, { ...previewSettings, voice: voiceId });
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Could not preview this voice");
                 setPlayingPreview(null);
@@ -376,6 +408,34 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                         ))}
                                     </SelectContent>
                                 </Select>
+
+                                {tierOptions.length > 0 && (
+                                    <Select value={tierFilter} onValueChange={setTierFilter}>
+                                        <SelectTrigger className="h-8">
+                                            <SelectValue placeholder="Tier" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value={ALL_FILTER_VALUE}>All tiers</SelectItem>
+                                            {tierOptions.map((tier) => (
+                                                <SelectItem key={tier} value={tier}>
+                                                    {TIER_LABELS[tier] ?? tier}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                <label className="flex items-center gap-2 text-xs">
+                                    <Checkbox checked={multilingualOnly} onCheckedChange={(c) => setMultilingualOnly(c === true)} />
+                                    Multilingual
+                                </label>
+                                <label className="flex items-center gap-2 text-xs">
+                                    <Checkbox checked={stylesOnly} onCheckedChange={(c) => setStylesOnly(c === true)} />
+                                    Has styles
+                                </label>
+                                <label className="flex items-center gap-2 text-xs">
+                                    <Checkbox checked={sortByCost} onCheckedChange={(c) => setSortByCost(c === true)} />
+                                    Cheapest first
+                                </label>
                             </div>
                         )}
 
@@ -418,7 +478,28 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                                     {voice.description}
                                                 </p>
                                             )}
-                                            <div className="flex items-center gap-2 mt-1">
+                                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                {voice.tier && voice.tier !== "neural" && (
+                                                    <span className="text-xs bg-background-warning text-text-warning px-1.5 py-0.5 rounded">
+                                                        {TIER_LABELS[voice.tier] ?? voice.tier}
+                                                    </span>
+                                                )}
+                                                {voice.multilingual && (
+                                                    <span
+                                                        className="text-xs bg-background-information text-text-information px-1.5 py-0.5 rounded"
+                                                        title={(voice.locales ?? []).join(", ")}
+                                                    >
+                                                        Multilingual · {voice.locales?.length ?? 0}
+                                                    </span>
+                                                )}
+                                                {voice.status && voice.status !== "GA" && (
+                                                    <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
+                                                        {voice.status}
+                                                    </span>
+                                                )}
+                                                {formatCost(voice) && (
+                                                    <span className="text-xs text-muted-foreground">{formatCost(voice)}</span>
+                                                )}
                                                 {voice.accent && (
                                                     <span className="text-xs bg-secondary px-1.5 py-0.5 rounded capitalize">
                                                         {voice.accent}

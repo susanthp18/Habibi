@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/agentstudio/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/agentstudio/components/ui/tabs";
 import { Textarea } from "@/agentstudio/components/ui/textarea";
+import { LanguageListField, parseList, parseMap, VoiceMapField } from "@/agentstudio/components/MultilingualVoiceFields";
 import { VoicePreviewPanel } from "@/agentstudio/components/VoicePreviewPanel";
 import { VoiceSelector } from "@/agentstudio/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/agentstudio/constants/languages";
@@ -39,6 +40,7 @@ interface SchemaProperty {
     format?: string;
     multiline?: boolean;
     docs_url?: string;
+    multi_select?: boolean;
 }
 
 export interface ProviderSchema {
@@ -325,7 +327,11 @@ export function ServiceConfigurationForm({
                                 }
                             }
                         } else if (field !== "provider") {
-                            defaultValues[`${service}_${field}`] = value as string | number | boolean;
+                            // AgentStudio: lists and maps (languages, voice per
+                            // language) are held as JSON text in the form.
+                            defaultValues[`${service}_${field}`] = (value !== null && typeof value === "object"
+                                ? JSON.stringify(value)
+                                : value) as string | number | boolean;
                         }
                     });
                     selectedProviders[service] = src.provider as string;
@@ -494,7 +500,7 @@ export function ServiceConfigurationForm({
     };
 
     const buildServiceConfig = (service: ServiceSegment, data: FormValues) => {
-        const config: Record<string, string | number | string[]> = {
+        const config: Record<string, string | number | string[] | Record<string, string>> = {
             provider: serviceProviders[service],
         };
         const keys = apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
@@ -507,7 +513,13 @@ export function ServiceConfigurationForm({
             if (field === "api_key" || field === "provider") return;
             const fieldSchema = schemas?.[service]?.[serviceProviders[service]]?.properties[field];
             if (!isVisibleForModel(fieldSchema, data[`${service}_model`] as string)) return;
-            config[field] = value as string | number;
+            if (fieldSchema?.type === "array") {
+                config[field] = parseList(value);
+            } else if (fieldSchema?.type === "object") {
+                config[field] = parseMap(value);
+            } else {
+                config[field] = value as string | number;
+            }
         });
         return config;
     };
@@ -634,7 +646,8 @@ export function ServiceConfigurationForm({
                             const actualFieldSchema = fieldSchema?.$ref && providerSchema.$defs
                                 ? providerSchema.$defs[fieldSchema.$ref.split('/').pop() || '']
                                 : fieldSchema;
-                            const fullWidth = actualFieldSchema?.multiline;
+                            const fullWidth = actualFieldSchema?.multiline
+                                || actualFieldSchema?.type === "array" || actualFieldSchema?.type === "object";
                             return (
                                 <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
                                     <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
@@ -649,16 +662,8 @@ export function ServiceConfigurationForm({
                 {service === "tts" && currentProvider === "azure_speech" && (
                     <VoicePreviewPanel
                         provider={currentProvider}
-                        settings={{
-                            voice: String(watch("tts_voice") || ""),
-                            language: (watch("tts_language") as string) || undefined,
-                            region: (watch("tts_region") as string) || undefined,
-                            speed: Number(watch("tts_speed") ?? 1),
-                            style: (watch("tts_style") as string) || undefined,
-                            style_degree: Number(watch("tts_style_degree") ?? 1),
-                            pitch: Number(watch("tts_pitch") ?? 0),
-                            volume: Number(watch("tts_volume") ?? 100),
-                        }}
+                        settings={{ voice: String(watch("tts_voice") || ""), ...ttsPreviewSettings() }}
+                        voiceMap={parseMap(watch("tts_voice_map"))}
                     />
                 )}
 
@@ -750,6 +755,29 @@ export function ServiceConfigurationForm({
         );
     };
 
+    // AgentStudio: the unsaved voice settings on the form -- what every preview
+    // speaks with. A typed key is sent for the preview only; a masked one means
+    // "the saved key".
+    const ttsPreviewSettings = () => {
+        const typedKey = apiKeys.tts.map(k => k.trim()).find(k => k.length > 0 && !k.includes("*"));
+        return {
+            language: (watch("tts_language") as string) || undefined,
+            region: (watch("tts_region") as string) || undefined,
+            speed: Number(watch("tts_speed") ?? 1),
+            style: (watch("tts_style") as string) || undefined,
+            style_degree: Number(watch("tts_style_degree") ?? 1),
+            pitch: Number(watch("tts_pitch") ?? 0),
+            volume: Number(watch("tts_volume") ?? 100),
+            api_key: typedKey,
+        };
+    };
+
+    // AgentStudio: the languages an agent listens for (Transcriber tab).
+    const agentLanguages = () => {
+        const primary = (watch("stt_language") as string) || "";
+        return Array.from(new Set([primary, ...parseList(watch("stt_languages"))].filter(Boolean)));
+    };
+
     const renderFieldInput = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
         const schema = providerSchema.properties[field]!;
         const actualSchema = schema.$ref && providerSchema.$defs
@@ -761,6 +789,31 @@ export function ServiceConfigurationForm({
         );
         const numberSchema = getNumberSchema(actualSchema);
 
+        if (actualSchema?.type === "array" && actualSchema.multi_select) {
+            return (
+                <LanguageListField
+                    options={(actualSchema.examples as string[] | undefined) ?? []}
+                    value={parseList(watch(`${service}_${field}`))}
+                    primary={(watch(`${service}_language`) as string) || undefined}
+                    mode={(watch(`${service}_language_id_mode`) as string) || undefined}
+                    onChange={(languages) => setValue(`${service}_${field}`, JSON.stringify(languages), { shouldDirty: true })}
+                />
+            );
+        }
+
+        if (service === "tts" && field === "voice_map") {
+            return (
+                <VoiceMapField
+                    provider={serviceProviders.tts}
+                    languages={agentLanguages()}
+                    value={parseMap(watch("tts_voice_map"))}
+                    fallbackVoice={(watch("tts_voice") as string) || undefined}
+                    previewSettings={ttsPreviewSettings()}
+                    onChange={(voiceMap) => setValue("tts_voice_map", JSON.stringify(voiceMap), { shouldDirty: true })}
+                />
+            );
+        }
+
         if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
             if (!dropdownOptions) {
                 return (
@@ -771,6 +824,8 @@ export function ServiceConfigurationForm({
                             setValue(`${service}_${field}`, voiceId, { shouldDirty: true });
                         }}
                         model={watch("tts_model") as string || undefined}
+                        showFilters
+                        previewSettings={ttsPreviewSettings()}
                     />
                 );
             }

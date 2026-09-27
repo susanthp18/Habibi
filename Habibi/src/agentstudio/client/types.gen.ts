@@ -7487,6 +7487,10 @@ export type VoiceFacets = {
      * Languages
      */
     languages?: Array<string>;
+    /**
+     * Tiers
+     */
+    tiers?: Array<string>;
 };
 
 /**
@@ -7525,6 +7529,38 @@ export type VoiceInfo = {
      * Styles
      */
     styles?: Array<string>;
+    /**
+     * Locales
+     */
+    locales?: Array<string>;
+    /**
+     * Multilingual
+     */
+    multilingual?: boolean;
+    /**
+     * Tier
+     */
+    tier?: string | null;
+    /**
+     * Status
+     */
+    status?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Words Per Minute
+     */
+    words_per_minute?: number | null;
+    /**
+     * Price Per Million Chars
+     */
+    price_per_million_chars?: number | null;
+    /**
+     * Cost Per Minute
+     */
+    cost_per_minute?: number | null;
 };
 
 /**
@@ -7569,6 +7605,10 @@ export type VoicePreviewRequest = {
      * Volume
      */
     volume?: number;
+    /**
+     * Api Key
+     */
+    api_key?: string | null;
 };
 
 /**
@@ -10864,6 +10904,22 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
          * Accent
          */
         accent?: string | null;
+        /**
+         * Tier
+         */
+        tier?: string | null;
+        /**
+         * Multilingual
+         */
+        multilingual?: boolean | null;
+        /**
+         * Has Styles
+         */
+        has_styles?: boolean | null;
+        /**
+         * Status
+         */
+        status?: string | null;
     };
     url: '/api/v1/user/configurations/voices/{provider}';
 };

@@ -1585,6 +1585,13 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
         le=150,
         description="Volume as a percentage of normal (50 to 150).",
     )
+    # AgentStudio: the voice for each language a multilingual agent speaks.
+    # Each reply sentence is spoken by the voice for its script's language;
+    # `voice` speaks anything the map does not cover.
+    voice_map: dict[str, str] = Field(
+        default_factory=dict,
+        description="Voice per language (locale -> voice name), for agents that speak several languages.",
+    )
 
 
 SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
@@ -2094,12 +2101,39 @@ class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="en-US",
-        description="BCP-47 language code for recognition.",
+        description="BCP-47 language code for recognition. With several languages, the one assumed until the caller speaks.",
         json_schema_extra={
             "examples": AZURE_SPEECH_STT_LANGUAGES,
             "allow_custom_input": True,
         },
     )
+    # AgentStudio: multilingual callers. See azure_speech_capabilities.
+    languages: list[str] = Field(
+        default_factory=list,
+        description="Every language callers may speak on this agent (switching mid-call).",
+        json_schema_extra={"examples": AZURE_SPEECH_STT_LANGUAGES, "multi_select": True},
+    )
+    language_id_mode: Literal["single", "continuous", "multilingual"] = Field(
+        default="single",
+        description="single: one language. continuous: callers may switch language between sentences. "
+        "multilingual: languages mixed within a sentence (Azure preview; limited languages).",
+        json_schema_extra={"examples": ["single", "continuous", "multilingual"]},
+    )
+
+    @model_validator(mode="after")
+    def _languages_supported(self):
+        from api.services.configuration.azure_speech_capabilities import (
+            normalize_languages,
+            stt_errors,
+        )
+
+        errors = stt_errors(language=self.language, languages=self.languages,
+                            mode=self.language_id_mode, region=self.region)
+        if errors:
+            raise ValueError(" ".join(errors))
+        if self.language_id_mode != "single":
+            self.languages = normalize_languages(self.language, self.languages)
+        return self
 
 
 SMALLEST_STT_MODELS = ["pulse"]

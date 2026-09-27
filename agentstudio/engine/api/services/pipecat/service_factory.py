@@ -589,16 +589,36 @@ def create_stt_service(
     elif user_config.stt.provider == ServiceProviders.AZURE_SPEECH.value:
         from pipecat.transcriptions.language import Language as PipecatLanguage
 
+        from api.services.configuration.azure_speech_capabilities import (
+            LEXICAL_LOCALES,
+            normalize_languages,
+            phrase_lists_supported,
+        )
+
         language_code = getattr(user_config.stt, "language", None) or "en-US"
         region = getattr(user_config.stt, "region", None) or "eastus"
         try:
             pipecat_language = PipecatLanguage(language_code)
         except ValueError:
             pipecat_language = language_code
+        # AgentStudio: callers may switch language mid-call; the connector
+        # reports each phrase's detected language on its transcript.
+        mode = getattr(user_config.stt, "language_id_mode", None) or "single"
+        languages = (
+            normalize_languages(language_code, getattr(user_config.stt, "languages", None))
+            if mode != "single"
+            else [language_code]
+        )
         return AzureSTTService(
             api_key=user_config.stt.api_key,
             region=region,
-            settings=AzureSTTSettings(language=pipecat_language),
+            settings=AzureSTTSettings(
+                language=pipecat_language,
+                languages=languages,
+                language_id_mode=mode,
+                phrases=(keyterms or []) if phrase_lists_supported(languages) else [],
+                lexical_languages=[lang for lang in languages if lang in LEXICAL_LOCALES],
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SMALLEST.value:
@@ -944,11 +964,19 @@ def create_tts_service(
             settings_kwargs["rate"] = rate
         # AgentStudio: the delivery chosen (and previewed) in the voice picker.
         settings_kwargs.update(azure_delivery(user_config.tts))
+        # AgentStudio: a multilingual agent speaks each sentence with the
+        # voice for its language.
+        voice_map = dict(getattr(user_config.tts, "voice_map", None) or {})
+        if voice_map:
+            settings_kwargs["voice_map"] = voice_map
+        from api.services.pipecat.arabic_numbers import ArabicAmountsFilter
+
         return AzureTTSService(
             api_key=user_config.tts.api_key,
             region=region,
             settings=AzureTTSSettings(**settings_kwargs),
-            text_filters=[xml_function_tag_filter, markdown_filter],
+            # Arabic amounts are spelled out: see arabic_numbers.
+            text_filters=[xml_function_tag_filter, markdown_filter, ArabicAmountsFilter()],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )

@@ -11,6 +11,7 @@ Speech SDK for real-time audio transcription.
 """
 
 import asyncio
+import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
@@ -38,12 +39,15 @@ from pipecat.utils.types import NOT_GIVEN, NotGiven, assert_given
 try:
     from azure.cognitiveservices.speech import (
         CancellationReason,
+        OutputFormat,
+        PhraseListGrammar,
         ProfanityOption,
         PropertyId,
         ResultReason,
         SpeechConfig,
         SpeechRecognizer,
     )
+    from azure.cognitiveservices.speech.languageconfig import AutoDetectSourceLanguageConfig
     from azure.cognitiveservices.speech.audio import (
         AudioStreamFormat,
         PushAudioInputStream,
@@ -62,6 +66,20 @@ AzureProfanity = Literal["raw", "masked", "removed"]
 * ``"masked"`` — replace profane words with ``****`` (Azure default).
 * ``"removed"`` — drop profane words from the output.
 """
+
+AzureLanguageIdMode = Literal["single", "continuous", "multilingual"]
+"""How Azure decides which language it is hearing.
+
+* ``"single"`` — recognize ``language`` only (no language identification).
+* ``"continuous"`` — continuous language identification across ``languages``
+  (up to 10): the language is re-detected phrase by phrase, so a caller can
+  switch between sentences.
+* ``"multilingual"`` — multilingual post-stream refinement: open-range
+  detection that also handles languages mixed within a sentence. Azure
+  preview; supports a subset of locales and no phrase lists.
+"""
+
+_MAX_CONTINUOUS_LANGUAGES = 10
 
 _PROFANITY_OPTIONS: dict[AzureProfanity, ProfanityOption] = {
     "raw": ProfanityOption.Raw,
@@ -94,12 +112,32 @@ class AzureSTTSettings(STTSettings):
             contain pauses; higher values keep slow or hesitant speech in one
             transcript. See `phrase segmentation
             <https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-recognize-speech#change-how-silence-is-handled>`_.
+        languages: Candidate locales for language identification (BCP-47,
+            e.g. ``["en-IN", "hi-IN", "ta-IN"]``), used by the ``"continuous"``
+            mode. ``language`` is the fallback when Azure cannot tell.
+        language_id_mode: ``"single"``, ``"continuous"`` or ``"multilingual"``
+            (see ``AzureLanguageIdMode``). Store-mode default is ``None``
+            (``"single"``).
+        phrases: Words and names to bias recognition towards (Azure phrase
+            list). Ignored in ``"multilingual"`` mode, which does not support
+            them.
+        lexical_languages: Locales whose final transcripts use Azure's lexical
+            form (the words as spoken) instead of its display form. For a
+            locale whose display formatting garbles spoken numbers -- Tamil
+            renders "twelve thousand five hundred" as a word plus "₹500" --
+            the lexical form keeps the amount unambiguous.
     """
 
     profanity: AzureProfanity | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
     segmentation_silence_timeout_ms: int | None | NotGiven = field(
         default_factory=lambda: NOT_GIVEN
     )
+    languages: list[str] | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    language_id_mode: AzureLanguageIdMode | None | NotGiven = field(
+        default_factory=lambda: NOT_GIVEN
+    )
+    phrases: list[str] | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
+    lexical_languages: list[str] | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
 
 
 class AzureSTTService(STTService):
@@ -154,6 +192,10 @@ class AzureSTTService(STTService):
             language=Language.EN_US,
             profanity=None,
             segmentation_silence_timeout_ms=None,
+            languages=None,
+            language_id_mode=None,
+            phrases=None,
+            lexical_languages=None,
         )
 
         # 2. Apply direct init arg overrides (deprecated)
@@ -174,38 +216,22 @@ class AzureSTTService(STTService):
             **kwargs,
         )
 
-        recognition_language = assert_given(
-            default_settings.language
-        ) or language_to_azure_language(Language.EN_US)
-
         if not region and not private_endpoint:
             raise ValueError("Either 'region' or 'private_endpoint' must be provided.")
+        if private_endpoint and region:
+            logger.warning("Both 'region' and 'private_endpoint' provided; 'region' will be ignored.")
 
-        if private_endpoint:
-            if region:
-                logger.warning(
-                    "Both 'region' and 'private_endpoint' provided; 'region' will be ignored."
-                )
-            self._speech_config = SpeechConfig(
-                subscription=api_key,
-                endpoint=private_endpoint,
-                speech_recognition_language=recognition_language,
-            )
-        else:
-            self._speech_config = SpeechConfig(
-                subscription=api_key,
-                region=region,
-                speech_recognition_language=recognition_language,
-            )
-
-        if endpoint_id:
-            self._speech_config.endpoint_id = endpoint_id
-
-        self._apply_profanity()
-        self._apply_segmentation_silence_timeout()
+        self._api_key = api_key
+        self._region = region
+        self._private_endpoint = private_endpoint
+        self._endpoint_id = endpoint_id
+        self._speech_config = self._build_speech_config()
 
         self._audio_stream = None
         self._speech_recognizer = None
+        # The language of the most recent phrase Azure identified: a phrase
+        # it cannot place is attributed to it.
+        self._last_language: str | None = None
 
     def can_generate_metrics(self) -> bool:
         """Check if this service can generate performance metrics.
@@ -225,6 +251,95 @@ class AzureSTTService(STTService):
             The Azure-specific language identifier, or None if not supported.
         """
         return language_to_azure_language(language)
+
+    def _candidate_languages(self) -> list[str]:
+        languages = [lang for lang in (assert_given(self._settings.languages) or []) if lang]
+        return list(dict.fromkeys(languages))[:_MAX_CONTINUOUS_LANGUAGES]
+
+    def _language_id_mode(self) -> AzureLanguageIdMode:
+        mode = assert_given(self._settings.language_id_mode) or "single"
+        if mode == "continuous" and len(self._candidate_languages()) < 2:
+            return "single"
+        return mode
+
+    def _recognition_language(self) -> str:
+        return str(
+            assert_given(self._settings.language) or language_to_azure_language(Language.EN_US)
+        )
+
+    def _build_speech_config(self) -> "SpeechConfig":
+        """Build the speech config for the current settings.
+
+        Continuous language identification needs the ``universal/v2`` endpoint
+        rather than a region, so the config is rebuilt whenever a recognizer
+        setting changes.
+        """
+        mode = self._language_id_mode()
+        if mode == "continuous":
+            endpoint = (
+                self._private_endpoint
+                or f"wss://{self._region}.stt.speech.microsoft.com/speech/universal/v2"
+            )
+            config = SpeechConfig(subscription=self._api_key, endpoint=endpoint)
+            config.set_property(PropertyId.SpeechServiceConnection_LanguageIdMode, "Continuous")
+        elif self._private_endpoint:
+            config = SpeechConfig(
+                subscription=self._api_key,
+                endpoint=self._private_endpoint,
+                speech_recognition_language=self._recognition_language(),
+            )
+        else:
+            config = SpeechConfig(
+                subscription=self._api_key,
+                region=self._region,
+                speech_recognition_language=self._recognition_language(),
+            )
+        if mode == "multilingual":
+            config.set_property(
+                PropertyId.SpeechServiceResponse_PostProcessingOption, "PostRefinement"
+            )
+        if self._endpoint_id and mode == "single":
+            config.endpoint_id = self._endpoint_id
+        if assert_given(self._settings.lexical_languages):
+            config.output_format = OutputFormat.Detailed
+        self._speech_config = config
+        self._apply_profanity()
+        self._apply_segmentation_silence_timeout()
+        return config
+
+    def _auto_detect_config(self) -> "AutoDetectSourceLanguageConfig | None":
+        mode = self._language_id_mode()
+        if mode == "continuous":
+            return AutoDetectSourceLanguageConfig(languages=self._candidate_languages())
+        if mode == "multilingual":
+            return AutoDetectSourceLanguageConfig()  # open range
+        return None
+
+    def _detected_language(self, result) -> str:
+        """The language Azure recognized ``result`` in.
+
+        Azure reports it in a result property and says ``"unknown"`` when it
+        cannot tell; such a phrase keeps the language of the one before it.
+        """
+        if self._language_id_mode() != "single":
+            detected = result.properties.get(
+                PropertyId.SpeechServiceConnection_AutoDetectSourceLanguageResult
+            )
+            if detected and detected.lower() != "unknown":
+                self._last_language = detected
+                return detected
+        return self._last_language or self._recognition_language()
+
+    def _final_text(self, result, language: str) -> str:
+        """The transcript to hand on: lexical for ``lexical_languages``."""
+        if language in (assert_given(self._settings.lexical_languages) or []):
+            try:
+                lexical = json.loads(result.json)["NBest"][0]["Lexical"]
+                if lexical:
+                    return lexical
+            except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+                pass
+        return result.text
 
     def _apply_profanity(self):
         """Apply the current ``profanity`` setting to the speech config.
@@ -254,28 +369,21 @@ class AzureSTTService(STTService):
         """Apply a settings delta and reconnect if a recognizer setting changed."""
         changed = await super()._update_settings(delta)
 
-        if "language" in changed:
-            self._speech_config.speech_recognition_language = assert_given(
-                self._settings.language
-            ) or language_to_azure_language(Language.EN_US)
-
-        if "profanity" in changed:
-            self._apply_profanity()
-
-        if "segmentation_silence_timeout_ms" in changed:
-            self._apply_segmentation_silence_timeout()
+        recognizer_settings = {
+            "language",
+            "profanity",
+            "segmentation_silence_timeout_ms",
+            "languages",
+            "language_id_mode",
+            "phrases",
+            "lexical_languages",
+        }
+        if changed.keys() & recognizer_settings:
+            self._build_speech_config()
 
         # These settings are baked into the recognizer at connect time, so a
         # live change only takes effect after a reconnect.
-        if (
-            changed.keys()
-            & {
-                "language",
-                "profanity",
-                "segmentation_silence_timeout_ms",
-            }
-            and self._audio_stream
-        ):
+        if changed.keys() & recognizer_settings and self._audio_stream:
             await self._disconnect()
             await self._connect()
 
@@ -344,8 +452,15 @@ class AzureSTTService(STTService):
             audio_config = AudioConfig(stream=self._audio_stream)
 
             self._speech_recognizer = SpeechRecognizer(
-                speech_config=self._speech_config, audio_config=audio_config
+                speech_config=self._speech_config,
+                audio_config=audio_config,
+                auto_detect_source_language_config=self._auto_detect_config(),
             )
+            phrases = assert_given(self._settings.phrases) or []
+            if phrases and self._language_id_mode() != "multilingual":
+                phrase_list = PhraseListGrammar.from_recognizer(self._speech_recognizer)
+                for phrase in dict.fromkeys(p.strip() for p in phrases if p and p.strip()):
+                    phrase_list.addPhrase(phrase)
             self._speech_recognizer.recognizing.connect(self._on_handle_recognizing)
             self._speech_recognizer.recognized.connect(self._on_handle_recognized)
             self._speech_recognizer.canceled.connect(self._on_handle_canceled)
@@ -376,17 +491,15 @@ class AzureSTTService(STTService):
         if event.result.reason == ResultReason.RecognizedSpeech and len(event.result.text) > 0:
             # Technically either source could be a raw string, but Language is
             # a StrEnum so downstream handles either.
-            language = cast(
-                "Language | None",
-                getattr(event.result, "language", None) or assert_given(self._settings.language),
-            )
+            language = cast("Language | None", self._detected_language(event.result))
+            text = self._final_text(event.result, str(language))
             # Azure's ``RecognizedSpeech`` event is by definition the final
             # recognition for an utterance — mark the frame as such so that
             # downstream turn-stop strategies (``SpeechTimeoutUserTurnStop``
             # and friends) can take their finalized fast-path instead of
             # waiting for VAD events that may never arrive on short replies.
             frame = TranscriptionFrame(
-                event.result.text,
+                text,
                 self._user_id,
                 time_now_iso8601(),
                 language,
@@ -394,7 +507,7 @@ class AzureSTTService(STTService):
                 finalized=True,
             )
             asyncio.run_coroutine_threadsafe(
-                self._handle_transcription(event.result.text, True, language), self.get_event_loop()
+                self._handle_transcription(text, True, language), self.get_event_loop()
             )
             # Report usage before the transcription frame so tracing can attach
             # it to the STT span the frame closes (submissions run in order).
@@ -405,10 +518,7 @@ class AzureSTTService(STTService):
         if event.result.reason == ResultReason.RecognizingSpeech and len(event.result.text) > 0:
             # Technically either source could be a raw string, but Language is
             # a StrEnum so downstream handles either.
-            language = cast(
-                "Language | None",
-                getattr(event.result, "language", None) or assert_given(self._settings.language),
-            )
+            language = cast("Language | None", self._detected_language(event.result))
             frame = InterimTranscriptionFrame(
                 event.result.text,
                 self._user_id,

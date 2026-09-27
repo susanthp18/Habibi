@@ -451,6 +451,16 @@ class VoiceInfo(BaseModel):
     preview_url: Optional[str] = None
     # AgentStudio: speaking styles the voice supports (Azure).
     styles: List[str] = []
+    # AgentStudio (Azure): every locale the voice speaks (its own first), its
+    # tier and status, persona tags, pace and list price.
+    locales: List[str] = []
+    multilingual: bool = False
+    tier: Optional[str] = None
+    status: Optional[str] = None
+    tags: List[str] = []
+    words_per_minute: Optional[int] = None
+    price_per_million_chars: Optional[float] = None
+    cost_per_minute: Optional[float] = None
 
 
 class VoicePreviewRequest(BaseModel):
@@ -465,6 +475,9 @@ class VoicePreviewRequest(BaseModel):
     style_degree: float = Field(default=1.0, ge=0.01, le=2.0)
     pitch: int = Field(default=0, ge=-12, le=12)
     volume: int = Field(default=100, ge=50, le=150)
+    # Unsaved values on the form: a key typed but not yet saved is used for
+    # this preview only and never stored or returned.
+    api_key: Optional[str] = Field(default=None, max_length=200)
 
 
 class VoiceFacets(BaseModel):
@@ -473,6 +486,7 @@ class VoiceFacets(BaseModel):
     genders: List[str] = []
     accents: List[str] = []
     languages: List[str] = []
+    tiers: List[str] = []
 
 
 class VoicesResponse(BaseModel):
@@ -502,6 +516,10 @@ async def get_voices(
     q: Optional[str] = None,
     gender: Optional[str] = None,
     accent: Optional[str] = None,
+    tier: Optional[str] = None,
+    multilingual: Optional[bool] = None,
+    has_styles: Optional[bool] = None,
+    status: Optional[str] = None,
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
     """Get available voices for a TTS provider."""
@@ -515,6 +533,10 @@ async def get_voices(
             q=q,
             gender=gender,
             accent=accent,
+            tier=tier,
+            multilingual=multilingual,
+            has_styles=has_styles,
+            status=status,
         )
         return VoicesResponse(
             provider=result.get("provider", provider),

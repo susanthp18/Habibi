@@ -41,6 +41,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     termination_funnel,
     answer_supervisor=None,
+    language_tracker=None,
 ):
     """Build the call pipeline: everything that lives for the whole call.
 
@@ -58,6 +59,8 @@ def build_pipeline(
             aggregator and the output transport.
         answer_supervisor: Optional answer sensor before the user aggregator,
             with its context gate immediately after the aggregator.
+        language_tracker: Optional ``CallLanguageTracker`` right after
+            recognition, for agents whose callers may switch language.
     """
     # Build processors with optional answer handling.
     #
@@ -69,6 +72,7 @@ def build_pipeline(
         transport.input(),  # Transport user input
         termination_funnel,
         stt,
+        language_tracker,
     ]
 
     if answer_supervisor is not None:

@@ -97,6 +97,8 @@ class UserConfigurationValidator:
         else:
             status_list.extend(self._validate_service(configuration.stt, "stt"))
             status_list.extend(self._validate_service(configuration.tts, "tts"))
+            if not status_list:
+                status_list.extend(await self._validate_language_voices(configuration))
         # Embeddings is optional - only validate if configured
         status_list.extend(
             self._validate_service(
@@ -108,6 +110,46 @@ class UserConfigurationValidator:
             raise ValueError(status_list)
 
         return {"status": [{"model": "all", "message": "ok"}]}
+
+    async def _validate_language_voices(
+        self, configuration: EffectiveAIModelConfiguration,
+    ) -> list[APIKeyStatus]:
+        """Every language an Azure agent listens for needs a voice that speaks it.
+
+        A caller who switches to Tamil must not be answered in silence or by a
+        voice that cannot read Tamil. Checked against the region's live voice
+        list; if Azure cannot be reached the check is skipped rather than
+        blocking the save.
+        """
+        stt, tts = configuration.stt, configuration.tts
+        azure = ServiceProviders.AZURE_SPEECH.value
+        if (
+            stt is None or tts is None
+            or getattr(stt.provider, "value", stt.provider) != azure
+            or getattr(tts.provider, "value", tts.provider) != azure
+            or (getattr(stt, "language_id_mode", None) or "single") == "single"
+        ):
+            return []
+        import httpx
+
+        from api.services.voice_catalog_local import _azure, voice_speaks
+
+        key = tts.api_key[0] if isinstance(tts.api_key, list) else tts.api_key
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                catalog = {v["voice_id"]: v for v in await _azure(client, key, tts.region)}
+        except (httpx.HTTPError, ValueError, KeyError):
+            return []
+        voice_map = dict(getattr(tts, "voice_map", None) or {})
+        missing = []
+        for language in stt.languages or []:
+            voice = catalog.get(voice_map.get(language) or tts.voice)
+            if voice is None or not voice_speaks(voice, language):
+                missing.append(language)
+        if not missing:
+            return []
+        return [{"model": "tts", "message": "No voice speaks " + ", ".join(missing)
+                 + ": choose one for each under Voice per language."}]
 
     def _validate_service(
         self,

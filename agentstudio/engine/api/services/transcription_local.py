@@ -25,8 +25,19 @@ def _first_key(value):
     return value
 
 
+_DEFAULT_LOCALES = {"en": "en-US", "hi": "hi-IN", "ta": "ta-IN", "ar": "ar-AE", "te": "te-IN",
+                    "kn": "kn-IN", "ml": "ml-IN", "mr": "mr-IN", "bn": "bn-IN", "gu": "gu-IN"}
+
+
 def _locale(language: str) -> str:
-    return language if "-" in language else {"en": "en-US", "hi": "hi-IN"}.get(language, language)
+    language = language.strip()
+    return language if "-" in language else _DEFAULT_LOCALES.get(language, language)
+
+
+def _locales(language: str) -> list[str]:
+    """``"en-IN,hi-IN,ta-IN"`` -> candidates: fast transcription identifies
+    which one a multilingual recording is in."""
+    return list(dict.fromkeys(_locale(part) for part in language.split(",") if part.strip())) or ["en-US"]
 
 
 async def transcribe(
@@ -64,7 +75,7 @@ async def transcribe(
                     headers={"Ocp-Apim-Subscription-Key": key},
                     files={
                         "audio": (filename, audio, content_type),
-                        "definition": (None, json.dumps({"locales": [_locale(language)]}), "application/json"),
+                        "definition": (None, json.dumps({"locales": _locales(language)}), "application/json"),
                     },
                 )
                 r.raise_for_status()
