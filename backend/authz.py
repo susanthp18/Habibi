@@ -429,7 +429,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/routing-rules/simulate"): BOT_READ,
     ("PATCH", "/routing-rules/{rule_id}"): BOT_WRITE,
     ("DELETE", "/routing-rules/{rule_id}"): BOT_WRITE,
-    ("POST", "/sandbox/payment-events"): COLLECTIONS_WRITE,
     ("GET", "/work-runtime/jobs/{job_id}"): COLLECTIONS_READ,
     # --- provider registry -------------------------------------------------
     # Reads are BOT_READ: the Voice tab needs the capability matrix to render

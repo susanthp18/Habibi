@@ -633,15 +633,13 @@ def test_no_read_route_requires_a_write_permission() -> None:
 @pytest.mark.parametrize(
     "route",
     [
-        ("POST", "/prompt-versions/{version_id}/publish"),
-        ("POST", "/agent-studio/cards/{bot_id}/publish"),
-        # Archive retires the live production deployment: the inverse of
-        # publishing. It used to sit on AGENT_EDIT, so an editor could take a
-        # shipped agent off the air.
-        ("POST", "/agent-studio/cards/{bot_id}/archive"),
-        # Entry bindings decide which card answers the phone.
-        ("PUT", "/agent-studio/entry-bindings"),
-        ("DELETE", "/agent-studio/entry-bindings/{binding_id}"),
+        ("POST", "/voice-studio/agents/{workflow_id}/publish"),
+        # Rollback releases an earlier version: it changes what ships as much
+        # as a publish does.
+        ("POST", "/voice-studio/agents/{workflow_id}/rollback"),
+        # Routing decides which published agent answers each number.
+        ("PUT", "/voice-studio/routing"),
+        ("POST", "/voice-studio/releases/reconcile"),
     ],
 )
 def test_every_route_that_changes_what_ships_requires_agent_publish(route) -> None:
@@ -675,12 +673,37 @@ def test_actor_is_admin_is_the_route_guards_reading(db_tx, monkeypatch) -> None:
     "method,path", sorted(authz.ROUTE_PERMISSIONS), ids=lambda v: v if isinstance(v, str) else str(v)
 )
 def test_every_gated_route_refuses_a_roleless_actor(
-    gated_client: TestClient, method: str, path: str
+    gated_client: TestClient, method: str, path: str, monkeypatch
 ) -> None:
     concrete = re.sub(r"\{[^}]+\}", "placeholder", path)
-    res = gated_client.request(method, concrete, headers=_hdr("anita-rao"))
+    headers = _hdr("anita-rao")
+    if path.startswith("/studio-mcp"):
+        # The MCP endpoint authenticates its own key first (a request without
+        # one is 401, see below); a valid key held by a roleless user must
+        # still stop at the permission gate.
+        import voice_studio_mcp_keys
+
+        monkeypatch.setattr(
+            voice_studio_mcp_keys,
+            "authenticate",
+            lambda presented: {"id": "vsm-test", "userId": "anita-rao", "scopes": ["studio.read"]}
+            if presented == "vsm-test-secret"
+            else None,
+        )
+        # An MCP client presents its studio key, not the app's API key.
+        headers = {k: v for k, v in headers.items() if k.lower() != "x-api-key"}
+        headers["Authorization"] = "Bearer vsm-test-secret"
+    res = gated_client.request(method, concrete, headers=headers)
     assert res.status_code == 403, f"{method} {path}: {res.status_code} {res.text[:200]}"
     assert authz.ROUTE_PERMISSIONS[(method, path)] in res.text
+
+
+@pytest.mark.parametrize("path", ["/studio-mcp", "/studio-mcp/"])
+def test_studio_mcp_refuses_a_request_without_a_key(gated_client: TestClient, path: str) -> None:
+    """The app's API key is not an MCP credential: without a studio MCP key the
+    endpoint answers 401 before any route or permission runs."""
+    res = gated_client.post(path, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=_hdr("priya-nair"))
+    assert res.status_code == 401, res.text
 
 
 def test_a_logged_interaction_is_attributed_to_the_actor_not_the_body(gated_client) -> None:
