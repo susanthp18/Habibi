@@ -32,16 +32,22 @@ _UNTYPED_BY_DESIGN = frozenset(
         "GET /floor/copilot/{interaction_id}/stream",  # SSE (text/event-stream)
         "GET /interactions/{interaction_id}/export",  # JSON/Markdown file download
         "GET /interactions/{interaction_id}/recording",  # WAV stream
-        "GET /agent-studio/skills/{skill_id}/export",  # zip download
         "GET /metrics",  # Prometheus text exposition
         "GET /pay/{token}",  # hosted checkout HTML
-        "POST /tts/preview",  # audio bytes, vendor content type
         "GET /billing/export.csv",  # CSV download
         "GET /dashboard.csv",  # CSV download
+        # Voice Studio engine reverse proxy: bytes streamed both ways; the engine's
+        # own OpenAPI owns each response (JSON, audio, file downloads).
+        "DELETE /studio-api/{path:path}",
+        "GET /studio-api/{path:path}",
+        "PATCH /studio-api/{path:path}",
+        "POST /studio-api/{path:path}",
+        "PUT /studio-api/{path:path}",
+        # MCP streamable-HTTP transport (JSON-RPC or SSE), owned by the MCP SDK.
+        "DELETE /studio-mcp",
+        "DELETE /studio-mcp/",
         "GET /consent/export",  # CSV download
         "GET /export-jobs/{job_id}/download",  # zip download
-        "DELETE /kb/faqs/{faq_id}",  # 204, no body
-        "DELETE /kb/products/phrasings/{phrasing_id}",  # 204, no body
         "DELETE /billing/budgets/{budget_id}/rules/{rule_id}",  # 204, no body
     }
 )
@@ -141,6 +147,7 @@ _OPAQUE_BY_DESIGN = {
     "telephony.VoiceSandboxStartRequest.persona": "free text the tester typed, rendered into the prompt",
     "telephony.VoiceSandboxStartRequest.tuning": "agent_core.tuning.normalize_tuning owns the shape and clamps it",
     "telephony.VoiceSandboxTuneRequest.tuning": "agent_core.tuning.normalize_tuning owns the shape and clamps it",
+    "outbound.StrategyProposalRequest.changes": "strategy._validated: known engine settings only, each coerced by engine_config.coerce",
     "voice_catalog.TtsPreviewRequest.params": "provider-specific synthesis parameters",
 }
 
