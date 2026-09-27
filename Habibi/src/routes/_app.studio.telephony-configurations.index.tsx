@@ -1,6 +1,8 @@
-import { createFileRoute, lazyRouteComponent } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+
+import Page from "@/agentstudio/app/telephony-configurations/page";
 
 export const Route = createFileRoute("/_app/studio/telephony-configurations/")({
   head: () => ({ meta: [{ title: "Telephony · Voice Studio — PayInt" }] }),
-  component: lazyRouteComponent(() => import("@/agentstudio/app/telephony-configurations/page")),
+  component: Page,
 });
