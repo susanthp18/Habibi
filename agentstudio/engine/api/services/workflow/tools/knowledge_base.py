@@ -343,8 +343,11 @@ def get_knowledge_base_tool(
             "Use this tool when you need to look up facts, policies, procedures, or any information "
             "that might be stored in the available documents. The search will only look in the "
             f"documents associated with this conversation step ({len(document_uuids)} document(s) available). "
-            "The result lists every document searched in documents_searched: a question about "
-            "what is offered is answered from those names as well as the chunks."
+            "The result lists every document searched in documents_searched, each named after its "
+            "topic (Home_FAQs.txt is about Home). Asked what is offered or available, name the "
+            "topics from those names and offer details on any of them; never say you have no "
+            "information when documents_searched lists them. Search again with a short, specific "
+            "query (a product name) for details."
         )
     else:
         description = (

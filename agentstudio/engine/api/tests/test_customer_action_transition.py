@@ -314,6 +314,50 @@ async def test_a_close_needs_the_customer_to_speak_in_this_step():
     engine._perform_variable_extraction_if_needed.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_a_close_cannot_follow_its_own_unanswered_question():
+    """Run 62: "Would you like me to record ... for then?" and No agreement in
+    one response; the close hung up while the customer answered."""
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    said = {"role": "user", "content": "May be 2 days before."}
+    engine.context = SimpleNamespace(messages=[
+        {"role": "user", "content": "No, actually I want to push it further for 2 days."},
+        said,
+        {"role": "assistant", "content": "Got it, that's Thursday, 8 October. Would you like me to record it?"},
+    ])
+    engine._node_entry_user_message = {}
+    engine._context_summary_message = None
+    engine._customer_action_outcomes = {}
+    engine._verification_required = set()
+    engine._verification_outcomes = {}
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+
+    class Agent:
+        visit_id = "visit"
+        current_node = SimpleNamespace(id="agree")
+        workflow = SimpleNamespace(nodes={"end": SimpleNamespace(is_end=True)})
+
+        def bind_tool(self, _engine, handler):
+            return handler
+
+    handler = await engine._create_transition_func("No agreement", "end", agent=Agent())
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "question_unanswered"
+
+    # Once the customer has answered, the close is allowed again.
+    engine.context.messages.append({"role": "user", "content": "No, leave it."})
+    engine._active_agent = Agent()
+    engine._run_transition_variable_extraction_in_background = False
+    engine.set_node = AsyncMock()
+    engine.arm_speech_playback = Mock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    engine.set_node.assert_awaited_once_with("end", origin_visit_id="visit")
+
+
 def test_guard_state_survives_a_text_chat_turn():
     # Text chat rebuilds the engine per message: verification must carry over,
     # or a released agent refuses every promise after the verifying turn.

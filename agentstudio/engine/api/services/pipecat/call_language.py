@@ -40,11 +40,16 @@ def language_name(locale: str) -> str:
 def multilingual_reply_rule(languages: list[str]) -> str:
     """The standing instruction for an agent whose callers may switch language."""
     names = ", ".join(dict.fromkeys(language_name(lang) for lang in languages))
+    # Not "the language of the latest message": a lone "हाँ" after an English
+    # sentence turned a web call's replies into Hindi (run 65). The tracker
+    # decides a switch and says so with switch_note.
     return (
-        f"LANGUAGE: The caller may speak {names}, and may switch at any time. Always reply in the "
-        "language of the caller's latest message, written in that language's own script "
+        f"LANGUAGE: The caller may speak {names}, and may switch at any time. Reply in the "
+        "language the caller is speaking, written in that language's own script "
         "(for example Devanagari for Hindi, Tamil script for Tamil, Arabic script for Arabic); "
-        "never transliterate into Latin letters. Names, amounts and dates stay exactly as they are."
+        "never transliterate into Latin letters. A word or two in another language (\"haan\", "
+        "\"ok\", \"sorry\") does not change it; you are told when the caller switches. "
+        "Names, amounts and dates stay exactly as they are."
     )
 
 

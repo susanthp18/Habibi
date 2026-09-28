@@ -1567,14 +1567,7 @@ class KnowledgeBaseChunkModel(Base):
         Index(
             "ix_kb_chunks_embedding_model", "embedding_model"
         ),  # For filtering by model
-        # Vector similarity search index (using IVFFlat or HNSW)
-        # IVFFlat is good for datasets with 10k-1M vectors
-        # HNSW is better for larger datasets but uses more memory
-        Index(
-            "ix_kb_chunks_embedding_ivfflat",
-            "embedding",
-            postgresql_using="ivfflat",
-            postgresql_with={"lists": 100},  # Adjust based on dataset size
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
+        # AgentStudio: no approximate vector index. Searches filter by the
+        # node's documents; an IVFFlat index probed one list in 100 and returned
+        # empty or off-topic results (migration e4b7c2a9f015).
     )

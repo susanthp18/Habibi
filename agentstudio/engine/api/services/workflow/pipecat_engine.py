@@ -515,26 +515,29 @@ class PipecatEngine:
     def set_assistant_aggregator(self, aggregator) -> None:
         self._assistant_aggregator = aggregator
 
-    def agent_spoke_since_customer(self) -> bool:
-        """Has the agent said anything since the customer's last message?
+    def agent_text_since_customer(self) -> str:
+        """What the agent has said since the customer's last message.
 
         The response being generated counts: a call's generation stage reports
         its text as it streams, and the assistant aggregator holds it until the
         response ends. Text chat commits it to context before running the
         response's tool calls, so context is read too.
         """
-        if (self._current_llm_generation_reference_text.strip()
-                or getattr(self._assistant_aggregator, "_aggregation", None)):
-            return True
+        said = [self._current_llm_generation_reference_text]
+        said += [getattr(p, "text", p) for p in getattr(self._assistant_aggregator, "_aggregation", None) or ()]
         for message in reversed(self.context.messages):
             if not isinstance(message, dict):
                 continue
             if message.get("role") == "user":
-                return False
+                break
             content = message.get("content")
-            if message.get("role") == "assistant" and isinstance(content, str) and content.strip():
-                return True
-        return False
+            if message.get("role") == "assistant" and isinstance(content, str):
+                said.append(content)
+        return " ".join(s.strip() for s in said if s and s.strip())
+
+    def agent_spoke_since_customer(self) -> bool:
+        """Has the agent said anything since the customer's last message?"""
+        return bool(self.agent_text_since_customer())
 
     def _refusal_hint(self, reason: str) -> str:
         """What the model should do after a refused path, so it neither
@@ -594,6 +597,18 @@ class PipecatEngine:
                         "say": self._refusal_hint(
                             f"The customer has not answered yet. Once they answer, take "
                             f"{name} if their answer fits it."),
+                    })
+                    return
+                # A close hangs up once its words are said, so it cannot follow a
+                # question still waiting for an answer: run 62 asked "Would you
+                # like me to record four thousand rupees for then?" and took No
+                # agreement in the same response, cutting the customer off.
+                if (agent.workflow.nodes[transition_to_node].is_end
+                        and any(q in self.agent_text_since_customer() for q in ("?", "؟"))):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "question_unanswered",
+                        "say": ("You have just asked the customer a question. Do not end the "
+                                "conversation: say nothing more and wait for their answer."),
                     })
                     return
                 if (node_key in self._verification_required
