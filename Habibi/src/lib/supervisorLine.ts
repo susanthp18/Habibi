@@ -12,7 +12,32 @@ import { studioSocketUrl } from "@/api/studio-engine";
  * resamples each buffer to the output device, so no DSP lives here.
  */
 export type LineMode = "listen" | "takeover";
-export type LineTurn = { speaker: "caller" | "agent" | "supervisor"; text: string; final: boolean };
+export type LineTurn = {
+  speaker: "caller" | "agent" | "supervisor";
+  text: string;
+  final: boolean;
+  /** The part of `text` that no later interim result can replace. */
+  settled?: string;
+};
+
+/**
+ * One running line per speaker turn. The agent's words arrive one event at a
+ * time and the caller's recognition in segments, each segment as interim
+ * results and then a final one: an interim replaces the previous interim, a
+ * final joins what is settled.
+ */
+export function mergeTurn(turns: LineTurn[], t: LineTurn, keep = 40): LineTurn[] {
+  const last = turns[turns.length - 1];
+  if (!last || last.speaker !== t.speaker) {
+    return [...turns, { ...t, settled: t.final ? t.text : "" }].slice(-keep);
+  }
+  const settled = last.settled ?? "";
+  const text = `${settled} ${t.text}`.trim();
+  return [
+    ...turns.slice(0, -1),
+    { speaker: t.speaker, text, final: t.final, settled: t.final ? text : settled },
+  ];
+}
 export type LineState = {
   status: "connecting" | "live" | "closed";
   mode: LineMode;

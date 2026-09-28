@@ -27,7 +27,7 @@ export type FloorSnapshot = {
 };
 
 export const FLOOR_LIVE_HINT =
-  "Live floor · Listen is the transcript. Whisper coaches the next bot turn. Barge takes over a live Twilio call.";
+  "Live floor · Listen plays the call with its live transcript. Whisper instructs the agent from its next reply. Take over puts you on the call; hand it back when you are done.";
 
 export type SupervisorAction = "listen_in" | "whisper" | "barge" | "force_handoff";
 

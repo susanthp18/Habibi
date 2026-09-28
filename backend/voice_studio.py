@@ -384,6 +384,16 @@ def ensure_interaction(run_id: Any, ctx: dict[str, Any], *, started_at: datetime
             text("SELECT interaction_id FROM voice_sessions WHERE id = :id"), {"id": session_id}
         ).scalar()
         if existing:
+            from db_core import UNKNOWN_CALLER_ID
+
+            known = persist.resolve_known_customer(ctx.get("customer_id"))
+            if known:
+                # Opened by the call-started notice before the pre-call lookup
+                # named the caller: join it to them as soon as a hook knows.
+                conn.execute(text(
+                    "UPDATE interactions SET customer_id = :c, account_id = COALESCE(account_id, :a), "
+                    "updated_at = now() WHERE id = :ix AND (customer_id = :u OR customer_id LIKE :u || ':%')"
+                ), {"c": known, "a": ctx.get("account_id"), "ix": existing, "u": UNKNOWN_CALLER_ID})
             return str(existing)
         customer_id = persist.resolve_known_customer(ctx.get("customer_id"))
         created = persist.start_voice_call(

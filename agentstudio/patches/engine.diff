@@ -2924,7 +2924,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  )
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/integrations/base.py engine/api/services/integrations/base.py
---- dograh/api/services/integrations/base.py	2026-09-28 10:14:30.564757400 +0530
+--- dograh/api/services/integrations/base.py	2026-09-28 10:38:13.101407500 +0530
 +++ engine/api/services/integrations/base.py	2026-09-28 09:29:09.493709300 +0530
 @@ -30,6 +30,8 @@
      user_config: Any
@@ -3444,8 +3444,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    return {"ok": True}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/integrations/supervisor/runtime.py engine/api/services/integrations/supervisor/runtime.py
 --- dograh/api/services/integrations/supervisor/runtime.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/services/integrations/supervisor/runtime.py	2026-09-28 09:27:48.054780200 +0530
-@@ -0,0 +1,89 @@
++++ engine/api/services/integrations/supervisor/runtime.py	2026-09-28 10:24:54.249616100 +0530
+@@ -0,0 +1,94 @@
 +"""AgentStudio: attach every live call to its supervisor line.
 +
 +Also tells PayInt the call has started (``PAYINT_CALL_STARTED_URL``), so the
@@ -3492,11 +3492,10 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            self._line.publish_audio(lines.CALLER, frame.audio, frame.sample_rate)
 +
 +
-+async def _notify_started(run: Any) -> None:
++async def _notify_started(run: Any, context: dict[str, Any]) -> None:
 +    url = os.getenv("PAYINT_CALL_STARTED_URL", "").strip()
 +    if not url:
 +        return
-+    context = dict(getattr(run, "initial_context", None) or {})
 +    try:
 +        async with httpx.AsyncClient(timeout=3.0) as client:
 +            resp = await client.post(
@@ -3523,7 +3522,13 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        task.add_observer(RealtimeFeedbackObserver(ws_sender=self._line.publish_event))
 +        task.add_observer(CallerTap(self._line))
 +        if self._run is not None:
-+            notice = asyncio.get_running_loop().create_task(_notify_started(self._run))
++            # The engine's merged context: the run as stored plus what the
++            # caller's session supplied (the in-memory run predates the merge).
++            context = {
++                **dict(getattr(self._run, "initial_context", None) or {}),
++                **dict(getattr(self._line.engine, "_call_context_vars", None) or {}),
++            }
++            notice = asyncio.get_running_loop().create_task(_notify_started(self._run, context))
 +            _background.add(notice)
 +            notice.add_done_callback(_background.discard)
 +
@@ -5392,7 +5397,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      await session.start()
      try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine.py engine/api/services/workflow/pipecat_engine.py
---- dograh/api/services/workflow/pipecat_engine.py	2026-09-28 10:14:32.339624500 +0530
+--- dograh/api/services/workflow/pipecat_engine.py	2026-09-28 10:38:16.661018100 +0530
 +++ engine/api/services/workflow/pipecat_engine.py	2026-09-28 10:09:51.569756200 +0530
 @@ -108,6 +108,17 @@
  FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
@@ -5667,7 +5672,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
                  )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_callbacks.py engine/api/services/workflow/pipecat_engine_callbacks.py
---- dograh/api/services/workflow/pipecat_engine_callbacks.py	2026-09-28 10:14:32.342919700 +0530
+--- dograh/api/services/workflow/pipecat_engine_callbacks.py	2026-09-28 10:38:16.663130300 +0530
 +++ engine/api/services/workflow/pipecat_engine_callbacks.py	2026-09-28 09:29:09.496707600 +0530
 @@ -44,11 +44,12 @@
          supervisor = getattr(self._engine, "answer_supervisor", None)

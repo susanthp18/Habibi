@@ -44,11 +44,10 @@ class CallerTap(BaseObserver):
             self._line.publish_audio(lines.CALLER, frame.audio, frame.sample_rate)
 
 
-async def _notify_started(run: Any) -> None:
+async def _notify_started(run: Any, context: dict[str, Any]) -> None:
     url = os.getenv("PAYINT_CALL_STARTED_URL", "").strip()
     if not url:
         return
-    context = dict(getattr(run, "initial_context", None) or {})
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.post(
@@ -75,7 +74,13 @@ class SupervisorSession(IntegrationRuntimeSession):
         task.add_observer(RealtimeFeedbackObserver(ws_sender=self._line.publish_event))
         task.add_observer(CallerTap(self._line))
         if self._run is not None:
-            notice = asyncio.get_running_loop().create_task(_notify_started(self._run))
+            # The engine's merged context: the run as stored plus what the
+            # caller's session supplied (the in-memory run predates the merge).
+            context = {
+                **dict(getattr(self._run, "initial_context", None) or {}),
+                **dict(getattr(self._line.engine, "_call_context_vars", None) or {}),
+            }
+            notice = asyncio.get_running_loop().create_task(_notify_started(self._run, context))
             _background.add(notice)
             notice.add_done_callback(_background.discard)
 

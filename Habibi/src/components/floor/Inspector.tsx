@@ -199,16 +199,12 @@ export function Inspector({
               </p>
             ) : (
               <ul className="max-h-60 space-y-075 overflow-y-auto">
-                {line.turns
-                  .filter((t, i, all) => t.final || i === all.length - 1)
-                  .map((t, i) => (
-                    <li key={i} className={cn("text-body-small", !t.final && "text-text-subtlest")}>
-                      <span className="font-semibold capitalize text-text-subtle">
-                        {t.speaker}:{" "}
-                      </span>
-                      <span className="text-text">{t.text}</span>
-                    </li>
-                  ))}
+                {line.turns.map((t, i) => (
+                  <li key={i} className={cn("text-body-small", !t.final && "text-text-subtlest")}>
+                    <span className="font-semibold capitalize text-text-subtle">{t.speaker}: </span>
+                    <span className="text-text">{t.text}</span>
+                  </li>
+                ))}
               </ul>
             )}
           </div>

@@ -18,7 +18,7 @@ import {
   type FloorSnapshot,
 } from "@/api/floor";
 import type { ActiveCall, FloorAction } from "@/api/types/floor";
-import { SupervisorLine, type LineMode, type LiveLine } from "@/lib/supervisorLine";
+import { mergeTurn, SupervisorLine, type LineMode, type LiveLine } from "@/lib/supervisorLine";
 
 export const Route = createFileRoute("/_app/floor")({
   head: () => ({
@@ -77,7 +77,7 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
     const next = new SupervisorLine(mode, {
       turn: (t) =>
         setLine((cur) =>
-          cur && lineRef.current === next ? { ...cur, turns: [...cur.turns, t].slice(-40) } : cur,
+          cur && lineRef.current === next ? { ...cur, turns: mergeTurn(cur.turns, t) } : cur,
         ),
       state: (s) =>
         setLine((cur) =>
