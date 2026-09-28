@@ -148,68 +148,11 @@ export interface WorkspaceSummary {
   outsideWindowCount: number;
 }
 
-/** Floor-shaped 7-day strip used when the live window is empty (demo). */
-const DEMO_STATS: WorkspaceStats = {
-  callsHandled: 31,
-  callsHandledDelta: "+5 vs prior 7d",
-  aht: "4m 22s",
-  ahtDelta: "-38s vs team",
-  resolutions: 24,
-  resolutionRate: "77%",
-  promisesCount: 8,
-  promisesAmount: 18640,
-  windowLabel: "Rolling 7 days",
-};
-
-function istNowMinutes(): number {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-  return hour * 60 + minute;
-}
-
-/** Next callback later today so the badge stays in the future during the demo. */
-function demoNextCallback(): WorkspaceNextCallback {
-  const now = istNowMinutes();
-  const slots = [
-    { minutes: 14 * 60 + 30, time: "2:30 PM" },
-    { minutes: 17 * 60, time: "5:00 PM" },
-    { minutes: 17 * 60 + 30, time: "5:30 PM" },
-  ];
-  const slot = slots.find((s) => s.minutes - now >= 20) ?? slots[slots.length - 1]!;
-  return {
-    id: "CB-DEMO-NEXT",
-    customer: "Meera Iyer",
-    accountId: "AC-441120",
-    reason: "Confirm EMI after salary credit",
-    time: slot.time,
-    timezone: "IST",
-    inMinutes: Math.max(12, slot.minutes - now),
-  };
-}
-
-function withDemoFill(summary: WorkspaceSummary): WorkspaceSummary {
-  const emptyShift = (summary.stats?.callsHandled ?? 0) === 0;
-  return {
-    ...summary,
-    stats: emptyShift
-      ? { ...DEMO_STATS, windowLabel: summary.stats?.windowLabel || DEMO_STATS.windowLabel }
-      : summary.stats,
-    nextCallback: summary.nextCallback ?? demoNextCallback(),
-  };
-}
-
 export async function fetchWorkspaceSummary(
   assignee: "me" | "all" = "me",
 ): Promise<WorkspaceSummary> {
   const q = assignee === "all" ? "all" : "me";
-  const live = await apiGet<WorkspaceSummary>(`/workspace/summary?assignee=${q}`);
-  return withDemoFill(live);
+  return apiGet<WorkspaceSummary>(`/workspace/summary?assignee=${q}`);
 }
 
 export function enactedByLabel(value?: string | null): string | null {
