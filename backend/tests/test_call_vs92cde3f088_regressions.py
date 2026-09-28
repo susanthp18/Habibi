@@ -16,7 +16,6 @@ from __future__ import annotations
 import pytest
 
 from agent_core.guardrails import evaluate_guardrails
-from agent_core.tools import kb_plan
 
 pytest.importorskip("pipecat.flows")
 
@@ -100,42 +99,6 @@ def test_the_builtin_graph_keeps_its_bridge_lines() -> None:
 
 
 # --- the KB judge that never ran -------------------------------------------
-
-
-def test_the_planner_cannot_spend_the_judges_budget() -> None:
-    """Shared first-come-first-served, the planner took it all every time.
-
-    Measured: planner 1796ms of a 2500ms budget, embed 355ms, judge left 0.13s
-    - under _MIN_CALL_BUDGET_S, so it never ran and every voice lookup logged
-    "kb answerability degraded (judge_unavailable)".
-
-    The first attempt at this subtracted a reserve from the planner's timeout,
-    which is what the earlier version of this test asserted. It did not work:
-    the deadline is absolute wall clock and the embed and vector search spend
-    it too, so the judge was still offered 0.0s. The guarantee is a floor now —
-    see :meth:`kb_plan.Deadline.guaranteed`.
-    """
-    # The bug is now unreachable by construction: there is no judge to starve.
-    # kb.py is asserted judge-free in
-    # test_kb_judge_budget_and_prewarm.py::test_the_judge_is_not_called_at_all.
-    assert not hasattr(kb_plan, "judge_passages")
-    assert not hasattr(kb_plan, "judge_reserve_s")
-
-    # The guarantee mechanism itself still holds for whatever uses it next.
-    exhausted = kb_plan.Deadline(0.0)
-    assert exhausted.remaining() == 0.0
-    assert exhausted.guaranteed(2.5) == pytest.approx(2.5)
-
-
-def test_the_voice_budget_covers_the_planner() -> None:
-    """Worst-case retrieval is the planner budget now, not planner + judge.
-
-    It was 2.5 + 3.5 = 6.0s. Removing the judge removes the second term
-    outright, which is the single largest latency change on the voice KB path.
-    """
-    observed_planner_secs = 1.8
-    assert kb_plan.voice_budget_s() >= observed_planner_secs
-    assert kb_plan.voice_budget_s() <= 3.0
 
 
 def test_the_ending_reason_has_one_owner() -> None:

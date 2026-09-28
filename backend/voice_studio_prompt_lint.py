@@ -48,7 +48,7 @@ _TOKENS_PER_WORD_FALLBACK = 1.35
 
 def _count_tokens(text: str) -> int:
     try:
-        from kb_chunking import count_tokens
+        from azure_openai import count_tokens
 
         return count_tokens(text)
     except Exception:  # tokenizer unavailable: a word-based estimate is honest enough

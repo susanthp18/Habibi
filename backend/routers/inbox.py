@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 
 import db
-import kb_rate_limit
 
 from fastapi import APIRouter
 from fastapi import HTTPException, Query, Response
@@ -103,7 +102,7 @@ def refresh_conversation_suggestions(
     conversation_id: str,
     payload: ConversationSuggestionsRefreshRequest | None = None,
 ):
-    """Debounced Inbox consumer: shared retrieve() → ai_response_suggestions chips."""
+    """Debounced Inbox consumer: Voice Studio knowledge base → ai_response_suggestions chips."""
     body = payload or ConversationSuggestionsRefreshRequest()
     try:
         return db.refresh_conversation_suggestions(
@@ -115,8 +114,6 @@ def refresh_conversation_suggestions(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except kb_rate_limit.RateLimitExceeded:
-        raise  # the app's handler answers 429 with Retry-After
     except Exception as exc:
         logger.exception("inbox rag refresh failed conversation=%s", conversation_id)
         raise HTTPException(status_code=502, detail="inbox_rag_failed") from exc

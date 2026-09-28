@@ -223,31 +223,6 @@ def test_a_soft_failure_is_audited_as_a_failure(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_external_query_does_not_create_a_kb_gap(db_tx, monkeypatch) -> None:
-    """An agent's query is not a customer failing to get an answer.
-
-    record_kb_gap is gated on interaction_id, so passing none is the mechanism —
-    pinned here so a future edit that "helpfully" threads one through has to
-    confront it.
-    """
-    import db as db_mod
-    import kb_retrieve
-
-    monkeypatch.setenv("KB_GAP_CAPTURE_ENABLED", "true")
-    monkeypatch.setattr(
-        kb_retrieve, "retrieve", lambda **kw: {"results": [], "latencyMs": 3, "logId": "L"}
-    )
-    calls: list[dict] = []
-    monkeypatch.setattr(db_mod, "record_kb_gap", lambda **kw: calls.append(kw))
-
-    mcp_tools.call_tool(
-        "search_knowledge_base",
-        {"customer_id": "anita-desai", "query": "what does the travel policy exclude"},
-    )
-
-    assert calls == []
-
-
 def test_the_read_only_surface_records_no_commercial_event(db_tx) -> None:
     """``check_product_eligibility`` over MCP wrote an ``eligibility_checked``
     commercial event attributed to nobody: a partner system polling

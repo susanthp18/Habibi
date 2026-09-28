@@ -358,34 +358,6 @@ class _FakeConn:
         raise AssertionError(f"unexpected statement: {sql}")
 
 
-def test_kb_mark_job_failed_preserves_indexed_status() -> None:
-    """A failed reindex must not blank a document that still serves chunks."""
-    import kb_ingest
-
-    docs = {
-        "doc-indexed": "indexed",
-        "doc-stale": "stale",
-        # Mid-reindex (enqueue_index_job sets 'indexing') but chunks remain.
-        "doc-indexing-with-chunks": "indexing",
-        # Never successfully indexed and has no chunks.
-        "doc-fresh": "indexing",
-    }
-    conn = _FakeConn(docs, chunked={"doc-indexed", "doc-stale", "doc-indexing-with-chunks"})
-
-    for doc_id in list(docs):
-        kb_ingest._mark_job_failed(conn, f"job-{doc_id}", doc_id, "embed failed")
-
-    # Protected statuses are untouched.
-    assert docs["doc-indexed"] == "indexed"
-    assert docs["doc-stale"] == "stale"
-    # Serviceable chunks keep the document out of 'failed'.
-    assert docs["doc-indexing-with-chunks"] == "indexing"
-    # Nothing to serve → 'failed' is correct.
-    assert docs["doc-fresh"] == "failed"
-    # Every job row is recorded as failed regardless.
-    assert set(conn.jobs.values()) == {"failed"}
-
-
 def test_upload_cap_helper_exists() -> None:
     import main as app_main
 

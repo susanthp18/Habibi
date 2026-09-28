@@ -20,12 +20,12 @@ TESTS = Path(__file__).resolve().parent
 #: dashboard's statements, the scheduler's SUITE_KINDS, a deleted constant).
 _PIN = re.compile(r"inspect\.getsource\(|\.read_text\(|\.read\(\)|voice_tools_source")
 
-#: Files that read source text (86 once the legacy runtime's tests went,
-#: 2026-09-28). Lower it when a test stops doing so; never raise it -- a new
+#: Files that read source text (84 once the legacy runtime's and the old
+#: knowledge base's tests went, 2026-09-28). Lower it when a test stops doing so; never raise it -- a new
 #: test pins behaviour, not text.
 #: ``test_export_zip.py`` is untracked other-stream; do not bless it here.
 _SKIP = frozenset({"test_export_zip.py"})
-BASELINE = 86
+BASELINE = 84
 
 
 def _pinning_files() -> list[str]:

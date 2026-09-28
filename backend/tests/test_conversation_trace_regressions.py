@@ -23,48 +23,6 @@ import db_inbox_rag
 # --- F16: a throttled refresh must say so, not serve stale chips -------------
 
 
-def test_a_rate_limited_refresh_raises_instead_of_faking_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`main.py` maps `RateLimitExceeded` to 429 and the inbox has copy for it.
-
-    Neither ever fired. `kb_retrieve.retrieve` raises the throttle from inside
-    the broad `except Exception` that exists to survive retrieval outages, so a
-    throttled poll fell through to the stale-chip fallback and returned 200.
-    The operator saw suggestions for a conversation that had moved on, with no
-    indication they were old.
-    """
-    import kb_rate_limit
-    import kb_retrieve
-
-    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
-
-    def _throttled(**_kwargs: object) -> dict[str, object]:
-        raise kb_rate_limit.RateLimitExceeded("rate_limited:inbox:30/min")
-
-    monkeypatch.setattr(kb_retrieve, "retrieve", _throttled)
-
-    with pytest.raises(kb_rate_limit.RateLimitExceeded):
-        db.refresh_conversation_suggestions("CV-SUSANTH-WA1")
-
-
-def test_a_retrieval_outage_still_falls_back_to_persisted_chips(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The fallback is deliberate — only the throttle must escape it."""
-    import kb_retrieve
-
-    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
-
-    def _down(**_kwargs: object) -> dict[str, object]:
-        raise RuntimeError("azure is down")
-
-    monkeypatch.setattr(kb_retrieve, "retrieve", _down)
-
-    out = db.refresh_conversation_suggestions("CV-SUSANTH-WA1")
-    assert isinstance(out["ragSuggestions"], list)
-
-
 # --- F8b: a forged signature is a 403, never a 500 --------------------------
 
 
@@ -238,3 +196,20 @@ def test_a_promise_for_today_is_still_allowed() -> None:
     assert domain._promise_date_is_past(clock.today_local().isoformat()) is False
     assert domain._promise_date_is_past((clock.today_local() + timedelta(days=3)).isoformat()) is False
     assert domain._promise_date_is_past((clock.today_local() - timedelta(days=1)).isoformat()) is True
+
+
+def test_a_retrieval_outage_still_falls_back_to_persisted_chips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A knowledge-base outage degrades to the last persisted chips, never an error."""
+    import voice_studio
+
+    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
+
+    def _down(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeError("engine is down")
+
+    monkeypatch.setattr(voice_studio, "kb_search", _down)
+
+    out = db.refresh_conversation_suggestions("CV-SUSANTH-WA1")
+    assert isinstance(out["ragSuggestions"], list)

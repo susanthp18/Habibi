@@ -929,10 +929,6 @@ from db_evals import (  # noqa: E402
     save_eval_report as save_eval_report,
 )
 
-from db_kb_snapshots import (  # noqa: E402
-    create_kb_snapshot as create_kb_snapshot,
-    list_kb_snapshots as list_kb_snapshots,
-)
 
 from db_billing import (  # noqa: E402
     _BILLING_ENVS as _BILLING_ENVS,
@@ -1014,34 +1010,6 @@ from db_redaction import (  # noqa: E402
     patch_redaction_rule as patch_redaction_rule,
 )
 
-from db_kb import (  # noqa: E402
-    KB_GAP_LIST_LIMIT as KB_GAP_LIST_LIMIT,
-    KB_GAP_MAX_CHARS as KB_GAP_MAX_CHARS,
-    KB_GAP_MIN_CHARS as KB_GAP_MIN_CHARS,
-    backfill_kb_sources_to_minio as backfill_kb_sources_to_minio,
-    create_kb_document_from_upload as create_kb_document_from_upload,
-    create_kb_document_version as create_kb_document_version,
-    create_kb_faq as create_kb_faq,
-    delete_kb_document as delete_kb_document,
-    delete_kb_faq as delete_kb_faq,
-    get_kb_document as get_kb_document,
-    get_kb_faq as get_kb_faq,
-    get_kb_index_job as get_kb_index_job,
-    get_kb_stats as get_kb_stats,
-    ingest_kb_from_source_db as ingest_kb_from_source_db,
-    link_kb_gap as link_kb_gap,
-    list_kb_chunks as list_kb_chunks,
-    list_kb_documents as list_kb_documents,
-    list_kb_faqs as list_kb_faqs,
-    list_kb_gaps as list_kb_gaps,
-    patch_kb_document as patch_kb_document,
-    patch_kb_faq as patch_kb_faq,
-    purge_kb_documents as purge_kb_documents,
-    purge_stale_kb_gaps as purge_stale_kb_gaps,
-    record_kb_gap as record_kb_gap,
-    reindex_all_kb_documents as reindex_all_kb_documents,
-    reindex_kb_document as reindex_kb_document,
-)
 
 from db_prompt_studio import (  # noqa: E402
     DEFAULT_BOT_ID as DEFAULT_BOT_ID,

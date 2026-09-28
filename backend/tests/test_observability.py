@@ -131,17 +131,6 @@ def test_job_queue_backlog_age_is_emitted_per_queue() -> None:
     assert ages == set(observability._JOB_QUEUES)
 
 
-def test_rate_limit_throttles_are_exported() -> None:
-    """kb_rate_limit.throttle_metrics() said 'surfaced by /metrics' before any
-    /metrics existed. It does now."""
-    import kb_rate_limit
-
-    kb_rate_limit._record_throttle("retrieve:test-tenant")
-    samples = list(observability._rate_limit_samples())
-    keys = {labels["key"] for _m, labels, _v in samples}
-    assert "retrieve:test-tenant" in keys
-
-
 def test_error_tracking_is_a_noop_without_a_dsn(monkeypatch) -> None:
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     observability.setup_error_tracking()  # must not raise

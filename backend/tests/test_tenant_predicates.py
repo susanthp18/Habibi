@@ -341,42 +341,6 @@ def test_the_inbox_does_not_list_another_tenants_conversation(db_tx) -> None:
     assert db_inbox.get_conversation("conv-rival-1") is None
 
 
-def test_the_knowledge_base_does_not_answer_from_another_tenants_documents(db_tx) -> None:
-    """The retrieval cache keyed on the tenant; the SQL under it did not."""
-    _other_tenant(db_tx)
-    with _acting_as(db_tx, OTHER):
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO kb_documents (id, tenant_id, type, version, status, enabled, title, product_key)
-                VALUES ('doc-rival-1', :t, 'policy', 'v1', 'indexed', true, 'Rival Policy', 'rival-product')
-                """
-            ),
-            {"t": OTHER},
-        )
-        db_tx.execute(
-            text(
-                """
-                INSERT INTO faq_pairs (id, linked_document_id, intent, question, answer, enabled)
-                VALUES ('faq-rival-1', 'doc-rival-1', 'rival', 'What is the rival rate?', '99%', true)
-                """
-            )
-        )
-        # The trigger resolved the tenant from the linked document.
-        assert (
-            db_tx.execute(
-                text("SELECT tenant_id FROM faq_pairs WHERE id = 'faq-rival-1'")
-            ).scalar()
-            == OTHER
-        )
-
-    import kb_retrieve
-
-    # `catalog` is the corpus-shape read that walks kb_documents directly.
-    keys = {row.get("product_key") for row in kb_retrieve.catalog()}
-    assert "rival-product" not in keys
-
-
 def test_a_ledger_entry_carries_its_tenant_by_default(db_tx) -> None:
     """Every writer inserts without a tenant today; the trigger supplies it, so
     the row is visible under a tenant predicate rather than to nobody."""

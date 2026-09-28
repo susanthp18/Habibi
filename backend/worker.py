@@ -1,10 +1,7 @@
-"""KB index worker — claim queued kb_index_jobs with SKIP LOCKED.
+"""The periodic worker: reconcile Voice Studio calls, retention, QA scoring,
+lead and follow-up sweeps, violations, policy, decision and billing jobs.
 
-Also runs a once-per-day Azure TTS voice catalog sync (~02:30 UTC).
-
-Usage (from backend/):
-  .venv/Scripts/python -m worker
-  .venv/Scripts/python -m worker --once
+Each sweep keeps its own clock; the loop ticks every ``--poll`` seconds.
 """
 
 from __future__ import annotations
@@ -25,14 +22,13 @@ import bot_jobs
 import db
 import observability
 import work_loop
-from kb_ingest import drain_queue, process_one
 from agent_core.clock import utc_now
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
-logger = logging.getLogger("kb_worker")
+logger = logging.getLogger("worker")
 
 _TTS_SYNC_HOUR_UTC = 2
 _TTS_SYNC_MINUTE_UTC = 30
@@ -209,33 +205,8 @@ def _maybe_reconcile_voice_studio() -> None:
         logger.exception("voice studio reconcile failed")
 
 
-# Product routing profiles follow the documents they were written from: a new
-# product, a re-ingest or a prompt change regenerates them here, with no
-# migration or manual step (kb_products.py). Cheap when nothing changed -- one
-# fingerprint query per product, no model call.
-_PRODUCT_PROFILE_INTERVAL_S = 300.0
-_last_product_profiles = 0.0
-
-
-def _maybe_reconcile_product_profiles() -> None:
-    global _last_product_profiles
-
-    now = time.monotonic()
-    if now - _last_product_profiles < _PRODUCT_PROFILE_INTERVAL_S:
-        return
-    _last_product_profiles = now
-    try:
-        import kb_products
-
-        failed = [r for r in kb_products.reconcile() if r["status"] != "ready"]
-        if failed:
-            logger.warning("kb product profiles failed: %s", failed)
-    except Exception:
-        logger.exception("kb product profile reconcile failed")
-
-
-_RATE_LIMIT_PURGE_INTERVAL_S = 300.0
-_last_rate_limit_purge = 0.0
+_RETENTION_PURGE_INTERVAL_S = 300.0
+_last_retention_purge = 0.0
 
 # Well past _MAX_CALL_DURATION_SECS (10 min) and the worker idle backstop, so a
 # still-running call can never have its config deleted out from under a restart.
@@ -247,9 +218,9 @@ _VOICE_SESSION_TTL_S = 24 * 3600
 # anyway. Deleting well after that read-side cutoff keeps the two decoupled.
 _CUSTOMER_MEMORY_TTL_S = 180 * 24 * 3600
 
-# A gap asked exactly once and never triaged, three months on, is not a content
-# gap — it is a one-off phrasing or a mis-transcription. Anything asked twice or
-# linked to a doc/FAQ/prompt survives regardless of age.
+# Unanswered questions the legacy runtime recorded: nothing writes them now. A
+# gap asked once and never linked ages out; anything asked twice, or that an
+# operator linked to a document, is kept.
 _KB_GAP_TTL_DAYS = 90
 
 
@@ -269,8 +240,8 @@ def _maybe_autoscore_interactions() -> None:
     second job kind would need a schema change for work that is not
     latency-sensitive. This mirrors the other periodic ``_maybe_*`` sweeps here.
 
-    Batch is capped because this process is the KB indexer: a slow Azure call
-    here delays ``kb_ingest.process_one``. Off by default.
+    Batch is capped so a slow Azure call cannot hold up the other sweeps here.
+    Off by default.
     """
     global _last_autoscore
 
@@ -294,96 +265,41 @@ def _maybe_autoscore_interactions() -> None:
         logger.warning("qa autoscore sweep failed", exc_info=True)
 
 
-def _maybe_purge_rate_limit_counters() -> None:
-    """Drop expired kb_rate_limit_counters rows and stale Live sessions (~5 min)."""
-    global _last_rate_limit_purge
+def _maybe_purge_retention() -> None:
+    """Age out derived customer data nothing writes any more (~5 min)."""
+    global _last_retention_purge
 
     now = time.monotonic()
-    if now - _last_rate_limit_purge < _RATE_LIMIT_PURGE_INTERVAL_S:
+    if now - _last_retention_purge < _RETENTION_PURGE_INTERVAL_S:
         return
-    _last_rate_limit_purge = now
+    _last_retention_purge = now
+    from sqlalchemy import text as _sql
+
     try:
-        import kb_rate_limit
-
-        removed = kb_rate_limit.purge_expired_counters()
-        if removed:
-            logger.debug("purged %s expired rate-limit counter rows", removed)
-    except Exception:
-        logger.warning("rate-limit counter purge failed", exc_info=True)
-
-    # Sandbox Live sessions are one row per Live call and nothing deletes them
-    # on the happy path — stop() marks a session stopped, it does not remove it.
-    try:
-        import voice_session_store
-
-        dropped = voice_session_store.purge_stale(_VOICE_SESSION_TTL_S)
-        if dropped:
-            logger.debug("purged %s stale voice sandbox sessions", dropped)
-    except Exception:
-        logger.warning("voice sandbox session purge failed", exc_info=True)
-
-    # Cross-call memory retention. Shares this tick's interval gate rather than
-    # adding a second timer — it is a single indexed DELETE.
-    try:
-        from voice import memory as voice_memory
-
-        dropped = voice_memory.purge_stale(_CUSTOMER_MEMORY_TTL_S)
+        with db.engine.begin() as conn:
+            dropped = conn.execute(
+                _sql("DELETE FROM customer_memory WHERE updated_at < now() - CAST(:w AS interval)"),
+                {"w": f"{_CUSTOMER_MEMORY_TTL_S} seconds"},
+            ).rowcount
         if dropped:
             logger.debug("purged %s stale customer_memory rows", dropped)
     except Exception:
         logger.warning("customer memory purge failed", exc_info=True)
 
-    # KB-gap retention. Runtime capture turned unanswered_questions from a
-    # hand-seeded table of ~10 rows into one that grows with traffic, and a
-    # question asked exactly once and never linked to anything is noise on the
-    # triage screen. Anything asked twice, or that an operator already acted on,
-    # is kept — see db.purge_stale_kb_gaps.
     try:
-        dropped = db.purge_stale_kb_gaps(ttl_days=_KB_GAP_TTL_DAYS)
+        with db.engine.begin() as conn:
+            dropped = conn.execute(
+                _sql(
+                    "DELETE FROM unanswered_questions uq WHERE uq.tenant_id = :t AND uq.hit_count <= 1 "
+                    "AND uq.last_seen_at < now() - CAST(:w AS interval) AND NOT EXISTS "
+                    "(SELECT 1 FROM analytics_kb_gap_links g WHERE g.unanswered_question_id = uq.id)"
+                ),
+                {"t": db.current_tenant(), "w": f"{_KB_GAP_TTL_DAYS} days"},
+            ).rowcount
         if dropped:
             logger.debug("purged %s stale kb gap rows", dropped)
     except Exception:
         logger.warning("kb gap purge failed", exc_info=True)
-
-
-_GARDENER_HOUR_UTC = 3
-_GARDENER_MINUTE_UTC = 10
-
-def _maybe_garden_kb_gaps() -> None:
-    """Daily unsigned skill drafts from repeated unanswered questions.
-
-    Humans still have to sign. This must never call ``sign_skill``.
-    """
-    if not _daily("kb_gardener", _GARDENER_HOUR_UTC, _GARDENER_MINUTE_UTC):
-        return
-    try:
-        from agent_core.skills.gardener import assert_unsigned, garden_open_gaps
-        from agent_core.skills.persist import create_draft_skill, list_skills
-
-        existing = {str(s.get("slug") or "") for s in list_skills()}
-        drafts = garden_open_gaps(db.list_kb_gaps(), existing)
-        created = 0
-        for draft in drafts:
-            assert_unsigned(draft)
-            create_draft_skill(
-                {
-                    "slug": draft["slug"],
-                    "description": draft["frontmatter"].get("description"),
-                    "allowed_tools": draft["allowed_tools"],
-                    "body": draft["body"],
-                    "frontmatter": draft["frontmatter"],
-                    "origin": "gardener",
-                }
-            )
-            created += 1
-        if created:
-            logger.info("kb gardener drafted %s unsigned skill(s)", created)
-    except Exception:
-        logger.exception("kb gardener failed")
-
-
-_EVAL_HOUR_UTC = 4
-_EVAL_MINUTE_UTC = 15
 
 
 def _maybe_run_eval_schedule() -> None:
@@ -459,20 +375,9 @@ def main() -> None:
     import actor_context
 
     actor_context.bind_service_actor("system")
-    parser = argparse.ArgumentParser(description="KB index worker (SKIP LOCKED)")
-    parser.add_argument("--once", action="store_true", help="Process one job and exit")
-    parser.add_argument("--drain", action="store_true", help="Drain queue then exit")
-    parser.add_argument("--poll", type=float, default=2.0, help="Idle poll seconds")
+    parser = argparse.ArgumentParser(description="Periodic sweeps: reconcile, retention, QA, policy, billing")
+    parser.add_argument("--poll", type=float, default=2.0, help="Seconds between ticks")
     args = parser.parse_args()
-
-    if args.once:
-        did = process_one(db.engine)
-        logger.info("processed=%s", did)
-        return
-    if args.drain:
-        n = drain_queue(db.engine)
-        logger.info("drained=%s", n)
-        return
 
     logger.info("worker started poll=%.1fs", args.poll)
     observability.serve_metrics()
@@ -484,17 +389,15 @@ def main() -> None:
         _maybe_sweep_due_followups()
         _maybe_scan_for_violations()
         _maybe_reconcile_voice_studio()
-        _maybe_purge_rate_limit_counters()
+        _maybe_purge_retention()
         _maybe_autoscore_interactions()
-        _maybe_garden_kb_gaps()
-        _maybe_reconcile_product_profiles()
         _maybe_run_eval_schedule()
         _maybe_drain_mcp_tasks()
         _maybe_policy_jobs()
         _maybe_decision_jobs()
-        return process_one(db.engine)
+        return False  # every sweep keeps its own clock; idle between ticks
 
-    work_loop.run(step, poll=args.poll, name="kb worker")
+    work_loop.run(step, poll=args.poll, name="worker")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,6 @@ import db
 import db_billing
 import db_bot_analytics
 import db_dashboard
-import db_kb
 import db_prompt_studio
 import db_redaction
 import db_routing
@@ -28,8 +27,6 @@ _CARVED = (
     "db_coaching.py",
     "db_dashboard.py",
     "db_evals.py",
-    "db_kb.py",
-    "db_kb_snapshots.py",
     "db_prompt_studio/__init__.py",
     "db_prompt_studio/cards.py",
     "db_prompt_studio/common.py",
@@ -107,15 +104,6 @@ _REDACTION_SHIMMED = (
     "list_redaction_rules",
 )
 
-_KB_SHIMMED = (
-    "KB_GAP_MAX_CHARS",
-    "get_kb_document",
-    "list_kb_documents",
-    "list_kb_faqs",
-    "list_kb_gaps",
-    "record_kb_gap",
-)
-
 _PROMPT_STUDIO_SHIMMED = (
     "DEFAULT_BOT_ID",
     "_DEFAULT_PERSONA",
@@ -169,11 +157,6 @@ def test_db_reexports_redaction_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_redaction, name), name
 
 
-def test_db_reexports_kb_as_the_same_objects() -> None:
-    for name in _KB_SHIMMED:
-        assert getattr(db, name) is getattr(db_kb, name), name
-
-
 def test_db_reexports_prompt_studio_as_the_same_objects() -> None:
     for name in _PROMPT_STUDIO_SHIMMED:
         assert getattr(db, name) is getattr(db_prompt_studio, name), name
@@ -199,9 +182,6 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db.list_redaction_records.__module__ == "db_redaction"
     assert db.get_redaction_record.__module__ == "db_redaction"
     assert db.actor_is_admin.__module__ == "db_redaction"
-    assert db.list_kb_documents.__module__ == "db_kb"
-    assert db.record_kb_gap.__module__ == "db_kb"
-    assert db.get_kb_document.__module__ == "db_kb"
     assert db.get_prompt_version.__module__.startswith("db_prompt_studio.")
     assert db.get_active_deployment.__module__.startswith("db_prompt_studio.")
     assert db.publish_prompt_version.__module__.startswith("db_prompt_studio.")
@@ -210,7 +190,6 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db._prompt_voice.__module__.startswith("db_prompt_studio.")
     assert db.list_eval_reports.__module__ == "db_evals"
     assert db.save_eval_report.__module__ == "db_evals"
-    assert db.create_kb_snapshot.__module__ == "db_kb_snapshots"
     assert db.create_coaching_action.__module__ == "db_coaching"
     assert db.patch_redaction_rule.__module__ == "db_redaction"
     assert db.create_routing_rule.__module__ == "db_routing"
@@ -241,7 +220,6 @@ def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
         db_billing,
         db_bot_analytics,
         db_dashboard,
-        db_kb,
         db_prompt_studio,
         db_redaction,
         db_routing,

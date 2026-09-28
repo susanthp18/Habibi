@@ -409,11 +409,16 @@ EMBED_MAX_INPUTS_PER_REQUEST = 2048
 EMBED_MAX_TOKENS_PER_REQUEST = 300_000
 
 
+def count_tokens(text: str) -> int:
+    """Tokens in ``text`` for the GPT-4o / text-embedding-3 family (cl100k_base)."""
+    import tiktoken
+
+    return len(tiktoken.get_encoding("cl100k_base").encode(text or ""))
+
+
 def _estimate_tokens(text: str) -> int:
     """Token estimate for batch sizing (tiktoken when available, else ~4 chars/token)."""
     try:
-        from kb_chunking import count_tokens
-
         return count_tokens(text)
     except Exception:
         return max(1, len(text) // 4)

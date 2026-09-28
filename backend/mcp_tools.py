@@ -23,7 +23,7 @@ import os
 import time
 from typing import Any, Callable
 
-from agent_core.tools import domain, kb
+from agent_core.tools import domain
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP
 
@@ -112,17 +112,13 @@ def _check_product_eligibility(customer_id: str, args: dict[str, Any]) -> dict[s
 
 
 def _search_knowledge_base(customer_id: str, args: dict[str, Any]) -> dict[str, Any]:
-    result = kb.search_knowledge_base(
-        query=str(args.get("query") or ""),
-        channel="text",
-        # No interaction: an external agent's query is not a customer failing to
-        # get an answer, so it must not create a KB gap row. record_kb_gap is
-        # gated on interaction_id, so passing none is the whole mechanism.
-        interaction_id=None,
-        apply_intent_gate=False,
-        product=args.get("product"),
-    )
-    return result.to_llm()
+    """The Voice Studio knowledge base -- the one the agents answer from."""
+    import voice_studio
+
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "error": "query_required"}
+    return {"ok": True, "results": voice_studio.kb_search(query, 5)}
 
 
 HANDLERS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {

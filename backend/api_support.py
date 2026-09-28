@@ -255,7 +255,6 @@ def register_error_handlers(app: Any) -> None:
 
     import azure_openai
     import circuit_breaker
-    import kb_rate_limit
 
     async def _json_charset(response: Response) -> Response:
         media = response.headers.get("content-type", "")
@@ -279,12 +278,6 @@ def register_error_handlers(app: Any) -> None:
     @app.exception_handler(circuit_breaker.CircuitOpenError)
     async def _circuit(_request: Request, exc: circuit_breaker.CircuitOpenError):
         return _unavailable(503, str(exc) or "circuit_open", exc.retry_after_s)
-
-    @app.exception_handler(kb_rate_limit.RateLimitExceeded)
-    async def _rate(_request: Request, exc: kb_rate_limit.RateLimitExceeded):
-        import time
-
-        return _unavailable(429, str(exc) or "rate_limited", 60 - int(time.time()) % 60)
 
     @app.exception_handler(DBAPIError)
     async def _database(request: Request, exc: DBAPIError):

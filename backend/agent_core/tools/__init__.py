@@ -30,11 +30,6 @@ from agent_core.tools.domain import (
     request_callback,
     request_documents,
 )
-from agent_core.tools.kb import (
-    KB_ALLOWED_INTENTS,
-    KB_CONFIDENCE_THRESHOLD,
-    search_knowledge_base,
-)
 from agent_core.tools.schema import ArgSpec, ToolCatalog, ToolSpec
 
 __all__ = [
@@ -45,8 +40,6 @@ __all__ = [
     "DOCUMENT_CHANNELS",
     "DOCUMENT_TYPES",
     "ESCALATION_REASONS",
-    "KB_ALLOWED_INTENTS",
-    "KB_CONFIDENCE_THRESHOLD",
     "LEAD_PRIORITIES",
     "ToolCatalog",
     "ToolResult",
@@ -62,6 +55,5 @@ __all__ = [
     "openai_tools",
     "request_callback",
     "request_documents",
-    "search_knowledge_base",
     "spec",
 ]

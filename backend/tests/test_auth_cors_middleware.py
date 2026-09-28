@@ -217,21 +217,6 @@ def test_422_does_not_echo_the_input(client: TestClient, api_key: str) -> None:
         assert set(row) <= {"type", "loc", "msg"}, row
 
 
-def test_rate_limited_carries_retry_after(client: TestClient, api_key: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    import kb_rate_limit
-    import kb_retrieve
-
-    def _throttled(**_kw):
-        raise kb_rate_limit.RateLimitExceeded("rate_limited:retrieve:60/min")
-
-    monkeypatch.setattr(kb_retrieve, "retrieve", _throttled)
-    resp = client.post(
-        "/kb/retrieve", json={"query": "hello", "topK": 3}, headers={"X-API-Key": api_key}
-    )
-    assert resp.status_code == 429, resp.text
-    assert 1 <= int(resp.headers["Retry-After"]) <= 60
-
-
 def test_an_unhandled_error_is_one_envelope_with_the_request_id(
     api_key: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

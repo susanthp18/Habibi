@@ -78,6 +78,21 @@ def engine_call(method: str, path: str, *, json: Any = None, timeout: float = 30
     return resp.json() if resp.content else None
 
 
+def kb_search(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Passages from the Voice Studio knowledge base -- the one the agents
+    answer from -- best first: document, heading, text and similarity."""
+    body = engine_call("POST", "/knowledge-base/search", json={"query": query, "limit": limit}) or {}
+    return [
+        {
+            "docTitle": c.get("filename") or "",
+            "heading": (c.get("chunk_metadata") or {}).get("heading") or "",
+            "snippet": c.get("chunk_text") or "",
+            "score": float(c.get("similarity") or 0.0),
+        }
+        for c in body.get("chunks") or []
+    ]
+
+
 def hook_token_ok(authorization: str | None) -> bool:
     """The engine's tools and webhook authenticate with one bearer token."""
     expected = env_str("VOICE_STUDIO_HOOK_TOKEN")

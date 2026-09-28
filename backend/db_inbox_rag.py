@@ -297,16 +297,7 @@ def _studio_retrieval(query: str, top_k: int, include_draft_answer: bool) -> dic
     import azure_openai
     import voice_studio
 
-    body = voice_studio.engine_call("POST", "/knowledge-base/search", json={"query": query, "limit": top_k}) or {}
-    results = [
-        {
-            "docTitle": c.get("filename") or "",
-            "heading": (c.get("chunk_metadata") or {}).get("heading") or "",
-            "snippet": c.get("chunk_text") or "",
-            "score": float(c.get("similarity") or 0.0),
-        }
-        for c in body.get("chunks") or []
-    ]
+    results = voice_studio.kb_search(query, top_k)
     draft = None
     top = [r for r in results if r["score"] >= INBOX_RAG_MIN_SCORE][:4]
     if include_draft_answer and top:
@@ -333,14 +324,11 @@ def refresh_conversation_suggestions(
     top_k: int = 4,
     include_draft_answer: bool = False,
 ) -> dict[str, Any]:
-    """Run shared kb_retrieve → persist ai_response_suggestions for Inbox chips.
+    """Search the Voice Studio knowledge base -> persist ai_response_suggestions
+    for Inbox chips, with an optional grounded draft.
 
-    Optional draft uses the same grounded chat path as Test Retrieval
-    (`include_draft_answer` → kb_retrieve); no second rewrite pipeline.
     Weak matches below INBOX_RAG_MIN_SCORE are dropped (empty chips > junk).
     """
-    import kb_rate_limit
-    import kb_retrieve
 
     with _engine().connect() as conn:
         try:
@@ -364,44 +352,11 @@ def refresh_conversation_suggestions(
 
     # Over-fetch then score-gate so we can fill top_k after filtering.
     fetch_k = max(top_k * 2, 8)
-    q_l = (query or "").lower()
-    prefer_policy = any(
-        k in q_l
-        for k in (
-            "exclu",
-            "invalid",
-            "not covered",
-            "policy",
-            "cover",
-            "benefit",
-            "travel",
-            "protect360",
-            "wording",
-        )
-    )
     retrieval: dict[str, Any] | None = None
-    import voice_studio
-
     try:
-        if voice_studio.configured():
-            # The agents answer from the Voice Studio knowledge base; the
-            # suggestions an agent sees in the Inbox come from the same one.
-            retrieval = _studio_retrieval(query, fetch_k, include_draft_answer)
-        else:
-            retrieval = kb_retrieve.retrieve(
-                query=query,
-                top_k=fetch_k,
-                include_draft_answer=include_draft_answer,
-                source="inbox",
-                prefer_policy=prefer_policy,
-            )
-    except kb_rate_limit.RateLimitExceeded:
-        # Not an outage — backpressure, and the caller has a 429 for it. The
-        # broad handler below exists so a retrieval outage degrades to the last
-        # persisted chips rather than blanking the panel; catching the throttle
-        # with it meant a rate-limited poll returned 200 with stale chips and
-        # no way for the operator to tell they were stale.
-        raise
+        # The agents answer from the Voice Studio knowledge base; the
+        # suggestions an agent sees in the Inbox come from the same one.
+        retrieval = _studio_retrieval(query, fetch_k, include_draft_answer)
     except Exception:
         logger.exception("inbox_rag_retrieve_failed conversation=%s", conversation_id)
         retrieval = None
