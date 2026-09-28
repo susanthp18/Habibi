@@ -1067,6 +1067,7 @@ async def _run_pipeline_impl(
 
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
+    engine.set_assistant_aggregator(assistant_context_aggregator)
 
     if answer_supervisor is not None:
         answer_supervisor.bind(user_context_aggregator)

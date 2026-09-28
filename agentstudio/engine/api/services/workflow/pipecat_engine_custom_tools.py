@@ -480,16 +480,23 @@ class CustomToolManager:
                     })
                     return
                 self._engine._verified_user_message = said
-            if (function_name in {"promise_to_pay", "request_callback", "flag_dispute"}
-                    and not self._engine.caller_spoke_in_node(self._agent)):
+            if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
                 # Terms the customer has not confirmed in this step are the
                 # model's own: a smoke run recorded a ₹6,000 promise nobody said.
-                await function_call_params.result_callback({
-                    "status": "error", "error": "customer_not_confirmed",
-                    "say": ("Nothing was recorded. Read the terms back to the customer and "
-                            "wait for them to confirm before calling this."),
-                })
-                return
+                # Each write answers one customer message, and a read-back said
+                # in the same response as the write was never answered.
+                said = self._engine._last_user_message()
+                unanswered = self._engine.spoke_in_this_response()
+                if (not self._engine.caller_spoke_in_node(self._agent)
+                        or said is self._engine._written_user_message or unanswered):
+                    self._engine._written_user_message = said
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "customer_not_confirmed",
+                        "say": ("Nothing was recorded. Read the terms back, ask the customer to confirm, "
+                                "and wait for their answer. Once they say yes, call this with no words before it."),
+                    })
+                    return
+                self._engine._written_user_message = said
             verified = any(visit == self._agent.visit_id and accepted
                            for (visit, _node), accepted in self._engine._verification_outcomes.items())
             denied = live_policy_error(policy, self._engine._call_context_vars, verified)

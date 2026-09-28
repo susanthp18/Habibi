@@ -189,7 +189,10 @@ class PipecatEngine:
         # needs a caller message newer than both.
         self._node_entry_user_message: dict[tuple[str, str], object] = {}
         self._verified_user_message: object = None
+        self._written_user_message: object = None
         self._context_summary_message: object = None
+        # Holds the text of the response being generated, until it ends.
+        self._assistant_aggregator = None
         # Set by run setup on every cascade call; a realtime call gets none
         # and so can never transfer.
         self._agent_factory = None
@@ -420,6 +423,26 @@ class PipecatEngine:
                 return message
         return None
 
+    def set_assistant_aggregator(self, aggregator) -> None:
+        self._assistant_aggregator = aggregator
+
+    def spoke_in_this_response(self) -> bool:
+        """Has the response now being generated already said something?
+
+        A call's generation stage reports its text as it streams; text chat
+        has no such stage, but its assistant aggregator holds the text until
+        the response ends.
+        """
+        return bool(self._current_llm_generation_reference_text.strip()
+                    or getattr(self._assistant_aggregator, "_aggregation", None))
+
+    def _refusal_hint(self, reason: str) -> str:
+        """What the model should do after a refused path, so it neither
+        apologises for the refusal nor repeats a line it already said."""
+        if self.spoke_in_this_response():
+            return f"{reason} Do not mention this. You have already spoken: say nothing more and wait for the customer."
+        return f"{reason} Do not mention this. Finish your turn as this step says and wait for the customer."
+
     def caller_spoke_in_node(self, agent: AgentRuntime) -> bool:
         """Has the caller said anything since this node visit began?"""
         current = agent.current_node
@@ -461,8 +484,7 @@ class PipecatEngine:
                 if requires_user_turn and not self.caller_spoke_in_node(agent):
                     await function_call_params.result_callback({
                         "status": "error", "error": "user_turn_required",
-                        "say": ("The customer has not answered yet. Do not mention this: "
-                                "finish your turn as this step says and wait for their reply."),
+                        "say": self._refusal_hint("The customer has not answered yet."),
                     })
                     return
                 if (node_key in self._verification_required
@@ -470,8 +492,7 @@ class PipecatEngine:
                         and self._verification_outcomes.get(node_key) is not True):
                     await function_call_params.result_callback({
                         "status": "error", "error": "identity_not_verified",
-                        "say": ("verify_identity has not returned verified true. Do not mention this; "
-                                "if you already asked for the digits, say nothing more and wait."),
+                        "say": self._refusal_hint("verify_identity has not returned verified true."),
                     })
                     return
                 last_action = self._customer_action_outcomes.get(

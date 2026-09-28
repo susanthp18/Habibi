@@ -11,6 +11,8 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 @pytest.mark.asyncio
 async def test_rejected_action_blocks_success_close_before_speech():
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     engine._customer_action_outcomes = {("visit", "resolve"): False}
     engine._verification_required = set()
     engine._verification_outcomes = {}
@@ -38,6 +40,8 @@ async def test_rejected_action_blocks_success_close_before_speech():
 @pytest.mark.asyncio
 async def test_unverified_identity_blocks_account_path():
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     engine._customer_action_outcomes = {}
     engine._verification_required = {("visit", "verify")}
     engine._verification_outcomes = {("visit", "verify"): False}
@@ -63,6 +67,8 @@ async def test_unverified_identity_blocks_account_path():
 @pytest.mark.asyncio
 async def test_right_person_requires_a_caller_turn_when_edge_requests_it():
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     hello = {"role": "user", "content": "Hello?"}
     engine.context = SimpleNamespace(messages=[hello])
     # "Hello?" on pickup came before the node began: it answers nothing.
@@ -102,6 +108,8 @@ async def test_right_person_requires_a_caller_turn_when_edge_requests_it():
 @pytest.mark.asyncio
 async def test_agreed_requires_a_recorded_success_when_edge_requests_it():
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     engine._customer_action_outcomes = {}
     engine._verification_required = set()
     engine._verification_outcomes = {}
@@ -141,6 +149,8 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True, "verified": False}})
     monkeypatch.setattr(tools, "execute_http_tool", execute)
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     yes = {"role": "user", "content": "Yes, speaking"}
     engine.context = SimpleNamespace(messages=[yes])
     engine._node_entry_user_message = {("visit", "verify"): yes}
@@ -179,12 +189,16 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
     monkeypatch.setattr(tools, "execute_http_tool", execute)
     engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
     digits = {"role": "user", "content": "1234"}
     engine.context = SimpleNamespace(messages=[digits])
     # The step began after the customer's last message: nothing is confirmed here.
     engine._node_entry_user_message = {("visit", "resolve"): digits}
     engine._context_summary_message = None
     engine._verified_user_message = None
+    engine._written_user_message = None
+    engine._assistant_aggregator = SimpleNamespace(_aggregation=[])
     engine._verification_outcomes = {}
     engine._customer_action_outcomes = {}
     engine._call_context_vars = {}
@@ -200,6 +214,27 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
     execute.assert_not_awaited()
 
-    engine.context.messages.append({"role": "user", "content": "Yes, 4000 on Friday"})
+    # "I can pay 4000", then a read-back and the write in one response: refused,
+    # and that message is spent, so an immediate retry is refused too.
+    engine.context.messages.append({"role": "user", "content": "I can pay 4000 on Friday"})
+    engine._assistant_aggregator._aggregation = ["Shall I record 4,000 for Fri 2 Oct?"]
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
+    engine._assistant_aggregator._aggregation = []
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
+    execute.assert_not_awaited()
+
+    engine.context.messages.append({"role": "user", "content": "Yes"})
     await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
     execute.assert_awaited_once()
+
+
+def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
+    engine = object.__new__(PipecatEngine)
+    engine._assistant_aggregator = None
+    engine._current_llm_generation_reference_text = ""
+    assert "Finish your turn" in engine._refusal_hint("The customer has not answered yet.")
+    # The greeting was already said in this response: saying it again doubled it.
+    engine._current_llm_generation_reference_text = "Hello, may I speak with Susanth?"
+    assert "say nothing more" in engine._refusal_hint("The customer has not answered yet.")

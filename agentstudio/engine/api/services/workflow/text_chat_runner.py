@@ -652,6 +652,7 @@ async def execute_text_chat_pending_turn(
         context, assistant_params=assistant_params
     )
     assistant_context_aggregator = context_aggregator.assistant()
+    engine.set_assistant_aggregator(assistant_context_aggregator)
 
     @assistant_context_aggregator.event_handler("on_assistant_turn_started")
     async def on_assistant_turn_started(_aggregator):
