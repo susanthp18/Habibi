@@ -293,6 +293,7 @@
  "POST /voice-studio/prompt/lint",
  "POST /voice-studio/checks/simulate",
  "POST /voice-studio/hooks/tools/{name}",
+ "POST /voice-studio/hooks/call-started",
  "POST /voice-studio/hooks/precall",
  "POST /voice-studio/hooks/transfer",
  "POST /voice-studio/hooks/admit",

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { StatsStrip, type FloorFocus } from "@/components/floor/StatsStrip";
@@ -17,7 +17,8 @@ import {
   useSupervisorAction,
   type FloorSnapshot,
 } from "@/api/floor";
-import type { FloorAction } from "@/api/types/floor";
+import type { ActiveCall, FloorAction } from "@/api/types/floor";
+import { SupervisorLine, type LineMode, type LiveLine } from "@/lib/supervisorLine";
 
 export const Route = createFileRoute("/_app/floor")({
   head: () => ({
@@ -60,6 +61,43 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
   const navigate = useNavigate();
 
   const [listeningId, setListeningId] = useState<string | null>(null);
+  const lineRef = useRef<SupervisorLine | null>(null);
+  const [line, setLine] = useState<LiveLine | null>(null);
+
+  const closeLine = () => {
+    lineRef.current?.close();
+    lineRef.current = null;
+    setLine(null);
+  };
+  useEffect(() => () => lineRef.current?.close(), []);
+
+  const openLine = (call: ActiveCall, mode: LineMode) => {
+    if (!call.engineRunId) return;
+    lineRef.current?.close();
+    const next = new SupervisorLine(mode, {
+      turn: (t) =>
+        setLine((cur) =>
+          cur && lineRef.current === next ? { ...cur, turns: [...cur.turns, t].slice(-40) } : cur,
+        ),
+      state: (s) =>
+        setLine((cur) =>
+          lineRef.current === next
+            ? { ...(cur ?? { callId: call.id, turns: [], talking: false }), ...s }
+            : cur,
+        ),
+    });
+    lineRef.current = next;
+    setLine({ callId: call.id, mode, status: "connecting", turns: [], talking: false });
+    next.open(call.engineRunId).catch((e) => {
+      toast.error(e instanceof Error ? e.message : "Could not join the call");
+      closeLine();
+    });
+  };
+
+  const setTalking = (talking: boolean) => {
+    if (lineRef.current) lineRef.current.talking = talking;
+    setLine((cur) => (cur ? { ...cur, talking } : cur));
+  };
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focus, setFocus] = useState<FloorFocus>("all");
   const [filters, setFilters] = useState<FloorFilters>({ q: "", channels: [], handler: "all" });
@@ -109,6 +147,14 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       return;
     }
 
+    if (action === "listen" && call.engineRunId) {
+      // The gateway records the listen when the line opens.
+      setSelectedId(id);
+      if (line?.callId === id) closeLine();
+      else openLine(call, "listen");
+      return;
+    }
+
     if (action === "listen") {
       const turningOn = listeningId !== id;
       setListeningId(turningOn ? id : null);
@@ -131,7 +177,17 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
         actionMut.mutate(
           { interactionId: id, action: "whisper", note },
           {
-            onSuccess: () => toast.success("Whisper logged"),
+            onSuccess: (data) => {
+              const failed = data && typeof data === "object" && "ok" in data && data.ok === false;
+              if (failed)
+                toast.error("The agent did not get the whisper — the call may have ended");
+              else
+                toast.success(
+                  call.engineRunId
+                    ? "Whisper sent — the agent follows it on its next reply"
+                    : "Whisper logged",
+                );
+            },
             onError: (e) => toast.error(e instanceof Error ? e.message : "Whisper failed"),
           },
         );
@@ -144,6 +200,15 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
       { interactionId: id, action: "barge" },
       {
         onSuccess: (data) => {
+          const runId =
+            data && typeof data === "object" && "engineRunId" in data
+              ? (data.engineRunId as string | null)
+              : null;
+          if (runId) {
+            openLine({ ...call, engineRunId: runId }, "takeover");
+            toast.success("You have the call — the agent is paused. Hold Talk to speak.");
+            return;
+          }
           const joined = Boolean(
             data && typeof data === "object" && "audioJoined" in data && data.audioJoined,
           );
@@ -209,7 +274,18 @@ function FloorLive({ initial }: { initial: FloorSnapshot }) {
           <div className="absolute inset-y-0 right-0 z-20 flex shadow-overlay xl:static xl:z-auto xl:shadow-none">
             <Inspector
               call={selected}
-              listening={listeningId === selected.id}
+              listening={
+                selected.engineRunId
+                  ? line?.callId === selected.id && line.mode === "listen"
+                  : listeningId === selected.id
+              }
+              line={line?.callId === selected.id ? line : null}
+              onTalk={setTalking}
+              onRelease={(note) => {
+                lineRef.current?.release(note);
+                toast.success("Handed back to the agent");
+              }}
+              onEndCall={() => lineRef.current?.end()}
               onClose={() => setSelectedId(null)}
               onAction={(action, call) => runAction(call.id, action)}
               onWhisper={(text) => runAction(selected.id, "whisper", text)}

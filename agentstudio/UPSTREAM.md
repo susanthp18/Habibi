@@ -17,6 +17,7 @@ The delta covers:
 - **PayInt integration points** (configured by environment, inert when unset):
   - every finished run is posted to PayInt as a durable webhook delivery (`tasks/run_integrations._notify_payint`; `PAYINT_RUN_COMPLETED_URL`);
   - every outbound dial the engine starts itself goes through PayInt's contact policy first and fails closed (`services/telephony/payint_admission.py`, hooked in `failure_reporting.instrument_telephony_provider`; `PAYINT_ADMIT_URL`, `PAYINT_HOOK_TOKEN`).
+  - live supervision (`services/integrations/supervisor/`): every call gets a supervisor line -- `WS /supervise/{run}/listen|takeover` and `POST /supervise/{run}/whisper` -- and a call-started notice to PayInt (`PAYINT_CALL_STARTED_URL`). Outside the package: `build_audio_out_mixer` wraps the call's mixer, `IntegrationRuntimeContext.engine`, `PipecatEngine.generation_on_hold` (the agent bridge, the user-idle prompt and the max-duration cutoff hold while a supervisor has the call), and `CallDurationProcessor` lets its callback decline.
 - **Engine UI source:** the PayInt host slots (`@/host/<Slot>`, see below; the run page passes `runId` to RunProvenance) and the regenerated API client.
 
 ## The ported UI

@@ -248,6 +248,10 @@ class SupervisorActionResponse(BaseModel):
     action: str
     interactionId: str
     audioJoined: bool
+    # A live Voice Studio call: the barge is completed over the supervisor's
+    # own takeover socket to this engine run.
+    engineRunId: str | None = None
+    reason: str | None = None
 
 
 class FloorAlertAckResponse(BaseModel):

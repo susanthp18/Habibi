@@ -35,6 +35,7 @@ from starlette.background import BackgroundTask
 from starlette.responses import Response, StreamingResponse
 
 import authz
+import voice_studio_supervision
 from api_support import ROUTER_DEPENDENCIES, Utf8JSONResponse
 from env_utils import env_str
 
@@ -61,6 +62,11 @@ PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...]]] = [
     (_W, re.compile(r"^/tools/[^/]+/revisions/\d+/review$"), _DENY),
     (_R, re.compile(r"^/(health|node-types|turn)(/|$)"), (authz.BOT_READ,)),
     (_ANY, re.compile(r"^/ws(/|$)"), (authz.VOICE_OPERATE,)),
+    # Supervising a live call (voice_studio_supervision): a socket ticket is
+    # minted as a GET. Whispers go server-side through the Floor's action.
+    (_R, re.compile(r"^/supervise/\d+/listen$"), (authz.SUPERVISOR_READ,)),
+    (_R, re.compile(r"^/supervise/\d+/takeover$"), (authz.SUPERVISOR_WRITE,)),
+    (_ANY, re.compile(r"^/supervise(/|$)"), _DENY),
     # The PayInt release endpoint owns preflight and the durable release audit.
     (_W, re.compile(r"^/workflow/\d+/publish$"), _DENY),
     (_W, re.compile(r"^/workflow/\d+/runs$"), (authz.VOICE_OPERATE,)),
@@ -354,4 +360,17 @@ async def proxy_ws(websocket: WebSocket, ticket: str, path: str) -> None:
     identity = await asyncio.to_thread(_identity, actor)
     query = websocket.url.query
     upstream = "ws" + _engine_url()[4:] + f"/api/v1{engine_path}" + (f"?{query}" if query else "")
-    await bridge_websocket(websocket, upstream, headers=identity, label="agentstudio")
+    supervised = voice_studio_supervision.SOCKET_PATH.match(engine_path)
+    if not supervised:
+        await bridge_websocket(websocket, upstream, headers=identity, label="agentstudio")
+        return
+    run_id, mode = supervised.groups()
+    await asyncio.to_thread(_audit, actor, "WS", engine_path, 101)
+    ctx = await asyncio.to_thread(voice_studio_supervision.opened, actor, run_id, mode)
+    try:
+        await bridge_websocket(
+            websocket, upstream, headers=identity, label="agentstudio-supervise",
+            server_text=voice_studio_supervision.masker(await asyncio.to_thread(_can_see_raw_pii, actor)),
+        )
+    finally:
+        await asyncio.to_thread(voice_studio_supervision.closed, ctx)

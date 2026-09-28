@@ -5,6 +5,8 @@ import {
   Headphones,
   LayoutGrid,
   MessageSquare,
+  Mic,
+  PhoneOff,
   PhoneForwarded,
   ShieldAlert,
   User,
@@ -19,6 +21,7 @@ import { Lozenge, type LozengeProps } from "@/components/ui/lozenge";
 import { SentimentBubble } from "./SentimentBubble";
 import { useFloorCopilot } from "@/api/floor";
 import { formatDuration, inr } from "@/lib/format";
+import type { LiveLine } from "@/lib/supervisorLine";
 
 const riskTone = {
   high: "danger",
@@ -32,12 +35,30 @@ type Props = {
   onClose: () => void;
   onAction: (action: FloorAction, call: ActiveCall) => void;
   onWhisper: (text: string) => void;
+  /** The supervisor's live line into this call (Voice Studio calls). */
+  line?: LiveLine | null;
+  onTalk?: (talking: boolean) => void;
+  onRelease?: (note: string) => void;
+  onEndCall?: () => void;
 };
 
-export function Inspector({ call, listening, onClose, onAction, onWhisper }: Props) {
+export function Inspector({
+  call,
+  listening,
+  onClose,
+  onAction,
+  onWhisper,
+  line,
+  onTalk,
+  onRelease,
+  onEndCall,
+}: Props) {
   const [whisper, setWhisper] = useState("");
   const [confirmBarge, setConfirmBarge] = useState(false);
+  const [handbackNote, setHandbackNote] = useState("");
   const isHuman = call.handler.kind === "human";
+  const studio = Boolean(call.engineRunId);
+  const holding = line?.mode === "takeover" && line.status !== "closed";
   const isChat = call.channel === "whatsapp" || call.channel === "sms";
   const primary = call.recommendedAction;
   const copilot = useFloorCopilot(call.id);
@@ -153,8 +174,43 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
             <p className="text-body-small text-text">
               {call.liveQa.reason?.replace(/-/g, " ") ?? call.liveQa.status}
               {call.liveQa.status === "would_barge" ? " · would barge (shadow)" : ""}
-              {call.liveQa.audioCapable ? " · Twilio live" : " · CRM takeover only"}
+              {call.liveQa.audioCapable ? " · live audio" : " · CRM takeover only"}
             </p>
+          </div>
+        ) : null}
+
+        {line ? (
+          <div className="border-t border-border px-200 py-150" aria-live="polite">
+            <p className="mb-075 text-body-small font-semibold text-text-subtlest">
+              {line.status === "connecting"
+                ? "Joining the call…"
+                : line.status === "closed"
+                  ? `Line closed${line.reason ? ` — ${line.reason.replace(/_/g, " ")}` : ""}`
+                  : line.mode === "takeover"
+                    ? "Live — you have the call"
+                    : "Live — listening"}
+            </p>
+            {line.micError ? (
+              <p className="mb-075 text-body-small text-text-danger">{line.micError}</p>
+            ) : null}
+            {line.turns.length === 0 ? (
+              <p className="text-body-small italic text-text-subtlest">
+                Waiting for someone to speak…
+              </p>
+            ) : (
+              <ul className="max-h-60 space-y-075 overflow-y-auto">
+                {line.turns
+                  .filter((t, i, all) => t.final || i === all.length - 1)
+                  .map((t, i) => (
+                    <li key={i} className={cn("text-body-small", !t.final && "text-text-subtlest")}>
+                      <span className="font-semibold capitalize text-text-subtle">
+                        {t.speaker}:{" "}
+                      </span>
+                      <span className="text-text">{t.text}</span>
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         ) : null}
 
@@ -240,10 +296,13 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
           <div className="rounded-medium border border-border-danger bg-background-danger p-100 text-body-small">
             <p className="font-semibold text-text-danger">Take over this session?</p>
             <p className="mt-025 text-text-subtle">
-              {isHuman ? call.handler.name : "Bot"} will be dropped. You land in Handoff
-              {call.liveQa?.audioCapable
-                ? " and join the live Twilio call."
-                : ". Sandbox/WhatsApp has no audio plane."}
+              {studio
+                ? "The agent is paused and your microphone goes to the caller. Hand the call back when you are done."
+                : `${isHuman ? call.handler.name : "Bot"} will be dropped. You land in Handoff${
+                    call.liveQa?.audioCapable
+                      ? " and join the live Twilio call."
+                      : ". Sandbox/WhatsApp has no audio plane."
+                  }`}
             </p>
             <div className="mt-075 flex justify-end gap-050">
               <button
@@ -265,9 +324,63 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
               </button>
             </div>
           </div>
+        ) : holding ? (
+          <div className="space-y-100">
+            <button
+              type="button"
+              disabled={line?.status !== "live" || Boolean(line?.micError)}
+              onPointerDown={() => onTalk?.(true)}
+              onPointerUp={() => onTalk?.(false)}
+              onPointerLeave={() => line?.talking && onTalk?.(false)}
+              onKeyDown={(e) => {
+                if (e.key === " " && !e.repeat) onTalk?.(true);
+              }}
+              onKeyUp={(e) => {
+                if (e.key === " ") onTalk?.(false);
+              }}
+              className={cn(
+                "flex w-full items-center justify-center gap-050 rounded-medium px-100 py-100 text-body-small font-semibold disabled:opacity-50",
+                line?.talking
+                  ? "bg-background-danger-bold text-text-inverse"
+                  : "border border-border-brand text-text-brand hover:bg-background-brand-subtlest",
+              )}
+            >
+              <Mic className="h-3.5 w-3.5" />
+              {line?.talking ? "Talking — release to mute" : "Hold to talk (or hold Space)"}
+            </button>
+            <form
+              className="flex gap-050"
+              onSubmit={(e) => {
+                e.preventDefault();
+                onRelease?.(handbackNote.trim());
+                setHandbackNote("");
+              }}
+            >
+              <input
+                value={handbackNote}
+                onChange={(e) => setHandbackNote(e.target.value)}
+                placeholder="Note for the agent (optional)"
+                className="h-400 min-w-0 flex-1 rounded-medium border border-border bg-surface-sunken px-100 text-body-small focus:border-border-brand focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="rounded-medium bg-background-brand-bold px-100 text-body-small font-semibold text-text-inverse"
+              >
+                Hand back
+              </button>
+            </form>
+            <button
+              type="button"
+              onClick={onEndCall}
+              className="flex w-full items-center justify-center gap-050 rounded-medium border border-border-danger px-100 py-075 text-body-small font-medium text-text-danger hover:bg-background-danger"
+            >
+              <PhoneOff className="h-3 w-3" />
+              End call
+            </button>
+          </div>
         ) : (
           <>
-            {isHuman && (
+            {(isHuman || studio) && (
               <form
                 className="mb-100 flex gap-050"
                 onSubmit={(e) => {
@@ -280,7 +393,9 @@ export function Inspector({ call, listening, onClose, onAction, onWhisper }: Pro
                 <input
                   value={whisper}
                   onChange={(e) => setWhisper(e.target.value)}
-                  placeholder="Whisper to agent…"
+                  placeholder={
+                    studio && !isHuman ? "Whisper to the AI agent…" : "Whisper to agent…"
+                  }
                   className="h-400 min-w-0 flex-1 rounded-medium border border-border bg-surface-sunken px-100 text-body-small focus:border-border-brand focus:outline-none"
                 />
                 <button

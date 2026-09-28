@@ -30,6 +30,8 @@ class IntegrationRuntimeContext:
     user_config: Any
     is_realtime: bool
     context_messages_provider: Callable[[], list[dict[str, Any]]]
+    # AgentStudio: the call's PipecatEngine, for sessions that act on the call.
+    engine: Any = None
 
 
 @dataclass(frozen=True)

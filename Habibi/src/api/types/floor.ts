@@ -40,6 +40,8 @@ export type ActiveCall = {
   agentCard?: { botId: string; displayName: string } | null;
   offerPolicy?: OfferPolicy | null;
   authorityPolicy?: AuthorityPolicy | null;
+  /** A live Voice Studio call: supervised over the engine's line. */
+  engineRunId?: string | null;
   liveQa?: {
     status?: string;
     reason?: string | null;

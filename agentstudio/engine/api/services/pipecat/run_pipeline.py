@@ -953,6 +953,7 @@ async def _run_pipeline_impl(
             user_config=user_config,
             is_realtime=is_realtime,
             context_messages_provider=lambda: context.messages,
+            engine=engine,
         )
     )
 
@@ -1159,6 +1160,15 @@ async def _run_pipeline_impl(
                 on_change=engine.record_caller_language,
                 name=f"{call_worker_name}::CallLanguage",
             )
+        # AgentStudio: kept on the engine so a supervisor taking the call can
+        # interrupt the agent here, past the user aggregator's mute.
+        engine.agent_bridge = AgentBridgeProcessor(
+            bus=worker_runner.bus,
+            worker_name=call_worker_name,
+            selected_visit=lambda: engine.selected_visit_id,
+            allow_inference=lambda: not engine.generation_on_hold,
+            name=f"{call_worker_name}::AgentBridge",
+        )
         pipeline = build_pipeline(
             transport,
             stt,
@@ -1166,15 +1176,7 @@ async def _run_pipeline_impl(
             user_context_aggregator,
             assistant_context_aggregator,
             call_duration_processor,
-            [
-                AgentBridgeProcessor(
-                    bus=worker_runner.bus,
-                    worker_name=call_worker_name,
-                    selected_visit=lambda: engine.selected_visit_id,
-                    allow_inference=lambda: not engine.transfer_in_progress,
-                    name=f"{call_worker_name}::AgentBridge",
-                )
-            ],
+            [engine.agent_bridge],
             pipeline_metrics_aggregator,
             termination_funnel,
             answer_supervisor=answer_supervisor,

@@ -51,5 +51,7 @@ class CallDurationProcessor(FrameProcessor):
             )
             return
         if self._max_duration_end_task_callback:
-            await self._max_duration_end_task_callback()
+            # A callback that returns False declined to end the call yet.
+            if await self._max_duration_end_task_callback() is False:
+                return
         self._end_task_frame_pushed = True

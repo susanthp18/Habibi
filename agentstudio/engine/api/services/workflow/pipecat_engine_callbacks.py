@@ -44,11 +44,12 @@ class UserIdleHandler:
         supervisor = getattr(self._engine, "answer_supervisor", None)
         if supervisor is not None and supervisor.blocks_workflow:
             return
-        if getattr(self._engine, "transfer_in_progress", False):
+        if getattr(self._engine, "generation_on_hold", False):
             # The caller is listening to a hold ringer while the next agent is
-            # prepared. Prompting them to speak, and eventually hanging up on
-            # them for not speaking, is exactly wrong here.
-            logger.debug("Suppressing user-idle prompt during an agent handoff")
+            # prepared, or talking to a supervisor who took the call over.
+            # Prompting them to speak, and eventually hanging up on them for
+            # not speaking, is exactly wrong here.
+            logger.debug("Suppressing user-idle prompt while the agent is on hold")
             return
         self._retry_count += 1
         logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
@@ -85,6 +86,11 @@ def create_max_duration_callback(engine: "PipecatEngine"):
     """Return a callback that cancels the task when the hard call limit is exceeded."""
 
     async def handle_max_duration():
+        if getattr(engine, "generation_on_hold", False):
+            # AgentStudio: a supervisor has the call; the limit applies once
+            # they hand it back. False tells the clock to ask again later.
+            # ponytail: no hard cap during a takeover; add one if it is abused.
+            return False
         logger.debug("Max call duration exceeded. Terminating call")
         await engine.end_call_with_reason(
             EndTaskReason.CALL_DURATION_EXCEEDED.value,

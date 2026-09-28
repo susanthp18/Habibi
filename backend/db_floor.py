@@ -182,6 +182,8 @@ class FloorBuild:
     alerts: list[dict[str, Any]] = field(default_factory=list)
     alerts_by_call: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     audio_by: dict[str, bool] = field(default_factory=dict)
+    #: Live Voice Studio calls: interaction -> engine run (supervised over a socket).
+    studio_run_by: dict[str, str] = field(default_factory=dict)
     authority_by: dict[str, dict[str, Any]] = field(default_factory=dict)
     flags_by: dict[str, list[str]] = field(default_factory=dict)
     inbox_waiting: Any = None
@@ -362,6 +364,12 @@ def _floor_reads(st: FloorBuild) -> None:
                 audio_by = live_qa_policy.audio_capable_map(conn, ids)
             except Exception:
                 logger.exception("floor live_qa snapshots failed")
+            try:
+                import voice_studio_supervision
+
+                st.studio_run_by = voice_studio_supervision.live_runs(conn, ids)
+            except Exception:
+                logger.exception("floor voice studio runs failed")
 
         alerts = db._rows(
             conn.execute(
@@ -542,7 +550,11 @@ def _floor_shape(st: FloorBuild) -> dict[str, Any]:
                 "recommendedAction": action,
                 "offerPolicy": offer_by.get(iid),
                 "authorityPolicy": authority_by.get(iid),
-                "liveQa": {**(live_qa_by.get(iid) or {}), "audioCapable": bool(audio_by.get(iid))},
+                "liveQa": {
+                    **(live_qa_by.get(iid) or {}),
+                    "audioCapable": bool(audio_by.get(iid) or st.studio_run_by.get(iid)),
+                },
+                "engineRunId": st.studio_run_by.get(iid),
             }
         )
 
@@ -730,7 +742,30 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                     },
                 )
     audio_joined = False
+    engine_run_id = None
+    if action == "whisper" and note:
+        # A Voice Studio call takes the whisper from the engine, now; the old
+        # voice process drained it from this row instead.
+        import voice_studio_supervision
+
+        delivered = voice_studio_supervision.whisper(interaction_id, note)
+        if delivered is not None:
+            with db.engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE supervisor_actions SET consumed_at = CASE WHEN :ok THEN now() END WHERE id = :id"),
+                    {"id": aid, "ok": delivered},
+                )
+            if not delivered:
+                return {"id": aid, "ok": False, "action": action, "interactionId": interaction_id,
+                        "audioJoined": False, "reason": "whisper_not_delivered"}
     if action in {"barge", "force_handoff"}:
+        # A Voice Studio call is taken over over the supervisor's own socket
+        # (the UI opens it with this run id); there is no carrier leg to dial.
+        import voice_studio_supervision
+
+        with db.engine.connect() as conn:
+            engine_run_id = voice_studio_supervision.live_run(conn, interaction_id)
+    if action in {"barge", "force_handoff"} and not engine_run_id:
         try:
             from agent_core.live_qa.enact import barge_audio
 
@@ -766,6 +801,7 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
         "action": action,
         "interactionId": interaction_id,
         "audioJoined": audio_joined,
+        "engineRunId": engine_run_id,
     }
 
 

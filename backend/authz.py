@@ -304,6 +304,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("WS", "/studio-ws/{ticket}/{path:path}"),
         # Voice Studio engine hooks; the shared hook token is the credential.
         ("POST", "/voice-studio/hooks/tools/{name}"),
+        ("POST", "/voice-studio/hooks/call-started"),
         ("POST", "/voice-studio/hooks/precall"),
         ("POST", "/voice-studio/hooks/transfer"),
         ("POST", "/voice-studio/hooks/run-completed"),

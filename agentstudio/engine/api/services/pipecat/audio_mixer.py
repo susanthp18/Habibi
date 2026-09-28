@@ -18,6 +18,21 @@ async def build_audio_out_mixer(
     audio_out_sample_rate: int,
     ambient_noise_config: dict | None,
 ):
+    """AgentStudio: the mixer is wrapped so a supervisor can listen to and
+    speak into the call (``integrations/supervisor``)."""
+    from api.services.integrations.supervisor.line import wrap_mixer
+    from pipecat.utils.run_context import get_current_run_id
+
+    return wrap_mixer(
+        await _build_audio_out_mixer(audio_out_sample_rate, ambient_noise_config),
+        get_current_run_id(),
+    )
+
+
+async def _build_audio_out_mixer(
+    audio_out_sample_rate: int,
+    ambient_noise_config: dict | None,
+):
     """Build the audio output mixer based on the ambient noise configuration.
 
     Returns a ``SoundfileMixer`` when ambient noise is enabled, or a

@@ -108,6 +108,17 @@ _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
 
 
+def supervisor_note_rule(text: str) -> str:
+    """AgentStudio: how a floor supervisor's whisper reads in the system prompt."""
+    return (
+        "# Instruction from the floor supervisor\n"
+        "A supervisor is monitoring this call and has instructed you as follows. "
+        "Apply it from your next reply on, above the steps of this stage; do not "
+        "say that it came from a supervisor unless it asks you to.\n"
+        f"Instruction: {text}"
+    )
+
+
 class PipecatEngine:
     def __init__(
         self,
@@ -837,6 +848,8 @@ class PipecatEngine:
             from api.services.pipecat.call_language import multilingual_reply_rule
 
             prompt = f"{prompt}\n\n{multilingual_reply_rule(self.caller_languages)}"
+        for note in self.__dict__.get("supervisor_notes", ()):
+            prompt = f"{prompt}\n\n{supervisor_note_rule(note)}"
         functions = await compose_functions_for_node(
             node=node, custom_tool_manager=manager
         )
@@ -1487,6 +1500,11 @@ class PipecatEngine:
         if self._mute_pipeline:
             return True
 
+        # AgentStudio: while a supervisor has the call the caller is talking to
+        # a person, and every word of theirs is heard and kept.
+        if self.__dict__.get("supervisor_holds_floor"):
+            return False
+
         # Mute while queued speech (transition/tool message) is pending or playing
         if self._queued_speech_mute_state != "idle":
             return True
@@ -1622,6 +1640,20 @@ class PipecatEngine:
         """Whether a handoff is running, so ordinary prompting must hold off."""
         coordinator = self.__dict__.get("_transfer_coordinator")
         return coordinator is not None and coordinator.in_progress
+
+    async def add_supervisor_note(self, text: str) -> None:
+        """AgentStudio: a floor supervisor's whisper. It joins the agent's
+        system prompt now and every node's after it, for the rest of the call."""
+        self.__dict__.setdefault("supervisor_notes", []).append(text)
+        agent = self.active_agent
+        agent.system_prompt = f"{agent.system_prompt}\n\n{supervisor_note_rule(text)}"
+        await agent.llm._update_settings(LLMSettings(system_instruction=agent.system_prompt))
+
+    @property
+    def generation_on_hold(self) -> bool:
+        """AgentStudio: the agent must not speak or be prompted -- a handoff is
+        running, or a supervisor has taken the call over."""
+        return self.transfer_in_progress or self.__dict__.get("supervisor_holds_floor", False)
 
     @property
     def agent_visits(self) -> list[dict]:

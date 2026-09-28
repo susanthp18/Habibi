@@ -1267,6 +1267,24 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
     return report
 
 
+def call_started(body: dict[str, Any]) -> dict[str, Any]:
+    """The engine's call-started notice: the call is on the floor from its
+    first second (supervisors can listen in), not from its first tool call."""
+    import voice_studio_checks
+
+    run_id = body.get("workflow_run_id")
+    if not run_id:
+        return {"ok": False, "error": "missing_run"}
+    ctx = dict(body.get("initial_context") or {})
+    if ctx.get("channel") == "whatsapp" or voice_studio_checks.is_test(ctx):
+        return {"ok": True, "interactionId": None}
+    ctx["workflow_run_id"] = run_id
+    if body.get("workflow_id"):
+        ctx["workflow_id"] = body["workflow_id"]
+        ctx.setdefault("agent_id", body["workflow_id"])
+    return {"ok": True, "interactionId": ensure_interaction(run_id, ctx)}
+
+
 def complete_run(body: dict[str, Any]) -> dict[str, Any]:
     """The engine's post-call webhook: file the call and advance the attempt."""
     import db
@@ -1406,6 +1424,19 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
             call_intel_jobs.enqueue(interaction_id)
         except Exception:
             logger.exception("voice studio: call intelligence not queued for %s", interaction_id)
+    else:
+        # Opened when the call started (or by a tool), but nobody spoke: it
+        # leaves the floor as abandoned instead of waiting for the reaper.
+        with db.engine.connect() as conn:
+            opened = conn.execute(text(
+                "SELECT interaction_id FROM voice_sessions WHERE id = :id AND status IN ('starting', 'live')"
+            ), {"id": _session_id(run_id)}).scalar()
+        if opened:
+            interaction_id = str(opened)
+            persist.complete_voice_call(
+                session_id=_session_id(run_id), interaction_id=interaction_id,
+                status="abandoned", duration_sec=duration,
+            )
 
     if ctx.get("attempt_id"):
         carrier_status = status if status in _UNCONNECTED else "completed"

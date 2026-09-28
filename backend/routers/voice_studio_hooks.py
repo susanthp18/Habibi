@@ -5,6 +5,7 @@ Not user routes. The engine authenticates with the shared bearer token
 in constant time -- the same model as the payment and telephony webhooks.
 
     POST /voice-studio/hooks/tools/{name}     an agent tool call
+    POST /voice-studio/hooks/call-started     a call began: put it on the floor
     POST /voice-studio/hooks/precall          inbound: who is calling
     POST /voice-studio/hooks/transfer         where a transfer-to-human rings
     POST /voice-studio/hooks/run-completed    post-call: file the call
@@ -44,6 +45,12 @@ async def _json(request: Request) -> dict:
 async def tool_call(name: str, request: Request, authorization: str | None = Header(default=None)) -> dict:
     _authorised(authorization)
     return await run_in_threadpool(voice_studio.run_tool, name, await _json(request))
+
+
+@router.post(f"{PREFIX}/call-started")
+async def call_started(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    _authorised(authorization)
+    return await run_in_threadpool(voice_studio.call_started, await _json(request))
 
 
 @router.post(f"{PREFIX}/precall")

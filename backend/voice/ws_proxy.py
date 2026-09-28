@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -57,10 +58,12 @@ async def bridge_websocket(
     *,
     headers: dict[str, str] | None = None,
     label: str = "voice",
+    server_text: Callable[[str], str] | None = None,
 ) -> None:
     """Accept ``client`` and pump frames both ways to ``upstream`` until either
     end closes. ``headers`` go on the upstream handshake only (the AgentStudio
-    gateway signs the caller's identity there)."""
+    gateway signs the caller's identity there). ``server_text`` rewrites each
+    text frame on its way to the client (a supervisor's masked transcript)."""
     import websockets
     from websockets.exceptions import ConnectionClosed
 
@@ -125,7 +128,7 @@ async def bridge_websocket(
                         if isinstance(message, bytes):
                             await client.send_bytes(message)
                         else:
-                            await client.send_text(message)
+                            await client.send_text(server_text(message) if server_text else message)
                         counts["s2c"] += 1
                 except ConnectionClosed:
                     logger.warning(
