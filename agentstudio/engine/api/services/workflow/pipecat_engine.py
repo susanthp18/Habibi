@@ -423,6 +423,57 @@ class PipecatEngine:
                 return message
         return None
 
+    def export_guard_state(self) -> dict:
+        """The guard state a text chat must carry to its next message.
+
+        Text chat rebuilds the engine for every customer message, so what the
+        guards remember -- identity verified, the step's recorded action, and
+        which messages began the step or were already used -- is saved with
+        the checkpoint. Messages are named by their place in context, which
+        the checkpoint keeps in order.
+        """
+        agent = self.active_agent
+        node = agent.current_node
+        messages = self.context.messages
+
+        def place(message):
+            return next((i for i, m in enumerate(messages) if m is message), None)
+
+        key = (agent.visit_id, node.id) if node else None
+        return {
+            "identity_verified": any(
+                accepted for (visit, _node), accepted in self._verification_outcomes.items()
+                if visit == agent.visit_id),
+            "node_id": node.id if node else None,
+            "node_entry": place(self._node_entry_user_message.get(key)) if key else None,
+            "action_outcome": self._customer_action_outcomes.get(key) if key else None,
+            "verified_message": place(self._verified_user_message),
+            "written_message": place(self._written_user_message),
+        }
+
+    def import_guard_state(self, state: dict | None) -> None:
+        """Restore ``export_guard_state`` after re-entering the saved node."""
+        if not state:
+            return
+        agent = self.active_agent
+        node = agent.current_node
+        messages = self.context.messages
+
+        def message_at(place):
+            return messages[place] if isinstance(place, int) and 0 <= place < len(messages) else None
+
+        if node is None or node.id != state.get("node_id"):
+            return
+        key = (agent.visit_id, node.id)
+        if state.get("identity_verified"):
+            self._verification_outcomes[key] = True
+        if state.get("node_entry") is not None:
+            self._node_entry_user_message[key] = message_at(state["node_entry"])
+        if state.get("action_outcome") is not None:
+            self._customer_action_outcomes[key] = state["action_outcome"]
+        self._verified_user_message = message_at(state.get("verified_message"))
+        self._written_user_message = message_at(state.get("written_message"))
+
     def set_assistant_aggregator(self, aggregator) -> None:
         self._assistant_aggregator = aggregator
 

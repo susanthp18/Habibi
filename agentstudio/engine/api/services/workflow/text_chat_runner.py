@@ -716,6 +716,10 @@ async def execute_text_chat_pending_turn(
             target_node_id,
             emit_transition_event=current_node_id is None,
         )
+        # Verification and the other guards outlive this message: without
+        # them a released agent refused every promise after the turn that
+        # verified the customer.
+        engine.import_guard_state((base_checkpoint.get("tool_state") or {}).get("guards"))
 
         opening_marker = capture_processor.activity_count
         opening_expects_llm = pending_user_message is None and (
@@ -773,7 +777,10 @@ async def execute_text_chat_pending_turn(
     context_messages = context.get_messages()
     encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
     encoded_gathered_context = jsonable_encoder(gathered_context)
-    encoded_tool_state = jsonable_encoder(base_checkpoint.get("tool_state") or {})
+    encoded_tool_state = jsonable_encoder({
+        **(base_checkpoint.get("tool_state") or {}),
+        "guards": engine.export_guard_state(),
+    })
 
     updated_checkpoint = {
         "version": TEXT_CHAT_CHECKPOINT_VERSION,

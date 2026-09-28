@@ -291,3 +291,32 @@ async def test_a_close_needs_the_customer_to_speak_in_this_step():
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "user_turn_required"
     engine._perform_variable_extraction_if_needed.assert_not_awaited()
+
+
+def test_guard_state_survives_a_text_chat_turn():
+    # Text chat rebuilds the engine per message: verification must carry over,
+    # or a released agent refuses every promise after the verifying turn.
+    def engine_on(messages, visit):
+        engine = object.__new__(PipecatEngine)
+        engine.context = SimpleNamespace(messages=messages)
+        engine._active_agent = SimpleNamespace(visit_id=visit, current_node=SimpleNamespace(id="resolve"))
+        engine._verification_outcomes = {}
+        engine._customer_action_outcomes = {}
+        engine._node_entry_user_message = {}
+        engine._verified_user_message = None
+        engine._written_user_message = None
+        return engine
+
+    digits = {"role": "user", "content": "1234"}
+    first = engine_on([{"role": "user", "content": "hi"}, digits], "visit-1")
+    first._verification_outcomes[("visit-1", "verify")] = True
+    first._node_entry_user_message[("visit-1", "resolve")] = digits
+    first._verified_user_message = digits
+    state = first.export_guard_state()
+
+    restored = [{"role": "user", "content": "hi"}, {"role": "user", "content": "1234"}]
+    second = engine_on(restored, "visit-2")
+    second.import_guard_state(state)
+    assert second._verification_outcomes[("visit-2", "resolve")] is True
+    assert second._node_entry_user_message[("visit-2", "resolve")] is restored[1]
+    assert second._verified_user_message is restored[1]
