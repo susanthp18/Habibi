@@ -486,17 +486,28 @@ class CustomToolManager:
                 # Each write answers one customer message, and a read-back said
                 # in the same response as the write was never answered.
                 said = self._engine._last_user_message()
-                unanswered = self._engine.spoke_in_this_response()
+                unanswered = self._engine.agent_spoke_since_customer()
                 if (not self._engine.caller_spoke_in_node(self._agent)
                         or said is self._engine._written_user_message or unanswered):
                     self._engine._written_user_message = said
                     await function_call_params.result_callback({
                         "status": "error", "error": "customer_not_confirmed",
-                        "say": ("Nothing was recorded. Read the terms back, ask the customer to confirm, "
-                                "and wait for their answer. Once they say yes, call this with no words before it."),
+                        "say": self._engine._refusal_hint(
+                            "Nothing was recorded: the customer has not confirmed these terms. Read them back, "
+                            "ask them to confirm, and once they say yes call this with no words before it."),
                     })
                     return
                 self._engine._written_user_message = said
+            if (function_name == "record_opt_out"
+                    and not self._engine.caller_spoke_in_node(self._agent)):
+                # Only the customer can ask to stop contact: a smoke run opted a
+                # customer out right after booking their callback.
+                await function_call_params.result_callback({
+                    "status": "error", "error": "customer_did_not_ask",
+                    "say": self._engine._refusal_hint(
+                        "Nothing was recorded: the customer has not asked, in this step, to stop contact."),
+                })
+                return
             verified = any(visit == self._agent.visit_id and accepted
                            for (visit, _node), accepted in self._engine._verification_outcomes.items())
             denied = live_policy_error(policy, self._engine._call_context_vars, verified)

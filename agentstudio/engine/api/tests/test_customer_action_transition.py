@@ -13,6 +13,9 @@ async def test_rejected_action_blocks_success_close_before_speech():
     engine = object.__new__(PipecatEngine)
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Yes, go ahead"}])
+    engine._node_entry_user_message = {}
+    engine._context_summary_message = None
     engine._customer_action_outcomes = {("visit", "resolve"): False}
     engine._verification_required = set()
     engine._verification_outcomes = {}
@@ -43,6 +46,7 @@ async def test_unverified_identity_blocks_account_path():
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     engine._customer_action_outcomes = {}
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "1234"}])
     engine._verification_required = {("visit", "verify")}
     engine._verification_outcomes = {("visit", "verify"): False}
     engine._perform_variable_extraction_if_needed = AsyncMock()
@@ -110,6 +114,9 @@ async def test_agreed_requires_a_recorded_success_when_edge_requests_it():
     engine = object.__new__(PipecatEngine)
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Yes, go ahead"}])
+    engine._node_entry_user_message = {}
+    engine._context_summary_message = None
     engine._customer_action_outcomes = {}
     engine._verification_required = set()
     engine._verification_outcomes = {}
@@ -234,7 +241,53 @@ def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
     engine = object.__new__(PipecatEngine)
     engine._assistant_aggregator = None
     engine._current_llm_generation_reference_text = ""
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Hello?"}])
     assert "Finish your turn" in engine._refusal_hint("The customer has not answered yet.")
     # The greeting was already said in this response: saying it again doubled it.
     engine._current_llm_generation_reference_text = "Hello, may I speak with Susanth?"
     assert "say nothing more" in engine._refusal_hint("The customer has not answered yet.")
+
+
+def test_text_already_in_context_counts_as_speaking():
+    # Text chat commits the response's words before its tool calls run.
+    engine = object.__new__(PipecatEngine)
+    engine._assistant_aggregator = None
+    engine._current_llm_generation_reference_text = ""
+    engine.context = SimpleNamespace(messages=[
+        {"role": "user", "content": "I can pay 2100"},
+        {"role": "assistant", "content": "Shall I record 2,100 for Fri 2 Oct?"},
+        {"role": "assistant", "tool_calls": [{"id": "1"}]},
+    ])
+    assert engine.agent_spoke_since_customer()
+    engine.context.messages.append({"role": "user", "content": "yes"})
+    assert not engine.agent_spoke_since_customer()
+
+
+@pytest.mark.asyncio
+async def test_a_close_needs_the_customer_to_speak_in_this_step():
+    engine = object.__new__(PipecatEngine)
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    question = {"role": "user", "content": "1234"}
+    engine.context = SimpleNamespace(messages=[question])
+    # Hardship was entered on the customer's last message; nobody has answered since.
+    engine._node_entry_user_message = {("visit", "hardship"): question}
+    engine._context_summary_message = None
+    engine._customer_action_outcomes = {}
+    engine._verification_required = set()
+    engine._verification_outcomes = {}
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+
+    class Agent:
+        visit_id = "visit"
+        current_node = SimpleNamespace(id="hardship")
+        workflow = SimpleNamespace(nodes={"end": SimpleNamespace(is_end=True)})
+
+        def bind_tool(self, _engine, handler):
+            return handler
+
+    handler = await engine._create_transition_func("No agreement", "end", agent=Agent())
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "user_turn_required"
+    engine._perform_variable_extraction_if_needed.assert_not_awaited()

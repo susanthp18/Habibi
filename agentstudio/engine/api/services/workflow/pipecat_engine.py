@@ -426,20 +426,31 @@ class PipecatEngine:
     def set_assistant_aggregator(self, aggregator) -> None:
         self._assistant_aggregator = aggregator
 
-    def spoke_in_this_response(self) -> bool:
-        """Has the response now being generated already said something?
+    def agent_spoke_since_customer(self) -> bool:
+        """Has the agent said anything since the customer's last message?
 
-        A call's generation stage reports its text as it streams; text chat
-        has no such stage, but its assistant aggregator holds the text until
-        the response ends.
+        The response being generated counts: a call's generation stage reports
+        its text as it streams, and the assistant aggregator holds it until the
+        response ends. Text chat commits it to context before running the
+        response's tool calls, so context is read too.
         """
-        return bool(self._current_llm_generation_reference_text.strip()
-                    or getattr(self._assistant_aggregator, "_aggregation", None))
+        if (self._current_llm_generation_reference_text.strip()
+                or getattr(self._assistant_aggregator, "_aggregation", None)):
+            return True
+        for message in reversed(self.context.messages):
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") == "user":
+                return False
+            content = message.get("content")
+            if message.get("role") == "assistant" and isinstance(content, str) and content.strip():
+                return True
+        return False
 
     def _refusal_hint(self, reason: str) -> str:
         """What the model should do after a refused path, so it neither
         apologises for the refusal nor repeats a line it already said."""
-        if self.spoke_in_this_response():
+        if self.agent_spoke_since_customer():
             return f"{reason} Do not mention this. You have already spoken: say nothing more and wait for the customer."
         return f"{reason} Do not mention this. Finish your turn as this step says and wait for the customer."
 
@@ -481,7 +492,11 @@ class PipecatEngine:
             try:
                 current = agent.current_node
                 node_key = (agent.visit_id, current.id) if current else None
-                if requires_user_turn and not self.caller_spoke_in_node(agent):
+                # A close needs the customer's word in this step, whatever the
+                # edge says: a refused write once chained Hardship into a
+                # WhatsApp close while its question was still unanswered.
+                if ((requires_user_turn or agent.workflow.nodes[transition_to_node].is_end)
+                        and not self.caller_spoke_in_node(agent)):
                     await function_call_params.result_callback({
                         "status": "error", "error": "user_turn_required",
                         "say": self._refusal_hint("The customer has not answered yet."),
