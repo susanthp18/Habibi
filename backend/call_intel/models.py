@@ -203,6 +203,39 @@ def asr_model() -> Any:
     return WhisperModel(str(path(ASR)), device="cpu", compute_type="int8", cpu_threads=_threads())
 
 
+#: The models each pipeline stage runs. The worker keeps only these resident
+#: while the stage runs: all four together measured 1.7 GB at peak on a
+#: 4-minute call and a second call in the same process crossed the 2 GB limit
+#: (OOM-killed on production, 2026-09-27).
+STAGE_MODELS: dict[str, tuple[Any, ...]] = {
+    "pii": (pii_model,),
+    "audio": (asr_model,),
+    "signals": (nli_model, sentiment_model),
+    "qa": (),
+}
+_LOADERS = (pii_model, asr_model, nli_model, sentiment_model)
+
+
+def keep_only(*loaders: Any) -> None:
+    """Drop every cached model not in ``loaders`` and hand the memory back to
+    the OS (glibc keeps freed heap otherwise, so RSS would not fall)."""
+    import ctypes
+    import gc
+
+    dropped = False
+    for fn in _LOADERS:
+        if fn not in loaders and fn.cache_info().currsize:
+            fn.cache_clear()
+            dropped = True
+    if not dropped:
+        return
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:  # not glibc
+        pass
+
+
 if __name__ == "__main__":
     import sys
 

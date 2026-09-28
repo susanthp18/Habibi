@@ -208,6 +208,9 @@ services:
       DB_POOL_SIZE: ${ML_WORKER_DB_POOL_SIZE:-2}
       DB_MAX_OVERFLOW: ${ML_WORKER_DB_MAX_OVERFLOW:-1}
       ML_THREADS: "2"
+      # Few malloc arenas: ONNX and CTranslate2 threads otherwise each grow
+      # their own and RSS creeps up call after call.
+      MALLOC_ARENA_MAX: "2"
       APP_RELEASE: ${IMAGE_TAG:-local}
     mem_limit: ${ML_WORKER_MEM_LIMIT:-2g}
     cpus: ${ML_WORKER_CPUS:-2}
