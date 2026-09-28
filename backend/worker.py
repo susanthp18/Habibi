@@ -30,8 +30,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
-_TTS_SYNC_HOUR_UTC = 2
-_TTS_SYNC_MINUTE_UTC = 30
 #: job -> the day this process last claimed it. A fast path only; the row in
 #: nightly_runs is the marker, so two replicas cannot both win a day and a
 #: restarted worker does not run the night again.
@@ -48,26 +46,6 @@ def _daily(job: str, hour: int, minute: int) -> bool:
         return False
     _daily_done[job] = day
     return bot_jobs.claim_daily(db.engine, job, day)
-
-
-def _maybe_sync_tts_catalog() -> None:
-    """Time-gated daily catalog refresh (02:30 UTC)."""
-    if not _daily("tts_sync", _TTS_SYNC_HOUR_UTC, _TTS_SYNC_MINUTE_UTC):
-        return
-    try:
-        from tts_catalog_sync import run_sync
-
-        summary = run_sync(db.engine, source="azure")
-        if summary.get("error"):
-            logger.warning("daily tts catalog sync error: %s", summary["error"])
-        else:
-            logger.info(
-                "daily tts catalog sync ok fetched=%s upserted=%s",
-                summary.get("fetchedCount"),
-                summary.get("upserted"),
-            )
-    except Exception:
-        logger.exception("daily tts catalog sync failed")
 
 
 _LEAD_REVALIDATE_HOUR_UTC = 1
@@ -302,23 +280,6 @@ def _maybe_purge_retention() -> None:
         logger.warning("kb gap purge failed", exc_info=True)
 
 
-def _maybe_run_eval_schedule() -> None:
-    """Daily regression + red-team + twin. Never skips red-team. Off the mouth."""
-    if not _daily("eval_schedule", _EVAL_HOUR_UTC, _EVAL_MINUTE_UTC):
-        return
-    try:
-        from agent_core.eval.schedule import run_continuous
-
-        result = run_continuous()
-        logger.info(
-            "eval schedule origin=scheduled ran=%s failed=%s",
-            result.get("ran"),
-            result.get("failed"),
-        )
-    except Exception:
-        logger.exception("eval schedule failed")
-
-
 def _maybe_drain_mcp_tasks() -> None:
     """Turn queued MCP statement/bureau tickets into CRM rows. Never on the mouth."""
     try:
@@ -384,14 +345,12 @@ def main() -> None:
 
     def step() -> bool:
         _maybe_billing_jobs()
-        _maybe_sync_tts_catalog()
         _maybe_revalidate_open_leads()
         _maybe_sweep_due_followups()
         _maybe_scan_for_violations()
         _maybe_reconcile_voice_studio()
         _maybe_purge_retention()
         _maybe_autoscore_interactions()
-        _maybe_run_eval_schedule()
         _maybe_drain_mcp_tasks()
         _maybe_policy_jobs()
         _maybe_decision_jobs()

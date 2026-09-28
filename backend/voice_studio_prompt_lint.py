@@ -30,7 +30,7 @@ _SINGLE_BRACE = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})")
 PROVIDED_CONTEXT = frozenset({
     # every run
     "workflow_run_id", "workflow_id", "agent_id", "direction", "channel", "demo", "rehearsal",
-    "interaction_id", "conversation_id", "language", "timezone",
+    "interaction_id", "conversation_id", "conversation_so_far", "language", "timezone",
     # the customer and account
     "customer_id", "customer_name", "first_name", "caller_known", "account_id", "account_tail",
     "days_past_due", "outstanding_amount", "minimum_due", "minimum_due_value", "product_name",

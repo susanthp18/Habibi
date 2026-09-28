@@ -289,11 +289,13 @@ def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
             {"customer_id": customer_id},
         )
     )
-    bot = _one(conn.execute(text("SELECT id FROM bots WHERE id = 'collectionsbot-v2-4'")))
-    if bot is None:
-        bot = _one(conn.execute(text("SELECT id FROM bots ORDER BY id LIMIT 1")))
-    if bot is None:
-        raise ValueError("no_bots_seeded")
+    # Filed under the Voice Studio agent bound to WhatsApp -- the one that
+    # answers the thread (whatsapp_studio) -- or the unnamed Voice Studio agent
+    # when none is bound yet, in which case a person answers.
+    import voice_studio
+
+    agent = voice_studio.agent_for(conn, "whatsapp", allow_default=False)
+    bot = {"id": voice_studio.ensure_bot(conn, agent["engine_workflow_id"] if agent else None)}
 
     interaction_id = _id("IX")
     conversation_id = _id("CV")

@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 import bot_conversation
@@ -30,6 +31,36 @@ logger = logging.getLogger(__name__)
 
 OBJECTIVE = "whatsapp"
 TRANSFER_TOOL = "transfer_to_human"
+
+
+#: How much of the thread a new engine session is given: enough for the agent
+#: to pick up after a person handed the thread back, without replaying a week.
+_HANDBACK_MESSAGES = 12
+_SPEAKER = {"customer": "Customer", "bot": "Agent", "agent": "Human agent"}
+
+
+def _thread_so_far(conversation_id: Any) -> str:
+    """The latest messages of the thread, oldest first, one per line. A new
+    session (first message, or after the Inbox handed the thread back) starts
+    with this, so the agent knows what a person already told the customer."""
+    import db
+
+    if not conversation_id:
+        return ""
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT sender, body FROM messages
+                WHERE conversation_id = :id AND sender IN ('customer', 'bot', 'agent') AND body <> ''
+                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                LIMIT :n
+                """
+            ),
+            {"id": conversation_id, "n": _HANDBACK_MESSAGES + 1},
+        ).all()
+    # The newest is the message this session is about to be sent.
+    return "\n".join(f"{_SPEAKER[r.sender]}: {r.body.strip()}" for r in reversed(rows[1:]))
 
 
 def _initial_context(conv: dict[str, Any]) -> dict[str, Any]:
@@ -108,7 +139,7 @@ def converse(
             f"/workflow/{workflow_id}/text-chat/sessions",
             json={
                 "name": f"WA-{conv['id']}",
-                "initial_context": _initial_context(conv),
+                "initial_context": {**_initial_context(conv), "conversation_so_far": _thread_so_far(conv["id"])},
                 "annotations": {"channel": "whatsapp", "conversation_id": conv["id"]},
             },
             timeout=120,
@@ -259,6 +290,12 @@ def _persist(engine: Engine, t: Any) -> None:
     if ix:
         try:
             with engine.begin() as conn:
+                # The agent that answered is who the Inbox and the CRM name.
+                conn.execute(
+                    text("UPDATE interactions SET handler_bot_id = :bot WHERE id = :ix AND handler_kind = 'bot' "
+                         "AND handler_bot_id IS DISTINCT FROM :bot"),
+                    {"bot": voice_studio.ensure_bot(conn, t.state.get("studio_workflow_id")), "ix": ix},
+                )
                 started_at = capture_events.interaction_started_at(conn, ix)
                 capture_events.insert_transcript_turn(
                     conn, interaction_id=ix, speaker="customer", text_content=t.customer_text,
