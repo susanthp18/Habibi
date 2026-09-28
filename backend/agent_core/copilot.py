@@ -270,24 +270,11 @@ def _card_chip(interaction_id: str) -> dict[str, Any]:
         bot_id = (row or {}).get("handler_bot_id")
         if not bot_id:
             return empty
-        display = str(bot_id)
-        skills: list[str] = []
-        try:
-            from agent_core.deployment import load_active_bundle
-
-            bundle = load_active_bundle(bot_id=bot_id)
-            card = bundle.get("agentCard") or {}
-            ident = sub(card, "identity")
-            display = str(ident.get("display_name") or ident.get("displayName") or bot_id)
-            for item in card.get("skills") or []:
-                if not isinstance(item, dict):
-                    continue
-                sid = item.get("skill_id") or item.get("skillId")
-                if sid:
-                    skills.append(str(sid))
-        except Exception:
-            logger.exception("copilot card load failed")
-        return {"botId": bot_id, "displayName": display, "skills": skills[:3]}
+        # The agents' registry: a Voice Studio agent is registered under its
+        # engine name when it first files a call. Agents have no skills now.
+        with db.engine.connect() as conn:
+            name = conn.execute(text("SELECT name FROM bots WHERE id = :id"), {"id": bot_id}).scalar()
+        return {"botId": bot_id, "displayName": str(name or bot_id), "skills": []}
     except Exception:
         logger.exception("copilot card chip failed")
         return empty
