@@ -836,6 +836,17 @@ class CustomToolManager:
                 f"argument_keys={list((function_call_params.arguments or {}).keys())}"
             )
 
+            # A handoff to a person answers something the caller said in this
+            # step: an inbound agent once reached for one in its opening turn,
+            # before the caller had spoken.
+            if not self._engine.caller_spoke_in_node(self._agent):
+                await function_call_params.result_callback({
+                    "status": "error", "error": "customer_did_not_ask",
+                    "say": self._engine._refusal_hint(
+                        "No transfer was made: the caller has not asked for anything in this step yet."),
+                })
+                return
+
             try:
                 # Get the transfer call configuration
                 config = tool.definition.get("config", {})

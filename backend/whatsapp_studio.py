@@ -103,11 +103,14 @@ def _assistant_text(turns: list[dict[str, Any]]) -> str:
 
 
 def _asked_for_person(turns: list[dict[str, Any]]) -> bool:
-    return any(
-        e.get("type") == "tool_call_started" and (e.get("payload") or {}).get("function_name") == TRANSFER_TOOL
-        for t in turns
-        for e in (t.get("events") or [])
-    )
+    """Did the agent hand the thread to a person? A transfer the engine refused
+    (the customer had not asked for anything in that step) is not a handoff."""
+    events = [e for t in turns for e in (t.get("events") or [])
+              if (e.get("payload") or {}).get("function_name") == TRANSFER_TOOL]
+    started = sum(1 for e in events if e.get("type") == "tool_call_started")
+    refused = sum(1 for e in events if e.get("type") == "tool_call_result"
+                  and "customer_did_not_ask" in str((e.get("payload") or {}).get("result")))
+    return started > refused
 
 
 def converse(

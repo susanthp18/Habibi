@@ -357,3 +357,23 @@ async def test_an_unheard_turn_is_answered_and_is_not_the_caller():
 
     await engine.handle_user_turn_stopped(aggregator, "yes speaking")
     assert engine._unheard_turns == 0
+
+
+@pytest.mark.asyncio
+async def test_a_transfer_needs_the_caller_to_ask_in_this_step():
+    # An inbound agent reached for a colleague in its opening turn.
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    engine._context_summary_message = None
+    engine.context = SimpleNamespace(messages=[])
+    engine._node_entry_user_message = {("visit", "greeting"): None}
+    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="greeting"))
+    manager = tools.CustomToolManager(engine, agent)
+    handler = manager._create_transfer_call_handler(SimpleNamespace(definition={"config": {}}), "transfer_to_human")
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"reason": "x"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_did_not_ask"
