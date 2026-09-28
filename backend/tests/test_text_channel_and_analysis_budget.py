@@ -109,14 +109,6 @@ def test_only_one_channel_heading_reaches_the_model() -> None:
     assert _prompt("whatsapp").count("## Channel\n") == 1
 
 
-def test_bot_runtime_declares_its_channel() -> None:
-    import bot_runtime
-
-    src = inspect.getsource(bot_runtime)
-    assert 'channel="whatsapp",' in src
-    assert "## WhatsApp behaviour" in src
-
-
 def test_text_reply_opener_allows_policy_bullets() -> None:
     from agent_core.prompt import _reply_opener
 

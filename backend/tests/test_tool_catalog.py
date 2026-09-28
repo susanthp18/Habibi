@@ -116,16 +116,6 @@ def test_whatsapp_definitions_render_from_catalog():
     assert "promisedDate" not in ptp_props
 
 
-def test_every_handler_has_a_spec_and_vice_versa():
-    """A handler without a spec can never be called; a spec without a handler lies to the model."""
-    import bot_tools
-
-    declared = {t["function"]["name"] for t in CATALOG.openai_tools()}
-    handled = set(bot_tools.HANDLERS)
-    assert declared - handled == set(), f"declared but unhandled: {declared - handled}"
-    assert handled - declared == set(), f"handled but undeclared: {handled - declared}"
-
-
 # --------------------------------------------------------------------------
 # Alias normalization — backward compatibility
 # --------------------------------------------------------------------------
@@ -294,12 +284,3 @@ def test_declared_ranges_are_enforced_on_every_dispatcher() -> None:
     assert out[arg.name] == arg.maximum
     if arg.minimum is not None:
         assert spec.normalize_args({arg.name: arg.minimum - 10})[arg.name] == arg.minimum
-
-
-def test_the_voicemail_names_the_same_agent_as_the_prompt(monkeypatch) -> None:
-    """PERSONA-7: the script read persona keys PersonaState never carries."""
-    from voice.amd import voicemail_script
-
-    monkeypatch.setenv("AGENT_NAME", "Asha")
-    script = voicemail_script({"name": "ignored", "agentName": "ignored"}, contacts={"issuer": "Test Bank", "contactNumber": "1800 000"})
-    assert script is None or script.startswith("Hello, this is Asha calling from Test Bank.")

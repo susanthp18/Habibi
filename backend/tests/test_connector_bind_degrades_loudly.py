@@ -21,7 +21,7 @@ import pytest
 
 from agent_core.cards.compile import compile_card
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
 from agent_core.cards.schema import AgentCard
 from agent_core.skills.intersect import CONNECTOR_BIND_FAILED, effective_tools
 from agent_core.tools.catalog import CATALOG
@@ -128,7 +128,7 @@ def _compile(card_raw: dict):
     return compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=card_raw,
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
     )

@@ -88,25 +88,6 @@ def test_the_zone_follows_the_environment(monkeypatch: pytest.MonkeyPatch) -> No
     assert str(clock.tenant_tz()) == "Asia/Dubai"
 
 
-def test_the_environment_has_one_owner(monkeypatch: pytest.MonkeyPatch) -> None:
-    import bot_jobs
-    from agent_core import deployment
-
-    monkeypatch.delenv("BOT_ENVIRONMENT", raising=False)
-    assert deployment.active_environment() == "production"
-    monkeypatch.setenv("BOT_ENVIRONMENT", "sandbox")
-    assert deployment.active_environment() == "sandbox"
-    assert bot_jobs.bot_environment() == "sandbox"
-
-    # The voice mouth no longer writes "production" into its bundle load.
-    import inspect
-
-    from voice import bot_flow
-
-    src = inspect.getsource(bot_flow.resolve_call)
-    assert 'load_active_bundle(\n                "production"' not in src
-
-
 # --- a third answer with one owner: where the audio goes -----------------------
 
 #: Modules allowed to spell an Azure region: the owner (azure_speech reads the
@@ -227,7 +208,6 @@ def test_every_variable_the_code_reads_is_in_the_template() -> None:
     documented = _template_keys()
     missing = sorted(n for n in read if n not in documented and n not in _NOT_OURS)
     assert missing == [], {n: sorted(read[n]) for n in missing}
-
 
 
 # The reverse direction -- every template key is read by something -- is not

@@ -21,7 +21,7 @@ from agent_core.skills.pack import pack_for_slug
 from agent_core.skills.persist import packs_for_slugs, upsert_skill_from_pack
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.handoff_allowlist import handoff_allowlist
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
 
 
 CATALOG_NAMES = set(CATALOG.specs)
@@ -31,7 +31,7 @@ def _compile(**kwargs):
     return compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=card_dump(COLLECTIONS_BOT_ID),
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
         **kwargs,

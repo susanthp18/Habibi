@@ -13,19 +13,13 @@ Each test below pins the mechanism, not the symptom.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
-import flow_graph as fg
 from agent_core.guardrails import evaluate_guardrails
 from agent_core.tools import kb_plan
-from voice.session import VoiceSession
-from voice.spoken_text import to_spoken
 
 pytest.importorskip("pipecat.flows")
 
-from voice.flows_dynamic import build_authored_flow  # noqa: E402
 
 _DISCLOSE = {"alwaysDiscloseRecording": True}
 
@@ -93,204 +87,16 @@ def test_the_rendered_guardrail_says_once_not_always() -> None:
 # --- 24 seconds of dead air -------------------------------------------------
 
 
-def _listen_first_graph() -> fg.FlowGraph:
-    graph = fg.empty_graph()
-    graph.nodes[0].data.respondImmediately = False
-    return graph
-
-
-def _compile(graph: fg.FlowGraph, session: VoiceSession) -> dict:
-    _state, _tools, initial, _globals = build_authored_flow(
-        session, graph.model_dump(), role_message="You are Priya."
-    )
-    return initial()
-
-
-def test_listen_first_is_honoured_when_the_bot_spoke_last() -> None:
-    session = VoiceSession(session_id="VS-DEADAIR01")
-    session.last_speaker = "bot"
-    assert _compile(_listen_first_graph(), session)["respond_immediately"] is False
-
-
-def test_listen_first_is_overridden_when_the_caller_spoke_last() -> None:
-    """The caller answered a question and was met with 24 seconds of silence.
-
-    Nothing could break it: Pipecat's UserIdleController only arms its timer on
-    BotStoppedSpeakingFrame, and no bot turn had happened.
-    """
-    session = VoiceSession(session_id="VS-DEADAIR02")
-    session.last_speaker = "customer"
-    assert _compile(_listen_first_graph(), session)["respond_immediately"] is True
-
-
-def test_an_entry_line_lets_a_step_listen_even_after_the_caller_spoke() -> None:
-    """Speaking on entry settles the debt; the step may then wait."""
-    graph = _listen_first_graph()
-    graph.nodes[0].data.entryLine = "Happy to set that up."
-    session = VoiceSession(session_id="VS-DEADAIR03")
-    session.last_speaker = "customer"
-    config = _compile(graph, session)
-    assert config["respond_immediately"] is False
-    says = [a for a in config["pre_actions"] if a.get("type") == "tts_say"]
-    assert says == [
-        {
-            "type": "tts_say",
-            "text": "Happy to set that up.",
-            "append_text_to_context": False,
-        }
-    ]
-
-
-def test_no_entry_line_means_no_spoken_pre_action() -> None:
-    session = VoiceSession(session_id="VS-DEADAIR04")
-    session.last_speaker = "bot"
-    pre = _compile(_listen_first_graph(), session).get("pre_actions") or []
-    assert not any(a.get("type") == "tts_say" for a in pre)
-
-
 def test_the_builtin_graph_keeps_its_bridge_lines() -> None:
     """The export used to drop pre_actions, so a reload produced a silent step
     -- a live call sat mute for 24 seconds on negotiate_ptp. The graph is data
     now; the bridge lines it carries are the ones the runtime speaks."""
-    from voice.flow_export import built_in_collections_graph
+    from agent_core.cards.clone import _disk_flow
+    from agent_core.cards.defaults import COLLECTIONS_BOT_ID
 
-    by_key = {n["key"]: n["data"] for n in built_in_collections_graph()["nodes"]}
+    by_key = {n["key"]: n["data"] for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"]}
     assert by_key["negotiate_ptp"]["entryLine"]
     assert not by_key["negotiate_ptp"]["respondImmediately"]
-
-
-# --- the silence nothing was watching --------------------------------------
-
-
-class _Processed:
-    """Minimal stand-in for pipecat's FrameProcessed payload."""
-
-    def __init__(self, frame) -> None:
-        self.frame = frame
-
-
-def test_observer_measures_silence_the_idle_controller_cannot_see() -> None:
-    from pipecat.frames.frames import UserStoppedSpeakingFrame
-
-    from voice.bot_turn_state import BotTurnStateObserver
-
-    observer = BotTurnStateObserver()
-    assert observer.silent_for() == 0.0, "a call that has not begun is not quiet"
-
-    asyncio.run(observer.on_push_frame(_Processed(UserStoppedSpeakingFrame())))
-    assert observer.silent_for() > 0.0
-
-
-def test_thinking_is_not_silence_the_caller_should_be_nudged_out_of() -> None:
-    """busy() is what stops the watchdog nudging over a normal tool call."""
-    from pipecat.frames.frames import LLMFullResponseStartFrame
-
-    from voice.bot_turn_state import BotTurnStateObserver
-
-    observer = BotTurnStateObserver()
-    asyncio.run(observer.on_push_frame(_Processed(LLMFullResponseStartFrame())))
-    assert observer.busy() is True
-
-
-def test_an_interruption_ends_the_bot_turn_it_cancelled() -> None:
-    """A barge-in cancels the response — so the bot no longer owes that turn.
-
-    `_generating` is raised by LLMFullResponseStartFrame and lowered by
-    LLMFullResponseEndFrame. An interruption cancels the in-flight response
-    *without* ever emitting the End frame, so the flag latched on and `busy()`
-    answered True for the rest of the call.
-
-    That flag is what the idle ladder consults before nudging. On call
-    VS-F93E3B2133 the caller barged in 326ms into "Great, let me verify that
-    quick…", the response was cancelled, the tool result landed in a dead
-    context, and no further inference ever ran. The dead-air watchdog — the one
-    safety net that would have re-engaged them — was suppressed on every tick
-    because `busy()` still claimed a turn was in flight. The caller heard 30
-    seconds of silence and hung up.
-
-    An interruption is precisely the event that ends a bot turn. The observer
-    has to treat it as one.
-    """
-    from pipecat.frames.frames import (
-        InterruptionFrame,
-        LLMFullResponseStartFrame,
-    )
-
-    from voice.bot_turn_state import BotTurnStateObserver
-
-    observer = BotTurnStateObserver()
-    asyncio.run(observer.on_push_frame(_Processed(LLMFullResponseStartFrame())))
-    assert observer.busy() is True, "a generating bot owes a turn"
-
-    asyncio.run(observer.on_push_frame(_Processed(InterruptionFrame())))
-    assert observer.busy(grace_seconds=0.0) is False, (
-        "after a barge-in the cancelled turn is not still owed — leaving it "
-        "owed suppresses the dead-air watchdog for the rest of the call"
-    )
-
-
-def test_an_interruption_clears_a_tool_call_that_will_never_return() -> None:
-    """The same latch, reached through the tool counter.
-
-    `_tool_calls` is decremented by FunctionCallResultFrame. A barge-in during a
-    tool call can cancel the turn before any result arrives, and an outstanding
-    count keeps `busy()` True exactly as a stuck `_generating` does.
-    """
-    from pipecat.frames.frames import FunctionCallInProgressFrame, InterruptionFrame
-
-    from voice.bot_turn_state import BotTurnStateObserver
-
-    observer = BotTurnStateObserver()
-    frame = FunctionCallInProgressFrame(
-        function_name="verify_identity",
-        tool_call_id="call_1",
-        arguments={},
-    )
-    asyncio.run(observer.on_push_frame(_Processed(frame)))
-    assert observer.busy() is True
-
-    asyncio.run(observer.on_push_frame(_Processed(InterruptionFrame())))
-    assert observer.busy(grace_seconds=0.0) is False
-
-
-# --- the balance, twice -----------------------------------------------------
-
-
-def test_tool_state_tracks_whether_the_position_was_stated() -> None:
-    from voice.tools import ToolState
-
-    assert ToolState().position_stated is False
-
-
-# --- "the exact date in YYYY-MM-DD" ----------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("said", "expected"),
-    [
-        (
-            "tell me the exact date in YYYY-MM-DD you will pay it by.",
-            "tell me the exact date you will pay it by.",
-        ),
-        ("Give me a date in the format DD/MM/YYYY please.", "Give me a date please."),
-        ("We can call you at HH:MM tomorrow.", "We can call you tomorrow."),
-    ],
-)
-def test_date_format_tokens_never_reach_the_speaker(said: str, expected: str) -> None:
-    assert to_spoken(said) == expected
-
-
-@pytest.mark.parametrize(
-    "said",
-    [
-        "Pay by 2026-08-23 please.",
-        "Your minimum due is 4,800 rupees.",
-        "My dad said hmm about that.",
-        "I will call you on Monday.",
-    ],
-)
-def test_real_speech_is_left_alone(said: str) -> None:
-    assert to_spoken(said) == said
 
 
 # --- the KB judge that never ran -------------------------------------------

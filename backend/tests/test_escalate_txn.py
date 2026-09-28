@@ -125,9 +125,3 @@ def test_a_failed_alert_write_leaves_no_handoff_behind(db_tx) -> None:
         assert int(n or 0) == 0, table
 
 
-def test_amd_only_on_outbound_twilio() -> None:
-    from voice.amd import should_enable_amd
-
-    assert should_enable_amd({"twilio_params": {"call_type": "outbound"}}, is_twilio=True)
-    assert not should_enable_amd({"twilio_params": {"call_type": "inbound"}}, is_twilio=True)
-    assert not should_enable_amd({"twilio_params": {"call_type": "outbound"}}, is_twilio=False)

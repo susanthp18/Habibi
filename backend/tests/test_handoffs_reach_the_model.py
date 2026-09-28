@@ -14,8 +14,6 @@ cannot advertise a target ``domain.handoff_to_agent`` would then refuse.
 
 from __future__ import annotations
 
-import inspect
-
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, INTAKE_BOT_ID, card_dump
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.handoff_allowlist import (
@@ -119,24 +117,6 @@ def test_the_flows_schema_carries_it_too() -> None:
     schema = spec.to_flows_schema(lambda **_: None)
     prop = schema.properties["target_bot_id"]
     assert "enum" in prop
-
-
-def test_voice_specialises_at_the_offer_site() -> None:
-    from tests.voice_tools_source import source
-
-    src = source()
-    assert 'if name == "handoff_to_agent"' in src
-    assert "handoff_tool_spec(spec, agent_card=agent_card, bot_id=bot_id)" in src
-
-
-def test_text_specialises_at_its_own_offer_site() -> None:
-    import bot_runtime
-
-    src = inspect.getsource(bot_runtime)
-    assert "def _turn_tools(" in src
-    assert 'if s.name == "handoff_to_agent"' in src
-    # The unspecialised renderer must not survive alongside it on this path.
-    assert "CATALOG.openai_tools(list(tool_state.offered" not in src
 
 
 def test_the_enum_is_prefix_weight_the_budget_gate_already_counts() -> None:

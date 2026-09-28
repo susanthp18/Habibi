@@ -25,9 +25,6 @@ _UNTYPED_BY_DESIGN = frozenset(
         "GET /webhook/whatsapp",  # same handler, the singular spelling Meta's UI sometimes sends
         "POST /twilio/voice/incoming",  # TwiML (application/xml) for Twilio
         "POST /twilio/voice/fallback",  # TwiML (application/xml) for Twilio
-        "POST /twilio/voice/stream-status",  # Twilio status callback: 204, no body
-        "POST /twilio/voice/call-status",  # Twilio status callback: 204, no body
-        "POST /twilio/voice/connect",  # TwiML (application/xml) for the outbound document
         "POST /twilio/sms/status",  # Twilio status callback: 204, no body
         "GET /floor/copilot/{interaction_id}/stream",  # SSE (text/event-stream)
         "GET /interactions/{interaction_id}/export",  # JSON/Markdown file download
@@ -129,7 +126,6 @@ def test_no_route_takes_an_untyped_dict_body() -> None:
 # with the owner that validates it. Not a ratchet: an entry belongs here only
 # while that is true.
 _OPAQUE_BY_DESIGN = {
-    "a2a.A2aTaskRequest.input": "the skill's own input schema (agent_core.a2a)",
     "agent_studio.AgentCardCompileRequest.agentCard": "the compiler's G0 gate is the validator; a draft must stay savable",
     "agent_studio.AgentCardCompileRequest.flow": "flow_graph.parse_graph + validate_graph at compile",
     "agent_studio.AgentCardCompileRequest.persona": "compiled with the card; the compiler reports",

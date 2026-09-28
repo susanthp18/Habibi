@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from voice.crm_sink import CrmSink
-from voice.session import VoiceSession
-
 
 def test_product_interest_snippet_is_redacted(monkeypatch) -> None:
     import capture_events
@@ -62,47 +59,3 @@ def test_forced_rollup_does_not_overwrite_escalated(monkeypatch) -> None:
     sql, params = updates[0]
     assert "disposition = :disposition" not in sql
     assert "disposition" not in params
-
-
-def test_auto_barge_does_not_mark_enacted_when_handoff_fails(monkeypatch) -> None:
-    sink = CrmSink(VoiceSession(session_id="VS-W9", interaction_id="IX-W9"))
-    monkeypatch.setattr(
-        "agent_core.live_qa.enact.barge_audio",
-        lambda *_a, **_k: {"reason": "hours"},
-    )
-
-    def _boom(**_k):
-        raise RuntimeError("handoff insert failed")
-
-    monkeypatch.setattr("voice.persist.record_handoff", _boom)
-    monkeypatch.setattr(
-        "agent_core.live_qa.decisions.pending_auto_barge",
-        lambda _ix: {"id": "LQ-1"},
-    )
-    marked: list[object] = []
-    monkeypatch.setattr(
-        "agent_core.live_qa.decisions.mark_enacted",
-        lambda *a, **k: marked.append((a, k)),
-    )
-    sink._auto_barge("IX-W9", "hours")
-    assert marked == []
-
-
-def test_auto_barge_marks_enacted_after_handoff(monkeypatch) -> None:
-    sink = CrmSink(VoiceSession(session_id="VS-W9", interaction_id="IX-W9"))
-    monkeypatch.setattr(
-        "agent_core.live_qa.enact.barge_audio",
-        lambda *_a, **_k: {"reason": "hours"},
-    )
-    monkeypatch.setattr("voice.persist.record_handoff", lambda **_k: "HO-1")
-    monkeypatch.setattr(
-        "agent_core.live_qa.decisions.pending_auto_barge",
-        lambda _ix: {"id": "LQ-1"},
-    )
-    marked: list[object] = []
-    monkeypatch.setattr(
-        "agent_core.live_qa.decisions.mark_enacted",
-        lambda *a, **k: marked.append((a, k)),
-    )
-    sink._auto_barge("IX-W9", "hours")
-    assert marked

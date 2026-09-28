@@ -214,39 +214,6 @@ def test_a_failing_scrubber_withholds_the_text_rather_than_emitting_it(
 # --- the voice half of the stream -------------------------------------------
 
 
-def test_loguru_messages_are_scrubbed_including_pipecats_own() -> None:
-    """Pipecat logs straight to loguru and never touches stdlib.
-
-    A stdlib filter cannot see those records, so ``install()`` also registers a
-    loguru patcher. Before that, this half of the stream had no scrubbing at all.
-    """
-    from loguru import logger
-
-    from voice import log_bridge
-
-    buf = io.StringIO()
-    logger.remove()
-    logger.add(buf, format="{message}")
-    try:
-        log_bridge.install()
-        logger.info(f"pipecat dialling {BARE}")
-        logging.getLogger("product").info("dialling %s", BARE)
-        out = buf.getvalue()
-    finally:
-        logger.remove()
-        logger.configure(patcher=None)
-    assert BARE not in out
-    assert out.count("••") >= 2, "both halves of the stream must be scrubbed"
-
-
-def test_the_voice_entrypoint_installs_the_bridge() -> None:
-    """The surviving voice entrypoint must install the loguru bridge."""
-    from voice import bot, log_bridge
-
-    assert bot.log_bridge is log_bridge
-    assert callable(log_bridge.install)
-
-
 def test_the_logging_env_vars_are_documented() -> None:
     """LOG_FORMAT appeared zero times in .env.example, which is most of why
     nobody noticed setup_logging was a no-op."""

@@ -63,9 +63,9 @@ def _packs(bot_id: str = COLLECTIONS_BOT_ID):
 
 
 def _built_in():
-    from voice.flow_export import built_in_collections_graph
+    from agent_core.cards.clone import _disk_flow
 
-    return built_in_collections_graph()
+    return _disk_flow(COLLECTIONS_BOT_ID)
 
 
 def _compile(bot_id: str = COLLECTIONS_BOT_ID, *, flow=None, **kwargs):
@@ -88,21 +88,6 @@ def _gate(report, name: str):
 # ---------------------------------------------------------------------------
 # FLOW-1 — the export does not need pipecat to be read
 # ---------------------------------------------------------------------------
-
-
-def test_the_export_reaches_the_api_image() -> None:
-    """The whole chain, not just the leaf. ``voice.tools`` is the trunk."""
-    import voice.flow_export  # noqa: F401
-    import voice.tools
-
-    # Module level only, and statements rather than prose: the comment above
-    # the replaced line names the old import, and two handlers still reach for
-    # pipecat frames lazily — inside code that cannot run without a call.
-    lines = inspect.getsource(voice.tools).splitlines()
-    assert not [ln for ln in lines if ln.startswith(("from pipecat", "import pipecat"))]
-    assert (
-        "from agent_core.tools.pipecat_compat import NO_RESPONSE, flows_tool_options" in lines
-    )
 
 
 def test_building_the_graph_does_not_need_pipecat_either() -> None:
@@ -306,23 +291,6 @@ def test_g16_warns_and_names_the_node_when_a_pack_is_detached() -> None:
     assert g16.status == "warn"
     assert "apply_goodwill" in g16.detail
     assert any(i["node"] == "handle_dispute" for i in g16.issues)
-
-
-def test_g16_warns_when_a_global_crm_read_will_be_stripped() -> None:
-    """``voice.flows_dynamic`` drops CRM reads from ``globalTools`` before the
-    first turn. Within the grant, so the old gate passed it — and the author
-    found out on a call. The runtime strips by the list the gate warns by."""
-    from agent_core.cards.compile import _flow_grant_gate
-    from voice import flows_dynamic
-
-    assert "GLOBAL_TOOLS_STRIPPED_AT_RUNTIME" in inspect.getsource(flows_dynamic)
-    flow = _built_in()
-    flow["globalTools"] = [*flow.get("globalTools", []), "get_payment_history"]
-    grant = set(CATALOG_NAMES)
-    g16 = _flow_grant_gate(flow, grant)
-    assert g16.status == "warn"
-    assert "get_payment_history" in g16.detail and "strips" in g16.detail
-    assert any(i.get("stripped_at_runtime") == ["get_payment_history"] for i in g16.issues)
 
 
 def test_g16_warns_rather_than_blocks() -> None:

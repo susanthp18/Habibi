@@ -123,69 +123,6 @@ def test_permanent_opt_out_still_withdraws_consent(text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The three former call sites now agree
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("you idiot shut up", True),
-        ("this is harassment", True),
-        ("that would kill the deal", False),
-        ("she has real skill", False),
-        ("thanks, that's helpful", False),
-    ],
-)
-def test_voice_guardrails_and_text_agree(text: str, expected: bool) -> None:
-    """The whole point of the consolidation. If these ever diverge again, one
-    channel escalates a call the others let through."""
-    from agent_core.guardrails import evaluate_guardrails
-    from voice import safety
-
-    assert safety.detect_abuse(text) is expected
-
-    flags = evaluate_guardrails(
-        customer_text=text,
-        bot_text="ok",
-        intent="other",
-        guardrails={"escalateAbuse": True},
-        turn_index=1,
-        elapsed_seconds=1,
-        customer_bot_exchanges=0,
-    )
-    assert ("auto-escalate" in flags) is expected
-
-
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("I will file an FIR against you", True),
-        ("fir se try karo", False),
-        ("my lawyer will call", True),
-    ],
-)
-def test_voice_and_guardrails_agree_on_legal(text: str, expected: bool) -> None:
-    """guardrails.py previously had a bare `sue\\b` and no `fir` handling at
-    all, so it and voice disagreed about the Hinglish false positive."""
-    from agent_core.guardrails import evaluate_guardrails
-    from voice import safety
-
-    assert safety.detect_legal(text) is expected
-
-    flags = evaluate_guardrails(
-        customer_text=text,
-        bot_text="ok",
-        intent="other",
-        guardrails={"escalateLegal": True},
-        turn_index=1,
-        elapsed_seconds=1,
-        customer_bot_exchanges=0,
-    )
-    assert ("auto-escalate" in flags) is expected
-
-
-# ---------------------------------------------------------------------------
 # Sentiment scoring
 # ---------------------------------------------------------------------------
 
@@ -231,14 +168,6 @@ def test_abuse_lexicon_still_importable_from_sentiment() -> None:
 
     assert "stfu" in ABUSE_LEXICON
     assert ABUSE_LEXICON is lexicon.ABUSE_LEXICON
-
-
-def test_hold_request_hears_indic_pause() -> None:
-    from voice.safety import detect_hold_request
-
-    assert detect_hold_request("ruko zara") is True
-    assert detect_hold_request("एक मिनट") is True
-    assert detect_hold_request("I will pay tomorrow") is False
 
 
 def test_spoken_language_tags_script_not_latin_hinglish() -> None:

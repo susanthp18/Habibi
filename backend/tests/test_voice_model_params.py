@@ -37,7 +37,6 @@ from agent_core.tuning import (
     normalize_tts_params,
     normalize_tuning,
 )
-from voice.tuning_apply import tts_settings_kwargs
 
 
 # --- The bag itself ---------------------------------------------------------
@@ -130,45 +129,6 @@ def test_none_means_leave_it_alone():
 
 
 # --- What the provider is handed -------------------------------------------
-
-
-def test_params_are_handed_to_the_provider():
-    """The step that was missing entirely. ``provider_bind.bind`` passes these
-    kwargs to ``factory.build_first_available``, which merges them over the
-    binding's stored settings and filters them against the bound model's own
-    ``Settings`` class."""
-    kwargs = tts_settings_kwargs(
-        normalize_tuning({"tts": {"params": {"temperature": 0.7, "latency": "balanced"}}})
-    )
-    assert kwargs["temperature"] == 0.7
-    assert kwargs["latency"] == "balanced"
-
-
-def test_the_sliders_win_over_the_bag():
-    """``rate`` is both an Azure control and a ``VoiceConfig`` column, and the
-    column is what ``apply_voice_config_overlay`` derives from ``speed``. One
-    control with two authorities that can disagree is the bug this ordering
-    exists to prevent — after a Tuning Studio edit, the tuning is right."""
-    tuning = apply_voice_config_overlay(
-        default_tuning(), speed=1.0, params={"rate": "9.99", "temperature": 0.3}
-    )
-    kwargs = tts_settings_kwargs(tuning)
-    assert kwargs["rate"] == "1.00"  # exactly the Speed set, not the stray 9.99
-    assert kwargs["temperature"] == 0.3
-
-
-def test_the_azure_fallback_survives_another_vendors_params():
-    """A card authored against a Fish voice whose binding is missing at call
-    time still reaches the pre-registry Azure path. An undeclared kwarg there is
-    a ``TypeError`` during pipeline construction, which drops the *call* rather
-    than the setting."""
-    pytest.importorskip("pipecat.services.azure.tts")
-    from voice.tuning_apply import build_tts_settings
-
-    settings = build_tts_settings(
-        normalize_tuning({"tts": {"params": {"temperature": 0.7, "chunk_length": 200}}})
-    )
-    assert settings is not None
 
 
 def test_the_provider_filter_can_read_a_dataclass_settings_class():
@@ -293,4 +253,3 @@ def test_merge_tuning_delta_records_idle_clamp():
     )
     assert t["interaction"]["idle_timeout_secs"] == 20.0
     assert any(n["field"] == "idle_timeout_secs" and n["clamped"] == 20.0 for n in notes)
-

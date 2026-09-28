@@ -43,9 +43,9 @@ def _card_with(**outbound_kw):
 
 
 def _builtin_flow():
-    from voice.flow_export import built_in_collections_graph
+    from agent_core.cards.clone import _disk_flow
 
-    return built_in_collections_graph()
+    return _disk_flow(COLLECTIONS_BOT_ID)
 
 
 def _compile(card, flow=None):

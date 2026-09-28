@@ -17,7 +17,6 @@ import db_kb
 import db_prompt_studio
 import db_redaction
 import db_routing
-import db_sandbox
 import db_treatment_holds
 import db_workspace
 
@@ -41,7 +40,6 @@ _CARVED = (
     "db_prompt_studio/voices.py",
     "db_redaction.py",
     "db_routing.py",
-    "db_sandbox.py",
     "db_treatment_holds.py",
     "db_workspace.py",
 )
@@ -85,8 +83,6 @@ _WORKSPACE_SHIMMED = (
 )
 
 _SANDBOX_SHIMMED = (
-    "get_sandbox_run",
-    "list_sandbox_scenarios",
 )
 
 _BOT_ANALYTICS_SHIMMED = (
@@ -158,11 +154,6 @@ def test_db_reexports_workspace_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_workspace, name), name
 
 
-def test_db_reexports_sandbox_as_the_same_objects() -> None:
-    for name in _SANDBOX_SHIMMED:
-        assert getattr(db, name) is getattr(db_sandbox, name), name
-
-
 def test_db_reexports_bot_analytics_as_the_same_objects() -> None:
     for name in _BOT_ANALYTICS_SHIMMED:
         assert getattr(db, name) is getattr(db_bot_analytics, name), name
@@ -200,8 +191,6 @@ def test_peeled_functions_live_in_the_carved_modules() -> None:
     assert db._inr.__module__ == "db_workspace"
     assert db._work_item_sla.__module__ == "db_workspace"
     assert db._enacted_by_map.__module__ == "db_workspace"
-    assert db.list_sandbox_scenarios.__module__ == "db_sandbox"
-    assert db.get_sandbox_run.__module__ == "db_sandbox"
     assert db.bot_analytics.__module__ == "db_bot_analytics"
     assert db.list_routing_rules.__module__ == "db_routing"
     assert db.get_routing_rule.__module__ == "db_routing"
@@ -256,7 +245,6 @@ def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
         db_prompt_studio,
         db_redaction,
         db_routing,
-        db_sandbox,
         db_treatment_holds,
         db_workspace,
     ):

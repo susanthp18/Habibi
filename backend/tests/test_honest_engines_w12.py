@@ -151,34 +151,6 @@ def test_the_payload_is_the_same_whether_or_not_an_offer_survived() -> None:
         assert leak not in blob, f"{leak} crossed the boundary to the model"
 
 
-def test_no_call_path_reads_a_talk_track_off_a_recommendation() -> None:
-    """The close probe used to, bypassing ``to_tool_payload`` entirely.
-
-    It read ``top.talk_track`` and ``top.name`` straight off the result and
-    folded a ready-phrased sentence into the ``pre_close`` prompt. A gate that
-    one caller can go around is not a gate, so this asserts the going-around is
-    gone rather than that the gate exists.
-    """
-    for name in ("voice/tools.py", "voice/tools_offers.py", "voice/tools_probe.py", "bot_tools.py"):
-        code = [
-            line
-            for line in (BACKEND / name).read_text(encoding="utf-8").splitlines()
-            if not line.lstrip().startswith("#")
-        ]
-        src = "\n".join(code)
-        assert "talk_track" not in src, f"{name} reads a talk track"
-        assert "mention this ONE product" not in src, f"{name} still pitches"
-
-
-def test_the_close_probe_template_has_no_slot_for_an_offer() -> None:
-    """An empty string is a policy; an absent placeholder is a property."""
-    from voice import tools as voice_tools
-
-    assert "{offer}" not in voice_tools._PRE_CLOSE_TASK
-    src = (BACKEND / "voice" / "tools.py").read_text(encoding="utf-8")
-    assert "close_probe_offer_clause" not in src
-
-
 def test_a_scored_offer_is_logged_on_the_deferred_promotional_channel() -> None:
     """Not a channel a message goes out on — a state (§9.7).
 

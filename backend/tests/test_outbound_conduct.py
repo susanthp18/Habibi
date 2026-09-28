@@ -15,89 +15,11 @@ not move.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from sqlalchemy import text
 
 from agent_core.authority import config as authority_config
 from agent_core.eval.graders import run_grader
-from voice import amd, budget, ivr
-
-
-# ---------------------------------------------------------------------------
-# The voicemail
-# ---------------------------------------------------------------------------
-
-CONTACTS = {
-    "issuer": "HDFC Bank",
-    "contactNumber": "18002026161",
-    "officer": {"name": "R Menon", "phone": "18001234567", "email": "grievance@example.test"},
-}
-
-#: If any of these reaches a voicemail inbox, we have told whoever plays it that
-#: the borrower owes money.
-DEBT_WORDS = ("collection", "account", "overdue", "outstanding", "payment", "due", "loan")
-
-
-def test_a_voicemail_does_not_say_why_we_called() -> None:
-    """It plays to whoever opens the inbox — a spouse, a flatmate, a colleague."""
-    script = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS)
-    assert script is not None
-    lowered = script.lower()
-    leaked = [w for w in DEBT_WORDS if w in lowered]
-    assert leaked == [], f"voicemail names {leaked}"
-
-
-def test_a_voicemail_carries_the_grievance_officer() -> None:
-    """RBI para 100AA: all recovery communications, and a voicemail is one."""
-    script = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS)
-    assert "R Menon" in script
-    assert "grievance" in script.lower()
-
-
-def test_the_cards_voicemail_budget_decides_something() -> None:
-    """``voicemail.maxSec`` was authored, gated, transported and read by
-    nothing. The call-back sentence is the one optional part; a budget the
-    full message exceeds drops it, and a budget the mandatory parts still
-    exceed cannot be met compliantly -- None, like a missing officer."""
-    full = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS)
-    assert full is not None
-    tight = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=18)
-    assert tight is not None
-    assert len(tight) < len(full)
-    assert "call us back" not in tight.lower()
-    assert "R Menon" in tight, "the grievance footer is never the part that goes"
-    assert amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=2) is None
-    generous = amd.voicemail_script({"agentName": "Priya"}, contacts=CONTACTS, max_sec=60)
-    assert generous == full
-
-
-def test_no_grievance_contact_means_no_message(caplog) -> None:
-    """Not leaving one is a lesser failure than leaving a non-compliant one."""
-    assert amd.voicemail_script({}, contacts={"issuer": "X", "officer": {}}) is None
-
-
-def test_the_default_constant_is_an_identification_not_a_disclosure() -> None:
-    """It used to read "...calling from HDFC Bank collections regarding your
-    account", which is the disclosure this whole path exists to avoid."""
-    lowered = amd.VOICEMAIL_SCRIPT.lower()
-    assert "collection" not in lowered
-    assert "account" not in lowered
-
-
-def test_a_second_attempt_leaves_no_second_message() -> None:
-    """The default is first_attempt_only: a repeat message rarely adds anything
-    and every one spends a contact touch."""
-    first = amd.voicemail_policy({"mission": {"attemptNo": 1}})
-    second = amd.voicemail_policy({"mission": {"attemptNo": 2}})
-    assert amd.should_leave_message(first) is True
-    assert amd.should_leave_message(second) is False
-
-
-def test_never_means_never() -> None:
-    policy = amd.voicemail_policy({"mission": {"voicemail": {"leave": "never"}, "attemptNo": 1}})
-    assert amd.should_leave_message(policy) is False
 
 
 # ---------------------------------------------------------------------------
@@ -245,78 +167,6 @@ def test_an_unknown_profile_adds_no_ceiling_rather_than_refusing_everything() ->
     assert authority_config.profile_ceiling("tier_from_a_dream") is None
     assert authority_config.profile_ceiling(None) is None
     assert authority_config.profile_ceiling("") is None
-
-
-# ---------------------------------------------------------------------------
-# The time budget
-# ---------------------------------------------------------------------------
-
-
-class _Session:
-    def __init__(self, budget_sec: int | None):
-        self.session_id = "VS-BUDGET"
-        self.extra: dict = {}
-        if budget_sec is not None:
-            self.extra["max_duration_sec"] = budget_sec
-
-
-def test_an_inbound_call_has_no_budget() -> None:
-    """They rang us and get as long as they need."""
-    assert budget.budget_for(_Session(None)) == 0
-
-
-def test_the_budget_asks_before_it_ends(monkeypatch) -> None:
-    """Cutting a borrower off mid-sentence to honour a number would be worse
-    than the overrun it prevents."""
-    monkeypatch.setattr(budget, "HARD_STOP_MARGIN_SEC", 0)
-    session = _Session(1)
-    events: list[str] = []
-
-    async def _nudge(msg: str) -> None:
-        events.append("nudge")
-
-    async def _end() -> None:
-        events.append("end")
-
-    # 1s, not 0: zero means "this call has no budget" — the inbound case — and a
-    # watchdog that treated it as "stop immediately" would hang up on every
-    # caller who rang us.
-    asyncio.run(budget.watch(session, nudge=_nudge, end_call=_end, budget_sec=1))
-    assert events == ["nudge", "end"]
-    assert session.extra["budget_exceeded"] is True
-
-
-def test_a_call_that_already_ended_is_left_alone() -> None:
-    session = _Session(0)
-    session.extra["ending"] = True
-    events: list[str] = []
-
-    async def _nudge(msg: str) -> None:
-        events.append("nudge")
-
-    asyncio.run(budget.watch(session, nudge=_nudge, end_call=None, budget_sec=1))
-    assert events == []
-
-
-# ---------------------------------------------------------------------------
-# IVR traversal is the card's decision
-# ---------------------------------------------------------------------------
-
-
-def test_the_card_decides_whether_we_walk_a_switchboard(monkeypatch) -> None:
-    monkeypatch.setenv("VOICE_IVR_ENABLED", "true")
-    outbound_extra = {"twilio_params": {"call_type": "outbound"}}
-    assert ivr.should_enable_ivr({**outbound_extra, "mission": {"ivrTraversal": True}}, is_twilio=True)
-    assert not ivr.should_enable_ivr(
-        {**outbound_extra, "mission": {"ivrTraversal": False}}, is_twilio=True
-    )
-
-
-def test_a_traversal_is_budgeted() -> None:
-    """Unbudgeted it eats the mission's whole time budget before a human answers."""
-    assert ivr.ivr_budget_sec({"mission": {"ivrMaxSec": 45}}) == 45
-    assert ivr.ivr_budget_sec({}) == 90
-    assert ivr.ivr_budget_sec({"mission": {"ivrMaxSec": 99999}}) == 300
 
 
 # ---------------------------------------------------------------------------

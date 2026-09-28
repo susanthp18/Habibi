@@ -17,8 +17,6 @@ import json
 
 import pytest
 
-from voice.crm_sink import CrmSink
-from voice.session import VoiceSession
 
 pipecat_metrics = pytest.importorskip("pipecat.metrics.metrics")
 pipecat_frames = pytest.importorskip("pipecat.frames.frames")
@@ -71,19 +69,6 @@ def events(monkeypatch) -> _Buffered:
         usage_meter._buffer.clear()
 
 
-@pytest.fixture
-def sink() -> CrmSink:
-    return CrmSink(VoiceSession(session_id="VS-USAGE00001", interaction_id="CL-USAGE1"))
-
-
-def _push(sink: CrmSink, *items) -> None:
-    """Drive one MetricsFrame through the observer (repo idiom: asyncio.run)."""
-    observer = sink.build_observer()
-    assert observer is not None, "observer must build against the installed pipecat"
-    asyncio.run(observer.on_push_frame(MetricsFrame(data=list(items))))
-
-
-
 def test_llm_usage_metrics_data_has_no_flat_token_attributes() -> None:
     """Pins the shape that made the original code silently no-op.
 
@@ -100,190 +85,6 @@ def test_llm_usage_metrics_data_has_no_flat_token_attributes() -> None:
     assert not hasattr(item, "total_tokens")
     assert not hasattr(item, "prompt_tokens")
     assert item.value.prompt_tokens == 10
-
-
-def test_llm_usage_is_metered_with_prompt_completion_split(sink, events) -> None:
-    _push(
-        sink,
-        LLMUsageMetricsData(
-            processor="KeepAliveAzureLLMService#0",
-            model="gpt-5-mini",
-            value=LLMTokenUsage(
-                prompt_tokens=1200, completion_tokens=300, total_tokens=1500
-            ),
-        ),
-    )
-
-    event = events.of("llm_chat")
-    assert event["meta"]["promptTokens"] == 1200
-    assert event["meta"]["completionTokens"] == 300
-    # The split must be measured, never the 70/30 fallback — they price ~8x apart.
-    assert event["meta"]["splitEstimated"] is False
-    assert event["model"] == "gpt-5-mini"
-    assert event["interaction_id"] == "CL-USAGE1"
-    assert float(event["units"]) == pytest.approx(1.5)
-
-    assert sink.usage.prompt_tokens == 1200
-    assert sink.usage.completion_tokens == 300
-    assert sink.usage.llm_turns == 1
-
-
-def test_a_metrics_frame_is_counted_once_however_many_hops_it_makes(sink, events) -> None:
-    """The observer sees a frame at every processor boundary. On a live call that
-    billed 35 turns and 82,824 prompt tokens for 7 real completions."""
-    observer = sink.build_observer()
-    frame = MetricsFrame(
-        data=[
-            LLMUsageMetricsData(
-                processor="KeepAliveAzureLLMService#0",
-                model="gpt-5-mini",
-                value=LLMTokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110),
-            )
-        ]
-    )
-
-    async def _hops() -> None:
-        for _ in range(7):
-            await observer.on_push_frame(frame)
-
-    asyncio.run(_hops())
-
-    assert sink.usage.llm_turns == 1
-    assert sink.usage.prompt_tokens == 100
-    events.of("llm_chat")  # exactly one billed event
-
-
-def test_cached_prompt_tokens_are_counted_by_deployment(sink, events) -> None:
-    """`prompt_tokens_details.cached_tokens` used to reach a debug log and stop.
-    The counter is what says whether the stable-prefix layout hits the cache."""
-    from observability import REGISTRY
-
-    before = REGISTRY.get_sample_value(
-        "llm_cached_input_tokens_total", {"deployment": "gpt-5-mini"}
-    ) or 0.0
-    sink.usage.record_llm(
-        prompt_tokens=1200, completion_tokens=30, model="gpt-5-mini", cached_input_tokens=1024
-    )
-    sink.usage.record_llm(prompt_tokens=100, completion_tokens=10, model="gpt-5-mini")
-    after = REGISTRY.get_sample_value(
-        "llm_cached_input_tokens_total", {"deployment": "gpt-5-mini"}
-    )
-    assert after == before + 1024
-
-
-def test_llm_usage_populates_transcript_tokens(sink, events) -> None:
-    """The regression that left interaction_transcript.tokens NULL on every call."""
-    assert sink._pending_tokens is None
-    _push(
-        sink,
-        LLMUsageMetricsData(
-            processor="KeepAliveAzureLLMService#0",
-            model="gpt-5-mini",
-            value=LLMTokenUsage(prompt_tokens=800, completion_tokens=120, total_tokens=920),
-        ),
-    )
-    assert sink._pending_tokens == 920
-
-
-def test_total_tokens_wins_when_it_exceeds_the_split(sink, events) -> None:
-    """Audio/reasoning tokens make total larger than prompt+completion."""
-    _push(
-        sink,
-        LLMUsageMetricsData(
-            processor="KeepAliveAzureLLMService#0",
-            model="gpt-5-mini",
-            value=LLMTokenUsage(
-                prompt_tokens=100, completion_tokens=50, total_tokens=400
-            ),
-        ),
-    )
-    assert sink._pending_tokens == 400
-    # Billing still uses the split it can actually price.
-    assert events.of("llm_chat")["meta"]["completionTokens"] == 50
-
-
-def test_tts_characters_are_metered(sink, events) -> None:
-    _push(
-        sink,
-        TTSUsageMetricsData(
-            processor="KeepAliveAzureTTSService#0",
-            model="en-IN-NeerjaNeural",
-            value=812,
-        ),
-    )
-    event = events.of("tts_az")
-    assert event["meta"]["chars"] == 812
-    assert event["model"] == "en-IN-NeerjaNeural"
-    assert event["interaction_id"] == "CL-USAGE1"
-    # float() first: units is a Decimal, and approx() cannot subtract one from a
-    # float. 0.812 is not exactly representable, unlike the 1.5 above.
-    assert float(event["units"]) == pytest.approx(0.812)
-    assert sink.usage.tts_chars == 812
-
-
-def test_configured_voice_fills_in_when_metric_omits_model(sink, events) -> None:
-    sink.usage.configure(tts_voice="en-IN-PrabhatNeural")
-    _push(
-        sink,
-        TTSUsageMetricsData(processor="KeepAliveAzureTTSService#0", model=None, value=40),
-    )
-    assert events.of("tts_az")["model"] == "en-IN-PrabhatNeural"
-
-
-def test_latency_metrics_do_not_produce_usage_events(sink, events) -> None:
-    """TTFB shares the frame with usage data; it must not be billed."""
-    _push(
-        sink, TTFBMetricsData(processor="KeepAliveAzureLLMService#0", value=1.42)
-    )
-    assert events.all() == []
-    # ...while still being captured as latency (seconds → ms).
-    assert sink._pending_ttfb_ms == pytest.approx(1420.0)
-
-
-def test_zero_token_usage_is_not_billed(sink, events) -> None:
-    _push(
-        sink,
-        LLMUsageMetricsData(
-            processor="KeepAliveAzureLLMService#0",
-            model="gpt-5-mini",
-            value=LLMTokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-        ),
-    )
-    assert events.all() == []
-
-
-def test_stt_is_derived_from_call_duration(sink, events) -> None:
-    sink.usage.configure(stt_language="en-IN")
-    sink.usage.finalize_stt(seconds=150.0)
-
-    event = events.of("stt_az")
-    assert event["units"] == pytest.approx(2.5)
-    assert event["interaction_id"] == "CL-USAGE1"
-    assert event["model"] == "en-IN"
-
-
-def test_stt_finalize_is_idempotent(sink, events) -> None:
-    """stop() can run twice; the call must not be billed for its audio twice."""
-    sink.usage.finalize_stt(seconds=60.0)
-    sink.usage.finalize_stt(seconds=60.0)
-    assert len([e for e in events.all() if e["service_id"] == "stt_az"]) == 1
-
-
-def test_zero_duration_call_is_not_billed_for_stt(sink, events) -> None:
-    sink.usage.finalize_stt(seconds=0.0)
-    assert events.all() == []
-
-
-def test_interaction_id_is_read_lazily(events) -> None:
-    """bind_session_start assigns it after the pipeline is built, so the meter
-    must not capture it at construction time."""
-    session = VoiceSession(session_id="VS-LATEBIND01")
-    sink = CrmSink(session)
-    assert sink.usage._interaction_id is None
-
-    session.interaction_id = "CL-LATE01"
-    sink.usage.record_tts(chars=10, model="v")
-    assert events.of("tts_az")["interaction_id"] == "CL-LATE01"
 
 
 def test_ambient_attribution_applies_to_nested_meter_calls(events) -> None:
@@ -352,15 +153,3 @@ def test_attribution_survives_asyncio_to_thread(events) -> None:
 
     asyncio.run(_scenario())
     assert events.of("llm_chat")["interaction_id"] == "CL-THREADED"
-
-
-def test_metering_failure_never_breaks_the_call(sink, monkeypatch) -> None:
-    """Metering sits on the audio path; it may lose an event but not raise."""
-
-    def _boom(**kwargs):
-        raise RuntimeError("meter exploded")
-
-    monkeypatch.setattr("usage_meter.record_usage", _boom)
-    sink.usage.record_llm(prompt_tokens=10, completion_tokens=1, model="m")
-    sink.usage.record_tts(chars=10, model="v")
-    sink.usage.finalize_stt(seconds=10.0)

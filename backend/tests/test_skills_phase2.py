@@ -16,14 +16,14 @@ from agent_core.skills.scripts import run_script
 from agent_core.skills.sign import sign_hash, verify_signature
 from agent_core.tools.catalog import CATALOG
 from agent_core.turn import assemble_turn_messages
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
 
 
 CATALOG_NAMES = set(CATALOG.specs)
 
 
 def _flow_for(bot_id: str) -> dict:
-    return built_in_collections_graph() if bot_id == COLLECTIONS_BOT_ID else {}
+    return _disk_flow(COLLECTIONS_BOT_ID) if bot_id == COLLECTIONS_BOT_ID else {}
 
 
 def test_eleven_first_party_packs_parse() -> None:
@@ -83,7 +83,7 @@ def test_g9_rejects_unsigned_skill() -> None:
     report = compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=dumped,
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "insurance-v1", "supervisor-brief", "intake-v1"},
         attached_skills=[pack],
@@ -100,7 +100,7 @@ def test_g9_reports_unresolved_when_attached_list_is_partial() -> None:
     report = compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=dumped,
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=CATALOG_NAMES,
         known_bot_ids={COLLECTIONS_BOT_ID, "insurance-v1", "supervisor-brief", "intake-v1"},
         attached_skills=only,

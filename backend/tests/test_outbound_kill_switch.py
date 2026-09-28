@@ -307,19 +307,3 @@ def test_an_objective_without_offers_still_forbids_them(db_tx) -> None:
     assert "Do NOT mention any product" in mission_mod.briefing(built)
 
 
-def test_hardship_still_suppresses_offers_whatever_the_card_says() -> None:
-    """The card grants permission; it does not override the interlock.
-
-    A borrower who has just declared hardship must not be pitched a top-up even
-    on an objective that permits offers, and that stop lives in the tool rather
-    than the prompt so no phrasing can route around it.
-    """
-    from tests.voice_tools_source import source
-
-    src = source()
-    assert 'session.extra["upsell_blocked"] = reason' in src, (
-        "the hardship latch must still be set independently of the mission"
-    )
-    assert 'blocked = session.extra.get("upsell_blocked")' in src, (
-        "the offer tool must still consult the latch"
-    )

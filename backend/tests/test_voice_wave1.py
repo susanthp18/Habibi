@@ -2,41 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-from agent_core.live_qa.checks import TurnFacts, check_hours
-from voice.bot_flow import resolve_call_direction
-from voice.session import VoiceSession
-from voice.tools_closing import compliance_inbox_flag
-
-
-def test_outbound_without_callDirection_is_still_outbound() -> None:
-    session = VoiceSession(session_id="VS-DIR1")
-    session.extra["twilio_params"] = {"call_type": "outbound", "attempt_id": "CA-1"}
-    assert resolve_call_direction(session, {}) == "outbound"
-
-
-def test_outbound_bundle_without_callDirection_hours_breach() -> None:
-    session = VoiceSession(session_id="VS-DIR2")
-    session.extra["twilio_params"] = {"call_type": "outbound"}
-    direction = resolve_call_direction(session, {"callDirection": None})
-    finding = check_hours(
-        TurnFacts(channel="voice", now_hour=19, direction=direction, bot_text="hi")
-    )
-    assert finding is not None
-    assert finding.check_id == "hours-breach"
-
-
-def test_inbound_unknown_stays_inbound() -> None:
-    session = VoiceSession(session_id="VS-DIR3")
-    assert resolve_call_direction(session, {}) == "inbound"
-
-
-def test_compliance_label_uses_detail_not_last_okay() -> None:
-    assert compliance_inbox_flag("legal_mention", "okay") == "legal-threat"
-    assert compliance_inbox_flag("abuse_detected", "okay") == "abusive-language"
-    assert compliance_inbox_flag("compliance", "okay") == "compliance"
 
 
 def test_suppress_upsell_inserts_no_upsell_kind() -> None:

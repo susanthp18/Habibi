@@ -71,14 +71,6 @@ def test_the_spoken_footer_spaces_the_digits() -> None:
     assert "grievance@example.test" not in spoken
 
 
-def test_the_voicemail_uses_the_same_renderer() -> None:
-    """Two copies of one duty drift; the enact docstring is the proof."""
-    from voice import amd
-
-    script = amd.voicemail_script({"agentName": "Priya"}, contacts=FULL)
-    assert compliance_copy.spoken_footer(FULL) in script
-
-
 def test_dunning_copy_carries_the_footer(db_tx) -> None:
     from agent_core.treatment import enact
 
@@ -724,21 +716,6 @@ def test_the_preference_tool_is_in_the_catalog() -> None:
     assert spec is not None
     arg_names = {a.name for a in spec.args}
     assert {"earliest_hour", "latest_hour"} <= arg_names
-
-
-def test_both_channels_write_to_the_same_column() -> None:
-    """A restriction stated in chat and one stated on the phone have to land in
-    the same place, or the two channels disagree about the same borrower."""
-    import bot_tools
-
-    assert "set_contact_preference" in bot_tools.HANDLERS
-
-
-def test_a_budgeted_call_still_ends_if_the_agent_cannot_converge() -> None:
-    """A call that reaches the hard stop is a QA finding, not the mechanism."""
-    from voice import budget
-
-    assert budget.HARD_STOP_MARGIN_SEC > 0
 
 
 def test_the_cool_off_is_shorter_than_forever() -> None:

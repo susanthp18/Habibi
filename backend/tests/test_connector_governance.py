@@ -52,28 +52,6 @@ def _customer(db_tx) -> tuple[str, str | None]:
     return row["id"], row["account_id"]
 
 
-def _paid_intent(db_tx, customer_id: str, account_id: str) -> None:
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO payment_intents (
-              id, tenant_id, customer_id, account_id, amount, public_token,
-              status, paid_at, provider_ref
-            ) VALUES (
-              :id, :t, :cid, :aid, 250.00, :tok, 'paid', now(), 'upi-ok'
-            )
-            """
-        ),
-        {
-            "id": f"pi-gov-{uuid.uuid4().hex[:10]}",
-            "t": db.current_tenant(),
-            "cid": customer_id,
-            "aid": account_id,
-            "tok": f"tok-{uuid.uuid4().hex}",
-        },
-    )
-
-
 def _paylink_connector(db_tx, *, status: str, circuit_opened: bool = False) -> str:
     """A first-party paylink connector for this tenant, in ``status``."""
     connector_id = f"conn-{db.current_tenant()}-paylink"
@@ -105,91 +83,9 @@ def _require_connectors(db_tx) -> None:
         pytest.skip("mcp_connectors missing")
 
 
-def _context(customer_id: str) -> dict:
-    import bot_tools
-
-    ctx = bot_tools.ToolContext(
-        job_id="job-gov",
-        conversation_id="conv-gov",
-        customer_id=customer_id,
-        interaction_id=None,
-        bot_id=None,
-        customer_text="",
-        intent="balance_query",
-    )
-    return bot_tools._tool_get_customer_context(ctx, {})
-
-
 # ---------------------------------------------------------------------------
 # Fix 1 — the paylink read answers to the registry
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("status", ["draft", "disabled"])
-def test_context_omits_paylink_when_connector_is_not_approved(
-    db_tx, monkeypatch: pytest.MonkeyPatch, status: str
-) -> None:
-    """The leak: payment status reached the card through an ungoverned read."""
-    _require_connectors(db_tx)
-    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
-    customer_id, account_id = _customer(db_tx)
-    if not account_id:
-        pytest.skip("no account")
-    _paid_intent(db_tx, customer_id, account_id)
-    _paylink_connector(db_tx, status=status)
-
-    out = _context(customer_id)
-    assert "payLink" not in out
-    # Degraded, not broken: the rest of the card is still built.
-    assert out.get("accountId") or out.get("name") or out.get("outstanding") is not None
-
-
-def test_context_omits_paylink_when_the_circuit_is_open(
-    db_tx, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _require_connectors(db_tx)
-    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
-    customer_id, account_id = _customer(db_tx)
-    if not account_id:
-        pytest.skip("no account")
-    _paid_intent(db_tx, customer_id, account_id)
-    _paylink_connector(db_tx, status="approved", circuit_opened=True)
-
-    assert "payLink" not in _context(customer_id)
-
-
-def test_context_includes_paylink_for_an_approved_healthy_connector(
-    db_tx, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The other half — a gate that refuses everything would pass the tests above."""
-    _require_connectors(db_tx)
-    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
-    customer_id, account_id = _customer(db_tx)
-    if not account_id:
-        pytest.skip("no account")
-    _paid_intent(db_tx, customer_id, account_id)
-    _paylink_connector(db_tx, status="approved")
-
-    out = _context(customer_id)
-    assert out["payLink"]["status"] == "paid"
-    assert out["payLink"]["say"] == "We see the UPI success."
-
-
-def test_context_reads_first_party_paylink_with_mcp_client_off(
-    db_tx, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``MCP_CLIENT_ENABLED`` is about egress to remote MCP servers. It used to
-    refuse the first-party pay-link read too, so on a server with the flag
-    off every context read silently lost the pay-link status."""
-    _require_connectors(db_tx)
-    monkeypatch.delenv("MCP_CLIENT_ENABLED", raising=False)
-    customer_id, account_id = _customer(db_tx)
-    if not account_id:
-        pytest.skip("no account")
-    _paid_intent(db_tx, customer_id, account_id)
-    _paylink_connector(db_tx, status="approved")
-
-    assert _context(customer_id)["payLink"]["status"] == "paid"
 
 
 def test_dispatch_gates_first_party_tools_on_status(

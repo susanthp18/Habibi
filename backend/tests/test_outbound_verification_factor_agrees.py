@@ -12,14 +12,15 @@ ceremonies back to back; the call before it asked for a first name.
 from __future__ import annotations
 
 import mission
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
+from agent_core.cards.defaults import COLLECTIONS_BOT_ID
 from voice.node_contracts import NODE_DIRECTIVES
 
 _BRIEF = {"firstName": "Susanth", "brief": "Their account is overdue.", "allowedOffers": []}
 
 
 def _node_prompt() -> str:
-    node = next(n for n in built_in_collections_graph()["nodes"] if n["key"] == "confirm_identity")
+    node = next(n for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"] if n["key"] == "confirm_identity")
     return node["data"]["instructions"]
 
 

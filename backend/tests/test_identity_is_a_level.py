@@ -81,17 +81,6 @@ def test_a_blocked_tool_says_what_would_unblock_it() -> None:
     assert "last 4" in blocked["hint"]
 
 
-def test_the_hint_reaches_the_model(monkeypatch) -> None:
-    """The dispatcher must pass the remedy through, not just the code."""
-    import inspect
-
-    import bot_tools
-
-    src = inspect.getsource(bot_tools.execute_tool)
-    assert "interaction_assurance(" in src
-    assert '{"ok": False, **blocked}' in src
-
-
 # ---------------------------------------------------------------------------
 # Methods map to levels, and the two channels agree
 # ---------------------------------------------------------------------------

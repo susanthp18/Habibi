@@ -109,46 +109,6 @@ def test_request_callback_accepts_iso_and_clamps_window(db_tx) -> None:
     assert result.data.get("callbackId")
 
 
-def test_whatsapp_flag_dispute_returns_allowed_no_traceback(
-    db_tx, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """WA adapter must surface domain `allowed` list — not raise ValueError."""
-    import logging
-
-    import bot_tools
-    import agent_core.tools.gates as gates
-    from agent_core.tools.catalog import DISPUTE_TYPES
-
-    customer_id, _ = _customer(db_tx)
-    ctx = bot_tools.ToolContext(
-        job_id="job-test-dispute",
-        conversation_id="cv-test",
-        interaction_id=None,
-        customer_id=customer_id,
-        bot_id=None,
-        customer_text="",
-        intent="dispute",
-    )
-    ctx.allowed_tools = frozenset({"flag_dispute"})
-    # Identity is a level now, not a flag: `flag_dispute` is a regulated act and
-    # asks for `challenge`. This test is about the domain rejection underneath,
-    # so grant the strongest level and let the handler do the refusing.
-    monkeypatch.setattr(
-        gates, "interaction_assurance", lambda **_kwargs: gates.LEVEL_CHALLENGE
-    )
-    with caplog.at_level(logging.WARNING):
-        ok, payload, _latency = bot_tools.execute_tool(
-            ctx, "flag_dispute", '{"type":"bogus"}'
-        )
-    # Soft domain reject: tuple success follows payload.ok, without traceback.
-    assert ok is False
-    assert payload.get("ok") is False
-    assert payload.get("error") == "invalid_dispute_type"
-    assert payload.get("allowed") == list(DISPUTE_TYPES)
-    assert not any(r.exc_info for r in caplog.records)
-    assert any("rejected" in (r.message or "") for r in caplog.records)
-
-
 def test_capture_lead_blocked_writes_no_row(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     """eligibility_blocked must not call create_lead."""
     from agent_core.tools import capture_lead

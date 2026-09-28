@@ -136,39 +136,6 @@ def test_dispatch_threads_args_down_to_the_request(
 # --- the call site the finding names ----------------------------------------
 
 
-def test_execute_tool_forwards_the_models_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``bot_tools.py`` is where the arguments were parsed and then dropped."""
-    import bot_tools
-
-    seen: dict[str, Any] = {}
-
-    def _dispatch(name: str, **kwargs: Any) -> dict[str, Any]:
-        seen["name"] = name
-        seen.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(cp, "dispatch", _dispatch)
-
-    ctx = bot_tools.ToolContext(
-        job_id="job-1",
-        conversation_id="conv-1",
-        customer_id="CUST-1",
-        interaction_id=None,
-        bot_id=None,
-        customer_text="which invoice is open?",
-        intent="payment_intent",
-    )
-    ctx.allowed_tools = frozenset({"ext.vendor.get_invoice"})
-    ok, result, _latency = bot_tools.execute_tool(
-        ctx, "ext.vendor.get_invoice", '{"invoice_id": "INV-9"}'
-    )
-
-    assert ok is True
-    assert result == {"ok": True}
-    assert seen["customer_id"] == "CUST-1"
-    assert seen["args"] == {"invoice_id": "INV-9"}
-
-
 def test_a_remote_refusal_is_the_models_problem_not_the_circuits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

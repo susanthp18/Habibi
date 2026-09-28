@@ -469,15 +469,6 @@ def test_bot_traces_the_hops_the_demo_log_was_missing() -> None:
     assert "customer_id_for_bind" in src
 
 
-def test_first_names_match_accepts_outbound_variants() -> None:
-    from voice.names import first_names_match
-
-    assert first_names_match("Yeah, Sushant here.", "Susanth")
-    assert first_names_match("Susanth", "Sushant Kumar")
-    assert not first_names_match("yes speaking", "Susanth")
-    assert not first_names_match("Priya", "Susanth")
-
-
 def test_demo_call_product_fixes_are_wired() -> None:
     """Source locks so the next demo cannot silently lose the VS-2E3096 fixes."""
     tools = _voice_tools_src()

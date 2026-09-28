@@ -234,103 +234,6 @@ def test_routing_numeric_missing_field_is_false() -> None:
     )
 
 
-def _file_backed_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """voice_session_store pinned to the filesystem backend under tmp_path."""
-    import voice_session_store
-
-    monkeypatch.setattr(voice_session_store, "_SESSIONS_DIR", tmp_path)
-    monkeypatch.setattr(voice_session_store, "_backend", "file")
-    return voice_session_store
-
-
-def test_voice_session_id_discriminates_transport_ids() -> None:
-    """A pipecat-minted uuid4 must never be treated as a sandbox session id.
-
-    The standalone runner sets ``runner_args.session_id = str(uuid4())`` for
-    every offer. Accepting it raised ``invalid_session_id`` on every Live call
-    and dropped persona / KB snapshot / tuning.
-    """
-    import voice_session_store as store
-
-    assert store.is_session_id("VS-ABCDEF0123")
-    assert not store.is_session_id("a1424818-183c-4c40-a317-acd6c5d36c64")
-    assert not store.is_session_id("VS-abcdef0123")  # lowercase hex
-    assert not store.is_session_id("VS-ABCDEF012")  # too short
-    assert not store.is_session_id("")
-    assert not store.is_session_id(None)
-
-
-def test_voice_session_store_mutate_is_atomic_and_reports_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store = _file_backed_store(tmp_path, monkeypatch)
-    sid = "VS-0123456789"
-
-    assert store.mutate(sid, lambda cur: cur) is None  # missing, not an error
-
-    store.write(sid, {"tuning": {"llm": {"temperature": 0.1}}, "status": "starting"})
-    updated = store.mutate(sid, lambda cur: {**cur, "status": "live"})
-    assert updated["status"] == "live"
-    assert updated["tuning"] == {"llm": {"temperature": 0.1}}
-    assert store.read(sid)["status"] == "live"
-
-
-def test_voice_session_store_mutate_propagates_handler_errors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A caller's own exception must not be reported as a store outage."""
-    store = _file_backed_store(tmp_path, monkeypatch)
-    sid = "VS-0123456789"
-    store.write(sid, {"status": "starting"})
-
-    def _boom(_cur: dict) -> dict:
-        raise KeyError("caller_bug")
-
-    with pytest.raises(KeyError, match="caller_bug"):
-        store.mutate(sid, _boom)
-
-
-def test_sandbox_session_id_from_runner_args() -> None:
-    """Only a canonical id is accepted, from any of the three body shapes."""
-    import json as _json
-    from types import SimpleNamespace
-
-    from voice.bot import _sandbox_session_id_from
-    from voice_session_store import is_session_id
-
-    def _resolve(*, body=None, session_id=None) -> str | None:
-        args = SimpleNamespace(body=body, session_id=session_id)
-        return _sandbox_session_id_from(args, is_session_id)
-
-    # SmallWebRTC requestData → runner_args.body
-    assert _resolve(body={"sessionId": "VS-ABCDEF0123"}) == "VS-ABCDEF0123"
-    assert _resolve(body={"session_id": "VS-ABCDEF0123"}) == "VS-ABCDEF0123"
-    # /start runner path nests it one level deeper
-    assert _resolve(body={"body": {"sessionId": "VS-ABCDEF0123"}}) == "VS-ABCDEF0123"
-    # raw JSON string body
-    assert _resolve(body=_json.dumps({"sessionId": "VS-ABCDEF0123"})) == "VS-ABCDEF0123"
-    # embedded host threads our id through session_id
-    assert _resolve(session_id="VS-ABCDEF0123") == "VS-ABCDEF0123"
-
-    # The standalone runner's uuid4 is not a sandbox session.
-    assert _resolve(session_id="a1424818-183c-4c40-a317-acd6c5d36c64") is None
-    assert _resolve(body={}) is None
-    assert _resolve(body="not json") is None
-    assert _resolve() is None
-
-
-def test_embedded_host_reads_session_id_from_body_or_query() -> None:
-    """Both hosting modes must resolve the id the same way."""
-    from voice.host import _session_id_from
-
-    assert _session_id_from({"sessionId": "VS-ABCDEF0123"}) == "VS-ABCDEF0123"
-    assert _session_id_from({"session_id": "VS-ABCDEF0123"}) == "VS-ABCDEF0123"
-    # Body wins when both are present, query is the fallback.
-    assert _session_id_from({"sessionId": "VS-AAAAAAAAAA"}, "VS-BBBBBBBBBB") == "VS-AAAAAAAAAA"
-    assert _session_id_from(None, "VS-BBBBBBBBBB") == "VS-BBBBBBBBBB"
-    assert _session_id_from(None, None) is None
-
-
 def test_rtvi_function_call_report_level_is_a_map() -> None:
     """RTVIObserver looks levels up with ``.get("*")`` — a bare enum crashes it.
 
@@ -404,14 +307,6 @@ def test_billing_as_of_uses_utc_date() -> None:
         assert db._billing_as_of() == date(2026, 7, 25)
 
 
-def test_amd_voicemail_script_constant() -> None:
-    from voice import amd
-
-    assert hasattr(amd, "VOICEMAIL_SCRIPT")
-    assert "Priya" in amd.VOICEMAIL_SCRIPT
-    assert not hasattr(amd, "VOICMAIL_SCRIPT")
-
-
 def test_result_to_llm_canonical_keys_win() -> None:
     from agent_core.tools.domain import ToolResult
 
@@ -420,25 +315,6 @@ def test_result_to_llm_canonical_keys_win() -> None:
     assert out["ok"] is True
     assert out["say"] == "new"
     assert out.get("error") != "stale"
-
-
-def test_hindi_payment_alone_not_language_switch() -> None:
-    from voice.safety import detect_language_signal
-
-    assert detect_language_signal("I want to make a payment today") is None
-    assert detect_language_signal("haan theek hai") == "hi-IN"
-    assert detect_language_signal("வணக்கம்") == "ta-IN"
-
-
-def test_tamil_script_switches_when_authored_in_fallbacks() -> None:
-    from voice.safety import resolve_language_action
-
-    action = resolve_language_action(
-        "வணக்கம்",
-        current_language="en-IN",
-        fallback_languages=["hi-IN", "ta-IN", "en-IN"],
-    )
-    assert action == {"action": "switch", "language": "ta-IN", "reason": "language_detected"}
 
 
 class _FakeResult:

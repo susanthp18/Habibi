@@ -25,45 +25,13 @@ from __future__ import annotations
 import pytest
 
 import flow_graph as fg
-from voice.session import VoiceSession
 
 pytest.importorskip("pipecat.flows")
-
-
-def _live_tool_keys() -> set[str]:
-    from agent_core.tools.catalog import CATALOG
-    from voice.tools import ALWAYS_ON, build_tools
-
-    _state, tools = build_tools(
-        VoiceSession(session_id="VS-CATALOGTEST"),
-        bot_id=None,
-        start_recording=None,
-        nodes={},
-        allowed_tool_names=set(CATALOG.specs) | set(ALWAYS_ON),
-    )
-    return set(tools)
 
 
 def _voice_catalog_keys() -> set[str]:
     """What the Flow tab offers: the rows that render on a call."""
     return {t["key"] for t in fg.tool_catalog() if "voice" in t["channels"]}
-
-
-def test_catalog_matches_the_live_registry_exactly() -> None:
-    catalog = _voice_catalog_keys()
-    live = _live_tool_keys()
-
-    missing = live - catalog
-    assert not missing, (
-        f"build_tools exposes {sorted(missing)} but the editor cannot offer them. "
-        "Add them to flow_graph._FLOW_CONTROL_TOOLS or give the ToolSpec the "
-        "'voice' channel."
-    )
-    extra = catalog - live
-    assert not extra, (
-        f"The editor offers {sorted(extra)} but build_tools does not provide them — "
-        "an authored node using one would silently lose it at runtime."
-    )
 
 
 def test_every_catalog_entry_has_a_description() -> None:
@@ -77,12 +45,6 @@ def test_transitioning_flags_match_tools_that_return_a_node() -> None:
     catalog = {t["key"]: t["transitions"] for t in fg.tool_catalog()}
     for key in fg._TRANSITIONING_TOOLS:
         assert catalog.get(key) is True, f"{key} should be flagged as transitioning"
-
-
-def test_declared_flow_control_tools_are_all_real() -> None:
-    live = _live_tool_keys()
-    stale = set(fg._FLOW_CONTROL_TOOLS) - live
-    assert not stale, f"declared but no longer in build_tools: {sorted(stale)}"
 
 
 def test_text_only_tools_are_served_but_not_as_voice_flow_choices() -> None:
@@ -102,14 +64,3 @@ def test_every_row_states_the_channels_it_renders_on() -> None:
     """A row with no channels would be filtered by nobody and offered by all."""
     blank = [t["key"] for t in fg.tool_catalog() if not t["channels"]]
     assert not blank, f"tools with no channels: {blank}"
-
-
-def test_the_always_on_flag_is_the_runtime_floor_and_not_a_second_list() -> None:
-    from agent_core.tools.grant import TEXT_ALWAYS, VOICE_ALWAYS
-    from voice.tools import ALWAYS_ON
-
-    rows = fg.tool_catalog()
-    marked = {t["key"] for t in rows if t["alwaysOn"]}
-    # voice.tools.ALWAYS_ON *is* VOICE_ALWAYS, imported rather than restated.
-    assert set(ALWAYS_ON) <= marked
-    assert marked == (VOICE_ALWAYS | TEXT_ALWAYS) & {t["key"] for t in rows}

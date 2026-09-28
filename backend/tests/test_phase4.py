@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from agent_core.cards.compile import compile_card
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP, CHANNEL_TEXT, CHANNEL_VOICE
 from agent_core.treatment import actions as A
@@ -92,7 +92,7 @@ def _compile(card_raw, **kw):
     return compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=card_raw,
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=set(CATALOG.specs),
         known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
         **kw,
@@ -669,4 +669,3 @@ def test_production_writers_do_not_insert_into_work_runtime_jobs() -> None:
             if "INSERT INTO work_runtime_jobs" in text:
                 offenders.append(str(path.relative_to(backend)))
     assert offenders == []
-

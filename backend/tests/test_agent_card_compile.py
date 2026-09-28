@@ -28,9 +28,9 @@ def _compile(bot_id: str, card=None, flow=None, bots=None, **kwargs):
     raw = card if card is not None else card_dump(bot_id)
     if flow is None:
         if bot_id == COLLECTIONS_BOT_ID:
-            from voice.flow_export import built_in_collections_graph
+            from agent_core.cards.clone import _disk_flow
 
-            flow = built_in_collections_graph()
+            flow = _disk_flow(COLLECTIONS_BOT_ID)
         else:
             flow = {}
     return compile_card(

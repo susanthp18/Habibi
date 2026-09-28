@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import uuid
 from pathlib import Path
@@ -12,7 +11,7 @@ from sqlalchemy import text
 
 from agent_core.cards.compile import compile_card
 from agent_core.cards.defaults import COLLECTIONS_BOT_ID, FIRST_PARTY_BOT_IDS, card_dump
-from voice.flow_export import built_in_collections_graph
+from agent_core.cards.clone import _disk_flow
 from agent_core.cards.templates import templates
 from agent_core.tools.catalog import CATALOG
 
@@ -27,7 +26,7 @@ def _compile(card_raw, **kw):
     return compile_card(
         bot_id=COLLECTIONS_BOT_ID,
         card_raw=card_raw,
-        flow=built_in_collections_graph(),
+        flow=_disk_flow(COLLECTIONS_BOT_ID),
         catalog_names=set(CATALOG.specs),
         known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
         **kw,
@@ -95,21 +94,6 @@ def test_g14_fail_is_403() -> None:
     g14 = next(g for g in report.gates if g.gate == "G14")
     assert g14.status == "fail"
     assert report.http_status() == 403
-
-
-@pytest.mark.parametrize(
-    "name", ["bot.py", "bot_flow.py", "bot_pipeline.py", "bot_handlers.py"]
-)
-def test_voice_bot_does_not_import_a2a(name: str) -> None:
-    src = Path(__file__).resolve().parents[1] / "voice" / name
-    tree = ast.parse(src.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("agent_core.a2a"):
-            raise AssertionError(f"voice/{name} must not import agent_core.a2a")
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.startswith("agent_core.a2a"):
-                    raise AssertionError(f"voice/{name} must not import agent_core.a2a")
 
 
 def test_mcp_apps_ui_list(monkeypatch) -> None:
