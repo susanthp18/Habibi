@@ -158,6 +158,12 @@ def run_signals(call: Call) -> dict[str, str]:
                      "WHERE id = :t AND (intent IS NULL OR intent IN ('', 'out_of_scope', 'unknown'))"),
                 {"i": top, "p": p, "t": turn_id},
             )
+        # The call was rolled up when it was filed, before these intents
+        # existed: again now, so primary intent and "resolved" are measured.
+        # The engine's own disposition stands.
+        import capture
+
+        capture.rollup_interaction(conn, call.interaction_id, keep_disposition=True)
         scores = list(found["sentiment"].values())
         if scores:
             avg = sum(scores) / len(scores)

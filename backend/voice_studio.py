@@ -1500,11 +1500,24 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             logger.exception("voice studio: evidence chain link not written for %s", interaction_id)
         spoken = [v for v in latency_ms.values() if v > 0]
+        with db.engine.begin() as conn:
+            # A call the agent handed to a person was escalated, whatever its
+            # exit node called it (a supervisor's takeover it got back is not).
+            # Its handoff ends with it: the hub lists live calls only.
+            handed = conn.execute(text(
+                "SELECT 1 FROM interaction_handoffs WHERE interaction_id = :ix "
+                "AND queue IS DISTINCT FROM 'Supervisor barge' LIMIT 1"
+            ), {"ix": interaction_id}).first() is not None
+            conn.execute(text(
+                "UPDATE interaction_handoffs SET completed_at = now() "
+                "WHERE interaction_id = :ix AND completed_at IS NULL"
+            ), {"ix": interaction_id})
         persist.complete_voice_call(
             session_id=session_id,
             interaction_id=interaction_id,
             status="completed",
-            disposition=str(gathered.get("mapped_call_disposition") or gathered.get("call_disposition") or "") or None,
+            disposition="escalated" if handed else (
+                str(gathered.get("mapped_call_disposition") or gathered.get("call_disposition") or "") or None),
             providers=(ctx.get("runtime_configuration") or None),
             duration_sec=duration,
             latency_ms=int(sorted(spoken)[len(spoken) // 2]) if spoken else None,
