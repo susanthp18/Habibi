@@ -1025,9 +1025,10 @@ def flag_dispute(
     amount: float | None = None,
     summary: str | None = None,
     priority: str | None = None,
+    source: str | None = None,
     idempotency_key: str | None = None,
 ) -> ToolResult:
-    """Open a dispute for human review."""
+    """Open a dispute for human review. ``source``: who raised it ('bot' for an agent)."""
     import db
 
     dtype = (dispute_type or "").strip().lower()
@@ -1051,6 +1052,8 @@ def flag_dispute(
     }
     if account_id:
         payload["accountId"] = account_id
+    if source:
+        payload["source"] = source
 
     try:
         row = db.create_dispute(payload, idempotency_key=idempotency_key)

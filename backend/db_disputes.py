@@ -347,7 +347,7 @@ def _create_dispute(
                disputed_amount, source, status, priority, transcript_snippet, sla_due_at)
             VALUES
               (:id, :customer_id, :account_id, :interaction_id, :assignee_user_id, :type,
-               :amount, 'agent', 'new', :priority, :transcript_snippet, now() + interval '2 days')
+               :amount, :source, 'new', :priority, :transcript_snippet, now() + interval '2 days')
             """
         ),
         {
@@ -358,6 +358,7 @@ def _create_dispute(
             "assignee_user_id": payload.get("assigneeUserId") or _actor_user_id(),
             "type": payload["type"],
             "amount": payload.get("amount"),
+            "source": payload.get("source") or "agent",
             "priority": payload.get("priority") or "normal",
             "transcript_snippet": payload.get("transcriptSnippet"),
         },

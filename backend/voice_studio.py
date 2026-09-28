@@ -553,6 +553,15 @@ def _require_verified(interaction_id: str, ctx: dict[str, Any]) -> dict[str, Any
             "say": "Verify the customer's identity first."}
 
 
+def _amount(value: Any) -> float | None:
+    """A positive amount the model passed, or None (it is optional)."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    return amount if amount > 0 else None
+
+
 def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
     from agent_core.tools import domain
 
@@ -565,6 +574,7 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
         interaction_id=interaction_id,
         account_id=ctx.get("account_id"),
         channel=str(ctx.get("channel") or "voice"),
+        bot_id=_ctx_bot_id(ctx),
         idempotency_key=f"vs-{ctx.get('workflow_run_id')}-ptp-{args.get('date')}-{args.get('amount')}",
     )
     if result.error == "promise_already_open":  # the customer is renegotiating it
@@ -622,7 +632,9 @@ def _tool_flag_dispute(ctx: dict[str, Any], args: dict[str, Any], interaction_id
         dispute_type=str(args.get("type") or "other"),
         interaction_id=interaction_id,
         account_id=ctx.get("account_id"),
+        amount=_amount(args.get("amount")),
         summary=args.get("summary"),
+        source="bot",
         idempotency_key=f"vs-{ctx.get('workflow_run_id')}-dispute",
     )
     return result.to_llm()
@@ -676,6 +688,29 @@ CONTEXT_KEYS = ("workflow_run_id", "workflow_id", "agent_id", "attempt_id", "cus
                 "account_id", "direction", "demo", "channel", "interaction_id", "conversation_id", "rehearsal")
 
 
+def _verified_caller(interaction_id: str) -> dict[str, str]:
+    """An inbound caller precall could not name, once ``verify_identity`` has
+    matched them: the engine keeps its initial context for the whole call, so
+    every later tool would otherwise write for no customer."""
+    import db
+
+    with db.engine.connect() as conn:
+        row = conn.execute(text(
+            "SELECT v.customer_id, i.account_id FROM identity_verifications v "
+            "JOIN interactions i ON i.id = v.interaction_id "
+            "WHERE v.interaction_id = :ix AND v.status = 'verified' AND v.customer_id <> '' "
+            "ORDER BY v.created_at DESC LIMIT 1"
+        ), {"ix": interaction_id}).first()
+    if row is None:
+        return {}
+    return {k: v for k, v in (("customer_id", row.customer_id), ("account_id", row.account_id)) if v}
+
+
+def _ctx_bot_id(ctx: dict[str, Any]) -> str:
+    """The bots row ensure_interaction registered for this call's agent."""
+    return bot_id_for(ctx.get("agent_id") or ctx.get("workflow_id"))
+
+
 def _interaction(ctx: dict[str, Any]) -> str:
     """A WhatsApp thread brings its own interaction; a call gets one per run."""
     return str(ctx.get("interaction_id") or ensure_interaction(ctx["workflow_run_id"], ctx))
@@ -698,6 +733,8 @@ def run_tool(name: str, body: dict[str, Any]) -> dict[str, Any]:
     if voice_studio_checks.is_test(ctx):  # editor test or scripted check: nothing real is touched
         return voice_studio_checks.rehearsal_tool(name, ctx, args)
     interaction_id = _interaction(ctx)
+    if not ctx.get("customer_id"):
+        ctx.update(_verified_caller(interaction_id))
     started = datetime.now(timezone.utc)
     try:
         result = handler(ctx, args, interaction_id)
@@ -735,7 +772,7 @@ def transfer_destination(body: dict[str, Any]) -> dict[str, Any]:
         persist.record_handoff(
             interaction_id=interaction_id,
             reason=str(body.get("reason") or "customer_requested"),
-            bot_id=bot_id_for(ctx.get("agent_id")),
+            bot_id=_ctx_bot_id(ctx),
         )
     if ctx.get("channel") == "whatsapp":  # whatsapp_studio escalates the thread to the Inbox
         return {"transfer_context": {"destination": "", "custom_message": "Connecting you to a colleague."}}
@@ -1107,7 +1144,7 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
     with db.engine.connect() as conn:
         filed = {
             row[0] for row in conn.execute(
-                text("SELECT provider_call_id FROM voice_sessions WHERE id = ANY(:ids) "
+                text("SELECT provider_call_id FROM voice_sessions WHERE id = ANY(:ids) AND status = 'ended' "
                      "UNION SELECT provider_call_id FROM call_attempts "
                      "WHERE provider = :p AND provider_call_id = ANY(:runs) "
                      "AND state NOT IN ('reserved','dialing','ringing','answered','live')"),
@@ -1279,7 +1316,7 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
         with db.engine.connect() as conn:
             filed = conn.execute(
                 text("SELECT status FROM voice_sessions WHERE id = :id"), {"id": session_id}
-            ).scalar() in ("ended", "failed")
+            ).scalar() == "ended"
         if filed:
             # A redelivered notice (the engine's retry, the reconcile sweep, the
             # seeded webhook node): the call is filed once, and re-completing it
