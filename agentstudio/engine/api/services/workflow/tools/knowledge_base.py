@@ -301,11 +301,19 @@ async def _perform_retrieval(
             f"document_filter={document_uuids}"
         )
 
-        return {
+        result: Dict[str, Any] = {
             "chunks": chunks,
             "query": query,
             "total_results": len(chunks),
         }
+        if document_uuids:
+            # AgentStudio: a few chunks can't answer "what do you offer?" -- run 60
+            # got three Travel chunks and said travel was the only insurance. The
+            # names of everything searched show the model what else exists.
+            result["documents_searched"] = await db_client.get_document_filenames(
+                organization_id=organization_id, document_uuids=document_uuids
+            )
+        return result
 
     except Exception as e:
         logger.error(f"Error retrieving from knowledge base: {e}")
@@ -334,7 +342,9 @@ def get_knowledge_base_tool(
             "Retrieve relevant information from specific documents in the knowledge base. "
             "Use this tool when you need to look up facts, policies, procedures, or any information "
             "that might be stored in the available documents. The search will only look in the "
-            f"documents associated with this conversation step ({len(document_uuids)} document(s) available)."
+            f"documents associated with this conversation step ({len(document_uuids)} document(s) available). "
+            "The result lists every document searched in documents_searched: a question about "
+            "what is offered is answered from those names as well as the chunks."
         )
     else:
         description = (

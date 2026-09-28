@@ -476,6 +476,26 @@ class KnowledgeBaseClient(BaseDBClient):
                     f"Stored full text for document {document_id} ({len(full_text)} chars)"
                 )
 
+    async def get_document_filenames(
+        self,
+        organization_id: int,
+        document_uuids: List[str],
+    ) -> List[str]:
+        """Filenames of the active, processed documents among ``document_uuids``."""
+        async with self.async_session() as session:
+            query = (
+                select(KnowledgeBaseDocumentModel.filename)
+                .where(
+                    KnowledgeBaseDocumentModel.organization_id == organization_id,
+                    KnowledgeBaseDocumentModel.document_uuid.in_(document_uuids),
+                    KnowledgeBaseDocumentModel.is_active == True,
+                    KnowledgeBaseDocumentModel.processing_status == "completed",
+                )
+                .order_by(KnowledgeBaseDocumentModel.filename)
+            )
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
     async def get_full_text_documents(
         self,
         organization_id: int,

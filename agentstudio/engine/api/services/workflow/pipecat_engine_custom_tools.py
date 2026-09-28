@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import unicodedata
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -46,6 +47,13 @@ _TRANSFER_PLAYBACK_START_TIMEOUT_SECS = 5.0
 _TRANSFER_PLAYBACK_FINISH_TIMEOUT_SECS = 30.0
 _TRANSFER_EXTERNAL_PBX_API_TIMEOUT_SECS = 30.0
 _TRANSFER_POST_HANDOFF_DELAY_SECS = 4.0
+
+
+def _digits(value: Any) -> str:
+    """The decimal digits in ``value`` as ASCII, in whatever script they came."""
+    if isinstance(value, list):  # multi-part message content
+        value = " ".join(str(p.get("text", "")) for p in value if isinstance(p, dict))
+    return "".join(str(unicodedata.decimal(ch)) for ch in str(value or "") if ch.isdecimal())
 
 
 def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
@@ -468,12 +476,17 @@ class CustomToolManager:
                     return
                 arguments = _write_arguments(self._engine, self._agent, tool, arguments, function_name)
             if function_name == "verify_identity":
-                # Digits the caller has not yet given are a guess: on
-                # WhatsApp the opening turn once "verified" with 4821 and
-                # burned one of the customer's attempts.
+                # Digits the caller has not given are a guess: on WhatsApp the
+                # opening turn once "verified" with 4821 and burned an attempt.
+                # They count when the caller's latest message holds them -- even
+                # the one that led into this step ("I think it is 2324", run 58)
+                # -- or, spoken as words, when it came after the step began.
+                # Each message backs one attempt.
                 said = self._engine._last_user_message()
-                if (not self._engine.caller_spoke_in_node(self._agent)
-                        or said is self._engine._verified_user_message):
+                given = _digits((function_call_params.arguments or {}).get("value"))
+                heard = bool(said) and len(given) == 4 and given in _digits(said.get("content"))
+                if (said is None or said is self._engine._verified_user_message
+                        or not (heard or self._engine.caller_spoke_in_node(self._agent))):
                     await function_call_params.result_callback({
                         "status": "error", "error": "no_new_digits_from_caller",
                         "say": "Ask the customer for the four digits and wait for their answer.",

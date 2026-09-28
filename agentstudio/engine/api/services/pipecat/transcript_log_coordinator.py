@@ -209,17 +209,18 @@ class TranscriptLogCoordinator:
             await self._emit_ready_sides(state)
 
     def _select_user_turn(self) -> _TurnTranscriptState:
+        # Words said in the active turn belong to it, appended to any already
+        # there. A turn whose speech the recognizer returned empty keeps no
+        # claim on later text: it would be back-dated to that turn's start.
         if self._active_turn_id is not None:
-            active = self._state(self._active_turn_id)
-            if active.user.text is None:
-                return active
+            return self._state(self._active_turn_id)
         candidates = [
             state
             for state in self._states.values()
             if state.user.speech_start_timestamp and state.user.text is None
         ]
         if candidates:
-            return min(candidates, key=lambda state: state.turn_id)
+            return max(candidates, key=lambda state: state.turn_id)
         if self._states:
             return max(self._states.values(), key=lambda state: state.turn_id)
         return self._state(1)

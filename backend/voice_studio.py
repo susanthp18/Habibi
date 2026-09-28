@@ -734,7 +734,11 @@ def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_
     whatsapp = ctx.get("channel") == "whatsapp"
     scope = str(args.get("scope") or "this_channel").lower()
     channel = "all" if scope == "all" else ("whatsapp" if whatsapp else "call")
-    actor_context.bind_service_actor("bot", bot_id=f"voice-studio:{ctx.get('workflow_id') or 'agent'}")
+    # The activity log's actor must be a registered bot (activity_events.actor_bot_id
+    # references bots): the agent's own row, as its interactions and promises name it.
+    with db.engine.begin() as conn:
+        bot_id = ensure_bot(conn, ctx.get("agent_id") or ctx.get("workflow_id"))
+    actor_context.bind_service_actor("bot", bot_id=bot_id)
     try:
         db.opt_out(customer_id, {
             "channel": channel,
@@ -1552,15 +1556,35 @@ def call_started(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def complete_run(body: dict[str, Any]) -> dict[str, Any]:
-    """The engine's post-call webhook: file the call and advance the attempt."""
+    """The engine's post-call webhook: file the call and advance the attempt.
+
+    One filer per run at a time. The engine's own notice and a leftover
+    webhook node arrived together for runs 58 and 59: both passed the
+    "already filed?" reads, and the second died inserting the transcript
+    (interaction_transcript_pkey) with a 500. Serialised, the second sees
+    the call filed and returns ``duplicate``.
+    """
+    import db
+
+    run_id = body.get("workflow_run_id")
+    if not run_id or not body.get("workflow_id"):
+        return {"ok": False, "error": "missing_run"}
+    ref = f"voice-studio-file:{run_id}"
+    with db.engine.connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(hashtext(:r))"), {"r": ref})
+        try:
+            return _complete_run(body)
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(hashtext(:r))"), {"r": ref})
+
+
+def _complete_run(body: dict[str, Any]) -> dict[str, Any]:
     import db
     import outbound
     from voice import persist
 
     run_id = body.get("workflow_run_id")
     workflow_id = body.get("workflow_id")
-    if not run_id or not workflow_id:
-        return {"ok": False, "error": "missing_run"}
     run = engine_call("GET", f"/workflow/{workflow_id}/runs/{run_id}") or {}
     ctx = dict(run.get("initial_context") or {})
     if ctx.get("channel") == "whatsapp":  # filed turn by turn by whatsapp_studio

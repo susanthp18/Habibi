@@ -193,6 +193,18 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
     assert execute.await_count == 1
 
+    # Run 58: the digits came in the message that led into this step.
+    given = {"role": "user", "content": "I think it is 2324."}
+    engine.context.messages.append(given)
+    engine._node_entry_user_message[("visit", "verify")] = given
+    await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
+    assert execute.await_count == 2
+    # ...but not digits it doesn't hold.
+    engine._verified_user_message = None
+    await handler(SimpleNamespace(arguments={"value": "4821"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
+    assert execute.await_count == 2
+
 
 @pytest.mark.asyncio
 async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):

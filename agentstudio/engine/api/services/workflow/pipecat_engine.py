@@ -588,7 +588,12 @@ class PipecatEngine:
                         and not self.caller_spoke_in_node(agent)):
                     await function_call_params.result_callback({
                         "status": "error", "error": "user_turn_required",
-                        "say": self._refusal_hint("The customer has not answered yet."),
+                        # A model told only "not yet" never retried the path:
+                        # run 58 asked for the digits itself after "Yes, I am
+                        # available." instead of taking Account holder.
+                        "say": self._refusal_hint(
+                            f"The customer has not answered yet. Once they answer, take "
+                            f"{name} if their answer fits it."),
                     })
                     return
                 if (node_key in self._verification_required

@@ -396,6 +396,29 @@ async def test_completed_user_turn_does_not_reuse_speaking_frame_timestamps():
 
 
 @pytest.mark.asyncio
+async def test_later_words_are_not_backdated_to_an_unheard_turn():
+    """Run 58: the recognizer returned nothing for turn 2's "Yes."; "Correct,
+    correct." said two minutes later in turn 9 was logged as turn 2's."""
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=58)
+    coordinator = TranscriptLogCoordinator(logs_buffer)
+
+    await coordinator.record_turn_started(2)
+    await coordinator.record_user_started_speaking(2, "2026-09-28T15:43:34.046+00:00")
+    await coordinator.record_user_stopped_speaking(2, "2026-09-28T15:43:34.700+00:00")
+    await coordinator.record_turn_ended(2, interrupted=False)
+
+    await coordinator.record_turn_started(9)
+    await coordinator.record_user_started_speaking(9, "2026-09-28T15:45:35.000+00:00")
+    await coordinator.record_user_transcript(text="Yeah, correct.", timestamp=None)
+    await coordinator.record_user_transcript(text="Correct, correct.", timestamp=None)
+    await coordinator.record_turn_ended(9, interrupted=False)
+
+    [event] = logs_buffer.get_events()
+    assert event["turn"] == 9
+    assert event["payload"]["text"] == "Yeah, correct.\nCorrect, correct."
+
+
+@pytest.mark.asyncio
 async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
     logs_buffer = InMemoryLogsBuffer(workflow_run_id=2122)
     coordinator = TranscriptLogCoordinator(logs_buffer)
