@@ -249,6 +249,38 @@ class TestUserIdleController(unittest.IsolatedAsyncioTestCase):
 
         await controller.cleanup()
 
+    async def test_function_result_without_speech_rearms_timer(self):
+        """AgentStudio: a tool result answered with silence still waits for the user.
+
+        A refused workflow step can be followed by a response with no speech, so
+        no BotStoppedSpeakingFrame arrives. The wait for the user resumes when the
+        last function call settles.
+        """
+        controller = UserIdleController(user_idle_timeout=USER_IDLE_TIMEOUT)
+        await controller.setup(frame_processor_setup(self.task_manager))
+
+        idle_triggered = False
+
+        @controller.event_handler("on_user_turn_idle")
+        async def on_user_turn_idle(controller):
+            nonlocal idle_triggered
+            idle_triggered = True
+
+        await controller.process_frame(BotStoppedSpeakingFrame())
+        await controller.process_frame(
+            FunctionCallsStartedFrame(function_calls=[unittest.mock.Mock()])
+        )
+        await controller.process_frame(
+            FunctionCallResultFrame(
+                function_name="test", tool_call_id="123", arguments={}, result="refused"
+            )
+        )
+
+        await asyncio.sleep(USER_IDLE_TIMEOUT + 0.1)
+        self.assertTrue(idle_triggered)
+
+        await controller.cleanup()
+
     async def test_disabled_by_default(self):
         """Test that timeout=0 means idle detection is disabled."""
         controller = UserIdleController()

@@ -55,17 +55,15 @@ class UserIdleHandler:
         logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
 
         if self._retry_count == 1:
-            message = {
-                "role": "user",
-                "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
-            }
+            message = self._engine.engine_note(
+                "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far."
+            )
             await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
             return
 
-        message = {
-            "role": "user",
-            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
-        }
+        message = self._engine.engine_note(
+            "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far."
+        )
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
         await self._engine.end_call_with_reason(
             EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value

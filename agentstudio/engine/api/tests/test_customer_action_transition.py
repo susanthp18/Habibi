@@ -11,6 +11,7 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 @pytest.mark.asyncio
 async def test_rejected_action_blocks_success_close_before_speech():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Yes, go ahead"}])
@@ -43,6 +44,7 @@ async def test_rejected_action_blocks_success_close_before_speech():
 @pytest.mark.asyncio
 async def test_unverified_identity_blocks_account_path():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     engine._customer_action_outcomes = {}
@@ -71,6 +73,7 @@ async def test_unverified_identity_blocks_account_path():
 @pytest.mark.asyncio
 async def test_right_person_requires_a_caller_turn_when_edge_requests_it():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     hello = {"role": "user", "content": "Hello?"}
@@ -112,6 +115,7 @@ async def test_right_person_requires_a_caller_turn_when_edge_requests_it():
 @pytest.mark.asyncio
 async def test_agreed_requires_a_recorded_success_when_edge_requests_it():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Yes, go ahead"}])
@@ -156,6 +160,7 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True, "verified": False}})
     monkeypatch.setattr(tools, "execute_http_tool", execute)
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     yes = {"role": "user", "content": "Yes, speaking"}
@@ -196,6 +201,7 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
     monkeypatch.setattr(tools, "execute_http_tool", execute)
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     digits = {"role": "user", "content": "1234"}
@@ -239,6 +245,7 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
 
 def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._assistant_aggregator = None
     engine._current_llm_generation_reference_text = ""
     engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Hello?"}])
@@ -251,6 +258,7 @@ def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
 def test_text_already_in_context_counts_as_speaking():
     # Text chat commits the response's words before its tool calls run.
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._assistant_aggregator = None
     engine._current_llm_generation_reference_text = ""
     engine.context = SimpleNamespace(messages=[
@@ -266,6 +274,7 @@ def test_text_already_in_context_counts_as_speaking():
 @pytest.mark.asyncio
 async def test_a_close_needs_the_customer_to_speak_in_this_step():
     engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
     question = {"role": "user", "content": "1234"}
@@ -298,6 +307,7 @@ def test_guard_state_survives_a_text_chat_turn():
     # or a released agent refuses every promise after the verifying turn.
     def engine_on(messages, visit):
         engine = object.__new__(PipecatEngine)
+        engine._engine_notes = []
         engine.context = SimpleNamespace(messages=messages)
         engine._active_agent = SimpleNamespace(visit_id=visit, current_node=SimpleNamespace(id="resolve"))
         engine._verification_outcomes = {}
@@ -320,3 +330,30 @@ def test_guard_state_survives_a_text_chat_turn():
     assert second._verification_outcomes[("visit-2", "resolve")] is True
     assert second._node_entry_user_message[("visit-2", "resolve")] is restored[1]
     assert second._verified_user_message is restored[1]
+
+
+@pytest.mark.asyncio
+async def test_an_unheard_turn_is_answered_and_is_not_the_caller():
+    # Run 51: "yes" and "ok" were not transcribed, nothing answered them, and
+    # the call sat silent until the customer hung up.
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._unheard_turns = 0
+    engine._call_disposed = False
+    engine._agent_on_hold = False
+    engine.answer_supervisor = None
+    engine._context_summary_message = None
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "Hello?"}])
+    aggregator = SimpleNamespace(push_frame=AsyncMock())
+
+    for _ in range(3):
+        await engine.handle_user_turn_stopped(aggregator, "")
+    # Asked twice; a third silent turn is noise and left to idle handling.
+    assert aggregator.push_frame.await_count == 2
+    note = aggregator.push_frame.await_args.args[0].messages[0]
+    engine.context.messages.append(note)
+    # The note asks the model to speak; it is not the caller speaking.
+    assert engine._last_user_message()["content"] == "Hello?"
+
+    await engine.handle_user_turn_stopped(aggregator, "yes speaking")
+    assert engine._unheard_turns == 0

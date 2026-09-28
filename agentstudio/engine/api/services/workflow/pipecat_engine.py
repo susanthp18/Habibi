@@ -17,6 +17,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    LLMMessagesAppendFrame,
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.worker import PipelineWorker
@@ -191,6 +192,10 @@ class PipecatEngine:
         self._verified_user_message: object = None
         self._written_user_message: object = None
         self._context_summary_message: object = None
+        # User-role messages the engine writes itself (idle and "didn't catch
+        # that" prompts). They ask the model to speak; the caller said nothing.
+        self._engine_notes: list[dict] = []
+        self._unheard_turns = 0
         # Holds the text of the response being generated, until it ends.
         self._assistant_aggregator = None
         # Set by run setup on every cascade call; a realtime call gets none
@@ -419,7 +424,8 @@ class PipecatEngine:
         for message in reversed(self.context.messages):
             if (isinstance(message, dict) and message.get("role") == "user"
                     and message.get("content")
-                    and message is not self._context_summary_message):
+                    and message is not self._context_summary_message
+                    and not any(message is note for note in self._engine_notes)):
                 return message
         return None
 
@@ -473,6 +479,38 @@ class PipecatEngine:
             self._customer_action_outcomes[key] = state["action_outcome"]
         self._verified_user_message = message_at(state.get("verified_message"))
         self._written_user_message = message_at(state.get("written_message"))
+
+    def engine_note(self, content: str) -> dict:
+        """A user-role instruction to the model that is not the caller speaking."""
+        note = {"role": "user", "content": content}
+        self._engine_notes.append(note)
+        return note
+
+    async def handle_user_turn_stopped(self, aggregator, content: str | None) -> None:
+        """Answer a turn the recognizer could not transcribe.
+
+        Such a turn starts no inference, and the idle timer does not run while
+        a reply is awaited, so the caller heard nothing at all (run 51: three
+        replies of "yes" and "ok" went unanswered until they hung up). The
+        model is asked to have them repeat; after two in a row -- line noise,
+        not a person -- idle handling takes over.
+        """
+        if (content or "").strip():
+            self._unheard_turns = 0
+            return
+        supervisor = getattr(self, "answer_supervisor", None)
+        if supervisor is not None and supervisor.blocks_workflow:
+            return
+        if self._call_disposed or self.generation_on_hold:
+            return
+        self._unheard_turns += 1
+        if self._unheard_turns > 2:
+            return
+        await aggregator.push_frame(LLMMessagesAppendFrame([self.engine_note(
+            "The caller just said something that could not be made out. Briefly and politely ask "
+            "them to say it again, in the language they have been using. Do not guess what they "
+            "said, and do not call any tool or take any path in this turn."
+        )], run_llm=True))
 
     def set_assistant_aggregator(self, aggregator) -> None:
         self._assistant_aggregator = aggregator

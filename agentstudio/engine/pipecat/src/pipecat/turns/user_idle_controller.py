@@ -148,6 +148,12 @@ class UserIdleController(BaseObject):
             await self._cancel_idle_timer()
         elif isinstance(frame, (FunctionCallResultFrame, FunctionCallCancelFrame)):
             self._function_calls_in_progress = max(0, self._function_calls_in_progress - 1)
+            # AgentStudio: the call's result may lead to a response with no
+            # speech (a refused step answered with silence), so the wait for
+            # the caller resumes here; speech that follows cancels it.
+            if self._function_calls_in_progress == 0 and not self._user_turn_in_progress:
+                self._waiting_for_user = True
+                await self._start_idle_timer()
 
     async def _start_idle_timer(self):
         """Start (or restart) the idle timer."""

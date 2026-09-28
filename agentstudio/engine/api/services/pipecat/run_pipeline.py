@@ -1086,6 +1086,11 @@ async def _run_pipeline_impl(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
+    if not is_realtime:
+        @user_context_aggregator.event_handler("on_user_turn_stopped")
+        async def on_user_turn_stopped(aggregator, strategy, message):
+            await engine.handle_user_turn_stopped(aggregator, getattr(message, "content", None))
+
     recording_router = None
 
     # Create recording audio fetcher (used by recording router, audio greetings,
