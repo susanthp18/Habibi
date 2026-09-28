@@ -283,3 +283,16 @@ def send_dashboard_report_email(*, to_email: str, download_url: str, range_key: 
 </body></html>
 """
     return _deliver(to_email=to_email, subject=subject, text=text, html_body=html_body)
+
+
+def send_budget_alert_email(*, to_email: str, message: str) -> str | None:
+    """A budget rule fired. Returns None on success, or a short error token."""
+    subject = "PayInt budget alert"
+    text = f"{message}\n\nBilling & usage: {public_origin()}{public_app_prefix()}/billing\n"
+    html_body = f"""<!DOCTYPE html>
+<html><body style="font-family:sans-serif;color:{TEXT}">
+  <p>{html.escape(message)}</p>
+  <p><a href="{html.escape(public_origin() + public_app_prefix() + '/billing')}" style="color:{BRAND_BLUE}">Open Billing &amp; usage</a></p>
+</body></html>
+"""
+    return _deliver(to_email=to_email, subject=subject, text=text, html_body=html_body)

@@ -29,7 +29,8 @@ _IDENTITY_KEYS = frozenset({
 })
 #: Engine paths whose JSON is a run or a page of runs.
 RUN_DETAIL = re.compile(r"^/workflow/\d+/runs/\d+$")
-RUN_LISTS = (re.compile(r"^/organizations/usage/runs$"), re.compile(r"^/workflow/\d+/runs$"))
+RUN_LISTS = (re.compile(r"^/organizations/usage/runs$"), re.compile(r"^/workflow/\d+/runs$"),
+             re.compile(r"^/campaign/\d+/runs$"), re.compile(r"^/organizations/reports/daily/runs$"))
 
 
 def _mask_value(value: Any) -> Any:

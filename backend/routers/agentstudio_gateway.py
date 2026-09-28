@@ -57,52 +57,94 @@ _ANY = _R | _W
 _DENY: tuple[str, ...] = ()
 _PHONE_NUMBER = re.compile(r"^/organizations/telephony-configs/\d+/phone-numbers(/\d+)?$")
 
-PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...]]] = [
-    (_ANY, re.compile(r"^/(auth|superuser|public|agent-stream|mcp)(/|$)"), _DENY),
-    (_W, re.compile(r"^/tools/[^/]+/revisions/\d+/review$"), _DENY),
-    (_R, re.compile(r"^/(health|node-types|turn)(/|$)"), (authz.BOT_READ,)),
-    (_ANY, re.compile(r"^/ws(/|$)"), (authz.VOICE_OPERATE,)),
+#: The fourth field names the action for the Roles screen (``studio_actions``);
+#: None for rules that are plumbing or refusals rather than something to grant.
+PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...], str | None]] = [
+    (_ANY, re.compile(r"^/(auth|superuser|public|agent-stream|mcp)(/|$)"), _DENY, None),
+    (_W, re.compile(r"^/tools/[^/]+/revisions/\d+/review$"), _DENY, None),
+    (_R, re.compile(r"^/(health|node-types|turn)(/|$)"), (authz.BOT_READ,), None),
+    (_ANY, re.compile(r"^/ws(/|$)"), (authz.VOICE_OPERATE,), "Talk to an agent from the browser"),
     # Supervising a live call (voice_studio_supervision): a socket ticket is
     # minted as a GET. Whispers go server-side through the Floor's action.
-    (_R, re.compile(r"^/supervise/\d+/listen$"), (authz.SUPERVISOR_READ,)),
-    (_R, re.compile(r"^/supervise/\d+/takeover$"), (authz.SUPERVISOR_WRITE,)),
-    (_ANY, re.compile(r"^/supervise(/|$)"), _DENY),
+    (_R, re.compile(r"^/supervise/\d+/listen$"), (authz.SUPERVISOR_READ,), "Listen to a live call"),
+    (_R, re.compile(r"^/supervise/\d+/takeover$"), (authz.SUPERVISOR_WRITE,), "Take over a live call"),
+    (_ANY, re.compile(r"^/supervise(/|$)"), _DENY, None),
     # The PayInt release endpoint owns preflight and the durable release audit.
-    (_W, re.compile(r"^/workflow/\d+/publish$"), _DENY),
-    (_W, re.compile(r"^/workflow/\d+/runs$"), (authz.VOICE_OPERATE,)),
-    (_W, re.compile(r"^/telephony/initiate-call$"), (authz.VOICE_OPERATE,)),
-    (_R, re.compile(r"^/campaign(/|$)"), (authz.BOT_READ,)),
-    (_W, re.compile(r"^/campaign(/|$)"), (authz.VOICE_OPERATE,)),
-    (_R, re.compile(r"^/knowledge-base(/|$)"), (authz.KB_READ,)),
-    (_W, re.compile(r"^/knowledge-base/search$"), (authz.KB_READ,)),
-    (_W, re.compile(r"^/knowledge-base(/|$)"), (authz.KB_WRITE,)),
-    (_R, re.compile(r"^/organizations/(usage|reports)(/|$)"), (authz.ANALYTICS_READ,)),
-    (_ANY, re.compile(r"^/user/api-keys(/|$)"), (authz.ADMIN_WRITE,)),
+    (_W, re.compile(r"^/workflow/\d+/publish$"), _DENY, None),
+    (_W, re.compile(r"^/workflow/\d+/runs$"), (authz.VOICE_OPERATE,), "Start a run of an agent"),
+    (_W, re.compile(r"^/telephony/initiate-call$"), (authz.VOICE_OPERATE,), "Ring a test number from the editor"),
+    # Files of borrower numbers and call outcomes: raw personal data.
+    (_R, re.compile(r"^/campaign/\d+/(source-download-url|report)$|^/workflow/\d+/report$"),
+     (authz.PII_RAW_READ,), "Download campaign and agent reports (unmasked)"),
+    # Ringing phones is a launch, as with PayInt campaigns; drafting one is not.
+    (_W, re.compile(r"^/campaign/\d+/(start|resume|redial)$"), (authz.COLLECTIONS_WRITE,),
+     "Start, resume or redial a Voice Studio campaign"),
+    (_R, re.compile(r"^/campaign(/|$)"), (authz.BOT_READ,), "See campaigns and their progress"),
+    (_W, re.compile(r"^/campaign(/|$)"), (authz.VOICE_OPERATE,), "Draft or pause a Voice Studio campaign"),
+    (_R, re.compile(r"^/knowledge-base(/|$)"), (authz.KB_READ,), "Browse and search agent knowledge"),
+    (_W, re.compile(r"^/knowledge-base/search$"), (authz.KB_READ,), None),
+    (_W, re.compile(r"^/knowledge-base(/|$)"), (authz.KB_WRITE,), "Upload and edit agent knowledge"),
+    (_R, re.compile(r"^/organizations/(usage|reports)(/|$)"), (authz.ANALYTICS_READ,), "See agent runs, usage and reports"),
+    (_ANY, re.compile(r"^/user/api-keys(/|$)"), (authz.ADMIN_WRITE,), "Create engine API keys"),
     # Hearing a voice sample changes nothing; agent editors tune voices with it.
-    (_W, re.compile(r"^/user/configurations/voices/[^/]+/preview$"), (authz.AGENT_EDIT, authz.INTEGRATIONS_READ)),
+    (_W, re.compile(r"^/user/configurations/voices/[^/]+/preview$"), (authz.AGENT_EDIT, authz.INTEGRATIONS_READ),
+     "Preview voices"),
+    # Tools are part of the agent: edited by its authors, released by an
+    # approver through tool revisions (review is PayInt's, above).
+    (_W, re.compile(r"^/tools(/|$)"), (authz.AGENT_EDIT,), "Create, edit and test the tools an agent calls"),
     (
         _R,
         re.compile(r"^/(tools|credentials|telephony|user/configurations)(/|$)"
                    r"|^/organizations/(telephony-configs|model-configurations|langfuse-credentials)"),
         (authz.INTEGRATIONS_READ,),
+        "See tools, credentials, telephony and model settings",
     ),
     (
         _W,
-        re.compile(r"^/(tools|credentials|telephony|user/configurations)(/|$)"
+        re.compile(r"^/(credentials|telephony|user/configurations)(/|$)"
                    r"|^/organizations/(telephony-configs|model-configurations|langfuse-credentials)"),
         (authz.INTEGRATIONS_WRITE,),
+        "Change credentials, telephony, phone numbers and which models agents use",
     ),
-    (_R, re.compile(r"^/s3(/|$)"), (authz.BOT_READ,)),
-    (_W, re.compile(r"^/s3(/|$)"), (authz.AGENT_EDIT, authz.VOICE_OPERATE, authz.KB_WRITE)),
-    (_R, re.compile(r"^/(workflow|folder|workflow-recordings)(/|$)"), (authz.BOT_READ,)),
-    (_W, re.compile(r"^/(workflow|folder|workflow-recordings)(/|$)"), (authz.AGENT_EDIT,)),
-    (_R, re.compile(r"^/(user|organizations)(/|$)"), (authz.BOT_READ,)),
-    (_W, re.compile(r"^/user/onboarding-state$"), (authz.BOT_READ,)),
+    (_R, re.compile(r"^/s3(/|$)"), (authz.BOT_READ,), None),
+    (_W, re.compile(r"^/s3(/|$)"), (authz.AGENT_EDIT, authz.VOICE_OPERATE, authz.KB_WRITE), None),
+    # Making an agent public (embed) or taking it out of service is a release.
+    (_W, re.compile(r"^/workflow/\d+/(embed-token|status)$"), (authz.AGENT_PUBLISH,),
+     "Embed an agent on a website, or archive it"),
+    (_R, re.compile(r"^/(workflow|folder|workflow-recordings)(/|$)"), (authz.BOT_READ,), "Open agents and their runs"),
+    (_W, re.compile(r"^/(workflow|folder|workflow-recordings)(/|$)"), (authz.AGENT_EDIT,),
+     "Edit agents, folders and recordings; chat-test a draft"),
+    (_R, re.compile(r"^/(user|organizations)(/|$)"), (authz.BOT_READ,), None),
+    (_W, re.compile(r"^/user/onboarding-state$"), (authz.BOT_READ,), None),
 ]
+
+#: PayInt-side Voice Studio actions that are not engine paths.
+STUDIO_ACTIONS_EXTRA: tuple[tuple[str, str], ...] = (
+    (authz.AGENT_PUBLISH, "Publish or roll back an agent"),
+    (authz.AGENT_PUBLISH, "Route inbound, outbound or WhatsApp to an agent (with Place calls)"),
+    (authz.VOICE_OPERATE, "Route inbound, outbound or WhatsApp to an agent (with Publish)"),
+    (authz.VOICE_OPERATE, "Ring a test handset from Settings"),
+    (authz.TOOL_APPROVE, "Approve a tool revision (not your own)"),
+    (authz.AGENT_EDIT, "Edit an agent's guardrails and MCP keys"),
+    (authz.EVAL_RUN, "Run checks and AI-customer simulations"),
+    (authz.PII_RAW_READ, "Hear recordings and read unmasked transcripts"),
+)
+
+
+def studio_actions() -> dict[str, list[str]]:
+    """What each permission unlocks in Voice Studio, derived from the rules above."""
+    out: dict[str, list[str]] = {}
+    for _methods, _pattern, perms, label in PERMISSION_RULES:
+        for perm in perms if label else ():
+            out.setdefault(perm, []).append(label)
+    for perm, label in STUDIO_ACTIONS_EXTRA:
+        out.setdefault(perm, []).append(label)
+    out.setdefault(authz.ADMIN_WRITE, []).append("Anything not listed here")
+    return out
 
 
 def required_permissions(method: str, path: str) -> tuple[str, ...]:
-    for methods, pattern, perms in PERMISSION_RULES:
+    for methods, pattern, perms, _label in PERMISSION_RULES:
         if method in methods and pattern.search(path):
             return perms
     return (authz.ADMIN_WRITE,)
@@ -283,12 +325,20 @@ async def _proxy(request: Request, path: str) -> Response:
 
     import voice_studio_privacy
 
-    if not raw_pii and resp.status_code == 200 and voice_studio_privacy.needs_masking(method, engine_path):
-        # Run views carry the conversation as spoken: masked for this viewer.
+    mask = not raw_pii and voice_studio_privacy.needs_masking(method, engine_path)
+    # The engine prices nothing here; each run's cost is what PayInt metered.
+    priced = method == "GET" and engine_path == "/organizations/usage/runs"
+    if resp.status_code == 200 and (mask or priced):
         body = await resp.aread()
         await done()
-        masked = await run_in_threadpool(voice_studio_privacy.mask_payload, engine_path, body)
-        return Response(content=masked, status_code=200, media_type="application/json",
+        if mask:
+            # Run views carry the conversation as spoken: masked for this viewer.
+            body = await run_in_threadpool(voice_studio_privacy.mask_payload, engine_path, body)
+        if priced:
+            import voice_studio
+
+            body = await run_in_threadpool(voice_studio.price_runs, body)
+        return Response(content=body, status_code=200, media_type="application/json",
                         headers={"Cache-Control": "private, no-store"})
 
     return StreamingResponse(

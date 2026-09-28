@@ -134,33 +134,6 @@ class DecisionFeedbackRequest(BaseModel):
 # ── Outbound: demo dial, reach, campaigns, cadence, pools, obligations ───────
 
 
-class DemoCustomerResponse(BaseModel):
-    id: str
-    name: str
-    phone: str | None = None
-    dnd: bool
-
-
-class DemoOutboundTargetResponse(BaseModel):
-    phone: str
-    customer: DemoCustomerResponse | None = None
-    objective: str
-    offersAllowed: bool
-    outboundEnabled: bool
-    demoIgnoresWindow: bool
-    policyReason: str | None = None
-    policyWaived: str | None = None
-    telephonyConfigured: bool
-
-
-class DemoOutboundCallResponse(BaseModel):
-    placed: bool
-    customerId: str | None = None
-    phone: str
-    attemptId: str | None = None
-    callSid: str | None = None
-
-
 class ReachStatsResponse(BaseModel):
     """outbound.reach_stats coerces every count to float, so the wire says
     ``12.0``; the model keeps that rather than quietly rounding the shape."""

@@ -1,5 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import type { Invoice } from "@/api/types/billing";
+import { downloadInvoiceCsv, useInvoice, useInvoiceStatus } from "@/api/billing";
+import { can, useMe } from "@/api/me";
+import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { inrCompact } from "@/lib/format";
 import { Lozenge } from "@/components/ui/lozenge";
 import {
@@ -27,6 +33,7 @@ export function InvoiceList({
   isError?: boolean;
   error?: unknown;
 }) {
+  const [open, setOpen] = useState<string | null>(null);
   const chips = useMemo<FilterChip<InvoiceStatus>[]>(() => {
     const counts = { paid: 0, pending: 0, draft: 0 };
     for (const inv of invoices) counts[inv.status] += 1;
@@ -77,6 +84,21 @@ export function InvoiceList({
           </span>
         ),
       },
+      {
+        id: "open",
+        header: "",
+        width: "0.5fr",
+        className: "text-right",
+        cell: (inv) => (
+          <button
+            type="button"
+            className="text-body-small text-text-link underline"
+            onClick={() => setOpen(inv.id)}
+          >
+            Lines
+          </button>
+        ),
+      },
     ],
     [],
   );
@@ -84,8 +106,10 @@ export function InvoiceList({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-100">
-        <h3 className="text-body font-semibold text-text">Invoice history</h3>
-        <p className="text-body-small text-text-subtle">Production billing cycles</p>
+        <h3 className="text-body font-semibold text-text">Cost statements</h3>
+        <p className="text-body-small text-text-subtle">
+          Built on the 1st from last month&apos;s metered usage. A draft is rebuilt until issued.
+        </p>
       </div>
       <FilterTable
         rows={invoices}
@@ -97,10 +121,85 @@ export function InvoiceList({
         isError={isError}
         error={error}
         errorLabel="invoices"
-        emptyMessage="No invoices yet."
+        emptyMessage="No statements yet. The first is built on the 1st of next month."
         ariaLabel="Invoice history"
         className="min-h-0 flex-1"
       />
+      <InvoiceSheet invoiceId={open} onClose={() => setOpen(null)} />
     </div>
+  );
+}
+
+function InvoiceSheet({ invoiceId, onClose }: { invoiceId: string | null; onClose: () => void }) {
+  const detail = useInvoice(invoiceId);
+  const status = useInvoiceStatus();
+  const me = useMe();
+  const canWrite = can(me.data, "perm-billing-write");
+  const d = detail.data;
+  const move = (next: "pending" | "paid") =>
+    void status
+      .mutateAsync({ invoiceId: invoiceId!, status: next })
+      .then(() => toast.success(next === "pending" ? "Statement issued" : "Marked paid"))
+      .catch((err: Error) => toast.error(err.message));
+  return (
+    <Sheet open={!!invoiceId} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent className="w-full sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>{d ? `${d.month} · ${d.env}` : "Cost statement"}</SheetTitle>
+        </SheetHeader>
+        {detail.isPending ? (
+          <LoadingState label="Loading statement" />
+        ) : !d ? (
+          <p className="text-body-small text-text-danger">Could not load the statement.</p>
+        ) : (
+          <div className="mt-200 space-y-200 text-body-small">
+            <table className="w-full">
+              <thead className="text-text-subtlest">
+                <tr>
+                  <th className="text-left font-normal">Service</th>
+                  <th className="text-right font-normal">Usage</th>
+                  <th className="text-right font-normal">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.lines.map((l) => (
+                  <tr key={l.serviceId} className="border-t border-border">
+                    <td className="py-075 text-text">{l.serviceName}</td>
+                    <td className="py-075 text-right tabular-nums text-text-subtle">
+                      {l.units.toLocaleString(undefined, { maximumFractionDigits: 1 })} {l.unit}
+                    </td>
+                    <td className="py-075 text-right tabular-nums text-text">
+                      {inrCompact(l.amountInr)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border font-semibold">
+                  <td className="py-075">Total</td>
+                  <td />
+                  <td className="py-075 text-right tabular-nums">{inrCompact(d.totalInr)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="flex flex-wrap gap-100">
+              <Button onClick={() => void downloadInvoiceCsv(d.id)}>Download CSV</Button>
+              {canWrite && d.status === "draft" ? (
+                <Button
+                  variant="primary"
+                  disabled={status.isPending}
+                  onClick={() => move("pending")}
+                >
+                  Issue (freeze the numbers)
+                </Button>
+              ) : null}
+              {canWrite && d.status === "pending" ? (
+                <Button variant="primary" disabled={status.isPending} onClick={() => move("paid")}>
+                  Mark paid
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

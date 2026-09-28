@@ -38,11 +38,11 @@ _STEPS = ("reserve", "gate", "admit", "suppress", "place")
 _PLACE_SITES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("campaigns.py", "process_one", ("gate", "place")),
     ("cadence.py", "process_one", ("gate", "place")),
-    # Both operator dials gate in persistence's own transaction
-    # (``db_outbound.reserve_operator_attempt`` / ``reserve_demo_attempt``);
-    # the handlers own no transaction and only dial.
+    # The operator dial gates in persistence's own transaction
+    # (``db_outbound.reserve_operator_attempt``); the handler only dials.
     ("routers/telephony.py", "twilio_voice_outbound", ("place",)),
-    ("routers/outbound.py", "demo_outbound_call", ("place",)),
+    # Settings' test call gates and dials a test handset itself.
+    ("voice_studio_testcall.py", "place", ("gate", "place")),
     # The dry run reserves and *evaluates* (never admits) so a rehearsal does
     # not spend the borrower's budget; the real path is the gate.
     ("scripts/dial_test.py", "main", ("reserve", "gate", "place")),

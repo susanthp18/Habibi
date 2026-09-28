@@ -4,7 +4,8 @@ import type { RolesCatalog } from "@/api/roles";
 import {
   effectivePermissionIds,
   isAdminRoleName,
-  isBigtappInviteEmail,
+  isInviteEmail,
+  studioRoleNote,
   operatorMayBeEdited,
 } from "./access";
 
@@ -34,10 +35,16 @@ describe("roles access helpers", () => {
     expect(operatorMayBeEdited({ bootstrapAdmin: false })).toBe(true);
   });
 
-  it("accepts only @bigtapp.ai invite addresses", () => {
-    expect(isBigtappInviteEmail("alex@bigtapp.ai")).toBe(true);
-    expect(isBigtappInviteEmail("  Alex@Bigtapp.ai ")).toBe(true);
-    expect(isBigtappInviteEmail("alex@gmail.com")).toBe(false);
-    expect(isBigtappInviteEmail("bigtapp.ai")).toBe(false);
+  it("checks invite address shape; the server owns the domain list", () => {
+    expect(isInviteEmail("alex@bigtapp.ai")).toBe(true);
+    expect(isInviteEmail("  Alex@Bank.co.in ")).toBe(true);
+    expect(isInviteEmail("bigtapp.ai")).toBe(false);
+    expect(isInviteEmail("@bigtapp.ai")).toBe(false);
+  });
+
+  it("names the Voice Studio maker and checker", () => {
+    expect(studioRoleNote("Voice designer")).toMatch(/cannot publish/);
+    expect(studioRoleNote("Release approver")).toMatch(/cannot edit/);
+    expect(studioRoleNote("Agent")).toBeNull();
   });
 });

@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_app/billing")({
       { title: "Billing & Usage Analytics — PayInt" },
       {
         name: "description",
-        content: "Metered Azure OpenAI and Speech spend with per-tenant unit economics.",
+        content: "Metered model, speech and telephony spend with per-tenant unit economics.",
       },
       { property: "og:title", content: "Billing & Usage Analytics" },
       {

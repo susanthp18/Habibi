@@ -150,6 +150,9 @@ services:
       # services/telephony/payint_admission.py.
       PAYINT_ADMIT_URL: ${VOICE_STUDIO_HOOKS_URL:-http://api:8000/voice-studio/hooks}/admit
       PAYINT_CALL_STARTED_URL: ${VOICE_STUDIO_HOOKS_URL:-http://api:8000/voice-studio/hooks}/call-started
+      # Every use of an engine API key is re-checked against the owner's live
+      # PayInt permissions (services/auth/payint_authorize.py); fails closed.
+      PAYINT_AUTHORIZE_URL: ${VOICE_STUDIO_HOOKS_URL:-http://api:8000/voice-studio/hooks}/authorize
       PAYINT_HOOK_TOKEN: ${VOICE_STUDIO_HOOK_TOKEN:-dev-only-voice-studio-hook-token}
       BACKEND_API_ENDPOINT: ${AGENTSTUDIO_PUBLIC_URL:-http://localhost:8200}
       # Behind nginx: trust its X-Forwarded-Proto so request URLs read https,

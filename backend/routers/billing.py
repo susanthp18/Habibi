@@ -14,8 +14,11 @@ from fastapi import APIRouter
 from fastapi import HTTPException, Query, Response
 from schemas import (
     BillingBudgetRuleResponse,
+    BillingInvoiceDetailResponse,
     BillingOverviewResponse,
+    BudgetCapRequest,
     BudgetRuleUpsertRequest,
+    InvoiceStatusRequest,
     ExportJobCreateRequest,
     ExportJobPatchRequest,
     ExportAccessRoleResponse,
@@ -40,6 +43,16 @@ def get_billing(
     another bank's spend by editing a query string. A deployment serves one
     bank; the query-string selector never had a legitimate second value.
     """
+    import billing_jobs
+    from agent_core.clock import utc_now
+
+    try:
+        # This month's budget carries over the moment anyone looks, not only
+        # when the hourly job next runs.
+        with db.engine.begin() as conn:
+            billing_jobs.ensure_month_budgets(conn, db.current_tenant(), utc_now().strftime("%Y-%m"))
+    except Exception:
+        logger.exception("budget carry-over failed")
     try:
         return db.billing_overview(period, db.current_tenant(), env)
     except ValueError as exc:
@@ -60,6 +73,53 @@ def export_billing_csv(
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="billing-usage.csv"'},
     )
+
+# 204 with no body by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.patch("/billing/budgets/{budget_id}", status_code=204, response_class=Response)
+def patch_budget_cap(budget_id: str, payload: BudgetCapRequest):
+    import db_billing
+
+    try:
+        db_billing.set_budget_cap(budget_id, payload.monthlyCapInr)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.get("/billing/invoices/{invoice_id}", response_model=BillingInvoiceDetailResponse)
+def get_invoice(invoice_id: str):
+    import db_billing
+
+    try:
+        return db_billing.invoice_detail(invoice_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# CSV download by design. Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/billing/invoices/{invoice_id}/export.csv", response_class=Response)
+def export_invoice_csv(invoice_id: str):
+    import db_billing
+
+    try:
+        body = db_billing.invoice_csv(invoice_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(content=body, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{invoice_id}.csv"'})
+
+
+@router.post("/billing/invoices/{invoice_id}/status", response_model=BillingInvoiceDetailResponse)
+def post_invoice_status(invoice_id: str, payload: InvoiceStatusRequest):
+    import db_billing
+
+    try:
+        return db_billing.set_invoice_status(invoice_id, payload.status)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
 
 @router.post("/billing/budgets/{budget_id}/rules", response_model=BillingBudgetRuleResponse)
 def create_budget_rule(budget_id: str, payload: BudgetRuleUpsertRequest):

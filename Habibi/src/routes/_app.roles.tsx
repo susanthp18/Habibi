@@ -6,6 +6,8 @@ import { useDirectoryUsers } from "@/api/users";
 import { Lozenge } from "@/components/ui/lozenge";
 import { cn } from "@/lib/utils";
 import { PeopleTab } from "@/components/roles/PeopleTab";
+import { AccessRequestsSection } from "@/components/settings/AccessRequestsSection";
+import { InvitesSection } from "@/components/settings/InvitesSection";
 import { RolesMatrix } from "@/components/roles/RolesMatrix";
 
 export const Route = createFileRoute("/_app/roles")({
@@ -35,8 +37,8 @@ function RolesPage() {
       <header className="border-b border-border bg-surface px-400 py-200">
         <h1 className="heading-medium font-semibold">Roles & access</h1>
         <p className="text-body-small text-text-subtle">
-          Microsoft sign-ins and the roles they hold. New people start as Viewer until you grant
-          more.
+          Microsoft sign-ins and the roles they hold. Someone who signs in uninvited has no access
+          until you approve their request; an invite sets their starting role.
         </p>
       </header>
       <div className="flex items-center gap-050 border-b border-border bg-surface px-300">
@@ -65,7 +67,15 @@ function RolesPage() {
         ))}
       </div>
       {tab === "people" ? (
-        <PeopleTab catalog={catalog.data} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          {canEdit ? (
+            <div className="space-y-300 border-b border-border p-300">
+              <AccessRequestsSection />
+              <InvitesSection />
+            </div>
+          ) : null}
+          <PeopleTab catalog={catalog.data} />
+        </div>
       ) : (
         <RolesMatrix
           catalog={catalog.data}

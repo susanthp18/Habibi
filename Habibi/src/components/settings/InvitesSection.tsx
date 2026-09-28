@@ -16,7 +16,7 @@ import {
   useRevokeInvite,
   type OperatorInvite,
 } from "@/api/invites";
-import { isBigtappInviteEmail, isViewerRoleName } from "@/components/roles/access";
+import { isInviteEmail, isViewerRoleName } from "@/components/roles/access";
 import { fmtRelative } from "@/lib/format";
 
 function statusTone(status: string): "success" | "warning" | "neutral" | "information" {
@@ -42,8 +42,8 @@ export function InvitesSection() {
 
   const send = () => {
     const trimmed = email.trim();
-    if (!isBigtappInviteEmail(trimmed)) {
-      toast.error("Use a @bigtapp.ai address");
+    if (!isInviteEmail(trimmed)) {
+      toast.error("Enter a full email address");
       return;
     }
     if (!selectedRole) {
@@ -164,9 +164,10 @@ export function InvitesSection() {
       <div>
         <h2 className="text-body font-semibold">Invites</h2>
         <p className="mt-025 text-body-small text-text-subtle">
-          Send a branded email to a @bigtapp.ai address. They still sign in with Microsoft. A new
-          person, or someone you deactivated, gets the starting role from this invite. Operators
-          stay on the directory after deactivation — send a new invite instead of deleting them.
+          Send a branded email to a work address (allowed domains are set on the server). They still
+          sign in with Microsoft. A new person, or someone you deactivated, gets the starting role
+          from this invite. Operators stay on the directory after deactivation — send a new invite
+          instead of deleting them.
         </p>
       </div>
       <form
@@ -182,7 +183,7 @@ export function InvitesSection() {
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="name@bigtapp.ai"
+            placeholder="name@company.com"
             autoComplete="off"
           />
         </label>

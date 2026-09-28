@@ -11,7 +11,6 @@ bypasses that proxy.
 from __future__ import annotations
 
 import logging
-import time
 
 from sqlalchemy import text
 from typing import Any
@@ -60,107 +59,6 @@ def demo_policy_verdict(customer_id: str):
         return contact_policy.evaluate(
             conn, customer_id=customer_id, channel="voice", purpose="outreach"
         )
-
-
-def reserve_demo_attempt(
-    *,
-    digits: str,
-    phone: str,
-    tenant_id: str,
-    bot_id: str,
-    card: Any,
-    objective: str,
-    waivable: frozenset[str],
-) -> tuple[Any, str, str | None, str]:
-    """Build the mission and run the gate for the demo dial, in one transaction.
-
-    Raises ``KeyError("demo_customer_not_found")`` when the number names nobody.
-    Returns ``(gated, customer_id, account_id, reason)``.
-    """
-    import mission as mission_mod
-    import outbound
-    from voice.call_trace import event
-
-    started = time.monotonic()
-    d = _db()
-    with d.engine.begin() as conn:
-        row = conn.execute(text(_DEMO_CUSTOMER_SQL), {"t": tenant_id, "d": digits}).mappings().first()
-        if row is None:
-            event(
-                "demo.prepare_refused",
-                reason="demo_customer_not_found",
-                took_ms=round((time.monotonic() - started) * 1000),
-            )
-            raise KeyError("demo_customer_not_found")
-        customer_id = str(row["id"])
-        account_id = d._first_account_id(conn, customer_id)
-        lookup_done = time.monotonic()
-        deployment_id = None
-        try:
-            from agent_core.canary import pick_deployment_id
-            from agent_core.deployment import active_environment
-
-            deployment_id = pick_deployment_id(
-                bot_id, environment=active_environment(), customer_id=customer_id
-            )
-        except Exception:
-            logger.debug("demo reserve: deployment_id lookup failed", exc_info=True)
-        deployment_done = time.monotonic()
-        built = mission_mod.build(
-            conn,
-            customer_id=customer_id,
-            objective=objective,
-            account_id=account_id,
-            card=card,
-            bot_id=bot_id,
-            deployment_id=deployment_id,
-        )
-        mission_done = time.monotonic()
-        # Waivable: *when* and *how often* (hours, window, cooling-off, caps).
-        # Not waivable at any switch setting: consent, opt-out, DND, registry,
-        # DPDP basis. The router decides the set; the gate enforces it.
-        gated = outbound.gate(
-            conn,
-            admit={"source": "voice_outbound", "actor_kind": "human"},
-            waivable=waivable,
-            customer_id=customer_id,
-            to_phone=phone,
-            objective=objective,
-            account_id=account_id,
-            bot_id=bot_id,
-            deployment_id=deployment_id,
-            context={"source": "demo_button", "mission": built},
-        )
-        gate_done = time.monotonic()
-        reason = gated.reason or "contact_policy"
-        if gated.waived:
-            logger.warning(
-                "demo call: waiving %s for the demo number by operator switch", reason
-            )
-            d.record_activity(
-                conn,
-                "customer",
-                customer_id,
-                "demo_window_waived",
-                f"Demo call placed despite {reason}",
-                f"waived:{reason}",
-                customer_id,
-            )
-    committed = time.monotonic()
-    event(
-        "demo.prepare",
-        attempt=(gated.attempt or {}).get("id"),
-        allowed=gated.allowed,
-        waived=gated.waived,
-        reason=reason if not gated.allowed or gated.waived else None,
-        lookup_ms=round((lookup_done - started) * 1000),
-        deployment_ms=round((deployment_done - lookup_done) * 1000),
-        mission_ms=round((mission_done - deployment_done) * 1000),
-        gate_ms=round((gate_done - mission_done) * 1000),
-        commit_ms=round((committed - gate_done) * 1000),
-        total_ms=round((committed - started) * 1000),
-    )
-    return gated, customer_id, account_id, reason
 
 
 def hourly_reach(customer_id: str, *, days: int = 90) -> list[dict[str, Any]]:

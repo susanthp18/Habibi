@@ -147,8 +147,6 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
     if park_reason:
         park_input_required(job["id"], park_reason)
         raise _Parked()
-    if wf == "a2a_remote":
-        return _finish_a2a_remote(payload)
     if wf in {DOC_SLA, CALLBACK, "field_visit", "legal_notice"}:
         return {"noted": True, "workflowType": wf, "ref": payload.get("triggerRef") or payload.get("decisionId")}
     if wf in SERVICING_WORK:
@@ -209,29 +207,6 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
         "decisionId": decision_id,
         "enactedBy": "clerk_agent",
     }
-
-
-def _finish_a2a_remote(payload: dict[str, Any]) -> dict[str, Any]:
-    """Complete an A2A task off the audio path. Never imports voice."""
-    import db
-
-    task_id = str(payload.get("taskId") or "").strip()
-    if not task_id:
-        return {"skipped": True, "reason": "no_task"}
-    with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                UPDATE a2a_tasks
-                   SET status = 'completed',
-                       output = CAST(:out AS jsonb),
-                       updated_at = now()
-                 WHERE id = :id AND status IN ('submitted','working')
-                """
-            ),
-            {"id": task_id, "out": db._jsonb({"ok": True, "via": "work_runtime"})},
-        )
-    return {"taskId": task_id, "completed": True, "via": "work_runtime"}
 
 
 def sweep_overdue() -> int:

@@ -127,8 +127,9 @@ export function ModelCostTable({
       <div className="border-b border-border px-200 py-100">
         <h3 className="text-body font-semibold text-text">Cost breakdown by model</h3>
         <p className="text-body-small text-text-subtle">
-          Mouth LLM rows show <span className="font-mono">llm_gateway.voice</span> when the gateway
-          flag is on; otherwise <span className="font-mono">azure_openai.chat_with_tools</span>.
+          Source <span className="font-mono">voice-studio-run</span> is Voice Studio calls; the
+          others are analysis and back-office jobs. A model without its own price in{" "}
+          <span className="font-mono">LLM_PRICE_BOOK_JSON</span> is costed at the default chat rate.
         </p>
       </div>
       <RecordsTable

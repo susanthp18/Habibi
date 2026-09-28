@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { AlertTriangle, Bell, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useBudgetCap } from "@/api/billing";
 import type { BudgetRule } from "@/api/types/billing";
 import { fmtShortDate, inrCompact } from "@/lib/format";
 import type { BillingBudget } from "@/api/billing";
@@ -66,7 +69,7 @@ export function BudgetPanel({
                     {inrCompact(spent)}
                   </span>
                   <span className="mx-050">/</span>
-                  {inrCompact(b.monthlyCapInr)} · {pct}%
+                  <CapEditor budgetId={b.id} cap={b.monthlyCapInr} /> · {pct}%
                 </div>
               </div>
               <div className="mt-075 h-100 w-full overflow-hidden rounded-full bg-surface-sunken">
@@ -210,5 +213,50 @@ export function BudgetPanel({
       />
       {confirmDialog}
     </div>
+  );
+}
+
+/** The month's cap, editable in place. Next month starts from it. */
+function CapEditor({ budgetId, cap }: { budgetId: string; cap: number }) {
+  const save = useBudgetCap();
+  const [value, setValue] = useState<string | null>(null);
+  if (value === null) {
+    return (
+      <button
+        type="button"
+        className="underline decoration-dotted"
+        title="Change this month's cap"
+        onClick={() => setValue(String(cap))}
+      >
+        {inrCompact(cap)}
+      </button>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-050">
+      <Input
+        aria-label="Monthly cap in rupees"
+        type="number"
+        min={0}
+        className="h-300 w-28"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <Button
+        size="compact"
+        disabled={save.isPending || !(Number(value) >= 0)}
+        onClick={() =>
+          void save
+            .mutateAsync({ budgetId, monthlyCapInr: Number(value) })
+            .then(() => {
+              toast.success("Cap saved");
+              setValue(null);
+            })
+            .catch((err: Error) => toast.error(err.message))
+        }
+      >
+        Save
+      </Button>
+    </span>
   );
 }

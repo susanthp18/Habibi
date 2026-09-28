@@ -19,7 +19,7 @@ export function changePct(current: number, previous: number): number {
   return ((current - previous) / previous) * 100;
 }
 
-export function usageUnits(spend: number, unitCost: number): number {
-  if (unitCost <= 0) return 0;
-  return spend / unitCost;
+/** The metered quantity (tokens, minutes, characters) over the range. */
+export function usageUnits(rows: DayPoint[], serviceId: string): number {
+  return rows.reduce((s, r) => s + (r.units?.[serviceId] ?? 0), 0);
 }

@@ -27,7 +27,7 @@ export function ServiceDrawer({
   const prev = sumRange(previous, service.id);
   const delta = changePct(cost, prev);
   const noBase = prev === 0 && cost > 0;
-  const units = usageUnits(cost, service.unitCostInr);
+  const units = usageUnits(current, service.id);
 
   const values = current.map((d) => d.values[service.id] ?? 0);
   const labels = current.map((d) => d.date);

@@ -131,18 +131,6 @@ from schemas.agent_studio import (
     SkillScriptRunRequest as SkillScriptRunRequest,
     VoiceConfig as VoiceConfig,
 )
-from schemas.a2a import (
-    A2aAgentCardResponse as A2aAgentCardResponse,
-    A2aAuthenticationResponse as A2aAuthenticationResponse,
-    A2aCapabilitiesResponse as A2aCapabilitiesResponse,
-    A2aPartnerResponse as A2aPartnerResponse,
-    A2aPartnerUpsertRequest as A2aPartnerUpsertRequest,
-    A2aProviderResponse as A2aProviderResponse,
-    A2aSkillResponse as A2aSkillResponse,
-    A2aTaskRequest as A2aTaskRequest,
-    A2aTaskResponse as A2aTaskResponse,
-    A2aTaskSignalRequest as A2aTaskSignalRequest,
-)
 from schemas.billing import (
     BillingAlertResponse as BillingAlertResponse,
     BillingBudgetResponse as BillingBudgetResponse,

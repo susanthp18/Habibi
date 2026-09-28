@@ -8,6 +8,10 @@
     POST /voice-studio/agents/{id}/publish       publish the draft with a changelog note
     POST /voice-studio/agents/{id}/rollback      release an earlier version again
     GET  /voice-studio/releases                  changelog (one agent or all)
+    GET/POST/DELETE /settings/test-numbers       the tenant's test handsets (voice_studio_testcall)
+    GET  /voice-studio/test-call                 agents, objectives, numbers, readiness
+    POST /voice-studio/test-call/preview         the context the agent would start with
+    POST /voice-studio/test-call                 ring a test handset through every gate
 
 The engine owns agents; these are PayInt's rules checked on every bot turn of
 the agent's calls and WhatsApp threads (voice_studio.flag_turns).
@@ -400,3 +404,83 @@ async def simulate_customer(request: Request, body: SimulateRequest) -> dict[str
         raise HTTPException(status_code=400, detail=str(exc) or "invalid_request") from exc
     await run_in_threadpool(gateway._audit, actor, "POST", f"/checks/{body.workflowId}/simulate", 200)
     return started
+
+
+class TestNumberRequest(_Body):
+    e164: str = Field(max_length=32)
+    label: str | None = Field(default=None, max_length=80)
+
+
+class TestCallRequest(_Body):
+    workflowId: int  # noqa: N815
+    numberId: str = Field(max_length=40)  # noqa: N815
+    objective: str = Field(max_length=80)
+
+
+@router.get("/settings/test-numbers")
+async def get_test_numbers() -> dict[str, Any]:
+    import voice_studio_testcall
+
+    return {"numbers": await run_in_threadpool(voice_studio_testcall.list_numbers)}
+
+
+@router.post("/settings/test-numbers")
+async def post_test_number(request: Request, body: TestNumberRequest) -> dict[str, Any]:
+    import voice_studio_testcall
+
+    try:
+        numbers = await run_in_threadpool(
+            voice_studio_testcall.add_number, body.e164, body.label, gateway._actor(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"numbers": numbers}
+
+
+@router.delete("/settings/test-numbers/{number_id}")
+async def delete_test_number(number_id: str) -> dict[str, Any]:
+    import voice_studio_testcall
+
+    try:
+        return {"numbers": await run_in_threadpool(voice_studio_testcall.remove_number, number_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="test_number_not_found") from exc
+
+
+@router.get("/voice-studio/test-call")
+async def test_call_options() -> dict[str, Any]:
+    import voice_studio_testcall
+
+    return await run_in_threadpool(voice_studio_testcall.options)
+
+
+@router.post("/voice-studio/test-call/preview")
+async def test_call_preview(body: TestCallRequest) -> dict[str, Any]:
+    import voice_studio_testcall
+
+    try:
+        return await run_in_threadpool(
+            voice_studio_testcall.preview, body.workflowId, body.numberId, body.objective)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+
+
+@router.post("/voice-studio/test-call")
+async def test_call(request: Request, body: TestCallRequest) -> dict[str, Any]:
+    """Ring a test handset with the chosen agent. 409 names the gate that refused."""
+    import voice_studio_testcall
+    from voice.twilio_ops import OutboundDisabled
+
+    actor = gateway._actor(request)
+    try:
+        result = await run_in_threadpool(
+            voice_studio_testcall.place, body.workflowId, body.numberId, body.objective, actor)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+    except (PermissionError, OutboundDisabled) as exc:
+        raise HTTPException(status_code=409, detail=str(exc).split(":", 1)[0] or "refused") from exc
+    except (ValueError, voice_studio.NotBound) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc) or "dial_failed") from exc
+    await run_in_threadpool(gateway._audit, actor, "POST", f"/test-call/{body.workflowId}", 200)
+    return result

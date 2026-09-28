@@ -17,6 +17,13 @@ const mutate = vi.fn();
 vi.mock("@/api/voice-studio", () => ({
   useReleasePreflight: () => ({ data: state.gate, isPending: false, isError: false }),
   usePublishAgent: () => ({ mutate, isPending: false }),
+  useReleaseQuality: () => ({ data: [] }),
+}));
+
+const perms = { publish: true };
+vi.mock("@/api/me", () => ({
+  useMe: () => ({ data: {} }),
+  can: (_me: unknown, p: string) => p !== "perm-agent-publish" || perms.publish,
 }));
 
 const { default: PublishDialog } = await import("./PublishDialog");
@@ -42,7 +49,19 @@ function open() {
 }
 
 describe("Voice Studio publish dialog", () => {
-  beforeEach(() => mutate.mockReset());
+  beforeEach(() => {
+    mutate.mockReset();
+    perms.publish = true;
+  });
+
+  it("tells a designer without Publish who can release it", async () => {
+    perms.publish = false;
+    state.gate = gate({});
+    open();
+    expect(await screen.findByText("You cannot publish")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("What changed"), { target: { value: "New greeting" } });
+    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+  });
 
   it("says what replaces what and where it goes live", async () => {
     state.gate = gate({});

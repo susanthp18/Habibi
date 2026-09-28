@@ -180,93 +180,6 @@ def test_a_campaign_the_tenant_owns_still_starts(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _rival_partner(conn) -> str:
-    _other_tenant(conn)
-    with _acting_as(conn, OTHER):
-        # The partner's bot must be the rival's too: `bots` is tenant-scoped
-        # and the policy on a2a_partners is checked against the row's own
-        # tenant, not its bot's, so a rival partner naming our bot is a row
-        # the rival may write. It is what the finding described.
-        conn.execute(
-            text(
-                """
-                INSERT INTO a2a_partners
-                  (id, tenant_id, name, card_url, cert_fingerprint, cert_dn,
-                   allowed_skills, status, bot_id)
-                VALUES
-                  ('a2a-p-rival', :t, 'Rival Partner', 'https://rival.example/card',
-                   'sha256:rival-fingerprint', 'CN=rival', CAST(:sk AS text[]),
-                   'active', 'kaia-v2-4')
-                """
-            ),
-            {"t": OTHER, "sk": ["read_only"]},
-        )
-    return "a2a-p-rival"
-
-
-def test_a_partner_certificate_cannot_be_rewritten_by_another_tenant(db_tx) -> None:
-    from agent_core import a2a
-
-    pid = _rival_partner(db_tx)
-
-    with pytest.raises(ValueError, match="another_tenant"):
-        a2a.upsert_partner(
-            {
-                "id": pid,
-                "name": "Impostor",
-                "certPem": _PEM,
-                "certDn": "CN=impostor",
-                "botId": "kaia-v2-4",
-                "allowedSkills": ["transfer_funds"],
-            }
-        )
-
-    with _acting_as(db_tx, OTHER):
-        row = (
-            db_tx.execute(
-                text(
-                    "SELECT name, cert_dn, cert_fingerprint, allowed_skills "
-                    "FROM a2a_partners WHERE id = :i"
-                ),
-                {"i": pid},
-            )
-            .mappings()
-            .first()
-        )
-    assert row["name"] == "Rival Partner"
-    assert row["cert_dn"] == "CN=rival"
-    assert row["cert_fingerprint"] == "sha256:rival-fingerprint"
-    assert list(row["allowed_skills"]) == ["read_only"]
-
-
-def test_a_skill_name_with_a_comma_stays_one_allowed_skill(db_tx) -> None:
-    """CONNECTORS-12's shape, landing in an allowlist.
-
-    A Postgres array *literal* built as ``"{" + ",".join(names) + "}"`` splits a
-    name carrying a comma into two elements. Bound as a list it does not.
-    """
-    from agent_core import a2a
-
-    partner = a2a.upsert_partner(
-        {
-            "id": "a2a-p-comma",
-            "name": "Mine",
-            "certPem": _PEM,
-            "certDn": "CN=mine",
-            "botId": "kaia-v2-4",
-            "allowedSkills": ["read_only,transfer_funds"],
-        }
-    )
-
-    stored = db_tx.execute(
-        text("SELECT allowed_skills FROM a2a_partners WHERE id = :i"),
-        {"i": partner["id"]},
-    ).scalar()
-    assert list(stored) == ["read_only,transfer_funds"], (
-        "a comma split one skill name into two allowlist entries"
-    )
-
-
 # ---------------------------------------------------------------------------
 # EVALS-13 -- the report body, tenant_id included
 # ---------------------------------------------------------------------------
@@ -554,22 +467,6 @@ def test_a_machine_write_is_not_audited_as_a_person(db_tx, monkeypatch) -> None:
     assert machine["actor_kind"] == "bot"
     assert machine["actor_user_id"] is None
     assert machine["actor_bot_id"] == "kaia-v2-4"
-
-
-def test_a2a_headers_are_only_believed_from_the_terminator(monkeypatch) -> None:
-    from agent_core import a2a
-
-    monkeypatch.setenv("A2A_ENABLED", "true")
-    monkeypatch.delenv("A2A_TRUSTED_PROXY_CIDRS", raising=False)
-    headers = {"x-ssl-client-verify": "SUCCESS", "x-ssl-client-dn": "CN=partner"}
-    with pytest.raises(PermissionError, match="a2a_untrusted_peer"):
-        a2a.require_partner(headers, bot_id="kaia-v2-4", client_host="203.0.113.9")
-
-    monkeypatch.setenv("A2A_TRUSTED_PROXY_CIDRS", "10.0.0.0/8, 127.0.0.1/32")
-    assert a2a.peer_is_trusted_terminator("10.1.2.3")
-    assert a2a.peer_is_trusted_terminator("127.0.0.1")
-    assert not a2a.peer_is_trusted_terminator("203.0.113.9")
-    assert not a2a.peer_is_trusted_terminator(None)
 
 
 def test_the_policy_holds_without_the_where(db_tx) -> None:

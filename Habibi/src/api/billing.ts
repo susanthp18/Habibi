@@ -2,6 +2,7 @@
 // Billing & Usage Analytics — live API only (no mock branch).
 //   useBilling(period, env) → GET /billing (always the caller's tenant)
 //   Budget rule mutations → POST/PATCH/DELETE /billing/budgets/.../rules
+//   Budget cap → PATCH /billing/budgets/{id}; cost statements → /billing/invoices/{id}
 // -----------------------------------------------------------------------------
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +18,7 @@ import type {
   Service,
   Tenant,
 } from "@/api/types/billing";
-import { apiDelete, apiGet, apiPatch, apiPost, API_BASE_URL } from "./config";
+import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, API_BASE_URL } from "./config";
 
 export type BillingTenantBreakdown = {
   id: string;
@@ -137,4 +138,59 @@ export function useBudgetRuleMutations() {
 export function billingExportUrl(period: Period, env: Env): string {
   const qs = new URLSearchParams({ period, env });
   return `${API_BASE_URL}/billing/export.csv?${qs.toString()}`;
+}
+
+export function useBudgetCap() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: ({ budgetId, monthlyCapInr }: { budgetId: string; monthlyCapInr: number }) =>
+      apiPatch(`/billing/budgets/${budgetId}`, { monthlyCapInr }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing"] }),
+  });
+}
+
+export type InvoiceDetail = {
+  id: string;
+  month: string;
+  env: Env;
+  status: Invoice["status"];
+  totalInr: number;
+  issuedAt: string | null;
+  lines: {
+    serviceId: string;
+    serviceName: string;
+    unit: string;
+    units: number;
+    unitCostInr: number;
+    amountInr: number;
+  }[];
+};
+
+export function useInvoice(invoiceId: string | null) {
+  return useQuery({
+    queryKey: ["billing", "invoice", invoiceId],
+    enabled: !!invoiceId,
+    queryFn: () => apiGet<InvoiceDetail>(`/billing/invoices/${invoiceId}`),
+  });
+}
+
+export function useInvoiceStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { errors: "caller" },
+    mutationFn: ({ invoiceId, status }: { invoiceId: string; status: "pending" | "paid" }) =>
+      apiPost<InvoiceDetail>(`/billing/invoices/${invoiceId}/status`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing"] }),
+  });
+}
+
+export async function downloadInvoiceCsv(invoiceId: string): Promise<void> {
+  const { blob } = await apiGetBlob(`/billing/invoices/${invoiceId}/export.csv`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${invoiceId}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

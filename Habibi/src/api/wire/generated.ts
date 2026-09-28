@@ -73,6 +73,7 @@ export const BillingTenantResponse = z.object({
 export const BillingDayPointResponse = z.object({
   "date": z.string(),
   "values": z.record(z.string(), z.number()),
+  "units": z.record(z.string(), z.number()).optional(),
 }).passthrough();
 export const BillingBudgetRuleResponse = z.object({
   "id": z.string(),
@@ -149,6 +150,23 @@ export const BillingOverviewResponse = z.object({
   "attributedCostPerCall": z.number(),
   "attributedCalls": z.number(),
   "modelSpend": z.array(BillingModelSpendResponse),
+}).passthrough();
+export const BillingInvoiceLineResponse = z.object({
+  "serviceId": z.string(),
+  "serviceName": z.string(),
+  "unit": z.string(),
+  "units": z.number(),
+  "unitCostInr": z.number(),
+  "amountInr": z.number(),
+}).passthrough();
+export const BillingInvoiceDetailResponse = z.object({
+  "id": z.string(),
+  "month": z.string(),
+  "env": z.enum(["production", "sandbox"]),
+  "status": z.enum(["paid", "pending", "draft"]),
+  "totalInr": z.number(),
+  "issuedAt": z.string().nullable().optional(),
+  "lines": z.array(BillingInvoiceLineResponse),
 }).passthrough();
 export const ExportJobResponse = z.object({
   "id": z.string(),
@@ -1964,30 +1982,6 @@ export const OfferResponseResponse = z.object({
   "response": z.string(),
   "recorded": z.boolean(),
 }).passthrough();
-export const DemoCustomerResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "phone": z.string().nullable().optional(),
-  "dnd": z.boolean(),
-}).passthrough();
-export const DemoOutboundTargetResponse = z.object({
-  "phone": z.string(),
-  "customer": DemoCustomerResponse.nullable().optional(),
-  "objective": z.string(),
-  "offersAllowed": z.boolean(),
-  "outboundEnabled": z.boolean(),
-  "demoIgnoresWindow": z.boolean(),
-  "policyReason": z.string().nullable().optional(),
-  "policyWaived": z.string().nullable().optional(),
-  "telephonyConfigured": z.boolean(),
-}).passthrough();
-export const DemoOutboundCallResponse = z.object({
-  "placed": z.boolean(),
-  "customerId": z.string().nullable().optional(),
-  "phone": z.string(),
-  "attemptId": z.string().nullable().optional(),
-  "callSid": z.string().nullable().optional(),
-}).passthrough();
 export const TreatmentActionContractResponse = z.object({
   "version": z.string(),
   "decision_id": z.string().nullable().optional(),
@@ -3051,6 +3045,7 @@ export const RolePermissionResponse = z.object({
   "description": z.string(),
 }).passthrough();
 export const RoleGrantResponse = z.object({
+  "studioActions": z.array(z.string()).optional(),
   "role_id": z.string(),
   "role": z.string(),
   "permission_id": z.string(),
@@ -3180,6 +3175,8 @@ export const WebhookEndpointResponse = z.object({
   "status": z.string(),
   "events": z.array(z.string()),
   "algo": z.string(),
+  ["GET /billing/invoices/{invoice_id}", BillingInvoiceDetailResponse],
+  ["POST /billing/invoices/{invoice_id}/status", BillingInvoiceDetailResponse],
   "secret": z.string(),
   "secretRef": z.string(),
   "retry": WebhookRetryPolicyResponse,
@@ -3377,8 +3374,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /providers/pools", z.array(ProviderPoolStatus)],
   ["GET /offers/health", OfferHealthResponse],
   ["POST /offers/{decisionId}/response", OfferResponseResponse],
-  ["GET /demo/outbound-call", DemoOutboundTargetResponse],
-  ["POST /demo/outbound-call", DemoOutboundCallResponse],
   ["GET /treatment/next", TreatmentNextResponse],
   ["GET /treatment/insights", TreatmentInsightsResponse],
   ["GET /treatment/metrics", TreatmentMetricsResponse],
@@ -3436,12 +3431,19 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /health", HealthResponse],
   ["GET /ready", ReadinessResponse],
   ["GET /dashboard", DashboardResponse],
+  ["GET /settings/test-numbers", z.record(z.string(), z.unknown())],
+  ["POST /settings/test-numbers", z.record(z.string(), z.unknown())],
+  ["DELETE /settings/test-numbers/{number_id}", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/test-call", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/test-call", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/test-call/preview", z.record(z.string(), z.unknown())],
   ["GET /bot-analytics", BotAnalyticsResponse],
   ["GET /me", MeResponse],
   ["GET /me/presence", PresenceResponse],
   ["PATCH /me/presence", PresenceResponse],
   ["GET /users", DirectoryUsersResponse],
   ["PUT /users/{user_id}/roles", DirectoryUsersResponse],
+  ["POST /voice-studio/hooks/authorize", z.record(z.string(), z.unknown())],
   ["PATCH /users/{user_id}", DirectoryUsersResponse],
   ["GET /invites", OperatorInvitesResponse],
   ["POST /invites", OperatorInviteWriteResponse],

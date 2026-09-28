@@ -964,8 +964,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  retryable=None,
                  context={
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/mcp_server/auth.py engine/api/mcp_server/auth.py
---- dograh/api/mcp_server/auth.py	2026-09-28 10:14:29.338757100 +0530
-+++ engine/api/mcp_server/auth.py	2026-09-26 17:53:48.176836800 +0530
+--- dograh/api/mcp_server/auth.py	2026-09-28 11:29:45.137461000 +0530
++++ engine/api/mcp_server/auth.py	2026-09-28 10:33:09.873527700 +0530
 @@ -3,7 +3,8 @@
  from opentelemetry import trace
  
@@ -1022,7 +1022,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 -        span.set_attribute("langfuse.user.id", str(user.id))
 -
 -    return user
-+    return await _handle_api_key_auth(api_key)
++    return await _handle_api_key_auth(api_key, method="POST", path="/mcp")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/mcp_server/instructions.py engine/api/mcp_server/instructions.py
 --- dograh/api/mcp_server/instructions.py	2026-09-28 10:14:29.341053100 +0530
 +++ engine/api/mcp_server/instructions.py	2026-09-27 11:20:55.269795500 +0530
@@ -1533,6 +1533,30 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          )
  
          total_pages = (total_count + limit - 1) // limit
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/routes/public_agent.py engine/api/routes/public_agent.py
+--- dograh/api/routes/public_agent.py	2026-09-28 11:29:45.249900100 +0530
++++ engine/api/routes/public_agent.py	2026-09-28 10:33:33.741753100 +0530
+@@ -14,6 +14,7 @@
+ 
+ from api.db import db_client
+ from api.enums import TriggerState, WorkflowStatus
++from api.services.auth import payint_authorize
+ from api.services.call_concurrency import (
+     CallConcurrencyLimitError,
+     call_concurrency,
+@@ -84,6 +85,12 @@
+     api_key = await db_client.validate_api_key(x_api_key)
+     if not api_key:
+         raise HTTPException(status_code=401, detail="Invalid API key")
++    # AgentStudio: placing a call needs the key owner's live PayInt permission.
++    if payint_authorize.enabled():
++        owner = await db_client.get_user_by_id(api_key.created_by) if api_key.created_by else None
++        await payint_authorize.authorize(
++            getattr(owner, "provider_id", None), api_key.organization_id, "POST", "/public/agent"
++        )
+     return api_key
+ 
+ 
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/routes/tool.py engine/api/routes/tool.py
 --- dograh/api/routes/tool.py	2026-09-28 10:14:29.974260900 +0530
 +++ engine/api/routes/tool.py	2026-09-27 11:24:55.958296700 +0530
@@ -2220,9 +2244,9 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  class CreatedByResponse(BaseModel):
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/auth/depends.py engine/api/services/auth/depends.py
---- dograh/api/services/auth/depends.py	2026-09-28 10:14:30.026072300 +0530
-+++ engine/api/services/auth/depends.py	2026-09-26 10:02:08.598465400 +0530
-@@ -1,9 +1,11 @@
+--- dograh/api/services/auth/depends.py	2026-09-28 11:29:45.279355100 +0530
++++ engine/api/services/auth/depends.py	2026-09-28 10:32:52.695752800 +0530
+@@ -1,12 +1,15 @@
 +import secrets
 +from collections.abc import Mapping
  from typing import Annotated
@@ -2236,7 +2260,11 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  from api.db import db_client
  from api.db.models import UserModel
  from api.enums import PostHogEvent
-@@ -30,9 +32,20 @@
++from api.services.auth import payint_authorize
+ from api.services.auth.stack_auth import stackauth
+ from api.services.organization_bootstrap import ensure_organization_bootstrapped
+ from api.services.posthog_client import (
+@@ -30,15 +33,36 @@
          raise HTTPException(status_code=404, detail="Not found")
  
  
@@ -2257,23 +2285,28 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  ) -> UserModel:
      # ------------------------------------------------------------------
      # Check if API key is provided (takes precedence)
-@@ -41,6 +54,12 @@
-         return await _handle_api_key_auth(x_api_key)
- 
      # ------------------------------------------------------------------
+     if x_api_key:
+-        return await _handle_api_key_auth(x_api_key)
++        return await _handle_api_key_auth(
++            x_api_key,
++            method=request.method if request else "GET",
++            path=request.url.path if request else "",
++        )
++
++    # ------------------------------------------------------------------
 +    # AgentStudio: identity asserted by the host gateway
 +    # ------------------------------------------------------------------
 +    if AUTH_PROVIDER == "internal":
 +        return await _handle_internal_auth(request.headers if request else {})
-+
-+    # ------------------------------------------------------------------
-     # Check if we're using local (email/password) auth
+ 
      # ------------------------------------------------------------------
-     if AUTH_PROVIDER == "local":
-@@ -290,6 +309,48 @@
+     # Check if we're using local (email/password) auth
+@@ -290,7 +314,49 @@
      return user
  
  
+-async def _handle_api_key_auth(api_key: str) -> UserModel:
 +async def _handle_internal_auth(headers: Mapping[str, str]) -> UserModel:
 +    """Map the identity the host gateway asserts onto an engine user and org.
 +
@@ -2316,10 +2349,21 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    return user
 +
 +
- async def _handle_api_key_auth(api_key: str) -> UserModel:
++async def _handle_api_key_auth(api_key: str, *, method: str = "GET", path: str = "") -> UserModel:
      """
      Handle authentication via X-API-Key header.
-@@ -324,12 +385,13 @@
+     Returns the user who created the API key with the correct organization context.
+@@ -313,6 +379,9 @@
+     # Set the organization context to the API key's organization
+     user.selected_organization_id = api_key_model.organization_id
+ 
++    # AgentStudio: the key's PayInt owner must still be allowed to do this.
++    await payint_authorize.authorize(user.provider_id, api_key_model.organization_id, method, path)
++
+     logger.debug(
+         f"Authenticated via API key: {api_key_model.key_prefix}... "
+         f"(user_id={user.id}, org_id={api_key_model.organization_id})"
+@@ -324,12 +393,13 @@
  async def get_superuser(
      authorization: Annotated[str | None, Header()] = None,
      x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
@@ -2334,7 +2378,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      if not user.is_superuser:
          raise HTTPException(
-@@ -348,6 +410,13 @@
+@@ -348,6 +418,13 @@
      WebSocket authentication dependency.
      Uses token or api_key from query parameters for authentication.
      """
@@ -2348,6 +2392,84 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      if not token and not api_key:
          await websocket.close(code=1008, reason="Missing authentication token")
          raise HTTPException(status_code=401, detail="Missing authentication token")
+@@ -355,7 +432,7 @@
+     try:
+         # API key takes precedence
+         if api_key:
+-            user = await get_user(None, api_key)
++            user = await _handle_api_key_auth(api_key, method="GET", path=websocket.url.path)
+         else:
+             # Use the same logic as get_user but with token from query
+             authorization = f"Bearer {token}"
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/auth/payint_authorize.py engine/api/services/auth/payint_authorize.py
+--- dograh/api/services/auth/payint_authorize.py	1970-01-01 05:30:00.000000000 +0530
++++ engine/api/services/auth/payint_authorize.py	2026-09-28 10:33:33.741753100 +0530
+@@ -0,0 +1,65 @@
++"""AgentStudio: every use of an engine API key is re-checked with PayInt.
++
++A key authenticates as the PayInt user who created it, outside the host
++gateway's permission check. So each use asks PayInt's
++``/voice-studio/hooks/authorize`` whether that user is still active and still
++holds the permission this request needs; deactivating someone, or taking a
++permission away, stops their keys at once.
++
++Fails closed. Configured by ``PAYINT_AUTHORIZE_URL`` and ``PAYINT_HOOK_TOKEN``;
++unset, nothing is checked (a stock engine).
++"""
++
++import os
++import time
++
++import httpx
++from fastapi import HTTPException
++from loguru import logger
++
++from api.db import db_client
++
++_TTL_S = 30.0
++_cache: dict[tuple, tuple[float, bool, str]] = {}
++
++
++def _host_id(provider_id: str | None, prefix: str) -> str | None:
++    value = provider_id or ""
++    return value[len(prefix):] if value.startswith(prefix) else None
++
++
++def enabled() -> bool:
++    return bool(os.getenv("PAYINT_AUTHORIZE_URL", "").strip())
++
++
++async def authorize(user_provider_id: str | None, organization_id: int, method: str, path: str) -> None:
++    if not enabled():
++        return
++    url = os.getenv("PAYINT_AUTHORIZE_URL", "").strip()
++    user_id = _host_id(user_provider_id, "host:")
++    organization = await db_client.get_organization_by_id(organization_id)
++    tenant_id = _host_id(getattr(organization, "provider_id", None), "tenant:")
++    if not user_id or not tenant_id:
++        raise HTTPException(status_code=403, detail="API key is not owned by a PayInt user")
++
++    key = (user_id, tenant_id, method, path)
++    hit = _cache.get(key)
++    if hit and hit[0] > time.monotonic():
++        allowed, reason = hit[1], hit[2]
++    else:
++        try:
++            async with httpx.AsyncClient(timeout=8.0) as client:
++                resp = await client.post(
++                    url,
++                    json={"user_id": user_id, "tenant_id": tenant_id, "method": method, "path": path},
++                    headers={"Authorization": f"Bearer {os.getenv('PAYINT_HOOK_TOKEN', '')}"},
++                )
++                resp.raise_for_status()
++                answer = resp.json()
++        except Exception as e:
++            logger.error(f"PayInt authorize unavailable; refusing API key use: {e}")
++            raise HTTPException(status_code=503, detail="Permission could not be checked") from e
++        allowed, reason = bool(answer.get("allowed")), str(answer.get("reason") or "forbidden")
++        _cache[key] = (time.monotonic() + _TTL_S, allowed, reason)
++    if not allowed:
++        raise HTTPException(status_code=403, detail=reason)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/configuration/azure_speech_capabilities.py engine/api/services/configuration/azure_speech_capabilities.py
 --- dograh/api/services/configuration/azure_speech_capabilities.py	1970-01-01 05:30:00.000000000 +0530
 +++ engine/api/services/configuration/azure_speech_capabilities.py	2026-09-27 12:51:44.070809500 +0530
@@ -4006,16 +4128,17 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              log_failure(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=pipecat' dograh/api/services/telephony/payint_admission.py engine/api/services/telephony/payint_admission.py
 --- dograh/api/services/telephony/payint_admission.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/services/telephony/payint_admission.py	2026-09-27 18:03:20.348786800 +0530
++++ engine/api/services/telephony/payint_admission.py	2026-09-28 10:33:33.740754200 +0530
 @@ -0,0 +1,56 @@
 +"""AgentStudio: PayInt's contact policy decides before the engine dials on its own.
 +
-+Calls PayInt's dialler starts carry the attempt id it admitted them under
-+(``initial_context.attempt_id``) and go straight through. Every other outbound
-+call -- an engine campaign, the editor's "call phone" -- is put to PayInt's
-+``/voice-studio/hooks/admit``: DND, consent, the calling window and frequency
-+caps apply to it like to any contact, and a number that is not a customer (or
-+a configured test number) is refused.
++Every outbound call is put to PayInt's ``/voice-studio/hooks/admit``. Calls
++PayInt's dialler starts carry the attempt id it admitted them under
++(``initial_context.attempt_id``); PayInt checks that attempt is real and for
++this number. Every other call -- an engine campaign, the editor's "call
++phone" -- meets the kill switch and the contact policy: DND, consent, the
++calling window and frequency caps apply to it like to any contact, and a
++number that is not a customer (or a configured test number) is refused.
 +
 +Fails closed: if PayInt cannot be asked, the call is not placed.
 +Configured by ``PAYINT_ADMIT_URL`` and ``PAYINT_HOOK_TOKEN``; unset, nothing
@@ -4043,8 +4166,6 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    if workflow_run_id is not None:
 +        run = await db_client.get_workflow_run(workflow_run_id)
 +        context = dict((run.initial_context if run else None) or {})
-+    if context.get("attempt_id"):
-+        return  # admitted by PayInt's dialler
 +    try:
 +        async with httpx.AsyncClient(timeout=8.0) as client:
 +            resp = await client.post(
@@ -4053,6 +4174,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                    "to_number": to_number,
 +                    "workflow_run_id": workflow_run_id,
 +                    "workflow_id": context.get("workflow_id"),
++                    "attempt_id": context.get("attempt_id"),
 +                },
 +                headers={"Authorization": f"Bearer {os.getenv('PAYINT_HOOK_TOKEN', '')}"},
 +            )

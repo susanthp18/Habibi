@@ -51,6 +51,8 @@ class BillingDayPointResponse(BaseModel):
 
     date: str
     values: dict[str, float]
+    #: Metered quantity per service that day, in the service's unit.
+    units: dict[str, float] = {}
 
 
 class BillingTenantResponse(BaseModel):
@@ -170,6 +172,43 @@ class BillingOverviewResponse(BaseModel):
     attributedCostPerCall: float
     attributedCalls: int
     modelSpend: list[BillingModelSpendResponse]
+
+
+class BillingInvoiceLineResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serviceId: str
+    serviceName: str
+    unit: str
+    units: float
+    unitCostInr: float
+    amountInr: float
+
+
+class BillingInvoiceDetailResponse(BaseModel):
+    """A month's cost statement, built from metered usage (billing_jobs)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    month: str
+    env: BillingEnv
+    status: BillingInvoiceStatus
+    totalInr: float
+    issuedAt: str | None = None
+    lines: list[BillingInvoiceLineResponse]
+
+
+class BudgetCapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monthlyCapInr: float = Field(ge=0, le=1_000_000_000)
+
+
+class InvoiceStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "paid"]
 
 
 class BudgetRuleUpsertRequest(BaseModel):

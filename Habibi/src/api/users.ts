@@ -29,7 +29,10 @@ export function usePutUserRoles() {
     meta: { errors: "caller" },
     mutationFn: async (body: { userId: string; roleIds: string[] }) =>
       apiPut<DirectoryUsers>(`/users/${body.userId}/roles`, { roleIds: body.roleIds }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["users"] });
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
   });
 }
 
@@ -39,6 +42,9 @@ export function usePatchUserStatus() {
     meta: { errors: "caller" },
     mutationFn: async (body: { userId: string; status: "active" | "inactive" }) =>
       apiPatch<DirectoryUsers>(`/users/${body.userId}`, { status: body.status }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["users"] });
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
   });
 }

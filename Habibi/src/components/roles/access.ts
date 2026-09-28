@@ -16,20 +16,25 @@ export function operatorMayBeEdited(user: { bootstrapAdmin: boolean }) {
   return !user.bootstrapAdmin;
 }
 
-export function isBigtappInviteEmail(raw: string) {
-  const email = raw.trim().toLowerCase();
-  if (email.split("@").length !== 2) return false;
-  if (!email.endsWith("@bigtapp.ai")) return false;
-  return email.slice(0, -"@bigtapp.ai".length).length > 0;
+/** Shape only; which domains may be invited is the server's (INVITE_ALLOWED_DOMAINS). */
+export function isInviteEmail(raw: string) {
+  const [local = "", domain = "", ...rest] = raw.trim().toLowerCase().split("@");
+  return rest.length === 0 && local.length > 0 && domain.includes(".");
+}
+
+/** Voice Studio's maker and checker roles: going live takes both. */
+export function studioRoleNote(name: string) {
+  const n = normalizeRoleName(name);
+  if (n === "voice_designer") return "Builds and rehearses agents; cannot publish";
+  if (n === "release_approver") return "Publishes agents and approves tools; cannot edit";
+  return null;
 }
 
 export function moduleLabel(module: string) {
   return module.replace(/_/g, " ");
 }
 
-export function groupPermissions(
-  permissions: { id: string; module: string; action: string; description: string }[],
-) {
+export function groupPermissions(permissions: RolesCatalog["permissions"]) {
   const byModule = new Map<string, typeof permissions>();
   for (const perm of permissions) {
     const list = byModule.get(perm.module) ?? [];

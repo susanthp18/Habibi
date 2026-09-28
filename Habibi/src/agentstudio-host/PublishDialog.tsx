@@ -13,6 +13,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { apiErrorMessage } from "@/api/config";
+import { can, useMe } from "@/api/me";
 import { usePublishAgent, useReleasePreflight, useReleaseQuality } from "@/api/voice-studio";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +49,9 @@ export default function PublishDialog({
   /** Opens the editor's diff of the draft against the live version. */
   onCompare?: () => void;
 }) {
+  const me = useMe();
+  // Maker-checker: a Voice designer edits, a Release approver publishes.
+  const mayPublish = can(me.data, "perm-agent-publish");
   const preflight = useReleasePreflight(workflowId, open);
   const publish = usePublishAgent(workflowId);
   const [note, setNote] = useState("");
@@ -88,6 +92,12 @@ export default function PublishDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-200 px-300">
+          {!mayPublish ? (
+            <SectionMessage variant="warning" icon={AlertTriangle} title="You cannot publish">
+              Publishing needs a role with Publish (for example Release approver). Ask one to
+              release this draft; your edits are saved.
+            </SectionMessage>
+          ) : null}
           {preflight.isPending ? (
             <p className="flex items-center gap-100 text-body-small text-text-subtle">
               <Spinner size="small" /> Running release checks…
@@ -159,7 +169,7 @@ export default function PublishDialog({
           </Button>
           <Button
             variant="primary"
-            disabled={!gate?.ok || !noteOk}
+            disabled={!mayPublish || !gate?.ok || !noteOk}
             loading={publish.isPending}
             onClick={submit}
           >

@@ -117,27 +117,3 @@ def test_a_finished_turn_cannot_be_cancelled(db_tx) -> None:
     assert status == "succeeded"
 
 
-def test_an_a2a_signal_is_a_named_transition(db_tx, monkeypatch) -> None:
-    """`name != "approve"` used to mean cancel -- a typo cancelled the task,
-    and a completed task could be cancelled after the fact."""
-    import pytest
-
-    import db
-    from agent_core import a2a
-
-    tid = f"A2A-{uuid.uuid4().hex[:10]}"
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO a2a_tasks (id, tenant_id, skill_id, status, input)
-            VALUES (:id, :t, 'lapse', 'completed', '{}'::jsonb)
-            """
-        ),
-        {"id": tid, "t": db.current_tenant()},
-    )
-    with pytest.raises(ValueError, match="a2a_signal_unknown"):
-        a2a.signal_task(tid, "Approve")
-    with pytest.raises(ValueError, match="a2a_signal_not_applicable"):
-        a2a.signal_task(tid, "cancel")
-    status = db_tx.execute(text("SELECT status FROM a2a_tasks WHERE id = :id"), {"id": tid}).scalar_one()
-    assert status == "completed"

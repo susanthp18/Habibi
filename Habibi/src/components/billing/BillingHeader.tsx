@@ -29,7 +29,7 @@ export function BillingHeader({
     <header className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex flex-wrap items-center gap-100">
         <h1 className="heading-medium font-semibold text-text">Billing & usage</h1>
-        <Lozenge tone="neutral">Live Azure meters only</Lozenge>
+        <Lozenge tone="neutral">Metered usage only</Lozenge>
         <div className="ml-auto flex flex-wrap items-center gap-100">
           {refreshing && (
             <RefreshCw
@@ -81,8 +81,9 @@ export function BillingHeader({
         </div>
       </div>
       <p className="mt-050 text-body-small text-text-subtle">
-        Spend is rolled up from live Azure OpenAI + Speech usage events (tokens / minutes /
-        characters × list price × FX).
+        Spend is metered per call and job: model tokens, speech characters, recognition and carrier
+        minutes, each at its list price × FX. Voice Studio calls are metered from the engine&apos;s
+        own usage.
       </p>
     </header>
   );

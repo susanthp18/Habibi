@@ -7,7 +7,7 @@ import { QueryErrorBanner } from "@/components/ui/query-state";
 import { cn } from "@/lib/utils";
 import type { RolesCatalog } from "@/api/roles";
 import { usePatchRolePermissions } from "@/api/roles";
-import { groupPermissions, isAdminRoleName, isViewerRoleName, moduleLabel } from "./access";
+import { groupPermissions, isAdminRoleName, moduleLabel, studioRoleNote } from "./access";
 
 export function RolesMatrix({
   catalog,
@@ -69,8 +69,8 @@ export function RolesMatrix({
             )}
           >
             <span className="text-body font-medium">{role.name}</span>
-            {isViewerRoleName(role.name) ? (
-              <span className="text-body-small text-text-subtle">Default for new sign-ins</span>
+            {studioRoleNote(role.name) ? (
+              <span className="text-body-small text-text-subtle">{studioRoleNote(role.name)}</span>
             ) : null}
             {isAdminRoleName(role.name) ? (
               <span className="text-body-small text-text-subtle">Superuser</span>
@@ -81,8 +81,8 @@ export function RolesMatrix({
       <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-medium border border-border bg-surface p-200">
         <div className="mb-200 flex flex-wrap items-center gap-100">
           <h2 className="text-body font-semibold">{active.name}</h2>
-          {isViewerRoleName(active.name) ? (
-            <Lozenge tone="information">Default for new Microsoft sign-ins</Lozenge>
+          {studioRoleNote(active.name) ? (
+            <Lozenge tone="information">{studioRoleNote(active.name)}</Lozenge>
           ) : null}
           {adminLocked ? <Lozenge tone="discovery">All permissions</Lozenge> : null}
         </div>
@@ -114,6 +114,11 @@ export function RolesMatrix({
                         <span className="ml-075 font-mono text-body-tiny text-text-subtlest">
                           {perm.id}
                         </span>
+                        {perm.studioActions?.length ? (
+                          <span className="mt-025 block text-body-tiny text-text-subtle">
+                            In Voice Studio: {perm.studioActions.join(" · ")}
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   );

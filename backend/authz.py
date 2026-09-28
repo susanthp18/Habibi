@@ -319,8 +319,6 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("PATCH", "/me/presence"),
         # Any signed-in operator may ask for a page they cannot open.
         ("POST", "/access-requests"),
-        ("GET", "/.well-known/agent-card.json"),
-        ("POST", "/a2a"),
     }
 )
 
@@ -401,10 +399,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/mcp/tasks"): INTEGRATIONS_READ,
     ("GET", "/mcp/tasks/{task_id}"): INTEGRATIONS_READ,
     ("GET", "/mcp/status"): INTEGRATIONS_READ,
-    ("GET", "/a2a/partners"): INTEGRATIONS_READ,
-    ("POST", "/a2a/partners"): INTEGRATIONS_WRITE,
-    ("GET", "/a2a/tasks"): INTEGRATIONS_READ,
-    ("POST", "/a2a/tasks/{task_id}/signal"): INTEGRATIONS_WRITE,
     ("GET", "/gateway/status"): INTEGRATIONS_READ,
     ("GET", "/gateway/canary"): INTEGRATIONS_READ,
     ("POST", "/gateway/canary"): INTEGRATIONS_WRITE,

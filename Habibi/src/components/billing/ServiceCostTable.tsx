@@ -85,11 +85,11 @@ export function ServiceCostTable({
         id: "usage",
         header: "Usage",
         sortable: true,
-        sortValue: (r) => usageUnits(r.cost, r.s.unitCostInr),
+        sortValue: (r) => usageUnits(current, r.s.id),
         align: "right",
         className: "min-w-[7rem] whitespace-nowrap",
         cell: (r) => {
-          const units = usageUnits(r.cost, r.s.unitCostInr);
+          const units = usageUnits(current, r.s.id);
           return (
             <span className="tabular-nums text-text">
               {units >= 1000 ? `${(units / 1000).toFixed(1)}k` : units.toFixed(1)}
@@ -180,7 +180,7 @@ export function ServiceCostTable({
         ),
       },
     ],
-    [],
+    [current],
   );
 
   return (

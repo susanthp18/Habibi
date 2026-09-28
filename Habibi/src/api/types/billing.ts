@@ -19,6 +19,8 @@ export type Service = {
 export type DayPoint = {
   date: string;
   values: Record<string, number>;
+  /** Metered quantity per service, in the service's own unit. */
+  units?: Record<string, number>;
 };
 export type Tenant = {
   id: string;

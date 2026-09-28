@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Platform switches + the demo dialer.
+// Platform switches, test numbers and the test call.
 //
 // The master outbound switch decides whether this deployment may telephone real
 // people. It is off by default and it is read by four separate processes, so
@@ -10,7 +10,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPatch, apiPost, retryUnlessClientError } from "./config";
+import { apiDelete, apiGet, apiPatch, apiPost, retryUnlessClientError } from "./config";
 
 export type PlatformSwitch = {
   key: string;
@@ -21,49 +21,49 @@ export type PlatformSwitch = {
   note: string | null;
 };
 
-export type DemoOutboundTarget = {
-  phone: string;
+export type TestNumber = {
+  id: string;
+  e164: string;
+  label: string | null;
+  addedBy: string | null;
+  createdAt: string | null;
+  /** The customer on file for this number; the agent gets their account. */
   customer: { id: string; name: string; phone: string; dnd: boolean } | null;
-  /** The card objective the call runs under — decides the brief and the budget. */
-  objective: string;
-  /**
-   * Whether that objective permits an offer. False on every objective this
-   * card declares, which makes the agent's brief say, in as many words, not to
-   * mention any product. Surfaced so nobody promises a customer an upsell
-   * demo that the card forbids.
-   */
-  offersAllowed: boolean;
-  outboundEnabled: boolean;
-  /** Whether the demo may dial outside permitted hours. Off by default. */
-  demoIgnoresWindow: boolean;
-  /**
-   * What contact policy says right now, from the dry-run evaluator — so the
-   * screen can warn before the click rather than after. `null` means allowed.
-   */
-  policyReason: string | null;
-  /**
-   * The refusal the demo waiver is overriding right now, if any. Distinct from
-   * `policyReason` being null: one means nothing objected, the other means
-   * something did and we are proceeding anyway. A screen that showed them the
-   * same way would hide the override at the moment it is being used.
-   */
-  policyWaived: string | null;
-  telephonyConfigured: boolean;
+  /** A contact-policy refusal a test call would hit now (not waivable). */
+  blocked: string | null;
+  /** A refusal the test call is overriding now (hours only behind the switch). */
+  waived: string | null;
 };
 
-export type DemoOutboundResult = {
+export type TestCallOptions = {
+  outboundEnabled: boolean;
+  ignoresWindow: boolean;
+  agents: { id: number; name: string }[];
+  bindings: { objective: string; engine_workflow_id: number; label: string | null }[];
+  objectives: string[];
+  numbers: TestNumber[];
+  /** Why a call could not go right now: configuration, not policy. */
+  problems: string[];
+};
+
+export type TestCallResult = {
   placed: boolean;
-  customerId: string;
-  phone: string;
   attemptId: string | null;
-  callSid: string | null;
+  runId: string | null;
+  customerId: string | null;
 };
 
 /** The master gate on every outbound dial. */
 export const OUTBOUND_ENABLED = "outbound.enabled";
 
-/** Lets the demo button dial outside permitted hours. Demo number only. */
+/** Lets a test call ring outside permitted hours. Test numbers only. */
 export const DEMO_IGNORES_WINDOW = "outbound.demo_ignores_window";
+
+/** The treatment engine carries out its live decisions (NBA). */
+export const TREATMENT_ENACT_ENABLED = "treatment.enact.enabled";
+
+/** Offers decided from conversations are sent to customers. */
+export const RECO_ENABLED = "reco.enabled";
 
 export function usePlatformSwitches() {
   return useQuery({
@@ -90,29 +90,62 @@ export function usePatchPlatformSwitch() {
     // click succeeded locally would be the worst possible lie on this screen.
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["platform-switches"] });
-      void qc.invalidateQueries({ queryKey: ["demo-outbound"] });
+      void qc.invalidateQueries({ queryKey: ["test-call"] });
     },
   });
 }
 
-export function useDemoOutboundTarget() {
+export function useTestCallOptions() {
   return useQuery({
-    queryKey: ["demo-outbound"],
-    queryFn: async () => apiGet<DemoOutboundTarget>("/demo/outbound-call"),
+    queryKey: ["test-call"],
+    queryFn: async () => apiGet<TestCallOptions>("/voice-studio/test-call"),
     retry: retryUnlessClientError,
     staleTime: 5_000,
   });
 }
 
-export function useDemoOutboundCall() {
+export function useTestCallPreview(
+  body: { workflowId: number; numberId: string; objective: string } | null,
+) {
+  return useQuery({
+    queryKey: ["test-call-preview", body],
+    enabled: body !== null,
+    queryFn: async () =>
+      apiPost<{ context: Record<string, unknown>; customer: TestNumber["customer"] }>(
+        "/voice-studio/test-call/preview",
+        body,
+      ),
+    retry: retryUnlessClientError,
+  });
+}
+
+export function usePlaceTestCall() {
   const qc = useQueryClient();
   return useMutation({
     meta: { errors: "caller" },
-    mutationFn: async () => apiPost<DemoOutboundResult>("/demo/outbound-call", {}),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ["demo-outbound"] });
-    },
+    mutationFn: async (body: { workflowId: number; numberId: string; objective: string }) =>
+      apiPost<TestCallResult>("/voice-studio/test-call", body),
+    onSettled: () => void qc.invalidateQueries({ queryKey: ["test-call"] }),
   });
+}
+
+export function useTestNumberMutations() {
+  const qc = useQueryClient();
+  const refresh = () => void qc.invalidateQueries({ queryKey: ["test-call"] });
+  return {
+    add: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: async (body: { e164: string; label?: string }) =>
+        apiPost<{ numbers: TestNumber[] }>("/settings/test-numbers", body),
+      onSettled: refresh,
+    }),
+    remove: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: async (id: string) =>
+        apiDelete<{ numbers: TestNumber[] }>(`/settings/test-numbers/${id}`),
+      onSettled: refresh,
+    }),
+  };
 }
 
 /**
@@ -148,8 +181,8 @@ export function friendlyOutboundError(raw: string): string {
   if (raw.includes("telephony_not_configured")) {
     return "Telephony is not configured on the server.";
   }
-  if (raw.includes("demo_customer_not_found")) {
-    return "No customer on file with the demo phone number.";
+  if (raw.includes("test_number_not_found")) {
+    return "That test number was removed. Pick another.";
   }
   return raw;
 }

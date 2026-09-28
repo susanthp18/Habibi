@@ -1,15 +1,15 @@
-"""What the demo button may waive, and what it may never waive.
+"""What a test call may waive, and what it may never waive.
 
-The demo endpoint dials one configured handset -- the one the operator running
-the demo is holding -- and takes no phone number, so it cannot be pointed at a
-borrower. Rehearsing on it hits `cooling_off` after a few calls, which is the
-frequency rule working correctly on the wrong subject. Those frequency
-refusals are always overridden. Calling hours and the borrower's preferred
-window stay behind the operator switch, so a demo can still show the
-statutory gate.
+A test call (Settings > Test call, ``voice_studio_testcall``) rings only a
+handset on the tenant's test-number list, never a number typed into the
+request, so it cannot be pointed at a borrower. Rehearsing hits `cooling_off`
+after a few calls, which is the frequency rule working correctly on the wrong
+subject. Those frequency refusals are always overridden. Calling hours and the
+borrower's preferred window stay behind the operator switch, so a rehearsal
+can still show the statutory gate.
 
 Nothing here waives *whether*: a person who opted out, registered DND, or
-never gave a promotional basis is not callable for a demo either, and no
+never gave a promotional basis is not callable for a test either, and no
 switch setting changes that.
 
 This file exists because that line is the whole safety argument for having the
@@ -18,30 +18,28 @@ waiver at all, and a line nobody tests is a line that moves.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 import contact_policy
-from routers import outbound as outbound_routes
+import platform_switches
+import voice_studio_testcall as testcall
+
+_TIMING = frozenset({
+    contact_policy.REASON_HOURS,
+    contact_policy.REASON_WINDOW,
+    contact_policy.REASON_COOLING,
+    contact_policy.REASON_DAILY,
+    contact_policy.REASON_WEEKLY,
+})
+_FREQUENCY = frozenset({contact_policy.REASON_COOLING, contact_policy.REASON_DAILY, contact_policy.REASON_WEEKLY})
 
 
-# --- what may be waived -----------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "reason",
-    [
-        contact_policy.REASON_HOURS,
-        contact_policy.REASON_WINDOW,
-        contact_policy.REASON_COOLING,
-        contact_policy.REASON_DAILY,
-        contact_policy.REASON_WEEKLY,
-    ],
-)
-def test_timing_and_frequency_refusals_are_waivable(reason: str) -> None:
-    assert reason in outbound_routes._DEMO_WAIVABLE_REASONS
-
-
-# --- what may never be waived ----------------------------------------------
+@pytest.fixture(params=[False, True], ids=["hours-enforced", "hours-waived"])
+def switch(request, monkeypatch: pytest.MonkeyPatch) -> bool:
+    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kw: request.param)
+    return request.param
 
 
 @pytest.mark.parametrize(
@@ -56,98 +54,34 @@ def test_timing_and_frequency_refusals_are_waivable(reason: str) -> None:
         contact_policy.REASON_UNREADABLE,
     ],
 )
-def test_consent_refusals_are_never_waivable(reason: str) -> None:
-    """A demo does not get to re-answer "did this person agree to be called"."""
-    assert reason not in outbound_routes._DEMO_WAIVABLE_REASONS
+def test_consent_refusals_are_never_waivable(reason: str, switch: bool) -> None:
+    """A rehearsal does not get to re-answer "did this person agree to be called"."""
+    assert reason not in testcall.waivers()
 
 
-def test_an_unreadable_consent_record_still_refuses() -> None:
-    """The fail-closed path stays fail-closed.
-
-    `consent_unreadable` means we could not determine whether the person agreed.
-    Treating "we don't know" as "go ahead" for the sake of a smoother demo is
-    the exact trade this codebase refuses everywhere else.
-    """
-    assert contact_policy.REASON_UNREADABLE not in outbound_routes._DEMO_WAIVABLE_REASONS
+def test_frequency_is_waived_even_when_the_hours_switch_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kw: False)
+    assert testcall.waivers() == _FREQUENCY
 
 
-def test_the_waivable_set_is_exactly_the_five_timing_rules() -> None:
+def test_the_hours_switch_adds_only_the_clock_vetoes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pinned as a set, so a sixth reason cannot be added without deciding to."""
-    assert outbound_routes._DEMO_WAIVABLE_REASONS == frozenset(
-        {
-            contact_policy.REASON_HOURS,
-            contact_policy.REASON_WINDOW,
-            contact_policy.REASON_COOLING,
-            contact_policy.REASON_DAILY,
-            contact_policy.REASON_WEEKLY,
-        }
-    )
-
-
-# --- frequency is always waived; hours need the switch ----------------------
-
-
-def test_frequency_is_waived_even_when_the_hours_switch_is_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A second rehearsal must not die on cooling-off while the hours gate stays.
-
-    The hours switch defaults off. Frequency is not behind that switch: the
-    button dials one configured handset, and the cap exists for borrowers.
-    """
-    import inspect
-
-    import platform_switches
-
-    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kwargs: False)
-    active = outbound_routes._demo_active_waivers()
-    assert active == outbound_routes._DEMO_FREQUENCY_REASONS
-    assert contact_policy.REASON_COOLING in active
-    assert contact_policy.REASON_DAILY in active
-    assert contact_policy.REASON_WEEKLY in active
-    assert contact_policy.REASON_HOURS not in active
-    assert contact_policy.REASON_WINDOW not in active
-
-    src = inspect.getsource(outbound_routes.demo_outbound_call)
-    assert "waivable=_demo_active_waivers()" in src
-    assert "else frozenset()" not in src
+    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kw: True)
+    assert testcall.waivers() == _TIMING
     assert platform_switches.DEMO_IGNORES_WINDOW in platform_switches.KNOWN_KEYS
-
-
-def test_the_hours_switch_adds_only_the_clock_vetoes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import platform_switches
-
-    monkeypatch.setattr(platform_switches, "demo_ignores_window", lambda **_kwargs: True)
-    assert outbound_routes._demo_active_waivers() == outbound_routes._DEMO_WAIVABLE_REASONS
 
 
 def test_every_waiver_is_written_to_the_audit_trail() -> None:
     """Overriding a compliance veto is exactly the event an auditor asks about."""
-    import inspect
-
-    import db_outbound
-
-    # The handler hands the gate to persistence; the audit row is written
-    # inside the same transaction as the reservation it explains.
-    src = inspect.getsource(db_outbound.reserve_demo_attempt)
+    src = inspect.getsource(testcall.place)
+    assert "waivable=waived" in src
     assert "record_activity" in src
     assert "demo_window_waived" in src
     assert 'f"waived:{reason}"' in src
-    assert "db_outbound.reserve_demo_attempt(" in inspect.getsource(
-        outbound_routes.demo_outbound_call
-    )
 
 
-def test_the_endpoint_still_takes_no_phone_number() -> None:
-    """The containment argument depends on this.
-
-    The waiver is defensible only because the endpoint cannot be aimed at a
-    borrower. A parameter here would turn a demo button into a dialer that
-    ignores the caps.
-    """
-    import inspect
-
-    sig = inspect.signature(outbound_routes.demo_outbound_call)
-    assert list(sig.parameters) == []
+def test_the_call_takes_no_phone_number() -> None:
+    """The containment argument depends on this: the number is a test-number id."""
+    params = list(inspect.signature(testcall.place).parameters)
+    assert params == ["agent_id", "number_id", "objective", "actor"]
+    assert "FROM test_numbers WHERE id = :id AND tenant_id = :t" in inspect.getsource(testcall._number)

@@ -82,14 +82,7 @@ _AUTH_EXEMPT_PREFIXES = (
     # PayInt Voice Studio engine -> us: the shared hook token is checked in
     # the handler (routers/voice_studio_hooks.py), like the payment webhooks.
     "/voice-studio/hooks",
-    "/.well-known/agent-card.json",
 )
-
-
-def _a2a_enabled() -> bool:
-    from agent_core.platform_flags import a2a_enabled
-
-    return a2a_enabled()
 
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
@@ -131,11 +124,6 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             finally:
                 request_context.reset_actor(log_token)
                 actor_context.reset_actor_user_id(actor_token)
-        # A2A authenticates by client certificate, reported by the TLS
-        # terminator -- but only while the feature is on. Off, the route is
-        # an ordinary authenticated endpoint that answers 403 `a2a_disabled`.
-        if request.method == "POST" and path == "/a2a" and _a2a_enabled():
-            return await call_next(request)
         if any(path == p or path.startswith(p + "/") for p in _AUTH_EXEMPT_PREFIXES):
             return await call_next(request)
 
@@ -1290,13 +1278,13 @@ register_error_handlers(app)
 # exception handler and lifespan hook above is wired before a route exists.
 # ---------------------------------------------------------------------------
 from api_support import _handle_write, _read_upload_capped, _MAX_UPLOAD_BYTES  # noqa: E402,F401  (tests and middleware reach them here)
-from routers import a2a, agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks  # noqa: E402
+from routers import agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks  # noqa: E402
 
 # Appended flat rather than `include_router`: FastAPI 0.139 nests an included
 # router as one `_IncludedRouter` entry, and everything that walks `app.routes`
 # -- the authz coverage check, the response-model test, the voice websocket
 # test -- expects one APIRoute per route. Each router carries the app's
 # response class itself, so nothing is lost by not going through include.
-for _router_module in (a2a, agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks):
+for _router_module in (agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks):
     for _route in _router_module.router.routes:
         app.router.routes.append(_route)

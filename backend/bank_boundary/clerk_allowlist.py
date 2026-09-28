@@ -11,7 +11,6 @@ ALLOWED_WORKFLOWS = frozenset(
         "doc_sla",
         "callback_diary",
         "authority_hitl",
-        "a2a_remote",
         "self_service_plan",
         "emi_date_change",
         "field_visit",

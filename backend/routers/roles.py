@@ -21,8 +21,12 @@ router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_
 @router.get("/roles", response_model=RolesCatalogResponse)
 def list_roles_catalog():
     """Roles page. Grants are the resolved set the enforcer will honour."""
+    from routers import agentstudio_gateway
+
+    studio = agentstudio_gateway.studio_actions()
     catalog = [
-        {"id": pid, "module": module, "action": action, "description": description}
+        {"id": pid, "module": module, "action": action, "description": description,
+         "studioActions": studio.get(pid, [])}
         for pid, module, action, description in authz.PERMISSION_CATALOG
     ]
     rows = db.list_role_grant_rows()

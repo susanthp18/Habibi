@@ -148,7 +148,7 @@ def demo_ignores_window(*, engine: Any = None) -> bool:
     """May the demo button dial outside permitted hours? Off by default.
 
     This does not gate cooling-off or the attempt caps. Those are always
-    waived on the demo button; see ``routers.outbound._demo_active_waivers``.
+    waived on a test call; see ``voice_studio_testcall.waivers``.
     """
     return is_enabled(DEMO_IGNORES_WINDOW, engine=engine)
 

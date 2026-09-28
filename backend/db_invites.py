@@ -11,7 +11,12 @@ from sqlalchemy.exc import ProgrammingError
 from db_core import _actor_user_id, _id, _tenant
 import db_users
 
-ALLOWED_EMAIL_SUFFIX = "@bigtapp.ai"
+def allowed_domains() -> tuple[str, ...]:
+    """Email domains an invite may go to (``INVITE_ALLOWED_DOMAINS``, comma-separated)."""
+    from env_utils import env_str
+
+    raw = env_str("INVITE_ALLOWED_DOMAINS") or "bigtapp.ai"
+    return tuple(d.strip().lower().lstrip("@") for d in raw.split(",") if d.strip())
 
 
 def _db():
@@ -26,9 +31,11 @@ def _iso(value: Any) -> str | None:
 
 def normalize_invite_email(raw: str) -> str:
     email = (raw or "").strip().lower()
-    if email.count("@") != 1 or not email.endswith(ALLOWED_EMAIL_SUFFIX):
+    if email.count("@") != 1:
         raise ValueError("invalid_email")
-    local = email[: -len(ALLOWED_EMAIL_SUFFIX)]
+    local, domain = email.split("@")
+    if domain not in allowed_domains():
+        raise ValueError("invalid_email")
     if not local or any(ch.isspace() for ch in email):
         raise ValueError("invalid_email")
     return email

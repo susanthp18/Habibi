@@ -39,8 +39,8 @@ export function BudgetRuleDialog({
     rule ?? {
       id: `r_${Math.random().toString(36).slice(2, 8)}`,
       threshold: 80,
-      channels: ["email:finance-ops"],
-      action: "Notify finance-ops",
+      channels: ["in-app"],
+      action: "Notify",
       severity: "warn",
     },
   );
@@ -52,8 +52,8 @@ export function BudgetRuleDialog({
         rule ?? {
           id: `r_${Math.random().toString(36).slice(2, 8)}`,
           threshold: 80,
-          channels: ["email:finance-ops"],
-          action: "Notify finance-ops",
+          channels: ["in-app"],
+          action: "Notify",
           severity: "warn",
         },
       );
@@ -96,13 +96,22 @@ export function BudgetRuleDialog({
           </div>
           <div className="space-y-075">
             <Label className="text-body-small">Action</Label>
-            <Input
-              value={draft.action}
-              onChange={(e) => setDraft({ ...draft, action: e.target.value })}
-            />
+            <Select value={draft.action} onValueChange={(v) => setDraft({ ...draft, action: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Notify">Notify</SelectItem>
+                <SelectItem value="Pause outbound">
+                  Notify and pause outbound calling (production)
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-075">
-            <Label className="text-body-small">Channels (comma separated)</Label>
+            <Label className="text-body-small">
+              Channels (comma separated; in-app always, plus email:address)
+            </Label>
             <Input
               value={draft.channels.join(", ")}
               onChange={(e) =>
@@ -114,7 +123,7 @@ export function BudgetRuleDialog({
                     .filter(Boolean),
                 })
               }
-              placeholder="email:finance-ops, slack:#billing"
+              placeholder="in-app, email:finance@bank.com"
             />
           </div>
         </div>

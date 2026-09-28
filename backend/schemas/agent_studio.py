@@ -746,6 +746,8 @@ class RolePermissionResponse(BaseModel):
     module: str
     action: str
     description: str
+    #: What this permission unlocks in Voice Studio (the gateway's own rules).
+    studioActions: list[str] = []
 
 
 class RoleGrantResponse(BaseModel):

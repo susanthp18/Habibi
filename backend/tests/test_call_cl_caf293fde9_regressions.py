@@ -215,14 +215,6 @@ def test_escalate_close_ends_the_conversation() -> None:
     assert "refused" in NODE_DIRECTIVES["escalate_close"]
 
 
-def test_demo_reserve_passes_the_live_deployment_id() -> None:
-    import db_outbound
-
-    src = inspect.getsource(db_outbound.reserve_demo_attempt)
-    assert "pick_deployment_id" in src
-    assert "deployment_id=deployment_id" in src
-
-
 def test_rollup_does_not_infer_upsell_from_a_product_faq() -> None:
     import capture
 

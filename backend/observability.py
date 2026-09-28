@@ -227,7 +227,6 @@ _QUEUES: dict[str, tuple[str, str]] = {
     "export_jobs": ("status", "queued"),
     "mcp_tasks": ("status", "queued"),
     "work_runtime_jobs": ("status", "queued"),
-    "a2a_tasks": ("status", "submitted"),
     "webhook_deliveries": ("status", "pending"),
     "campaign_targets": ("state", "pending"),
     "call_attempts": ("state", "reserved"),

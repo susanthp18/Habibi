@@ -25,10 +25,6 @@ def mcp_apps_enabled() -> bool:
     return _flag("MCP_APPS_ENABLED")
 
 
-def a2a_enabled() -> bool:
-    return _flag("A2A_ENABLED")
-
-
 def door_enabled() -> bool:
     """Whether authored ``entry_bindings`` decide which card answers.
 

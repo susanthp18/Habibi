@@ -35,6 +35,8 @@ _UNTYPED_BY_DESIGN = frozenset(
         "GET /metrics",  # Prometheus text exposition
         "GET /pay/{token}",  # hosted checkout HTML
         "GET /billing/export.csv",  # CSV download
+        "GET /billing/invoices/{invoice_id}/export.csv",  # CSV download
+        "PATCH /billing/budgets/{budget_id}",  # 204, no body
         "GET /dashboard.csv",  # CSV download
         # Voice Studio engine reverse proxy: bytes streamed both ways; the engine's
         # own OpenAPI owns each response (JSON, audio, file downloads).

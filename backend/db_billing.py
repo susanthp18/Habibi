@@ -37,7 +37,7 @@ def _db():
 
 _BILLING_PERIODS = {"mtd", "7d", "30d", "quarter"}
 _BILLING_ENVS = {"production", "sandbox"}
-_METERED_SERVICE_IDS = ("llm_chat", "llm_embed", "stt_az", "tts_az")
+_METERED_SERVICE_IDS = ("llm_chat", "llm_embed", "stt_az", "tts_az", "tel_min")
 
 
 def _fnum(v: Any) -> float:
@@ -116,7 +116,8 @@ def _daily_series(
                 f"""
                 SELECT to_char(usage_date, 'YYYY-MM-DD') AS d,
                        service_id,
-                       coalesce(sum(cost_inr), 0) AS cost
+                       coalesce(sum(cost_inr), 0) AS cost,
+                       coalesce(sum(units), 0) AS units
                 FROM billing_usage_daily
                 WHERE environment = :env
                   AND usage_date >= :start
@@ -131,15 +132,17 @@ def _daily_series(
         )
     )
     by_date: dict[str, dict[str, float]] = {}
+    units_by_date: dict[str, dict[str, float]] = {}
     for r in rows:
         d = r["d"]
         by_date.setdefault(d, {})[r["service_id"]] = _fnum(r["cost"])
+        units_by_date.setdefault(d, {})[r["service_id"]] = _fnum(r["units"])
 
     out: list[dict[str, Any]] = []
     cur = start
     while cur <= end:
         key = cur.isoformat()
-        out.append({"date": key, "values": by_date.get(key, {})})
+        out.append({"date": key, "values": by_date.get(key, {}), "units": units_by_date.get(key, {})})
         cur += timedelta(days=1)
     return out
 
@@ -256,17 +259,11 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                     """
                     SELECT id, name, provider, category, unit, unit_cost_inr, color
                     FROM billing_services
-                    WHERE id IN ('llm_chat', 'llm_embed', 'stt_az', 'tts_az')
-                    ORDER BY
-                      CASE id
-                        WHEN 'llm_chat' THEN 1
-                        WHEN 'llm_embed' THEN 2
-                        WHEN 'stt_az' THEN 3
-                        WHEN 'tts_az' THEN 4
-                        ELSE 5
-                      END
+                    WHERE id = ANY(:services)
+                    ORDER BY array_position(CAST(:services AS text[]), id)
                     """
-                )
+                ),
+                {"services": list(_METERED_SERVICE_IDS)},
             )
         )
     ]
@@ -288,7 +285,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                 0
               )::float AS aht
             FROM interactions
-            WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+            WHERE channel = 'voice'
+              AND started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
               AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
               {ix_tenant_sql}
             """
@@ -304,7 +302,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
             SELECT
               count(*) FILTER (WHERE coalesce(query_resolved, false))::int AS resolved
             FROM interactions
-            WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+            WHERE channel = 'voice'
+              AND started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
               AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
               {ix_tenant_sql}
             """
@@ -330,7 +329,8 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                              0
                            )::float AS aht
                     FROM interactions
-                    WHERE started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
+                    WHERE channel = 'voice'
+                      AND started_at >= CAST(:start AS date)::timestamp AT TIME ZONE 'UTC'
                       AND started_at < (CAST(:end AS date) + 1)::timestamp AT TIME ZONE 'UTC'
                       AND (:tenant_id = 'all' OR tenant_id = :tenant_id)
                     GROUP BY tenant_id
@@ -347,7 +347,9 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
             text(
                 """
                 SELECT t.id, t.name,
-                       coalesce(t.budget_inr, 0) AS budget
+                       coalesce((SELECT b.amount_inr FROM budgets b
+                                 WHERE b.tenant_id = t.id AND b.environment = :env
+                                   AND b.month = to_char(CAST(:end AS date), 'YYYY-MM')), 0) AS budget
                 FROM tenants t
                 WHERE (
                   t.id IN (
@@ -370,6 +372,7 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
                 "primary": _tenant(),
                 "tenant_id": tenant_id,
                 "services": list(_METERED_SERVICE_IDS),
+                "env": env,
             },
         )
     )
@@ -410,6 +413,11 @@ def _billing_window_and_usage(st: BillingBuild) -> None:
     st.spend_prev = spend_prev
     st.start = start
     st.tenants = tenants
+
+
+def _tenant_of(st: BillingBuild) -> str:
+    """The tenant whose budget the page shows: the filtered one, else the caller's."""
+    return st.tenant_id if st.tenant_id != "all" else st._tenant()
 
 
 def _billing_spend(st: BillingBuild) -> None:
@@ -481,14 +489,14 @@ def _billing_spend(st: BillingBuild) -> None:
         conn.execute(
             text(
                 """
-                SELECT id, environment, month, amount_inr
+                SELECT DISTINCT ON (environment) id, environment, month, amount_inr
                 FROM budgets
-                WHERE tenant_id IS NULL
+                WHERE (tenant_id = :tenant OR tenant_id IS NULL)
                   AND month = :month
-                ORDER BY environment
+                ORDER BY environment, (tenant_id IS NULL)
                 """
             ),
-            {"month": month_key},
+            {"month": month_key, "tenant": _tenant_of(st)},
         )
     )
     # Fallback: latest month if current month missing
@@ -497,13 +505,13 @@ def _billing_spend(st: BillingBuild) -> None:
             conn.execute(
                 text(
                     """
-                    SELECT id, environment, month, amount_inr
+                    SELECT DISTINCT ON (environment) id, environment, month, amount_inr
                     FROM budgets
-                    WHERE tenant_id IS NULL
-                    ORDER BY month DESC, environment
-                    LIMIT 2
+                    WHERE tenant_id = :tenant OR tenant_id IS NULL
+                    ORDER BY environment, month DESC, (tenant_id IS NULL)
                     """
-                )
+                ),
+                {"tenant": _tenant_of(st)},
             )
         )
 
@@ -608,19 +616,19 @@ def _billing_lines(st: BillingBuild) -> None:
                 """
                 SELECT id, invoice_month, status, total_inr, issued_at
                 FROM invoices
-                WHERE environment = 'production'
+                WHERE environment = :env
                 ORDER BY invoice_month DESC
                 LIMIT 8
                 """
-            )
+            ),
+            {"env": env},
         )
     ):
         issued = inv.get("issued_at")
         invoices.append(
             {
                 "id": inv["id"],
-                "month": _month_label(inv["invoice_month"])
-                + (" (in progress)" if inv["status"] == "draft" else ""),
+                "month": _month_label(inv["invoice_month"]),
                 "status": inv["status"],
                 "amountInr": _fnum(inv["total_inr"]),
                 "issuedAt": issued.isoformat() if isinstance(issued, date) else str(issued or ""),
@@ -928,7 +936,9 @@ def _model_spend(
                        bs.unit AS unit,
                        bs.color,
                        COALESCE(ue.model, '(unspecified)') AS model,
-                       COALESCE(ue.source_ref, '(unspecified)') AS source_ref,
+                       -- The source, not the call: "voice-studio-run:123" would
+                       -- make one row per call. Everything before the first ':'.
+                       COALESCE(split_part(ue.source_ref, ':', 1), '(unspecified)') AS source_ref,
                        SUM(ue.units)    AS units,
                        SUM(ue.cost_inr) AS cost,
                        COUNT(DISTINCT ue.interaction_id) AS calls
@@ -939,7 +949,8 @@ def _model_spend(
                    AND ue.environment = :env
                    AND ue.service_id = ANY(:services)
                    {tenant_sql}
-                 GROUP BY ue.service_id, bs.name, bs.unit, bs.color, ue.model, ue.source_ref
+                 GROUP BY ue.service_id, bs.name, bs.unit, bs.color, ue.model,
+                          split_part(ue.source_ref, ':', 1)
                  ORDER BY SUM(ue.cost_inr) DESC
                 """
             ),
@@ -1124,3 +1135,69 @@ def billing_export_csv(
             )
     return "\n".join(lines) + "\n"
 
+
+def set_budget_cap(budget_id: str, amount_inr: float) -> None:
+    """Change a month's cap. The platform budget needs platform scope, as for its rules."""
+    with _db().engine.begin() as conn:
+        budget = conn.execute(text("SELECT id, tenant_id FROM budgets WHERE id = :id"), {"id": budget_id}).first()
+        if not budget:
+            raise LookupError("budget_not_found")
+        _scope_platform_budget(conn, budget, action="change the cap of")
+        conn.execute(text("UPDATE budgets SET amount_inr = :a, updated_at = now() WHERE id = :id"),
+                     {"a": Decimal(str(amount_inr)).quantize(Decimal("0.01")), "id": budget_id})
+
+
+def invoice_detail(invoice_id: str) -> dict[str, Any]:
+    """One cost statement with its lines (row security keeps it to the tenant)."""
+    with _db().engine.connect() as conn:
+        inv = conn.execute(text(
+            "SELECT id, invoice_month, environment, status, total_inr, issued_at FROM invoices WHERE id = :id"
+        ), {"id": invoice_id}).mappings().first()
+        if inv is None:
+            raise LookupError("invoice_not_found")
+        lines = conn.execute(text(
+            "SELECT l.service_id, s.name, s.unit, l.units, l.unit_cost_inr, l.amount_inr "
+            "FROM invoice_line_items l JOIN billing_services s ON s.id = l.service_id "
+            "WHERE l.invoice_id = :id ORDER BY l.amount_inr DESC"
+        ), {"id": invoice_id}).mappings().all()
+    issued = inv["issued_at"]
+    return {
+        "id": inv["id"], "month": _month_label(inv["invoice_month"]), "env": inv["environment"],
+        "status": inv["status"], "totalInr": _fnum(inv["total_inr"]),
+        "issuedAt": issued.isoformat() if isinstance(issued, date) else None,
+        "lines": [{"serviceId": r["service_id"], "serviceName": r["name"], "unit": r["unit"],
+                   "units": _fnum(r["units"]), "unitCostInr": _fnum(r["unit_cost_inr"]),
+                   "amountInr": _fnum(r["amount_inr"])} for r in lines],
+    }
+
+
+def invoice_csv(invoice_id: str) -> str:
+    import csv
+    import io
+
+    detail = invoice_detail(invoice_id)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["statement", detail["id"], detail["month"], detail["env"], detail["status"]])
+    w.writerow(["service", "unit", "units", "unit_cost_inr", "amount_inr"])
+    for line in detail["lines"]:
+        w.writerow([line["serviceName"], line["unit"], line["units"], line["unitCostInr"], line["amountInr"]])
+    w.writerow(["total", "", "", "", detail["totalInr"]])
+    return out.getvalue()
+
+
+def set_invoice_status(invoice_id: str, status: str) -> dict[str, Any]:
+    """draft -> pending (issued, numbers frozen) -> paid. Never backwards."""
+    order = {"draft": 0, "pending": 1, "paid": 2}
+    with _db().engine.begin() as conn:
+        current = conn.execute(text("SELECT status FROM invoices WHERE id = :id FOR UPDATE"),
+                               {"id": invoice_id}).scalar()
+        if current is None:
+            raise LookupError("invoice_not_found")
+        if order.get(status, -1) <= order[current]:
+            raise ValueError(f"cannot move a {current} statement to {status}")
+        conn.execute(text(
+            "UPDATE invoices SET status = :s, issued_at = COALESCE(issued_at, CASE WHEN :s = 'pending' "
+            "THEN current_date END), updated_at = now() WHERE id = :id"
+        ), {"s": status, "id": invoice_id})
+    return invoice_detail(invoice_id)

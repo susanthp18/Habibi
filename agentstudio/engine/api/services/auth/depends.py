@@ -9,6 +9,7 @@ from api.constants import AGENTSTUDIO_INTERNAL_SECRET, AUTH_PROVIDER
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
+from api.services.auth import payint_authorize
 from api.services.auth.stack_auth import stackauth
 from api.services.organization_bootstrap import ensure_organization_bootstrapped
 from api.services.posthog_client import (
@@ -51,7 +52,11 @@ async def get_user(
     # Check if API key is provided (takes precedence)
     # ------------------------------------------------------------------
     if x_api_key:
-        return await _handle_api_key_auth(x_api_key)
+        return await _handle_api_key_auth(
+            x_api_key,
+            method=request.method if request else "GET",
+            path=request.url.path if request else "",
+        )
 
     # ------------------------------------------------------------------
     # AgentStudio: identity asserted by the host gateway
@@ -351,7 +356,7 @@ async def _handle_internal_auth(headers: Mapping[str, str]) -> UserModel:
     return user
 
 
-async def _handle_api_key_auth(api_key: str) -> UserModel:
+async def _handle_api_key_auth(api_key: str, *, method: str = "GET", path: str = "") -> UserModel:
     """
     Handle authentication via X-API-Key header.
     Returns the user who created the API key with the correct organization context.
@@ -373,6 +378,9 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
 
     # Set the organization context to the API key's organization
     user.selected_organization_id = api_key_model.organization_id
+
+    # AgentStudio: the key's PayInt owner must still be allowed to do this.
+    await payint_authorize.authorize(user.provider_id, api_key_model.organization_id, method, path)
 
     logger.debug(
         f"Authenticated via API key: {api_key_model.key_prefix}... "
@@ -424,7 +432,7 @@ async def get_user_ws(
     try:
         # API key takes precedence
         if api_key:
-            user = await get_user(None, api_key)
+            user = await _handle_api_key_auth(api_key, method="GET", path=websocket.url.path)
         else:
             # Use the same logic as get_user but with token from query
             authorization = f"Bearer {token}"

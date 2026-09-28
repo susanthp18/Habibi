@@ -42,12 +42,16 @@ _DEFAULTS = {
     "PRICE_TTS_USD_PER_1M_CHARS": "15.0",
     # Azure Speech standard STT — $ / hour → we bill per minute
     "PRICE_STT_USD_PER_HOUR": "1.0",
+    # Carrier minutes for a connected call (SIP trunk / Twilio). 0 until the
+    # deployment states its rate: minutes are still counted, never priced by guess.
+    "TELEPHONY_USD_PER_MIN": "0",
 }
 
 SERVICE_CHAT = "llm_chat"
 SERVICE_EMBED = "llm_embed"
 SERVICE_STT = "stt_az"
 SERVICE_TTS = "tts_az"
+SERVICE_TEL = "tel_min"
 
 
 _MILLION = Decimal(1_000_000)
@@ -102,14 +106,41 @@ def chat_input_usd_per_1m() -> float:
     return max(0.0, float(_env_decimal("PRICE_CHAT_INPUT_USD_PER_1M")))
 
 
-def chat_cost_inr(*, prompt_tokens: int, completion_tokens: int) -> Decimal:
-    fx = fx_rate_decimal()
+def model_prices(model: str | None) -> tuple[Decimal, Decimal, Decimal, bool]:
+    """USD per 1M (input, output, cached input) for a chat model, and whether the
+    model has its own price (``LLM_PRICE_BOOK_JSON``: {"gpt-4.1-mini": {"in": 0.4,
+    "out": 1.6, "cached": 0.1}}) or falls back to the default chat rate."""
     pin = _env_decimal("PRICE_CHAT_INPUT_USD_PER_1M")
     pout = _env_decimal("PRICE_CHAT_OUTPUT_USD_PER_1M")
-    usd = (Decimal(int(prompt_tokens)) / _MILLION) * pin + (
-        Decimal(int(completion_tokens)) / _MILLION
-    ) * pout
-    return usd * fx
+    load_env()
+    try:
+        book = json.loads(os.getenv("LLM_PRICE_BOOK_JSON") or "{}")
+    except ValueError:
+        logger.error("LLM_PRICE_BOOK_JSON is not valid JSON; using the default chat rate")
+        book = {}
+    row = book.get(model or "") if isinstance(book, dict) else None
+    if not isinstance(row, dict):
+        return pin, pout, pin, False
+    get = lambda k, d: _to_decimal(row.get(k)) if row.get(k) is not None else d  # noqa: E731
+    return get("in", pin), get("out", pout), get("cached", get("in", pin)), True
+
+
+def chat_cost_inr(*, prompt_tokens: int, completion_tokens: int, model: str | None = None,
+                  cached_tokens: int = 0) -> Decimal:
+    """Cost of one chat call. ``prompt_tokens`` is gross (OpenAI-style): the
+    cached tokens are inside it and priced at the cached rate."""
+    pin, pout, pcached, _ = model_prices(model)
+    cached = min(max(int(cached_tokens or 0), 0), int(prompt_tokens))
+    usd = (
+        Decimal(int(prompt_tokens) - cached) * pin
+        + Decimal(cached) * pcached
+        + Decimal(int(completion_tokens)) * pout
+    ) / _MILLION
+    return usd * fx_rate_decimal()
+
+
+def telephony_cost_inr(*, minutes: float) -> Decimal:
+    return _to_decimal(minutes) * _env_decimal("TELEPHONY_USD_PER_MIN") * fx_rate_decimal()
 
 
 def embed_cost_inr(*, prompt_tokens: int) -> Decimal:
@@ -188,6 +219,14 @@ def unit_cost_book_inr() -> dict[str, dict[str, Any]]:
             "unit": "1K chars",
             "unit_cost_inr": _quantize_money(tts_per_1k_usd * fx),
             "color": "#14b8a6",
+        },
+        SERVICE_TEL: {
+            "name": "Telephony minutes",
+            "provider": "Carrier",
+            "category": "Voice",
+            "unit": "minute",
+            "unit_cost_inr": _quantize_money(_env_decimal("TELEPHONY_USD_PER_MIN") * fx),
+            "color": "#f59e0b",
         },
     }
 
@@ -598,6 +637,7 @@ def record_chat_usage(
     model: str | None = None,
     source_ref: str | None = None,
     interaction_id: str | None = None,
+    cached_tokens: int | None = None,
 ) -> None:
     pt = int(prompt_tokens or 0)
     ct = int(completion_tokens or 0)
@@ -612,7 +652,8 @@ def record_chat_usage(
     total = pt + ct
     if total <= 0:
         return
-    cost = chat_cost_inr(prompt_tokens=pt, completion_tokens=ct)
+    cached = int(cached_tokens or 0)
+    cost = chat_cost_inr(prompt_tokens=pt, completion_tokens=ct, model=model, cached_tokens=cached)
     record_usage(
         service_id=SERVICE_CHAT,
         units=Decimal(total) / Decimal(1000),
@@ -620,8 +661,10 @@ def record_chat_usage(
         meta={
             "promptTokens": pt,
             "completionTokens": ct,
+            "cachedTokens": cached,
             "model": model,
             "splitEstimated": estimated_split,
+            "modelPriced": model_prices(model)[3],
         },
         source_ref=source_ref,
         interaction_id=interaction_id,
@@ -705,6 +748,24 @@ def record_stt_usage(
         # is the closest thing to a billable model dimension when the caller
         # does not name one.
         model=model or language,
+    )
+
+
+def record_telephony_usage(
+    *, minutes: float, source_ref: str | None = None, interaction_id: str | None = None,
+    carrier: str | None = None,
+) -> None:
+    """Connected-call minutes on the carrier, priced at ``TELEPHONY_USD_PER_MIN``."""
+    if minutes <= 0:
+        return
+    record_usage(
+        service_id=SERVICE_TEL,
+        units=_to_decimal(minutes),
+        cost_inr=telephony_cost_inr(minutes=minutes),
+        meta={"minutes": minutes, "carrier": carrier},
+        source_ref=source_ref,
+        interaction_id=interaction_id,
+        model=carrier,
     )
 
 

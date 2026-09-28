@@ -44,11 +44,11 @@ def test_treatment_enact_resolves_the_bot(monkeypatch) -> None:
     assert "DEFAULT_BOT_ID" not in src or "resolve_outbound_bot_id" in src
 
 
-def test_demo_uses_resolved_bot() -> None:
-    src = (_BACKEND / "routers" / "outbound.py").read_text(encoding="utf-8")
-    assert "def _demo_outbound_bot_id" in src
-    assert "bot_id = _demo_outbound_bot_id()" in src
-    assert "bot_id = str(db.DEFAULT_BOT_ID)" not in src
+def test_the_test_call_speaks_as_the_chosen_voice_studio_agent() -> None:
+    src = (_BACKEND / "voice_studio_testcall.py").read_text(encoding="utf-8")
+    assert "bot_id = voice_studio.bot_id_for(agent_id)" in src
+    assert '"agent_id": str(agent_id)' in src
+    assert "card_for_bot" not in src
 
 
 def test_campaign_create_persists_bot_id(db_tx) -> None:

@@ -62,7 +62,8 @@ type NavItem = {
   icon: LucideIcon;
   to?: string;
   soon?: boolean;
-  permission?: string;
+  /** Every one is required (Voice Studio pages also need its bot.read floor). */
+  permission?: string | string[];
 };
 
 type NavGroup = { label: string; items: NavItem[] };
@@ -128,21 +129,21 @@ const groups: NavGroup[] = [
         label: "Agent runs",
         icon: History,
         to: "/studio/usage",
-        permission: "perm-analytics-read",
+        permission: ["perm-bot-read", "perm-analytics-read"],
       },
       {
         key: "studio-files",
         label: "Knowledge base",
         icon: BookOpen,
         to: "/studio/files",
-        permission: "perm-kb-read",
+        permission: ["perm-bot-read", "perm-kb-read"],
       },
       {
         key: "studio-recordings",
         label: "Call recordings",
         icon: AudioLines,
         to: "/studio/recordings",
-        permission: "perm-analytics-read",
+        permission: ["perm-bot-read", "perm-analytics-read"],
       },
       {
         key: "studio-audio-library",
@@ -156,14 +157,14 @@ const groups: NavGroup[] = [
         label: "Tools",
         icon: Wrench,
         to: "/studio/tools",
-        permission: "perm-integrations-read",
+        permission: ["perm-bot-read", "perm-integrations-read"],
       },
       {
         key: "studio-models",
         label: "Models",
         icon: Cpu,
         to: "/studio/model-configurations",
-        permission: "perm-integrations-read",
+        permission: ["perm-bot-read", "perm-integrations-read"],
       },
       {
         key: "studio-guardrails",
@@ -184,7 +185,7 @@ const groups: NavGroup[] = [
         label: "Telephony",
         icon: PhoneCall,
         to: "/studio/telephony-configurations",
-        permission: "perm-integrations-read",
+        permission: ["perm-bot-read", "perm-integrations-read"],
       },
       {
         key: "studio-routing",
@@ -205,7 +206,7 @@ const groups: NavGroup[] = [
         label: "Reports",
         icon: LineChart,
         to: "/studio/reports",
-        permission: "perm-analytics-read",
+        permission: ["perm-bot-read", "perm-analytics-read"],
       },
       {
         key: "studio-developers",
@@ -294,7 +295,9 @@ export function NavLinks({
     const allowed = groups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => !item.permission || can(me, item.permission)),
+        items: group.items.filter(
+          (item) => !item.permission || [item.permission].flat().every((p) => can(me, p)),
+        ),
       }))
       .filter((group) => group.items.length > 0);
     const q = query.trim().toLowerCase();

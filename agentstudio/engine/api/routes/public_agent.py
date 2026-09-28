@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
+from api.services.auth import payint_authorize
 from api.services.call_concurrency import (
     CallConcurrencyLimitError,
     call_concurrency,
@@ -84,6 +85,12 @@ async def _validate_api_key(x_api_key: str):
     api_key = await db_client.validate_api_key(x_api_key)
     if not api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
+    # AgentStudio: placing a call needs the key owner's live PayInt permission.
+    if payint_authorize.enabled():
+        owner = await db_client.get_user_by_id(api_key.created_by) if api_key.created_by else None
+        await payint_authorize.authorize(
+            getattr(owner, "provider_id", None), api_key.organization_id, "POST", "/public/agent"
+        )
     return api_key
 
 

@@ -50,4 +50,4 @@ async def _api_key_user(headers: dict[str, str]) -> UserModel:
             status_code=401,
             detail="Missing API key — send X-API-Key or Authorization: Bearer <key>",
         )
-    return await _handle_api_key_auth(api_key)
+    return await _handle_api_key_auth(api_key, method="POST", path="/mcp")

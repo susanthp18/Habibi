@@ -1,11 +1,12 @@
 """AgentStudio: PayInt's contact policy decides before the engine dials on its own.
 
-Calls PayInt's dialler starts carry the attempt id it admitted them under
-(``initial_context.attempt_id``) and go straight through. Every other outbound
-call -- an engine campaign, the editor's "call phone" -- is put to PayInt's
-``/voice-studio/hooks/admit``: DND, consent, the calling window and frequency
-caps apply to it like to any contact, and a number that is not a customer (or
-a configured test number) is refused.
+Every outbound call is put to PayInt's ``/voice-studio/hooks/admit``. Calls
+PayInt's dialler starts carry the attempt id it admitted them under
+(``initial_context.attempt_id``); PayInt checks that attempt is real and for
+this number. Every other call -- an engine campaign, the editor's "call
+phone" -- meets the kill switch and the contact policy: DND, consent, the
+calling window and frequency caps apply to it like to any contact, and a
+number that is not a customer (or a configured test number) is refused.
 
 Fails closed: if PayInt cannot be asked, the call is not placed.
 Configured by ``PAYINT_ADMIT_URL`` and ``PAYINT_HOOK_TOKEN``; unset, nothing
@@ -33,8 +34,6 @@ async def admit(to_number: str, workflow_run_id: Optional[int]) -> None:
     if workflow_run_id is not None:
         run = await db_client.get_workflow_run(workflow_run_id)
         context = dict((run.initial_context if run else None) or {})
-    if context.get("attempt_id"):
-        return  # admitted by PayInt's dialler
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.post(
@@ -43,6 +42,7 @@ async def admit(to_number: str, workflow_run_id: Optional[int]) -> None:
                     "to_number": to_number,
                     "workflow_run_id": workflow_run_id,
                     "workflow_id": context.get("workflow_id"),
+                    "attempt_id": context.get("attempt_id"),
                 },
                 headers={"Authorization": f"Bearer {os.getenv('PAYINT_HOOK_TOKEN', '')}"},
             )

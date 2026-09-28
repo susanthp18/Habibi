@@ -9,6 +9,7 @@ in constant time -- the same model as the payment and telephony webhooks.
     POST /voice-studio/hooks/precall          inbound: who is calling
     POST /voice-studio/hooks/transfer         where a transfer-to-human rings
     POST /voice-studio/hooks/run-completed    post-call: file the call
+    POST /voice-studio/hooks/authorize        may this engine API key's owner do this
 """
 
 from __future__ import annotations
@@ -82,3 +83,43 @@ async def run_completed(request: Request, authorization: str | None = Header(def
         # Answered 500 so the engine's durable webhook delivery retries it.
         logger.exception("voice studio: filing run %s failed", body.get("workflow_run_id"))
         raise HTTPException(status_code=500, detail="filing_failed")
+
+
+@router.post(f"{PREFIX}/authorize")
+async def authorize(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    """An engine API key is used: is its PayInt owner still allowed to do this?
+
+    Re-checked on every use, so deactivating someone or taking a permission
+    away stops their keys at once. One policy: the gateway's own table.
+    """
+    _authorised(authorization)
+    return await run_in_threadpool(key_use_allowed, await _json(request))
+
+
+#: Engine paths a key may reach that the browser gateway never proxies.
+_KEY_ONLY_PATHS = ("/public/", "/agent-stream/", "/telephony/initiate-call")
+
+
+def key_use_allowed(body: dict) -> dict:
+    import authz
+    import db
+    from routers import agentstudio_gateway as gateway
+    from sqlalchemy import text
+
+    user = str(body.get("user_id") or "")
+    tenant = str(body.get("tenant_id") or "")
+    method = str(body.get("method") or "GET").upper()
+    path = "/" + str(body.get("path") or "").split("?", 1)[0].removeprefix("/api/v1").lstrip("/")
+    if user == voice_studio.SYSTEM_ACTOR:
+        return {"allowed": True}
+    with db.engine.connect() as conn:
+        row = conn.execute(text("SELECT tenant_id, status FROM users WHERE id = :u"), {"u": user}).first()
+    if row is None or row.tenant_id != tenant or row.status != "active":
+        return {"allowed": False, "reason": "owner_inactive"}
+    if path.startswith(_KEY_ONLY_PATHS):
+        perms: tuple[str, ...] = (authz.VOICE_OPERATE,)
+    else:
+        perms = gateway.required_permissions(method, path)
+    if perms and any(authz.has_permission(user, p) for p in perms):
+        return {"allowed": True}
+    return {"allowed": False, "reason": f"forbidden:{perms[0] if perms else 'path'}"}

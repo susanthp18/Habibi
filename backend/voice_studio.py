@@ -194,10 +194,16 @@ def _position_context(position: dict[str, Any]) -> dict[str, Any]:
 
 
 def outbound_context(conn: Any, attempt_id: str, custom: dict[str, str]) -> dict[str, Any]:
-    """The mission, flattened into the variables an engine agent's prompts use."""
+    """The attempt's mission, flattened into the variables an engine agent's prompts use."""
     import mission as mission_mod
 
-    m = mission_mod.load(conn, attempt_id) or {}
+    return mission_context(mission_mod.load(conn, attempt_id) or {}, attempt_id, custom)
+
+
+def mission_context(m: dict[str, Any], attempt_id: str, custom: dict[str, str]) -> dict[str, Any]:
+    """A mission as the agent's starting variables (also the test call's preview)."""
+    import mission as mission_mod
+
     ctx: dict[str, Any] = {
         "direction": "outbound",
         "attempt_id": attempt_id,
@@ -249,25 +255,34 @@ def originate(
     from voice.twilio_ops import OutboundDisabled
 
     if not platform_switches.outbound_enabled():
-        raise OutboundDisabled("outbound_disabled: turn on outbound calling in Roles & access first")
+        raise OutboundDisabled("outbound_disabled: turn on outbound calling in Settings first")
     custom = dict(custom or {})
     attempt_id = custom.get("attempt_id") or ""
     with db.engine.connect() as conn:
-        binding = agent_for(conn, custom.get("objective"))
-        if binding is None:
-            raise NotBound(f"no Voice Studio agent is bound to objective {custom.get('objective')!r}")
+        # A test call names its agent; everything else runs the objective's binding.
+        workflow_id = custom.get("agent_id")
+        if not workflow_id:
+            binding = agent_for(conn, custom.get("objective"))
+            if binding is None:
+                raise NotBound(f"no Voice Studio agent is bound to objective {custom.get('objective')!r}")
+            workflow_id = binding["engine_workflow_id"]
         initial_context = outbound_context(conn, attempt_id, custom) if attempt_id else {}
-    initial_context["agent_id"] = binding["engine_workflow_id"]
+    initial_context["agent_id"] = int(workflow_id)
 
     api_key = env_str("VOICE_STUDIO_API_KEY")
     if not api_key:
         raise RuntimeError("VOICE_STUDIO_API_KEY is not set")
     import voice_studio_routing
 
-    trigger_path = voice_studio_routing.outbound_trigger_path(binding["engine_workflow_id"])
+    # Raises unless the agent is this tenant's, active and published.
+    trigger_path = voice_studio_routing.outbound_trigger_path(int(workflow_id))
+    payload: dict[str, Any] = {"phone_number": to, "initial_context": initial_context}
+    caller = engine_number(from_number) if from_number else None
+    if caller:
+        payload["telephony_configuration_id"], payload["from_phone_number_id"] = caller
     resp = httpx.post(
         f"{engine_url()}/api/v1/public/agent/{trigger_path}",
-        json={"phone_number": to, "initial_context": initial_context},
+        json=payload,
         headers={"X-API-Key": api_key},
         timeout=30,
     )
@@ -276,7 +291,34 @@ def originate(
     resp.raise_for_status()
     run_id = resp.json().get("workflow_run_id")
     logger.info("voice studio: attempt %s dialled as engine run %s", attempt_id, run_id)
-    return {"callSid": str(run_id), "status": "initiated"}
+    return {"callSid": str(run_id), "status": "initiated", "provider": PROVIDER}
+
+
+def engine_numbers() -> list[dict[str, Any]]:
+    """The tenant's engine phone numbers: ``{configId, id, address, active}``."""
+    configs = engine_call("GET", "/organizations/telephony-configs") or {}
+    configs = configs.get("configurations", []) if isinstance(configs, dict) else configs
+    out = []
+    for config in configs:
+        found = engine_call("GET", f"/organizations/telephony-configs/{config['id']}/phone-numbers") or {}
+        for number in found.get("phone_numbers", []) if isinstance(found, dict) else found:
+            out.append({"configId": config["id"], "id": number["id"],
+                        "address": str(number.get("address") or ""), "active": number.get("is_active", True)})
+    return out
+
+
+def engine_number(e164: str) -> tuple[int, int] | None:
+    """The engine (config id, phone number id) for a caller ID, if the engine has it."""
+    import re
+
+    want = re.sub(r"\D+", "", e164)[-10:]
+    try:
+        for n in engine_numbers():
+            if n["active"] and want and re.sub(r"\D+", "", n["address"])[-10:] == want:
+                return int(n["configId"]), int(n["id"])
+    except Exception:
+        logger.warning("voice studio: caller ID %s could not be matched to an engine number", e164[-4:])
+    return None
 
 
 def hangup(channel_id: str) -> None:  # the engine ends its own calls
@@ -327,6 +369,14 @@ def preflight() -> list[str]:
         problems.append("AGENTSTUDIO_INTERNAL_SECRET is not set")
     if not env_str("VOICE_STUDIO_HOOK_TOKEN"):
         problems.append("VOICE_STUDIO_HOOK_TOKEN is not set: the engine cannot reach our tools")
+    from env_utils import is_prod
+
+    if is_prod():
+        # The compose file falls back to these committed values when unset.
+        weak = [k for k in ("AGENTSTUDIO_INTERNAL_SECRET", "VOICE_STUDIO_HOOK_TOKEN")
+                if env_str(k).startswith("dev-only")]
+        if weak:
+            problems.append(f"{', '.join(weak)} still hold the committed dev-only default in production")
     return problems
 
 
@@ -973,6 +1023,23 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
     return {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
 
 
+def test_numbers(conn: Any) -> set[str]:
+    """The tenant's test handsets (last 10 digits): Settings' list, plus the
+    deprecated ``VOICE_STUDIO_TEST_NUMBERS`` env for one release."""
+    import re
+
+    import db
+
+    found = {re.sub(r"\D+", "", n)[-10:] for n in env_str("VOICE_STUDIO_TEST_NUMBERS").split(",") if n.strip()}
+    if conn.execute(text("SELECT to_regclass('test_numbers')")).scalar():
+        found |= {
+            re.sub(r"\D+", "", r)[-10:]
+            for r in conn.execute(text("SELECT e164 FROM test_numbers WHERE tenant_id = :t"),
+                                  {"t": db.current_tenant()}).scalars()
+        }
+    return {n for n in found if n}
+
+
 def admit_engine_call(body: dict[str, Any]) -> dict[str, Any]:
     """May the engine dial this number? For calls the engine starts itself
     (its own campaigns, the editor's "call phone"); PayInt's dialler admits
@@ -989,14 +1056,28 @@ def admit_engine_call(body: dict[str, Any]) -> dict[str, Any]:
 
     import contact_policy
     import db
+    import platform_switches
     from db_whatsapp import _find_customer_by_phone
 
-    if body.get("attempt_id"):
-        return {"admitted": True, "reason": "payint_dialler"}
+    # The master switch covers every dial, the engine's own included.
+    if not platform_switches.outbound_enabled():
+        return {"admitted": False, "reason": "outbound_disabled"}
     digits = re.sub(r"\D+", "", str(body.get("to_number") or ""))
-    testers = {re.sub(r"\D+", "", n)[-10:] for n in env_str("VOICE_STUDIO_TEST_NUMBERS").split(",") if n.strip()}
     with db.engine.begin() as conn:
-        if digits and digits[-10:] in testers:
+        if body.get("attempt_id"):
+            # PayInt's dialler already gated this call, but only a real attempt
+            # it reserved moments ago for this number counts; anything else is
+            # admitted like any other engine call.
+            owned = conn.execute(text(
+                "SELECT 1 FROM call_attempts WHERE id = :a AND tenant_id = :t "
+                "AND state IN ('reserved', 'dialing') AND to_phone_last4 = :l4 "
+                "AND reserved_at > now() - interval '15 minutes' "
+                "AND (provider_call_id IS NULL OR provider_call_id = :run)"
+            ), {"a": str(body["attempt_id"]), "t": db.current_tenant(), "l4": digits[-4:],
+                "run": str(body.get("workflow_run_id") or "")}).first()
+            if owned:
+                return {"admitted": True, "reason": "payint_dialler"}
+        if digits and digits[-10:] in test_numbers(conn):
             db._activity(conn, "voice_studio_run", str(body.get("workflow_run_id") or ""), "test_call_admitted",
                          "Engine test call to an allow-listed number", f"…{digits[-4:]}")
             return {"admitted": True, "reason": "test_number"}
@@ -1099,36 +1180,95 @@ def file_recording(interaction_id: str, run: dict[str, Any]) -> dict[str, Any] |
     return None
 
 
-def meter_run(interaction_id: str, run: dict[str, Any]) -> None:
-    """The call's model, speech and recognition spend, from the engine's usage."""
+def meter_run(interaction_id: str | None, run: dict[str, Any]) -> None:
+    """The call's model, speech, recognition and carrier spend, from the engine's usage.
+
+    Idempotent: it meters only what is not yet metered for this run, so the
+    reconcile sweep can call it again and pick up what arrived later (the QA
+    node's tokens are merged into the run after the completion hook).
+    """
     import usage_meter
+
+    import db
 
     usage = run.get("usage_info") or {}
     ref = f"voice-studio-run:{run.get('id')}"
+    usage_meter.flush()  # what is still buffered counts as already metered
+    with db.engine.connect() as conn:
+        # One meterer per run at a time: the hook and the sweep can overlap.
+        conn.execute(text("SELECT pg_advisory_lock(hashtext(:r))"), {"r": ref})
+        try:
+            seen: dict[tuple[str, str], dict[str, float]] = {}
+            for row in conn.execute(text(
+                "SELECT service_id, COALESCE(model, '') AS model, sum(units) AS units, "
+                "sum((meta->>'promptTokens')::numeric) AS p, sum((meta->>'completionTokens')::numeric) AS c, "
+                "sum((meta->>'cachedTokens')::numeric) AS k, sum((meta->>'chars')::numeric) AS ch "
+                "FROM usage_events WHERE source_ref = :r GROUP BY 1, 2"
+            ), {"r": ref}).mappings():
+                seen[(row["service_id"], row["model"])] = {k: float(row[k] or 0) for k in ("units", "p", "c", "k", "ch")}
+            _meter_delta(usage, ref, interaction_id, seen)
+            usage_meter.flush()
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(hashtext(:r))"), {"r": ref})
+
+
+def price_runs(body: bytes) -> bytes:
+    """A page of engine runs with each run's metered cost as ``charge_usd``
+    (INR metered in ``usage_events``, shown in the engine's dollars at the
+    configured FX)."""
+    import json
+
+    import db
+    import usage_meter
+
+    data = json.loads(body or b"null")
+    runs = data.get("runs") if isinstance(data, dict) else None
+    if not runs:
+        return body
+    refs = [f"voice-studio-run:{r.get('id')}" for r in runs if isinstance(r, dict)]
+    with db.engine.connect() as conn:
+        cost = {row[0]: row[1] for row in conn.execute(text(
+            "SELECT source_ref, sum(cost_inr) FROM usage_events WHERE source_ref = ANY(:r) GROUP BY 1"
+        ), {"r": refs})}
+    fx = float(usage_meter.fx_rate_decimal())
+    for r in runs:
+        inr = cost.get(f"voice-studio-run:{r.get('id')}") if isinstance(r, dict) else None
+        if inr is not None:
+            r["charge_usd"] = round(float(inr) / fx, 4)
+    return json.dumps(data, default=str).encode()
+
+
+def _meter_delta(usage: dict[str, Any], ref: str, interaction_id: str | None,
+                 seen: dict[tuple[str, str], dict[str, float]]) -> None:
+    import usage_meter as um
+
+    none = {"units": 0.0, "p": 0.0, "c": 0.0, "k": 0.0, "ch": 0.0}
     for service, u in (usage.get("llm") or {}).items():
-        usage_meter.record_chat_usage(
-            prompt_tokens=u.get("prompt_tokens"),
-            completion_tokens=u.get("completion_tokens"),
-            total_tokens=u.get("total_tokens"),
-            model=str(service).rsplit("|||", 1)[-1] or None,
-            source_ref=ref,
-            interaction_id=interaction_id,
-        )
+        model = str(service).rsplit("|||", 1)[-1] or ""
+        was = seen.get((um.SERVICE_CHAT, model), none)
+        p = int(u.get("prompt_tokens") or 0) - int(was["p"])
+        c = int(u.get("completion_tokens") or 0) - int(was["c"])
+        k = int(u.get("cache_read_input_tokens") or 0) - int(was["k"])
+        if p > 0 or c > 0:
+            um.record_chat_usage(prompt_tokens=max(p, 0), completion_tokens=max(c, 0), model=model or None,
+                                 cached_tokens=max(k, 0), source_ref=ref, interaction_id=interaction_id)
     for service, chars in (usage.get("tts") or {}).items():
-        usage_meter.record_tts_usage(
-            chars=int(chars or 0),
-            voice=str(service).rsplit("|||", 1)[-1] or None,
-            source_ref=ref,
-            interaction_id=interaction_id,
-        )
+        voice = str(service).rsplit("|||", 1)[-1] or ""
+        extra = int(chars or 0) - int(seen.get((um.SERVICE_TTS, voice), none)["ch"])
+        if extra > 0:
+            um.record_tts_usage(chars=extra, voice=voice or None, source_ref=ref, interaction_id=interaction_id)
     # Streaming recognition listens for the whole call; the engine reports no
     # separate STT usage for Azure, so the call length is the billed quantity.
-    seconds = usage.get("call_duration_seconds")
-    if seconds:
-        usage_meter.record_stt_usage(
-            audio_bytes=0, minutes=float(seconds) / 60.0, source_ref=ref,
-            interaction_id=interaction_id, model="streaming",
-        )
+    # The same length is the carrier's billed minutes.
+    minutes = float(usage.get("call_duration_seconds") or 0) / 60.0
+    stt = minutes - seen.get((um.SERVICE_STT, "streaming"), none)["units"]
+    if stt > 0.001:
+        um.record_stt_usage(audio_bytes=0, minutes=stt, source_ref=ref,
+                            interaction_id=interaction_id, model="streaming")
+    tel = minutes - seen.get((um.SERVICE_TEL, "voice-studio"), none)["units"]
+    if tel > 0.001:
+        um.record_telephony_usage(minutes=tel, source_ref=ref, interaction_id=interaction_id,
+                                  carrier="voice-studio")
 
 
 def _place_tool_calls(interaction_id: str, turn_times: list[datetime | None]) -> None:
@@ -1261,6 +1401,24 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
         except Exception:
             report["failed"] += 1
             logger.exception("voice studio reconcile: run %s not filed", run.get("id"))
+    # Spend that lands after filing (the QA node's tokens are merged into the
+    # run later) and editor test calls, which are never filed: meter_run only
+    # adds what is not metered yet.
+    report["metered"] = 0
+    recent = (now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
+    settled = [r for r in runs if (r.get("gathered_context") or {}).get("call_status")
+               and (r.get("initial_context") or {}).get("channel") != "whatsapp"
+               and str(r.get("created_at") or "") >= recent]
+    for run in settled[:limit]:
+        try:
+            full = engine_call("GET", f"/workflow/{run['workflow_id']}/runs/{run['id']}") or {}
+            with db.engine.connect() as conn:
+                ix = conn.execute(text("SELECT interaction_id FROM voice_sessions WHERE id = :s"),
+                                  {"s": _session_id(run["id"])}).scalar()
+            meter_run(ix, full)
+            report["metered"] += 1
+        except Exception:
+            logger.exception("voice studio reconcile: run %s not metered", run.get("id"))
     for media in broken:
         try:
             workflow_id = workflow_of(media.provider_call_id, media.handler_bot_id)
