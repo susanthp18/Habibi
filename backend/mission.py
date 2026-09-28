@@ -598,41 +598,18 @@ def card_for_bot(
     environment: str | None = None,
     customer_id: str | None = None,
 ) -> Any | None:
-    """The published card for this agent, or None.
+    """The outbound policy a dial by this agent runs under, as a card whose
+    ``outbound`` is ``outbound_policy.current()``; None only with no agent.
 
-    The *published* card is what the compiler gated and what a regulator would
-    be shown, so it is the only card a dial may run under. There used to be a
-    second answer -- the first-party Python constant -- "never authoritative"
-    by its own docstring and yet reached on every call to a bot with no
-    published version, so a card could be edited, published and still not be
-    what the dial used. A dial with no card still happens; it carries no
-    mission envelope, which is what every outbound call did before this
-    module existed. The constants are seed data now (`seed_first_party`).
+    Voice Studio agents carry no legacy card, so every agent of the tenant
+    dials under PayInt's one outbound policy. ``environment`` and
+    ``customer_id`` picked a canary deployment's card; there is none now.
     """
-    bot = (bot_id or "").strip()
-    if not bot:
+    if not (bot_id or "").strip():
         return None
-    from agent_core.cards.schema import parse_card
+    import outbound_policy
 
-    try:
-        import db as dbmod
-
-        from agent_core.canary import pick_deployment_id
-        from agent_core.deployment import active_environment
-
-        environment = environment or active_environment()
-        dep_id = pick_deployment_id(bot, environment=environment, customer_id=customer_id)
-        deployment = dbmod.get_deployment(dep_id) if dep_id else None
-        if not deployment:
-            deployment = dbmod.get_active_deployment(bot_id=bot, environment=environment)
-        if deployment and deployment.get("promptVersionId"):
-            version = dbmod.get_prompt_version(deployment["promptVersionId"])
-            raw = (version or {}).get("agentCard") or (version or {}).get("agent_card")
-            if isinstance(raw, dict) and raw:
-                return parse_card(raw)
-    except Exception:
-        logger.debug("published card unreadable for %s", bot, exc_info=True)
-    return None
+    return outbound_policy.PolicyCard(outbound_policy.current())
 
 
 def objective_for_trigger(trigger: str | None) -> str:

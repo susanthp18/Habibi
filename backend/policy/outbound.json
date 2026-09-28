@@ -1,0 +1,178 @@
+{
+  "direction": "both",
+  "objectives": [
+    {
+      "key": "pre_due_reminder",
+      "entry_node": "confirm_identity",
+      "success": [
+        "ptp_captured",
+        "paid_in_call"
+      ],
+      "partial": [],
+      "max_duration_sec": 180,
+      "allowed_offers": [],
+      "authority_profile": null,
+      "voicemail": {
+        "leave": "first_attempt_only",
+        "max_sec": 25,
+        "include_grievance_contact": true
+      },
+      "cadence": "collections"
+    },
+    {
+      "key": "bounce_cure",
+      "entry_node": "confirm_identity",
+      "success": [
+        "ptp_captured",
+        "paid_in_call",
+        "part_payment_agreed"
+      ],
+      "partial": [],
+      "max_duration_sec": 240,
+      "allowed_offers": [],
+      "authority_profile": null,
+      "voicemail": {
+        "leave": "first_attempt_only",
+        "max_sec": 25,
+        "include_grievance_contact": true
+      },
+      "cadence": "collections"
+    },
+    {
+      "key": "dpd_reminder",
+      "entry_node": "confirm_identity",
+      "success": [
+        "ptp_captured",
+        "paid_in_call",
+        "part_payment_agreed",
+        "plan_agreed"
+      ],
+      "partial": [],
+      "max_duration_sec": 240,
+      "allowed_offers": [],
+      "authority_profile": null,
+      "voicemail": {
+        "leave": "first_attempt_only",
+        "max_sec": 25,
+        "include_grievance_contact": true
+      },
+      "cadence": "collections"
+    },
+    {
+      "key": "broken_ptp_chase",
+      "entry_node": "confirm_identity",
+      "success": [
+        "ptp_recommitted",
+        "paid_in_call",
+        "part_payment_agreed"
+      ],
+      "partial": [],
+      "max_duration_sec": 300,
+      "allowed_offers": [],
+      "authority_profile": null,
+      "voicemail": {
+        "leave": "first_attempt_only",
+        "max_sec": 25,
+        "include_grievance_contact": true
+      },
+      "cadence": "collections"
+    }
+  ],
+  "cadences": [
+    {
+      "name": "collections",
+      "max_attempts": 3,
+      "per_day": 1,
+      "backoff_hours": [
+        4,
+        24,
+        72
+      ],
+      "retry_on": [
+        "no_answer",
+        "busy",
+        "voicemail_left",
+        "voicemail_skipped"
+      ],
+      "stop_on": [
+        "ptp_captured",
+        "ptp_recommitted",
+        "paid_in_call",
+        "dispute_raised",
+        "opt_out_requested",
+        "wrong_number",
+        "deceased"
+      ],
+      "escalate_to": "human"
+    }
+  ],
+  "post_call": {
+    "on_outcome": [
+      {
+        "when": "ptp_captured",
+        "do": [
+          "confirm_written",
+          "schedule_due_reminder"
+        ]
+      },
+      {
+        "when": "ptp_recommitted",
+        "do": [
+          "confirm_written",
+          "schedule_due_reminder"
+        ]
+      },
+      {
+        "when": "hardship_declared",
+        "do": [
+          "place_hold",
+          "suppress_upsell",
+          "confirm_written"
+        ]
+      },
+      {
+        "when": "dispute_raised",
+        "do": [
+          "flag_dispute",
+          "place_hold",
+          "confirm_written"
+        ]
+      },
+      {
+        "when": "callback_requested",
+        "do": [
+          "schedule_mission",
+          "confirm_written"
+        ]
+      },
+      {
+        "when": "opt_out_requested",
+        "do": [
+          "record_optout",
+          "stop_cadence"
+        ]
+      },
+      {
+        "when": "wrong_number",
+        "do": [
+          "mark_phone_dead",
+          "promote_alternate"
+        ]
+      },
+      {
+        "when": "no_resolution",
+        "do": [
+          "advance_ladder"
+        ]
+      }
+    ],
+    "written_followup": true,
+    "obligations": true,
+    "qa": "always"
+  },
+  "number_pool": null,
+  "pool_kind": "general",
+  "carrier_amd": false,
+  "ivr_traversal": false,
+  "ivr_max_sec": 90
+}
