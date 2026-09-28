@@ -79,10 +79,12 @@ def _asked_for_person(turns: list[dict[str, Any]]) -> bool:
     )
 
 
-def converse(conv: dict[str, Any], state: dict[str, Any], customer_text: str) -> tuple[str, bool]:
+def converse(
+    conv: dict[str, Any], state: dict[str, Any], customer_text: str
+) -> tuple[str, bool, tuple[Any, Any]]:
     """Send the customer's message to the thread's engine session (opening one
-    if needed). Returns the agent's reply and whether it asked for a person.
-    Updates ``state`` with the session."""
+    if needed). Returns the agent's reply, whether it asked for a person, and
+    the (workflow, run) that answered. Updates ``state`` with the session."""
     new_turns: list[dict[str, Any]] = []
     run_id, workflow_id = state.get("studio_run_id"), state.get("studio_workflow_id")
     session = None
@@ -128,13 +130,26 @@ def converse(conv: dict[str, Any], state: dict[str, Any], customer_text: str) ->
         timeout=120,
     )
     new_turns.extend(session["session_data"]["turns"][before:])
+    answered_by = (workflow_id, session["workflow_run_id"])
     state["studio_turns"] = int(state.get("studio_turns") or 0) + 1
     if session.get("is_completed"):
         state.pop("studio_run_id", None)  # the agent closed; the next message opens a new session
     # The reply only: on a new session the agent's opening line precedes it and
     # would greet the customer twice.
     reply = _assistant_text(new_turns[-1:]) or _assistant_text(new_turns)
-    return reply, _asked_for_person(new_turns)
+    return reply, _asked_for_person(new_turns), answered_by
+
+
+def _meter(interaction_id: str | None, workflow_id: Any, run_id: Any) -> None:
+    """The session's model spend so far, billed to the thread's interaction
+    (``meter_run`` books only what is not yet booked). A text chat has no call
+    minutes: the run's duration is session wall time, so it is left out."""
+    try:
+        run = voice_studio.engine_call("GET", f"/workflow/{workflow_id}/runs/{run_id}") or {}
+        usage = {k: v for k, v in (run.get("usage_info") or {}).items() if k != "call_duration_seconds"}
+        voice_studio.meter_run(interaction_id, {**run, "id": run_id, "usage_info": usage})
+    except Exception:
+        logger.exception("whatsapp studio: usage not metered for run %s", run_id)
 
 
 def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
@@ -193,12 +208,13 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         bot_turn.notify_then_escalate(engine, t, reason="max_turns_exceeded")
         return
 
+    answered_by = None
     generated_for = state.get("last_trigger_message_id")
     if reuse_body and latest_msg_id and latest_msg_id == generated_for:
         t.final_text = reuse_body  # a send that never reached Meta: resend the same words
     else:
         try:
-            t.final_text, wants_person = converse(conv, state, customer_text)
+            t.final_text, wants_person, answered_by = converse(conv, state, customer_text)
         except voice_studio.NotBound as exc:
             with engine.begin() as conn:
                 bot_jobs.mark_dead(conn, job, str(exc))
@@ -212,14 +228,18 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         bot_conversation.save_bot_state(engine, conversation_id, state)
         if wants_person:
             bot_turn.notify_then_escalate(engine, t, reason="Customer requested a human agent")
+            _meter(conv.get("interaction_id"), *answered_by)
             return
         if not t.final_text:
             bot_turn.notify_then_escalate(engine, t, reason="voice_studio_empty_reply")
+            _meter(conv.get("interaction_id"), *answered_by)
             return
 
     if not bot_turn_write.send_reply(engine, t):
         return
     _persist(engine, t)
+    if answered_by:  # after the reply: billing never delays the customer
+        _meter(conv.get("interaction_id"), *answered_by)
 
 
 def _persist(engine: Engine, t: Any) -> None:
