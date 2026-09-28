@@ -14,9 +14,9 @@ worth, recovery share). Other keys say "not estimated" rather than guess.
 
 from __future__ import annotations
 
+from env_utils import env_str
 import json
 import logging
-import os
 import uuid
 from typing import Any
 
@@ -94,7 +94,7 @@ def settings() -> list[dict[str, Any]]:
     out = []
     for key, group, label, help_text in SETTINGS:
         spec = engine_config.SPEC[key]
-        source = "configured" if key in configured else "environment" if os.getenv(key) else "default"
+        source = "configured" if key in configured else "environment" if env_str(key) else "default"
         out.append({
             "key": key, "group": group, "label": label, "help": help_text,
             "value": values.get(key), "source": source, "type": spec.kind,

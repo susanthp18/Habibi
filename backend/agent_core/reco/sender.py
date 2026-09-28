@@ -19,9 +19,9 @@ Runs only while the offer engine is live and the ``reco.enabled`` switch is on.
 
 from __future__ import annotations
 
+from env_utils import env_str
 import hashlib
 import logging
-import os
 from typing import Any
 
 from sqlalchemy import text
@@ -96,7 +96,7 @@ def process_one(engine: Any) -> bool:
         if _in_control(customer_id, share):
             _suppress(conn, decision_id, SUPPRESS_CONTROL)
             return True
-        template = (os.getenv("WHATSAPP_PROMO_TEMPLATE_NAME") or "").strip()
+        template = env_str("WHATSAPP_PROMO_TEMPLATE_NAME")
         by_message = bool(template and row["phone_primary"])
         # The channel the contact will actually use is the one charged: a
         # WhatsApp template, or a relationship manager's call.

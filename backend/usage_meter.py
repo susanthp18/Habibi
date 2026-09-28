@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import text
 
 from env_loader import load_env
-from env_utils import NON_PROD_ENVS, env_float, env_int
+from env_utils import NON_PROD_ENVS, env_float, env_int, env_str
 from agent_core.clock import utc_now
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def model_prices(model: str | None) -> tuple[Decimal, Decimal, Decimal, bool]:
     pout = _env_decimal("PRICE_CHAT_OUTPUT_USD_PER_1M")
     load_env()
     try:
-        book = json.loads(os.getenv("LLM_PRICE_BOOK_JSON") or "{}")
+        book = json.loads(env_str("LLM_PRICE_BOOK_JSON") or "{}")
     except ValueError:
         logger.error("LLM_PRICE_BOOK_JSON is not valid JSON; using the default chat rate")
         book = {}
