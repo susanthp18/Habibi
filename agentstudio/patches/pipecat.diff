@@ -1,5 +1,5 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
---- pipecat/src/pipecat/services/azure/stt.py	2026-09-28 18:14:37.244702400 +0530
+--- pipecat/src/pipecat/services/azure/stt.py	2026-09-28 18:28:56.950136100 +0530
 +++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
 @@ -11,6 +11,7 @@
  """
@@ -336,7 +336,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              frame = InterimTranscriptionFrame(
                  event.result.text,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-28 18:14:37.246229200 +0530
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-28 18:28:56.950740000 +0530
 +++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-27 11:57:36.593934900 +0530
 @@ -94,6 +94,13 @@
              ``"enhancePronunciation=true"``). Which keys apply depends on the
@@ -534,7 +534,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _escape_text(self, text: str) -> str:
          """Escapes XML/SSML reserved characters according to Microsoft documentation.
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
---- pipecat/src/pipecat/services/mcp_service.py	2026-09-28 18:14:37.363935500 +0530
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-28 18:28:57.024912600 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
 @@ -39,7 +39,7 @@
  
@@ -591,7 +591,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  read_stream, write_stream = streams[0], streams[1]
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
---- pipecat/tests/test_azure_stt.py	2026-09-28 18:14:37.733958900 +0530
+--- pipecat/tests/test_azure_stt.py	2026-09-28 18:28:57.243167400 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530
 @@ -164,3 +164,45 @@
  
@@ -640,7 +640,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        service = self._service()
 +        assert service._detected_language(SimpleNamespace()) == "en-IN"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_tts.py engine/pipecat/tests/test_azure_tts.py
---- pipecat/tests/test_azure_tts.py	2026-09-28 18:14:37.735127900 +0530
+--- pipecat/tests/test_azure_tts.py	2026-09-28 18:28:57.243167400 +0530
 +++ engine/pipecat/tests/test_azure_tts.py	2026-09-27 11:57:36.673304800 +0530
 @@ -209,3 +209,61 @@
          "</lang>"

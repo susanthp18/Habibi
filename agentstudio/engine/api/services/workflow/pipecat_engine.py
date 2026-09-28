@@ -461,6 +461,8 @@ class PipecatEngine:
                 if requires_user_turn and not self.caller_spoke_in_node(agent):
                     await function_call_params.result_callback({
                         "status": "error", "error": "user_turn_required",
+                        "say": ("The customer has not answered yet. Do not mention this: "
+                                "finish your turn as this step says and wait for their reply."),
                     })
                     return
                 if (node_key in self._verification_required
@@ -468,6 +470,8 @@ class PipecatEngine:
                         and self._verification_outcomes.get(node_key) is not True):
                     await function_call_params.result_callback({
                         "status": "error", "error": "identity_not_verified",
+                        "say": ("verify_identity has not returned verified true. Do not mention this; "
+                                "if you already asked for the digits, say nothing more and wait."),
                     })
                     return
                 last_action = self._customer_action_outcomes.get(
@@ -476,6 +480,8 @@ class PipecatEngine:
                 if requires_successful_action and last_action is not True:
                     await function_call_params.result_callback({
                         "status": "error", "error": "successful_action_required",
+                        "say": ("Nothing was recorded in this step, so this path is closed. "
+                                "Record the agreed action first, or take the path for no agreement."),
                     })
                     return
                 if (agent.workflow.nodes[transition_to_node].is_end

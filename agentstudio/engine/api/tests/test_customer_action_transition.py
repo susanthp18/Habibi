@@ -55,7 +55,8 @@ async def test_unverified_identity_blocks_account_path():
     handler = await engine._create_transition_func("Verified", "account", agent=Agent())
     callback = AsyncMock()
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
-    callback.assert_awaited_once_with({"status": "error", "error": "identity_not_verified"})
+    callback.assert_awaited_once()
+    assert callback.await_args.args[0]["error"] == "identity_not_verified"
     engine._perform_variable_extraction_if_needed.assert_not_awaited()
 
 
@@ -86,7 +87,8 @@ async def test_right_person_requires_a_caller_turn_when_edge_requests_it():
     callback = AsyncMock()
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
 
-    callback.assert_awaited_once_with({"status": "error", "error": "user_turn_required"})
+    callback.assert_awaited_once()
+    assert callback.await_args.args[0]["error"] == "user_turn_required"
     engine._perform_variable_extraction_if_needed.assert_not_awaited()
 
     engine.context.messages.append({"role": "user", "content": "Yes, speaking"})
@@ -119,9 +121,8 @@ async def test_agreed_requires_a_recorded_success_when_edge_requests_it():
     callback = AsyncMock()
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
 
-    callback.assert_awaited_once_with({
-        "status": "error", "error": "successful_action_required",
-    })
+    callback.assert_awaited_once()
+    assert callback.await_args.args[0]["error"] == "successful_action_required"
     engine._perform_variable_extraction_if_needed.assert_not_awaited()
 
     engine._customer_action_outcomes[("visit", "resolve")] = True
@@ -169,3 +170,36 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     await handler(SimpleNamespace(arguments={"value": "2325"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
     assert execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+
+    execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
+    monkeypatch.setattr(tools, "execute_http_tool", execute)
+    engine = object.__new__(PipecatEngine)
+    digits = {"role": "user", "content": "1234"}
+    engine.context = SimpleNamespace(messages=[digits])
+    # The step began after the customer's last message: nothing is confirmed here.
+    engine._node_entry_user_message = {("visit", "resolve"): digits}
+    engine._context_summary_message = None
+    engine._verified_user_message = None
+    engine._verification_outcomes = {}
+    engine._customer_action_outcomes = {}
+    engine._call_context_vars = {}
+    engine._gathered_context = {}
+    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="resolve"))
+    manager = tools.CustomToolManager(engine, agent)
+    manager.get_organization_id = AsyncMock(return_value=1)
+    tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
+    handler = manager._create_http_tool_handler(tool, "promise_to_pay")
+    callback = AsyncMock()
+
+    await handler(SimpleNamespace(arguments={"amount": 6000, "date": "2026-10-02"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
+    execute.assert_not_awaited()
+
+    engine.context.messages.append({"role": "user", "content": "Yes, 4000 on Friday"})
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    execute.assert_awaited_once()
