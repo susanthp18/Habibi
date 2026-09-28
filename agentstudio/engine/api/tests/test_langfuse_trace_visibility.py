@@ -7,7 +7,7 @@ project, and everything bound for the env-configured project follows
 """
 
 import os
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from pipecat.utils.run_context import set_current_org_id
@@ -76,6 +76,25 @@ def test_visibility_toggle_lands_without_a_credential_change(exporter):
     set_current_org_id(ORG)
 
     assert resolve(None) is False
+
+
+def test_repeated_registration_does_not_read_exporter_private_fields(exporter):
+    first = Mock(spec=["shutdown"])
+    second = Mock(spec=["shutdown"])
+    with patch.object(tracing_config, "OTLPSpanExporter", side_effect=[first, second]) as create:
+        exporter.register_org(ORG, **CREDS)
+        exporter.register_org(ORG, **CREDS, traces_public=True)
+        create.assert_called_once()
+        first.shutdown.assert_not_called()
+
+        exporter.register_org(ORG, **{**CREDS, "secret_key": "rotated"})
+        assert create.call_count == 2
+        first.shutdown.assert_called_once()
+        assert exporter._org_exporters[ORG] is second
+
+        exporter.unregister_org(ORG)
+        second.shutdown.assert_called_once()
+        assert ORG not in exporter._org_exporter_configs
 
 
 def test_org_without_own_project_follows_the_env_flag(exporter):

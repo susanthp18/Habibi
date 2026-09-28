@@ -203,14 +203,15 @@ NODES = {
         "prompt": (
             "Aim for a promise to pay: agree an amount (at least the minimum due) and a date within the next seven days, "
             "read them back, and as soon as they confirm, call promise_to_pay with the amount in rupees and the date as YYYY-MM-DD "
-            "(resolved against today's date). If they cannot commit, or the promise cannot be changed, offer a callback: first ask what time suits "
-            "them, then call request_callback once, with that time. If the tool fails, do not claim the action was recorded "
-            "or take a success path. On promise_revision_cap, do not retry; offer a colleague. If a callback already exists, "
+            "(resolved against today's date). If the requested date is outside that window, say it cannot be booked. "
+            "If they cannot commit, or the promise cannot be changed, offer a callback: first ask what time suits "
+            "them, then call request_callback once, with that time. Never say a change or follow-up was recorded "
+            "or take a success path unless its tool returned success. On promise_revision_cap, do not retry; offer a colleague. If a callback already exists, "
             "do not submit the same callback again. If they already paid, thank them and note it with flag_dispute type already_paid."
         ),
     },
     "end_done": {"name": "Close - agreed", "prompt": "Confirm what was agreed in one sentence, thank them, and say goodbye."},
-    "end_failed": {"name": "Close - action failed", "prompt": "Say clearly that the promise, callback or dispute was not recorded. Apologise, offer a human follow-up, and close without a confirmation."},
+    "end_failed": {"name": "Close - no recorded action", "prompt": "If an action failed, say it was not recorded. If no action was attempted, say no arrangement was changed. Do not promise a follow-up that was not booked. Thank them and close."},
     "end_unverified": {
         "name": "Close - not verified",
         "prompt": "Explain you cannot discuss the account without verification, suggest they call the number on their card, thank them, and say goodbye.",
@@ -228,7 +229,7 @@ EDGES = [
     ("verify", "end_unverified", "Not verified", "Verification failed with no attempts left, or the caller refuses to verify."),
     ("position", "resolve", "Discuss payment", "The customer has heard the amount and the conversation turns to paying."),
     ("resolve", "end_done", "Agreed", "The most recent promise, callback or dispute action returned data.ok true."),
-    ("resolve", "end_failed", "Action failed", "The action was rejected and no successful alternative was recorded; explain the failure without confirming it."),
+    ("resolve", "end_failed", "No arrangement", "An action was rejected, or the customer declined both an eligible promise and a callback; no successful action was recorded."),
 ]
 
 # These are starter definitions only. An operator owns subsequent edits and
@@ -460,7 +461,10 @@ def build_definition(
     # (PAYINT_RUN_COMPLETED_URL, engine tasks/run_integrations._notify_payint),
     # so agents built in the editor are filed too.
     edges = [{"id": f"e-{a}-{b}", "source": a, "target": b,
-              "data": {"label": label, "condition": cond, "allow_failed_action": b == "end_failed"}}
+              "data": {"label": label, "condition": cond,
+                       "allow_failed_action": b == "end_failed",
+                       "requires_user_turn": channel == "outbound" and a == "start" and b == "verify",
+                       "requires_successful_action": channel == "outbound" and a == "resolve" and b == "end_done"}}
              for a, b, label, cond in spec_edges]
     return {"nodes": nodes, "edges": edges}
 

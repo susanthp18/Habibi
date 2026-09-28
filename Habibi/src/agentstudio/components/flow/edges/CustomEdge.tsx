@@ -32,6 +32,8 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
     const [transitionSpeechType, setTransitionSpeechType] = useState<'text' | 'audio'>(data?.transition_speech_type ?? 'text');
     const [transitionSpeechRecordingId, setTransitionSpeechRecordingId] = useState(data?.transition_speech_recording_id ?? '');
     const [allowFailedAction, setAllowFailedAction] = useState(data?.allow_failed_action ?? false);
+    const [requiresUserTurn, setRequiresUserTurn] = useState(data?.requires_user_turn ?? false);
+    const [requiresSuccessfulAction, setRequiresSuccessfulAction] = useState(data?.requires_successful_action ?? false);
 
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
@@ -42,6 +44,8 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
             setTransitionSpeechType(data?.transition_speech_type ?? 'text');
             setTransitionSpeechRecordingId(data?.transition_speech_recording_id ?? '');
             setAllowFailedAction(data?.allow_failed_action ?? false);
+            setRequiresUserTurn(data?.requires_user_turn ?? false);
+            setRequiresSuccessfulAction(data?.requires_successful_action ?? false);
         }
     }, [data, open]);
 
@@ -53,9 +57,11 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
             transition_speech_type: transitionSpeechType,
             transition_speech_recording_id: transitionSpeechType === 'audio' ? (transitionSpeechRecordingId || undefined) : undefined,
             allow_failed_action: allowFailedAction,
+            requires_user_turn: requiresUserTurn,
+            requires_successful_action: requiresSuccessfulAction,
         });
         onOpenChange(false);
-    }, [condition, label, transitionSpeech, transitionSpeechType, transitionSpeechRecordingId, allowFailedAction, onSave, onOpenChange]);
+    }, [condition, label, transitionSpeech, transitionSpeechType, transitionSpeechRecordingId, allowFailedAction, requiresUserTurn, requiresSuccessfulAction, onSave, onOpenChange]);
 
     // Handle Cmd+S / Ctrl+S keyboard shortcut to save
     useEffect(() => {
@@ -138,6 +144,16 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                         <input type="checkbox" checked={allowFailedAction} disabled={readOnly}
                             onChange={(e) => setAllowFailedAction(e.target.checked)} />
                         <span>Failure close path. Allow this edge to close after a promise, callback, or dispute was rejected. The destination must say the action was not recorded.</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" checked={requiresUserTurn} disabled={readOnly}
+                            onChange={(e) => setRequiresUserTurn(e.target.checked)} />
+                        <span>Require a caller turn before taking this path.</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" checked={requiresSuccessfulAction} disabled={readOnly}
+                            onChange={(e) => setRequiresSuccessfulAction(e.target.checked)} />
+                        <span>Require a successful promise, callback, or dispute action on this node before taking this path.</span>
                     </label>
                 </div>
                 <DialogFooter>

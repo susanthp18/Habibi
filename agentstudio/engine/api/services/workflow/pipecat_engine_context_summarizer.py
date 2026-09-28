@@ -171,6 +171,8 @@ class ContextSummarizationManager:
                 new_messages.append(first_system_msg)
             new_messages.append(summary_message)
             new_messages.extend(recent_messages)
+            # A user-role message the caller never sent: not a caller turn.
+            self._engine._context_summary_message = summary_message
 
             context.set_messages(new_messages)
             logger.info(

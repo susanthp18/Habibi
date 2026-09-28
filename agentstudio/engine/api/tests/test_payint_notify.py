@@ -39,3 +39,24 @@ async def test_no_url_or_no_credential_sends_nothing(monkeypatch):
     monkeypatch.setattr(run_integrations.db_client, "get_credentials_for_organization", AsyncMock(return_value=[]))
     await run_integrations._notify_payint(SimpleNamespace(workflow_id=3), 11, 42)
     create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tracing_failure_does_not_skip_payint_notice(monkeypatch):
+    run = SimpleNamespace(
+        workflow=object(),
+        definition=SimpleNamespace(workflow_json={}, id=1),
+        campaign_id=None,
+    )
+    monkeypatch.setattr(run_integrations.db_client, "get_workflow_run_with_context",
+                        AsyncMock(return_value=(run, 11)))
+    monkeypatch.setattr(run_integrations.db_client, "get_configuration_value",
+                        AsyncMock(return_value={"host": "https://example.test"}))
+    notice = AsyncMock()
+    monkeypatch.setattr(run_integrations, "_notify_payint", notice)
+    monkeypatch.setattr(run_integrations, "register_org_langfuse_credentials",
+                        lambda **kwargs: (_ for _ in ()).throw(AttributeError("exporter failed")))
+
+    await run_integrations.run_integrations_post_workflow_run({}, 42)
+
+    notice.assert_awaited_once_with(run, 11, 42)

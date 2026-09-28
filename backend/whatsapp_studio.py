@@ -117,6 +117,7 @@ def converse(
     if needed). Returns the agent's reply, whether it asked for a person, and
     the (workflow, run) that answered. Updates ``state`` with the session."""
     new_turns: list[dict[str, Any]] = []
+    opened = False
     run_id, workflow_id = state.get("studio_run_id"), state.get("studio_workflow_id")
     session = None
     if _session_current(state):
@@ -141,10 +142,13 @@ def converse(
                 "name": f"WA-{conv['id']}",
                 "initial_context": {**_initial_context(conv), "conversation_so_far": _thread_so_far(conv["id"])},
                 "annotations": {"channel": "whatsapp", "conversation_id": conv["id"]},
+                # A customer is answered by the released agent, never a draft.
+                "use_draft": False,
             },
             timeout=120,
         )
         new_turns.extend(session["session_data"]["turns"])
+        opened = True
         state.update(
             {
                 "studio_run_id": session["workflow_run_id"],
@@ -165,9 +169,9 @@ def converse(
     state["studio_turns"] = int(state.get("studio_turns") or 0) + 1
     if session.get("is_completed"):
         state.pop("studio_run_id", None)  # the agent closed; the next message opens a new session
-    # The reply only: on a new session the agent's opening line precedes it and
-    # would greet the customer twice.
-    reply = _assistant_text(new_turns[-1:]) or _assistant_text(new_turns)
+    # A new session's opening line is the agent's greeting and introduction;
+    # the customer sees it with the reply, or they are never greeted.
+    reply = _assistant_text(new_turns if opened else new_turns[-1:]) or _assistant_text(new_turns)
     return reply, _asked_for_person(new_turns), answered_by
 
 

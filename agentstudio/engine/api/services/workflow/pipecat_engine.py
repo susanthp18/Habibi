@@ -184,6 +184,12 @@ class PipecatEngine:
         self._customer_action_outcomes: dict[tuple[str, str], bool] = {}
         self._verification_required: set[tuple[str, str]] = set()
         self._verification_outcomes: dict[tuple[str, str], bool] = {}
+        # The caller's newest message when each node visit began, and the one
+        # the last verify_identity answered: a guarded edge or a verification
+        # needs a caller message newer than both.
+        self._node_entry_user_message: dict[tuple[str, str], object] = {}
+        self._verified_user_message: object = None
+        self._context_summary_message: object = None
         # Set by run setup on every cascade call; a realtime call gets none
         # and so can never transfer.
         self._agent_factory = None
@@ -405,6 +411,22 @@ class PipecatEngine:
             LLMSettings(system_instruction=system_prompt)
         )
 
+    def _last_user_message(self):
+        """The caller's newest message in context, never a context summary."""
+        for message in reversed(self.context.messages):
+            if (isinstance(message, dict) and message.get("role") == "user"
+                    and message.get("content")
+                    and message is not self._context_summary_message):
+                return message
+        return None
+
+    def caller_spoke_in_node(self, agent: AgentRuntime) -> bool:
+        """Has the caller said anything since this node visit began?"""
+        current = agent.current_node
+        entry = self._node_entry_user_message.get((agent.visit_id, current.id)) if current else None
+        last = self._last_user_message()
+        return last is not None and last is not entry
+
     def _format_prompt(self, prompt: str) -> str:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
 
@@ -419,6 +441,8 @@ class PipecatEngine:
         transition_speech_recording_id: Optional[str] = None,
         *,
         allow_failed_action: bool = False,
+        requires_user_turn: bool = False,
+        requires_successful_action: bool = False,
         agent: AgentRuntime | None = None,
     ):
         agent = agent or self.active_agent
@@ -434,6 +458,11 @@ class PipecatEngine:
             try:
                 current = agent.current_node
                 node_key = (agent.visit_id, current.id) if current else None
+                if requires_user_turn and not self.caller_spoke_in_node(agent):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "user_turn_required",
+                    })
+                    return
                 if (node_key in self._verification_required
                         and not agent.workflow.nodes[transition_to_node].is_end
                         and self._verification_outcomes.get(node_key) is not True):
@@ -444,6 +473,11 @@ class PipecatEngine:
                 last_action = self._customer_action_outcomes.get(
                     node_key
                 ) if current else None
+                if requires_successful_action and last_action is not True:
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "successful_action_required",
+                    })
+                    return
                 if (agent.workflow.nodes[transition_to_node].is_end
                         and last_action is False and not allow_failed_action):
                     await function_call_params.result_callback({
@@ -544,6 +578,8 @@ class PipecatEngine:
         transition_speech_recording_id: Optional[str] = None,
         *,
         allow_failed_action: bool = False,
+        requires_user_turn: bool = False,
+        requires_successful_action: bool = False,
         agent: AgentRuntime | None = None,
     ):
         agent = agent or self.active_agent
@@ -559,6 +595,8 @@ class PipecatEngine:
             transition_speech_type,
             transition_speech_recording_id,
             allow_failed_action=allow_failed_action,
+            requires_user_turn=requires_user_turn,
+            requires_successful_action=requires_successful_action,
             agent=agent,
         )
 
@@ -827,6 +865,8 @@ class PipecatEngine:
                     edge.data.transition_speech_type,
                     edge.data.transition_speech_recording_id,
                     allow_failed_action=edge.data.allow_failed_action,
+                    requires_user_turn=edge.data.requires_user_turn,
+                    requires_successful_action=edge.data.requires_successful_action,
                     agent=agent,
                 )
         if node.tool_uuids and manager:
@@ -914,6 +954,7 @@ class PipecatEngine:
 
         # Set current node for all nodes (including static ones) so STT mute filter works
         self.active_agent.current_node = node
+        self._node_entry_user_message[(agent.visit_id, node.id)] = self._last_user_message()
 
         # Track visited nodes in gathered context for call tags
         nodes_visited = self._gathered_context.setdefault("nodes_visited", [])

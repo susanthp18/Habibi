@@ -967,8 +967,7 @@ def create_tts_service(
         # AgentStudio: a multilingual agent speaks each sentence with the
         # voice for its language.
         voice_map = dict(getattr(user_config.tts, "voice_map", None) or {})
-        if voice_map:
-            settings_kwargs["voice_map"] = voice_map
+        settings_kwargs["voice_map"] = voice_map
         from api.services.pipecat.arabic_numbers import ArabicAmountsFilter
 
         return AzureTTSService(

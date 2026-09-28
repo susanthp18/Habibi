@@ -7249,7 +7249,7 @@ export type UserConfigurationRequestResponseSchema = {
      * Tts
      */
     tts?: {
-        [key: string]: string | number | Array<string> | null;
+        [key: string]: string | number | Array<string> | { [key: string]: string } | null;
     } | null;
     /**
      * Stt

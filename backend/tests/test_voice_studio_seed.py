@@ -65,3 +65,14 @@ def test_a_tool_that_drifted_from_its_approved_shape_stops_the_seed(monkeypatch)
                         lambda tool, cred: ["unapproved endpoint"] if tool["name"] == "promise_to_pay" else [])
     with pytest.raises(SystemExit, match="promise_to_pay: unapproved endpoint"):
         seed.validate_tools(engine, {t["name"]: t["tool_uuid"] for t in engine.tools}, "cred")
+
+
+def test_outbound_edges_require_evidence_before_identity_or_success_close():
+    tools = {spec["name"]: f"u-{spec['name']}" for spec in seed.TOOLS}
+    tools["transfer_to_human"] = "u-transfer_to_human"
+    definition = seed.build_definition(tools, "http://hooks", "cred", "trigger", [])
+    edges = {(e["source"], e["target"]): e["data"] for e in definition["edges"]}
+
+    assert edges["start", "verify"]["requires_user_turn"] is True
+    assert edges["resolve", "end_done"]["requires_successful_action"] is True
+    assert edges["resolve", "end_failed"]["allow_failed_action"] is True

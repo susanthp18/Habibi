@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import re
 
 from loguru import logger
@@ -68,6 +69,7 @@ class _OrgRoutingExporter(SpanExporter):
         self._default_exporter = default_exporter
         self._org_exporters = {}
         self._org_hosts = {}
+        self._org_exporter_configs = {}
         self._org_project_ids = {}
         self._org_traces_public = {}
 
@@ -92,6 +94,7 @@ class _OrgRoutingExporter(SpanExporter):
         normalized_host = normalize_langfuse_host(host)
         auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
         endpoint = f"{normalized_host}/api/public/otel/v1/traces"
+        config = (endpoint, hashlib.sha256(auth.encode()).digest())
 
         # Kept even when the exporter itself is unchanged, so a project id
         # resolved on a later pass still lands.
@@ -104,30 +107,26 @@ class _OrgRoutingExporter(SpanExporter):
         self._org_traces_public[key] = bool(traces_public)
 
         # Skip if already registered with identical settings
-        if key in self._org_exporters:
-            existing = self._org_exporters[key]
-            if (
-                self._org_hosts.get(key) == normalized_host
-                and getattr(existing, "_endpoint", None) == endpoint
-                and existing._headers.get("Authorization") == f"Basic {auth}"
-            ):
-                return
-            # Credentials changed — shut down the old exporter
-            logger.info(f"Updating OTEL exporter for org {org_id}")
-            existing.shutdown()
-
-        self._org_hosts[key] = normalized_host
+        existing = self._org_exporters.get(key)
+        if existing and self._org_exporter_configs.get(key) == config:
+            return
         exporter = OTLPSpanExporter(
             endpoint=endpoint,
             headers={"Authorization": f"Basic {auth}"},
         )
+        if existing:
+            logger.info(f"Updating OTEL exporter for org {org_id}")
+            existing.shutdown()
+        self._org_hosts[key] = normalized_host
         self._org_exporters[key] = exporter
+        self._org_exporter_configs[key] = config
         logger.info(f"Registered OTEL exporter for org {org_id}")
 
     def unregister_org(self, org_id):
         key = str(org_id)
         exporter = self._org_exporters.pop(key, None)
         self._org_hosts.pop(key, None)
+        self._org_exporter_configs.pop(key, None)
         self._org_project_ids.pop(key, None)
         self._org_traces_public.pop(key, None)
         if exporter:

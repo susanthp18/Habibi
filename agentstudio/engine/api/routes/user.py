@@ -116,7 +116,7 @@ async def get_auth_user(
 
 class UserConfigurationRequestResponseSchema(BaseModel):
     llm: dict[str, Union[str, float, list[str], None]] | None = None
-    tts: dict[str, Union[str, float, list[str], None]] | None = None
+    tts: dict[str, Union[str, float, list[str], dict[str, str], None]] | None = None
     stt: dict[str, Union[str, float, list[str], None]] | None = None
     embeddings: dict[str, Union[str, float, list[str], None]] | None = None
     realtime: dict[str, Union[str, float, list[str], None]] | None = None

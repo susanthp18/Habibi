@@ -82,6 +82,8 @@ export type FlowEdgeData = {
     transition_speech_type?: 'text' | 'audio';
     transition_speech_recording_id?: string;
     allow_failed_action?: boolean;
+    requires_user_turn?: boolean;
+    requires_successful_action?: boolean;
     invalid?: boolean;
     validationMessage?: string | null;
 }

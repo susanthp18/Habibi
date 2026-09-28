@@ -52,6 +52,7 @@ def test_create_azure_speech_tts_service():
     assert kwargs["region"] == "eastus"
     assert kwargs["settings"].voice == "en-US-AriaNeural"
     assert kwargs["settings"].language == "en-US"
+    assert kwargs["settings"].voice_map == {}
 
 
 def test_create_azure_speech_tts_service_with_speed():

@@ -19,7 +19,7 @@ rm -rf "$WORK/dograh/.git" "$WORK/pipecat/.git"
 rmdir "$WORK/dograh/pipecat" 2>/dev/null || true
 
 # Line endings differ between checkouts (autocrlf); only content counts.
-common=(--strip-trailing-cr --exclude=__pycache__ --exclude=node_modules --exclude=.pytest_cache)
+common=(--strip-trailing-cr --exclude=__pycache__ --exclude=node_modules --exclude=.pytest_cache --exclude=.next --exclude=*.tsbuildinfo --exclude=next-env.d.ts)
 ( cd "$WORK" && diff -ruN "${common[@]}" --exclude=pipecat dograh "$ENGINE" ) \
   | sed "s#$ENGINE#engine#g" > "$HERE/engine.diff" || true
 ( cd "$WORK" && diff -ruN "${common[@]}" pipecat "$ENGINE/pipecat" ) \

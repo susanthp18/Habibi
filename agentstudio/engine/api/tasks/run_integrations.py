@@ -199,29 +199,31 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             logger.warning("No organization found, skipping integrations")
             return
 
-        # Set org context for tracing and register org-specific Langfuse credentials
-        # FIXME: If an org removes langfuse credentials during an exisitng deployment
-        # we should unregister an existing langfuse credentials for that org.
+        # Filing the completed call must not depend on optional tracing setup.
         set_current_org_id(organization_id)
-        langfuse_config = await db_client.get_configuration_value(
-            organization_id,
-            OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
-        )
-        if langfuse_config:
-            register_org_langfuse_credentials(
-                org_id=organization_id,
-                host=langfuse_config.get("host"),
-                public_key=langfuse_config.get("public_key"),
-                secret_key=langfuse_config.get("secret_key"),
-                project_id=langfuse_config.get("project_id"),
-                traces_public=langfuse_config.get("traces_public", False),
-            )
-
-        # AgentStudio: PayInt files every call, whatever nodes the agent has.
         try:
             await _notify_payint(workflow_run, organization_id, workflow_run_id)
         except Exception as e:  # PayInt's reconcile sweep still files the run
             logger.warning(f"PayInt run-completed notice not queued: {e}")
+
+        # FIXME: If an org removes Langfuse credentials during an existing deployment,
+        # unregister its exporter as well. A telemetry failure must not skip webhooks.
+        try:
+            langfuse_config = await db_client.get_configuration_value(
+                organization_id,
+                OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+            )
+            if langfuse_config:
+                register_org_langfuse_credentials(
+                    org_id=organization_id,
+                    host=langfuse_config.get("host"),
+                    public_key=langfuse_config.get("public_key"),
+                    secret_key=langfuse_config.get("secret_key"),
+                    project_id=langfuse_config.get("project_id"),
+                    traces_public=langfuse_config.get("traces_public", False),
+                )
+        except Exception as e:
+            logger.warning(f"Langfuse registration failed for org {organization_id}: {e}")
 
         # Step 2: Get workflow definition from the run's pinned version
         workflow_definition = workflow_run.definition.workflow_json

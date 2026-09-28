@@ -1111,6 +1111,8 @@ class EdgeDataDTO(BaseModel):
     transition_speech_type: Optional[str] = None  # 'text' or 'audio'
     transition_speech_recording_id: Optional[str] = None
     allow_failed_action: bool = False
+    requires_user_turn: bool = False
+    requires_successful_action: bool = False
 
 
 class RFEdgeDTO(BaseModel):

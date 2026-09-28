@@ -467,6 +467,19 @@ class CustomToolManager:
                     )
                     return
                 arguments = _write_arguments(self._engine, self._agent, tool, arguments, function_name)
+            if function_name == "verify_identity":
+                # Digits the caller has not yet given are a guess: on
+                # WhatsApp the opening turn once "verified" with 4821 and
+                # burned one of the customer's attempts.
+                said = self._engine._last_user_message()
+                if (not self._engine.caller_spoke_in_node(self._agent)
+                        or said is self._engine._verified_user_message):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "no_new_digits_from_caller",
+                        "say": "Ask the customer for the four digits and wait for their answer.",
+                    })
+                    return
+                self._engine._verified_user_message = said
             verified = any(visit == self._agent.visit_id and accepted
                            for (visit, _node), accepted in self._engine._verification_outcomes.items())
             denied = live_policy_error(policy, self._engine._call_context_vars, verified)
