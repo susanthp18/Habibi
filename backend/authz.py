@@ -138,17 +138,17 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     (CONSENT_WRITE, "consent", "write", "Change consent and record opt-outs"),
     (ANALYTICS_READ, "analytics", "read", "View dashboards, bot analytics and offer health"),
     (BILLING_READ, "billing", "read", "View spend, invoices and budgets"),
-    (BILLING_WRITE, "billing", "write", "Change budget rules"),
+    (BILLING_WRITE, "billing", "write", "Change budgets and their rules; issue cost statements"),
     (COMPLIANCE_READ, "compliance", "read", "View violations, redaction records and exports"),
     (COMPLIANCE_WRITE, "compliance", "write", "Resolve violations, edit redaction, run exports"),
     (KB_READ, "kb", "read", "Search and browse the knowledge base"),
     (KB_WRITE, "kb", "write", "Upload, edit, reindex and purge knowledge base content"),
-    (BOT_READ, "bot", "read", "View prompts, flows, deployments and bot configuration"),
+    (BOT_READ, "bot", "read", "Open Voice Studio: agents, runs, campaigns and configuration (masked)"),
     (BOT_WRITE, "bot", "write", "Author and publish prompts, flows and deployments"),
-    (AGENT_EDIT, "agent", "edit", "Author agent cards, tools and handoff allowlists"),
-    (AGENT_PUBLISH, "agent", "publish", "Compile and publish an agent card to production"),
-    (TOOL_APPROVE, "integrations", "approve_tool", "Approve or revoke a reviewed Voice Studio tool revision"),
-    (EVAL_RUN, "eval", "run", "Run regression eval suites against a card"),
+    (AGENT_EDIT, "agent", "edit", "Edit Voice Studio agents, their tools, guardrails and MCP keys"),
+    (AGENT_PUBLISH, "agent", "publish", "Publish, roll back, archive or embed a Voice Studio agent; route calls to it"),
+    (TOOL_APPROVE, "agent", "approve_tool", "Approve or revoke a reviewed Voice Studio tool revision"),
+    (EVAL_RUN, "eval", "run", "Run checks and AI-customer simulations against an agent"),
     (POLICY_EXPORT, "policy", "export", "Download the OPA/Cedar projection of live Python policy"),
     (POLICY_READ, "policy", "read", "Read the versioned policy catalogue"),
     (POLICY_PUBLISH, "policy", "publish", "Submit a policy draft for approval"),
@@ -161,11 +161,11 @@ PERMISSION_CATALOG: tuple[tuple[str, str, str, str], ...] = (
     ),
     (SUBJECT_RIGHTS_READ, "subject_rights", "read", "Read DPDP subject requests and evidence packs"),
     (SUBJECT_RIGHTS_WRITE, "subject_rights", "write", "Create and progress DPDP subject requests"),
-    (VOICE_OPERATE, "voice", "operate", "Place outbound calls and run voice sandbox sessions"),
+    (VOICE_OPERATE, "voice", "operate", "Place calls: test calls, browser calls, engine campaign drafts"),
     (SUPERVISOR_READ, "supervisor", "read", "View the live floor: agent presence, live alerts"),
     (SUPERVISOR_WRITE, "supervisor", "write", "Floor supervision, takeover and handoff actions"),
     (INTEGRATIONS_READ, "integrations", "read", "View providers, connectors, vault refs and our MCP"),
-    (INTEGRATIONS_WRITE, "integrations", "write", "Configure providers, connectors, vault secrets and MCP keys"),
+    (INTEGRATIONS_WRITE, "integrations", "write", "Configure providers, credentials, telephony, phone numbers and model configs"),
     (OBSERVABILITY_READ, "observability", "read", "Scrape /metrics (service accounts and operators)"),
     (BANK_BOUNDARY_READ, "bank_boundary", "read", "Read bank-boundary contracts, manifests, readiness and outbox"),
     (BANK_BOUNDARY_WRITE, "bank_boundary", "write", "Ingest bank-boundary manifests and file complaints"),
@@ -260,6 +260,15 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
             INTEGRATIONS_READ,
         }
     ),
+    # Voice Studio maker and checker: a designer builds and rehearses an agent,
+    # an approver releases it and approves the tools it calls. Neither can do
+    # both, so going live always takes two people.
+    "voice_designer": frozenset(
+        {BOT_READ, AGENT_EDIT, EVAL_RUN, KB_READ, KB_WRITE, INTEGRATIONS_READ}
+    ),
+    "release_approver": frozenset(
+        {BOT_READ, AGENT_PUBLISH, TOOL_APPROVE, EVAL_RUN, KB_READ}
+    ),
 }
 ROLE_DEFAULTS["dpo"] = ROLE_DEFAULTS["compliance_officer"]
 
@@ -309,6 +318,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/voice-studio/hooks/transfer"),
         ("POST", "/voice-studio/hooks/run-completed"),
         ("POST", "/voice-studio/hooks/admit"),
+        ("POST", "/voice-studio/hooks/authorize"),
         ("POST", "/api/offer"),
         ("PATCH", "/api/offer"),
         ("POST", "/voice-rtc/api/offer"),
@@ -365,9 +375,19 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("POST", "/voice-studio/mcp-keys"): AGENT_EDIT,
     ("POST", "/voice-studio/mcp-keys/{key_id}/rotate"): AGENT_EDIT,
     ("DELETE", "/voice-studio/mcp-keys/{key_id}"): AGENT_EDIT,
+    ("GET", "/settings/test-numbers"): VOICE_OPERATE,
+    ("POST", "/settings/test-numbers"): ADMIN_WRITE,
+    ("DELETE", "/settings/test-numbers/{number_id}"): ADMIN_WRITE,
+    ("GET", "/voice-studio/test-call"): VOICE_OPERATE,
+    ("POST", "/voice-studio/test-call/preview"): VOICE_OPERATE,
+    ("POST", "/voice-studio/test-call"): VOICE_OPERATE,
     # --- billing -----------------------------------------------------------
     ("GET", "/billing"): BILLING_READ,
     ("GET", "/billing/export.csv"): BILLING_READ,
+    ("PATCH", "/billing/budgets/{budget_id}"): BILLING_WRITE,
+    ("GET", "/billing/invoices/{invoice_id}"): BILLING_READ,
+    ("GET", "/billing/invoices/{invoice_id}/export.csv"): BILLING_READ,
+    ("POST", "/billing/invoices/{invoice_id}/status"): BILLING_WRITE,
     ("POST", "/billing/budgets/{budget_id}/rules"): BILLING_WRITE,
     ("PATCH", "/billing/budgets/{budget_id}/rules/{rule_id}"): BILLING_WRITE,
     ("DELETE", "/billing/budgets/{budget_id}/rules/{rule_id}"): BILLING_WRITE,
@@ -681,8 +701,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("PATCH", "/platform/switches/{key}"): ADMIN_WRITE,
     # --- voice operation ---------------------------------------------------
     ("GET", "/twilio/voice/status"): BOT_READ,
-    ("GET", "/demo/outbound-call"): BOT_READ,
-    ("POST", "/demo/outbound-call"): VOICE_OPERATE,
     ("POST", "/twilio/voice/outbound"): VOICE_OPERATE,
 }
 

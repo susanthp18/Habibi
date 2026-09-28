@@ -435,13 +435,6 @@ def _maybe_policy_jobs() -> None:
 
         with db.engine.begin() as conn:
             policy_jobs.horizon_scan(conn, now=now, report_only=True)
-def _maybe_billing_jobs() -> None:
-    """Budgets checked hourly; last month's cost statements on the 1st."""
-    import billing_jobs
-
-    billing_jobs.tick(_daily, utc_now())
-
-
             if now.hour >= _POLICY_CUTOVER_HOUR_UTC:
                 policy_jobs.cutover_cancel(conn, now=now)
     except Exception:
@@ -453,6 +446,13 @@ def _maybe_decision_jobs() -> None:
     import decision_jobs
 
     decision_jobs.tick(_daily, utc_now())
+
+
+def _maybe_billing_jobs() -> None:
+    """Budgets checked hourly; last month's cost statements on the 1st."""
+    import billing_jobs
+
+    billing_jobs.tick(_daily, utc_now())
 
 
 def main() -> None:
