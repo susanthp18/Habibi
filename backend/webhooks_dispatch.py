@@ -274,44 +274,48 @@ def dispatch(
     logged and the caller carries on.
     """
     try:
-        import db
+        # A savepoint: a failure must roll back only the enqueue. Caught
+        # without one, it aborts the caller's transaction, whose COMMIT then
+        # silently rolls back the payment, promise or dispute it announced.
+        with conn.begin_nested():
+            import db
 
-        tenant = tenant_id or db.current_tenant()
-        endpoints = _endpoints_for(conn, event_key, tenant)
-        if not endpoints:
-            return []
-        body = {
-            "event": event_key,
-            "tenant": tenant,
-            "at": utc_now().isoformat(),
-            "data": payload,
-        }
-        ids: list[str] = []
-        for ep in endpoints:
-            did = _sid("dlv")
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO webhook_deliveries (
-                      id, endpoint_id, event_type_id, payload, attempt_number,
-                      status, delivery_mode, created_at, updated_at, request_id
-                    ) VALUES (
-                      :id, :eid, :et, CAST(:payload AS jsonb), 0,
-                      'pending', 'live', now(), now(), :rid
-                    )
-                    """
-                ),
-                {
-                    "id": did,
-                    "eid": ep["id"],
-                    "et": ep["event_type_id"],
-                    "payload": json.dumps(body),
-                    "rid": request_context.get_request_id(),
-                },
-            )
-            ids.append(did)
-        logger.info("webhook dispatch event=%s queued=%d", event_key, len(ids))
-        return ids
+            tenant = tenant_id or db.current_tenant()
+            endpoints = _endpoints_for(conn, event_key, tenant)
+            if not endpoints:
+                return []
+            body = {
+                "event": event_key,
+                "tenant": tenant,
+                "at": utc_now().isoformat(),
+                "data": payload,
+            }
+            ids: list[str] = []
+            for ep in endpoints:
+                did = _sid("dlv")
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO webhook_deliveries (
+                          id, endpoint_id, event_type_id, payload, attempt_number,
+                          status, delivery_mode, created_at, updated_at, request_id
+                        ) VALUES (
+                          :id, :eid, :et, CAST(:payload AS jsonb), 0,
+                          'pending', 'live', now(), now(), :rid
+                        )
+                        """
+                    ),
+                    {
+                        "id": did,
+                        "eid": ep["id"],
+                        "et": ep["event_type_id"],
+                        "payload": json.dumps(body),
+                        "rid": request_context.get_request_id(),
+                    },
+                )
+                ids.append(did)
+            logger.info("webhook dispatch event=%s queued=%d", event_key, len(ids))
+            return ids
     except Exception:
         logger.exception("webhook dispatch failed event=%s", event_key)
         return []

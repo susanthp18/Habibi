@@ -637,9 +637,10 @@ def _tool_flag_dispute(ctx: dict[str, Any], args: dict[str, Any], interaction_id
 
     if (blocked := _require_verified(interaction_id, ctx)) is not None:
         return blocked
+    said = str(args.get("type") or "").strip().lower()
     result = domain.flag_dispute(
         customer_id=str(ctx.get("customer_id") or ""),
-        dispute_type=str(args.get("type") or "other"),
+        dispute_type=DISPUTE_ALIASES.get(said, said),
         interaction_id=interaction_id,
         account_id=ctx.get("account_id"),
         amount=_amount(args.get("amount")),
@@ -684,6 +685,86 @@ def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_
                    + ", thank them, and end the conversation."}
 
 
+def _tool_request_documents(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
+    """Operations sends a statement, certificate or letter (the Document desk)."""
+    from agent_core.tools import domain
+
+    if (blocked := _require_verified(interaction_id, ctx)) is not None:
+        return blocked
+    doc_type = str(args.get("type") or "").strip().lower()
+    result = domain.request_documents(
+        customer_id=str(ctx.get("customer_id") or ""),
+        document_type=doc_type,
+        interaction_id=interaction_id,
+        account_id=ctx.get("account_id"),
+        # On WhatsApp the thread is the natural place for it to arrive.
+        delivery_channel=str(args.get("channel") or ("whatsapp" if ctx.get("channel") == "whatsapp" else "")) or None,
+        period=args.get("period"),
+        requested_via="bot_chat" if ctx.get("channel") == "whatsapp" else "bot_voice",
+        idempotency_key=f"vs-{ctx.get('workflow_run_id')}-doc-{doc_type}",
+    )
+    return result.to_llm()
+
+
+def _product_id(said: str) -> str | None:
+    """The catalogue product the customer named: its id, its name, or the one
+    active product whose name contains what they said."""
+    import db
+
+    said = said.strip()
+    if not said:
+        return None
+    with db.engine.connect() as conn:
+        exact = conn.execute(text(
+            "SELECT id FROM products WHERE is_active AND (lower(id) = lower(:s) OR lower(name) = lower(:s)) LIMIT 1"
+        ), {"s": said}).scalar()
+        if exact:
+            return str(exact)
+        loose = conn.execute(text(
+            "SELECT id FROM products WHERE is_active AND name ILIKE '%' || :s || '%' LIMIT 2"
+        ), {"s": said}).scalars().all()
+    return str(loose[0]) if len(loose) == 1 else None
+
+
+def _tool_capture_lead(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
+    """The customer is interested in a product: a lead for Upsell & leads,
+    after the same eligibility and consent re-check every channel gets."""
+    import db
+    from agent_core.tools import domain
+
+    if (blocked := _require_verified(interaction_id, ctx)) is not None:
+        return blocked
+    product_id = _product_id(str(args.get("product") or ""))
+    if product_id is None:
+        with db.engine.connect() as conn:
+            names = conn.execute(text("SELECT name FROM products WHERE is_active ORDER BY name")).scalars().all()
+        return {"ok": False, "error": "product_not_found", "products": list(names),
+                "say": "Ask which of these products they mean, or note their interest and move on."}
+    whatsapp = ctx.get("channel") == "whatsapp"
+    result = domain.capture_lead(
+        customer_id=str(ctx.get("customer_id") or ""),
+        product_id=product_id,
+        interaction_id=interaction_id,
+        bot_id=_ctx_bot_id(ctx),
+        offer_amount=_amount(args.get("amount")),
+        summary=args.get("summary"),
+        source="bot_chat" if whatsapp else "bot_voice",
+        channel="whatsapp" if whatsapp else "voice",
+        idempotency_key=f"vs-{ctx.get('workflow_run_id')}-lead-{product_id}",
+    )
+    return result.to_llm()
+
+
+#: The words an agent may use for a dispute, onto the ledger's types.
+DISPUTE_ALIASES = {
+    "already_paid": "paid_already",
+    "amount_mismatch": "wrong_amount",
+    "not_my_transaction": "not_my_account",
+    "duplicate": "duplicate_charge",
+    "waiver": "fee_waiver",
+}
+
+
 TOOLS = {
     "account_position": _tool_account_position,
     "verify_identity": _tool_verify_identity,
@@ -691,6 +772,8 @@ TOOLS = {
     "request_callback": _tool_request_callback,
     "flag_dispute": _tool_flag_dispute,
     "record_opt_out": _tool_record_opt_out,
+    "request_documents": _tool_request_documents,
+    "capture_lead": _tool_capture_lead,
 }
 
 #: Engine-injected call ids, never supplied by the model.

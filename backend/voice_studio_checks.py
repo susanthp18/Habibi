@@ -166,8 +166,8 @@ def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict
         }
     if name == "record_opt_out":
         return {"ok": True, "rehearsal": True, "note": "Test conversation: no opt-out was recorded."}
-    if name in ("promise_to_pay", "request_callback", "flag_dispute"):
-        if name == "promise_to_pay" and run not in _verified_runs:
+    if name in ("promise_to_pay", "request_callback", "flag_dispute", "request_documents", "capture_lead"):
+        if name in ("promise_to_pay", "request_documents", "capture_lead") and run not in _verified_runs:
             return {"ok": False, "error": "identity_not_verified", "say": "Verify the customer's identity first."}
         return {"ok": True, "rehearsal": True, "reference": f"TEST-{uuid.uuid4().hex[:8].upper()}",
                 "note": "Test conversation: nothing was recorded."}

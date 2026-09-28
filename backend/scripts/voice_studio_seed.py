@@ -7,7 +7,8 @@ published definitions and live routing are left untouched. No secret is printed.
 What it creates in the engine (as the system actor, via the internal API):
   * credential  "PayInt hooks"          bearer = VOICE_STUDIO_HOOK_TOKEN
   * HTTP tools  verify_identity, account_position, promise_to_pay,
-                request_callback, flag_dispute  -> /voice-studio/hooks/tools/*
+                request_callback, flag_dispute, record_opt_out,
+                request_documents, capture_lead -> /voice-studio/hooks/tools/*
   * transfer    transfer_to_human (dynamic)     -> /voice-studio/hooks/transfer
   * agent       "Collections - overdue reminder": greeting (inbound pre-call
                 lookup), identity, position, resolution, closings, API
@@ -108,7 +109,7 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Open a dispute when the customer says a charge or the amount is wrong.",
         "parameters": [
             {"name": "type", "type": "string", "required": True,
-             "description": "One of: amount_mismatch, not_my_transaction, already_paid, service_issue, other."},
+             "description": "One of: paid_already, wrong_amount, not_my_account, duplicate_charge, fee_waiver, fraud."},
             {"name": "summary", "type": "string", "required": True, "description": "One sentence."},
         ],
     },
@@ -119,6 +120,30 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": [
             {"name": "scope", "type": "string", "required": True,
              "description": "this_channel, or all when they ask never to be contacted by any means."},
+        ],
+    },
+    {
+        "name": "request_documents",
+        "description": "Ask Operations to send the verified customer a document they ask for.",
+        "parameters": [
+            {"name": "type", "type": "string", "required": True,
+             "description": "One of: account_statement, no_dues_certificate, interest_certificate, "
+                            "foreclosure_letter, loan_schedule, payment_receipt, kyc_letter."},
+            {"name": "channel", "type": "string", "required": False,
+             "description": "How they want it: whatsapp, email or sms."},
+            {"name": "period", "type": "string", "required": False,
+             "description": "For a statement: the period they asked for, e.g. 2026-04 to 2026-09."},
+        ],
+    },
+    {
+        "name": "capture_lead",
+        "description": ("Record that the verified customer is interested in one of our products, so a specialist "
+                        "follows up. Only when they express interest; never push."),
+        "parameters": [
+            {"name": "product", "type": "string", "required": True,
+             "description": "The product as the customer named it, e.g. Top-up Loan, Gold Loan, Credit Card."},
+            {"name": "summary", "type": "string", "required": False, "description": "One sentence on what they want."},
+            {"name": "amount", "type": "number", "required": False, "description": "An amount they mentioned, if any."},
         ],
     },
 ]
@@ -385,16 +410,19 @@ def build_definition(
         "start": ["record_opt_out"],
         "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
         "position": ["account_position", "flag_dispute", "transfer_to_human", "record_opt_out"],
-        "resolve": ["promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
+        "resolve": ["promise_to_pay", "request_callback", "flag_dispute", "request_documents", "capture_lead",
+                    "transfer_to_human", "record_opt_out"],
     }
     inbound_tools = {
         "start": ["transfer_to_human", "record_opt_out"], "general": ["transfer_to_human", "record_opt_out"],
         "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
-        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
+        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "request_documents",
+                 "capture_lead", "transfer_to_human", "record_opt_out"],
     }
     whatsapp_tools = {
         "start": ["transfer_to_human", "record_opt_out"], "verify": ["verify_identity", "transfer_to_human", "record_opt_out"],
-        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "transfer_to_human", "record_opt_out"],
+        "help": ["account_position", "promise_to_pay", "request_callback", "flag_dispute", "request_documents",
+                 "capture_lead", "transfer_to_human", "record_opt_out"],
     }
     specs = {
         "outbound": (NODES, EDGES, GLOBAL_PROMPT, outbound_tools),
