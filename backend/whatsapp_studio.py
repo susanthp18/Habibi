@@ -140,7 +140,15 @@ def converse(
             f"/workflow/{workflow_id}/text-chat/sessions",
             json={
                 "name": f"WA-{conv['id']}",
-                "initial_context": {**_initial_context(conv), "conversation_so_far": _thread_so_far(conv["id"])},
+                "initial_context": {
+                    **_initial_context(conv), "conversation_so_far": _thread_so_far(conv["id"]),
+                    # The session opens before the customer's message is sent, and a
+                    # model asked to greet there tries to act on the thread instead
+                    # (smoke runs 16-17 sent nothing). A fixed line always greets; the
+                    # agent introduces itself in its reply.
+                    "greeting_override": {"type": "text",
+                                          "text": "Hi {{first_name | fallback:there}}, thanks for your message."},
+                },
                 "annotations": {"channel": "whatsapp", "conversation_id": conv["id"]},
                 # A customer is answered by the released agent, never a draft.
                 "use_draft": False,
