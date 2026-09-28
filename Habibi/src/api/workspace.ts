@@ -86,6 +86,7 @@ export function bucketWorkItems(items: WorkItem[]) {
     return status === "broken" || status === "partial" || status === "due_today";
   });
   const followupsRows = items.filter((i) => i.entityType === "followup");
+  const leadsRows = items.filter((i) => i.entityType === "lead");
   const bouncesRows = items.filter((i) => i.entityType === "bounce");
   return {
     disputes: disputesRows,
@@ -93,6 +94,7 @@ export function bucketWorkItems(items: WorkItem[]) {
     docs: docsRows,
     ptps: ptpsRows,
     followups: followupsRows,
+    leads: leadsRows,
     bounces: bouncesRows,
   };
 }

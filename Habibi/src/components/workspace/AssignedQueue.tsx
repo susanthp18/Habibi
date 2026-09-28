@@ -18,7 +18,7 @@ import {
   type RecordsColumn,
 } from "@/components/records/RecordsTable";
 
-type TabKey = "disputes" | "callbacks" | "docs" | "ptps" | "followups" | "bounces";
+type TabKey = "disputes" | "callbacks" | "docs" | "ptps" | "followups" | "leads" | "bounces";
 
 const TAB_META: { key: TabKey; label: string }[] = [
   { key: "disputes", label: "Disputes" },
@@ -26,6 +26,7 @@ const TAB_META: { key: TabKey; label: string }[] = [
   { key: "docs", label: "Doc requests" },
   { key: "ptps", label: "Broken PTPs" },
   { key: "followups", label: "Followups" },
+  { key: "leads", label: "Leads" },
   { key: "bounces", label: "Bounces" },
 ];
 
