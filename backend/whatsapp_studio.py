@@ -148,11 +148,12 @@ def converse(conv: dict[str, Any], state: dict[str, Any], customer_text: str) ->
 
 def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     """One WhatsApp bot turn answered by the engine agent."""
-    import bot_runtime
+    import bot_turn
     import bot_turn_write
+    import whatsapp as wa
 
     job_id, conversation_id = job["id"], job["conversation_id"]
-    reuse = bot_runtime._reuse_prior_outbound(engine, job)
+    reuse = bot_turn.reuse_prior_outbound(engine, job)
     if reuse is None:
         return
     reuse_outbound_id, reuse_body = reuse
@@ -176,12 +177,12 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
             bot_jobs.mark_cancelled(conn, job_id, "no_customer_text")
         return
     try:
-        bot_runtime.wa.mark_read_with_typing(message_id=bot_runtime._inbound_wamid(engine, latest_msg_id) or "")
+        wa.mark_read_with_typing(message_id=bot_turn.inbound_wamid(engine, latest_msg_id) or "")
     except Exception:
         logger.info("whatsapp typing indicator failed job=%s", job_id, exc_info=True)
 
     state = bot_conversation.bot_state(conv)
-    t = bot_runtime.Turn(
+    t = bot_turn.Turn(
         job=job, job_id=job_id, conversation_id=conversation_id,
         reuse_outbound_id=reuse_outbound_id, reuse_body=reuse_body, conv=conv,
         customer_text=customer_text, latest_msg_id=latest_msg_id, state=state,
@@ -189,11 +190,11 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         temperature=0.0, max_completion_tokens=0, turn_started_at=utc_now(),
     )
     if lexicon.is_abusive(customer_text):
-        bot_runtime.notify_then_escalate(engine, t, reason="Customer used abusive language — escalated to human")
+        bot_turn.notify_then_escalate(engine, t, reason="Customer used abusive language — escalated to human")
         return
     max_turns = int(voice_studio.guardrails_for(state.get("studio_workflow_id")).get("maxTurns") or 20)
     if _session_current(state) and int(state.get("studio_turns") or 0) >= max_turns:
-        bot_runtime.notify_then_escalate(engine, t, reason="max_turns_exceeded")
+        bot_turn.notify_then_escalate(engine, t, reason="max_turns_exceeded")
         return
 
     generated_for = state.get("last_trigger_message_id")
@@ -214,10 +215,10 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         state["last_trigger_message_id"] = latest_msg_id
         bot_conversation.save_bot_state(engine, conversation_id, state)
         if wants_person:
-            bot_runtime.notify_then_escalate(engine, t, reason="Customer requested a human agent")
+            bot_turn.notify_then_escalate(engine, t, reason="Customer requested a human agent")
             return
         if not t.final_text:
-            bot_runtime.notify_then_escalate(engine, t, reason="voice_studio_empty_reply")
+            bot_turn.notify_then_escalate(engine, t, reason="voice_studio_empty_reply")
             return
 
     if not bot_turn_write.send_reply(engine, t):

@@ -19,7 +19,7 @@ from agent_core.clock import utc_now
 from agent_core.sentiment import sentiment_label
 
 if TYPE_CHECKING:
-    from bot_runtime import Turn
+    from bot_turn import Turn
 
 logger = logging.getLogger(__name__)
 

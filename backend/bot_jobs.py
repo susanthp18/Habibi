@@ -511,9 +511,9 @@ def process_one(engine: Engine) -> bool:
     # customer is waiting on a reply that is never coming.
     for dead in reclaimed_dead:
         try:
-            import bot_runtime
+            import bot_turn
 
-            bot_runtime.notify_then_escalate(
+            bot_turn.notify_then_escalate(
                 engine,
                 reason=f"bot_turn_dead: reclaim exhausted attempts (job {dead['id']})",
                 conversation_id=dead["conversationId"],
@@ -537,9 +537,9 @@ def process_one(engine: Engine) -> bool:
             status = mark_failed_or_retry(conn, job, str(exc))
         if status == "dead":
             try:
-                import bot_runtime
+                import bot_turn
 
-                bot_runtime.notify_then_escalate(
+                bot_turn.notify_then_escalate(
                     engine,
                     reason=f"bot_turn_dead: {exc}",
                     conversation_id=job["conversation_id"],
