@@ -265,7 +265,7 @@ def _maybe_autoscore_interactions() -> None:
     """Score completed bot calls against the QA rubric (~2 min).
 
     Chosen over a new job table because ``bot_turn_jobs`` has no ``kind`` column
-    and ``bot_jobs.process_one`` hard-codes ``bot_runtime.handle_turn``, so a
+    and ``bot_jobs.process_one`` runs only the WhatsApp turn, so a
     second job kind would need a schema change for work that is not
     latency-sensitive. This mirrors the other periodic ``_maybe_*`` sweeps here.
 

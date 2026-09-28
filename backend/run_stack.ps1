@@ -43,7 +43,6 @@ $Services = @(
     @{ Name = 'api';             Args = @('-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'); Match = 'uvicorn main:app'; Log = 'api' }
     @{ Name = 'bot_worker';      Args = @('-m', 'bot_worker');                                                   Match = '-m bot_worker';   Log = 'botworker' }
     @{ Name = 'kb_worker';       Args = @('-m', 'worker');                                                       Match = '-m worker';       Log = 'worker' }
-    @{ Name = 'voice';           Args = @('-m', 'voice.bot', '--host', '127.0.0.1', '--port', '7860');            Match = '-m voice.bot';    Log = 'voice' }
 )
 
 function Get-StackProcesses {

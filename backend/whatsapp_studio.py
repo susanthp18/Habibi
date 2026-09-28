@@ -25,20 +25,11 @@ import bot_jobs
 import voice_studio
 from agent_core import lexicon
 from agent_core.clock import utc_now
-from env_utils import env_str
 
 logger = logging.getLogger(__name__)
 
 OBJECTIVE = "whatsapp"
 TRANSFER_TOOL = "transfer_to_human"
-
-
-def enabled() -> bool:
-    """On once Voice Studio is configured; WHATSAPP_BOT_ENGINE=legacy forces the old runtime."""
-    choice = env_str("WHATSAPP_BOT_ENGINE", "").strip().lower()
-    if choice:
-        return choice == "studio"
-    return voice_studio.configured()
 
 
 def _initial_context(conv: dict[str, Any]) -> dict[str, Any]:
@@ -153,6 +144,11 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
     import whatsapp as wa
 
     job_id, conversation_id = job["id"], job["conversation_id"]
+    if not voice_studio.configured():
+        # No engine to answer: a person does, rather than the customer waiting.
+        bot_turn.notify_then_escalate(engine, reason="voice_studio_not_configured",
+                                      conversation_id=conversation_id, job_id=job_id)
+        return
     reuse = bot_turn.reuse_prior_outbound(engine, job)
     if reuse is None:
         return

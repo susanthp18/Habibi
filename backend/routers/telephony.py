@@ -1,7 +1,8 @@
-"""Telephony: Twilio webhooks, voice sessions, calls, websockets.
+"""Telephony: calls, Twilio webhooks, and the operator's outbound dial.
 
-Split out of main.py by domain (WS7). Routes are verbatim; the router is
-included by main.py.
+Voice Studio (the engine) carries every call's audio. What is left here is
+the call record, a number's inbound webhook handed to the engine, the voice
+fallback, SMS delivery receipts, and the operator's gated outbound dial.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ import asyncio
 import db
 import logging
 import os
-import secrets
 
 from fastapi import APIRouter
 from fastapi import (
@@ -18,17 +18,15 @@ from fastapi import (
     Query,
     Request,
     Response,
-    WebSocket,
 )
 from schemas import (
     CallResponse,
     TwilioOutboundCallRequest,
     TwilioOutboundCallResponse,
-    TwilioVoiceStatusResponse,
 )
 from typing import Any
 
-from api_support import EMBEDDED_VOICE_HOST as _EMBEDDED_VOICE_HOST, _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
+from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -91,196 +89,29 @@ def _twilio_signature_ok(request: Request, form: dict[str, Any]) -> bool:
         logger.exception("Twilio signature validation failed open=false")
         return False
 
-def _voice_ws_secrets_equal(a: str, b: str) -> bool:
-    # No length short-circuit: compare_digest is constant-time only when it
-    # runs, and an early `len(a) != len(b)` return told a caller the length.
-    if not a or not b:
-        return False
-    return secrets.compare_digest(a.encode(), b.encode())
-
-def _redact_voice_ws_url(url: str) -> str:
-    """Strip path/query proxy secret from logs and status payloads."""
-    shared = (os.getenv("VOICE_WS_PROXY_SECRET") or "").strip()
-    if not url:
-        return url
-    if shared and shared in url:
-        url = url.replace(shared, "***")
-    from urllib.parse import quote
-
-    encoded = quote(shared, safe="") if shared else ""
-    if encoded and encoded in url:
-        url = url.replace(encoded, "***")
-    # Query form (legacy) — drop any remaining proxy_secret value.
-    if "proxy_secret=" in url:
-        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-
-        parts = urlparse(url)
-        q = [(k, "***" if k == "proxy_secret" else v) for k, v in parse_qsl(parts.query)]
-        url = urlunparse(parts._replace(query=urlencode(q)))
-    return url
-
-def _voice_ws_upgrade_authorized(
-    websocket: WebSocket, *, path_secret: str | None = None
-) -> bool:
-    """Gate the Media Streams WS proxy.
-
-    Requires a shared ``VOICE_WS_PROXY_SECRET`` matching (in order):
-    path ``/ws/{secret}``, ``X-Voice-Proxy-Secret``, or legacy ``?proxy_secret=``.
-    Twilio ``<Stream url>`` cannot use query strings (error 31920) — prefer path.
-    Fail-closed in every environment: an unset secret or a missing/invalid
-    supplied secret refuses the upgrade.
-    """
-    shared = (os.getenv("VOICE_WS_PROXY_SECRET") or "").strip()
-    provided = (
-        (path_secret or "").strip()
-        or (websocket.headers.get("x-voice-proxy-secret") or "").strip()
-        or (websocket.query_params.get("proxy_secret") or "").strip()
-    )
-    if shared and provided and _voice_ws_secrets_equal(shared, provided):
-        return True
-
-    # Twilio Media Streams authenticate at the HTTP webhook layer; the WS
-    # upgrade does not carry X-Twilio-Signature. The proxy secret is the only
-    # credential on this socket. A configured TWILIO_AUTH_TOKEN is *not* an
-    # authorization signal here — nothing on the upgrade proves the peer holds
-    # it. An unset secret is a misconfiguration, not an open door.
-    if not shared:
-        logger.error(
-            "Voice WS proxy rejected: VOICE_WS_PROXY_SECRET is not configured"
-        )
-    else:
-        logger.warning("Voice WS proxy rejected: missing/invalid proxy secret")
-    return False
-
-# The five Twilio webhooks below answer in TwiML or with an empty 204, never
+# The Twilio webhooks below answer in TwiML or with an empty 204, never
 # JSON — listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
 @router.post("/twilio/voice/incoming", response_class=TwiMLResponse)
 async def twilio_voice_incoming(request: Request):
-    """Twilio Voice webhook — return TwiML that streams audio to the Pipecat runner."""
+    """Twilio Voice webhook -- hand the call to the Voice Studio engine."""
     from voice import twilio_ops
 
     form = dict(await request.form())
     if not _twilio_signature_ok(request, form):
         raise HTTPException(status_code=403, detail="invalid_twilio_signature")
 
-    from voice import telephony
+    # Voice Studio answers every call: a number still pointed at this webhook
+    # is handed to the engine.
+    import voice_studio
 
-    if telephony.provider_name() == "studio":
-        # Voice Studio answers every call: a number still pointed at this
-        # webhook is handed to the engine, never to the legacy runner.
-        import voice_studio
-
-        handoff = voice_studio.inbound_handoff_twiml()
-        if handoff is None:
-            logger.error("Twilio inbound CallSid=%s: AGENTSTUDIO_PUBLIC_URL unset; refusing", form.get("CallSid"))
-            return Response(
-                content=twilio_ops.twiml_say_hangup(
-                    "We're sorry, the voice agent is temporarily unavailable."
-                ),
-                media_type="application/xml",
-            )
-        return Response(content=handoff, media_type="application/xml")
-
-    if not twilio_ops.configured():
+    handoff = voice_studio.inbound_handoff_twiml()
+    if handoff is None:
+        logger.error("Twilio inbound CallSid=%s: AGENTSTUDIO_PUBLIC_URL unset; refusing", form.get("CallSid"))
         return Response(
-            content=twilio_ops.twiml_say_hangup(
-                "We're sorry, the voice agent is not configured. Please try again later."
-            ),
+            content=twilio_ops.twiml_say_hangup("We're sorry, the voice agent is temporarily unavailable."),
             media_type="application/xml",
         )
-
-    # At capacity, say so and hang up rather than <Connect><Stream> into a
-    # process that will refuse the socket — the caller would otherwise get a
-    # connected line and silence. Only meaningful when the pipeline runs in
-    # THIS process: with a separate `voice` container the counter here is always
-    # zero, and the socket-level refusal in voice.bot is the only backstop.
-    if _EMBEDDED_VOICE_HOST:
-        from voice import admission
-
-        if not admission.has_capacity():
-            logger.warning(
-                "Twilio inbound refused at capacity CallSid=%s %s",
-                form.get("CallSid"), admission.snapshot(),
-            )
-            return Response(
-                content=twilio_ops.twiml_say_hangup(
-                    "All our agents are busy right now. Please call back in a few minutes."
-                ),
-                media_type="application/xml",
-            )
-
-    try:
-        stream_url = twilio_ops.media_stream_wss_url()
-    except RuntimeError as exc:
-        logger.error("Twilio Stream URL unavailable: %s", exc)
-        return Response(
-            content=twilio_ops.twiml_say_hangup(
-                "We're sorry, the voice agent is temporarily unavailable."
-            ),
-            media_type="application/xml",
-        )
-
-    call_sid = str(form.get("CallSid") or "")
-    from_number = str(form.get("From") or "")
-    to_number = str(form.get("To") or "")
-    custom = {
-        "call_type": "inbound",
-        "from": from_number,
-        "to": to_number,
-        "call_sid": call_sid,
-    }
-    xml = twilio_ops.twiml_connect_stream(custom=custom)
-    logger.info(
-        "Twilio inbound CallSid=%s From=%s → Stream %s",
-        call_sid,
-        from_number,
-        _redact_voice_ws_url(stream_url),
-    )
-    return Response(content=xml, media_type="application/xml")
-
-@router.post("/twilio/voice/connect", response_class=TwiMLResponse)
-async def twilio_voice_connect(request: Request):
-    """The outbound call's TwiML document.
-
-    Twilio fetches this when the call is answered, and again if the trial
-    account's "press any key" gather posts a digit back to the same document.
-    ``Digits`` is the gather's result, not a request to hang up. Both visits
-    return the media stream.
-    """
-    from voice import twilio_ops
-
-    form = dict(await request.form())
-    if not _twilio_signature_ok(request, form):
-        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
-
-    if not twilio_ops.configured():
-        return Response(
-            content=twilio_ops.twiml_say_hangup(
-                "We're sorry, the voice agent is not configured. Please try again later."
-            ),
-            media_type="application/xml",
-        )
-
-    try:
-        stream_url = twilio_ops.media_stream_wss_url()
-    except RuntimeError as exc:
-        logger.error("Twilio Stream URL unavailable: %s", exc)
-        return Response(
-            content=twilio_ops.twiml_say_hangup(
-                "We're sorry, the voice agent is temporarily unavailable."
-            ),
-            media_type="application/xml",
-        )
-
-    custom = twilio_ops.outbound_stream_custom(request.query_params)
-    xml = twilio_ops.twiml_connect_stream(custom=custom)
-    logger.info(
-        "Twilio outbound connect CallSid=%s digits=%s → Stream %s",
-        form.get("CallSid"),
-        "yes" if str(form.get("Digits") or "").strip() else "no",
-        _redact_voice_ws_url(stream_url),
-    )
-    return Response(content=xml, media_type="application/xml")
+    return Response(content=handoff, media_type="application/xml")
 
 @router.post("/twilio/voice/fallback", response_class=TwiMLResponse)
 async def twilio_voice_fallback(request: Request):
@@ -304,96 +135,6 @@ async def twilio_voice_fallback(request: Request):
         ),
         media_type="application/xml",
     )
-
-@router.post("/twilio/voice/stream-status", status_code=204, response_class=Response)
-async def twilio_voice_stream_status(request: Request):
-    """``<Stream statusCallback>`` — stream-started / stopped / error."""
-    form = dict(await request.form())
-    if not _twilio_signature_ok(request, form):
-        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
-
-    event = str(form.get("StreamEvent") or form.get("Event") or "")
-    stream_sid = str(form.get("StreamSid") or "")
-    call_sid = str(form.get("CallSid") or "")
-    error_code = str(form.get("ErrorCode") or "")
-    error_message = str(form.get("ErrorMessage") or "")
-    level = logging.ERROR if "error" in event.lower() or error_code else logging.INFO
-    logger.log(
-        level,
-        "Twilio Stream status event=%s CallSid=%s StreamSid=%s error=%s %s",
-        event or "unknown",
-        call_sid or None,
-        stream_sid or None,
-        error_code or None,
-        error_message or "",
-    )
-    return Response(status_code=204)
-
-@router.post("/twilio/voice/call-status", status_code=204, response_class=Response)
-async def twilio_voice_call_status(request: Request):
-    """Call StatusCallback — dial / ring / answer / complete.
-
-    This endpoint used to log and return 204. Everything the product could not
-    say about outbound calling followed from that: an unanswered dial produced
-    no row anywhere, because ``interactions`` is created from
-    ``on_client_connected`` and a call that never connects never gets there.
-    Answer rate, right-party-contact rate, best-time-to-call and cost per
-    connect were all uncomputable from what we kept.
-
-    Now it drives the ``call_attempts`` state machine. Three properties matter:
-
-    * **Idempotent.** Twilio retries callbacks; ``apply_provider_status`` locks
-      the row and refuses to re-stamp a terminal state.
-    * **Order-insensitive.** Callbacks are not ordered, so a late ``ringing``
-      cannot overwrite a ``completed`` that already landed.
-    * **Silent on unknown call ids.** Inbound calls have no attempt row, and a
-      status endpoint that 4xx'd on them would earn a retry storm.
-    """
-    form = dict(await request.form())
-    if not _twilio_signature_ok(request, form):
-        raise HTTPException(status_code=403, detail="invalid_twilio_signature")
-
-    call_sid = str(form.get("CallSid") or "").strip()
-    status = str(form.get("CallStatus") or form.get("CallStatusCallbackEvent") or "").strip()
-    raw_duration = str(form.get("CallDuration") or form.get("Duration") or "").strip()
-    try:
-        duration = int(raw_duration) if raw_duration else None
-    except ValueError:
-        duration = None
-    answered_by = str(form.get("AnsweredBy") or "").strip() or None
-    error_code = str(form.get("ErrorCode") or "").strip() or None
-
-    logger.info(
-        "Twilio call status CallSid=%s status=%s duration=%s answeredBy=%s",
-        call_sid or None,
-        status or None,
-        duration,
-        answered_by,
-    )
-    if not call_sid or not status:
-        return Response(status_code=204)
-
-    import db_outbound
-
-    try:
-        row = await asyncio.to_thread(
-            db_outbound.apply_provider_status,
-            provider_call_id=call_sid,
-            status=status,
-            duration_sec=duration,
-            error_code=error_code,
-            answered_by=answered_by,
-        )
-    except Exception:
-        # A 500 here makes Twilio retry, which is the right behaviour for a
-        # transient database blip and the reason this is not swallowed silently.
-        logger.exception("call-status: attempt update failed sid=%s", call_sid)
-        raise HTTPException(status_code=500, detail="attempt_update_failed")
-
-    if row is None:
-        # Inbound, or a call placed before this table existed. Not an error.
-        logger.debug("call-status for unknown attempt sid=%s", call_sid)
-    return Response(status_code=204)
 
 @router.post("/twilio/sms/status", status_code=204, response_class=Response)
 async def twilio_sms_status(request: Request):
@@ -443,7 +184,7 @@ async def twilio_sms_status(request: Request):
     response_model_exclude_unset=True,
 )
 async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Request):
-    """Start an outbound PSTN call that connects into the same Media Stream bot.
+    """Start an operator's outbound call, answered by the Voice Studio agent.
 
     The order here is the design's, not a convenience: the attempt row is
     written and committed **before** the contact gate runs, so a refusal has
@@ -451,8 +192,7 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
     denial reasons into a queryable denial rate instead of a log line, and it
     is the record that answers "why did nobody call this borrower on Tuesday".
 
-    The path says Twilio for wire compatibility; the dial goes to whichever
-    provider ``TELEPHONY_PROVIDER`` selects.
+    The path says Twilio for wire compatibility; Voice Studio places the call.
     """
     from voice import telephony
 
@@ -520,88 +260,3 @@ async def twilio_voice_outbound(payload: TwilioOutboundCallRequest, request: Req
             status_code=503 if reason in outbound.UNAVAILABLE_REASONS else 502, detail=reason
         )
     return result
-
-@router.get("/twilio/voice/status", response_model=TwilioVoiceStatusResponse)
-def twilio_voice_status():
-    from voice import twilio_ops
-    from voice.ws_proxy import voice_ws_upstream, ws_proxy_enabled
-
-    raw_stream = (
-        twilio_ops.media_stream_wss_url()
-        if (twilio_ops.voice_public_base_url() and twilio_ops.configured())
-        else None
-    )
-    return {
-        "configured": twilio_ops.configured(),
-        "phoneNumber": twilio_ops.twilio_phone() or None,
-        "handoffMode": twilio_ops.handoff_mode(),
-        "wsViaApi": ws_proxy_enabled(),
-        "wsUpstream": voice_ws_upstream() if ws_proxy_enabled() else None,
-        "streamUrl": _redact_voice_ws_url(raw_stream) if raw_stream else None,
-        "fallbackUrl": twilio_ops.voice_fallback_url(),
-        "callStatusCallbackUrl": twilio_ops.call_status_callback_url(),
-        "streamStatusCallbackUrl": twilio_ops.stream_status_callback_url(),
-        "supervisorPhone": twilio_ops.supervisor_phone() or None,
-        "hint": (
-            "Same ngrok as WhatsApp (PUBLIC_BASE_URL→:8000). "
-            "Voice webhook: POST {PUBLIC_BASE_URL}/twilio/voice/incoming. "
-            "Media Stream uses wss://{same-host}/ws[/{VOICE_WS_PROXY_SECRET}] "
-            "(no query string — Twilio error 31920). "
-            "Start voice: python -m voice.bot -t twilio --host 0.0.0.0 --port 7860"
-        ),
-    }
-
-async def _voice_media_stream_entry(
-    websocket: WebSocket, *, path_secret: str | None = None
-) -> None:
-    """Twilio Media Streams entry point (shared by ``/ws`` and ``/ws/{secret}``).
-
-    ``VOICE_EMBEDDED_HOST=true`` serves the call here in-process; otherwise the
-    socket is bridged to the standalone Pipecat runner on :7860.
-    """
-    from voice.call_trace import event
-    from voice.host import embedded_host_enabled, run_websocket_session
-    from voice.ws_proxy import proxy_voice_websocket, ws_proxy_enabled
-    import time as _time
-
-    # First line of the socket's story. Without it, "Twilio never connected" and
-    # "we refused Twilio" are the same absence of a log line — and they were,
-    # for two answered calls that played silence.
-    peer = getattr(getattr(websocket, "client", None), "host", None)
-    arrived = _time.monotonic()
-    event(
-        "ws.arrived",
-        peer=peer,
-        secret="path" if path_secret else "header-or-query",
-    )
-    try:
-        websocket.state.ws_arrived_at = arrived
-    except Exception:
-        pass
-
-    embedded = embedded_host_enabled()
-    if not embedded and not ws_proxy_enabled():
-        event("ws.refused", reason="no_host_and_proxy_disabled")
-        await websocket.close(code=1008)
-        return
-    # The upgrade gate applies to both modes — hosting the pipeline in-process
-    # makes an unauthenticated socket more dangerous, not less.
-    if not _voice_ws_upgrade_authorized(websocket, path_secret=path_secret):
-        event("ws.refused", reason="unauthorized", peer=peer)
-        await websocket.close(code=1008, reason="unauthorized")
-        return
-    event("ws.authorized", mode="embedded" if embedded else "proxy")
-    if embedded:
-        await run_websocket_session(websocket)
-        return
-    await proxy_voice_websocket(websocket)
-
-@router.websocket("/ws")
-async def voice_media_stream_proxy(websocket: WebSocket):
-    await _voice_media_stream_entry(websocket)
-
-@router.websocket("/ws/{proxy_secret}")
-async def voice_media_stream_proxy_with_secret(
-    websocket: WebSocket, proxy_secret: str
-):
-    await _voice_media_stream_entry(websocket, path_secret=proxy_secret)

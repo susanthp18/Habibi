@@ -91,7 +91,6 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/requirements.lock
-            backend/requirements-voice.lock
 
       - name: Install dependencies
         run: |
@@ -99,40 +98,17 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install -r requirements-dev.txt
 
-      # 26 test files import pipecat at module scope and cannot even be
-      # collected without it -- every one of them covering the voice runtime,
-      # which is the regulated channel. requirements-voice.txt is kept out of
-      # requirements.txt so a CRM API upgrade is not coupled to Pipecat's
-      # transitive graph; that separation is about the app image, not about what
-      # CI is allowed to know. Skipping them here would leave the highest-risk
-      # code in the product as the only code with no gate on it.
-      #
-      # It is pinned and deliberately narrow -- speechmatics and its ~1GB of ML
-      # runtime are excluded on purpose -- so this costs install time, not a
-      # dependency argument. -c requirements.txt is the same gate as the
-      # voice Dockerfile: pipecat must not silently move the base pins.
-      - name: Install voice dependencies
-        run: pip install --require-hashes -r requirements-voice.lock -c requirements.txt
-
       # Same shape as the frontend audit: a CVE against the declared trees
       # must fail CI rather than wait for a person to look. Installed here,
       # not in requirements.txt, so it does not ship in the images.
-      # `-r` both lockfiles (the 3.12 linux resolve images install), not the
-      # manifests and not the local venv: re-resolving the manifests would
+      # `-r` the lockfile (the 3.12 linux resolve images install), not the
+      # manifest and not the local venv: re-resolving the manifests would
       # describe a tree nobody ships. --progress-spinner off keeps the log
       # a result, not an animation.
-      #
-      # PYSEC-2026-3740 is nltk 3.10.3 (model-artifact pathsec bypass,
-      # TransitionParser/AveragedPerceptron). No patched release exists;
-      # pipecat bounds nltk<4; WP-057 already took that floor. Pipecat
-      # only calls sent_tokenize. An unfixed advisory is ignored by id so
-      # the gate still fails on the next one.
       - name: pip-audit
         run: |
           pip install pip-audit==2.10.1
-          pip-audit --progress-spinner off --ignore-vuln PYSEC-2026-3740 \
-            -r requirements.lock \
-            -r requirements-voice.lock
+          pip-audit --progress-spinner off -r requirements.lock
 
       # Before the database steps on purpose: ruff needs no Postgres, so a lint
       # failure costs ten seconds instead of the ninety it takes to build and
@@ -258,12 +234,6 @@ jobs:
           SCHEMA_PARITY_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_parity
           RLS_DATABASE_URL: postgresql://collections:collections@localhost:5432/collections_rls
 
-      # The voice eval scenarios cannot run here (they drive the bot through
-      # Azure STT/LLM/TTS); what CI proves is that every scenario file is on
-      # the manifest and the rendered suite is shaped the way the runner reads.
-      - name: Voice eval suite renders
-        run: python scripts/run_voice_evals.py --validate
-
       - name: Upload coverage XML
         if: always()
         uses: actions/upload-artifact@v4
@@ -310,11 +280,10 @@ jobs:
       - name: Pytest production envelope
         run: pytest -q tests/test_unrecognised_app_env_is_production.py
 
-  # The pytest job installs requirements-voice.lock, so an eager `import pipecat`
-  # (or `fastembed`) on the API/worker path would pass that suite and still
-  # crash the base image — the image those two processes actually run in.
-  # Pipecat and fastembed are voice-only by design; this job builds that base
-  # target and imports the two modules that must boot without them.
+  # The base image carries no pipecat or fastembed; an eager import of either
+  # on the API/worker path would crash the image those processes run in. This
+  # job builds the base target and imports the two modules that must boot
+  # without them.
   #
   # Isolated from the live compose stack: no .env, no network, no Twilio.
   import-boundary:

@@ -75,17 +75,6 @@ async def authz_guard(conn: HTTPConnection) -> None:
         observability.observe_authz_denial(route=path_template, permission=exc.permission)
         raise HTTPException(status_code=403, detail=f"forbidden:{exc.permission}") from exc
 
-#: Whether the Pipecat pipeline runs in this process (VOICE_EMBEDDED_HOST).
-#: Read once at import: the telephony router and main's auth-exempt list both
-#: branch on it.
-try:
-    from voice.host import embedded_host_enabled as _embedded_host_enabled
-
-    EMBEDDED_VOICE_HOST = _embedded_host_enabled()
-except Exception:  # pragma: no cover - optional voice extras
-    EMBEDDED_VOICE_HOST = False
-
-
 class Utf8JSONResponse(JSONResponse):
     """JSON responses that state their encoding instead of assuming it is obvious.
 

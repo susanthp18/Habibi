@@ -9,10 +9,9 @@ echo "== rebuild api =="
 
 echo "== recreate app containers =="
 "${COMPOSE[@]}" up -d --no-build api bot_worker worker wk_batch
-# The legacy in-house voice runner is retired: every call runs on Voice Studio
-# (TELEPHONY_PROVIDER=studio from docker-compose.agentstudio.yml). Stopped, not
-# removed, so it stays available for a rollback.
-docker stop collections_voice >/dev/null 2>&1 || true
+# The legacy in-house voice runner was retired and its code deleted; every
+# call runs on Voice Studio. Its old container is removed where it remains.
+docker rm -f collections_voice >/dev/null 2>&1 || true
 
 echo "== release production UI =="
 bash "$ROOT/deploy/cloudunity/ui-production.sh"

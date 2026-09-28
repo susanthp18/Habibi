@@ -914,12 +914,6 @@ def place(
         _fail_quietly(engine, attempt_id, f"invalid_number: {exc}")
         return _failed(attempt_id, "invalid_number")
 
-    # Softphone extensions are 3–6 digits; E.164 would turn 1001 into +1001.
-    if telephony.provider_name() == "asterisk":
-        ext = digits(to_phone)
-        if 2 <= len(ext) <= 6:
-            dial_to = ext
-
     # `to_e164` leaves anything it does not recognise untouched rather than
     # mangling it, which for a value with no digits in it at all means an empty
     # string. Dialling that is a guaranteed carrier rejection with a worse error

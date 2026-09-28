@@ -449,7 +449,7 @@ def record_tool_call(
     # Redaction happens here, not at the call sites.
     #
     # It used to live in voice/persist._audit_args and was applied on the voice
-    # path alone, so WhatsApp (bot_runtime), MCP (its own raw INSERT) and the
+    # path alone, so WhatsApp, MCP (its own raw INSERT) and the
     # sandbox wrote arguments and results verbatim. `identify_customer` is a
     # text-channel-only spec taking `phone` and `account_tail` -- exactly what
     # voice withholds -- and it landed in a column the Inbox renders.
@@ -501,7 +501,8 @@ def record_tool_call(
 
 def process_one(engine: Engine) -> bool:
     """Claim + run one bot turn. Returns True if a job was claimed."""
-    import bot_runtime
+    import usage_meter
+    import whatsapp_studio
 
     with engine.begin() as conn:
         reclaimed_dead = reclaim_stuck_jobs(conn)
@@ -530,7 +531,10 @@ def process_one(engine: Engine) -> bool:
         return False
 
     try:
-        bot_runtime.handle_turn(engine, job)
+        # Billed to the conversation's interaction: the scope opens empty and
+        # the turn retargets it once the conversation is loaded.
+        with usage_meter.attribute_to(None):
+            whatsapp_studio.handle_turn(engine, job)
     except Exception as exc:
         logger.exception("bot_turn failed job=%s", job.get("id"))
         with engine.begin() as conn:

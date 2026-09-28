@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 _APP_ENV = env_name()
 _IS_PROD = is_prod()
 
-from api_support import EMBEDDED_VOICE_HOST as _EMBEDDED_VOICE_HOST  # noqa: E402
 
 # Public paths that skip API-key auth (webhooks use their own HMAC).
 # Docs/OpenAPI are NOT exempt — when API_KEY is set they require the key;
@@ -84,11 +83,6 @@ _AUTH_EXEMPT_PREFIXES = (
     # the handler (routers/voice_studio_hooks.py), like the payment webhooks.
     "/voice-studio/hooks",
     "/.well-known/agent-card.json",
-    # SmallWebRTC signalling. The WebRTC client cannot attach our API-key
-    # header to its offer POST, and the standalone runner it replaces has no
-    # auth at all — so this is parity, not a downgrade. Only present when the
-    # embedded host is actually serving these routes.
-    *(("/api/offer", "/voice-rtc") if _EMBEDDED_VOICE_HOST else ()),
 )
 
 
@@ -488,13 +482,6 @@ async def lifespan(_app: FastAPI):
             logger.warning("provider registry boot seed failed", exc_info=True)
         yield
     finally:
-        # Before the DB engine goes away: live calls write CRM rows on teardown.
-        try:
-            from voice.host import shutdown as voice_host_shutdown
-
-            await voice_host_shutdown()
-        except Exception:
-            logger.warning("voice host shutdown failed", exc_info=True)
         # Drain buffered usage before the engine goes away, otherwise the last
         # few seconds of billable calls are lost on every deploy.
         try:
@@ -599,14 +586,6 @@ else:
         expose_headers=_CORS_EXPOSE_HEADERS,
         max_age=86400,
     )
-
-# VOICE_EMBEDDED_HOST=true: serve SmallWebRTC signalling here instead of
-# requiring a second `python -m voice.bot` process on :7860 (Phase E1).
-if _EMBEDDED_VOICE_HOST:
-    from voice.host import register_routes as _register_voice_routes
-
-    _register_voice_routes(app)
-
 
 register_error_handlers(app)
 

@@ -1,7 +1,7 @@
 # Collections Agent — data plane + app processes.
 #
-# Connection budget (defaults below, sum ≈ 28):
-#   api 5+5=10  +  worker 3+2=5  +  bot_worker 3+2=5  +  voice 3+2=5  +  ml_worker 2+1=3
+# Connection budget (defaults below, sum ≈ 23):
+#   api 5+5=10  +  worker 3+2=5  +  bot_worker 3+2=5  +  ml_worker 2+1=3
 # Stay under Postgres max_connections (100) − reserved (~10).
 # Do NOT raise uvicorn --workers without re-budgeting.
 #
@@ -25,7 +25,7 @@
 # role's password with APP_DB_PASSWORD on every service that carries it.
 #
 # Release identity (WP-001). Defaults keep today's local names
-# (`collections-api:local`, `collections-voice:local`). A published deploy
+# (`collections-api:local`, `collections-ml:local`). A published deploy
 # sets both:
 #   IMAGE_PREFIX=ghcr.io/<owner>/<repo>/   # trailing slash required
 #   IMAGE_TAG=<40-char commit SHA>
@@ -97,7 +97,6 @@ services:
       HABIBI_DEPLOYED: "1"
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-5}
-      VOICE_RUNNER_URL: http://voice:7860
       # Statutory rule sets: whether an approval may publish at all, and who
       # may break-glass approve their own submission (user ids or emails,
       # comma-separated). Deployment decisions, so they live in the compose
@@ -110,11 +109,6 @@ services:
       APP_RELEASE: ${IMAGE_TAG:-local}
     volumes:
       - ../source_db:/source_db:ro
-      # Only used when voice_session_store falls back to the filesystem (no
-      # database). Shared with `voice` so even that degraded path still lets the
-      # bot see the session the API wrote — the containers do not otherwise
-      # share a filesystem, which is what silently broke Sandbox Live config.
-      - voice_sessions:/app/.cache/voice_sandbox_sessions
     command:
       [
         "uvicorn",
@@ -332,51 +326,6 @@ services:
       <<: *bot-worker-env
       BOT_WORKER_ROLE: integration
 
-  voice:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: voice
-    image: "${IMAGE_PREFIX:-}collections-voice:${IMAGE_TAG:-local}"
-    container_name: collections_voice
-    restart: unless-stopped
-    cap_drop: [ALL]
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
-      MINIO_ENDPOINT: minio:9000
-      MINIO_SECURE: "false"
-      DB_PROCESS_ROLE: voice
-      HABIBI_DEPLOYED: "1"
-      METRICS_PORT: "9100"
-      VOICE_PROCESS: "1"
-      DB_POOL_SIZE: ${VOICE_DB_POOL_SIZE:-3}
-      DB_MAX_OVERFLOW: ${VOICE_DB_MAX_OVERFLOW:-2}
-      APP_RELEASE: ${IMAGE_TAG:-local}
-    volumes:
-      # See the api service — filesystem fallback for voice_session_store only.
-      - voice_sessions:/app/.cache/voice_sandbox_sessions
-    command: ["python", "-m", "voice.bot", "--host", "0.0.0.0", "--port", "7860"]
-    # Pipecat runner — must bind 0.0.0.0 for published ports.
-    ports:
-      - "127.0.0.1:${VOICE_PORT:-7860}:7860"
-    depends_on:
-      db:
-        condition: service_healthy
-      api:
-        condition: service_healthy
-    healthcheck:
-      # The runner's event loop is what / answers; a wedged Pipecat
-      # process fails this. start_period covers the measured import warm
-      # (~33s) plus Silero / Smart Turn / LLM class init.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:7860/"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 90s
-
 volumes:
   pgdata:
   minio_data:
-  voice_sessions:

@@ -1,8 +1,7 @@
 """What a WhatsApp bot turn is, and the steps every engine takes around it.
 
-Shared by both text engines -- Voice Studio (``whatsapp_studio``) and the
-legacy runtime (``bot_runtime``) -- and by the job runner (``bot_jobs``):
-the turn record, outbound idempotency (never send twice for one job), the
+Used by the Voice Studio text engine (``whatsapp_studio``) and the job
+runner (``bot_jobs``): the turn record, outbound idempotency (never send twice for one job), the
 inbound message's WhatsApp id, and the hand-off to a person.
 """
 

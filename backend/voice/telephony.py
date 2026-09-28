@@ -1,18 +1,17 @@
-"""PSTN control-plane seam: Twilio or Asterisk behind one set of functions.
+"""PSTN control-plane seam. Every call is placed and carried by PayInt Voice
+Studio (the engine dials with its own telephony and runs the conversation, see
+``voice_studio``).
 
-``outbound.place``, warm transfer and the dial endpoints call here. Unset
-``TELEPHONY_PROVIDER`` keeps Twilio; the telephony compose overlay sets
-``asterisk``; ``studio`` hands the call to PayInt Voice Studio (the engine
-places it with its own telephony and runs the conversation, see
-``voice_studio``). Nothing outside the adapters should import ``twilio_ops`` or
-``asterisk_ops`` to decide whether a call can be placed.
+``outbound.place``, warm transfer and the dial endpoints call here rather than
+``voice_studio`` directly, so the dialler reads the same whatever carries the
+call. The Twilio media-stream runner and the Asterisk adapter that used to sit
+behind it were retired with the legacy voice runtime.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from env_loader import env_str, load_env
 from voice.twilio_ops import OutboundDisabled
 
 __all__ = [
@@ -28,25 +27,13 @@ __all__ = [
 
 
 def provider_name() -> str:
-    load_env()
-    raw = (env_str("TELEPHONY_PROVIDER") or "twilio").lower()
-    if raw in {"studio", "voice-studio", "agentstudio"}:
-        return "studio"
-    return "asterisk" if raw in {"asterisk", "sip"} else "twilio"
+    return "studio"
 
 
 def _adapter() -> Any:
-    if provider_name() == "studio":
-        import voice_studio
+    import voice_studio
 
-        return voice_studio
-    if provider_name() == "asterisk":
-        from voice import asterisk_ops
-
-        return asterisk_ops
-    from voice import twilio_ops
-
-    return twilio_ops
+    return voice_studio
 
 
 def originate(
@@ -77,7 +64,7 @@ def default_from_number() -> str:
 
 
 def configured() -> bool:
-    """Whether the selected provider has what it needs to place a call."""
+    """Whether Voice Studio has what it needs to place a call."""
     return bool(_adapter().configured())
 
 

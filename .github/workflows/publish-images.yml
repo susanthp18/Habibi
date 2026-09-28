@@ -55,15 +55,6 @@ jobs:
           tags: |
             type=raw,value=${{ github.sha }}
 
-      - name: Voice image tags
-        uses: docker/metadata-action@v5
-        id: voice
-        with:
-          images: ${{ env.IMAGE_NS }}/collections-voice
-          flavor: latest=false
-          tags: |
-            type=raw,value=${{ github.sha }}
-
       - name: Build and push collections-api
         uses: docker/build-push-action@v6
         id: api-build
@@ -77,19 +68,6 @@ jobs:
           cache-from: type=gha,scope=collections-api
           cache-to: type=gha,mode=max,scope=collections-api
 
-      - name: Build and push collections-voice
-        uses: docker/build-push-action@v6
-        id: voice-build
-        with:
-          context: backend
-          file: backend/Dockerfile
-          target: voice
-          push: true
-          tags: ${{ steps.voice.outputs.tags }}
-          labels: ${{ steps.voice.outputs.labels }}
-          cache-from: type=gha,scope=collections-voice
-          cache-to: type=gha,mode=max,scope=collections-voice
-
       - name: Record identity
         run: |
           {
@@ -98,8 +76,6 @@ jobs:
             echo "- commit: \`${{ github.sha }}\`"
             echo "- api: \`${{ env.IMAGE_NS }}/collections-api:${{ github.sha }}\`"
             echo "- api digest: \`${{ steps.api-build.outputs.digest }}\`"
-            echo "- voice: \`${{ env.IMAGE_NS }}/collections-voice:${{ github.sha }}\`"
-            echo "- voice digest: \`${{ steps.voice-build.outputs.digest }}\`"
             echo ""
             echo "Rollback: \`docs/ops/rollback.md\`."
           } >> "$GITHUB_STEP_SUMMARY"

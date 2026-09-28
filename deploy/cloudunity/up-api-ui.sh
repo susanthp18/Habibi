@@ -23,7 +23,7 @@ for i in $(seq 1 40); do
 done
 
 echo "== images =="
-docker inspect -f '{{.Name}} {{.Config.Image}} created={{.Created}}' collections_api collections_voice collections_bot_worker collections_db
+docker inspect -f '{{.Name}} {{.Config.Image}} created={{.Created}}' collections_api collections_bot_worker collections_db
 
 echo "== probes =="
 curl -sS -o /dev/null -w "local_api:%{http_code}\n" -m 5 http://127.0.0.1:8100/ready || true

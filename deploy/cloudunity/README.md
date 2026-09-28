@@ -6,7 +6,6 @@ Shared VM (`20.205.178.161`). Other products already occupy 80/443, 5432–5439,
 |---|---|---|
 | Habibi UI | `127.0.0.1:3110` / `3111` | alternate production slots; 3108 is the stopped legacy dev server |
 | FastAPI | `127.0.0.1:8100` | keep a PayInt block; 8000 is unused but 8001+ are taken |
-| Voice (legacy runner) | `127.0.0.1:7860` | retired: stopped by every update script; calls run on Voice Studio (`TELEPHONY_PROVIDER=studio`) |
 | Postgres | `127.0.0.1:5440` | 5432–5439 taken |
 | MinIO | `127.0.0.1:9102` / `9103` | 9000–9001 are EIP MinIO |
 

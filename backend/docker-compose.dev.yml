@@ -20,14 +20,10 @@ services:
       # The console sends X-Actor-User-Id behind the shared API_KEY. Off by
       # default everywhere (WP-070); the laptop stack opts in here.
       ALLOW_ACTOR_HEADER: "true"
-      # One ngrok for WhatsApp + Twilio on the laptop. PSTN/Asterisk media
-      # still hits the voice runner directly.
-      VOICE_WS_VIA_API: "true"
     volumes:
       - .:/app
       - /app/__pycache__
       - ../source_db:/source_db:ro
-      - voice_sessions:/app/.cache/voice_sandbox_sessions
 
   worker:
     environment:
@@ -42,32 +38,39 @@ services:
     environment:
       HABIBI_DEPLOYED: "0"
     # It dials (cadence, campaigns, treatment): without the mount it ran the
-    # image's stale outbound code while api and voice ran the working tree.
+    # image's stale outbound code while the api ran the working tree.
     volumes:
       - .:/app
       - /app/__pycache__
 
-  # Only exists with docker-compose.telephony.yml; harmless when that file is
-  # not in play. Compose merges this into that definition by service name.
-  asterisk_controller:
-    environment:
-      HABIBI_DEPLOYED: "0"
-    volumes:
-      - .:/app
-      - /app/__pycache__
-
-  voice:
+  # The test runner: the app image plus pytest, on the working tree.
+  #   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile tests up -d tests
+  #   docker exec collections_tests pytest -q
+  tests:
+    profiles: [tests]
     build:
-      target: voice-dev
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    image: collections-dev:local
+    container_name: collections_tests
+    env_file:
+      - .env
     environment:
       HABIBI_DEPLOYED: "0"
+      DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-collections_app}:${APP_DB_PASSWORD:-collections_app}@db:5432/${POSTGRES_DB:-collections}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_SECURE: "false"
       # The suite runs here as the app role; tests of the owner's path (audit
       # maintenance, DDL) reach the owner through this DSN and skip without it.
       MIGRATION_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-collections}:${POSTGRES_PASSWORD:-collections}@db:5432/${POSTGRES_DB:-collections}
     volumes:
       - .:/app
       - /app/__pycache__
-      - voice_sessions:/app/.cache/voice_sandbox_sessions
+    command: ["sleep", "infinity"]
+    depends_on:
+      db:
+        condition: service_healthy
 
   # Something finally reads /metrics. Laptop only -- the production envelope
   # brings its own scraper -- so it lives in this overlay, not the base file.

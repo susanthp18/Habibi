@@ -19,14 +19,12 @@ showed was being computed and then thrown away:
   while the raw path would mint one per customer and take the scrape down.
 * **Authorization denials** — the pass-1 authz layer logs a warning per denial
   and counts nothing. A spike is either a misconfigured role or someone probing.
-* **Voice admission** — the pass-1 cap already tracks admitted/rejected/high
-  water in memory, reachable only by reading ``/voice/status`` by hand.
 * **Database pool** — ``db.pool_snapshot()`` existed purely so ``/ready`` could
   fail on exhaustion. Pool saturation is the failure mode behind the sync-handler
   problem in the audit, and nothing could see it coming.
 * **Circuit breakers** — ``circuit_breaker.snapshots()`` likewise.
 
-The last three are read at *scrape* time rather than pushed, so they cost
+The last two are read at *scrape* time rather than pushed, so they cost
 nothing between scrapes and cannot drift from the values ``/ready`` reports.
 
 Cardinality
@@ -128,24 +126,6 @@ authz_denials = Counter(
     registry=REGISTRY,
 )
 
-voice_calls_admitted = Counter(
-    "voice_calls_admitted_total",
-    "Voice calls granted a concurrency slot.",
-    registry=REGISTRY,
-)
-
-voice_calls_slot_reaped = Counter(
-    "voice_calls_slot_reaped_total",
-    "Admission slots reclaimed from sessions that never released them (a teardown leak).",
-    registry=REGISTRY,
-)
-
-voice_calls_rejected = Counter(
-    "voice_calls_rejected_total",
-    "Voice calls refused because the process was at capacity.",
-    registry=REGISTRY,
-)
-
 #: Prompt tokens Azure served from its prefix cache. The price book bills them
 #: at the full input rate, so this is how far the LLM line overstates cost --
 #: and whether the stable-prefix prompt layout is actually hitting the cache.
@@ -177,8 +157,8 @@ class _SnapshotCollector(Collector):
     """Expose an existing ``snapshot()``-style dict as gauges at scrape time.
 
     Pull rather than push, for two reasons: these values already have a single
-    authoritative source (``db.pool_snapshot``, ``circuit_breaker.snapshots``,
-    ``voice.admission.snapshot``), and mirroring them into pushed gauges would
+    authoritative source (``db.pool_snapshot``, ``circuit_breaker.snapshots``),
+    and mirroring them into pushed gauges would
     let the metric and ``/ready`` disagree about the same number.
     """
 
@@ -233,15 +213,6 @@ def _breaker_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
         failures = snap.get("failures")
         if isinstance(failures, (int, float)):
             yield ("circuit_breaker_failures", {"breaker": name}, float(failures))
-
-
-def _voice_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
-    from voice import admission
-
-    snap = admission.snapshot()
-    yield ("voice_calls_active", {}, float(snap.get("activeCalls") or 0))
-    yield ("voice_calls_max_concurrent", {}, float(snap.get("maxConcurrentCalls") or 0))
-    yield ("voice_calls_high_water_mark", {}, float(snap.get("highWaterMark") or 0))
 
 
 #: Every table a worker drains or a sweep advances: the SKIP LOCKED queues
@@ -348,23 +319,6 @@ def _kb_cache_samples() -> Iterable[tuple[str, dict[str, Any], float]]:
 _COLLECTORS_REGISTERED = False
 
 
-def _voice_runs_here() -> bool:
-    """The voice admission gauges belong to the process that admits calls:
-    the voice worker, or the API when it embeds the host. Published from the
-    API otherwise, ``voice_calls_active`` read 0 forever and looked like a
-    quiet floor."""
-    from env_utils import env_bool
-
-    if env_bool("VOICE_PROCESS"):
-        return True
-    try:
-        from voice.host import embedded_host_enabled
-
-        return embedded_host_enabled()
-    except Exception:
-        return False
-
-
 def register_collectors() -> None:
     """Attach the scrape-time collectors. Idempotent."""
     global _COLLECTORS_REGISTERED
@@ -372,8 +326,6 @@ def register_collectors() -> None:
         return
     REGISTRY.register(_SnapshotCollector("db_pool", "SQLAlchemy connection pool occupancy.", _pool_samples))
     REGISTRY.register(_SnapshotCollector("circuit_breakers", "Circuit breaker state and failure counts.", _breaker_samples))
-    if _voice_runs_here():
-        REGISTRY.register(_SnapshotCollector("voice_admission", "Voice concurrency admission control.", _voice_samples))
     REGISTRY.register(_SnapshotCollector("job_queues", "SKIP LOCKED job queue depth, dead letters and backlog age.", _job_queue_samples))
     REGISTRY.register(_SnapshotCollector("rate_limits", "Rate-limit throttles since process start.", _rate_limit_samples))
     REGISTRY.register(_SnapshotCollector("kb_result_cache", "Shared KB retrieval-result cache hits, misses and size.", _kb_cache_samples))
