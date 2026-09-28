@@ -10,11 +10,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
-
 # ---------------------------------------------------------------------------
 # Billing & Usage Analytics
 # ---------------------------------------------------------------------------

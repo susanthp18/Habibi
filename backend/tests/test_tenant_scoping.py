@@ -276,20 +276,6 @@ def test_sandbox_scenarios_are_tenant_scoped(db_tx) -> None:
     assert "sc-rival" not in ids
 
 
-def test_persona_presets_are_tenant_scoped(db_tx) -> None:
-    other = _other_tenant(db_tx)
-    with acting_as(db_tx, other):
-        db_tx.execute(
-            text(
-                "INSERT INTO persona_presets (id, tenant_id, name, config) "
-                "VALUES ('persona-rival', :t, 'Rival Persona', CAST(:c AS jsonb))"
-            ),
-            {"t": other, "c": json.dumps({})},
-        )
-    ids = {p["id"] for p in db.list_persona_presets()}
-    assert "persona-rival" not in ids
-
-
 def test_seed_injects_tenant_id_for_every_rooted_config_table() -> None:
     """Demo seed must stamp tenant_id on every rooted config table.
 
@@ -303,15 +289,3 @@ def test_seed_injects_tenant_id_for_every_rooted_config_table() -> None:
     assert missing == []
 
 
-def test_tts_voices_are_tenant_scoped(db_tx) -> None:
-    other = _other_tenant(db_tx)
-    with acting_as(db_tx, other):
-        db_tx.execute(
-            text(
-                "INSERT INTO tts_voices (id, tenant_id, provider, name, config, enabled) "
-                "VALUES ('voice-rival', :t, 'azure', 'Rival Voice', CAST(:c AS jsonb), true)"
-            ),
-            {"t": other, "c": json.dumps({"gender": "Female"})},
-        )
-    ids = {v["id"] for v in db.list_tts_voices()}
-    assert "voice-rival" not in ids

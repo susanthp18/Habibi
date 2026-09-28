@@ -201,18 +201,6 @@ def test_link_for_none_id_is_none():
 # --------------------------------------------------------------------------
 
 
-def test_specs_render_as_flows_schemas():
-    """Voice consumes the same spec through FlowsFunctionSchema."""
-
-    async def _handler(args, flow_manager):  # pragma: no cover - never invoked
-        return {}, None
-
-    schema = CATALOG.get("create_promise_to_pay").to_flows_schema(_handler)
-    assert schema.name == "create_promise_to_pay"
-    assert "promise_date" in schema.properties
-    assert set(schema.required) == {"amount", "promise_date"}
-
-
 def test_voice_and_text_agree_on_argument_names():
     """The regression guard: identical property names on both renderings.
 
@@ -254,18 +242,6 @@ def test_openai_tools_render_full_catalog() -> None:
         assert "name" in t["function"]
         assert "parameters" in t["function"]
         assert t["function"]["parameters"]["type"] == "object"
-
-
-def test_flows_schema_properties_match_openai() -> None:
-    async def _handler(args, flow_manager):  # pragma: no cover
-        return {}, None
-
-    for name in ("create_promise_to_pay", "flag_dispute", "request_callback"):
-        spec = CATALOG.get(name)
-        flows = spec.to_flows_schema(_handler)
-        assert set(flows.properties) == set(
-            spec.to_openai_tool()["function"]["parameters"]["properties"]
-        )
 
 
 def test_arg_defaults_applied_on_normalize() -> None:

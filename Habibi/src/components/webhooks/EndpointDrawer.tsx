@@ -27,6 +27,9 @@ export function EndpointDrawer({
   onRotate,
   onRetry,
   onTestFire,
+  onProbe,
+  onConfirm,
+  onRefresh,
   onEdit,
 }: {
   open: boolean;
@@ -38,6 +41,9 @@ export function EndpointDrawer({
   onRotate: (ep: Endpoint) => void;
   onRetry: (d: Delivery) => void;
   onTestFire: (ep: Endpoint, event: EventKey) => void | Promise<void>;
+  onProbe: (ep: Endpoint) => void | Promise<void>;
+  onConfirm: (ep: Endpoint) => void | Promise<void>;
+  onRefresh: () => void;
   /** Open the endpoint form -- the drawer inspects, the sheet edits. */
   onEdit: (ep: Endpoint) => void;
 }) {
@@ -49,13 +55,20 @@ export function EndpointDrawer({
     () => (endpoint ? deliveries.filter((d) => d.endpointId === endpoint.id) : []),
     [deliveries, endpoint],
   );
-  const rate24 = successRate(within(epDeliveries, 24));
-  const rate7d = successRate(within(epDeliveries, 168));
+  const realDeliveries = useMemo(
+    () => epDeliveries.filter((d) => d.mode !== "simulated" && d.event !== "webhook.test"),
+    [epDeliveries],
+  );
+  const settled24 = within(realDeliveries, 24).filter((d) => d.status !== "pending");
+  const settled7d = within(realDeliveries, 168).filter((d) => d.status !== "pending");
+  const rate24 = successRate(settled24);
+  const rate7d = successRate(settled7d);
   const p95 = useMemo(() => {
-    if (!epDeliveries.length) return 0;
-    const sorted = [...epDeliveries].map((d) => d.latencyMs).sort((a, b) => a - b);
+    const measured = realDeliveries.filter((d) => d.status !== "pending");
+    if (!measured.length) return 0;
+    const sorted = measured.map((d) => d.latencyMs).sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 0;
-  }, [epDeliveries]);
+  }, [realDeliveries]);
 
   if (!endpoint) return null;
 
@@ -69,6 +82,8 @@ export function EndpointDrawer({
       setTestBusy(true);
       try {
         await onTestFire(endpoint, testEvent);
+      } catch {
+        // The page displays the API error; keep the button usable.
       } finally {
         setTestBusy(false);
       }
@@ -77,22 +92,26 @@ export function EndpointDrawer({
 
   const nodeSnippet = `import crypto from "node:crypto";
 
-function verify(rawBody, header, secret) {
-  const [, tPart, sigPart] = header.match(/t=(\\d+), v1=([a-f0-9]+)/);
+function verify(rawBody, timestamp, signature, secret) {
+  const seconds = Number(timestamp);
+  if (!Number.isSafeInteger(seconds) || Math.abs(Date.now() / 1000 - seconds) > 300) return false;
+  if (!/^[a-f0-9]{64}$/.test(signature)) return false;
+  const key = crypto.createHash("sha256").update(secret).digest("hex");
   const expected = crypto
-    .createHmac("sha256", secret)
-    .update(\`\${tPart}.\${rawBody}\`)
+    .createHmac("sha256", key)
+    .update(Buffer.concat([Buffer.from(timestamp + "."), rawBody]))
     .digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(sigPart), Buffer.from(expected));
+  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
 }`;
 
-  const pySnippet = `import hmac, hashlib, re
+  const pySnippet = `import hmac, hashlib, time
 
-def verify(raw_body: bytes, header: str, secret: str) -> bool:
-    m = re.match(r"t=(\\d+), v1=([a-f0-9]+)", header)
-    t, sig = m.group(1), m.group(2)
-    expected = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, expected)`;
+def verify(raw_body: bytes, timestamp: str, signature: str, secret: str) -> bool:
+    if not timestamp.isdecimal() or abs(time.time() - int(timestamp)) > 300:
+        return False
+    key = hashlib.sha256(secret.encode()).hexdigest().encode()
+    expected = hmac.new(key, timestamp.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)`;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -115,7 +134,7 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="log">Delivery log</TabsTrigger>
             <TabsTrigger value="signing">Signing</TabsTrigger>
-            <TabsTrigger value="test">Test fire</TabsTrigger>
+            <TabsTrigger value="test">Simulation</TabsTrigger>
           </TabsList>
 
           {/* Overview */}
@@ -123,16 +142,43 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
             value="overview"
             className="min-h-0 flex-1 space-y-200 overflow-y-auto px-300 py-200"
           >
+            <div className="rounded-medium border border-border p-150 text-body-small">
+              <p className="font-semibold text-text">
+                Subscriptions {endpoint.subscriptionsConfirmed ? "active" : "awaiting review"}
+              </p>
+              <p className="mt-050 text-text-subtle">
+                {endpoint.destinationTested
+                  ? "A signed probe reached this destination. Review its URL and events before activation."
+                  : "Send a signed live probe to this URL, then check its delivery result."}
+              </p>
+              <div className="mt-100 flex flex-wrap gap-100">
+                <Button variant="outline" size="sm" onClick={() => void onProbe(endpoint)}>
+                  Send live probe
+                </Button>
+                <Button variant="outline" size="sm" onClick={onRefresh}>
+                  Refresh result
+                </Button>
+                {!endpoint.subscriptionsConfirmed && (
+                  <Button
+                    size="sm"
+                    disabled={!endpoint.destinationTested}
+                    onClick={() => void onConfirm(endpoint)}
+                  >
+                    Review & activate
+                  </Button>
+                )}
+              </div>
+            </div>
             <div className="grid grid-cols-3 gap-150">
               <SloTile
                 label="Success · 24h"
-                value={`${rate24}%`}
-                tone={rate24 >= 98 ? "ok" : rate24 >= 90 ? "warn" : "bad"}
+                value={settled24.length ? `${rate24}%` : "—"}
+                tone={!settled24.length || rate24 >= 98 ? "ok" : rate24 >= 90 ? "warn" : "bad"}
               />
               <SloTile
                 label="Success · 7d"
-                value={`${rate7d}%`}
-                tone={rate7d >= 98 ? "ok" : rate7d >= 90 ? "warn" : "bad"}
+                value={settled7d.length ? `${rate7d}%` : "—"}
+                tone={!settled7d.length || rate7d >= 98 ? "ok" : rate7d >= 90 ? "warn" : "bad"}
               />
               <SloTile
                 label="p95 latency"
@@ -311,7 +357,7 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
               simulated.
             </p>
             <Button onClick={fireTest} className="w-full" disabled={testBusy}>
-              <Zap className="mr-075 h-3.5 w-3.5" /> {testBusy ? "Sending…" : "Send test delivery"}
+              <Zap className="mr-075 h-3.5 w-3.5" /> {testBusy ? "Recording…" : "Simulate delivery"}
             </Button>
           </TabsContent>
         </Tabs>

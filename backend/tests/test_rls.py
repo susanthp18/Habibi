@@ -80,7 +80,6 @@ KNOWN_WEAK = {
     "bot_tool_calls",
     # faq_pairs left this set on 2026-09-11: it carries its own tenant_id
     # now (sql/36_tenant_columns.sql), filled from the linked document.
-    "routing_rule_executions",
     "sandbox_runs",
 }
 
@@ -176,11 +175,22 @@ def test_no_table_has_rows_that_belong_to_no_tenant(db_tx) -> None:
 
 def test_weakly_scoped_tables_are_the_known_set(db_tx) -> None:
     weak = {p.table for p in rls.plan(db_tx) if p.weak}
-    assert weak == KNOWN_WEAK, (
+    # Migration 0171 renames the legacy table to retain audit evidence.
+    # Local test databases can still be on the preceding schema.
+    old = db_tx.execute(text("SELECT to_regclass('public.routing_rule_executions')")).scalar()
+    retired = db_tx.execute(
+        text("SELECT to_regclass('public.retired_routing_rule_executions')")
+    ).scalar()
+    assert not (old and retired), "both active and retired routing evidence tables exist"
+    evidence = {"routing_rule_executions"} if old else set()
+    if retired:
+        evidence = {"retired_routing_rule_executions"}
+    expected = KNOWN_WEAK | evidence
+    assert weak == expected, (
         "the set of tables reaching a tenant only through nullable columns has "
         "changed. A new entry means a table whose rows can become unattributable"
         f" — review it rather than updating this list reflexively. Added: "
-        f"{sorted(weak - KNOWN_WEAK)}; removed: {sorted(KNOWN_WEAK - weak)}"
+        f"{sorted(weak - expected)}; removed: {sorted(expected - weak)}"
     )
 
 

@@ -55,7 +55,6 @@ def _param_values(conn) -> dict[str, str]:
         "doc_id": one("SELECT id FROM kb_documents ORDER BY id LIMIT 1"),
         "skill_id": one("SELECT id FROM skills ORDER BY id LIMIT 1"),
         "endpoint_id": one("SELECT id FROM webhook_endpoints ORDER BY id LIMIT 1"),
-        "rule_id": one("SELECT id FROM routing_rules ORDER BY id LIMIT 1"),
         "report_id": one("SELECT id FROM eval_reports ORDER BY created_at DESC LIMIT 1"),
         "promise_id": one("SELECT id FROM promises ORDER BY id LIMIT 1"),
         "dispute_id": one("SELECT id FROM disputes ORDER BY id LIMIT 1"),

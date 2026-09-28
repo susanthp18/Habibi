@@ -82,7 +82,8 @@ ENTITY_CONSENT = "consent"
 ENTITY_LEDGER = "ledger"
 #: Rule-set publication: submit, approve (including break-glass), reject.
 ENTITY_POLICY = "policy_rule_set"
-ENTITIES = (ENTITY_BOT, ENTITY_CONSENT, ENTITY_LEDGER, ENTITY_POLICY)
+ENTITY_WEBHOOK = "webhook_endpoint"
+ENTITIES = (ENTITY_BOT, ENTITY_CONSENT, ENTITY_LEDGER, ENTITY_POLICY, ENTITY_WEBHOOK)
 POLICY_DECISION = "policy.decision"
 _ENTITY_TYPE = ENTITY_BOT
 _GENESIS = "0" * 64
@@ -431,6 +432,19 @@ def record_role_grants(
 
 
 AGENTSTUDIO_CHANGE = "agentstudio.change"
+
+
+def record_webhook_change(
+    conn: Any, *, tenant_id: str, actor_user_id: str | None,
+    endpoint_id: str, action: str, detail: dict[str, Any],
+) -> dict[str, Any]:
+    """Record an endpoint decision atomically, without URLs, headers or secrets."""
+    return _write(
+        conn, tenant_id=tenant_id, actor_user_id=actor_user_id,
+        action=f"webhook.{action}", bot_id=endpoint_id,
+        payload={"endpointId": endpoint_id, **detail},
+        entry_id=f"wh-audit-{uuid.uuid4().hex}", entity=ENTITY_WEBHOOK,
+    )
 
 
 def record_agentstudio_change(

@@ -28,60 +28,14 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-import db_prompt_studio as studio
-import flow_graph as fg
-from flow_vars import FlowVariables, evaluate_clause
 from tests.conftest import frontend_file
 
 TENANT = "hdfc.retail"
 
 
-def _expr(variable: str, operator: str, value):
-    return fg.FlowExpressionClause(variable=variable, operator=operator, value=value)
-
-
 # ---------------------------------------------------------------------------
 # FLOW-5 — one spelling of a boolean
 # ---------------------------------------------------------------------------
-
-
-def test_a_captured_boolean_is_stored_the_way_the_editor_teaches() -> None:
-    variables = FlowVariables()
-    variables.update({"wants_plan": True, "has_paid": False})
-    assert variables.get("wants_plan") == "true"
-    assert variables.get("has_paid") == "false"
-
-
-def test_an_equals_true_clause_now_fires_on_a_captured_boolean() -> None:
-    """The finding, as the author would hit it: a yes/no variable, an
-    ``equals true`` edge, and an edge that never fired."""
-    variables = FlowVariables({"wants_plan": True})
-    assert evaluate_clause(_expr("wants_plan", "equals", "true"), variables)
-    assert not evaluate_clause(_expr("wants_plan", "equals", "false"), variables)
-
-
-def test_it_matches_the_system_boolean_it_was_out_of_step_with() -> None:
-    captured = FlowVariables({"verified_by_flow": True})
-    system = FlowVariables(context=lambda: {"identity_verified": "true"})
-    clause = _expr("x", "equals", "true")
-    assert evaluate_clause(_expr("verified_by_flow", "equals", "true"), captured)
-    assert evaluate_clause(_expr("identity_verified", "equals", "true"), system)
-    assert clause.value == "true"
-
-
-def test_normalisation_happens_where_the_value_enters_the_bag() -> None:
-    """Not at each call site. ``set`` is the one door, so no future writer has
-    to remember which path a value came in through."""
-    src = inspect.getsource(FlowVariables.set)
-    assert "_as_text(value)" in src
-
-
-def test_a_non_boolean_is_untouched() -> None:
-    variables = FlowVariables({"n": 42, "s": "True", "none": None})
-    assert variables.get("n") == "42"
-    # A caller who really wrote the string keeps it. Only bools are respelled.
-    assert variables.get("s") == "True"
-    assert variables.get("none") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -116,66 +70,6 @@ def _stored(conn, vid: str):
     return conn.execute(
         text("SELECT flow FROM prompt_versions WHERE id = :id"), {"id": vid}
     ).scalar()
-
-
-def test_the_row_is_served_as_unreadable_not_as_unauthored() -> None:
-    assert studio._prompt_flow(CORRUPT) == {"flow": {}, "flowUnreadable": True}
-    assert studio._prompt_flow({}) == {"flow": {}, "flowUnreadable": False}
-
-
-def test_an_autosave_cannot_erase_it(db_tx) -> None:
-    vid = _draft(db_tx)
-    assert studio._refuses_flow_write(db_tx, vid, SENTINEL, {"flow": SENTINEL})
-    assert _stored(db_tx, vid) == CORRUPT
-
-
-def test_the_refusal_is_a_409_not_a_silent_skip(db_tx) -> None:
-    """Silently dropping the write would leave the editor believing it saved."""
-    vid = _draft(db_tx)
-    with pytest.raises(ValueError, match="flow_unreadable_not_replaced"):
-        studio.patch_prompt_version(vid, {"flow": SENTINEL})
-    assert _stored(db_tx, vid) == CORRUPT
-
-
-def test_an_explicit_replacement_goes_through(db_tx) -> None:
-    vid = _draft(db_tx)
-    studio.patch_prompt_version(vid, {"flow": SENTINEL, "replaceUnreadable": True})
-    assert _stored(db_tx, vid) == SENTINEL
-
-
-def test_loading_the_built_in_script_needs_no_flag(db_tx) -> None:
-    """Recovering by replacing the corrupt row with a real graph must not
-    require the operator to find a switch."""
-    vid = _draft(db_tx)
-    graph = fg.empty_graph().model_dump()
-    graph["nodes"].append(
-        {
-            "id": "n-1",
-            "key": "greet",
-            "type": "conversation",
-            "position": {"x": 0, "y": 0},
-            "data": {"name": "Greet", "instructions": "hello", "isStart": True},
-        }
-    )
-    assert not studio._refuses_flow_write(db_tx, vid, graph, {"flow": graph})
-
-
-def test_a_readable_row_is_never_protected(db_tx) -> None:
-    """An author who genuinely wants to clear a good graph still can."""
-    vid = _draft(db_tx)
-    db_tx.execute(
-        text("UPDATE prompt_versions SET flow = CAST(:f AS jsonb) WHERE id = :id"),
-        {"id": vid, "f": json.dumps(SENTINEL)},
-    )
-    assert not studio._refuses_flow_write(db_tx, vid, SENTINEL, {"flow": SENTINEL})
-
-
-def test_a_version_with_no_stored_graph_is_never_protected(db_tx) -> None:
-    vid = _draft(db_tx)
-    db_tx.execute(
-        text("UPDATE prompt_versions SET flow = '{}'::jsonb WHERE id = :id"), {"id": vid}
-    )
-    assert not studio._refuses_flow_write(db_tx, vid, SENTINEL, {"flow": SENTINEL})
 
 
 def test_the_editor_holds_an_unreadable_flow_at_null() -> None:

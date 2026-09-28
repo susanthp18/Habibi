@@ -3,9 +3,8 @@
 Voice Studio prompts use the engine's template syntax, ``{{initial_context.x}}``
 with an optional ``| fallback:y``. An unresolved variable renders as nothing, so
 a misspelt or unsupplied key silently drops words from what the agent says.
-The older Prompt Studio lint (prompt_lint.py) checks the other runtime's
-single-brace syntax and would flag valid engine prompts, so it is not reused
-here; its negation-aware prohibited-phrase rule is.
+A single-brace ``{name}`` token from the retired runtime is printed literally
+by the engine, so it is reported rather than treated as a variable.
 
 Findings: {severity: error|warn|info, code, message, span|None}.
 """
@@ -16,7 +15,25 @@ import re
 from typing import Any
 
 from agent_core.guardrails import mentions_recording_disclosure
-from prompt_lint import _is_negated
+
+_NEGATION_RE = re.compile(
+    r"\b(never|no|not|n't|dont|avoid|refuse|refuses|refusing|must\s+not|cannot|"
+    r"can\s?not|without|instead\s+of|rather\s+than)\b",
+    re.IGNORECASE,
+)
+_CLAUSE_BREAKS = (".", "\n", ";")
+
+
+def _is_negated(text: str, start: int) -> bool:
+    """True when the phrase at ``start`` sits in a clause that forbids it.
+
+    Scoped to the clause, not the whole prompt: in "Never threaten legal
+    action. Offer Promise-to-Pay options." the negation must not reach past
+    the full stop, or one early "never" would excuse every later violation.
+    """
+    boundary = max(text.rfind(brk, 0, start) for brk in _CLAUSE_BREAKS)
+    return _NEGATION_RE.search(text[boundary + 1 : start]) is not None
+
 
 # Mirrors the engine's TEMPLATE_VAR_PATTERN (utils/template_renderer.py).
 _TEMPLATE = re.compile(r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}")

@@ -163,12 +163,6 @@ def process_one_any() -> bool:
 
         if _iteration % SETTLE_EVERY == 1:
             _run_stage("clerk_overdue", sweep_overdue)
-            try:
-                from agent_core.canary import sweep_rollbacks
-            except Exception:
-                logger.exception("queue=%s failed", "canary")
-            else:
-                _run_stage("canary", sweep_rollbacks)
         if _run_stage("clerk", clerk_one):
             return True
     except Exception:
@@ -235,7 +229,7 @@ def main() -> None:
         logger.info("drained=%s", n)
         return
 
-    logger.info("bot_worker started poll=%.1fs env=%s", args.poll, bot_jobs.bot_environment())
+    logger.info("bot_worker started poll=%.1fs", args.poll)
     # This worker is idle almost all the time and wakes when a customer sends a
     # message, so without warming the pool its FIRST Azure call of every turn
     # pays cold start — measured at 11.2s for an intent classification that

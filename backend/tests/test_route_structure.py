@@ -126,27 +126,10 @@ def test_no_route_takes_an_untyped_dict_body() -> None:
 # with the owner that validates it. Not a ratchet: an entry belongs here only
 # while that is true.
 _OPAQUE_BY_DESIGN = {
-    "agent_studio.AgentCardCompileRequest.agentCard": "the compiler's G0 gate is the validator; a draft must stay savable",
-    "agent_studio.AgentCardCompileRequest.flow": "flow_graph.parse_graph + validate_graph at compile",
-    "agent_studio.AgentCardCompileRequest.persona": "compiled with the card; the compiler reports",
-    "agent_studio.AgentCardCompileRequest.voice": "compiled with the card; the compiler reports",
-    "agent_studio.AgentCardPatchRequest.agentCard": "a draft must stay savable; G0 judges it at compile",
-    "agent_studio.PromptVersionCreateRequest.agentCard": "a draft must stay savable; G0 judges it at compile",
-    "agent_studio.PromptVersionPatchRequest.agentCard": "a draft must stay savable; G0 judges it at compile",
-    "agent_studio.SkillCreateRequest.frontmatter": "SKILL.md frontmatter; agent_core.skills validates",
-    "agent_studio.SkillPatchRequest.frontmatter": "SKILL.md frontmatter; agent_core.skills validates",
-    "agent_studio.SkillScriptRunRequest.payload": "the script's own input",
     "compliance.PolicyRuleDraftItemRequest.params": "shaped by kind; policy_rules.validate_params",
     "integrations.BankManifestIngestRequest.rows": "shaped by contract_code; the bank_boundary adapter validates",
-    "routing.RoutingActionRequest.params": "shaped by the action key; db_routing resolves",
-    "sandbox.SandboxRunCreateRequest.persona": "free text the tester typed, rendered into the prompt",
-    "sandbox.TwinRunRequest.state": "the twin's own state",
     "telephony.TwilioOutboundCallRequest.custom": "passed through to the dialled bot's session",
-    "telephony.VoiceSandboxStartRequest.persona": "free text the tester typed, rendered into the prompt",
-    "telephony.VoiceSandboxStartRequest.tuning": "agent_core.tuning.normalize_tuning owns the shape and clamps it",
-    "telephony.VoiceSandboxTuneRequest.tuning": "agent_core.tuning.normalize_tuning owns the shape and clamps it",
     "outbound.StrategyProposalRequest.changes": "strategy._validated: known engine settings only, each coerced by engine_config.coerce",
-    "voice_catalog.TtsPreviewRequest.params": "provider-specific synthesis parameters",
 }
 
 _UNTYPED = re.compile(r"\bdict\b|\bAny\b")

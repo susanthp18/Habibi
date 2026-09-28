@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,9 +26,8 @@ POLICY_FILE = Path(__file__).resolve().parent / "policy" / "outbound.json"
 
 Direction = Literal["inbound", "outbound", "both"]
 
-#: Mirrors ``flow_graph.OBJECTIVES``. The graph owns the vocabulary because the
-#: graph is what has to contain a matching entry node; this restates it as a
-#: Literal so a card with a typo fails at parse rather than at dial time.
+#: The missions a dial can be sent on. A Literal, so a policy with a typo fails
+#: at load rather than at dial time.
 Objective = Literal[
     "inbound",
     "pre_due_reminder",
@@ -44,6 +43,26 @@ Objective = Literal[
     "cross_sell",
     "manual_outbound",
 ]
+
+OBJECTIVES: tuple[str, ...] = get_args(Objective)
+
+#: Objectives whose contact is made *in order to sell something*, which under
+#: DPDP purpose limitation needs a consent basis of its own rather than the one
+#: captured to service the loan.
+#:
+#: Only ``cross_sell`` is on this list, and the omissions are the interesting
+#: part. ``retention_save`` is a call about a product the borrower already
+#: holds -- keeping an existing relationship is servicing it, not marketing to
+#: them. ``welcome_onboarding`` explains the first EMI. Whether an offer folded
+#: into a servicing conversation makes it promotional belongs to the client's
+#: compliance officer rather than to this frozenset.
+PROMOTIONAL_OBJECTIVES: frozenset[str] = frozenset({"cross_sell"})
+
+
+def data_purpose_for(objective: str | None) -> str:
+    """``servicing`` or ``promotional`` for a mission objective."""
+    return "promotional" if str(objective or "") in PROMOTIONAL_OBJECTIVES else "servicing"
+
 
 VoicemailMode = Literal["always", "never", "first_attempt_only", "engine"]
 PoolKind = Literal["service_1600", "promotional", "general"]
@@ -71,8 +90,7 @@ class CardObjective(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: Objective
-    #: Node key in ``prompt_versions.flow`` whose ``entryFor`` claims this
-    #: mission. Compile gate G-OB2 checks the two agree.
+    #: Where the agent starts this mission; handed to the call as ``entryNode``.
     entry_node: str = ""
     #: Outcome codes from the Closer's taxonomy that close the case.
     success: list[str] = Field(default_factory=list)
@@ -216,4 +234,6 @@ if __name__ == "__main__":
     assert policy.cadence_for("broken_ptp_chase").backoff_hours == [4, 24, 72]
     assert policy.objective("pre_due_reminder").max_duration_sec == 180
     assert policy.post_call.qa == "always" and not policy.carrier_amd
+    assert data_purpose_for("cross_sell") == "promotional" and data_purpose_for("bounce_cure") == "servicing"
+    assert "manual_outbound" in OBJECTIVES
     print("ok", [o.key for o in policy.objectives])

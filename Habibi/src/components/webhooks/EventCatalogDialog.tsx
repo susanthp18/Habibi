@@ -51,6 +51,11 @@ export function EventCatalogDialog({
                             <p className="mb-050 text-body-small text-text-subtle">
                               {e.description}
                             </p>
+                            {!e.supported && (
+                              <p className="text-body-small text-text-warning">
+                                No live producer; unavailable for new subscriptions.
+                              </p>
+                            )}
                             <pre className="overflow-x-auto rounded-large bg-background-neutral p-100 font-mono text-body-small leading-snug text-text-code-default">
                               {JSON.stringify(e.sample, null, 2)}
                             </pre>

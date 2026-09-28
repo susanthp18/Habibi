@@ -10,11 +10,6 @@ from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
-
 class MeResponse(BaseModel):
     """The acting user. One identity for the UI chrome and the actor recorded on
     writes — hardcoding a different name in the shell makes the audit trail lie."""

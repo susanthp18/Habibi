@@ -10,12 +10,12 @@ export function WebhooksStats({
   endpoints: Endpoint[];
   deliveries: Delivery[];
 }) {
-  const active = endpoints.filter((e) => e.status === "active").length;
-  const last24 = within(deliveries, 24);
-  const rate = successRate(last24);
-  const failing = deliveries.filter(
-    (d) => d.status === "server_err" || d.status === "client_err",
-  ).length;
+  const active = endpoints.filter((e) => e.status === "active" && e.subscriptionsConfirmed).length;
+  const business = deliveries.filter((d) => d.mode !== "simulated" && d.event !== "webhook.test");
+  const last24 = within(business, 24);
+  const settled = last24.filter((d) => d.status !== "pending");
+  const rate = successRate(settled);
+  const failing = business.filter((d) => d.status !== "success").length;
 
   const tiles = [
     {
@@ -28,14 +28,20 @@ export function WebhooksStats({
     {
       label: "Deliveries · 24h",
       value: last24.length.toString(),
-      hint: `${deliveries.length} total`,
+      hint: `${business.length} total`,
       icon: Activity,
       tone: "text-text",
     },
     {
       label: "Success · 24h",
-      value: `${rate}%`,
-      hint: rate >= 98 ? "healthy" : rate >= 90 ? "degraded" : "at risk",
+      value: settled.length ? `${rate}%` : "—",
+      hint: settled.length
+        ? rate >= 98
+          ? "healthy"
+          : rate >= 90
+            ? "degraded"
+            : "at risk"
+        : "no settled deliveries",
       icon: CheckCircle2,
       tone:
         rate >= 98

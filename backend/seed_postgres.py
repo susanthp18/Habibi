@@ -66,13 +66,8 @@ def main() -> None:
             seed_reference_data(conn, ctx)
             seed_customers_accounts(conn, ctx)
             seed_consent(conn, ctx)
-            seed_bot_config(conn, ctx)
-            seed_skills(conn)
-            seed_mcp_phase3(conn)
-            seed_phase4(conn)
-            seed_phase5(conn)
-            seed_phase6(conn)
-            seed_eval_catalog(conn)
+            seed_supervisors_and_kb(conn)
+            seed_clerk_rubric(conn)
             seed_interactions(conn, ctx)
             seed_collections_and_sales(conn, ctx)
             # After collections/sales: it re-dates rows those functions wrote.
@@ -112,27 +107,6 @@ def main() -> None:
 
 def load_json(filename: str) -> Any:
     return json.loads((SEED_DIR / filename).read_text(encoding="utf-8"))
-
-
-def builtin_flow() -> dict[str, Any]:
-    """The authored collections graph, for the demo card's published version.
-
-    Nothing seeded a flow, so on any database built the documented way --
-    sql/*.sql, `alembic stamp head`, seed_demo.py -- every card's flow was
-    unauthored. G-OB2 refuses an outbound card with no entry door ("it will dial
-    and then guess"), so a freshly provisioned Habibi could not publish an
-    outbound card at all, and roughly twenty tests that clone the demo card and
-    compile it failed on any machine that had not hand-authored one. This one
-    had: its published kaia-v2-4 flow carries 14 nodes because a migration was
-    once *run* here rather than stamped.
-
-    agent_core/cards/graphs/collections.json is that graph -- the one
-    conversation definition, which `voice.flow_export` also reads and the Flow
-    tab loads. Read from disk here rather than through the export module so
-    the seeder never imports the voice tree.
-    """
-    path = BASE / "agent_core" / "cards" / "graphs" / "collections.json"
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def read_env(key: str) -> str | None:
@@ -281,8 +255,6 @@ ARRAY_COLUMNS: dict[str, frozenset[str]] = {
     "product_campaigns": frozenset({"segment_in", "risk_not_in"}),
     "skill_versions": frozenset({"allowed_tools"}),
     "mcp_keys": frozenset({"scopes"}),
-    "mcp_connectors": frozenset({"allow_prefixes", "data_class"}),
-    "a2a_partners": frozenset({"allowed_skills"}),
 }
 
 
@@ -453,27 +425,12 @@ TENANT_SCOPED_SEED_TABLES = frozenset(
         "qa_rubrics",
         "products",
         "document_templates",
-        "persona_presets",
-        "sandbox_scenarios",
         "kb_snapshots",
-        "tts_voices",
-        "voice_sandbox_sessions",
-        "eval_suites",
-        "skills",
-        "vault_refs",
-        "mcp_connectors",
         "mcp_keys",
         "mcp_tasks",
-        "simulation_twins",
-        "a2a_partners",
-        "deployment_experiments",
-        "twin_corpus",
-        "gateway_canaries",
-        "skill_critiques",
         # Rooted by 20260812_0062 — seed rows that omit tenant_id otherwise
         # fail NOT NULL and roll back the whole demo graph.
         "kb_documents",
-        "prompt_versions",
         "export_jobs",
         "retrieval_logs",
     }
@@ -946,8 +903,7 @@ def seed_consent(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 upsert(conn, "optout_events", {"id": f"optout-{consent_id}-{ch}", "consent_id": consent_id, "channel": ch, "source": row.get("source") or "seed", "actor_kind": "customer", "actor_user_id": None, "occurred_at": row.get("capturedAt") or "2026-07-01T00:00:00Z"})
 
 
-def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
-    # --- Prompt Studio (Habibi /prompt-studio shapes). Alembic 0018 mirrors this. ---
+def seed_supervisors_and_kb(conn: psycopg.Connection) -> None:
     for user_id, name in (("anita-rao", "Anita Rao"), ("vikram-shah", "Vikram Shah")):
         upsert(
             conn,
@@ -962,652 +918,16 @@ def seed_bot_config(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             },
         )
 
-    # CRM-token-free, and it has to stay that way. A system prompt only
-    # interpolates SYSTEM_SAFE_VARIABLES ({agent_name}, {bank_name},
-    # {language}, {time_of_day}); render_system_prompt leaves every other token
-    # alone and strip_unrendered_crm_tokens then deletes the whole LINE it sits
-    # on. A preset that says "Greet {customer_name} warmly" therefore does not
-    # greet anyone -- it silently deletes its own instruction, and the author
-    # who clicked the preset has no way to see that happened.
-    #
-    # These four are the exact strings in sql/09_bot_config.sql and in migration
-    # 20260819_0084. That migration repairs databases that already hold the old
-    # rows, but a migration only runs when it is replayed -- a stamped database
-    # never executes its UPDATE -- while this seeder upserts on every run, so it
-    # is the copy that actually decides what is in the table. It still held the
-    # pre-0084 text, which is how a database at head served presets that delete
-    # half their own lines the moment an author applies one.
-    _emp_prompt = (
-        "You are {agent_name}, a collections voice agent for {bank_name} handling outbound and inbound calls.\n"
-        "Greet the caller warmly and acknowledge their situation before discussing dues.\n"
-        "Their account number, outstanding balance and due date arrive in the CRM context card — quote those figures verbatim and never invent one.\n"
-        "Speak in {language}. Be patient, empathetic and non-judgemental.\n"
-        "Never threaten legal action. Offer Promise-to-Pay options when the caller signals hardship."
-    )
-    _firm_prompt = (
-        "You are {agent_name}, a collections agent for {bank_name}.\n"
-        "Address the caller directly and state the purpose of the call within the first two sentences.\n"
-        "State the overdue amount and due date from the CRM context card, exactly as given. Never estimate or round them.\n"
-        "Speak in {language}. Be concise and outcome-focused; ask for a specific payment date.\n"
-        "Never threaten legal action and never imply consequences the bank has not authorised."
-    )
-    _comp_prompt = (
-        "You are {agent_name}, a compliance-first collections agent for {bank_name}.\n"
-        "Verify the caller's identity before sharing any account information.\n"
-        "Account details are in the CRM context card and may only be discussed after verification succeeds.\n"
-        "Speak in {language}. Keep to the script; if a request falls outside policy, say so plainly and escalate.\n"
-        "Never quote an interest rate, waiver or settlement figure that a tool has not returned."
-    )
-    _upsell_prompt = (
-        "You are {agent_name}, a collections and relationship voice agent for {bank_name}.\n"
-        "Resolve the caller's query about their overdue balance first — the figures are in the CRM context card.\n"
-        "Only once the collections matter is settled and sentiment is not negative, mention at most one offer returned by recommend_next_offer.\n"
-        "Speak in {language}. Never name a product the tool did not give you."
-    )
-    _guardrails = {
-        "prohibited": ["guarantee", "police", "arrest", "threaten", "family will pay", "harassment"],
-        "escalateAbuse": True,
-        "escalateLegal": True,
-        "neverQuoteRate": True,
-        "neverPromiseWaiver": True,
-        "alwaysDiscloseRecording": True,
-        "refusePoliticsReligion": True,
-        "maxTurns": 20,
-        "maxSeconds": 480,
-    }
-    _voice = {
-        "voiceId": "en-IN-AartiNeural",
-        "azureVoiceName": "en-IN-AartiNeural",
-        "speed": 1.0,
-        "pitch": 0,
-        "warmth": 62,
-        "pauseMs": 320,
-        "sampleText": "Hello Rahul, this is a courtesy call from BigTapp about your EMI. Do you have a minute?",
-    }
-    _emp_traits = {"empathy": 82, "firmness": 40, "formality": 55, "verbosity": 60, "upsell": 20}
-    _firm_traits = {"empathy": 35, "firmness": 80, "formality": 65, "verbosity": 40, "upsell": 15}
-    _comp_traits = {"empathy": 55, "firmness": 55, "formality": 90, "verbosity": 55, "upsell": 5}
-    _upsell_traits = {"empathy": 65, "firmness": 45, "formality": 55, "verbosity": 55, "upsell": 75}
-
-    for voice_id, name, gender, accent, azure in (
-        ("priya", "Priya", "Female", "Indian English", "en-IN-AartiNeural"),
-        ("anjali", "Anjali", "Female", "Hindi-English", "en-IN-AashiNeural"),
-        ("neha", "Neha", "Female", "Neutral English", "en-IN-AartiNeural"),
-        ("ravi", "Ravi", "Male", "Indian English", "en-IN-PrabhatNeural"),
-        ("arjun", "Arjun", "Male", "Hindi-English", "en-IN-KunalNeural"),
-        ("kabir", "Kabir", "Male", "Neutral English", "en-IN-PrabhatNeural"),
-    ):
-        upsert(
-            conn,
-            "tts_voices",
-            {
-                "id": voice_id,
-                "provider": "azure-speech",
-                "name": name,
-                "config": {"gender": gender, "accent": accent, "duration": "0:03", "azureVoiceName": azure},
-                "enabled": True,
-            },
-        )
-
-    for preset_id, name, description, traits, template in (
-        ("empathetic", "Empathetic Collector", "Warm, patient, hardship-aware", _emp_traits, _emp_prompt),
-        ("firm", "Firm Collector", "Direct, outcome-focused", _firm_traits, _firm_prompt),
-        ("compliance", "Compliance-First", "Every disclosure, every time", _comp_traits, _comp_prompt),
-        ("upsell", "Upsell-Focused", "Resolve, then convert", _upsell_traits, _upsell_prompt),
-    ):
-        upsert(
-            conn,
-            "persona_presets",
-            {
-                "id": preset_id,
-                "name": name,
-                "config": {
-                    "label": name,
-                    "description": description,
-                    "traits": traits,
-                    "promptTemplate": template,
-                },
-            },
-        )
-
-    def _persona(traits: dict[str, int], fallback: list[str] | None = None) -> dict[str, Any]:
-        return {"traits": traits, "language": "English", "fallbackLanguages": fallback or ["Hindi"]}
-
-    # One published version per first-party bot. Collections keeps the history
-    # row ids (v1_0 … v1_4); the other three cards seed a single published row.
-    from agent_core.cards.defaults import card_dump as _card_dump
-
-    for row in (
-        {
-            "id": "v1_0",
-            "author_user_id": "anita-rao",
-            "status": "archived",
-            "label": "v1.0",
-            "summary": "first draft",
-            "prompt": "You are a collections agent. Collect the overdue amount.",
-            "persona": _persona(_emp_traits),
-            "voice": {**_voice},
-            "guardrails": {**_guardrails, "prohibited": [], "alwaysDiscloseRecording": False, "escalateAbuse": False},
-            "created_at": "2026-06-22T10:00:00Z",
-            "updated_at": "2026-06-22T10:00:00Z",
-        },
-        {
-            "id": "v1_1",
-            "author_user_id": "vikram-shah",
-            "status": "archived",
-            "label": "v1.1",
-            "summary": "initial compliance pass",
-            "prompt": _comp_prompt.replace("Never quote interest rates.", ""),
-            "persona": _persona(_comp_traits),
-            "voice": {**_voice, "warmth": 45},
-            "guardrails": {**_guardrails, "neverQuoteRate": False},
-            "created_at": "2026-07-02T10:00:00Z",
-            "updated_at": "2026-07-02T10:00:00Z",
-        },
-        {
-            "id": "v1_2",
-            "author_user_id": "vikram-shah",
-            "status": "archived",
-            "label": "v1.2",
-            "summary": "− legal-threat language, + Hindi fallback",
-            "prompt": _firm_prompt,
-            "persona": _persona(_firm_traits, ["Hindi", "Marathi"]),
-            "voice": {**_voice, "voiceId": "ravi"},
-            "guardrails": {**_guardrails, "prohibited": ["police", "arrest", "harassment"]},
-            "created_at": "2026-07-10T10:00:00Z",
-            "updated_at": "2026-07-10T10:00:00Z",
-        },
-        {
-            "id": "v1_3",
-            "author_user_id": "anita-rao",
-            "status": "archived",
-            "label": "v1.3",
-            "summary": "+ upsell-focused fallback path",
-            "prompt": _emp_prompt.replace("Offer Promise-to-Pay", "Offer Promise-to-Pay or product upgrade"),
-            "persona": _persona({**_emp_traits, "upsell": 40}),
-            "voice": {**_voice, "warmth": 55},
-            "guardrails": {**_guardrails, "neverPromiseWaiver": False},
-            "created_at": "2026-07-16T10:00:00Z",
-            "updated_at": "2026-07-16T10:00:00Z",
-        },
-        {
-            "id": "v1_4",
-            "author_user_id": "anita-rao",
-            "status": "published",
-            "label": "v1.4",
-            "summary": "+ recording disclosure, empathy 70→75",
-            "prompt": _emp_prompt,
-            "persona": _persona({**_emp_traits, "empathy": 75}),
-            "voice": {**_voice},
-            "guardrails": {**_guardrails},
-            "created_at": "2026-07-20T10:00:00Z",
-            "updated_at": "2026-07-20T10:00:00Z",
-        },
-    ):
-        row = {
-            **row,
-            "bot_id": "kaia-v2-4",
-            "agent_card": _card_dump("kaia-v2-4"),
-            # Without this the card cannot pass G-OB2 and no outbound mission on
-            # it can be published. See builtin_flow().
-            "flow": builtin_flow(),
-        }
-        upsert(conn, "prompt_versions", row)
-
-    for bot_id, version_id, prompt in (
-        ("intake-v1", "pv-intake-1", "You are the intake agent. Identify the caller, disclose recording, and hand off to the right specialist."),
-        ("insurance-v1", "pv-insurance-1", "You are the insurance specialist. Eligibility and leads only — never quote a product the reco engine did not return."),
-        ("supervisor-brief", "pv-supervisor-1", "You write a compact supervisor brief. You do not speak to the customer."),
-    ):
-        upsert(
-            conn,
-            "prompt_versions",
-            {
-                "id": version_id,
-                "author_user_id": "anita-rao",
-                "status": "published",
-                "label": "v1.0",
-                "summary": "first-party card",
-                "prompt": prompt,
-                "persona": _persona(_emp_traits),
-                "voice": {**_voice},
-                "guardrails": {**_guardrails},
-                "bot_id": bot_id,
-                "agent_card": _card_dump(bot_id),
-                "created_at": "2026-08-15T10:00:00Z",
-                "updated_at": "2026-08-15T10:00:00Z",
-            },
-        )
-        upsert(
-            conn,
-            "bot_deployments",
-            {
-                "id": f"DEP-{bot_id}-PROD",
-                "bot_id": bot_id,
-                "prompt_version_id": version_id,
-                "kb_snapshot_id": None,
-                "tts_voice_id": "en-IN-AartiNeural",
-                "environment": "production",
-                "status": "active",
-                "published_by_user_id": "priya-nair",
-                "published_at": "2026-08-15T10:00:00Z",
-                "rollback_deployment_id": None,
-                "voice_config": {**_voice, "azureVoiceName": "en-IN-AartiNeural", "voiceId": "en-IN-AartiNeural"},
-                "tuning": {"tts": {"voice": "en-IN-AartiNeural"}},
-                "traffic_pct": 100,
-                "shadow": False,
-            },
-        )
-
-    # The tenant clone. Created through the API rather than seeded, which meant
-    # a fresh database showed four first-party mouths and nothing else -- and
-    # the page's own subtitle promises "first-party mouths plus tenant clones".
-    # It is also the card `demo/SUSANTH_VOICE_DEMO_SCRIPT.md` was recorded on.
-    #
-    # Only the published version and its active deployment are seeded. The live
-    # database also carries two superseded versions and two retired
-    # deployments; that is one afternoon's editing history, not part of the
-    # roster, and reproducing it would seed a story rather than a state.
-    upsert(
-        conn,
-        "bots",
-        {
-            "id": "collections-clone-9ff4b6",
-            "tenant_id": TENANT_ID,
-            "name": "Collections-clone",
-            "version": "1.0",
-            "archived_at": None,
-        },
-    )
-    upsert(
-        conn,
-        "prompt_versions",
-        {
-            "id": "v1_1-0e5322",
-            "author_user_id": "priya-nair",
-            "status": "published",
-            "label": "v1.1",
-            "summary": "voice changed",
-            "prompt": _emp_prompt,
-            "persona": _persona({**_emp_traits, "empathy": 75}),
-            # A clone that speaks in a different voice from the card it came
-            # from -- which is the point of cloning, and what the Voice tab is
-            # demonstrated with.
-            "voice": {**_voice, "azureVoiceName": "en-AU-WilliamNeural", "voiceId": "en-AU-WilliamNeural"},
-            "guardrails": {**_guardrails},
-            "bot_id": "collections-clone-9ff4b6",
-            "agent_card": _card_dump("kaia-v2-4"),
-            "created_at": "2026-08-20T06:46:00Z",
-            "updated_at": "2026-08-20T06:46:59Z",
-        },
-    )
-    upsert(
-        conn,
-        "bot_deployments",
-        {
-            "id": "DEP-49F6658EF6",
-            "bot_id": "collections-clone-9ff4b6",
-            "prompt_version_id": "v1_1-0e5322",
-            "kb_snapshot_id": None,
-            "tts_voice_id": "en-AU-WilliamNeural",
-            "environment": "production",
-            "status": "active",
-            "published_by_user_id": "priya-nair",
-            "published_at": "2026-08-20T06:46:59Z",
-            "rollback_deployment_id": None,
-            "voice_config": {**_voice, "azureVoiceName": "en-AU-WilliamNeural", "voiceId": "en-AU-WilliamNeural"},
-            "tuning": {"tts": {"voice": "en-AU-WilliamNeural"}},
-            "traffic_pct": 100,
-            "shadow": False,
-        },
-    )
-
     upsert(conn, "kb_documents", {"id": "kb-rbi-disclosures", "updated_by_user_id": "priya-nair", "type": "policy", "version": "2026.07", "status": "indexed", "enabled": True, "chunk_size": 800, "chunk_overlap": 120, "title": "RBI Collections Disclosure Guide"})
     upsert(conn, "kb_source_files", {"id": "file-kb-rbi-disclosures", "document_id": "kb-rbi-disclosures", "storage_ref": "minio://kb-sources/hdfc.retail/rbi-disclosures.pdf", "filename": "rbi-disclosures.pdf", "mime_type": "application/pdf", "size_bytes": 284000, "hash": stable_hash("rbi-disclosures")})
     upsert(conn, "kb_chunks", {"id": "chunk-rbi-disclosures-1", "document_id": "kb-rbi-disclosures", "heading": "Recording disclosure", "tokens": 42, "text": "Agents and bots must disclose recording and identity before discussing account details.", "embedding": None, "hits": 12, "chunk_index": 1})
     upsert(conn, "kb_index_jobs", {"id": "kb-job-rbi-disclosures", "document_id": "kb-rbi-disclosures", "status": "succeeded", "chunk_size": 800, "chunk_overlap": 120, "embedding_model": "text-embedding-3-small", "started_at": "2026-07-21T08:00:00Z", "completed_at": "2026-07-21T08:02:00Z", "error": None})
     upsert(conn, "faq_pairs", {"id": "faq-payment-link", "linked_document_id": "kb-rbi-disclosures", "intent": "payment_link", "question": "Can you send a payment link?", "answer": "Yes, I can send a secure payment link to your registered channel.", "enabled": True})
     upsert(conn, "kb_snapshots", {"id": "kb-snapshot-2026-07", "label": "July production KB", "document_ids": ["kb-rbi-disclosures"], "faq_ids": ["faq-payment-link"]})
-    # Live-config invariant: active prod deployment → published prompt (v1_4) + Azure voice.
-    upsert(
-        conn,
-        "bot_deployments",
-        {
-            "id": "DEP-2026-07-PROD",
-            "bot_id": "kaia-v2-4",
-            "prompt_version_id": "v1_4",
-            # This historical July snapshot contains only the RBI disclosure.
-            # The voice agent also answers product questions from indexed KB.
-            "kb_snapshot_id": None,
-            "tts_voice_id": "en-IN-AartiNeural",
-            "environment": "production",
-            "status": "active",
-            "published_by_user_id": "priya-nair",
-            "published_at": "2026-07-21T08:30:00Z",
-            "rollback_deployment_id": None,
-            "voice_config": {**_voice, "azureVoiceName": "en-IN-AartiNeural", "voiceId": "en-IN-AartiNeural"},
-            "tuning": {"tts": {"voice": "en-IN-AartiNeural"}},
-        },
-    )
-    # Screen-shaped routing library (Habibi Routing Builder). Alembic 0013 mirrors this.
-    routing_library = [
-        {
-            "id": "route-abusive-supervisor",
-            "priority": 1,
-            "enabled": True,
-            "name": "Abusive language → immediate supervisor",
-            "description": "Barge supervisor when abusive language or legal threats detected.",
-            "category": "Escalation",
-            "conditions": [
-                {
-                    "id": "c-abuse-or",
-                    "or": [
-                        {"id": "c-abuse-1", "field": "guardrail_flag", "op": "=", "value": "abusive-language"},
-                        {"id": "c-abuse-2", "field": "guardrail_flag", "op": "=", "value": "legal-threat"},
-                    ],
-                }
-            ],
-            "action_key": "escalate_supervisor",
-            "action_params": {},
-        },
-        {
-            "id": "route-high-value-tier2",
-            "priority": 2,
-            "enabled": True,
-            "name": "High-value angry customer → Tier 2",
-            "description": "Angry customers with high overdue routed to Tier 2 collections.",
-            "category": "Routing",
-            "conditions": [
-                {"id": "c-hv-sent", "field": "sentiment", "op": "=", "value": "angry"},
-                {"id": "c-hv-amt", "field": "overdue_amount", "op": ">", "value": 25000},
-            ],
-            "action_key": "route_tier2",
-            "action_params": {},
-        },
-        {
-            "id": "route-hardship-handoff",
-            "priority": 3,
-            "enabled": True,
-            "name": "Hardship intent → human handoff",
-            "description": "Hand off when customer expresses financial hardship.",
-            "category": "Handoff",
-            "conditions": [{"id": "c-hardship", "field": "intent", "op": "=", "value": "hardship"}],
-            "action_key": "handoff_human",
-            "action_params": {"team": "Hardship Desk"},
-        },
-        {
-            "id": "route-dispute-queue",
-            "priority": 4,
-            "enabled": True,
-            "name": "Dispute intent → collections queue",
-            "description": "Route dispute intents to the specialist collections dispute desk.",
-            "category": "Routing",
-            "conditions": [{"id": "c-dispute", "field": "intent", "op": "=", "value": "dispute"}],
-            "action_key": "route_specialist",
-            "action_params": {"team": "Dispute Desk"},
-        },
-        {
-            "id": "route-sentiment-drop",
-            "priority": 5,
-            "enabled": True,
-            "name": "Negative sentiment → supervisor",
-            "description": "Escalate when average call sentiment turns strongly negative.",
-            "category": "Escalation",
-            "conditions": [{"id": "c-sent", "field": "sentiment", "op": "=", "value": "angry"}],
-            "action_key": "escalate_supervisor",
-            "action_params": {},
-        },
-        {
-            "id": "route-verify-failed",
-            "priority": 6,
-            "enabled": True,
-            "name": "Verification failed → human",
-            "description": "Stop upsell and hand off when caller verification fails mid-call.",
-            "category": "Throttle",
-            "conditions": [
-                {"id": "c-vf-status", "field": "verification_status", "op": "=", "value": "failed"},
-                {"id": "c-vf-turns", "field": "turn_count", "op": ">=", "value": 4},
-            ],
-            "action_key": "stop_upsell",
-            "action_params": {},
-        },
-        {
-            "id": "route-dnd-sms",
-            "priority": 7,
-            "enabled": True,
-            "name": "DND breach → SMS follow-up only",
-            "description": "If DND is on during a voice attempt, close voice and send scheduled SMS.",
-            "category": "Compliance",
-            "conditions": [
-                {"id": "c-dnd", "field": "consent_dnd", "op": "=", "value": True},
-                {"id": "c-dnd-ch", "field": "channel", "op": "=", "value": "voice"},
-            ],
-            "action_key": "send_sms",
-            "action_params": {"template": "dnd_followup_v2"},
-        },
-        {
-            "id": "route-high-dpd",
-            "priority": 8,
-            "enabled": False,
-            "name": "High DPD → priority Tier 2 queue",
-            "description": "Anyone above 60 DPD goes to Tier 2 regardless of sentiment.",
-            "category": "Routing",
-            "conditions": [{"id": "c-dpd", "field": "dpd", "op": ">", "value": 60}],
-            "action_key": "route_tier2",
-            "action_params": {},
-        },
-    ]
-    for rule in routing_library:
-        upsert(conn, "routing_rules", {"tenant_id": TENANT_ID, **rule})
-    # Sandbox scenarios — Habibi-shaped (sim_persona carries persona + openingBot metadata).
-    sandbox_scenarios = [
-        {
-            "id": "angry-waiver",
-            "name": "Angry customer — waiver dispute",
-            "sim_persona": {
-                "title": "Angry customer — waiver dispute",
-                "summary": "Customer is furious about a late fee and demands it be waived immediately.",
-                "difficulty": "hard",
-                "intents": ["waiver_request", "escalation"],
-                "name": "Rahul Sharma",
-                "phoneLast4": "4821",
-                "product": "Personal Loan",
-                "dpd": 12,
-                "overdue": 18450,
-                "mood": "angry",
-                "language": "English",
-                "accountNo": "••••4821",
-                "dueDate": "the 5th",
-                "openingBot": "Hello, this is {agent_name} calling from {bank_name} regarding your loan account. This call is recorded for quality. Am I speaking with {customer_name}?",
-                # Every seeded scenario is a call we place to an overdue borrower.
-                "direction": "outbound",
-                "objective": "dpd_reminder",
-            },
-            "turns": [
-                {"customer": "Yes it's me. Why are you charging me a late fee? This is ridiculous!", "expectedIntent": "waiver_request", "expectedSentiment": -0.7},
-                {"customer": "I want it waived. I've been a customer for 5 years.", "expectedIntent": "waiver_request", "expectedSentiment": -0.6},
-            ],
-        },
-        {
-            "id": "hardship",
-            "name": "Hardship — recent job loss",
-            "sim_persona": {
-                "title": "Hardship — recent job loss",
-                "summary": "Customer lost their job and can't pay this month.",
-                "difficulty": "hard",
-                "intents": ["hardship", "escalation"],
-                "name": "Anil Kumar",
-                "phoneLast4": "1177",
-                "product": "Home Loan",
-                "dpd": 22,
-                "overdue": 42800,
-                "mood": "distressed",
-                "language": "English",
-                "accountNo": "••••1177",
-                "dueDate": "the 1st",
-                "openingBot": "Hello, this is {agent_name} from {bank_name}. This call is recorded. Am I speaking with {customer_name}?",
-                "direction": "outbound",
-                "objective": "dpd_reminder",
-            },
-            "turns": [
-                {"customer": "Yes. Look, I lost my job last month. I can't pay right now.", "expectedIntent": "hardship", "expectedSentiment": -0.7},
-                {"customer": "How does the deferral work?", "expectedIntent": "hardship", "expectedSentiment": -0.2},
-            ],
-        },
-        {
-            "id": "pay-today",
-            "name": "Wants to pay today (happy path)",
-            "sim_persona": {
-                "title": "Wants to pay today (happy path)",
-                "summary": "Straightforward: customer wants to clear dues on the call.",
-                "difficulty": "easy",
-                "intents": ["payment_intent"],
-                "name": "Neha Verma",
-                "phoneLast4": "5522",
-                "product": "Auto Loan",
-                "dpd": 3,
-                "overdue": 12200,
-                "mood": "cooperative",
-                "language": "English",
-                "accountNo": "••••5522",
-                "dueDate": "today",
-                "openingBot": "Hi {customer_name}, this is {agent_name} from {bank_name}. This call is recorded. Calling about your auto loan EMI.",
-                "direction": "outbound",
-                "objective": "dpd_reminder",
-            },
-            "turns": [
-                {"customer": "Yes, I want to clear it right now.", "expectedIntent": "payment_intent", "expectedSentiment": 0.6},
-                {"customer": "Yes, send the UPI link.", "expectedIntent": "payment_intent", "expectedSentiment": 0.7},
-            ],
-        },
-        {
-            "id": "legal-threat",
-            "name": "Legal threat — auto-escalation trigger",
-            "sim_persona": {
-                "title": "Legal threat — auto-escalation trigger",
-                "summary": "Customer threatens legal action; bot should escalate immediately.",
-                "difficulty": "hard",
-                "intents": ["escalation"],
-                "name": "Vikram Joshi",
-                "phoneLast4": "8804",
-                "product": "Credit Card",
-                "dpd": 45,
-                "overdue": 62100,
-                "mood": "hostile",
-                "language": "English",
-                "accountNo": "••••8804",
-                "dueDate": "overdue",
-                "openingBot": "Hello {customer_name}, {agent_name} from {bank_name}. This call is recorded. Calling regarding your outstanding balance.",
-                "direction": "outbound",
-                "objective": "dpd_reminder",
-            },
-            "turns": [
-                {"customer": "If you call me again I'll take you to court!", "expectedIntent": "escalation", "expectedSentiment": -0.9},
-            ],
-        },
-    ]
-    for sc in sandbox_scenarios:
-        upsert(conn, "sandbox_scenarios", sc)
-    upsert(conn, "sandbox_runs", {"id": "SBX-1001", "scenario_id": "hardship", "deployment_id": "DEP-2026-07-PROD", "prompt_version_id": "v1_4", "kb_snapshot_id": "kb-snapshot-2026-07", "started_by_user_id": "priya-nair", "status": "completed", "aggregate_latency_ms": 980, "aggregate_tokens": 640})
-    upsert(conn, "sandbox_run_turns", {"id": "SBX-1001-turn-1", "run_id": "SBX-1001", "turn_index": 1, "speaker": "bot", "text": "I understand. Let us find a suitable payment date.", "detected_intent": "hardship", "sentiment_label": "neutral", "retrieved_chunk_ids": ["chunk-rbi-disclosures-1"], "guardrail_flags": [], "latency_ms": 980, "token_count": 64})
 
 
-def seed_skills(conn: psycopg.Connection) -> None:
-    """First-party packs, signed with the platform key, attached to published cards."""
-    from agent_core.skills.defaults import CARD_SKILLS, all_first_party_packs
-    from agent_core.skills.sign import sign_hash
-
-    published = {
-        "kaia-v2-4": "v1_4",
-        "intake-v1": "pv-intake-1",
-        "insurance-v1": "pv-insurance-1",
-        "supervisor-brief": "pv-supervisor-1",
-    }
-    version_ids: dict[str, str] = {}
-    from agent_core.skills.persist import _stored_version, _version_row_id
-
-    for pack in all_first_party_packs():
-        sid = f"skill-{pack.slug}"
-        # The same id and version the boot sync derives, so a seeded database
-        # and a synced one hold one signed row per pack, not two.
-        version = _stored_version(pack.version)
-        vid = _version_row_id(sid, version)
-        version_ids[pack.slug] = vid
-        signature = sign_hash(pack.content_hash)
-        upsert(
-            conn,
-            "skills",
-            {
-                "id": sid,
-                "slug": pack.slug,
-                "signature_status": "signed",
-                "origin": "first_party",
-                "latest_version_id": None,
-            },
-        )
-        upsert(
-            conn,
-            "skill_versions",
-            {
-                "id": vid,
-                "skill_id": sid,
-                "version": version,
-                "status": "signed",
-                "frontmatter": pack.frontmatter,
-                "body": pack.body,
-                "allowed_tools": pack.allowed_tools,
-                "content_hash": pack.content_hash,
-                "signature": signature,
-                "signed_by": None,
-                "pack": {"references": pack.references, "examples": pack.examples},
-            },
-        )
-        conn.execute(
-            "UPDATE skills SET latest_version_id = %(vid)s WHERE id = %(id)s",
-            {"vid": vid, "id": sid},
-        )
-    for bot_id, slugs in CARD_SKILLS.items():
-        pv = published.get(bot_id)
-        if not pv:
-            continue
-        for slug in slugs:
-            vid = version_ids.get(slug)
-            if not vid:
-                continue
-            insert_ignore(
-                conn,
-                "INSERT INTO skill_attachments (prompt_version_id, skill_version_id) "
-                "VALUES (%(pv)s, %(sv)s) ON CONFLICT DO NOTHING",
-                {"pv": pv, "sv": vid},
-            )
-
-
-def seed_mcp_phase3(conn: psycopg.Connection) -> None:
-    """First-party pay-link + LMS connectors. No tokens, no vault:// strings."""
-    for slug, title, prefixes, data_class in (
-        ("paylink", "Pay-link status", ["ext.paylink."], ["money", "pii"]),
-        ("lms", "LMS balance", ["ext.lms."], ["money", "pii"]),
-    ):
-        upsert(
-            conn,
-            "mcp_connectors",
-            {
-                "id": f"conn-{slug}",
-                "slug": slug,
-                "display_name": title,
-                "kind": "first_party",
-                "allow_prefixes": prefixes,
-                "data_class": data_class,
-                "status": "approved",
-                "allowed_env": "both",
-                "health": "healthy",
-                "tools_cache": [],
-            },
-        )
-
-
-def seed_phase4(conn: psycopg.Connection) -> None:
-    """Clerk SMS rubric + bounce twin. No Temporal cluster, no dialer."""
+def seed_clerk_rubric(conn: psycopg.Connection) -> None:
+    """The QA rubric the Clerk's SMS / WhatsApp sends are scored against."""
     upsert(
         conn,
         "qa_rubrics",
@@ -1647,52 +967,6 @@ def seed_phase4(conn: psycopg.Connection) -> None:
                 "critical_fail": critical,
             },
         )
-    from agent_core.twin import DEFAULT_STATE, DEFAULT_TWIN_ID
-
-    upsert(
-        conn,
-        "simulation_twins",
-        {
-            "id": DEFAULT_TWIN_ID,
-            "name": "Bounce chase ladder",
-            "state": DEFAULT_STATE,
-        },
-    )
-
-
-def seed_phase5(conn: psycopg.Connection) -> None:
-    """Lapse eval suite + a sample A2A partner cert. No OPA import."""
-    from agent_core.eval.fixtures import seed_lapse_catalog
-
-    seed_lapse_catalog(conn, TENANT_ID, upsert)
-    upsert(
-        conn,
-        "a2a_partners",
-        {
-            "id": "a2a-p-bank-fraud",
-            "name": "Bank fraud desk",
-            "card_url": "https://partner.example/agent-card.json",
-            "cert_fingerprint": "seed-cert-fingerprint",
-            "cert_dn": "CN=bank-fraud.example",
-            "allowed_skills": ["premium-lapse-chase"],
-            "status": "active",
-        },
-    )
-
-
-def seed_eval_catalog(conn: psycopg.Connection) -> None:
-    from agent_core.eval.fixtures import seed_eval_catalog as _seed
-    from agent_core.eval.fixtures import seed_phase6_catalog
-
-    _seed(conn, TENANT_ID, upsert)
-    seed_phase6_catalog(conn, TENANT_ID, upsert)
-
-
-def seed_phase6(conn: psycopg.Connection) -> None:
-    """Capability + twin suites. No DSPy, no auto-applied tuner."""
-    from agent_core.eval.fixtures import seed_phase6_catalog
-
-    seed_phase6_catalog(conn, TENANT_ID, upsert)
 
 
 def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
@@ -1766,7 +1040,7 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
                 "latency_ms": call.get("latencyMs"),
                 "rag_hits": call.get("ragHits") or 0,
                 "redaction_applied": bool(call.get("redactionApplied", False)),
-                "deployment_id": "DEP-2026-07-PROD",
+                "deployment_id": None,
                 "started_at": call.get("startedAt"),
                 "ended_at": None,
                 "duration_sec": duration_sec,
@@ -1851,7 +1125,6 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         if avg_sentiment is not None and float(avg_sentiment) < -0.25:
             upsert(conn, "live_alerts", {"id": f"alert-{call_id}", "interaction_id": call_id, "kind": "sentiment_drop", "severity": "high", "reason": "Negative sentiment detected", "acknowledged_by_user_id": "priya-nair", "acknowledged_at": call.get("startedAt")})
         upsert(conn, "retrieval_logs", {"id": f"retrieval-{call_id}", "interaction_id": call_id, "sandbox_run_id": None, "query": call.get("summary") or call_id, "top_chunks": [{"id": "chunk-rbi-disclosures-1", "score": 0.82}], "latency_ms": call.get("latencyMs"), "selected_answer_source": "kb-rbi-disclosures"})
-        upsert(conn, "routing_rule_executions", {"id": f"routing-{call_id}", "rule_id": "route-sentiment-drop", "interaction_id": call_id, "sandbox_run_id": None, "context": {"avgSentiment": avg_sentiment}, "result": "matched" if avg_sentiment is not None and float(avg_sentiment) < -0.25 else "skipped", "action_taken": "handoff" if handler_kind == "human" else None, "evaluated_at": call.get("startedAt")})
 
     for canned in (
         {
@@ -1976,7 +1249,7 @@ def seed_authored_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) ->
                     "latency_ms": None,
                     "rag_hits": 0,
                     "redaction_applied": False,
-                    "deployment_id": "DEP-2026-07-PROD",
+                    "deployment_id": None,
                     "started_at": row.get("startedAt"),
                     "ended_at": None,
                     "duration_sec": duration_sec,
@@ -2337,7 +1610,7 @@ def seed_admin_analytics_crosscutting(conn: psycopg.Connection, ctx: dict[str, A
                     "unanswered_question_id": qid,
                     "kb_document_id": "kb-rbi-disclosures",
                     "faq_pair_id": "faq-payment-link",
-                    "prompt_version_id": "v1_4",
+                    "prompt_version_id": None,
                     "routing_rule_id": None,
                 },
             )

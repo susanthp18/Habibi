@@ -19,7 +19,7 @@ export function EventPicker({
     <div className="space-y-150">
       {eventCategories(catalog).map((cat) => {
         const items = catalog.filter((e) => e.category === cat);
-        const keys = items.map((e) => e.key);
+        const keys = items.filter((e) => e.supported).map((e) => e.key);
         const allIn = keys.every((k) => selected.includes(k));
         return (
           <div key={cat} className="rounded-medium border border-border p-150">
@@ -36,7 +36,7 @@ export function EventPicker({
                   )
                 }
               >
-                {allIn ? "Clear group" : "Select all"}
+                {allIn ? "Clear available" : "Select available"}
               </button>
             </div>
             <div className={cn("grid gap-075", columns === 2 ? "grid-cols-2" : "grid-cols-1")}>
@@ -47,12 +47,18 @@ export function EventPicker({
                 >
                   <Checkbox
                     checked={selected.includes(e.key)}
+                    disabled={!e.supported && !selected.includes(e.key)}
                     onCheckedChange={() => onChange(toggleIn(selected, e.key))}
                     className="mt-025"
                   />
                   <span>
                     <span className="block font-mono text-body-small text-text-brand">{e.key}</span>
                     <span className="block text-body-small text-text-subtle">{e.description}</span>
+                    {!e.supported && (
+                      <span className="block text-body-small text-text-warning">
+                        Not emitted. Remove this subscription before activation.
+                      </span>
+                    )}
                   </span>
                 </label>
               ))}

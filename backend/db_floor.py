@@ -744,20 +744,16 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
     audio_joined = False
     engine_run_id = None
     if action == "whisper" and note:
-        # A Voice Studio call takes the whisper from the engine, now; the old
-        # voice process drained it from this row instead.
+        # The engine puts the note in front of the agent on its next turn.
         import voice_studio_supervision
 
         delivered = voice_studio_supervision.whisper(interaction_id, note)
-        if delivered is not None:
+        if delivered:
             with db.engine.begin() as conn:
-                conn.execute(
-                    text("UPDATE supervisor_actions SET consumed_at = CASE WHEN :ok THEN now() END WHERE id = :id"),
-                    {"id": aid, "ok": delivered},
-                )
-            if not delivered:
-                return {"id": aid, "ok": False, "action": action, "interactionId": interaction_id,
-                        "audioJoined": False, "reason": "whisper_not_delivered"}
+                conn.execute(text("UPDATE supervisor_actions SET consumed_at = now() WHERE id = :id"), {"id": aid})
+        else:
+            return {"id": aid, "ok": False, "action": action, "interactionId": interaction_id,
+                    "audioJoined": False, "reason": "whisper_not_delivered" if delivered is False else "no_live_call"}
     if action in {"barge", "force_handoff"}:
         # A Voice Studio call is taken over over the supervisor's own socket
         # (the UI opens it with this run id); there is no carrier leg to dial.
@@ -766,13 +762,8 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
         with db.engine.connect() as conn:
             engine_run_id = voice_studio_supervision.live_run(conn, interaction_id)
     if action in {"barge", "force_handoff"} and not engine_run_id:
-        try:
-            from agent_core.live_qa.enact import barge_audio
-
-            result = barge_audio(interaction_id, reason=action)
-            audio_joined = bool(result.get("audio"))
-        except Exception:
-            logger.exception("supervisor barge audio failed for %s", interaction_id)
+        # No live call to join (a chat thread, or the call has ended): the case
+        # is the supervisor's now, with no audio leg.
         try:
             with db.engine.begin() as conn:
                 conn.execute(

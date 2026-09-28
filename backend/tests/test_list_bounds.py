@@ -213,7 +213,6 @@ UNPAGED_BY_DESIGN = {
     "list_products": "bounded by product catalog",
     "list_canned_responses": "authored templates",
     "list_redaction_rules": "one row per PII type",
-    "list_routing_rules": "authored rules",
     "list_persona_presets": "authored presets",
     "list_tts_voices": "configured voice shortlist",
     "list_tts_price_tiers": "pricing bands",

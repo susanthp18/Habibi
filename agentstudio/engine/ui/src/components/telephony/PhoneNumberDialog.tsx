@@ -264,7 +264,7 @@ export function PhoneNumberDialog({
             </p>
             <p className="text-xs text-muted-foreground">
               Inbound routing is checked and audited on the{" "}
-              <Link href="/routing" className="underline">
+              <Link href="/studio/routing" className="underline">
                 Routing
               </Link>{" "}
               page; set it there.

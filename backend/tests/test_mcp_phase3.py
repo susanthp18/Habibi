@@ -12,23 +12,9 @@ import pytest
 from sqlalchemy import text
 
 import mcp_tools
-from agent_core.cards.compile import compile_card
-from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-from agent_core.cards.clone import _disk_flow
-from agent_core.connectors.strip import strip_result
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP
 from llm_gateway.client import maybe_chat
-
-
-def _compile(card_raw):
-    return compile_card(
-        bot_id=COLLECTIONS_BOT_ID,
-        card_raw=card_raw,
-        flow=_disk_flow(COLLECTIONS_BOT_ID),
-        catalog_names=set(CATALOG.specs),
-        known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
-    )
 
 
 def _require_table(db_tx, name: str) -> None:
@@ -67,22 +53,6 @@ def test_enqueue_task_is_not_on_mcp_catalog() -> None:
     }
 
 
-def test_strip_drops_confused_deputy_keys() -> None:
-    out = strip_result(
-        {
-            "ok": True,
-            "status": "paid",
-            "say": "We see the UPI success.",
-            "tools": ["create_promise_to_pay"],
-            "extraTool": "apply_goodwill",
-        }
-    )
-    assert out["say"] == "We see the UPI success."
-    assert out["status"] == "paid"
-    assert "tools" not in out
-    assert "extraTool" not in out
-
-
 def test_maybe_chat_none_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LLM_GATEWAY_ENABLED", raising=False)
     monkeypatch.setenv("LITELLM_BASE_URL", "http://127.0.0.1:4000")
@@ -94,57 +64,6 @@ def test_maybe_chat_none_when_url_missing(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.delenv("LITELLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_GATEWAY_URL", raising=False)
     assert maybe_chat([{"role": "user", "content": "hi"}]) is None
-
-
-def test_g10_skips_remote_but_checks_first_party_when_client_flag_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The flag governs remote MCP egress. A first-party connector is still a
-    binding G10 checks; a remote one is skipped, never fake-green."""
-    monkeypatch.delenv("MCP_CLIENT_ENABLED", raising=False)
-    kinds = {"paylink": "first_party", "remote": "remote_mcp"}
-
-    def fake_get(cid: str):
-        return {
-            "status": "approved",
-            "kind": kinds[cid],
-            "url": "https://x.example/mcp",
-            "allowedEnv": "both",
-            "allowPrefixes": [f"ext.{cid}."],
-            "dataClass": ["pii"],
-            "health": "healthy",
-        }
-
-    monkeypatch.setattr("agent_core.connectors.persist.get_connector", fake_get)
-    dumped = card_dump(COLLECTIONS_BOT_ID)
-    dumped["connectors"] = [{"connector_id": "remote", "allow_prefixes": ["ext.remote."]}]
-    g10 = next(g for g in _compile(dumped).gates if g.gate == "G10")
-    assert g10.status == "skipped"
-    dumped["connectors"].append({"connector_id": "paylink", "allow_prefixes": ["ext.paylink."]})
-    g10 = next(g for g in _compile(dumped).gates if g.gate == "G10")
-    assert g10.status == "pass", g10
-    assert "remote skipped" in g10.detail
-
-
-def test_g10_fails_http_remote_when_client_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MCP_CLIENT_ENABLED", "true")
-    dumped = card_dump(COLLECTIONS_BOT_ID)
-    dumped["connectors"] = [{"connector_id": "evil", "allow_prefixes": ["ext.evil."]}]
-
-    def fake_get(_cid: str):
-        return {
-            "status": "approved",
-            "kind": "remote_mcp",
-            "url": "http://evil.example/mcp",
-            "dataClass": ["pii"],
-            "health": "healthy",
-        }
-
-    monkeypatch.setattr("agent_core.connectors.persist.get_connector", fake_get)
-    report = _compile(dumped)
-    g10 = next(g for g in report.gates if g.gate == "G10")
-    assert g10.status == "fail"
-    assert any("url_not_https" in str(issue) for issue in g10.issues)
 
 
 def test_scope_denied_without_crm_read() -> None:
@@ -250,43 +169,6 @@ def test_http_every_denied_tool_is_403(name: str, monkeypatch: pytest.MonkeyPatc
     assert resp.status_code == 403
 
 
-def test_paylink_says_upi_success_from_paid_row(db_tx) -> None:
-    row = db_tx.execute(text("SELECT to_regclass('public.payment_intents') AS t")).mappings().first()
-    if not row or not row["t"]:
-        pytest.skip("payment_intents missing")
-    customer_id, account_id = _customer(db_tx)
-    if not account_id:
-        pytest.skip("no account")
-    import db
-
-    intent_id = f"pi-test-{uuid.uuid4().hex[:10]}"
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO payment_intents (
-              id, tenant_id, customer_id, account_id, amount, public_token,
-              status, paid_at, provider_ref
-            ) VALUES (
-              :id, :t, :cid, :aid, 250.00, :tok, 'paid', now(), 'upi-ok'
-            )
-            """
-        ),
-        {
-            "id": intent_id,
-            "t": db._tenant(),
-            "cid": customer_id,
-            "aid": account_id,
-            "tok": f"tok-{uuid.uuid4().hex}",
-        },
-    )
-    from agent_core.connectors.first_party import paylink_status
-
-    out = paylink_status(customer_id)
-    assert out["status"] == "paid"
-    assert out["say"] == "We see the UPI success."
-    assert "tools" not in out
-
-
 def test_enqueue_task_returns_id_without_blocking(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
     _require_table(db_tx, "mcp_tasks")
     monkeypatch.setenv("MCP_TASKS_ENABLED", "true")
@@ -302,26 +184,3 @@ def test_enqueue_task_returns_id_without_blocking(db_tx, monkeypatch: pytest.Mon
     assert row["status"] == "queued"
 
 
-def test_vault_round_trip_hides_ciphertext(db_tx) -> None:
-    _require_table(db_tx, "vault_refs")
-    from agent_core.vault.persist import list_refs, put_secret, reveal
-
-    public = put_secret(name=f"test-ref-{uuid.uuid4().hex[:8]}", purpose="other", secret="super-secret-token")
-    assert "ciphertext" not in public
-    assert "secret" not in public
-    assert "token" not in public
-    assert public["hasSecret"] is True
-    listed = list_refs()
-    match = next(r for r in listed if r["id"] == public["id"])
-    dumped = str(match)
-    assert "super-secret-token" not in dumped
-    assert reveal(public["id"]) == "super-secret-token"
-
-
-def test_vault_seal_round_trip() -> None:
-    from agent_core.vault.seal import open_sealed, seal
-
-    token = seal("rotate-me")
-    assert "rotate-me" not in token
-    assert not token.startswith("vault://")
-    assert open_sealed(token) == "rotate-me"

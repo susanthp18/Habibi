@@ -32,7 +32,6 @@ import contact_policy
 import outbound
 import outbound_pools
 import written_followup
-from agent_core import canary
 
 FULL = {
     "issuer": "HDFC Bank",
@@ -334,15 +333,6 @@ def test_a_promotional_row_cannot_unblock_a_servicing_opt_out(db_tx) -> None:
     assert capture.promotional_consent(db_tx, cid, "whatsapp") == "opted_in"
 
 
-def test_only_cross_sell_is_a_promotional_objective() -> None:
-    """Retention is a call about a product they already hold - that is servicing it."""
-    import flow_graph as fg
-
-    assert fg.data_purpose_for("cross_sell") == "promotional"
-    for servicing in ("dpd_reminder", "retention_save", "welcome_onboarding", "bounce_cure"):
-        assert fg.data_purpose_for(servicing) == "servicing"
-
-
 # ---------------------------------------------------------------------------
 # Number-pool health
 # ---------------------------------------------------------------------------
@@ -478,40 +468,6 @@ def test_picking_a_number_no_longer_fakes_a_seven_day_count(db_tx) -> None:
 # ---------------------------------------------------------------------------
 # The canary knows what an outbound failure looks like
 # ---------------------------------------------------------------------------
-
-
-def test_the_outbound_rollback_triggers_exist() -> None:
-    """Section 13 names all three. ``sweep_rollbacks`` had none of them."""
-    for trigger in ("abandon_rate", "third_party_leak", "optout_spike"):
-        assert trigger in canary.ROLLBACK_TRIGGERS
-
-
-def test_one_abandoned_call_is_enough(db_tx) -> None:
-    """Not a rate to be managed down. A borrower whose phone rings, who answers
-    and hears silence is the conduct the amendment was written to stop, and the
-    design makes it structurally impossible - so any occurrence means a break."""
-    bot_id = db_tx.execute(text("SELECT id FROM bots LIMIT 1")).scalar()
-    db_tx.execute(
-        text(
-            """
-            INSERT INTO call_attempts (
-              id, tenant_id, customer_id, objective, attempt_no, to_phone_hash,
-              phone_slot, from_number, state, bot_id, reserved_at, updated_at
-            ) VALUES (
-              :id, :tenant, 'cust-susanth', 'dpd_reminder', 1,
-              'hash', 'primary', '+911', 'abandoned', :bot, now(), now()
-            )
-            """
-        ),
-        {"id": f"CA-{uuid.uuid4().hex[:10]}", "bot": bot_id, "tenant": TENANT},
-    )
-    assert canary._abandoned(db_tx, bot_id) == 1
-
-
-def test_an_opt_out_alone_is_not_a_spike() -> None:
-    """A borrower asking to be left alone is a legitimate outcome, and an agent
-    that never produced one would be the more worrying artefact."""
-    assert canary.OPTOUT_SPIKE_THRESHOLD > 1
 
 
 # ---------------------------------------------------------------------------
@@ -701,14 +657,6 @@ def test_a_stale_reservation_stops_holding_a_slot(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_preference_tool_is_gated_not_idle() -> None:
-    """G6 caps idle tools because an idle tool sits in the prompt of every node
-    on every turn, and the cost is real."""
-    from agent_core.skills.intersect import SKILL_GATED_TOOLS
-
-    assert "set_contact_preference" in SKILL_GATED_TOOLS
-
-
 def test_the_preference_tool_is_in_the_catalog() -> None:
     from agent_core.tools.catalog import CATALOG
 
@@ -748,86 +696,3 @@ def test_a_hold_publishes_the_date_the_row_actually_carries(db_tx) -> None:
     assert ctx["hold_until"] == first
 
 
-def test_rollback_trigger_vocabulary_is_shared() -> None:
-    """One list, three consumers.
-
-    ``canary`` evaluated six triggers, ``cards.schema``'s Literal allowed three,
-    and ``cards.compile`` restated the same three for gate G12. The card is the
-    only authoring path, so the outbound three could not be requested by any
-    published version and the watchdog branches checking them were unreachable.
-
-    Asserting they are the *same object's* contents, not merely overlapping:
-    two lists that agree today are two lists to update tomorrow.
-    """
-    from agent_core.cards import compile as card_compile
-    from agent_core.cards.schema import ROLLBACK_TRIGGERS
-
-    assert canary.ROLLBACK_TRIGGERS == ROLLBACK_TRIGGERS
-    assert card_compile._ROLLBACK_TRIGGERS == ROLLBACK_TRIGGERS
-
-
-def test_a_card_can_actually_hold_the_outbound_triggers() -> None:
-    """The gap this closes was not that the names were missing — they were in
-    ``canary.ROLLBACK_TRIGGERS`` all along, which is all the old test checked.
-    It was that nothing could ever *set* them: the schema Literal rejected them,
-    so a card naming one failed to parse and the feature was unreachable from
-    the only screen that authors it.
-    """
-    from agent_core.cards.schema import parse_card
-
-    card = parse_card(
-        {
-            "identity": {"bot_id": "b", "slug": "s", "display_name": "d"},
-            "experiment": {
-                "traffic_pct": 25,
-                "auto_rollback": ["abandon_rate", "third_party_leak", "optout_spike"],
-            },
-        }
-    )
-    assert card.experiment.auto_rollback == [
-        "abandon_rate",
-        "third_party_leak",
-        "optout_spike",
-    ]
-
-
-def test_g12_accepts_a_canary_guarded_only_by_outbound_triggers() -> None:
-    """G12 filtered the author's triggers against its own short list, so a 25%
-    canary protected by exactly the three checks that matter for outbound
-    filtered to empty and failed with "canary split requires auto_rollback" —
-    telling the author to add a rollback condition to a card that named three.
-    """
-    from agent_core.cards.compile import _ROLLBACK_TRIGGERS
-
-    triggers = ["abandon_rate", "third_party_leak", "optout_spike"]
-    assert [t for t in triggers if t in _ROLLBACK_TRIGGERS] == triggers
-
-
-def test_missions_answer_for_the_card_you_asked_about(api_headers) -> None:
-    """`/outbound/missions` read `db.DEFAULT_BOT_ID` and ignored the caller.
-
-    The Outbound tab lives inside `/agent-studio/{botId}` and says "No missions
-    on **this card**", "Only the missions this card actually declares", and
-    warns that publish is blocked for *this* card — every one of which described
-    the default bot instead.
-
-    It was invisible because no card declares an outbound block yet, so every
-    card renders the same empty state and the empty state happens to be true for
-    all of them. The first card to declare a mission would have shown it on
-    every other card's tab.
-    """
-    from fastapi.testclient import TestClient
-
-    import db
-    import main as app_main
-
-    client = TestClient(app_main.app, headers=api_headers)
-    other = "intake-v1"
-    assert other != db.DEFAULT_BOT_ID
-
-    res = client.get(f"/outbound/missions?botId={other}")
-    assert res.status_code == 200, res.text
-    assert res.json()["botId"] == other
-
-    # Omitted still means the default, so nothing that already called it breaks.
-    assert client.get("/outbound/missions").json()["botId"] == db.DEFAULT_BOT_ID

@@ -5,11 +5,12 @@
  * rows; `EventDef` is one /event-types entry.
  */
 
-export type SigningAlgo = "HMAC-SHA256" | "Ed25519";
+export type SigningAlgo = "HMAC-SHA256";
 export type EndpointStatus = "active" | "paused" | "broken";
 export type WebhookDeliveryStatus = "success" | "client_err" | "server_err" | "pending";
 export type TargetSystem = "Core Banking" | "CRM" | "Data Lake" | "Custom";
-export type EventCategory = "Calls" | "Promises" | "Disputes" | "Payments" | "Consent" | "Bot";
+export type EventCategory =
+  "Calls" | "Promises" | "Disputes" | "Payments" | "Consent" | "Bot" | "Leads" | "Legacy";
 export type EventKey =
   | "call.started"
   | "call.completed"
@@ -25,11 +26,16 @@ export type EventKey =
   | "consent.dnd.updated"
   | "consent.opted_out"
   | "bot.handoff"
-  | "bot.compliance.flag";
+  | "bot.compliance.flag"
+  | "lead.created"
+  | "interaction.completed"
+  | "dispute.created"
+  | "document.sent";
 export type EventDef = {
   key: EventKey;
   category: EventCategory;
   description: string;
+  supported: boolean;
   sample: Record<string, unknown>;
 };
 export type RetryPolicy = {
@@ -43,6 +49,9 @@ export type Endpoint = {
   url: string;
   target: TargetSystem;
   status: EndpointStatus;
+  subscriptionsConfirmed: boolean;
+  destinationTested: boolean;
+  configurationVersion: number;
   events: EventKey[];
   algo: SigningAlgo;
   /** Masked on the list; the plaintext is `secretOnce` on create and rotate. */
@@ -55,7 +64,7 @@ export type Endpoint = {
 export type Delivery = {
   id: string;
   endpointId: string;
-  event: EventKey;
+  event: EventKey | "webhook.test";
   status: WebhookDeliveryStatus;
   httpStatus: number;
   latencyMs: number;
@@ -65,7 +74,7 @@ export type Delivery = {
   payload: Record<string, unknown>;
   responseBody?: string;
   /**
-   * "simulated" rows come from the Integrations test-fire button, which does no
+   * "simulated" rows come from the Webhooks simulation button, which does no
    * egress. Optional because rows written before the backend had a
    * delivery_mode column have no opinion; those default to "live".
    */

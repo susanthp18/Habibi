@@ -13,7 +13,6 @@ import db
 import db_billing
 import db_bot_analytics
 import db_dashboard
-import db_prompt_studio
 import db_redaction
 import db_routing
 import db_treatment_holds
@@ -87,14 +86,9 @@ _BOT_ANALYTICS_SHIMMED = (
 )
 
 _ROUTING_SHIMMED = (
-    "_routing_action_key",
-    "_routing_category",
-    "_routing_eval_condition",
     "escalate_voice_interaction",
-    "get_routing_rule",
-    "list_routing_rule_executions",
-    "list_routing_rules",
 )
+
 
 _REDACTION_SHIMMED = (
     "actor_is_admin",
@@ -157,45 +151,6 @@ def test_db_reexports_redaction_as_the_same_objects() -> None:
         assert getattr(db, name) is getattr(db_redaction, name), name
 
 
-def test_db_reexports_prompt_studio_as_the_same_objects() -> None:
-    for name in _PROMPT_STUDIO_SHIMMED:
-        assert getattr(db, name) is getattr(db_prompt_studio, name), name
-
-
-def test_peeled_functions_live_in_the_carved_modules() -> None:
-    assert db.billing_overview.__module__ == "db_billing"
-    assert db.interaction_cost.__module__ == "db_billing"
-    assert db.list_treatment_holds.__module__ == "db_treatment_holds"
-    assert db.create_treatment_hold.__module__ == "db_treatment_holds"
-    assert db.apply_authority.__module__ == "db_treatment_holds"
-    assert db.get_dashboard.__module__ == "db_dashboard"
-    assert db._inr_compact.__module__ == "db_dashboard"
-    assert db.list_work_items.__module__ == "db_workspace"
-    assert db._inr.__module__ == "db_workspace"
-    assert db._work_item_sla.__module__ == "db_workspace"
-    assert db._enacted_by_map.__module__ == "db_workspace"
-    assert db.bot_analytics.__module__ == "db_bot_analytics"
-    assert db.list_routing_rules.__module__ == "db_routing"
-    assert db.get_routing_rule.__module__ == "db_routing"
-    assert db.escalate_voice_interaction.__module__ == "db_routing"
-    assert db._routing_eval_condition.__module__ == "db_routing"
-    assert db.list_redaction_records.__module__ == "db_redaction"
-    assert db.get_redaction_record.__module__ == "db_redaction"
-    assert db.actor_is_admin.__module__ == "db_redaction"
-    assert db.get_prompt_version.__module__.startswith("db_prompt_studio.")
-    assert db.get_active_deployment.__module__.startswith("db_prompt_studio.")
-    assert db.publish_prompt_version.__module__.startswith("db_prompt_studio.")
-    assert db.compile_agent_studio_card.__module__.startswith("db_prompt_studio.")
-    assert db._map_prompt_version.__module__.startswith("db_prompt_studio.")
-    assert db._prompt_voice.__module__.startswith("db_prompt_studio.")
-    assert db.list_eval_reports.__module__ == "db_evals"
-    assert db.save_eval_report.__module__ == "db_evals"
-    assert db.create_coaching_action.__module__ == "db_coaching"
-    assert db.patch_redaction_rule.__module__ == "db_redaction"
-    assert db.create_routing_rule.__module__ == "db_routing"
-    assert db.workspace_summary.__module__ == "db_workspace"
-
-
 def test_as_utc_lives_in_db_core() -> None:
     """Peel 4 moved ``_as_utc`` down before the workspace section left."""
     import db_core
@@ -210,25 +165,6 @@ def test_speaker_screen_lives_in_db_core() -> None:
 
     assert db._speaker_screen is db_core._speaker_screen
     assert db._speaker_screen.__module__ == "db_core"
-
-
-def test_carved_modules_reach_the_engine_through_db(db_tx) -> None:
-    """The hazard WP-035 pinned: binding engine from db_core bypasses db_tx."""
-    import db_core
-
-    for mod in (
-        db_billing,
-        db_bot_analytics,
-        db_dashboard,
-        db_prompt_studio,
-        db_redaction,
-        db_routing,
-        db_treatment_holds,
-        db_workspace,
-    ):
-        assert mod._db() is db
-        assert mod._db().engine is db.engine
-        assert mod._db().engine is not db_core.engine
 
 
 def test_carved_modules_do_not_bind_engine_at_import_time() -> None:

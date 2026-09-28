@@ -24,7 +24,6 @@ import pytest
 
 from agent_core import clock
 from agent_core.prompt import default_context
-from prompt_render import SYSTEM_SAFE_VARIABLES, render_system_prompt
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -64,15 +63,3 @@ def test_time_of_day_tracks_the_tenant_clock_not_the_container() -> None:
     assert default_context()["time_of_day"] == clock.part_of_day(clock.now_local())
 
 
-def test_every_palette_variable_substitutes_to_something_speakable() -> None:
-    """No offered token may survive its own render, or render to an empty string.
-
-    A surviving token is read aloud as "open brace language close brace"; an
-    empty one produces "Speak in ." Both were reachable.
-    """
-    template = " ".join(f"[{name}={{{name}}}]" for name in sorted(SYSTEM_SAFE_VARIABLES))
-    rendered = render_system_prompt(template, default_context())
-
-    for name in SYSTEM_SAFE_VARIABLES:
-        assert f"{{{name}}}" not in rendered, f"{name} was not substituted"
-        assert f"[{name}=]" not in rendered, f"{name} substituted to an empty string"

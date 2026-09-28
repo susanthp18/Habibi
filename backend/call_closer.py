@@ -674,7 +674,7 @@ def _post_call_policy(bot_id: Any) -> Any:
     here would silently stop sending borrowers the record of what they agreed —
     a change nobody authored, caused by a lookup error.
     """
-    from agent_core.cards.schema import CardPostCall
+    from outbound_policy import CardPostCall
 
     try:
         import mission as mission_mod

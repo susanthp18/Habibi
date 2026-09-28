@@ -114,22 +114,6 @@ def test_the_azure_region_is_spelled_nowhere() -> None:
     assert not offenders, offenders
 
 
-def test_a_missing_region_is_an_error_where_the_provider_is_built(monkeypatch) -> None:
-    from agent_core.providers import factory, pool
-    from azure_speech import AzureSpeechConfigError
-
-    monkeypatch.delenv("AZURE_SPEECH_REGION", raising=False)
-    monkeypatch.setenv("AZURE_SPEECH_KEY", "k")
-
-    class _Pool:
-        def acquire(self, session_id, *, tenant_id=None):
-            return "k"
-
-    monkeypatch.setattr(pool, "get_pool", lambda provider_id: _Pool())
-    with pytest.raises(AzureSpeechConfigError):
-        factory._credentials("azure", None, None)
-
-
 # --- a fourth contract with one owner: the operator's .env.example ------------
 #
 # AUTHZ_ENFORCE -- the switch that turns route-level authorization off -- was

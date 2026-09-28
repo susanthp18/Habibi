@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 import db
 import request_context
+from agent_core import change_log
 from agent_core.clock import utc_now
 from db_core import _id
 
@@ -81,14 +82,37 @@ EVENT_CATALOG: list[dict[str, str]] = [
     {"key": "promise.kept", "category": "Promises", "description": "Promise marked kept."},
     {"key": "promise.broken", "category": "Promises", "description": "Promise marked broken."},
     {"key": "dispute.raised", "category": "Disputes", "description": "Dispute opened."},
-    {"key": "dispute.resolved", "category": "Disputes", "description": "Dispute resolved or rejected."},
+    {"key": "dispute.resolved", "category": "Disputes", "description": "Dispute resolved."},
     {"key": "payment.updated", "category": "Payments", "description": "Payment status changed."},
     {"key": "payment.reversed", "category": "Payments", "description": "Payment reversed."},
     {"key": "consent.dnd.updated", "category": "Consent", "description": "DND / contact window changed."},
     {"key": "consent.opted_out", "category": "Consent", "description": "Customer opted out of a channel."},
     {"key": "bot.handoff", "category": "Bot", "description": "Bot→human handoff event."},
     {"key": "bot.compliance.flag", "category": "Bot", "description": "Compliance flag raised on a turn."},
+    {"key": "lead.created", "category": "Leads", "description": "A customer-requested product lead was captured."},
+    {"key": "interaction.completed", "category": "Legacy", "description": "Old interaction event name; use call.completed for new subscriptions."},
+    {"key": "dispute.created", "category": "Legacy", "description": "Old dispute event name; use dispute.raised for new subscriptions."},
+    {"key": "document.sent", "category": "Legacy", "description": "Old document event name; no confirmed carrier-send producer."},
 ]
+
+# A name is selectable only after its source transition queues the event inside
+# the same transaction. Historical names remain visible so operators can remove
+# them during the required subscription review.
+LIVE_EVENT_KEYS = frozenset({
+    "call.completed", "promise.created", "promise.kept", "promise.broken",
+    "dispute.raised", "dispute.resolved", "payment.updated", "lead.created",
+})
+
+EVENT_SAMPLES: dict[str, dict[str, Any]] = {
+    "call.completed": {"interactionId": "INT-EXAMPLE", "status": "completed", "durationSeconds": 42, "disposition": "resolved"},
+    "promise.created": {"promiseId": "PTP-EXAMPLE", "customerId": "CUST-EXAMPLE", "accountId": "ACC-EXAMPLE", "status": "upcoming"},
+    "promise.kept": {"promiseId": "PTP-EXAMPLE", "customerId": "CUST-EXAMPLE", "amount": 1000, "paidAmount": 1000},
+    "promise.broken": {"promiseId": "PTP-EXAMPLE", "customerId": "CUST-EXAMPLE", "accountId": "ACC-EXAMPLE", "reason": "not_paid_by_promised_date"},
+    "dispute.raised": {"disputeId": "DSP-EXAMPLE", "customerId": "CUST-EXAMPLE", "accountId": "ACC-EXAMPLE", "status": "new"},
+    "dispute.resolved": {"disputeId": "DSP-EXAMPLE", "customerId": "CUST-EXAMPLE", "status": "resolved", "resolutionCode": "valid_waive_fee"},
+    "payment.updated": {"intentId": "PI-EXAMPLE", "accountId": "ACC-EXAMPLE", "status": "paid", "amount": 1000},
+    "lead.created": {"leadId": "LEAD-EXAMPLE", "customerId": "CUST-EXAMPLE", "productId": "PRODUCT-EXAMPLE"},
+}
 
 
 def _mask_secret(present: bool) -> str:
@@ -102,7 +126,7 @@ def _ensure_event_type(conn: Any, key: str) -> str:
     client sent, and that string then travelled verbatim into the delivery's
     `X-BigBound-Event` header.
     """
-    if not any(e["key"] == key for e in EVENT_CATALOG):
+    if key != "webhook.test" and not any(e["key"] == key for e in EVENT_CATALOG):
         raise ValueError(f"unknown_event_type:{key}")
     eid = f"evt-{key.replace('.', '-')}"
     conn.execute(
@@ -127,7 +151,14 @@ def list_event_types() -> list[dict[str, Any]]:
             "key": e["key"],
             "category": e["category"],
             "description": e["description"],
-            "sample": {"event": e["key"], "tenant": db.current_tenant(), "at": utc_now().isoformat()},
+            "supported": e["key"] in LIVE_EVENT_KEYS,
+            "sample": {
+                "schemaVersion": 1,
+                "event": e["key"],
+                "tenant": db.current_tenant(),
+                "at": utc_now().isoformat(),
+                "data": EVENT_SAMPLES.get(e["key"], {}),
+            },
         }
         for e in EVENT_CATALOG
     ]
@@ -139,7 +170,8 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
             text(
                 """
                 SELECT id, target_system, url, status, signing_algorithm, secret_ref,
-                       secret_hash, created_at, name
+                       secret_hash, created_at, name, subscriptions_confirmed_at,
+                       destination_tested_at, configuration_version
                 FROM webhook_endpoints
                 WHERE id = :id AND tenant_id = :tenant
                 """
@@ -162,7 +194,9 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
                   -- exact-case list let a legacy row stored as
                   -- 'x-webhook-secret' (or any bearer token) be read back.
                   AND lower(header_key) NOT IN (
-                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization'
+                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization',
+                        'x-api-key', 'api-key', 'x-auth-token', 'x-access-token',
+                        'cookie', 'set-cookie', 'proxy-authorization'
                       )
                 ORDER BY header_key
                 """
@@ -209,8 +243,11 @@ def _endpoint_contract(conn: Any, endpoint_id: str) -> dict[str, Any] | None:
         "url": row["url"],
         "target": row["target_system"],
         "status": row["status"],
+        "subscriptionsConfirmed": row.get("subscriptions_confirmed_at") is not None,
+        "destinationTested": row.get("destination_tested_at") is not None,
+        "configurationVersion": int(row["configuration_version"]),
         "events": events,
-        "algo": row.get("signing_algorithm") or "HMAC-SHA256",
+        "algo": "HMAC-SHA256" if str(row.get("signing_algorithm") or "").lower() == "hmac-sha256" else str(row.get("signing_algorithm") or ""),
         "secret": _mask_secret(has_secret),
         "secretRef": secret_ref,
         "retry": {
@@ -254,6 +291,16 @@ def _upsert_endpoint_children(
     headers: list[dict[str, str]],
     retry: dict[str, Any],
 ) -> None:
+    existing = {
+        row[0] for row in conn.execute(text("""
+            SELECT et.name FROM webhook_subscriptions ws
+            JOIN event_types et ON et.id = ws.event_type_id
+            WHERE ws.endpoint_id = :id
+        """), {"id": endpoint_id})
+    }
+    unsupported_new = sorted(set(events) - LIVE_EVENT_KEYS - existing)
+    if unsupported_new:
+        raise ValueError(f"webhook_events_not_emitted:{','.join(unsupported_new)}")
     conn.execute(text("DELETE FROM webhook_subscriptions WHERE endpoint_id = :id"), {"id": endpoint_id})
     for key in events:
         et_id = _ensure_event_type(conn, key)
@@ -271,11 +318,10 @@ def _upsert_endpoint_children(
     for h in headers:
         key = (h.get("key") or "").strip()
         val = (h.get("value") or "").strip()
-        if not key:
-            continue
-        # Never persist signing secrets as outbound headers.
-        if key.lower() in {"x-webhook-secret-sha256", "x-webhook-secret", "authorization"}:
-            continue
+        import webhooks_dispatch
+
+        if not webhooks_dispatch.valid_custom_header(key, val):
+            raise ValueError("invalid_webhook_header")
         conn.execute(
             text(
                 """
@@ -302,6 +348,8 @@ def _upsert_endpoint_children(
 
 
 def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    if str(payload.get("algo") or "HMAC-SHA256").lower() != "hmac-sha256":
+        raise ValueError("unsupported_signing_algorithm")
     eid = payload.get("id") or f"wh_{uuid.uuid4().hex[:8]}"
     secret_plain = secrets.token_urlsafe(24)
     secret_ref = f"vault://local/{eid}"
@@ -337,7 +385,7 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
                 "tenant": tenant,
                 "target": payload.get("target") or "Custom",
                 "url": url,
-                "algo": payload.get("algo") or "HMAC-SHA256",
+                "algo": "hmac-sha256",
                 "secret_ref": secret_ref,
                 "secret_hash": secret_hash,
                 "name": payload.get("name") or payload.get("target") or eid,
@@ -350,6 +398,11 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
             headers=list(payload.get("headers") or []),
             retry=dict(payload.get("retry") or {}),
         )
+        change_log.record_webhook_change(
+            conn, tenant_id=tenant, actor_user_id=db._actor_user_id(),
+            endpoint_id=eid, action="created",
+            detail={"events": sorted(set(payload.get("events") or []))},
+        )
         ep = _endpoint_contract(conn, eid)
     assert ep is not None
     ep["secretOnce"] = secret_plain
@@ -358,7 +411,30 @@ def create_webhook_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("algo") is not None and str(payload["algo"]).lower() != "hmac-sha256":
+        raise ValueError("unsupported_signing_algorithm")
+    for key in ("events", "headers", "retry"):
+        if key in payload and payload[key] is None:
+            raise ValueError(f"webhook_{key}_required")
     with db.engine.begin() as conn:
+        conn.execute(text("""
+            SELECT id FROM webhook_endpoints WHERE id = :id AND tenant_id = :tenant FOR UPDATE
+        """), {"id": endpoint_id, "tenant": db.current_tenant()})
+        prior = _endpoint_contract(conn, endpoint_id)
+        if prior is None:
+            raise KeyError("endpoint_not_found")
+        if payload.get("expectedVersion") is not None and payload["expectedVersion"] != prior["configurationVersion"]:
+            raise ValueError("webhook_configuration_changed_refresh_required")
+        destination_changed = (
+            ("url" in payload and payload["url"] is not None and _validate_webhook_url(str(payload["url"])) != prior["url"])
+            or ("algo" in payload and payload["algo"] is not None and str(payload["algo"]).lower() != str(prior["algo"]).lower())
+            or ("headers" in payload and payload["headers"] is not None and
+                sorted(payload["headers"], key=lambda h: (h["key"], h["value"])) !=
+                sorted(prior["headers"], key=lambda h: (h["key"], h["value"])))
+        )
+        events_changed = "events" in payload and payload["events"] is not None and sorted(payload["events"]) != sorted(prior["events"])
+        retry_changed = "retry" in payload and payload["retry"] is not None and payload["retry"] != prior["retry"]
+        review_changed = destination_changed or events_changed or retry_changed
         sets: list[str] = []
         params: dict[str, Any] = {"id": endpoint_id, "tenant": db.current_tenant()}
         for col, key in [
@@ -373,8 +449,16 @@ def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[st
                 val = payload[key]
                 if key == "url":
                     val = _validate_webhook_url(str(val))
+                elif key == "algo":
+                    val = "hmac-sha256"
                 params[key] = val
         if sets:
+            if review_changed:
+                sets.append("subscriptions_confirmed_at = NULL")
+            if destination_changed:
+                sets.append("destination_tested_at = NULL")
+            if review_changed:
+                sets.append("configuration_version = configuration_version + 1")
             sets.append("updated_at = now()")
             conn.execute(
                 text(
@@ -382,6 +466,26 @@ def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[st
                     "WHERE id = :id AND tenant_id = :tenant"
                 ),
                 params,
+            )
+        if not sets and review_changed:
+            conn.execute(
+                text("""UPDATE webhook_endpoints
+                    SET subscriptions_confirmed_at = NULL,
+                        destination_tested_at = CASE WHEN :destination_changed THEN NULL ELSE destination_tested_at END,
+                        configuration_version = configuration_version + 1, updated_at = now()
+                    WHERE id = :id AND tenant_id = :tenant"""),
+                {**params, "destination_changed": destination_changed},
+            )
+        if review_changed:
+            conn.execute(
+                text("""
+                    UPDATE webhook_deliveries
+                    SET status = 'client_err', response_body = 'endpoint_configuration_changed',
+                        next_retry_at = NULL, locked_at = NULL, locked_by = NULL,
+                        updated_at = now()
+                    WHERE endpoint_id = :id AND status = 'pending'
+                """),
+                {"id": endpoint_id},
             )
         cur = _endpoint_contract(conn, endpoint_id)
         if cur is None:
@@ -394,6 +498,12 @@ def patch_webhook_endpoint(endpoint_id: str, payload: dict[str, Any]) -> dict[st
                 headers=list(payload["headers"]) if "headers" in payload else list(cur.get("headers") or []),
                 retry=dict(payload["retry"]) if "retry" in payload else dict(cur.get("retry") or {}),
             )
+        change_log.record_webhook_change(
+            conn, tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id(),
+            endpoint_id=endpoint_id, action="updated",
+            detail={"events": sorted(set(payload.get("events") or cur["events"])),
+                    "reviewInvalidated": review_changed},
+        )
         ep = _endpoint_contract(conn, endpoint_id)
     if ep is None:
         raise KeyError("endpoint_not_found")
@@ -408,6 +518,10 @@ def delete_webhook_endpoint(endpoint_id: str) -> None:
         )
         if not result.rowcount:
             raise KeyError("endpoint_not_found")
+        change_log.record_webhook_change(
+            conn, tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id(),
+            endpoint_id=endpoint_id, action="deleted", detail={},
+        )
 
 
 def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
@@ -419,7 +533,11 @@ def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
             text(
                 """
                 UPDATE webhook_endpoints
-                SET secret_ref = :ref, secret_hash = :hash, updated_at = now()
+                SET secret_ref = :ref, secret_hash = :hash,
+                    subscriptions_confirmed_at = NULL,
+                    destination_tested_at = NULL,
+                    configuration_version = configuration_version + 1,
+                    updated_at = now()
                 WHERE id = :id AND tenant_id = :tenant
                 """
             ),
@@ -432,6 +550,13 @@ def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
         )
         if not result.rowcount:
             raise KeyError("endpoint_not_found")
+        conn.execute(text("""
+            UPDATE webhook_deliveries
+            SET status = 'client_err', response_body = 'endpoint_secret_rotated',
+                next_retry_at = NULL, locked_at = NULL, locked_by = NULL,
+                updated_at = now()
+            WHERE endpoint_id = :id AND status = 'pending'
+        """), {"id": endpoint_id})
         conn.execute(
             text(
                 """
@@ -442,11 +567,17 @@ def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
                   -- let a legacy row stored as 'x-webhook-secret' survive a
                   -- rotation that is supposed to invalidate the old secret.
                   AND lower(header_key) IN (
-                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization'
+                        'x-webhook-secret-sha256', 'x-webhook-secret', 'authorization',
+                        'x-api-key', 'api-key', 'x-auth-token', 'x-access-token',
+                        'cookie', 'set-cookie', 'proxy-authorization'
                       )
                 """
             ),
             {"id": endpoint_id},
+        )
+        change_log.record_webhook_change(
+            conn, tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id(),
+            endpoint_id=endpoint_id, action="secret_rotated", detail={},
         )
         ep = _endpoint_contract(conn, endpoint_id)
     assert ep is not None
@@ -510,7 +641,7 @@ def list_webhook_deliveries(endpoint_id: str | None = None, limit: int = 100) ->
 
 
 def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[str, Any]:
-    """The Integrations test-fire button. Simulated on purpose — no egress.
+    """The Webhooks simulation button. It never contacts a receiver.
 
     This exists so the screen can be demonstrated without a receiver, and it is
     the ONLY path that still simulates. Real events go through
@@ -588,6 +719,98 @@ def test_fire_webhook(endpoint_id: str, event_key: str | None = None) -> dict[st
     return _delivery_contract(row, ep["retry"]["attempts"])
 
 
+def send_webhook_probe(endpoint_id: str) -> dict[str, Any]:
+    """Queue a signed, customer-data-free POST to validate the real receiver."""
+    with db.engine.begin() as conn:
+        ep = _endpoint_contract(conn, endpoint_id)
+        if ep is None:
+            raise KeyError("endpoint_not_found")
+        if ep["status"] != "active":
+            raise ValueError("endpoint_not_active")
+        if not conn.execute(
+            text("SELECT 1 FROM webhook_endpoints WHERE id = :id AND secret_hash IS NOT NULL"),
+            {"id": endpoint_id},
+        ).scalar():
+            raise ValueError("webhook_secret_required")
+        event_type_id = _ensure_event_type(conn, "webhook.test")
+        delivery_id = _id("dlv")
+        payload = {
+            "schemaVersion": 1,
+            "event": "webhook.test",
+            "tenant": db.current_tenant(),
+            "at": utc_now().isoformat(),
+            "data": {"probe": True, "configurationVersion": ep["configurationVersion"]},
+        }
+        conn.execute(
+            text("""
+                INSERT INTO webhook_deliveries
+                  (id, endpoint_id, event_type_id, payload, attempt_number,
+                   status, delivery_mode, created_at, updated_at, request_id)
+                VALUES (:id, :eid, :et, CAST(:payload AS jsonb), 0,
+                        'pending', 'live', now(), now(), :rid)
+            """),
+            {
+                "id": delivery_id, "eid": endpoint_id, "et": event_type_id,
+                "payload": json.dumps(payload), "rid": request_context.get_request_id(),
+            },
+        )
+        row = db._one(conn.execute(
+            text("SELECT d.*, :event AS event_name FROM webhook_deliveries d WHERE d.id = :id"),
+            {"id": delivery_id, "event": "webhook.test"},
+        ))
+        change_log.record_webhook_change(
+            conn, tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id(),
+            endpoint_id=endpoint_id, action="probe_queued",
+            detail={"deliveryId": delivery_id},
+        )
+    assert row is not None
+    return _delivery_contract(row, ep["retry"]["attempts"])
+
+
+def confirm_webhook_subscriptions(endpoint_id: str, expected_version: int) -> dict[str, Any]:
+    """Enable egress only after a successful live probe of this destination."""
+    with db.engine.begin() as conn:
+        conn.execute(text("""
+            SELECT id FROM webhook_endpoints WHERE id = :id AND tenant_id = :tenant FOR UPDATE
+        """), {"id": endpoint_id, "tenant": db.current_tenant()})
+        ep = _endpoint_contract(conn, endpoint_id)
+        if ep is None:
+            raise KeyError("endpoint_not_found")
+        if expected_version != ep["configurationVersion"]:
+            raise ValueError("webhook_configuration_changed_refresh_required")
+        if ep["status"] != "active":
+            raise ValueError("endpoint_not_active")
+        if not ep["events"]:
+            raise ValueError("webhook_events_required")
+        unsupported = sorted(set(ep["events"]) - LIVE_EVENT_KEYS)
+        if unsupported:
+            raise ValueError(f"webhook_events_not_emitted:{','.join(unsupported)}")
+        if not ep["destinationTested"]:
+            raise ValueError("webhook_destination_test_required")
+        # Historical queued events predate this review. Activation starts with
+        # new transitions; it must not release a backlog to a newly reviewed URL.
+        conn.execute(text("""
+            UPDATE webhook_deliveries d
+            SET status = 'client_err', response_body = 'subscription_review_required',
+                next_retry_at = NULL, locked_at = NULL, locked_by = NULL,
+                updated_at = now()
+            WHERE d.endpoint_id = :id AND d.status = 'pending'
+              AND d.event_type_id <> (SELECT id FROM event_types WHERE name = 'webhook.test')
+        """), {"id": endpoint_id})
+        conn.execute(text("""
+            UPDATE webhook_endpoints
+            SET subscriptions_confirmed_at = now(), updated_at = now()
+            WHERE id = :id AND tenant_id = :tenant
+        """), {"id": endpoint_id, "tenant": db.current_tenant()})
+        change_log.record_webhook_change(
+            conn, tenant_id=db.current_tenant(), actor_user_id=db._actor_user_id(),
+            endpoint_id=endpoint_id, action="subscriptions_confirmed",
+            detail={"events": sorted(ep["events"]),
+                    "configurationVersion": ep["configurationVersion"]},
+        )
+        return _endpoint_contract(conn, endpoint_id)
+
+
 def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
     """Re-queue the ORIGINAL payload for real delivery.
 
@@ -608,7 +831,8 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
                     """
                     SELECT d.endpoint_id, d.event_type_id, d.payload,
                            d.attempt_number, d.delivery_mode,
-                           et.name AS event_name, e.status AS endpoint_status
+                           et.name AS event_name, e.status AS endpoint_status,
+                           e.subscriptions_confirmed_at
                     FROM webhook_deliveries d
                     JOIN webhook_endpoints e ON e.id = d.endpoint_id
                     LEFT JOIN event_types et ON et.id = d.event_type_id
@@ -618,10 +842,18 @@ def retry_webhook_delivery(delivery_id: str) -> dict[str, Any]:
                 {"id": delivery_id, "tenant": db.current_tenant()},
             )
         )
+        subscribed = bool(row and conn.execute(text("""
+            SELECT 1 FROM webhook_subscriptions
+            WHERE endpoint_id = :endpoint AND event_type_id = :event
+        """), {"endpoint": row["endpoint_id"], "event": row["event_type_id"]}).scalar())
     if row is None:
         raise KeyError("delivery_not_found")
     if row.get("endpoint_status") == "paused":
         raise ValueError("endpoint_paused")
+    if (row.get("delivery_mode") or "live") != "simulated" and row.get("event_name") != "webhook.test" and row.get("subscriptions_confirmed_at") is None:
+        raise ValueError("webhook_subscriptions_not_confirmed")
+    if (row.get("delivery_mode") or "live") != "simulated" and row.get("event_name") != "webhook.test" and (row.get("event_name") not in LIVE_EVENT_KEYS or not subscribed):
+        raise ValueError("webhook_event_not_subscribed")
     # A simulated row has no real payload behind it, so retrying one can only
     # mean firing the simulator again. Say so by staying on that path.
     if (row.get("delivery_mode") or "live") == "simulated":

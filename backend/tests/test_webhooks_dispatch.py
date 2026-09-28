@@ -59,10 +59,11 @@ def _endpoint(
             """
             INSERT INTO webhook_endpoints (
               id, tenant_id, target_system, url, status, signing_algorithm,
-              secret_ref, secret_hash, name, created_at, updated_at
+              secret_ref, secret_hash, name, subscriptions_confirmed_at,
+              destination_tested_at, created_at, updated_at
             ) VALUES (
               :id, :tenant, 'Custom', :url, :status, 'HMAC-SHA256',
-              :ref, :hash, :id, now(), now()
+              :ref, :hash, :id, now(), now(), now(), now()
             )
             """
         ),

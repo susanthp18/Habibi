@@ -56,7 +56,6 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
     bot_id = ctx.bot_id
     rtvi = ctx.rtvi
     session = ctx.session
-    sink = ctx.sink
     state = ctx.state
 
 
@@ -145,72 +144,9 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
         warm_ok = mode == "warm" and bool(call_sid)
 
         if ix:
-            # One DB round-trip: handoff + note + routing + inbox + live alert.
+            # One DB round-trip: handoff + note + inbox + live alert.
             try:
                 import db
-
-                card = (state.call_context.customer_card if state.call_context else {}) or {}
-                dpd_raw = state.dpd
-                if dpd_raw is None:
-                    dpd_raw = card.get("dpd")
-                try:
-                    dpd_val = int(dpd_raw or 0)
-                except (TypeError, ValueError):
-                    dpd_val = 0
-
-                product_val = card.get("product") or "PL"
-
-                avg = None
-                if sink is not None and hasattr(sink, "current_avg_sentiment"):
-                    try:
-                        avg = sink.current_avg_sentiment()
-                    except Exception:
-                        avg = None
-                sentiment = "neutral"
-                if avg is not None:
-                    try:
-                        avg_f = float(avg)
-                        if avg_f <= -0.35:
-                            sentiment = "angry"
-                        elif avg_f < 0:
-                            sentiment = "frustrated"
-                        elif avg_f >= 0.25:
-                            sentiment = "positive"
-                    except (TypeError, ValueError):
-                        pass
-
-                route_ctx = {
-                    "channel": "voice",
-                    "intent": (reason or "customer_requested").strip().lower(),
-                    "sentiment": sentiment,
-                    "verification_status": (
-                        "verified" if session.identity_verified else "failed"
-                    ),
-                    "overdue_amount": float(session.outstanding),
-                    "turn_count": int(session.turn_index or 0),
-                    "guardrail_flag": (detail or "none"),
-                    "consent_dnd": bool(card.get("dnd")),
-                    "dpd": dpd_val,
-                    "product": product_val,
-                }
-                # `reason` is CATALOG-normalised to ESCALATION_REASONS above;
-                # this used to branch on "abuse", "legal", "angry" and
-                # "verify_failed" too, which the enum cannot produce, so those
-                # arms were unreachable and the routing they described never
-                # happened. The lexicon decides which compliance flag it was.
-                reason_l = (reason or "").lower()
-                if reason_l == "hardship":
-                    route_ctx["intent"] = "hardship"
-                elif reason_l == "dispute":
-                    route_ctx["intent"] = "dispute"
-                elif reason_l == "compliance":
-                    last = str(_sink_call("last_customer_text", "") or "")
-                    route_ctx["guardrail_flag"] = compliance_inbox_flag(detail, last)
-                elif reason_l == "sentiment_drop":
-                    route_ctx["sentiment"] = "angry"
-                elif reason_l in {"verification_failed", "verify_failed"}:
-                    route_ctx["verification_status"] = "failed"
-                    route_ctx["turn_count"] = max(4, int(route_ctx["turn_count"]))
 
                 note = None
                 if detail and session.identity_verified and session.customer_id:
@@ -223,13 +159,12 @@ def build(ctx: ToolBuildContext) -> dict[str, Any]:
                     bot_id=bot_id,
                     customer_id=session.customer_id,
                     note_text=note,
-                    route_context=route_ctx,
                 )
                 assignee_name = esc.get("assigneeName")
                 team_name = esc.get("teamName")
                 conversation_id = esc.get("conversationId")
             except Exception:
-                logger.exception("escalate routing/inbox failed (non-fatal)")
+                logger.exception("escalate handoff/inbox failed (non-fatal)")
 
         warm_meta: dict[str, Any] = {}
         if warm_ok:

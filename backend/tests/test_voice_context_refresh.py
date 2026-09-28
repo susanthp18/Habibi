@@ -13,7 +13,6 @@ change nothing.
 
 from __future__ import annotations
 
-from agent_core.context import CallContext
 
 # Tools whose writes appear in CallContext.open_work / customer_card.
 CARD_AFFECTING = {
@@ -32,16 +31,3 @@ def test_card_affecting_and_other_tools_are_disjoint() -> None:
     assert CARD_AFFECTING.isdisjoint(NOT_CARD_AFFECTING)
 
 
-def test_refresh_from_crm_still_hard_gates_on_verification() -> None:
-    """The refresh path must not become a PII leak for an unverified caller."""
-    ctx = CallContext(
-        channel="voice",
-        session_id="VS-UNVERIF01",
-        interaction_id=None,
-        customer_id="C1",
-        account_id=None,
-        identity_verified=False,
-    )
-    ctx.customer_card = {"name": "should not appear"}
-    ctx.refresh_from_crm()
-    assert "NO VERIFIED CUSTOMER FACTS" in ctx.crm_card()

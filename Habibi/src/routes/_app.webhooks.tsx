@@ -116,7 +116,7 @@ function WebhooksPage() {
     confirm({
       title: `Rotate the signing secret for ${count} endpoint${count === 1 ? "" : "s"}?`,
       description:
-        "Each receiver stops verifying deliveries until it is redeployed with the new secret.",
+        "Each receiver stops verifying deliveries until it is redeployed with the new secret. Subscriptions require a fresh probe and review afterward.",
       confirmLabel: "Rotate",
       cancelLabel: "Leave them",
     });
@@ -131,9 +131,40 @@ function WebhooksPage() {
 
   const testFire = async (ep: Endpoint, event?: EventKey) => {
     const d = await mut.testFire.mutateAsync(event ? { ep, event } : { ep });
-    if (d.status === "success") toast.success(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
-    else toast.error(`${ep.name} → ${d.httpStatus} · ${d.latencyMs}ms`);
+    if (d.status === "success")
+      toast.success(`Simulation recorded for ${ep.name}; no request was sent`);
+    else toast.error(`Simulation failed for ${ep.name}`);
     return d;
+  };
+
+  const sendLiveProbe = async (ep: Endpoint) => {
+    const approved = await confirm({
+      title: `Send a live probe to ${ep.name}?`,
+      description: `PayInt will make a signed HTTPS request to ${ep.url} with no customer data.`,
+      confirmLabel: "Send probe",
+    });
+    if (!approved) return;
+    try {
+      await mut.probe.mutateAsync(ep);
+      toast.success("Probe queued. Refresh the result after delivery.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Probe could not be queued");
+    }
+  };
+
+  const activateSubscriptions = async (ep: Endpoint) => {
+    const approved = await confirm({
+      title: `Activate subscriptions for ${ep.name}?`,
+      description: `Review ${ep.url} and its ${ep.events.length} selected event types. Future matching customer events will be sent to this destination.`,
+      confirmLabel: "Activate subscriptions",
+    });
+    if (!approved) return;
+    try {
+      await mut.confirm.mutateAsync(ep);
+      toast.success("Subscriptions activated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Activation failed");
+    }
   };
 
   const togglePause = (ep: Endpoint) => {
@@ -158,7 +189,7 @@ function WebhooksPage() {
 
   const handleSaveDraft = (draft: WebhookDraft, andTest = false) => {
     if (editing) {
-      const merged: Endpoint = { ...editing, ...draft } as Endpoint;
+      const merged: Endpoint = { ...editing, ...draft };
       mut.update.mutate(merged, {
         onSuccess: () => {
           toast.success(`Saved ${merged.name}`);
@@ -352,10 +383,14 @@ function WebhooksPage() {
             onSelectedChange={setSelectedIds}
             onRowClick={openDrawer}
             onEdit={openEdit}
-            onTestFire={testFire}
+            onTestFire={(ep) => {
+              void testFire(ep).catch((e) =>
+                toast.error(e instanceof Error ? e.message : "Simulation failed"),
+              );
+            }}
             onTogglePause={togglePause}
-            onRotate={rotateOne}
-            onDelete={deleteEndpoint}
+            onRotate={(ep) => void rotateOne(ep)}
+            onDelete={(ep) => void deleteEndpoint(ep)}
             isLoading={loadingEp}
             isError={endpointsError}
             error={endpointsErr}
@@ -392,11 +427,13 @@ function WebhooksPage() {
         deliveries={deliveries}
         onUpdate={updateEndpoint}
         onDelete={(ep) => {
-          deleteEndpoint(ep);
-          setDrawerOpen(false);
+          void deleteEndpoint(ep);
         }}
-        onRotate={rotateOne}
+        onRotate={(ep) => void rotateOne(ep)}
         onRetry={retryDelivery}
+        onProbe={sendLiveProbe}
+        onConfirm={activateSubscriptions}
+        onRefresh={mut.invalidate}
         onEdit={(ep) => {
           setDrawerOpen(false);
           openEdit(ep);

@@ -186,14 +186,8 @@ def _maybe_reconcile_voice_studio() -> None:
 _RETENTION_PURGE_INTERVAL_S = 300.0
 _last_retention_purge = 0.0
 
-# Well past _MAX_CALL_DURATION_SECS (10 min) and the worker idle backstop, so a
-# still-running call can never have its config deleted out from under a restart.
-_VOICE_SESSION_TTL_S = 24 * 3600
-
-# customer_memory is derived PII with no independent business value: past six
-# months a summary is more likely to mislead than help, and voice/memory.py
-# already refuses to inject anything older than VOICE_MEMORY_MAX_AGE_DAYS (90)
-# anyway. Deleting well after that read-side cutoff keeps the two decoupled.
+# customer_memory is derived PII with no independent business value. Nothing
+# writes it since the legacy voice runtime was retired; what is left ages out.
 _CUSTOMER_MEMORY_TTL_S = 180 * 24 * 3600
 
 # Unanswered questions the legacy runtime recorded: nothing writes them now. A
@@ -344,7 +338,6 @@ def main() -> None:
     observability.serve_metrics()
 
     def step() -> bool:
-        _maybe_billing_jobs()
         _maybe_revalidate_open_leads()
         _maybe_sweep_due_followups()
         _maybe_scan_for_violations()
@@ -354,6 +347,7 @@ def main() -> None:
         _maybe_drain_mcp_tasks()
         _maybe_policy_jobs()
         _maybe_decision_jobs()
+        _maybe_billing_jobs()
         return False  # every sweep keeps its own clock; idle between ticks
 
     work_loop.run(step, poll=args.poll, name="worker")

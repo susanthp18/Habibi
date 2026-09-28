@@ -8,9 +8,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import text
 
-from agent_core.cards.compile import compile_card
-from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-from agent_core.cards.clone import _disk_flow
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_MCP, CHANNEL_TEXT, CHANNEL_VOICE
 from agent_core.treatment import actions as A
@@ -88,39 +85,12 @@ def account(db_tx):
     return dict(row)
 
 
-def _compile(card_raw, **kw):
-    return compile_card(
-        bot_id=COLLECTIONS_BOT_ID,
-        card_raw=card_raw,
-        flow=_disk_flow(COLLECTIONS_BOT_ID),
-        catalog_names=set(CATALOG.specs),
-        known_bot_ids={COLLECTIONS_BOT_ID, "intake-v1", "insurance-v1", "supervisor-brief"},
-        **kw,
-    )
-
-
 def test_ingest_tool_is_text_only_not_voice_or_mcp() -> None:
     spec = CATALOG.get("ingest_customer_document")
     assert spec is not None
     assert CHANNEL_TEXT in spec.channels
     assert CHANNEL_VOICE not in spec.channels
     assert CHANNEL_MCP not in spec.channels
-
-
-def test_g11_skipped_when_twin_not_required() -> None:
-    report = _compile(card_dump(COLLECTIONS_BOT_ID))
-    g11 = next(g for g in report.gates if g.gate == "G11")
-    assert g11.status == "skipped"
-    assert report.ok
-
-
-def test_g11_fails_closed_when_required_and_no_run() -> None:
-    dumped = card_dump(COLLECTIONS_BOT_ID)
-    dumped["eval"]["require"] = ["regression", "redteam", "twin"]
-    report = _compile(dumped, twin_report=None)
-    g11 = next(g for g in report.gates if g.gate == "G11")
-    assert g11.status == "fail"
-    assert report.http_status() == 409
 
 
 def test_work_runtime_resumes_approval_after_restart(db_tx, account) -> None:
@@ -401,18 +371,6 @@ def test_receipt_photo_becomes_document_row(db_tx, account, monkeypatch) -> None
     assert row["source"] == "vision"
     assert row["requested_via"] == "inbox"
     assert row["doc_type"] == "payment_receipt"
-
-
-def test_twin_replays_bounce_ladder_without_dialling(db_tx) -> None:
-    _require_table(db_tx, "simulation_twins")
-    from agent_core.twin import replay_bounce_ladder
-
-    run = replay_bounce_ladder()
-    assert run["grader"]["passed"] is True
-    assert run["grader"]["no_dial"]["passed"] is True
-    assert run["outcome"]["dialled"] is False
-    assert len(run["outcome"]["queues"]["whatsapp"]) == 1
-    assert run["outcome"]["queues"]["voice"] == []
 
 
 def test_copilot_draft_uses_engines_not_paraphrase(db_tx, monkeypatch) -> None:

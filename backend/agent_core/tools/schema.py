@@ -1,6 +1,6 @@
 """Canonical tool schema layer — one spec, many channel adapters.
 
-Voice (Pipecat Flows) and WhatsApp/text (OpenAI tool dicts) previously each
+The legacy voice runtime (Pipecat Flows) and WhatsApp/text (OpenAI tool dicts) each
 declared their own JSON schema for the same tool, and the argument names drifted
 (``promise_date`` vs ``promisedDate``, ``dispute_type`` vs ``type``,
 ``scheduled_at`` vs ``scheduledAt``, ``summary`` vs ``transcriptSnippet``).
@@ -9,8 +9,8 @@ one side changed.
 
 A :class:`ToolSpec` is now the single source of truth. Each channel renders it:
 
-* ``to_openai_tool()``  → ``bot_runtime`` / sandbox text (OpenAI ``tools=[...]``)
-* ``to_flows_schema()`` → Pipecat ``FlowsFunctionSchema`` for the voice FlowManager
+* ``to_openai_tool()``  → OpenAI ``tools=[...]``
+* ``to_mcp_tool()``     → the MCP server's tool listing
 
 Canonical argument names are snake_case. Legacy camelCase names stay live as
 :attr:`ArgSpec.aliases` so a model that emits the old name — or a replayed
@@ -21,7 +21,7 @@ conversation whose history contains it — still resolves through
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 # Channels a spec can be exposed on.
@@ -154,30 +154,6 @@ class ToolSpec:
                 "additionalProperties": False,
             },
         }
-
-    def to_flows_schema(self, handler: Callable) -> Any:
-        """Pipecat ``FlowsFunctionSchema`` for the voice FlowManager.
-
-        Imported lazily so text-only processes (bot_worker, API) never pay the
-        pipecat import cost just to build OpenAI tool dicts. Lazily was not far
-        enough: deriving the built-in flow graph calls every node factory, and a
-        node factory renders its tools — so the API image reached this line and
-        got a 500 on ``GET /flow/built-in``. Without pipecat it now returns a
-        stub carrying the same fields, which is all the export reads.
-        """
-        from agent_core.tools.pipecat_compat import flows_function_schema
-
-        kwargs: dict[str, Any] = {
-            "name": self.name,
-            "description": self.description,
-            "properties": self.properties(),
-            "required": self.required_names(),
-            "handler": handler,
-            "cancel_on_interruption": self.cancel_on_interruption,
-        }
-        if self.timeout_secs is not None:
-            kwargs["timeout_secs"] = self.timeout_secs
-        return flows_function_schema(**kwargs)
 
     def normalize_args(self, raw: Mapping[str, Any] | None) -> dict[str, Any]:
         """Map any accepted wire name onto the canonical snake_case name.

@@ -18,8 +18,6 @@ import hmac
 
 import pytest
 
-from agent_core.skills import sign
-
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,119 +34,10 @@ def _expected(key: str, content_hash: str) -> str:
 # --- missing key, production ------------------------------------------------
 
 
-@pytest.mark.parametrize("env", ["production", "prod", "PRODUCTION", " Production "])
-def test_missing_key_in_production_raises(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
-    monkeypatch.setenv("APP_ENV", env)
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-
-
-def test_the_error_names_the_variable_an_operator_has_to_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("APP_ENV", "production")
-    with pytest.raises(RuntimeError) as excinfo:
-        sign.platform_key()
-    message = str(excinfo.value)
-    assert "SKILL_PLATFORM_KEY" in message
-    assert "production" in message
-
-
-def test_an_unrecognised_environment_is_treated_as_production(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``staging`` is not on the allow-list, and a typo must not open the gate."""
-    monkeypatch.setenv("APP_ENV", "staging")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-    monkeypatch.setenv("APP_ENV", "dvelopment")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-
-
-def test_verification_raises_rather_than_quietly_accepting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The gate itself, not just the key helper — it must not return ``True``."""
-    monkeypatch.setenv("APP_ENV", "production")
-    forged = _expected(sign.DEV_PLATFORM_KEY, "abc")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.verify_signature("abc", forged)
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.sign_hash("abc")
-
-
-def test_an_empty_or_whitespace_key_is_not_a_configured_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("SKILL_PLATFORM_KEY", "   ")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-
-
 # --- missing key, development -----------------------------------------------
 
 
-@pytest.mark.parametrize("env", ["dev", "development", "local", "test", "sandbox", "ci", "DEV"])
-def test_missing_key_in_a_declared_non_prod_env_uses_the_dev_key(
-    monkeypatch: pytest.MonkeyPatch, env: str
-) -> None:
-    monkeypatch.setenv("APP_ENV", env)
-    assert sign.platform_key() == sign.DEV_PLATFORM_KEY.encode("utf-8")
-
-
-def test_an_unset_app_env_still_means_development(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Matches ``main.py``: no ``APP_ENV`` is a laptop, and the suite runs there."""
-    assert sign.platform_key() == sign.DEV_PLATFORM_KEY.encode("utf-8")
-    digest = sign.sign_hash("abc")
-    assert sign.verify_signature("abc", digest)
-
-
-def test_env_is_read_as_a_fallback_for_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ENV", "production")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-
-
 # --- key configured ---------------------------------------------------------
-
-
-@pytest.mark.parametrize("env", ["production", "dev"])
-def test_a_configured_key_is_the_one_used(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
-    monkeypatch.setenv("APP_ENV", env)
-    monkeypatch.setenv("SKILL_PLATFORM_KEY", "s3cret-platform-key")
-
-    assert sign.platform_key() == b"s3cret-platform-key"
-    assert sign.sign_hash("abc") == _expected("s3cret-platform-key", "abc")
-    assert sign.verify_signature("abc", sign.sign_hash("abc"))
-
-
-def test_a_signature_forged_with_the_dev_key_fails_against_a_real_one(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The whole point: the committed constant must buy an attacker nothing."""
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("SKILL_PLATFORM_KEY", "s3cret-platform-key")
-    forged = _expected(sign.DEV_PLATFORM_KEY, "abc")
-    assert not sign.verify_signature("abc", forged)
-
-
-@pytest.mark.parametrize("env", ["production", "prod", "staging"])
-def test_the_development_key_is_refused_outside_development(
-    monkeypatch: pytest.MonkeyPatch, env: str
-) -> None:
-    """`.env.example` shipped the public constant as the value.
-
-    An operator who copied the template into production had a key that read
-    as configured and was forgeable by anyone with the source. A configured
-    value equal to the development key is now the same as no key at all
-    outside a declared non-production environment.
-    """
-    monkeypatch.setenv("APP_ENV", env)
-    monkeypatch.setenv("SKILL_PLATFORM_KEY", sign.DEV_PLATFORM_KEY)
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
 
 
 def test_the_template_does_not_ship_the_development_key() -> None:

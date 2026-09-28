@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.cards.schema import CardPostCall
-
 
 # --- written_followup -------------------------------------------------------
 
@@ -81,19 +79,6 @@ def test_a_suppressed_action_is_recorded_rather_than_dropped():
         written_followup=False,
     )
     assert applied == ["confirm_written:off_by_card"]
-
-
-def test_the_switch_defaults_on_for_every_existing_caller():
-    """The parameter was added to a function with live callers. Defaulting it
-    False would have turned written follow-up off for every card in the fleet
-    with no card change and no diff to show for it."""
-    import inspect
-
-    import post_call_actions
-
-    sig = inspect.signature(post_call_actions.apply)
-    assert sig.parameters["written_followup"].default is True
-    assert CardPostCall().written_followup is True
 
 
 # --- the policy lookup ------------------------------------------------------

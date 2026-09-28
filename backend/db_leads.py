@@ -815,6 +815,13 @@ def create_lead(
                 logger.exception("attach_lead failed for decision %s", decision_id)
         response = _lead_by_id(conn, lead_id)
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
+        import webhooks_dispatch
+
+        webhooks_dispatch.dispatch(conn, "lead.created", {
+            "leadId": lead_id,
+            "customerId": customer_id,
+            "productId": product_id,
+        })
         return response
 
 # A lead's stage is a state machine, not a free-text column. Without this any
@@ -1238,4 +1245,3 @@ def patch_followup(followup_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         entity_id = row["lead_id"] or row["promise_id"] or followup_id
         _activity(conn, entity_type, entity_id, "followup_updated", "Follow-up updated", payload.get("status"), row["customer_id"])
         return {"id": followup_id, "status": payload.get("status")}
-

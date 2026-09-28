@@ -425,6 +425,14 @@ def _create_promise(
     elif fulfillment_error:
         response["_fulfillment"] = {"error": fulfillment_error}
     _store_idempotent_response(conn, idempotency_key, endpoint, response)
+    import webhooks_dispatch
+
+    webhooks_dispatch.dispatch(conn, "promise.created", {
+        "promiseId": promise_id,
+        "customerId": customer_id,
+        "accountId": account_id,
+        "status": "upcoming",
+    })
     return response
 
 

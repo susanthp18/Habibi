@@ -36,6 +36,6 @@ ROLES: dict[str, frozenset[str]] = {
         }
     ),
     "integration": frozenset(
-        {"webhooks_dispatch", "clerk", "clerk_overdue", "canary"}
+        {"webhooks_dispatch", "clerk", "clerk_overdue"}
     ),
 }

@@ -25,12 +25,10 @@ import { Route as AppDocumentsRouteImport } from './routes/_app.documents'
 import { Route as AppFloorRouteImport } from './routes/_app.floor'
 import { Route as AppHandoffRouteImport } from './routes/_app.handoff'
 import { Route as AppInboxRouteImport } from './routes/_app.inbox'
-import { Route as AppIntegrationsRouteImport } from './routes/_app.integrations'
 import { Route as AppPromisesRouteImport } from './routes/_app.promises'
 import { Route as AppQaRouteImport } from './routes/_app.qa'
 import { Route as AppRedactionRouteImport } from './routes/_app.redaction'
 import { Route as AppRolesRouteImport } from './routes/_app.roles'
-import { Route as AppRoutingRouteImport } from './routes/_app.routing'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppStudioRouteImport } from './routes/_app.studio'
 import { Route as AppTreatmentRouteImport } from './routes/_app.treatment'
@@ -150,11 +148,6 @@ const AppInboxRoute = AppInboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => AppRoute,
 } as any)
-const AppIntegrationsRoute = AppIntegrationsRouteImport.update({
-  id: '/integrations',
-  path: '/integrations',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppPromisesRoute = AppPromisesRouteImport.update({
   id: '/promises',
   path: '/promises',
@@ -173,11 +166,6 @@ const AppRedactionRoute = AppRedactionRouteImport.update({
 const AppRolesRoute = AppRolesRouteImport.update({
   id: '/roles',
   path: '/roles',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppRoutingRoute = AppRoutingRouteImport.update({
-  id: '/routing',
-  path: '/routing',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -395,12 +383,10 @@ export interface FileRoutesByFullPath {
   '/floor': typeof AppFloorRoute
   '/handoff': typeof AppHandoffRoute
   '/inbox': typeof AppInboxRoute
-  '/integrations': typeof AppIntegrationsRoute
   '/promises': typeof AppPromisesRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
-  '/routing': typeof AppRoutingRoute
   '/settings': typeof AppSettingsRoute
   '/studio': typeof AppStudioRouteWithChildren
   '/treatment': typeof AppTreatmentRoute
@@ -453,12 +439,10 @@ export interface FileRoutesByTo {
   '/floor': typeof AppFloorRoute
   '/handoff': typeof AppHandoffRoute
   '/inbox': typeof AppInboxRoute
-  '/integrations': typeof AppIntegrationsRoute
   '/promises': typeof AppPromisesRoute
   '/qa': typeof AppQaRoute
   '/redaction': typeof AppRedactionRoute
   '/roles': typeof AppRolesRoute
-  '/routing': typeof AppRoutingRoute
   '/settings': typeof AppSettingsRoute
   '/treatment': typeof AppTreatmentRoute
   '/upsell': typeof AppUpsellRoute
@@ -514,12 +498,10 @@ export interface FileRoutesById {
   '/_app/floor': typeof AppFloorRoute
   '/_app/handoff': typeof AppHandoffRoute
   '/_app/inbox': typeof AppInboxRoute
-  '/_app/integrations': typeof AppIntegrationsRoute
   '/_app/promises': typeof AppPromisesRoute
   '/_app/qa': typeof AppQaRoute
   '/_app/redaction': typeof AppRedactionRoute
   '/_app/roles': typeof AppRolesRoute
-  '/_app/routing': typeof AppRoutingRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/studio': typeof AppStudioRouteWithChildren
   '/_app/treatment': typeof AppTreatmentRoute
@@ -577,12 +559,10 @@ export interface FileRouteTypes {
     | '/floor'
     | '/handoff'
     | '/inbox'
-    | '/integrations'
     | '/promises'
     | '/qa'
     | '/redaction'
     | '/roles'
-    | '/routing'
     | '/settings'
     | '/studio'
     | '/treatment'
@@ -635,12 +615,10 @@ export interface FileRouteTypes {
     | '/floor'
     | '/handoff'
     | '/inbox'
-    | '/integrations'
     | '/promises'
     | '/qa'
     | '/redaction'
     | '/roles'
-    | '/routing'
     | '/settings'
     | '/treatment'
     | '/upsell'
@@ -695,12 +673,10 @@ export interface FileRouteTypes {
     | '/_app/floor'
     | '/_app/handoff'
     | '/_app/inbox'
-    | '/_app/integrations'
     | '/_app/promises'
     | '/_app/qa'
     | '/_app/redaction'
     | '/_app/roles'
-    | '/_app/routing'
     | '/_app/settings'
     | '/_app/studio'
     | '/_app/treatment'
@@ -860,13 +836,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInboxRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/integrations': {
-      id: '/_app/integrations'
-      path: '/integrations'
-      fullPath: '/integrations'
-      preLoaderRoute: typeof AppIntegrationsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/promises': {
       id: '/_app/promises'
       path: '/promises'
@@ -893,13 +862,6 @@ declare module '@tanstack/react-router' {
       path: '/roles'
       fullPath: '/roles'
       preLoaderRoute: typeof AppRolesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/routing': {
-      id: '/_app/routing'
-      path: '/routing'
-      fullPath: '/routing'
-      preLoaderRoute: typeof AppRoutingRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -1267,12 +1229,10 @@ interface AppRouteChildren {
   AppFloorRoute: typeof AppFloorRoute
   AppHandoffRoute: typeof AppHandoffRoute
   AppInboxRoute: typeof AppInboxRoute
-  AppIntegrationsRoute: typeof AppIntegrationsRoute
   AppPromisesRoute: typeof AppPromisesRoute
   AppQaRoute: typeof AppQaRoute
   AppRedactionRoute: typeof AppRedactionRoute
   AppRolesRoute: typeof AppRolesRoute
-  AppRoutingRoute: typeof AppRoutingRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStudioRoute: typeof AppStudioRouteWithChildren
   AppTreatmentRoute: typeof AppTreatmentRoute
@@ -1295,12 +1255,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppFloorRoute: AppFloorRoute,
   AppHandoffRoute: AppHandoffRoute,
   AppInboxRoute: AppInboxRoute,
-  AppIntegrationsRoute: AppIntegrationsRoute,
   AppPromisesRoute: AppPromisesRoute,
   AppQaRoute: AppQaRoute,
   AppRedactionRoute: AppRedactionRoute,
   AppRolesRoute: AppRolesRoute,
-  AppRoutingRoute: AppRoutingRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStudioRoute: AppStudioRouteWithChildren,
   AppTreatmentRoute: AppTreatmentRoute,

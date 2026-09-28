@@ -136,14 +136,6 @@ def _http_chat(
 
     key = (os.getenv("LITELLM_API_KEY") or os.getenv("LLM_GATEWAY_KEY") or "").strip()
     model = os.getenv(f"LLM_GATEWAY_{profile.upper()}_MODEL") or os.getenv("LITELLM_MODEL") or "azure/chat"
-    try:
-        from llm_gateway.canary import model_for
-
-        override = model_for(profile)
-        if override:
-            model = override
-    except Exception:
-        pass
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,

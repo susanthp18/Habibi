@@ -7,7 +7,7 @@ export function eventCategories(catalog: EventDef[]): EventCategory[] {
 
 /** What a receiver sees; the value is computed server-side over the raw body. */
 export const SIGNATURE_HEADER_EXAMPLE =
-  "X-Coll-Signature: t=<unix seconds>, v1=<hex HMAC-SHA256 of `<t>.<raw body>`>";
+  "X-BigBound-Timestamp: <unix seconds> · X-BigBound-Signature: <hex HMAC-SHA256>";
 
 export function successRate(list: Delivery[]): number {
   if (!list.length) return 100;

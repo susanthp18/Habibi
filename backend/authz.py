@@ -436,14 +436,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/access-requests"): ADMIN_WRITE,
     ("POST", "/access-requests/{request_id}/approve"): ADMIN_WRITE,
     ("POST", "/access-requests/{request_id}/deny"): ADMIN_WRITE,
-    ("GET", "/routing-audit"): BOT_READ,
-    ("GET", "/routing-rules"): BOT_READ,
-    ("GET", "/routing-rules/{rule_id}/executions"): BOT_READ,
-    ("POST", "/routing-rules"): BOT_WRITE,
-    ("POST", "/routing-rules/reorder"): BOT_WRITE,
-    ("POST", "/routing-rules/simulate"): BOT_READ,
-    ("PATCH", "/routing-rules/{rule_id}"): BOT_WRITE,
-    ("DELETE", "/routing-rules/{rule_id}"): BOT_WRITE,
     ("GET", "/work-runtime/jobs/{job_id}"): COLLECTIONS_READ,
     # --- provider registry -------------------------------------------------
     # Reads are BOT_READ: the Voice tab needs the capability matrix to render
@@ -692,6 +684,8 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/webhook-endpoints/{endpoint_id}"): INTEGRATIONS_WRITE,
     ("POST", "/webhook-endpoints/{endpoint_id}/rotate-secret"): INTEGRATIONS_WRITE,
     ("POST", "/webhook-endpoints/{endpoint_id}/test"): INTEGRATIONS_WRITE,
+    ("POST", "/webhook-endpoints/{endpoint_id}/probe"): INTEGRATIONS_WRITE,
+    ("POST", "/webhook-endpoints/{endpoint_id}/confirm-subscriptions"): INTEGRATIONS_WRITE,
     # --- platform switches -------------------------------------------------
     # Reading is BOT_READ so the state is visible to anyone who can see the
     # Roles screen. Flipping the master outbound gate is ADMIN_WRITE: it decides

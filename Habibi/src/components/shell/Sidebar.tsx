@@ -29,7 +29,6 @@ import {
   Bot,
   BrainCircuit,
   GitBranch,
-  Plug,
   Webhook,
   Receipt,
   Settings,
@@ -234,8 +233,6 @@ const groups: NavGroup[] = [
   {
     label: "Bot configuration",
     items: [
-      { key: "routing", label: "Routing / logic", icon: GitBranch, to: "/routing" },
-      { key: "integrations", label: "Integrations", icon: Plug, to: "/integrations" },
       { key: "webhooks", label: "Webhooks", icon: Webhook, to: "/webhooks" },
       { key: "billing", label: "Billing & usage", icon: Receipt, to: "/billing" },
       {

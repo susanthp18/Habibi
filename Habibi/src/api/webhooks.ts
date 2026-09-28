@@ -9,7 +9,14 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "./config";
 /** What the sheet sends; the server mints the secret and its vault ref. */
 export type WebhookDraft = Omit<
   Endpoint,
-  "id" | "createdAt" | "status" | "secret" | "secretRef"
+  | "id"
+  | "createdAt"
+  | "status"
+  | "secret"
+  | "secretRef"
+  | "subscriptionsConfirmed"
+  | "destinationTested"
+  | "configurationVersion"
 > & {
   id?: string;
   status?: Endpoint["status"];
@@ -76,6 +83,7 @@ export async function updateWebhookEndpoint(ep: Endpoint): Promise<Endpoint> {
     retry: ep.retry,
     headers: ep.headers,
     status: ep.status,
+    expectedVersion: ep.configurationVersion,
   });
 }
 
@@ -90,6 +98,16 @@ export async function rotateWebhookSecret(ep: Endpoint): Promise<EndpointWithOnc
 export async function testFireWebhook(ep: Endpoint, event?: EventKey): Promise<Delivery> {
   const q = event ? `?event=${encodeURIComponent(event)}` : "";
   return apiPost<Delivery>(`/webhook-endpoints/${ep.id}/test${q}`, {});
+}
+
+export async function probeWebhookEndpoint(ep: Endpoint): Promise<Delivery> {
+  return apiPost<Delivery>(`/webhook-endpoints/${ep.id}/probe`, {});
+}
+
+export async function confirmWebhookSubscriptions(ep: Endpoint): Promise<Endpoint> {
+  return apiPost<Endpoint>(`/webhook-endpoints/${ep.id}/confirm-subscriptions`, {
+    configurationVersion: ep.configurationVersion,
+  });
 }
 
 export async function retryWebhookDelivery(d: Delivery): Promise<Delivery> {
@@ -127,6 +145,16 @@ export function useWebhookMutations() {
     testFire: useMutation({
       meta: { errors: "toast" },
       mutationFn: ({ ep, event }: { ep: Endpoint; event?: EventKey }) => testFireWebhook(ep, event),
+      onSuccess: invalidate,
+    }),
+    probe: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: probeWebhookEndpoint,
+      onSuccess: invalidate,
+    }),
+    confirm: useMutation({
+      meta: { errors: "caller" },
+      mutationFn: confirmWebhookSubscriptions,
       onSuccess: invalidate,
     }),
     retry: useMutation({

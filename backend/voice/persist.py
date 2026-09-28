@@ -778,7 +778,7 @@ def complete_voice_call(
 
     with db.engine.begin() as conn:
         row = conn.execute(
-            text("SELECT started_at FROM interactions WHERE id = :id"),
+            text("SELECT started_at, status FROM interactions WHERE id = :id FOR UPDATE"),
             {"id": interaction_id},
         ).mappings().first()
         duration = duration_sec
@@ -851,6 +851,15 @@ def complete_voice_call(
             ),
             {"id": session_id, "status": vs_status, "ended": ended},
         )
+        if row and row.get("status") not in {"completed", "abandoned", "failed"}:
+            import webhooks_dispatch
+
+            webhooks_dispatch.dispatch(conn, "call.completed", {
+                "interactionId": interaction_id,
+                "status": st,
+                "durationSeconds": duration,
+                "disposition": disposition,
+            })
 
     try:
         from agent_core.live_qa.scorecard import score_completed_interaction

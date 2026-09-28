@@ -3,9 +3,9 @@
 from types import SimpleNamespace
 
 import mission
-from agent_core.cards.defaults import _collections_outbound
+import outbound_policy
 
-CARD = SimpleNamespace(outbound=_collections_outbound())
+CARD = SimpleNamespace(outbound=outbound_policy.current())
 RAHUL = {"name": "Rahul Sharma", "dpd": 12, "overdue": 18450, "language": "English"}
 
 

@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 
 from agent_core.tools import ToolResult, domain
-from voice.node_contracts import NODE_DIRECTIVES
 
 
 def test_live_signals_only_use_callsignals_fields() -> None:

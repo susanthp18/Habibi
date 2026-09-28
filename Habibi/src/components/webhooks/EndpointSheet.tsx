@@ -17,7 +17,17 @@ import { useEventCatalog } from "@/api/webhooks";
 import { EventPicker } from "./EventPicker";
 import { QueryState } from "@/components/ui/query-state";
 
-type Draft = Omit<Endpoint, "id" | "createdAt" | "status" | "secret" | "secretRef"> & {
+type Draft = Omit<
+  Endpoint,
+  | "id"
+  | "createdAt"
+  | "status"
+  | "secret"
+  | "secretRef"
+  | "subscriptionsConfirmed"
+  | "destinationTested"
+  | "configurationVersion"
+> & {
   id?: string;
 };
 
@@ -128,7 +138,6 @@ export function EndpointSheet({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="HMAC-SHA256">HMAC-SHA256</SelectItem>
-                  <SelectItem value="Ed25519">Ed25519</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -224,6 +233,10 @@ export function EndpointSheet({
                 <Plus className="mr-050 h-3 w-3" /> Add
               </Button>
             </div>
+            <p className="mb-100 text-body-small text-text-subtle">
+              Use these for routing metadata only. The signed request authenticates the sender; do
+              not enter credentials here.
+            </p>
             <div className="space-y-075">
               {draft.headers.length === 0 && (
                 <p className="text-body-small text-text-subtlest">No custom headers.</p>
@@ -274,7 +287,7 @@ export function EndpointSheet({
             Cancel
           </Button>
           <Button variant="outline" disabled={!isValid} onClick={() => onSaveAndTest(draft)}>
-            Save & test
+            Save & simulate
           </Button>
           <Button disabled={!isValid} onClick={() => onSave(draft)}>
             {initial ? "Save changes" : "Create endpoint"}

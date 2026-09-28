@@ -156,39 +156,6 @@ def test_worst_case_analysis_wall_clock_is_bounded() -> None:
 # --- optional enrichment degrades on time, not just on error ----------------
 
 
-def test_understanding_sends_a_per_request_budget() -> None:
-    from agent_core import understanding
-
-    assert "timeout=_timeout_s()" in inspect.getsource(understanding._ask_llm)
-
-
-def test_the_budget_fits_inside_a_live_turn() -> None:
-    from agent_core.understanding import _timeout_s
-
-    assert 1.0 <= _timeout_s() <= 8.0
-
-
-def test_a_bad_budget_setting_falls_back_rather_than_raising(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agent_core import understanding
-
-    monkeypatch.setenv("UNDERSTANDING_LLM_TIMEOUT_S", "not-a-number")
-    assert understanding._timeout_s() == understanding._DEFAULT_TIMEOUT_S
-
-
-def test_the_keyword_baseline_is_what_a_timeout_degrades_to(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The whole justification for a budget: there is already an answer."""
-    from agent_core import understanding
-
-    monkeypatch.setattr(understanding, "_ask_llm", lambda *_a, **_k: (None, None))
-    out = understanding.analyze_turn("i want to pay my emi next week", channel="text")
-    assert out.intent
-    assert out.sentiment_label
-
-
 def test_mark_read_with_typing_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
     import urllib.request

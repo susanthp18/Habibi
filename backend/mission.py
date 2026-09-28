@@ -130,10 +130,10 @@ def _account_position(conn: Any, account_id: str | None) -> dict[str, Any]:
         return {}
     # The shared helper, not a slice. `AC-SUSANTH`[-4:] is "ANTH", and the
     # briefing would have had the agent say "account ending ANTH" out loud —
-    # which is precisely the case ``agent_core.context.account_tail`` was
-    # written for. It returns None when there are no trailing digits, and the
-    # briefing then omits the phrasing entirely.
-    from agent_core.context import account_tail
+    # which is precisely the case ``db_core._account_tail`` was written for.
+    # It returns None when there are no trailing digits, and the briefing then
+    # omits the phrasing entirely.
+    from db_core import _account_tail as account_tail
 
     return {
         "accountId": row["id"],

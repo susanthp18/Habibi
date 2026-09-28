@@ -6,14 +6,12 @@ from typing import Any
 
 from sqlalchemy import text
 
-from agent_core.cards.defaults import FIRST_PARTY_BOTS
 from agent_core.clock import utc_now
-from db_prompt_studio.deployments import DEFAULT_BOT_ID
 from env_utils import env_int
 from db_core import (
+    DEFAULT_BOT_ID,
     _activity,
     _actor_user_id,
-    _as_dict,
     _assert_tenant_owns,
     _dump,
     _duration,
@@ -58,43 +56,16 @@ def _sentiment_delta(score: float | None) -> str:
     return "flat"
 
 
-def _current_card_names(conn: Any, bot_ids: set[str]) -> dict[str, str]:
-    """Resolve the same draft → published → built-in name shown by Agent Studio."""
+def _agent_names(conn: Any, bot_ids: set[str]) -> dict[str, str]:
+    """Display names of these agents. Voice Studio registers an agent in
+    ``bots`` under its engine name when it first files a call."""
     if not bot_ids:
         return {}
-    names = {bot_id: name for bot_id, name, _ in FIRST_PARTY_BOTS if bot_id in bot_ids}
-    versions = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT DISTINCT ON (p.bot_id, p.status) p.bot_id, p.agent_card
-                FROM prompt_versions p
-                JOIN bots b ON b.id = p.bot_id AND b.tenant_id = p.tenant_id
-                WHERE p.tenant_id = :tenant_id
-                  AND p.bot_id = ANY(:bot_ids)
-                  AND p.status IN ('draft', 'published')
-                ORDER BY p.bot_id, p.status, p.created_at DESC, p.id DESC
-                """
-            ),
-            {"tenant_id": _tenant(), "bot_ids": list(bot_ids)},
-        )
-    )
-    # The newest draft wins when it names the card; otherwise use the
-    # published name, then the built-in first-party name.
-    resolved: set[str] = set()
-    for version in versions:
-        bot_id = version["bot_id"]
-        if bot_id in resolved:
-            continue
-        card = _as_dict(version["agent_card"])
-        if not card:
-            continue
-        identity = card.get("identity")
-        display_name = identity.get("display_name") if isinstance(identity, dict) else None
-        if isinstance(display_name, str) and display_name.strip():
-            names[bot_id] = display_name
-            resolved.add(bot_id)
-    return names
+    rows = conn.execute(
+        text("SELECT id, name FROM bots WHERE tenant_id = :tenant_id AND id = ANY(:bot_ids)"),
+        {"tenant_id": _tenant(), "bot_ids": list(bot_ids)},
+    ).mappings()
+    return {r["id"]: r["name"] for r in rows if r["name"]}
 
 
 def _caller_label(row: dict[str, Any]) -> str:
@@ -153,7 +124,7 @@ def _interaction_contracts(conn: Any, customer_id: str | None = None, limit: int
             params,
         )
     )
-    bot_names = _current_card_names(conn, {r["handler_bot_id"] for r in interactions if r["handler_bot_id"]})
+    bot_names = _agent_names(conn, {r["handler_bot_id"] for r in interactions if r["handler_bot_id"]})
     # Batch transcripts — avoid N+1 (one query per interaction).
     transcripts_by_id: dict[str, list[str]] = {row["id"]: [] for row in interactions}
     interaction_ids = list(transcripts_by_id)
@@ -268,7 +239,7 @@ def list_calls(
         # query, so the Calls screen got slower in direct proportion to how
         # long the deployment had been running.
         interaction_ids = [row["id"] for row in rows]
-        bot_names = _current_card_names(conn, {r["handler_bot_id"] for r in rows if r["handler_bot_id"]})
+        bot_names = _agent_names(conn, {r["handler_bot_id"] for r in rows if r["handler_bot_id"]})
 
         def _grouped(sql: str) -> dict[str, list[dict[str, Any]]]:
             grouped: dict[str, list[dict[str, Any]]] = {}

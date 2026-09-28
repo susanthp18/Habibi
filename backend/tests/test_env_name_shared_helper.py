@@ -17,15 +17,11 @@ from __future__ import annotations
 
 import ast
 import re
-from importlib import import_module
 from pathlib import Path
 
 import pytest
 
 import env_utils
-from agent_core.skills import sign
-
-vault_seal = import_module("agent_core.vault.seal")
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -94,35 +90,6 @@ def test_anything_else_does_not(monkeypatch: pytest.MonkeyPatch, env: str) -> No
 # --- one implementation, two callers ----------------------------------------
 
 
-def test_both_key_helpers_use_the_leaf_implementation() -> None:
-    assert sign.env_name is env_utils.env_name
-    assert vault_seal.env_name is env_utils.env_name
-    assert sign.NON_PROD_ENVS is env_utils.NON_PROD_ENVS
-    assert vault_seal.NON_PROD_ENVS is env_utils.NON_PROD_ENVS
-
-
-def test_the_vault_does_not_import_the_skill_signer() -> None:
-    """The dependency this move existed to cut. Read the source, not the module.
-
-    Importing ``agent_core.vault.seal`` pulls in ``agent_core.__init__``, which
-    imports plenty — so ``sys.modules`` proves nothing about what *this* file
-    asks for.
-    """
-    tree = ast.parse((BACKEND / "agent_core" / "vault" / "seal.py").read_text(encoding="utf-8"))
-    imported = {
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module
-    } | {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    assert not [m for m in imported if m.startswith("agent_core.skills")]
-    assert "env_utils" in imported
-
-
 def test_no_module_still_reaches_for_the_old_private_name() -> None:
     """Word-bounded: ``template_env_name`` in ``treatment/enact`` is unrelated."""
     private = re.compile(r"_env_name")
@@ -134,30 +101,3 @@ def test_no_module_still_reaches_for_the_old_private_name() -> None:
     assert offenders == []
 
 
-# --- the keys still behave exactly as they did ------------------------------
-
-
-def test_the_signing_key_still_refuses_an_undeclared_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("SKILL_PLATFORM_KEY", raising=False)
-    monkeypatch.setenv("APP_ENV", "staging")
-    with pytest.raises(RuntimeError, match="SKILL_PLATFORM_KEY"):
-        sign.platform_key()
-
-
-def test_the_vault_key_still_refuses_an_undeclared_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("VAULT_MASTER_KEY", raising=False)
-    monkeypatch.setenv("APP_ENV", "staging")
-    with pytest.raises(RuntimeError, match="VAULT_MASTER_KEY"):
-        vault_seal.master_key()
-
-
-def test_and_both_still_take_the_dev_key_on_a_laptop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SKILL_PLATFORM_KEY", raising=False)
-    monkeypatch.delenv("VAULT_MASTER_KEY", raising=False)
-    monkeypatch.setenv("APP_ENV", "dev")
-    assert sign.platform_key() == sign.DEV_PLATFORM_KEY.encode("utf-8")
-    assert vault_seal.master_key()

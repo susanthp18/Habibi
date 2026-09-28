@@ -6,15 +6,9 @@ router of the same name serves these. ``schemas/__init__`` re-exports every name
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
-
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 class ScorecardEntryPatchRequest(BaseModel):
     criterionId: str
@@ -281,50 +275,6 @@ class CalibrationSessionPatchRequest(BaseModel):
     status: CalibrationStatus | None = None
 
 
-class EvalSuiteResponse(BaseModel):
-    """One row of `eval_suites`. Mirrors Habibi EvalSuite."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str
-    name: str
-    description: str = ""
-    tenant_id: str | None = None
-    created_at: Any | None = None
-    updated_at: Any | None = None
-
-
-class EvalReportSummaryResponse(BaseModel):
-    """Eval history row. Mirrors Habibi EvalReport."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    suiteId: str
-    suiteName: str | None = None
-    kind: str | None = None
-    botId: str | None = None
-    status: str
-    summary: dict[str, Any] = {}
-    origin: str = "manual"
-    createdAt: str | None = None
-
-
-class SkillCritiqueResponse(BaseModel):
-    """An LLM-judge suggestion for a SKILL.md line. Never writes the skill."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    skillSlug: str | None = None
-    reportId: str | None = None
-    suggestedDiff: dict[str, Any] = {}
-    status: str = "draft"
-    writesProduction: bool = False
-    createdAt: str | None = None
-
-
 # ── Evals / QA ───────────────────────────────────────────────────────────────
 
 
@@ -443,88 +393,6 @@ class QaInteractionPackResponse(BaseModel):
     scorecard: QaPackScorecardResponse | None = None
 
 
-class EvalTrialResponse(BaseModel):
-    """`agent_core.eval.harness` — one graded fixture; `verdict` is grader-shaped."""
-
-    taskId: str | None = None
-    name: str | None = None
-    passed: bool
-    verdict: dict[str, Any]
-    fixture: dict[str, Any]
-    error: str | None = None
-
-
-class EvalSuiteRunResponse(BaseModel):
-    """`run_named_suite`: the suite facts plus the harness result spread in."""
-
-    suiteId: str
-    kind: str
-    name: str | None = None
-    reportId: str
-    status: Literal["pass", "fail", "error"]
-    failed: int
-    errored: int
-    total: int
-    trials: list[EvalTrialResponse]
-
-
-class EvalRequiredRunItemResponse(BaseModel):
-    kind: str
-    suiteId: str
-    reportId: str
-    status: Literal["pass", "fail", "error"]
-    failed: int
-    total: int
-
-
-class EvalRequiredSkipResponse(BaseModel):
-    kind: str
-    reason: str
-
-
-class EvalRequiredRunResponse(BaseModel):
-    """`run_required_suites`: every suite a card requires, run against one version."""
-
-    botId: str
-    promptVersionId: str
-    status: Literal["pass", "fail"]
-    ran: list[EvalRequiredRunItemResponse]
-    skipped: list[EvalRequiredSkipResponse]
-
-
-class EvalReportRowResponse(BaseModel):
-    """`SELECT *` from eval_reports, snake_case as stored. Columns the running
-    database has not gained yet are simply absent (route excludes unset)."""
-
-    id: str
-    tenant_id: str | None = None
-    suite_id: str | None = None
-    bot_id: str | None = None
-    prompt_version_id: str | None = None
-    status: str | None = None
-    summary: dict[str, Any] | None = None
-    created_at: datetime | None = None
-    origin: str | None = None
-    content_key: str | None = None
-    #: The graded fixtures behind the verdict, failed first.
-    trials: list[EvalTrialResponse] = []
-
-
-class EvalScheduleRunResponse(BaseModel):
-    origin: str
-    ran: int
-    failed: int
-    status: Literal["pass", "fail"]
-    reports: list[EvalSuiteRunResponse]
-
-
-class EvalTaskGraduateResponse(BaseModel):
-    sourceTaskId: str
-    regressionTaskId: str
-    suiteId: str
-    signedSkill: bool
-
-
 class QaDisagreementResponse(BaseModel):
     interactionId: str | None = None
     liveVerdict: str
@@ -538,18 +406,3 @@ class QaDisagreementsResponse(BaseModel):
     applied: bool
     count: int
     items: list[QaDisagreementResponse]
-
-
-class TwinCorpusRowResponse(BaseModel):
-    id: str
-    source: str
-    sourceRef: str
-    outcome: dict[str, Any]
-    taskId: str | None = None
-    createdAt: str | None = None
-
-
-class TwinCorpusGrowResponse(BaseModel):
-    created: int
-    skipped: int
-    source: str

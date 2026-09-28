@@ -142,6 +142,8 @@ DATABASE_URL = os.getenv("DATABASE_URL") or _read_env_file("DATABASE_URL") or DE
 # (`actor_context`); this is the same seam for tenancy.
 TENANT_ID = os.getenv("TENANT_ID") or _read_env_file("TENANT_ID") or "hdfc.retail"
 ACTOR_USER_ID = os.getenv("ACTOR_USER_ID", "priya-nair")
+#: The agent a call or chat is attributed to when nothing names one.
+DEFAULT_BOT_ID = os.getenv("BOT_ID") or "kaia-v2-4"
 
 
 #: The unbound-caller sentinel. One customer row per tenant, so an unbound
@@ -445,8 +447,8 @@ def _account_tail(account_id: str | None) -> str | None:
 
     Ids look like ``AC-77410`` (-> ``7410``); a vanity id like ``AC-SUSANTH``
     has no trailing digits, and the old ``[-4:]`` here showed the desk "SANTH"
-    while the mouth (``agent_core.context.account_tail``, which delegates to
-    this) said nothing. One rule now, and the desk and the phone agree.
+    while the phone agent said nothing. One rule now, and the desk and the
+    phone agree.
     """
     digits = "".join(ch for ch in (account_id or "") if ch.isdigit())
     return digits[-4:] if len(digits) >= 4 else None

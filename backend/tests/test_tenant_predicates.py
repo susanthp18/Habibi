@@ -206,80 +206,9 @@ def _rival_draft(conn) -> str:
     return "pv-rival"
 
 
-def test_a_draft_cannot_be_patched_by_another_tenant(db_tx) -> None:
-    import db_prompt_studio
-
-    vid = _rival_draft(db_tx)
-
-    with pytest.raises(KeyError):
-        db_prompt_studio.patch_prompt_version(vid, {"prompt": "rewritten"})
-
-    with _acting_as(db_tx, OTHER):
-        assert (
-            db_tx.execute(
-                text("SELECT prompt FROM prompt_versions WHERE id = :i"), {"i": vid}
-            ).scalar()
-            == "hello"
-        )
-
-
-def test_a_draft_cannot_be_discarded_by_another_tenant(db_tx) -> None:
-    import db_prompt_studio
-
-    vid = _rival_draft(db_tx)
-
-    with pytest.raises(KeyError):
-        db_prompt_studio.discard_prompt_version(vid)
-
-    with _acting_as(db_tx, OTHER):
-        assert (
-            db_tx.execute(
-                text("SELECT status FROM prompt_versions WHERE id = :i"), {"i": vid}
-            ).scalar()
-            == "draft"
-        )
-
-
 # ---------------------------------------------------------------------------
 # GRAPH-5 -- G5's allowlist of legal handoff targets
 # ---------------------------------------------------------------------------
-
-
-def test_a_handoff_to_another_tenants_bot_does_not_pass_g5(db_tx) -> None:
-    """Through the gate, not through the helper.
-
-    ``list_bot_ids`` read every row in ``bots``, so a card could name another
-    tenant's bot as a handoff target and G5 -- the gate whose whole job is to
-    refuse a target that does not exist -- reported it as a known bot. Asserting
-    on ``list_bot_ids`` alone would pass even if the gate stopped consulting it,
-    which is the mistake GUARDRAILS-1 was green on for months.
-    """
-    import db_prompt_studio
-
-    _other_tenant(db_tx)
-    with _acting_as(db_tx, OTHER):
-        db_tx.execute(
-            text(
-                "INSERT INTO bots (id, tenant_id, name, version) "
-                "VALUES ('rival-bot-1', :t, 'Rival Bot', 'v1')"
-            ),
-            {"t": OTHER},
-        )
-
-    assert "rival-bot-1" not in db.list_bot_ids()
-
-    from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-
-    card = card_dump(COLLECTIONS_BOT_ID)
-    card["handoffs"] = [
-        {"to_bot_id": "rival-bot-1", "when": "the caller mentions a rival"}
-    ]
-
-    report = db_prompt_studio.compile_agent_studio_card(
-        COLLECTIONS_BOT_ID, card_raw=card
-    )
-    g5 = next(g for g in report["gates"] if g["gate"] == "G5")
-    assert g5["status"] == "fail", g5
 
 
 # ---------------------------------------------------------------------------

@@ -445,29 +445,6 @@ async def lifespan(_app: FastAPI):
             await asyncio.to_thread(usage_meter.sync_price_book)
         except Exception:
             logger.warning("usage_meter.sync_price_book failed", exc_info=True)
-        try:
-            from tts_catalog_sync import ensure_catalog_seeded
-
-            await asyncio.to_thread(ensure_catalog_seeded, db.engine)
-        except Exception:
-            logger.warning("tts catalog boot seed failed", exc_info=True)
-        try:
-            from agent_core.skills.persist import ensure_first_party_skills
-
-            await asyncio.to_thread(ensure_first_party_skills)
-        except Exception:
-            logger.warning("skill catalog boot seed failed", exc_info=True)
-        try:
-            # The capability matrix lives in agent_core/providers/registry.py and
-            # reaches the database only through this upsert. Without it, the sole
-            # writer was migration 0092's static INSERT, so every later edit —
-            # a new model, a corrected service_class, a params_schema entry —
-            # needed its own migration or silently never shipped.
-            from agent_core.providers.persist import sync_seed as sync_provider_seed
-
-            await asyncio.to_thread(sync_provider_seed)
-        except Exception:
-            logger.warning("provider registry boot seed failed", exc_info=True)
         yield
     finally:
         # Drain buffered usage before the engine goes away, otherwise the last
@@ -1278,13 +1255,13 @@ register_error_handlers(app)
 # exception handler and lifespan hook above is wired before a route exists.
 # ---------------------------------------------------------------------------
 from api_support import _handle_write, _read_upload_capped, _MAX_UPLOAD_BYTES  # noqa: E402,F401  (tests and middleware reach them here)
-from routers import agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks  # noqa: E402
+from routers import agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks  # noqa: E402
 
 # Appended flat rather than `include_router`: FastAPI 0.139 nests an included
 # router as one `_IncludedRouter` entry, and everything that walks `app.routes`
 # -- the authz coverage check, the response-model test, the voice websocket
 # test -- expects one APIRoute per route. Each router carries the app's
 # response class itself, so nothing is lost by not going through include.
-for _router_module in (agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, routing, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks):
+for _router_module in (agentstudio_gateway, billing, compliance, crm, evals, floor, inbox, integrations, outbound, payments, platform, roles, telephony, voice_studio_admin, voice_studio_hooks, voice_studio_mcp, webhooks):
     for _route in _router_module.router.routes:
         app.router.routes.append(_route)

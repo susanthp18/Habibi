@@ -33,6 +33,7 @@ from db_core import (
     DB_POOL_RECYCLE as DB_POOL_RECYCLE,
     DB_POOL_SIZE as DB_POOL_SIZE,
     DB_STATEMENT_TIMEOUT_MS as DB_STATEMENT_TIMEOUT_MS,
+    DEFAULT_BOT_ID as DEFAULT_BOT_ID,
     DEFAULT_DATABASE_URL as DEFAULT_DATABASE_URL,
     DEFAULT_LIST_LIMIT as DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT as MAX_LIST_LIMIT,
@@ -919,17 +920,6 @@ from db_whatsapp import (  # noqa: E402
     touch_interaction_sentiment as touch_interaction_sentiment,
 )
 
-from db_evals import (  # noqa: E402
-    TENANT_WIDE_REPORTS as TENANT_WIDE_REPORTS,
-    _latest_twin_gate_report as _latest_twin_gate_report,
-    get_eval_report as get_eval_report,
-    get_latest_eval_report as get_latest_eval_report,
-    list_eval_reports as list_eval_reports,
-    list_eval_suites as list_eval_suites,
-    save_eval_report as save_eval_report,
-)
-
-
 from db_billing import (  # noqa: E402
     _BILLING_ENVS as _BILLING_ENVS,
     _billing_as_of as _billing_as_of,
@@ -978,19 +968,7 @@ from db_bot_analytics import (  # noqa: E402
 )
 
 from db_routing import (  # noqa: E402
-    _routing_action_key as _routing_action_key,
-    _routing_category as _routing_category,
-    _routing_eval_condition as _routing_eval_condition,
-    create_routing_rule as create_routing_rule,
-    delete_routing_rule as delete_routing_rule,
     escalate_voice_interaction as escalate_voice_interaction,
-    get_routing_rule as get_routing_rule,
-    list_routing_audit as list_routing_audit,
-    list_routing_rule_executions as list_routing_rule_executions,
-    list_routing_rules as list_routing_rules,
-    patch_routing_rule as patch_routing_rule,
-    reorder_routing_rules as reorder_routing_rules,
-    simulate_routing_rules as simulate_routing_rules,
 )
 
 from db_redaction import (  # noqa: E402
@@ -1010,51 +988,6 @@ from db_redaction import (  # noqa: E402
     patch_redaction_rule as patch_redaction_rule,
 )
 
-
-from db_prompt_studio import (  # noqa: E402
-    DEFAULT_BOT_ID as DEFAULT_BOT_ID,
-    _DEFAULT_GUARDRAILS as _DEFAULT_GUARDRAILS,
-    _DEFAULT_PERSONA as _DEFAULT_PERSONA,
-    _DEFAULT_VOICE as _DEFAULT_VOICE,
-    _handoff_edges as _handoff_edges,
-    _map_prompt_version as _map_prompt_version,
-    _prompt_voice as _prompt_voice,
-    agent_change_log as agent_change_log,
-    archive_agent_studio_card as archive_agent_studio_card,
-    compile_agent_studio_card as compile_agent_studio_card,
-    create_prompt_version as create_prompt_version,
-    discard_prompt_version as discard_prompt_version,
-    get_active_deployment as get_active_deployment,
-    get_agent_studio_card as get_agent_studio_card,
-    get_deployment as get_deployment,
-    get_effective_contract as get_effective_contract,
-    get_prompt_version as get_prompt_version,
-    get_published_prompt_version as get_published_prompt_version,
-    get_tts_voice_catalog_entry as get_tts_voice_catalog_entry,
-    get_tts_voice_warning as get_tts_voice_warning,
-    list_agent_studio_cards as list_agent_studio_cards,
-    list_entry_bindings as list_entry_bindings,
-    policy_engines as policy_engines,
-    remove_entry_binding as remove_entry_binding,
-    set_entry_binding as set_entry_binding,
-    list_bot_deployments as list_bot_deployments,
-    list_persona_presets as list_persona_presets,
-    list_prompt_versions as list_prompt_versions,
-    list_tts_price_tiers as list_tts_price_tiers,
-    list_tts_sync_runs as list_tts_sync_runs,
-    list_tts_voice_catalog as list_tts_voice_catalog,
-    list_tts_voice_locale_counts as list_tts_voice_locale_counts,
-    list_tts_voice_provider_counts as list_tts_voice_provider_counts,
-    list_tts_voices as list_tts_voices,
-    patch_prompt_version as patch_prompt_version,
-    publish_prompt_version as publish_prompt_version,
-    resolve_prompt_azure_voice as resolve_prompt_azure_voice,
-    restore_agent_studio_card as restore_agent_studio_card,
-    restore_prompt_version_as_draft as restore_prompt_version_as_draft,
-    rollback_bot_deployment as rollback_bot_deployment,
-    tts_catalog_is_populated as tts_catalog_is_populated,
-    voice_locale_facts as voice_locale_facts,
-)
 
 from db_coaching import (  # noqa: E402
     create_calibration_session as create_calibration_session,

@@ -8,7 +8,6 @@ a single trigger: a compliance flag that should never have fired.
 
 from __future__ import annotations
 
-import agent_core.turn_critic as tc
 from agent_core.live_qa.checks import TurnFacts, check_hours
 
 
@@ -44,100 +43,13 @@ def test_direction_defaults_to_the_stricter_reading() -> None:
 
 # ------------------------------------------------------- omission vs commission
 
-def test_a_missing_disclosure_is_told_to_say_it_once() -> None:
-    """The directive used to be "do not repeat that wording" for *every* flag.
-    For a missing disclosure that describes a mistake the model did not make,
-    and it resolved the contradiction by saying the missing thing on every
-    subsequent turn — which is exactly what the caller complained about."""
-    c = tc._guardrail_correction(["missing-mini-miranda"])
-    assert c is not None
-    assert "once" in c.directive
-    assert "never repeat it" in c.directive
-    assert "Do not repeat that wording" not in c.directive
-
-
-def test_saying_something_forbidden_still_says_do_not_repeat_it() -> None:
-    c = tc._guardrail_correction(["hours-breach"])
-    assert c is not None
-    assert "Do not repeat that wording" in c.directive
-
-
-def test_a_rule_already_corrected_is_not_raised_again() -> None:
-    """Four identical directives stacked in the context is not four times the
-    compliance, it is an instruction louder than the conversation."""
-    assert tc._guardrail_correction(["missing-mini-miranda"], ["missing-mini-miranda"]) is None
-
-
-def test_a_correction_reports_the_flags_it_addressed() -> None:
-    """So the caller can remember them for the rest of the call."""
-    c = tc._guardrail_correction(["missing-mini-miranda", "hours-breach"])
-    assert c is not None
-    assert set(c.flags) == {"missing-mini-miranda", "hours-breach"}
-
 
 # ------------------------------------------------------------ budget starvation
 
-def test_no_single_kind_can_spend_the_whole_call_budget() -> None:
-    """All four corrections went to guardrail flags in the first 71 seconds of a
-    312-second call. The repetition that followed — the "kept saying thanks" —
-    was precisely what the budget existed to catch, and it had nothing left."""
-    assert tc.MAX_CORRECTIONS_PER_KIND
-    for kind, cap in tc.MAX_CORRECTIONS_PER_KIND.items():
-        assert 0 < cap < tc.MAX_CORRECTIONS_PER_CALL, kind
-
-
-def test_every_kind_has_a_reserved_share() -> None:
-    assert set(tc.MAX_CORRECTIONS_PER_KIND) == {
-        tc.KIND_GUARDRAIL,
-        tc.KIND_REPETITION,
-        tc.KIND_LANGUAGE,
-        tc.KIND_UNANSWERED,
-    }
-
 
 # --------------------------------------------------------------- the trap node
-
-def test_gated_upsell_can_be_left() -> None:
-    """The caller asked about travel insurance while parked here. The node's only
-    script was the offer ladder, so the bot qualified a lead nobody asked for for
-    three and a half minutes and never reached a closing node."""
-    from agent_core.cards.clone import _disk_flow
-    from agent_core.cards.defaults import COLLECTIONS_BOT_ID
-
-    node = next(
-        n for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"] if n["key"] == "gated_upsell"
-    )
-    assert "return_to_position" in node["data"]["tools"]
-    assert "begin_wrap_up" in node["data"]["tools"]
-
-
-def test_gated_upsell_answers_questions_instead_of_qualifying_them() -> None:
-    from agent_core.cards.clone import _disk_flow
-    from agent_core.cards.defaults import COLLECTIONS_BOT_ID
-
-    node = next(
-        n for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"] if n["key"] == "gated_upsell"
-    )
-    instructions = node["data"]["instructions"]
-    assert "search_knowledge_base" in instructions
-    assert "not about the offer" in instructions
 
 
 # ------------------------------------------------------- whose silence is it
 
 
-def test_a_session_limit_is_not_a_rule_the_bot_broke() -> None:
-    """``max-turns``, ``max-seconds``, ``auto-escalate`` and the caller's own
-    ``politics-religion`` describe the session or the caller, not the reply.
-    Passed through, the critic told the model "your last reply broke a
-    compliance rule (max-turns) -- do not repeat that wording", which it can
-    act on only by apologising for nothing. The list is the producer's
-    (``agent_core.guardrails.NON_BOT_FLAGS``); persist.py and the critic read
-    it."""
-    from agent_core.guardrails import NON_BOT_FLAGS
-
-    assert tc._guardrail_correction(sorted(NON_BOT_FLAGS)) is None
-    mixed = tc._guardrail_correction(["max-turns", "hours-breach"])
-    assert mixed is not None
-    assert "hours-breach" in mixed.directive
-    assert "max-turns" not in mixed.directive

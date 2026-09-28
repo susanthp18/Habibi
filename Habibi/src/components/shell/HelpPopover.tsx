@@ -41,7 +41,6 @@ const SECTIONS: {
       { label: "Knowledge base", to: "/studio/files" },
       { label: "Guardrails", to: "/studio/guardrails" },
       { label: "Checks", to: "/studio/checks" },
-      { label: "Integrations", to: "/integrations" },
     ],
   },
 ];

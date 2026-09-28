@@ -32,6 +32,7 @@ from schemas import (
     PaymentEventWebhookResponse,
     PaymentWebhookResponse,
     WebhookDeliveryResponse,
+    WebhookConfirmRequest,
     WebhookEndpointPatchRequest,
     WebhookEndpointResponse,
     WebhookEndpointUpsertRequest,
@@ -175,6 +176,26 @@ def test_webhook_endpoint(endpoint_id: str, event: str | None = Query(default=No
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+
+@router.post("/webhook-endpoints/{endpoint_id}/probe", response_model=WebhookDeliveryResponse)
+def probe_webhook_endpoint(endpoint_id: str):
+    try:
+        return db_webhooks.send_webhook_probe(endpoint_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/webhook-endpoints/{endpoint_id}/confirm-subscriptions", response_model=WebhookEndpointResponse)
+def confirm_webhook_subscriptions(endpoint_id: str, payload: WebhookConfirmRequest):
+    try:
+        return db_webhooks.confirm_webhook_subscriptions(endpoint_id, payload.configurationVersion)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
 @router.get("/webhook-deliveries", response_model=list[WebhookDeliveryResponse])
 def list_webhook_deliveries(endpointId: str | None = Query(default=None)):
     return db_webhooks.list_webhook_deliveries(endpointId)
@@ -185,6 +206,8 @@ def retry_webhook_delivery(delivery_id: str):
         return db_webhooks.retry_webhook_delivery(delivery_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 # text/plain by design: Meta expects hub.challenge echoed back verbatim. Listed
 # in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
@@ -228,4 +251,3 @@ async def whatsapp_webhook_receive(
         raise HTTPException(status_code=400, detail="invalid_json") from exc
     # Sync DB + enqueue off the event loop (this route is async def).
     return await asyncio.to_thread(db.process_whatsapp_webhook, payload)
-

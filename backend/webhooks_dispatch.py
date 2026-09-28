@@ -59,6 +59,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import time
 import uuid
@@ -78,6 +79,23 @@ logger = logging.getLogger(__name__)
 #: Response bodies are evidence, not storage. Enough to read the upstream's
 #: complaint, not enough for a chatty 500 page to bloat the delivery log.
 MAX_RESPONSE_BODY = 2000
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,80}$")
+_RESERVED_HEADERS = frozenset({
+    "host", "content-type", "content-length", "authorization", "cookie",
+    "proxy-authorization", "connection", "transfer-encoding", "x-api-key",
+    "api-key", "x-auth-token", "x-access-token", "set-cookie",
+})
+
+
+def valid_custom_header(key: str, value: str) -> bool:
+    name = key.strip()
+    return bool(
+        _HEADER_NAME.fullmatch(name)
+        and name.lower() not in _RESERVED_HEADERS
+        and not name.lower().startswith("x-bigbound-")
+        and not any(ch in value for ch in "\r\n\x00")
+        and len(value) <= 1024
+    )
 
 SIGNATURE_HEADER = "X-BigBound-Signature"
 TIMESTAMP_HEADER = "X-BigBound-Timestamp"
@@ -90,7 +108,7 @@ STALE_CLAIM_SECONDS = 300
 
 def timeout_seconds() -> float:
     try:
-        return max(1.0, float((os.getenv("WEBHOOK_DELIVERY_TIMEOUT_SEC") or "10").strip()))
+        return min(30.0, max(1.0, float((os.getenv("WEBHOOK_DELIVERY_TIMEOUT_SEC") or "10").strip())))
     except ValueError:
         return 10.0
 
@@ -216,13 +234,19 @@ def _post(
     import httpx
 
     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
-        response = client.post(
+        with client.stream(
+            "POST",
             url,
             headers=headers,
             content=body.encode("utf-8"),
             extensions={"sni_hostname": sni} if sni else None,
-        )
-        return response.status_code, response.text
+        ) as response:
+            chunks = bytearray()
+            for chunk in response.iter_raw(chunk_size=2048):
+                chunks.extend(chunk[: MAX_RESPONSE_BODY + 1 - len(chunks)])
+                if len(chunks) > MAX_RESPONSE_BODY:
+                    break
+            return response.status_code, chunks[:MAX_RESPONSE_BODY].decode("utf-8", errors="replace")
 
 
 # --- enqueue ---------------------------------------------------------------
@@ -245,6 +269,7 @@ def _endpoints_for(conn: Connection, event_key: str, tenant_id: str) -> list[dic
                 JOIN event_types et ON et.id = ws.event_type_id
                 WHERE e.tenant_id = :tenant
                   AND e.status = 'active'
+                  AND e.subscriptions_confirmed_at IS NOT NULL
                   AND et.name = :event
                 ORDER BY e.id
                 """
@@ -285,6 +310,7 @@ def dispatch(
             if not endpoints:
                 return []
             body = {
+                "schemaVersion": 1,
                 "event": event_key,
                 "tenant": tenant,
                 "at": utc_now().isoformat(),
@@ -347,19 +373,35 @@ def reclaim_stuck(conn: Connection) -> int:
 
 def claim_next(conn: Connection) -> dict[str, Any] | None:
     """Take one due delivery, oldest first, with everything the POST needs."""
+    conn.execute(text("""
+        UPDATE webhook_deliveries d
+        SET status = 'client_err', response_body = 'event_age_expired',
+            next_retry_at = NULL, updated_at = now()
+        FROM webhook_endpoints e
+        LEFT JOIN webhook_retry_policies rp ON rp.endpoint_id = e.id
+        WHERE d.endpoint_id = e.id AND d.status = 'pending'
+          AND d.locked_at IS NULL
+          AND d.created_at + make_interval(secs => COALESCE(rp.max_event_age_sec, 86400)) <= now()
+    """))
     row = (
         conn.execute(
             text(
                 """
-                SELECT d.id, d.endpoint_id, d.payload, d.attempt_number,
-                       e.url, e.secret_hash, e.status AS endpoint_status,
+                SELECT d.id, d.endpoint_id, d.payload, d.attempt_number, d.created_at,
+                       e.url, e.secret_hash, e.signing_algorithm,
+                       e.configuration_version,
+                       e.status AS endpoint_status,
                        et.name AS event_name,
-                       COALESCE(rp.max_attempts, 3) AS max_attempts
+                       COALESCE(rp.max_attempts, 3) AS max_attempts,
+                       COALESCE(rp.backoff_strategy, 'exponential') AS backoff_strategy,
+                       COALESCE(rp.max_event_age_sec, 86400) AS max_event_age_sec
                 FROM webhook_deliveries d
                 JOIN webhook_endpoints e ON e.id = d.endpoint_id
                 LEFT JOIN event_types et ON et.id = d.event_type_id
                 LEFT JOIN webhook_retry_policies rp ON rp.endpoint_id = d.endpoint_id
                 WHERE d.status = 'pending'
+                  AND e.status = 'active'
+                  AND (et.name = 'webhook.test' OR e.subscriptions_confirmed_at IS NOT NULL)
                   AND d.locked_at IS NULL
                   AND (d.next_retry_at IS NULL OR d.next_retry_at <= now())
                 ORDER BY d.created_at ASC
@@ -374,6 +416,14 @@ def claim_next(conn: Connection) -> dict[str, Any] | None:
     if row is None:
         return None
     job = dict(row)
+    job["custom_headers"] = [
+        {"key": h[0], "value": h[1]}
+        for h in conn.execute(text("""
+            SELECT header_key, header_value FROM webhook_endpoint_headers
+            WHERE endpoint_id = :id ORDER BY header_key
+        """), {"id": job["endpoint_id"]})
+        if valid_custom_header(str(h[0]), str(h[1]))
+    ]
     worker = _worker_id()
     conn.execute(
         text(
@@ -406,7 +456,7 @@ def claim_next(conn: Connection) -> dict[str, Any] | None:
 def _classify(http_status: int) -> str:
     if 200 <= http_status < 300:
         return "success"
-    if 400 <= http_status < 500:
+    if 300 <= http_status < 500:
         return "client_err"
     return "server_err"
 
@@ -428,13 +478,20 @@ def settle(
     status = _classify(http_status)
     attempt = int(job.get("attempt_number") or 1)
     cap = max(1, int(job.get("max_attempts") or 3))
-    retryable = status == "server_err" and attempt < cap
+    created_at = job.get("created_at")
+    age_seconds = (utc_now() - created_at).total_seconds() if created_at is not None else 0
+    max_age_seconds = max(1, int(job.get("max_event_age_sec") or 86400))
+    retryable = status == "server_err" and attempt < cap and age_seconds < max_age_seconds
     next_retry = None
     if retryable:
         # Same ladder as whatsapp_outbound: cap the delay, not the exponent.
-        delay = min(120, 2 ** min(attempt, 12))
-        next_retry = utc_now() + timedelta(seconds=delay)
-    conn.execute(
+        strategy = job.get("backoff_strategy") or "exponential"
+        delay = min(120, 2 * attempt if strategy == "linear" else 2 ** min(attempt, 12))
+        if age_seconds + delay < max_age_seconds:
+            next_retry = utc_now() + timedelta(seconds=delay)
+        else:
+            retryable = False
+    settled = conn.execute(
         text(
             """
             UPDATE webhook_deliveries
@@ -446,11 +503,12 @@ def settle(
                 locked_at = NULL,
                 locked_by = NULL,
                 updated_at = now()
-            WHERE id = :id
+            WHERE id = :id AND status = 'pending' AND locked_by = :worker
             """
         ),
         {
             "id": job["id"],
+            "worker": job["locked_by"],
             # A row waiting for its retry is still queue work, so it stays
             # 'pending'. Only a terminal outcome takes an error status.
             "status": "pending" if retryable else status,
@@ -460,6 +518,16 @@ def settle(
             "next_retry": next_retry,
         },
     )
+    if settled.rowcount and status == "success" and job.get("event_name") == "webhook.test":
+        conn.execute(
+            text("""
+                UPDATE webhook_endpoints SET destination_tested_at = now()
+                WHERE id = :id AND url = :url AND secret_hash = :hash
+                  AND configuration_version = :version
+            """),
+            {"id": job["endpoint_id"], "url": job["url"],
+             "hash": job["secret_hash"], "version": job["configuration_version"]},
+        )
     return "pending" if retryable else status
 
 
@@ -476,10 +544,10 @@ def park(conn: Connection, job: dict[str, Any], *, seconds: float) -> None:
                 locked_at = NULL,
                 locked_by = NULL,
                 updated_at = now()
-            WHERE id = :id
+            WHERE id = :id AND status = 'pending' AND locked_by = :worker
             """
         ),
-        {"id": job["id"], "secs": float(seconds)},
+        {"id": job["id"], "secs": float(seconds), "worker": job["locked_by"]},
     )
 
 
@@ -490,6 +558,10 @@ class _ReceiverDown(Exception):
         super().__init__(f"receiver returned {http_status}")
         self.http_status = http_status
         self.body = body
+
+
+class _ProbeConfigurationChanged(Exception):
+    """A queued probe belongs to an older reviewed endpoint configuration."""
 
 
 def _post_or_raise(url: str, **kwargs: Any) -> tuple[int, str]:
@@ -533,17 +605,26 @@ def process_one(engine: Engine) -> bool:
     body = ""
     breaker = _endpoint_breaker(str(job.get("endpoint_id") or ""))
     try:
+        if job.get("event_name") == "webhook.test":
+            probe_version = (job.get("payload") or {}).get("data", {}).get("configurationVersion")
+            if probe_version != job.get("configuration_version"):
+                http_status, body = 409, "probe_configuration_changed"
+                raise _ProbeConfigurationChanged
         secret_hash = (job.get("secret_hash") or "").strip()
         if not secret_hash:
             # Unsigned delivery is not a degraded mode, it is a different
             # security posture. Fail loudly; rotating the secret fixes it.
             raise ValueError("secret_unavailable: rotate the endpoint secret to enable signing")
+        if str(job.get("signing_algorithm") or "").lower() != "hmac-sha256":
+            raise ValueError("unsupported_signing_algorithm")
         pinned = pin(job["url"])
         raw = json.dumps(job["payload"], separators=(",", ":"), sort_keys=True)
         timestamp = str(int(time.time()))
         headers = {
             **pinned.headers,
+            **{h["key"]: h["value"] for h in job["custom_headers"]},
             "Content-Type": "application/json",
+            "Accept-Encoding": "identity",
             EVENT_HEADER: str(job.get("event_name") or ""),
             DELIVERY_HEADER: str(job["id"]),
             TIMESTAMP_HEADER: timestamp,
@@ -569,6 +650,8 @@ def process_one(engine: Engine) -> bool:
         except Exception:
             logger.exception("webhook park failed delivery=%s", job["id"])
         return True
+    except _ProbeConfigurationChanged:
+        pass
     except Exception as exc:
         # No response means no HTTP status. 0 classifies as server_err, which is
         # right: a connection that never completed is worth another attempt, and

@@ -86,18 +86,6 @@ def test_the_rendered_guardrail_says_once_not_always() -> None:
 # --- 24 seconds of dead air -------------------------------------------------
 
 
-def test_the_builtin_graph_keeps_its_bridge_lines() -> None:
-    """The export used to drop pre_actions, so a reload produced a silent step
-    -- a live call sat mute for 24 seconds on negotiate_ptp. The graph is data
-    now; the bridge lines it carries are the ones the runtime speaks."""
-    from agent_core.cards.clone import _disk_flow
-    from agent_core.cards.defaults import COLLECTIONS_BOT_ID
-
-    by_key = {n["key"]: n["data"] for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"]}
-    assert by_key["negotiate_ptp"]["entryLine"]
-    assert not by_key["negotiate_ptp"]["respondImmediately"]
-
-
 # --- the KB judge that never ran -------------------------------------------
 
 

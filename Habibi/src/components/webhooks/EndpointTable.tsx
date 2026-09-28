@@ -30,7 +30,11 @@ import {
 } from "@/components/records/RecordsTable";
 import { RecordsTag } from "@/components/records/RecordsTag";
 
-function StatusBadge({ status }: { status: Endpoint["status"] }) {
+function StatusBadge({ endpoint }: { endpoint: Endpoint }) {
+  const { status } = endpoint;
+  if (status === "active" && !endpoint.subscriptionsConfirmed) {
+    return <Lozenge tone="warning">Needs review</Lozenge>;
+  }
   const map = { active: "success", paused: "neutral", broken: "danger" } as const;
   return (
     <Lozenge tone={map[status] ?? "neutral"} className="capitalize">
@@ -156,7 +160,7 @@ export function EndpointTable({
         header: "Status",
         sortable: true,
         sortValue: (ep) => (ep.status === "broken" ? 3 : ep.status === "paused" ? 2 : 1),
-        cell: (ep) => <StatusBadge status={ep.status} />,
+        cell: (ep) => <StatusBadge endpoint={ep} />,
         footer: (visible) => {
           const broken = visible.filter((e) => e.status === "broken").length;
           return <span className="text-text-subtlest">{broken} broken</span>;
@@ -214,7 +218,7 @@ export function EndpointTable({
                     <Pencil className="mr-100 h-3.5 w-3.5" /> Edit
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onTestFire(ep)}>
-                    <Zap className="mr-100 h-3.5 w-3.5" /> Test fire
+                    <Zap className="mr-100 h-3.5 w-3.5" /> Simulate event
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => onTogglePause(ep)}>
                     {isPaused ? (

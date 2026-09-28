@@ -6,6 +6,7 @@
 import "@/test/jsdom";
 
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { mountAt } from "@/test/mount";
@@ -111,5 +112,43 @@ describe("Voice Studio agent routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Validate selection" }));
     await screen.findByText("Ready to activate");
     expect(screen.getByRole("button", { name: "Activate routing" })).toBeDisabled();
+  });
+
+  it("opens the channel picker from the keyboard", async () => {
+    const user = userEvent.setup();
+    mountAt("/", <RoutingPage />);
+    const channel = await screen.findByRole("combobox", { name: "Channel" });
+    channel.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("option", { name: "WhatsApp" })).toBeInTheDocument();
+  });
+
+  it("opens the published-agent picker from the keyboard", async () => {
+    const user = userEvent.setup();
+    mountAt("/", <RoutingPage />);
+    const agent = await screen.findByRole("combobox", { name: "Published agent" });
+    agent.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("option", { name: "WhatsApp - customer help" }),
+    ).toBeInTheDocument();
+  });
+
+  it("validates the selected agent from the keyboard", async () => {
+    const user = userEvent.setup();
+    check.mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      name: "Biggie",
+      version: 1,
+      definitionId: 21,
+    });
+    await chooseWhatsAppAgent();
+    await user.keyboard("{Escape}");
+    const validate = screen.getByRole("button", { name: "Validate selection" });
+    validate.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(check).toHaveBeenCalledWith({ channel: "whatsapp", workflowId: 9 }));
   });
 });

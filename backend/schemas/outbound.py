@@ -11,11 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
-
 from schemas.common import (
     TreatmentSnapshotResponse,
 )
@@ -393,31 +388,6 @@ class OutboundCardVocabularyResponse(BaseModel):
     authorityProfiles: list[OutboundAuthorityProfileResponse]
     numberPools: list[OutboundEnabledPoolResponse]
     dailyCap: int
-
-
-class MissionObjectiveResponse(BaseModel):
-    """One declared objective on the card, beside what the graph claims."""
-
-    key: str
-    entryNode: str
-    graphEntryNode: str | None = None
-    agrees: bool
-    maxDurationSec: int
-    allowedOffers: list[str]
-    authorityProfile: str | None = None
-    cadence: str
-    success: list[str]
-    brief: str
-
-
-class MissionsResponse(BaseModel):
-    botId: str
-    direction: str
-    poolKind: str
-    numberPool: str | None = None
-    objectives: list[MissionObjectiveResponse]
-    graphEntries: dict[str, str]
-    available: list[str]
 
 
 class DecisionFeedbackResponse(BaseModel):

@@ -1461,6 +1461,8 @@ export const SupervisorActionResponse = z.object({
   "action": z.string(),
   "interactionId": z.string(),
   "audioJoined": z.boolean(),
+  "engineRunId": z.string().nullable().optional(),
+  "reason": z.string().nullable().optional(),
 }).passthrough();
 export const FloorAlertAckResponse = z.object({
   "id": z.string(),
@@ -3043,9 +3045,9 @@ export const RolePermissionResponse = z.object({
   "module": z.string(),
   "action": z.string(),
   "description": z.string(),
+  "studioActions": z.array(z.string()).optional(),
 }).passthrough();
 export const RoleGrantResponse = z.object({
-  "studioActions": z.array(z.string()).optional(),
   "role_id": z.string(),
   "role": z.string(),
   "permission_id": z.string(),
@@ -3060,60 +3062,6 @@ export const RolesCatalogResponse = z.object({
   "agentPublishRoles": z.array(z.string()),
   "grants": z.array(RoleGrantResponse),
   "roles": z.array(RoleResponse),
-}).passthrough();
-export const RoutingActionResponse = z.object({
-  "key": z.enum(["route_tier2", "route_specialist", "handoff_human", "play_disclosure", "send_sms", "log_flag", "stop_upsell", "slow_tts", "escalate_supervisor"]),
-  "params": z.record(z.string(), z.string()).nullable().optional(),
-}).passthrough();
-export const RoutingRuleListResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "description": z.string(),
-  "category": z.enum(["Escalation", "Handoff", "Throttle", "Compliance", "Routing"]),
-  "enabled": z.boolean(),
-  "priority": z.number(),
-  "when": z.array(z.unknown()),
-  "then": RoutingActionResponse,
-  "executionCount": z.number(),
-  "lastFiredAt": z.string().nullable(),
-  "triggersLast24h": z.number(),
-}).passthrough();
-export const RoutingRuleExecutionResponse = z.object({
-  "id": z.string(),
-  "ruleId": z.string(),
-  "interactionId": z.string().nullable(),
-  "result": z.string().nullable(),
-  "actionTaken": z.string().nullable(),
-  "evaluatedAt": z.string(),
-  "context": z.record(z.string(), z.unknown()),
-}).passthrough();
-export const RoutingSimulateConditionResponse = z.object({
-  "id": z.string(),
-  "matched": z.boolean(),
-}).passthrough();
-export const RoutingSimulateNodeResponse = z.object({
-  "nodeId": z.string(),
-  "isOr": z.boolean(),
-  "matched": z.boolean(),
-  "conditions": z.array(RoutingSimulateConditionResponse),
-}).passthrough();
-export const RoutingSimulateRuleResponse = z.object({
-  "ruleId": z.string(),
-  "matched": z.boolean(),
-  "nodes": z.array(RoutingSimulateNodeResponse),
-}).passthrough();
-export const RoutingSimulateResponse = z.object({
-  "results": z.array(RoutingSimulateRuleResponse),
-  "firingRuleId": z.string().nullable().optional(),
-}).passthrough();
-export const RoutingAuditEntryResponse = z.object({
-  "id": z.string(),
-  "at": z.string(),
-  "author": z.string(),
-  "ruleId": z.string().nullable().optional(),
-  "ruleName": z.string(),
-  "action": z.enum(["created", "edited", "reordered", "toggled", "deleted", "duplicated"]),
-  "summary": z.string(),
 }).passthrough();
 export const TwilioOutboundCallResponse = z.object({
   "placed": z.boolean().nullable().optional(),
@@ -3148,14 +3096,17 @@ export const PaymentEventWebhookResponse = z.object({
   "suppressionReason": z.string().nullable().optional(),
 }).passthrough();
 export const EventTypeSampleResponse = z.object({
+  "schemaVersion": z.number(),
   "event": z.string(),
   "tenant": z.string(),
   "at": z.string(),
+  "data": z.record(z.string(), z.unknown()),
 }).passthrough();
 export const EventTypeResponse = z.object({
   "key": z.string(),
   "category": z.string(),
   "description": z.string(),
+  "supported": z.boolean(),
   "sample": EventTypeSampleResponse,
 }).passthrough();
 export const WebhookRetryPolicyResponse = z.object({
@@ -3173,10 +3124,11 @@ export const WebhookEndpointResponse = z.object({
   "url": z.string(),
   "target": z.string(),
   "status": z.string(),
+  "subscriptionsConfirmed": z.boolean(),
+  "destinationTested": z.boolean(),
+  "configurationVersion": z.number(),
   "events": z.array(z.string()),
   "algo": z.string(),
-  ["GET /billing/invoices/{invoice_id}", BillingInvoiceDetailResponse],
-  ["POST /billing/invoices/{invoice_id}/status", BillingInvoiceDetailResponse],
   "secret": z.string(),
   "secretRef": z.string(),
   "retry": WebhookRetryPolicyResponse,
@@ -3223,6 +3175,8 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /a2a/tasks/{task_id}/signal", A2aTaskResponse],
   ["POST /studio-api/_ws-ticket", z.record(z.string(), z.unknown())],
   ["GET /billing", BillingOverviewResponse],
+  ["GET /billing/invoices/{invoice_id}", BillingInvoiceDetailResponse],
+  ["POST /billing/invoices/{invoice_id}/status", BillingInvoiceDetailResponse],
   ["POST /billing/budgets/{budget_id}/rules", BillingBudgetRuleResponse],
   ["PATCH /billing/budgets/{budget_id}/rules/{rule_id}", BillingBudgetRuleResponse],
   ["GET /export-jobs", z.array(ExportJobResponse)],
@@ -3431,19 +3385,12 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /health", HealthResponse],
   ["GET /ready", ReadinessResponse],
   ["GET /dashboard", DashboardResponse],
-  ["GET /settings/test-numbers", z.record(z.string(), z.unknown())],
-  ["POST /settings/test-numbers", z.record(z.string(), z.unknown())],
-  ["DELETE /settings/test-numbers/{number_id}", z.record(z.string(), z.unknown())],
-  ["GET /voice-studio/test-call", z.record(z.string(), z.unknown())],
-  ["POST /voice-studio/test-call", z.record(z.string(), z.unknown())],
-  ["POST /voice-studio/test-call/preview", z.record(z.string(), z.unknown())],
   ["GET /bot-analytics", BotAnalyticsResponse],
   ["GET /me", MeResponse],
   ["GET /me/presence", PresenceResponse],
   ["PATCH /me/presence", PresenceResponse],
   ["GET /users", DirectoryUsersResponse],
   ["PUT /users/{user_id}/roles", DirectoryUsersResponse],
-  ["POST /voice-studio/hooks/authorize", z.record(z.string(), z.unknown())],
   ["PATCH /users/{user_id}", DirectoryUsersResponse],
   ["GET /invites", OperatorInvitesResponse],
   ["POST /invites", OperatorInviteWriteResponse],
@@ -3457,14 +3404,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["PATCH /platform/switches/{key}", PlatformSwitchFlipResponse],
   ["GET /roles", RolesCatalogResponse],
   ["PATCH /roles/{role_id}/permissions", RoleResponse],
-  ["GET /routing-rules", z.array(RoutingRuleListResponse)],
-  ["POST /routing-rules", RoutingRuleListResponse],
-  ["GET /routing-rules/{rule_id}/executions", z.array(RoutingRuleExecutionResponse)],
-  ["PATCH /routing-rules/{rule_id}", RoutingRuleListResponse],
-  ["DELETE /routing-rules/{rule_id}", OkResponse],
-  ["POST /routing-rules/simulate", RoutingSimulateResponse],
-  ["POST /routing-rules/reorder", z.array(RoutingRuleListResponse)],
-  ["GET /routing-audit", z.array(RoutingAuditEntryResponse)],
   ["GET /calls", z.array(CallResponse)],
   ["GET /calls/{interaction_id}", CallResponse],
   ["POST /twilio/voice/outbound", TwilioOutboundCallResponse],
@@ -3492,11 +3431,19 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["DELETE /voice-studio/mcp-keys/{key_id}", z.record(z.string(), z.string())],
   ["POST /voice-studio/prompt/lint", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/checks/simulate", z.record(z.string(), z.unknown())],
+  ["GET /settings/test-numbers", z.record(z.string(), z.unknown())],
+  ["POST /settings/test-numbers", z.record(z.string(), z.unknown())],
+  ["DELETE /settings/test-numbers/{number_id}", z.record(z.string(), z.unknown())],
+  ["GET /voice-studio/test-call", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/test-call", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/test-call/preview", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/hooks/tools/{name}", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/call-started", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/hooks/precall", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/hooks/transfer", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/hooks/admit", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/hooks/run-completed", z.record(z.string(), z.unknown())],
+  ["POST /voice-studio/hooks/authorize", z.record(z.string(), z.unknown())],
   ["GET /studio-mcp", z.unknown()],
   ["POST /studio-mcp", z.unknown()],
   ["DELETE /studio-mcp", z.unknown()],
@@ -3512,6 +3459,8 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["DELETE /webhook-endpoints/{endpoint_id}", OkResponse],
   ["POST /webhook-endpoints/{endpoint_id}/rotate-secret", WebhookEndpointResponse],
   ["POST /webhook-endpoints/{endpoint_id}/test", WebhookDeliveryResponse],
+  ["POST /webhook-endpoints/{endpoint_id}/probe", WebhookDeliveryResponse],
+  ["POST /webhook-endpoints/{endpoint_id}/confirm-subscriptions", WebhookEndpointResponse],
   ["GET /webhook-deliveries", z.array(WebhookDeliveryResponse)],
   ["POST /webhook-deliveries/{delivery_id}/retry", WebhookDeliveryResponse],
   ["POST /webhook/whatsapp", WhatsAppWebhookResponse],

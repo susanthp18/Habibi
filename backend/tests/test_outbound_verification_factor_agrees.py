@@ -12,29 +12,8 @@ ceremonies back to back; the call before it asked for a first name.
 from __future__ import annotations
 
 import mission
-from agent_core.cards.clone import _disk_flow
-from agent_core.cards.defaults import COLLECTIONS_BOT_ID
-from voice.node_contracts import NODE_DIRECTIVES
 
 _BRIEF = {"firstName": "Susanth", "brief": "Their account is overdue.", "allowedOffers": []}
-
-
-def _node_prompt() -> str:
-    node = next(n for n in _disk_flow(COLLECTIONS_BOT_ID)["nodes"] if n["key"] == "confirm_identity")
-    return node["data"]["instructions"]
-
-
-def test_every_owner_names_the_last_four_digits() -> None:
-    for text in (_node_prompt(), NODE_DIRECTIVES["confirm_identity"], mission.briefing(_BRIEF)):
-        assert "last four digits" in text
-
-
-def test_no_owner_treats_a_spoken_confirmation_as_verification() -> None:
-    for text in (NODE_DIRECTIVES["confirm_identity"], mission.briefing(_BRIEF)):
-        low = text.lower()
-        assert "confirmation question" not in low
-        assert "open by confirming you are speaking to" not in low
-        assert "not verification" in low
 
 
 def test_the_briefing_still_asks_for_the_borrower_by_name() -> None:

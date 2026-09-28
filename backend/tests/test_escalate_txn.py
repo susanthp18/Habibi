@@ -48,18 +48,6 @@ def test_escalate_voice_interaction_one_txn(db_tx) -> None:
         bot_id=db.DEFAULT_BOT_ID,
         customer_id=str(cust),
         note_text="[escalation] wants supervisor",
-        route_context={
-            "channel": "voice",
-            "intent": "customer_requested",
-            "sentiment": "frustrated",
-            "dpd": 45,
-            "product": "PL",
-            "verification_status": "verified",
-            "overdue_amount": 1000,
-            "turn_count": 3,
-            "guardrail_flag": "none",
-            "consent_dnd": False,
-        },
     )
     assert result.get("conversationId")
     assert result.get("handoffId")
@@ -113,7 +101,6 @@ def test_a_failed_alert_write_leaves_no_handoff_behind(db_tx) -> None:
                 bot_id=db.DEFAULT_BOT_ID,
                 customer_id=str(cust),
                 note_text="[escalation] wants supervisor",
-                route_context={"channel": "voice", "intent": "customer_requested"},
             )
     finally:
         event.remove(db_core.engine, "before_cursor_execute", _fail_the_alert)

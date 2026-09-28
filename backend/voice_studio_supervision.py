@@ -50,7 +50,7 @@ def live_runs(conn: Any, interaction_ids: list[str]) -> dict[str, str]:
 def whisper(interaction_id: str, note: str) -> bool | None:
     """Put the note in front of the agent on a live Voice Studio call.
     True: delivered; False: it is a Voice Studio call but the engine refused;
-    None: not a live Voice Studio call (the caller handles it as before)."""
+    None: there is no live call to whisper into."""
     import db
     import voice_studio
 

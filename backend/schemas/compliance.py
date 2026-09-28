@@ -11,10 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 
 class ConsentChannelPatch(BaseModel):
     """Per-channel write. Screen sends `status`; Customer 360 may send `optedIn`."""
@@ -668,18 +664,9 @@ class PolicyExportWindowResponse(BaseModel):
     endHour: int
 
 
-class PolicyExportCardResponse(BaseModel):
-    botId: str
-    versionId: str
-    humanGates: list[dict[str, Any]]
-    guardrails: dict[str, Any]
-
-
 class PolicyExportBundleFactsResponse(PolicyExportFactsResponse):
     dnd: PolicyExportDndRulesResponse
     callingWindows: dict[str, PolicyExportWindowResponse]
-    #: None when the bot has no published version — absent, not an empty card.
-    card: PolicyExportCardResponse | None
 
 
 class PolicyExportBundleResponse(PolicyExportResponse):

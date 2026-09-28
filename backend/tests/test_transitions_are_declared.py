@@ -16,7 +16,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import flow_graph
 
 _VOICE = Path(__file__).resolve().parents[1] / "voice"
 #: The tool set is one module per section now (voice/tools.py plus
@@ -121,31 +120,6 @@ def _handler_hops() -> dict[str, set[str]]:
                 if hops:
                     out[key.value] = hops
     return out
-
-
-def test_every_handler_hop_is_declared_and_every_declaration_is_a_hop() -> None:
-    handlers = _handler_hops()
-    declared = {tool: set(targets) for tool, targets in flow_graph.TRANSITIONS.items()}
-
-    undeclared = {
-        tool: sorted(hops - declared.get(tool, set()))
-        for tool, hops in handlers.items()
-        if hops - declared.get(tool, set())
-    }
-    assert not undeclared, (
-        "handlers move somewhere flow_graph.TRANSITIONS does not say -- add it "
-        f"there, or the canvas and the text walker will not know: {undeclared}"
-    )
-
-    phantom = {
-        tool: sorted(targets - handlers.get(tool, set()))
-        for tool, targets in declared.items()
-        if targets - handlers.get(tool, set())
-    }
-    assert not phantom, (
-        "flow_graph.TRANSITIONS declares a hop no handler makes -- the canvas "
-        f"would draw an edge the runtime never takes: {phantom}"
-    )
 
 
 def test_the_reader_still_reads() -> None:

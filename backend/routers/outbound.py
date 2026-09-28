@@ -49,7 +49,6 @@ from schemas import (
     CampaignTargetsRequest,
     DecisionFeedbackRequest,
     DecisionFeedbackResponse,
-    MissionsResponse,
     NonpaymentReasonResponse,
     NumberPoolResponse,
     OfferHealthResponse,
@@ -508,9 +507,9 @@ def create_campaign_run(body: CampaignRunCreateRequest):
     objective = str(payload.get("objective") or "").strip()
     if not name or not objective:
         raise HTTPException(status_code=400, detail="name_and_objective_required")
-    import flow_graph as fg
+    import outbound_policy
 
-    if objective not in fg.OBJECTIVES:
+    if objective not in outbound_policy.OBJECTIVES:
         raise HTTPException(status_code=400, detail="unknown_objective")
 
     try:
@@ -640,52 +639,42 @@ def list_agent_obligations(
 
 @router.get("/outbound/card-vocabulary", response_model=OutboundCardVocabularyResponse)
 def outbound_card_vocabulary():
-    """Every closed vocabulary the Outbound card editor has to offer.
+    """Every closed vocabulary the outbound policy may use.
 
-    One endpoint rather than a constant per list in the frontend, and derived
-    from the definitions the runtime and the compiler actually use rather than
-    restated. That is not tidiness: ``card.outbound`` is validated by Pydantic
-    models with ``extra="forbid"`` and gated by G-OB1..8, so an option the
-    editor offers that the backend does not know is not a cosmetic mismatch —
-    it builds a card that cannot be published, and the author finds out at the
-    publish button with a validation error naming a field they picked from a
-    dropdown.
-
-    ``dailyCap`` is here for the same reason. G-OB3 fails a cadence planning
-    more contacts per day than ``contact_policy`` permits; the editor can say so
-    while the number is being typed instead of at compile time.
+    Derived from the definitions the dialler and the Closer actually use rather
+    than restated, so an editor never offers an option the policy validator
+    rejects. ``dailyCap`` is here for the same reason: a cadence planning more
+    contacts per day than ``contact_policy`` permits is vetoed on every dial.
     """
     from typing import get_args
 
+    import call_closer
     import contact_policy
-    import flow_graph as fg
     import mission as mission_mod
     import outbound as outbound_mod
+    import outbound_policy
+    import post_call_actions
     from agent_core.authority import config as authority_config
-    from agent_core.cards import compile as compile_mod
-    from agent_core.cards import schema as card_schema
 
     pools: list[dict[str, Any]] = []
     try:
         pools = db_outbound.enabled_number_pools(tenant_id=db.current_tenant())
     except Exception:
-        # A tenant with no pools table yet still gets a usable editor; the pool
-        # name is free text on the card and G-OB4 keys off `pool_kind`.
+        # A tenant with no pools table yet still gets a usable editor.
         logger.debug("number pool lookup failed", exc_info=True)
 
     return {
-        "objectives": list(fg.OBJECTIVES),
+        "objectives": list(outbound_policy.OBJECTIVES),
         "objectiveBriefs": dict(mission_mod.OBJECTIVE_BRIEF),
-        "directions": list(get_args(card_schema.Direction)),
-        "voicemailModes": list(get_args(card_schema.VoicemailMode)),
-        "poolKinds": list(get_args(card_schema.PoolKind)),
+        "directions": list(get_args(outbound_policy.Direction)),
+        "voicemailModes": list(get_args(outbound_policy.VoicemailMode)),
+        "poolKinds": list(get_args(outbound_policy.PoolKind)),
         "qaModes": ["always", "sampled", "never"],
-        # The Closer's taxonomy — what `success` / `partial` / `stop_on` and a
-        # post-call rule's `when` may name. G-OB6 rejects anything else.
-        "outcomeCodes": sorted(compile_mod.OUTCOME_CODES),
-        # Verbs the Closer implements. A rule may also name any tool on the
-        # card, which is why G-OB6 checks the union rather than this alone.
-        "postCallActions": sorted(compile_mod.POST_CALL_ACTIONS),
+        # The Closer's taxonomy: what `success` / `partial` / `stop_on` and a
+        # post-call rule's `when` may name.
+        "outcomeCodes": sorted(call_closer.BUSINESS_OUTCOMES),
+        # Verbs the Closer carries out.
+        "postCallActions": sorted(post_call_actions.REGISTRY),
         # `retry_on` is matched against the attempt's connection outcome *and*
         # its state, so the offerable set is the states worth another dial.
         "retryStates": sorted(outbound_mod.RETRYABLE),
@@ -695,69 +684,6 @@ def outbound_card_vocabulary():
         ],
         "numberPools": pools,
         "dailyCap": contact_policy.tenant_daily_cap(),
-    }
-
-@router.get("/outbound/missions", response_model=MissionsResponse)
-def list_missions(botId: str | None = Query(default=None)):
-    """The missions a card can run, and where each starts.
-
-    Serves the Outbound tab. Two sources, deliberately both: what the *card*
-    declares and what the *graph* claims. They disagreeing is the failure G-OB2
-    exists to catch, and an author needs to see both halves to fix it.
-
-    ``botId`` is not optional in spirit. This read the default bot and nothing
-    else, while the tab that calls it lives inside a per-card editor and says
-    "No missions on **this card**" — so opening Outbound on any other card
-    reported the default bot's missions, direction and number pool under that
-    card's name. It is invisible today only because no card declares an
-    outbound block yet, which makes every card show the same empty state; the
-    first card to declare one would have shown its missions on all of them.
-    """
-    import flow_graph as fg
-    import mission as mission_mod
-
-    bot_id = (botId or "").strip() or db.DEFAULT_BOT_ID
-    card = mission_mod.card_for_bot(bot_id)
-    graph_entries: dict[str, str] = {}
-    try:
-        version = None
-        studio = db.get_agent_studio_card(bot_id) or {}
-        draft_id = studio.get("draftVersionId")
-        if draft_id:
-            version = db.get_prompt_version(draft_id) or {}
-        if not (version and version.get("flow")):
-            deployment = db.get_active_deployment(bot_id=bot_id, environment="production")
-            if deployment and deployment.get("promptVersionId"):
-                version = db.get_prompt_version(deployment["promptVersionId"]) or {}
-        if version:
-            graph_entries = fg.parse_graph(version.get("flow") or {}).entry_objectives()
-    except Exception:
-        logger.debug("mission entry lookup failed", exc_info=True)
-
-    outbound_cfg = getattr(card, "outbound", None) if card is not None else None
-    declared = [
-        {
-            "key": o.key,
-            "entryNode": o.entry_node,
-            "graphEntryNode": graph_entries.get(o.key),
-            "agrees": graph_entries.get(o.key) == o.entry_node,
-            "maxDurationSec": o.max_duration_sec,
-            "allowedOffers": o.allowed_offers,
-            "authorityProfile": o.authority_profile,
-            "cadence": o.cadence,
-            "success": o.success,
-            "brief": mission_mod.OBJECTIVE_BRIEF.get(o.key, ""),
-        }
-        for o in (outbound_cfg.objectives if outbound_cfg else [])
-    ]
-    return {
-        "botId": bot_id,
-        "direction": getattr(outbound_cfg, "direction", "inbound"),
-        "poolKind": getattr(outbound_cfg, "pool_kind", "general"),
-        "numberPool": getattr(outbound_cfg, "number_pool", None),
-        "objectives": declared,
-        "graphEntries": graph_entries,
-        "available": list(fg.OBJECTIVES),
     }
 
 @router.get("/authority/next", response_model=AuthorityNextResponse)

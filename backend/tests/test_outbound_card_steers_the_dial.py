@@ -29,18 +29,8 @@ from sqlalchemy import text
 import cadence
 import campaigns
 import outbound
-from agent_core.cards.schema import AgentCard
 
 TENANT = "hdfc.retail"
-
-
-def _card(direction: str, *, number_pool: str | None = None) -> AgentCard:
-    return AgentCard.model_validate(
-        {
-            "identity": {"bot_id": "dial-probe", "slug": "dial-probe", "display_name": "Probe"},
-            "outbound": {"direction": direction, "number_pool": number_pool},
-        }
-    )
 
 
 def _needs_bot_column(conn) -> None:
@@ -157,29 +147,6 @@ def test_claim_due_falls_back_to_the_previous_rungs_bot(db_tx) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_inbound_only_card_is_refused_before_the_dial(monkeypatch) -> None:
-    """The refusal is wider than the mission check and runs first: an
-    inbound-only card must not reach ``outbound.reserve`` at all."""
-    import mission as mission_mod
-    from agent_core.treatment import enact
-
-    monkeypatch.setattr(mission_mod, "resolve_outbound_bot_id", lambda **_: "dial-probe")
-    monkeypatch.setattr(mission_mod, "card_for_bot", lambda *_a, **_k: _card("inbound"))
-
-    def _explode(*_a, **_k):  # pragma: no cover - the point is that it is not called
-        raise AssertionError("reserve was reached for a card that forbids dialling")
-
-    monkeypatch.setattr(outbound, "reserve", _explode)
-
-    with pytest.raises(enact.NoExecutor) as excinfo:
-        enact._dial_bot(
-            None,
-            decision={"id": "TD-x", "objective": "ptp_capture"},
-            customer={"id": "cust-x", "phone_primary": "+919000000001"},
-        )
-    assert "card_forbids_outbound" in str(excinfo.value)
-
-
 def test_the_mission_guard_is_no_longer_nested_inside_dials() -> None:
     """RUNTIME-13's mechanism: ``and card.outbound.dials and`` on the objective
     check made the forbidding case the unguarded one."""
@@ -203,44 +170,6 @@ def test_the_ladder_stops_when_the_card_stops_dialling() -> None:
 # ---------------------------------------------------------------------------
 # The caller ID follows the card
 # ---------------------------------------------------------------------------
-
-
-def test_reserve_derives_the_caller_id_pool_from_the_bot(db_tx, monkeypatch) -> None:
-    import mission as mission_mod
-
-    monkeypatch.setattr(
-        mission_mod, "card_for_bot", lambda *_a, **_k: _card("outbound", number_pool="service-1600")
-    )
-    cid = _customer(db_tx)
-    attempt = outbound.reserve(
-        db_tx,
-        customer_id=cid,
-        to_phone="+919000000001",
-        objective="ptp_capture",
-        bot_id=_a_real_bot(db_tx),
-        tenant_id=TENANT,
-    )
-    assert attempt is not None
-    assert attempt["numberPool"] == "service-1600"
-
-
-def test_an_explicit_pool_still_wins(db_tx, monkeypatch) -> None:
-    import mission as mission_mod
-
-    monkeypatch.setattr(
-        mission_mod, "card_for_bot", lambda *_a, **_k: _card("outbound", number_pool="from-card")
-    )
-    cid = _customer(db_tx)
-    attempt = outbound.reserve(
-        db_tx,
-        customer_id=cid,
-        to_phone="+919000000001",
-        objective="ptp_capture",
-        bot_id=_a_real_bot(db_tx),
-        tenant_id=TENANT,
-        number_pool="from-caller",
-    )
-    assert attempt is not None and attempt["numberPool"] == "from-caller"
 
 
 def test_an_unreadable_card_falls_back_to_the_deployment_number(db_tx, monkeypatch) -> None:

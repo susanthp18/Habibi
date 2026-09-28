@@ -30,8 +30,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.cards.defaults import COLLECTIONS_BOT_ID, card_dump
-from agent_core.skills.runtime import resolve_mouth
 from agent_core.tools.catalog import CATALOG
 from agent_core.tools.schema import CHANNEL_TEXT, CHANNEL_VOICE
 
@@ -207,57 +205,7 @@ def _project(mouth) -> dict:
     }
 
 
-@pytest.mark.parametrize("case", sorted(GOLDEN), ids=sorted(GOLDEN))
-def test_the_split_reproduces_the_pre_change_behaviour(case) -> None:
-    card_raw, kwargs, expected = GOLDEN[case]
-    if card_raw == "CARD":
-        card_raw = card_dump(COLLECTIONS_BOT_ID)
-    assert _project(resolve_mouth(card_raw, **kwargs)) == expected
-
-
 # --- what the split is for --------------------------------------------------
-
-
-def test_prompt_needs_no_tool_facts() -> None:
-    """The point of the split: asking for prompt text computes no tool sets."""
-    prompt = resolve_mouth(card_dump(COLLECTIONS_BOT_ID), intent="payment_intent").prompt()
-    assert prompt.prefix.startswith("## Skills")
-    assert prompt.body_message is not None, "payment_intent activates ptp-negotiate"
-
-
-def test_tools_assemble_no_prompt_text() -> None:
-    tools = resolve_mouth(card_dump(COLLECTIONS_BOT_ID), intent="payment_intent").tools()
-    assert tools.has_grant
-    assert tools.offered is not None and "load_skill" in tools.offered
-
-
-def test_the_grant_is_frozen() -> None:
-    """ADR-0001: a caller holding a mutable set can union onto it. Six formulas
-    is what that produced, so the grant leaves its owner immutable."""
-    allowed = resolve_mouth(card_dump(COLLECTIONS_BOT_ID)).tools().allowed
-    assert isinstance(allowed, frozenset)
-
-
-def test_has_grant_is_the_only_reading_of_the_sentinel() -> None:
-    """A cardless mouth is granted nothing; an authored one has a real grant.
-
-    Callers used to read ``allowed is not None`` as "do not filter". ADR-0002
-    inverts that: the empty frozenset *is* a grant, of nothing.
-    """
-    cardless = resolve_mouth({}).tools()
-    assert cardless.has_grant is True
-    assert cardless.allowed == frozenset()
-    assert cardless.offered == ()
-    authored = resolve_mouth(card_dump(COLLECTIONS_BOT_ID)).tools()
-    assert authored.has_grant is True
-    assert authored.allowed
-
-
-def test_both_questions_come_off_one_resolution() -> None:
-    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID), intent="payment_intent")
-    assert mouth.packs, "sanity: the collections card attaches packs"
-    assert mouth.prompt() == mouth.prompt()
-    assert mouth.tools() == mouth.tools()
 
 
 # --- fail-closed, at the new seam -------------------------------------------
@@ -268,75 +216,10 @@ def test_both_questions_come_off_one_resolution() -> None:
 # without losing it.
 
 
-def test_a_pack_resolution_failure_denies_gated_writes_at_the_new_seam(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import agent_core.skills.pack as pack_mod
-    import agent_core.skills.persist as skills_persist
-    from agent_core.skills.intersect import SKILL_GATED_TOOLS
-
-    def _db_boom(_slugs):
-        raise RuntimeError("connection reset by peer")
-
-    def _disk_boom(slug: str):
-        raise AssertionError(f"on-disk default consulted for {slug!r} after a DB failure")
-
-    monkeypatch.setattr(skills_persist, "packs_for_slugs", _db_boom)
-    monkeypatch.setattr(pack_mod, "pack_for_slug", _disk_boom)
-
-    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID), intent="payment_intent")
-    assert mouth.packs == ()
-    allowed = mouth.tools().allowed
-
-    # Not "nothing is allowed" — reads are ungated and stay. The property is
-    # that every skill-gated write is gone.
-    assert allowed is not None
-    assert "create_promise_to_pay" not in allowed
-    assert not (set(allowed) & SKILL_GATED_TOOLS)
-
-
 # --- channel filter (WP-031 step 1) -----------------------------------------
 #
 # The publish Gate forwarded channel_tools; MouthTurn.tools() did not. A card
 # naming a voice-only tool was granted it on WhatsApp, where no handler exists.
-
-
-def test_a_text_grant_drops_voice_only_tools() -> None:
-    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
-    text = {s.name for s in CATALOG.for_channel(CHANNEL_TEXT)}
-    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
-    granted = mouth.tools(channel_tools=text).allowed
-    assert granted is not None
-    assert not (set(granted) & (voice - text))
-    assert "get_account_position" not in granted
-    # Omitting the argument stays channel-blind — that is the pre-step-1
-    # formula, which the golden cases above still pin. Production callers
-    # pass channel_tools; the AST pin below fails if one stops.
-    assert "get_account_position" in mouth.tools().allowed
-
-
-def test_a_voice_grant_drops_text_only_tools() -> None:
-    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
-    text = {s.name for s in CATALOG.for_channel(CHANNEL_TEXT)}
-    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
-    granted = mouth.tools(channel_tools=voice).allowed
-    assert granted is not None
-    assert not (set(granted) & (text - voice))
-    assert "get_account_position" in granted
-
-
-def test_a_voice_grant_keeps_the_flow_hops() -> None:
-    """Catalog intersection must not strip begin_negotiate. VS-E6043500C0 logged
-    it as an unknown tool and the call never left state_position."""
-    from agent_core.tools.grant import VOICE_ALWAYS
-
-    mouth = resolve_mouth(card_dump(COLLECTIONS_BOT_ID))
-    voice = {s.name for s in CATALOG.for_channel(CHANNEL_VOICE)}
-    granted = mouth.tools(channel_tools=voice, channel="voice", floor=VOICE_ALWAYS).allowed
-    assert "begin_negotiate" in granted
-    assert "begin_dispute" in granted
-    assert "begin_wrap_up" in granted
-    assert "not_account_holder" in granted
 
 
 def test_the_three_runtimes_pass_channel_tools() -> None:

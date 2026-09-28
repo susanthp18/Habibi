@@ -11,11 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# The authored flow graph is a domain model, not a transport shape — it is
-# shared verbatim by the API, the validator and the voice runtime, so it is
-# defined once in flow_graph and reused here rather than restated.
 import contact_window
-from flow_graph import FlowGraph, FlowIssue, FlowValidation  # noqa: F401
 from agent_core import clock
 
 RiskLevel = Literal["critical", "high", "medium", "low"]
@@ -600,70 +596,6 @@ class PaymentEventWebhookResponse(BaseModel):
     firstTouch: str | None = None
     intentId: str | None = None
     suppressionReason: str | None = None
-
-
-class AgentStudioOkResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: bool
-
-
-class AgentStudioSkillVersionResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    skillId: str
-    version: str
-    status: str
-    frontmatter: dict[str, Any]
-    body: str
-    allowedTools: list[str]
-    contentHash: str
-    signature: str | None
-    signedBy: str | None
-    pack: dict[str, Any]
-    description: str
-    evalSuite: Any | None
-    origin: Any | None
-
-
-class AgentStudioSkillSummaryResponse(BaseModel):
-    """Library row. ``get_skill`` adds the detail fields on the subclass."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    slug: str
-    origin: str
-    signatureStatus: str
-    latestVersionId: str | None
-    description: str
-    allowedTools: list[str]
-    version: str
-    status: str
-    attachedCards: list[str]
-    #: Cards that can *rehearse* this skill — `attachedCards` plus draft
-    #: versions. Separate because `attachedCards` answers "who is live on this",
-    #: which an operator reads before deleting or re-signing, and drafts would
-    #: inflate that number.
-    rehearsalCards: list[str] = []
-    evalSuite: Any | None
-    contentHash: str
-    signed: bool
-    hasSignedVersion: bool
-    bodyTokens: int
-    referenceFiles: list[str]
-
-
-class AgentStudioSkillResponse(AgentStudioSkillSummaryResponse):
-    """Detail / write return. Optional keys only appear when the mapper set them."""
-
-    versions: list[AgentStudioSkillVersionResponse] | None = None
-    frontmatter: dict[str, Any] | None = None
-    body: str | None = None
-    pack: dict[str, Any] | None = None
-    markdown: str | None = None
-    lintWarnings: list[dict[str, Any]] | None = None
 
 
 # --- CRM / Evals / Studio / Platform / Sandbox / Payments / KB / Catalog / Billing / Routing routers (response_model closure) ---

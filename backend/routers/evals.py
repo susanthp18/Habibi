@@ -131,6 +131,6 @@ def patch_calibration_session(session_id: str, payload: CalibrationSessionPatchR
 
 @router.get("/eval/disagreements", response_model=QaDisagreementsResponse)
 def list_qa_disagreements(limit: int = Query(default=50, ge=1, le=200)):
-    from agent_core.eval.disagreement import disagreements
+    from agent_core.live_qa.disagreement import disagreements
 
     return disagreements(limit=limit)

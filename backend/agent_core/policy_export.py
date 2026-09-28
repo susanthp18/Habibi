@@ -19,7 +19,7 @@ from agent_core.platform_flags import policy_export_enabled
 _CHANNELS = ("voice", "whatsapp", "sms")
 
 
-def bundle(*, fmt: str = "opa", bot_id: str | None = None) -> dict[str, Any]:
+def bundle(*, fmt: str = "opa") -> dict[str, Any]:
     if not policy_export_enabled():
         raise PermissionError("policy_export_disabled")
     kind = (fmt or "opa").strip().lower()
@@ -29,7 +29,7 @@ def bundle(*, fmt: str = "opa", bot_id: str | None = None) -> dict[str, Any]:
     # The rules the tenant actually runs under, not platform constants: GRC
     # diffs this bundle against what was published. DND used to be a literal
     # `contactWhenDnd: False` with the scrub lists and suppression kinds the
-    # gate reads left out, and the card's gates were not in the bundle at all.
+    # gate reads left out.
     with db.engine.connect() as conn:
         rules = policy_rules.resolve(conn, tenant_id=tenant)
         windows = {
@@ -57,29 +57,12 @@ def bundle(*, fmt: str = "opa", bot_id: str | None = None) -> dict[str, Any]:
             "suppressionKinds": sorted(rules.suppression_kinds()),
             "ruleSetVersion": rules.version,
         },
-        "card": _card_facts(bot_id),
         "source": "python",
         "note": "Projection only. Live veto remains in-process Python.",
     }
     if kind == "cedar":
         return {"format": "cedar", "facts": facts, "text": _cedar(facts)}
     return {"format": "opa", "facts": facts, "text": _rego(facts)}
-
-
-def _card_facts(bot_id: str | None) -> dict[str, Any] | None:
-    """The published card's human gates and mouth guardrails, or None when the
-    bot has no published version — absent, not an empty card that reads as
-    "no gates"."""
-    published = db.get_published_prompt_version(bot_id)
-    if not published:
-        return None
-    card = published.get("agentCard") or {}
-    return {
-        "botId": published["botId"],
-        "versionId": published["id"],
-        "humanGates": list(card.get("human_gates") or []),
-        "guardrails": dict(published.get("guardrails") or {}),
-    }
 
 
 def _rego(facts: dict[str, Any]) -> str:
@@ -95,7 +78,6 @@ def _rego(facts: dict[str, Any]) -> str:
         f"authority_max_outstanding := {auth['maxOutstandingInr']}\n"
         f"authority_max_dpd := {auth['maxDpd']}\n"
         f"authority_min_tenure_months := {auth['minTenureMonths']}\n"
-        + _rego_card(facts)
         + "\n"
         + "".join(
             f'calling_window["{ch}"] := [{w["startHour"]}, {w["endHour"]}]\n'
@@ -115,18 +97,6 @@ def _rego(facts: dict[str, Any]) -> str:
     )
 
 
-def _rego_card(facts: dict[str, Any]) -> str:
-    card = facts.get("card")
-    if not card:
-        return ""
-    gates = {str(g.get("tool_name")): str(g.get("require") or "identity") for g in card["humanGates"]}
-    return (
-        f"card_bot_id := {json.dumps(card['botId'])}\n"
-        f"human_gate_require := {json.dumps(gates)}\n"
-        f"guardrails := {json.dumps(card['guardrails'])}\n"
-    )
-
-
 def _cedar(facts: dict[str, Any]) -> str:
     hours = facts["callingHours"]
     auth = facts["authority"]
@@ -136,11 +106,6 @@ def _cedar(facts: dict[str, Any]) -> str:
         + "".join(
             f"// calling window {ch}: {w['startHour']}-{w['endHour']}\n"
             for ch, w in facts["callingWindows"].items()
-        )
-        + (
-            f"// card {facts['card']['botId']}: human gates {json.dumps(facts['card']['humanGates'])}\n"
-            if facts.get("card")
-            else ""
         )
         + f"permit(principal, action, resource)\n"
         f"when {{\n"

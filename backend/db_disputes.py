@@ -366,6 +366,14 @@ def _create_dispute(
     _activity(conn, "dispute", dispute_id, "dispute_created", "Dispute raised", payload.get("transcriptSnippet"), customer_id)
     response = _dispute_by_id(conn, dispute_id)
     _store_idempotent_response(conn, idempotency_key, endpoint, response)
+    import webhooks_dispatch
+
+    webhooks_dispatch.dispatch(conn, "dispute.raised", {
+        "disputeId": dispute_id,
+        "customerId": customer_id,
+        "accountId": response.get("accountId"),
+        "status": "new",
+    })
     return response
 
 
@@ -421,7 +429,17 @@ def patch_dispute(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         else:
             label, note = "Dispute updated", None
         _activity(conn, "dispute", dispute_id, "dispute_updated", label, note, row["customer_id"])
-        return _dispute_by_id(conn, dispute_id)
+        response = _dispute_by_id(conn, dispute_id)
+        if status == "resolved" and row["status"] != "resolved":
+            import webhooks_dispatch
+
+            webhooks_dispatch.dispatch(conn, "dispute.resolved", {
+                "disputeId": dispute_id,
+                "customerId": row["customer_id"],
+                "status": "resolved",
+                "resolutionCode": response.get("resolutionCode"),
+            })
+        return response
 
 
 def add_dispute_note(dispute_id: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -43,8 +43,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-import flow_graph as fg
 import outbound
+import outbound_policy
 from agent_core import clock
 from agent_core.clock import utc_now as _now
 
@@ -573,8 +573,8 @@ def process_one(engine: Engine) -> bool:
                 # A cross-sell dial is a promotional use of a number collected
                 # to service a loan, and needs its own consent basis. Every
                 # other objective here is servicing. See
-                # flow_graph.PROMOTIONAL_OBJECTIVES.
-                "data_purpose": fg.data_purpose_for(objective),
+                # outbound_policy.PROMOTIONAL_OBJECTIVES.
+                "data_purpose": outbound_policy.data_purpose_for(objective),
                 "source": "campaign",
                 "actor_kind": "bot",
             },

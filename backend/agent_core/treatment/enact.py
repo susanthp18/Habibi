@@ -362,7 +362,7 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
         raise NoExecutor(compliance_copy.NO_GRIEVANCE_CONTACT)
 
     pay_url, amount = _open_pay_url(conn, decision)
-    from agent_core.context import account_tail
+    from db_core import _account_tail as account_tail
 
     # Last four *digits*: a vanity id like AC-SUSANTH has none, and "ending
     # ANTH" is what [-4:] used to text the borrower.

@@ -25,7 +25,7 @@ Scope note: future-only screens from `screens.md` that are not currently impleme
 | **Sales / Upsell** | `leads`, `lead_eligibility` |
 | **Compliance & QA** | `compliance_rules`, `violations`, `qa_rubrics`, `qa_rubric_sections`, `qa_rubric_criteria`, `qa_scorecards`, `qa_scorecard_entries`, `live_qa_decisions`, `coaching_actions`, `calibration_sessions`, `calibration_reviewer_scores` |
 | **Redaction & Export** | `redaction_rule_configs`, `redaction_records`, `pii_findings`, `redaction_audio_segments`, `export_jobs`, `export_job_records` |
-| **Bot configuration** | `kb_documents`, `kb_source_files`, `kb_chunks`, `kb_index_jobs`, `kb_snapshots`, `faq_pairs`, `retrieval_logs`, `prompt_versions`, `tts_voices`, `persona_presets`, `bot_deployments`, `routing_rules`, `routing_rule_executions`, `sandbox_scenarios`, `sandbox_runs`, `sandbox_run_turns` |
+| **Bot configuration** | `kb_documents`, `kb_source_files`, `kb_chunks`, `kb_index_jobs`, `kb_snapshots`, `faq_pairs`, `retrieval_logs`, `prompt_versions`, `tts_voices`, `persona_presets`, `bot_deployments`, `sandbox_scenarios`, `sandbox_runs`, `sandbox_run_turns` |
 | **Admin: Integrations/Webhooks/Billing** | `providers`, `provider_fields`, `provider_configs`, `provider_config_versions`, `integration_test_logs`, `webhook_endpoints`, `webhook_endpoint_headers`, `webhook_retry_policies`, `event_types`, `webhook_subscriptions`, `webhook_deliveries`, `billing_services`, `billing_usage_daily`, `invoices`, `invoice_line_items`, `budgets`, `budget_rules`, `budget_alert_events` |
 | **Analytics (materialized)** | `analytics_daily`, `intent_aggregates`, `escalation_reasons`, `unanswered_questions`, `analytics_kb_gap_links` |
 | **Cross-cutting** | `activity_events`, `audit_log` |
@@ -88,7 +88,6 @@ erDiagram
     KB_DOCUMENTS ||--o{ KB_INDEX_JOBS : indexes
     KB_SNAPSHOTS ||--o{ BOT_DEPLOYMENTS : freezes
     PROMPT_VERSIONS ||--o{ BOT_DEPLOYMENTS : releases
-    ROUTING_RULES ||--o{ ROUTING_RULE_EXECUTIONS : fires
     SANDBOX_SCENARIOS ||--o{ SANDBOX_RUNS : tests
     SANDBOX_RUNS ||--o{ SANDBOX_RUN_TURNS : records
     WEBHOOK_ENDPOINTS ||--o{ WEBHOOK_DELIVERIES : delivers
@@ -199,9 +198,8 @@ Full column-level DDL lives in `sql/*.sql` (the authoritative base schema). Key 
 - `prompt_versions` — versioned bot system prompt (one `published`). `author_user_id`; `prompt`, and JSON `persona`/`voice`/`guardrails`.
 - `tts_voices`, `persona_presets` — reference config.
 - `persona_presets` - reusable tone/personality presets for Prompt Studio.
-- `bot_deployments` - release records combining prompt version, KB snapshot, routing ruleset, TTS voice/config, environment, published-by user, published timestamp, rollback link.
-- `routing_rules` — handoff/routing rules. `priority`, `enabled`, JSON `conditions`, `action_key`, JSON `action_params`.
-- `routing_rule_executions` - every rule evaluation that fired or was tested. `rule_id`, `interaction_id?`, `sandbox_run_id?`, context JSON, result, action taken, evaluated timestamp.
+- `bot_deployments` - release records combining prompt version, KB snapshot, TTS voice/config, environment, published-by user, published timestamp, rollback link. Historical routing metadata may remain on older releases.
+- `retired_routing_rules`, `retired_routing_rule_executions` - historical Routing / Logic definitions and evaluation evidence on upgraded installations. New installations create empty archive tables; no runtime path reads or writes them.
 - `sandbox_scenarios` — test scenarios (JSON `sim_persona`/`turns`).
 - `sandbox_runs` - executed sandbox sessions. `scenario_id`, `deployment_id?`, `prompt_version_id?`, `kb_snapshot_id?`, started by user, status, aggregate latency/tokens.
 - `sandbox_run_turns` - turn-level sandbox transcript with detected intent, sentiment, retrieved chunks, guardrail flags, latency, token counts.
@@ -231,7 +229,7 @@ Full column-level DDL lives in `sql/*.sql` (the authoritative base schema). Key 
 - `intent_aggregates` - intent-level sessions, containment, escalation, abandonment, turns, latency, and sentiment rollups.
 - `escalation_reasons` - reason-level escalation counts and trends.
 - `unanswered_questions` - KB/prompt gap records with hit counts, last seen timestamp, suggested fix type.
-- `analytics_kb_gap_links` - links unanswered questions to `kb_documents`, `faq_pairs`, prompt fixes, or routing fixes so Bot Analytics can drive KB and Prompt Studio work.
+- `analytics_kb_gap_links` - links unanswered questions to `kb_documents`, `faq_pairs`, or prompt fixes. Its optional `routing_rule_id` is retained only as historical attribution.
 
 **Cross-cutting**
 - `activity_events` — unified polymorphic timeline (`entity_type`, `entity_id`, `at`, `actor`, `kind`, `label`, `note`, `tone`). Replaces the 8 per-entity event tables; powers every timeline + Customer 360 feed.
@@ -287,8 +285,8 @@ Human-readable prefixed keys (kept from the seeds, standardized): customer slug 
 9. **Tenants unify** billing business-units, the brand block, and the `X-Tenant` header.
 10. **Live operations are persisted, not ephemeral.** Presence, participants, handoffs, alerts, media, and supervisor actions are stored so Handoff Hub and Floor Command can be audited after a live call ends.
 11. **Workspace queue is a projection, not a second source of truth.** `work_items` is a read-only VIEW (`UNION` over disputes, callbacks, document requests, broken promises, leads, followups). My Workspace gets one query surface; the domain tables stay authoritative — no status duplicated, no sync writes, no drift.
-12. **Bot behavior is release-versioned.** `bot_deployments` records the exact prompt, KB snapshot, routing configuration, and voice config used for sandbox or production interactions.
-13. **RAG and routing are explainable.** Retrieval logs and routing rule executions link back to interactions and sandbox runs, making Bot Analytics, KB gaps, and compliance investigations traceable.
+12. **Bot behavior is release-versioned.** `bot_deployments` records the prompt, KB snapshot, and voice config used for sandbox or production interactions; Voice Studio pins published workflow definitions separately.
+13. **RAG and agent routing are explainable.** Retrieval logs link back to interactions and sandbox runs. Voice Studio records published workflow assignments and runs; retired rule evaluation evidence remains archived on upgraded installations.
 14. **Files are storage references.** Audio recordings, generated documents, uploaded evidence, KB source files, and export bundles are metadata rows with `storage_ref` and hashes, not raw blobs in relational columns.
 
 ## Implementation notes
@@ -304,7 +302,7 @@ Human-readable prefixed keys (kept from the seeds, standardized): customer slug 
 **Postgres conventions:**
 - Enums as `TEXT` + `CHECK` (not native `ENUM` — easier to extend). Timestamps `timestamptz` (ISO-8601). JSON columns → `jsonb`. Money → `numeric(14,2)`. Embeddings → `vector` (pgvector, HNSW index) when RAG lands.
 - Every mutable table has `created_at` / `updated_at`; audit/evidence tables (`audit_log`, `optout_events`, `interaction_disclosures`, `activity_events`) are append-only, enforced by trigger (`sql/43_audit_append_only.sql`).
-- High-volume tables (`webhook_deliveries`, `billing_usage_daily`, `retrieval_logs`, `routing_rule_executions`, `interaction_sentiment`) are candidates for monthly range partitioning.
+- High-volume tables (`webhook_deliveries`, `billing_usage_daily`, `retrieval_logs`, `interaction_sentiment`) are candidates for monthly range partitioning.
 - `work_items` is a **VIEW**, not a table.
 
 **Seed:** a small, fully cross-linked dataset (~12 customers → accounts/EMIs/ledgers → ~40 interactions with transcripts → promises, disputes, documents, callbacks, leads, consent, violations, QA scores) so every FK resolves and every screen looks populated; config/admin/analytics tables seeded with representative rows. Foreign-key validation must pass after seeding.

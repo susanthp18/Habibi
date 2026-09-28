@@ -8,7 +8,6 @@ from sqlalchemy import text
 from tests.conftest import acting_as
 
 import db
-from agent_core.live_qa.enact import barge_audio, provider_call_id, whisper_correction
 from agent_core.live_qa.scorecard import LIVE_NOTE_PREFIX, is_live_locked
 from voice import persist
 
@@ -42,22 +41,6 @@ def test_new_flags_map_to_rules() -> None:
     assert persist.rule_for_flag("third-party-leak") == "r-third"
     assert persist.rule_for_flag("opt-out-ignored") == "r-dnd-disc"
     assert persist.rule_for_flag("rate-quoted") == "r-false"
-
-
-def test_barge_without_call_sid_is_crm_only(interaction) -> None:
-    assert provider_call_id(interaction["id"]) is None
-    result = barge_audio(interaction["id"], reason="test")
-    assert result["audio"] is False
-    assert result["reason"] == "no_call_sid"
-
-
-def test_whisper_correction_is_a_developer_message() -> None:
-    c = whisper_correction("Do not quote a waiver")
-    assert c is not None
-    msg = c.to_message()
-    assert msg["role"] == "developer"
-    assert "waiver" in msg["content"]
-    assert c.kind == "whisper"
 
 
 def test_live_note_is_locked() -> None:
@@ -220,26 +203,6 @@ def test_authority_cap_is_a_barge_recommend(db_tx, interaction, monkeypatch) -> 
     )
     assert "authority-cap-exceeded" in flags
     assert "live-qa-auto-barge" not in flags
-
-
-def test_barge_audio_reuses_warm_transfer(monkeypatch) -> None:
-    called = {}
-
-    monkeypatch.setattr(
-        "agent_core.live_qa.enact.provider_call_id",
-        lambda *_a, **_k: "CA123",
-    )
-
-    def _warm(sid, reason=""):
-        called["sid"] = sid
-        called["reason"] = reason
-        return {"conference": "CF1", "callSid": sid}
-
-    monkeypatch.setattr("voice.twilio_ops.warm_transfer_to_supervisor", _warm)
-    result = barge_audio("IX-1", reason="hours-breach")
-    assert result["audio"] is True
-    assert called["sid"] == "CA123"
-    assert called["reason"] == "hours-breach"
 
 
 def test_pack_is_tenant_scoped(db_tx) -> None:

@@ -54,25 +54,6 @@ def test_module_imports_first_in_a_clean_interpreter(module: str) -> None:
     )
 
 
-def test_the_cards_package_does_not_drag_in_the_compiler() -> None:
-    """The re-exports resolve lazily. Eager imports here are what closed the
-    cycle, so a submodule import must not pull agent_core.cards.compile."""
-    probe = (
-        "import sys; import agent_core.cards.schema;"
-        " print('agent_core.cards.compile' in sys.modules)"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        cwd=BACKEND,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-
-    assert result.returncode == 0, result.stderr[-1500:]
-    assert result.stdout.strip() == "False", "importing a submodule loaded the compiler"
-
-
 def test_the_lazy_re_exports_still_work() -> None:
     probe = (
         "from agent_core.cards import compile_card, AgentCard, card_dump, CompileError;"

@@ -201,11 +201,11 @@ def patch_redaction_rule(pii_type: str, payload: RedactionRulePatchRequest):
     )
 
 @router.get("/compliance/policy-export", response_model=PolicyExportBundleResponse)
-def export_policy_bundle(fmt: str = Query(default="opa"), bot_id: str | None = Query(default=None)):
+def export_policy_bundle(fmt: str = Query(default="opa")):
     from agent_core.policy_export import bundle
 
     try:
-        return bundle(fmt=fmt, bot_id=bot_id)
+        return bundle(fmt=fmt)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
