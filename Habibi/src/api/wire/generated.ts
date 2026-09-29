@@ -976,7 +976,8 @@ export const DisputeListResponse = z.object({
 export const CallbackReminderResponse = z.object({
   "at": z.string(),
   "channel": z.enum(["whatsapp", "sms", "email"]),
-  "status": z.enum(["queued", "sent", "acknowledged"]),
+  "status": z.enum(["queued", "sent", "acknowledged", "failed"]),
+  "reason": z.string().nullable().optional(),
 }).passthrough();
 export const CallbackEventResponse = z.object({
   "at": z.string(),

@@ -10,7 +10,13 @@ from __future__ import annotations
 
 ROLES: dict[str, frozenset[str]] = {
     "messaging": frozenset(
-        {"whatsapp_outbound", "bot_jobs", "promise_reminders", "promise_settle"}
+        {
+            "whatsapp_outbound",
+            "bot_jobs",
+            "promise_reminders",
+            "promise_settle",
+            "callback_reminders",
+        }
     ),
     "dialer": frozenset(
         {

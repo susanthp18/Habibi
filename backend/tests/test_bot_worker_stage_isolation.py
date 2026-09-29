@@ -23,6 +23,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
     import agent_core.clerk as clerk_mod
     import bot_jobs
     import cadence
+    import callback_reminders
     import call_closer
     import campaigns
     import payment_events
@@ -55,6 +56,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
     monkeypatch.setattr(bot_jobs, "bot_runtime_enabled", lambda: True)
     monkeypatch.setattr(whatsapp_outbound, "process_one", _poison)
     monkeypatch.setattr(promise_fulfillment, "process_one_reminder", _idle("promise_reminders"))
+    monkeypatch.setattr(callback_reminders, "process_one", _idle("callback_reminders"))
     monkeypatch.setattr(payment_events, "process_one_voice", _idle("bounce_voice"))
     monkeypatch.setattr(call_closer, "process_one", _idle("call_closer"))
     monkeypatch.setattr(cadence, "process_one", _idle("cadence"))
@@ -68,7 +70,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
 
     previous = bot_worker._iteration
     # After increment: 2. Not a bot-first tick, not a settle tick, so the
-    # twelve drains run in order and stage 1 is whatsapp_outbound.
+    # thirteen drains run in order and stage 1 is whatsapp_outbound.
     bot_worker._iteration = 1
     try:
         with caplog.at_level(logging.ERROR, logger="bot_worker"):
@@ -80,6 +82,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
     assert ran == [
         "whatsapp_outbound",
         "promise_reminders",
+        "callback_reminders",
         "bounce_voice",
         "call_closer",
         "cadence",

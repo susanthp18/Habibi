@@ -109,7 +109,7 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
     void run(() => setPriority(cb, p), `Priority → ${PRIORITY_LABELS[p]}`);
   };
   const doReminder = (c: CbChannel) => {
-    void run(() => sendReminder(cb, c), `Reminder sent · ${CHANNEL_LABELS[c]}`);
+    void run(() => sendReminder(cb, c), `Reminder queued · ${CHANNEL_LABELS[c]}`);
   };
   const doStart = () => {
     void run(async () => {
@@ -377,18 +377,21 @@ export function CallbackSheet({ cb, onClose, onMutate, assignees, queues }: Prop
                         <div className="font-medium text-text">{CHANNEL_LABELS[r.channel]}</div>
                         <div className="text-body-small text-text-subtlest">
                           {fmtLongDate(r.at)}
+                          {r.status === "failed" && r.reason ? ` · ${r.reason}` : ""}
                         </div>
                       </div>
                       <Lozenge
                         tone={
                           r.status === "sent"
                             ? "success"
-                            : r.status === "queued"
-                              ? "neutral"
-                              : "selected"
+                            : r.status === "failed"
+                              ? "danger"
+                              : r.status === "queued"
+                                ? "neutral"
+                                : "selected"
                         }
                       >
-                        {r.status}
+                        {r.status === "failed" ? "not sent" : r.status}
                       </Lozenge>
                     </li>
                   ))}

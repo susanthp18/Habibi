@@ -85,10 +85,8 @@ def _callback_reminder_channel(channel: str | None) -> str:
     return "whatsapp"
 
 def _callback_reminder_status(status: str | None) -> str:
-    if status in {"queued", "sent", "acknowledged"}:
+    if status in {"queued", "sent", "acknowledged", "failed"}:
         return status  # type: ignore[return-value]
-    if status == "scheduled":
-        return "queued"
     return "queued"
 
 def _outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:
@@ -127,6 +125,10 @@ def _callback_dnd_active(
 def _callback_event_tone(kind: str | None, note: str | None) -> str | None:
     if kind in {"callback_created", "callback_reminder_created"}:
         return "info"
+    if kind == "callback_reminder_sent":
+        return "success"
+    if kind == "callback_reminder_failed":
+        return "warn"
     if kind == "callback_updated":
         if note == "completed":
             return "success"
@@ -174,7 +176,8 @@ def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[di
         conn.execute(
             text(
                 """
-                SELECT callback_id, channel, scheduled_at, sent_at, status, created_at
+                SELECT callback_id, channel, scheduled_at, sent_at, status, created_at,
+                       failure_reason
                 FROM callback_reminders
                 WHERE callback_id = ANY(:ids)
                 ORDER BY COALESCE(sent_at, scheduled_at, created_at)
@@ -190,6 +193,7 @@ def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[di
                 "at": r["sent_at"] or r["scheduled_at"] or r["created_at"],
                 "channel": _callback_reminder_channel(r["channel"]),
                 "status": _callback_reminder_status(r["status"]),
+                "reason": r["failure_reason"],
             }
         )
     return grouped
@@ -456,12 +460,18 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"id": callback_id, "status": payload.get("status")}
 
 def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Queue a reminder; ``callback_reminders.py`` sends it.
+
+    A client used to post ``sent`` -- the sheet's Send button did -- and the
+    callback went to ``reminded`` with nobody contacted. Only the dispatcher
+    writes ``sent``, after a provider accepted the message.
+    """
     engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "callbacks", callback_id)
         row = _one(
             conn.execute(
-                text("SELECT customer_id, status FROM callbacks WHERE id = :id"),
+                text("SELECT customer_id FROM callbacks WHERE id = :id"),
                 {"id": callback_id},
             )
         )
@@ -469,20 +479,15 @@ def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str
             raise KeyError("callback_not_found")
 
         status = payload.get("status") or "queued"
-        if status not in {"queued", "scheduled", "sent", "acknowledged"}:
+        if status not in {"queued", "scheduled"}:
             raise ValueError(f"invalid_reminder_status: {status}")
-        # DB also allows 'scheduled'; treat UI 'queued' as queued.
-        db_status = "scheduled" if status == "queued" else status
-        sent_at = utc_now().isoformat() if db_status == "sent" else None
 
         reminder_id = _id("CBR")
         conn.execute(
             text(
                 """
-                INSERT INTO callback_reminders
-                  (id, callback_id, channel, scheduled_at, sent_at, status)
-                VALUES
-                  (:id, :callback_id, :channel, :scheduled_at, :sent_at, :status)
+                INSERT INTO callback_reminders (id, callback_id, channel, scheduled_at, status)
+                VALUES (:id, :callback_id, :channel, :scheduled_at, 'scheduled')
                 """
             ),
             {
@@ -490,17 +495,8 @@ def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str
                 "callback_id": callback_id,
                 "channel": payload["channel"],
                 "scheduled_at": payload.get("scheduledAt") or utc_now().isoformat(),
-                "sent_at": sent_at,
-                "status": db_status,
             },
         )
-        # Sending a reminder advances scheduled → reminded.
-        if db_status == "sent" and row["status"] == "scheduled":
-            conn.execute(
-                text("UPDATE callbacks SET status = 'reminded' WHERE id = :id"),
-                {"id": callback_id},
-            )
-        label = "Callback reminder sent" if db_status == "sent" else "Callback reminder queued"
-        _activity(conn, "callback", callback_id, "callback_reminder_created", label, payload["channel"], row["customer_id"])
-        return {"id": reminder_id, "status": _callback_reminder_status(db_status)}
+        _activity(conn, "callback", callback_id, "callback_reminder_created", "Callback reminder queued", payload["channel"], row["customer_id"])
+        return {"id": reminder_id, "status": "queued"}
 

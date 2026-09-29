@@ -163,11 +163,13 @@ export async function markCompleted(
   });
 }
 
+/** Queue a reminder for now. The backend sends it and marks it sent only once the
+ *  provider accepts it; a client cannot declare a reminder sent. */
 export async function sendReminder(cb: Callback, channel: CbChannel): Promise<void> {
   await apiPost(`/callbacks/${cb.id}/reminders`, {
     channel,
     scheduledAt: new Date().toISOString(),
-    status: "sent",
+    status: "queued",
   });
 }
 
@@ -221,7 +223,7 @@ export function useSendCallbackReminder() {
     mutationFn: (v: { cb: Callback; channel: CbChannel }) => sendReminder(v.cb, v.channel),
     onSuccess: (_r, v) => {
       void qc.invalidateQueries({ queryKey: ["callbacks"] });
-      toast.success(`Reminder sent · ${v.channel === "whatsapp" ? "WhatsApp" : v.channel}`);
+      toast.success(`Reminder queued · ${v.channel === "whatsapp" ? "WhatsApp" : v.channel}`);
     },
   });
 }

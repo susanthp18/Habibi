@@ -22,7 +22,9 @@ export type CbDisposition =
 export interface CbReminder {
   at: string;
   channel: CbChannel;
-  status: "queued" | "sent" | "acknowledged";
+  status: "queued" | "sent" | "acknowledged" | "failed";
+  /** Why a failed reminder was not sent. */
+  reason?: string | null;
 }
 export interface CbEvent {
   at: string;

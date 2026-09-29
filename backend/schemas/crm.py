@@ -297,7 +297,9 @@ class CallbackEventResponse(BaseModel):
 class CallbackReminderResponse(BaseModel):
     at: str
     channel: Literal["whatsapp", "sms", "email"]
-    status: Literal["queued", "sent", "acknowledged"]
+    status: Literal["queued", "sent", "acknowledged", "failed"]
+    # Why a failed reminder was not sent.
+    reason: str | None = None
 
 
 class CallbackListResponse(BaseModel):
@@ -378,8 +380,8 @@ class ReminderCreateRequest(BaseModel):
     channel: Channel
     scheduledAt: str | None = None
     note: str | None = None
-    # queued = schedule for later; sent = agent just fired it from the sheet.
-    status: Literal["queued", "scheduled", "sent", "acknowledged"] | None = None
+    # A client queues; only the dispatcher (callback_reminders.py) says sent.
+    status: Literal["queued", "scheduled"] | None = None
 
 
 class FollowupPatchRequest(BaseModel):
