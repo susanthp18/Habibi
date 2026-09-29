@@ -48,14 +48,16 @@ done
 # Lowercase name: the rollout extracts /tmp/habibi.tgz.
 mv -f "$OUT/Habibi.tgz" "$OUT/habibi.tgz"
 
-# The marketing site (Site/) lives beside the repo, not in it, so it cannot be
-# packed from HEAD. It is rebuilt here every time -- a stale dist/ must never
-# ship -- and the rollout releases it with site-production.sh.
-if [ -f Site/package.json ]; then
-  (cd Site && npm run build >/dev/null)
-  tar -czf "$OUT/site.tgz" -C Site/dist/client .
-  printf '  %-14s %s
-' "site.tgz" "$(du -h "$OUT/site.tgz" | cut -f1)"
+# The marketing site (Site/) is built from HEAD like everything else, in a
+# scratch copy -- a stale or half-edited dist/ must never ship -- and the
+# rollout releases it with site-production.sh.
+if git cat-file -e HEAD:Site/package.json 2>/dev/null; then
+  build=$(mktemp -d)
+  git archive --format=tar HEAD Site | tar -xf - -C "$build"
+  (cd "$build/Site" && npm ci --no-audit --no-fund --loglevel=error && npm run build >/dev/null)
+  tar -czf "$OUT/site.tgz" -C "$build/Site/dist/client" .
+  rm -rf "$build"
+  printf '  %-14s %s\n' "site.tgz" "$(du -h "$OUT/site.tgz" | cut -f1)"
 fi
 
 echo

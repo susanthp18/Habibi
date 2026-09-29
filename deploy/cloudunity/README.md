@@ -35,11 +35,13 @@ demand and can blank the Studio screen.
 
 ## Marketing site (`/`)
 
-`Site/` sits beside the repo, not in it. `pack-release.sh` rebuilds it
-(prerendered, one HTML file per route) into `dist/site.tgz`, and the rollout
-runs `site-production.sh /tmp/site.tgz`: a pinned nginx container per release
-on loopback 3112/3113, probed, then the host's `upstream payint_site` is
-switched. The legacy `payint_site` dev container (3109) is stopped, not
+`Site/` is in the repo (see `Site/README.md`). `deploy-from-git.sh` builds it
+from the deployed commit in a pinned `node:22-bookworm` container, and
+`pack-release.sh` does the same from `HEAD` on the laptop; either way the
+prerendered bundle (one HTML file per route) becomes `/tmp/site.tgz`, and the
+rollout runs `site-production.sh /tmp/site.tgz`: a pinned nginx container per
+release on loopback 3112/3113, probed, then the host's `upstream payint_site`
+is switched. A failed site build or release leaves the previous site serving. The legacy `payint_site` dev container (3109) is stopped, not
 removed, for rollback.
 
 ## nginx (after DNS already points here)
