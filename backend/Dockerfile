@@ -4,7 +4,7 @@
 # Pinned by digest: a tag moves under a rebuild; the digest is what CI and the
 # laptop both built. Bump deliberately (docker pull python:3.12-slim, then
 # docker image inspect --format '{{index .RepoDigests 0}}').
-FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea AS base
+FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -54,7 +54,7 @@ USER app
 # The pinned models for the call-intelligence pass, fetched in a stage of
 # their own: only call_intel/models.py (and its two helpers) is copied, so an
 # application change does not invalidate ~800 MB of downloads.
-FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea AS models
+FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS models
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 ML_MODEL_DIR=/opt/models
 WORKDIR /fetch
 RUN pip install huggingface_hub==1.33.0
