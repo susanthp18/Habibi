@@ -28,6 +28,8 @@ class RealtimeFeedbackType(Enum):
     TTFB_METRIC = "rtf-ttfb-metric"
     NODE_TRANSITION = "rtf-node-transition"
     LATENCY_MEASURED = "rtf-latency-measured"
+    LATENCY_BREAKDOWN = "rtf-latency-breakdown"
+    STARTUP_TIMING = "rtf-startup-timing"
     PIPELINE_ERROR = "rtf-pipeline-error"
     BOT_STARTED_SPEAKING = "rtf-bot-started-speaking"
     BOT_STOPPED_SPEAKING = "rtf-bot-stopped-speaking"

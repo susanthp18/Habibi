@@ -659,6 +659,18 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      async def _start_idle_timer(self):
          """Start (or restart) the idle timer."""
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/utils/enums.py engine/pipecat/src/pipecat/utils/enums.py
+--- pipecat/src/pipecat/utils/enums.py	2026-09-29 17:10:40.875705500 +0530
++++ engine/pipecat/src/pipecat/utils/enums.py	2026-09-29 17:00:15.824931000 +0530
+@@ -28,6 +28,8 @@
+     TTFB_METRIC = "rtf-ttfb-metric"
+     NODE_TRANSITION = "rtf-node-transition"
+     LATENCY_MEASURED = "rtf-latency-measured"
++    LATENCY_BREAKDOWN = "rtf-latency-breakdown"
++    STARTUP_TIMING = "rtf-startup-timing"
+     PIPELINE_ERROR = "rtf-pipeline-error"
+     BOT_STARTED_SPEAKING = "rtf-bot-started-speaking"
+     BOT_STOPPED_SPEAKING = "rtf-bot-stopped-speaking"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
 --- pipecat/tests/test_azure_stt.py	2026-09-29 10:11:54.677406200 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530

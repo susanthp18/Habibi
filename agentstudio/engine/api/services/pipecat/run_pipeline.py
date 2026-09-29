@@ -95,6 +95,7 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.observers.startup_timing_observer import StartupTimingObserver
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -181,6 +182,35 @@ def _create_user_mute_strategies(engine, answer_supervisor):
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
+
+
+def startup_timing_payload(report) -> dict:
+    """A pipeline's startup timing report, as kept on the run."""
+    slowest = sorted(report.processor_timings, key=lambda t: -t.duration_secs)[:5]
+    return {
+        "total_seconds": round(report.total_duration_secs, 3),
+        "setup_seconds": round(report.setup_phase_secs, 3),
+        "start_seconds": round(report.start_phase_secs, 3),
+        "warmup_blocking_seconds": (
+            round(report.warmup.blocking_duration_secs, 3) if report.warmup else None
+        ),
+        "slowest": [
+            {"processor": t.processor_name, "seconds": round(t.duration_secs, 3)}
+            for t in slowest
+        ],
+    }
+
+
+def latency_breakdown_payload(breakdown) -> dict:
+    """One reply's wait split into its parts, as kept on the run."""
+    return {
+        "total_seconds": round(breakdown.total_secs, 3),
+        "measured_from": str(breakdown.measured_from) if breakdown.measured_from else None,
+        "parts": [
+            {"label": c.label, "owner": c.owner, "seconds": round(c.duration_secs, 3)}
+            for c in breakdown.contributions
+        ],
+    }
 
 
 def _resolve_user_turn_stop_timeout(
@@ -1265,6 +1295,26 @@ async def _run_pipeline_impl(
     )
     task.add_observer(feedback_observer)
 
+    # Where the waits go, kept on the run as well as logged: container logs do
+    # not outlive a redeploy. Consumers pick events by type and skip these.
+    async def keep_timing(kind: RealtimeFeedbackType, payload: dict) -> None:
+        try:
+            await in_memory_logs_buffer.append({"type": kind.value, "payload": payload})
+        except Exception as e:
+            logger.error(f"Failed to append {kind.value} to logs buffer: {e}")
+
+    # What each processor's setup and start, and the deferred-import warmup,
+    # cost before the pipeline could speak.
+    startup_observer = StartupTimingObserver()
+
+    @startup_observer.event_handler("on_startup_timing_report")
+    async def on_startup_timing_report(observer, report):
+        payload = startup_timing_payload(report)
+        logger.info(f"[run {workflow_run_id}] Startup timing: {payload}")
+        await keep_timing(RealtimeFeedbackType.STARTUP_TIMING, payload)
+
+    task.add_observer(startup_observer)
+
     # Initialize the engine to set the initial context with
     # System Prompt and Tools
     await engine.initialize()
@@ -1296,6 +1346,19 @@ async def _run_pipeline_impl(
                 await in_memory_logs_buffer.append(message)
             except Exception as e:
                 logger.error(f"Failed to append latency to logs buffer: {e}")
+
+        # The same wait split into its parts: speech recognition, each LLM
+        # call, tools, the first audio. The first one covers the greeting,
+        # measured from the caller connecting.
+        @task.user_bot_latency_observer.event_handler("on_latency_breakdown")
+        async def on_latency_breakdown(observer, breakdown):
+            payload = latency_breakdown_payload(breakdown)
+            logger.info(
+                f"[run {workflow_run_id}] Latency {payload['total_seconds']:.2f}s "
+                f"from {payload['measured_from']}: "
+                + " | ".join(f"{p['label']} {p['seconds']:.2f}s" for p in payload["parts"])
+            )
+            await keep_timing(RealtimeFeedbackType.LATENCY_BREAKDOWN, payload)
 
     # Register turn log handlers for all call types (WebRTC and telephony)
     register_turn_log_handlers(
