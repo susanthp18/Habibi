@@ -43,7 +43,6 @@ _wsl_clean.sh
 
 # Personal working material beside the repo, never part of it
 /Mockups/
-/Site/
 /Videos/
 /index.html
 /kdp-axolotl-coloring-book/
@@ -70,3 +69,6 @@ _wsl_clean.sh
 
 # Release tarballs built by deploy/cloudunity/pack-release.sh
 /dist/
+
+# The marketing site (Site/) is source; only its build output stays out.
+/Site/dist/

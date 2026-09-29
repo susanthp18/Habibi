@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://beeonixpayint.bigtapp.net/sitemap.xml
