@@ -58,8 +58,22 @@ def normalise_twilio(status: str | None) -> str | None:
     return _TWILIO_STATES.get((status or "").strip().lower())
 
 
+#: Receipt state -> (the Inbox bubble, the bubble states it may replace).
+#: Forward only, as the WhatsApp webhook does it: a late "sent" must not drag a
+#: delivered message back, and a failure wins over anything but itself.
+_SMS_BUBBLE = {
+    "sent": ("sent", ["sending"]),
+    "delivered": ("delivered", ["sending", "sent"]),
+    "undelivered": ("failed", ["sending", "sent", "delivered"]),
+    "failed": ("failed", ["sending", "sent", "delivered"]),
+}
+
+
 def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> bool:
     """Twilio's SMS status callback, attributed to the send that made it.
+
+    Also moves the Inbox bubble of an agent's SMS, found by the SID the outbox
+    worker stored as its ``provider_ref``.
 
     Returns False (and records nothing) when the sid is not one we sent.
     """
@@ -80,6 +94,17 @@ def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> boo
         ).mappings().first()
         if origin is None:
             return False
+        bubble = _SMS_BUBBLE.get(state)
+        if bubble:
+            conn.execute(
+                text(
+                    """
+                    UPDATE messages SET delivery_status = :to
+                    WHERE provider_ref = :sid AND delivery_status = ANY(:replaces)
+                    """
+                ),
+                {"to": bubble[0], "replaces": bubble[1], "sid": sid},
+            )
         record(
             conn,
             tenant_id=str(origin["tenant_id"]),

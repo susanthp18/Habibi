@@ -16,7 +16,7 @@ def test_outreach_route_reads_the_idempotency_header() -> None:
     assert "idempotency_key" in inspect.signature(outbound.treatment_decision_enact).parameters
 
 
-def test_send_customer_outreach_sms_is_idempotent_and_mocks_no_provider(db_tx, monkeypatch) -> None:
+def test_send_customer_outreach_sms_is_idempotent_and_enqueues_once(db_tx, monkeypatch) -> None:
     row = db_tx.execute(
         text(
             """
@@ -38,6 +38,7 @@ def test_send_customer_outreach_sms_is_idempotent_and_mocks_no_provider(db_tx, m
         reason = None
 
     monkeypatch.setattr("contact_policy.require_admit", lambda *a, **k: _Ok())
+    monkeypatch.setattr("twilio_sms.configured", lambda: True)
     sent: list[dict] = []
 
     def _enqueue(*_a, **kwargs):
@@ -56,7 +57,10 @@ def test_send_customer_outreach_sms_is_idempotent_and_mocks_no_provider(db_tx, m
     assert first["conversationId"]
     assert first["messageId"]
     assert second == first
-    assert sent == []
+    # SMS used to be stored as sent with no provider call; it now leaves
+    # through the outbox like WhatsApp, once.
+    assert len(sent) == 1
+    assert sent[0]["source"] == "customer_outreach"
 
 
 def test_send_customer_outreach_whatsapp_enqueues_with_mocked_provider(db_tx, monkeypatch) -> None:

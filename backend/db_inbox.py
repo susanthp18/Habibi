@@ -1191,6 +1191,24 @@ def escalate_conversation_to_human(conversation_id: str, *, reason: str = "escal
     return result
 
 
+def _sms_recipient(row: dict[str, Any]) -> str:
+    """The number an agent's SMS goes to, or a refusal before anything is stored.
+
+    Refused rather than queued to fail: with no provider nothing could ever
+    send it, and an SMS the Inbox stored as ``sent`` without calling one was
+    the bug this replaces.
+    """
+    import contact_policy
+    import twilio_sms
+
+    to_phone = contact_policy.chosen_phone(row)
+    if not to_phone:
+        raise ValueError("sms_missing_recipient")
+    if not twilio_sms.configured():
+        raise ValueError("sms_not_configured")
+    return to_phone
+
+
 def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     text_value = (payload.get("text") or "").strip()
     if not text_value:
@@ -1347,6 +1365,11 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                 actor_user_id=me_id,
                 endpoint=contact_policy.chosen_phone(row),
             )
+            if channel == "sms":
+                # Queued like WhatsApp: the outbox worker calls Twilio after
+                # this commits, and only its answer moves the row off `sending`.
+                to_phone = _sms_recipient(row)
+                delivery_status = "sending"
             conn.execute(
                 text(
                     """
@@ -1363,6 +1386,19 @@ def send_conversation_message(conversation_id: str, payload: dict[str, Any]) -> 
                     "sent_at": now,
                 },
             )
+            if channel == "sms":
+                import whatsapp_outbound as wa_out
+
+                wa_out.enqueue_agent_send(
+                    conn,
+                    message_id=msg_id,
+                    conversation_id=conversation_id,
+                    customer_id=row["customer_id"],
+                    to_phone=to_phone,
+                    body=text_value,
+                    purpose="outreach",
+                    source="inbox_reply",
+                )
             _finalize(conn, row)
 
     result = get_conversation(conversation_id)
@@ -1378,8 +1414,9 @@ def send_customer_outreach(
 ) -> dict[str, Any]:
     """Admit, create a thread if missing, then the inbox send path.
 
-    WhatsApp first-touch uses purpose=outreach (no 24h session window). The
-    provider is still ``whatsapp_outbound.enqueue_agent_send``.
+    WhatsApp first-touch uses purpose=outreach (no 24h session window). Both
+    channels enqueue through ``whatsapp_outbound.enqueue_agent_send``; its
+    worker sends an SMS thread's message through Twilio.
     """
     channel = str(payload.get("channel") or "").strip()
     text_value = (payload.get("text") or "").strip()
@@ -1504,52 +1541,42 @@ def send_customer_outreach(
             actor_user_id=me_id,
             endpoint=contact_policy.chosen_phone(existing),
         )
+        import whatsapp_outbound as wa_out
+
         if channel == "whatsapp":
             import whatsapp as wa
-            import whatsapp_outbound as wa_out
 
             to_phone = wa.normalize_phone(contact_policy.chosen_phone(existing))
             if not to_phone:
                 raise ValueError("whatsapp_missing_recipient")
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
-                    VALUES (:id, :conversation_id, 'agent', :body, 'sending', NULL, :sent_at)
-                    """
-                ),
-                {
-                    "id": msg_id,
-                    "conversation_id": conversation_id,
-                    "body": text_value,
-                    "sent_at": now,
-                },
-            )
-            wa_out.enqueue_agent_send(
-                conn,
-                message_id=msg_id,
-                conversation_id=conversation_id,
-                customer_id=customer_id,
-                to_phone=to_phone,
-                body=text_value,
-                purpose="outreach",
-                source="customer_outreach",
-            )
         else:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO messages (id, conversation_id, sender, body, delivery_status, sent_at)
-                    VALUES (:id, :conversation_id, 'agent', :body, 'sent', :sent_at)
-                    """
-                ),
-                {
-                    "id": msg_id,
-                    "conversation_id": conversation_id,
-                    "body": text_value,
-                    "sent_at": now,
-                },
-            )
+            to_phone = _sms_recipient(existing)
+        # Both channels leave through the outbox after commit; the worker's
+        # provider answer is what moves the row off `sending`.
+        conn.execute(
+            text(
+                """
+                INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at)
+                VALUES (:id, :conversation_id, 'agent', :body, 'sending', NULL, :sent_at)
+                """
+            ),
+            {
+                "id": msg_id,
+                "conversation_id": conversation_id,
+                "body": text_value,
+                "sent_at": now,
+            },
+        )
+        wa_out.enqueue_agent_send(
+            conn,
+            message_id=msg_id,
+            conversation_id=conversation_id,
+            customer_id=customer_id,
+            to_phone=to_phone,
+            body=text_value,
+            purpose="outreach",
+            source="customer_outreach",
+        )
         conn.execute(
             text(
                 """

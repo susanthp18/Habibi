@@ -1,8 +1,12 @@
-"""SKIP LOCKED queue for agent WhatsApp outbound sends.
+"""SKIP LOCKED queue for agent outbound sends: WhatsApp, and SMS threads.
 
 Agent replies must not block the CRM HTTP path on Meta Graph latency.
 API inserts messages as delivery_status='sending', enqueues a job here, and
 returns immediately. bot_worker drains both bot_turn_jobs and this queue.
+
+The thread's channel picks the provider: a message on an ``sms`` conversation
+goes through ``twilio_sms.send``, everything else through Meta. No column says
+so because no other caller enqueues onto a non-WhatsApp thread.
 """
 
 from __future__ import annotations
@@ -365,7 +369,7 @@ def _finalize_treatment_send(
         logger.exception("treatment finalize failed for decision=%s", decision_id)
 
 
-def _persistable_error(exc: BaseException) -> str:
+def _persistable_error(exc: BaseException, channel: str = "whatsapp") -> str:
     """Error text safe to store on the job row and emit to logs.
 
     ``wa.send_text_message`` already raises ``ValueError`` carrying a code from
@@ -373,11 +377,12 @@ def _persistable_error(exc: BaseException) -> str:
     number, message text, token fragments). Anything else reaching the catch-all
     is a driver or runtime error whose ``str()`` can echo SQL parameters — i.e.
     customer data — into ``whatsapp_outbound_jobs.error``, which the Inbox reads.
-    Keep the classifier's message; reduce the rest to its type.
+    Keep the classifier's message; reduce the rest to its type. (Twilio's 4xx
+    text names the number too, so an SMS failure is reduced the same way.)
     """
     if isinstance(exc, ValueError):
         return str(exc)
-    return f"whatsapp_send_failed:internal:{type(exc).__name__}"
+    return f"{channel}_send_failed:internal:{type(exc).__name__}"
 
 
 #: How long past its moment a queued message is still worth delivering.
@@ -592,7 +597,7 @@ def mark_failed_or_retry(conn: Connection, job: dict[str, Any], error: str) -> s
 
 
 def handle_job(engine: Engine, job: dict[str, Any]) -> None:
-    """Send via Meta Graph and update the messages row."""
+    """Send via Meta Graph (Twilio for an SMS thread) and update the messages row."""
     import whatsapp as wa
 
     message_id = job["message_id"]
@@ -604,8 +609,10 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
         row = conn.execute(
             text(
                 """
-                SELECT delivery_status, provider_ref
-                FROM messages WHERE id = :id
+                SELECT m.delivery_status, m.provider_ref, cv.channel
+                FROM messages m
+                JOIN conversations cv ON cv.id = m.conversation_id
+                WHERE m.id = :id
                 """
             ),
             {"id": message_id},
@@ -640,6 +647,7 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
         with engine.begin() as conn:
             mark_succeeded(conn, job["id"], provider_ref=row._mapping.get("provider_ref"))
         return
+    channel = "sms" if row._mapping.get("channel") == "sms" else "whatsapp"
 
     import contact_policy
 
@@ -653,7 +661,7 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
         decision = contact_policy.admit(
             conn,
             customer_id=job.get("customer_id"),
-            channel="whatsapp",
+            channel=channel,
             purpose=purpose,
             session_key=job.get("decision_id") or job.get("conversation_id"),
             source=source,
@@ -725,7 +733,16 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
 
     try:
         template_name = (job.get("template_name") or "").strip()
-        if template_name:
+        if channel == "sms":
+            import twilio_sms
+
+            send_resp = twilio_sms.send(
+                to_phone=to_phone,
+                body=body,
+                customer_id=job.get("customer_id"),
+                related_id=message_id,
+            )
+        elif template_name:
             params = job.get("template_params") or []
             if isinstance(params, str):
                 try:
@@ -744,14 +761,21 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
                 body=body,
                 preview_url=bool(job.get("preview_url")),
             )
-        provider_ref = wa.extract_wamid(send_resp)
+        provider_ref = send_resp.get("sid") if channel == "sms" else wa.extract_wamid(send_resp)
     except Exception as exc:
-        err = _persistable_error(exc)
+        err = _persistable_error(exc, channel)
         logger.warning(
             "whatsapp_outbound send failed job=%s err=%s", job["id"], err, exc_info=True
         )
         with engine.begin() as conn:
-            status = mark_failed_or_retry(conn, job, err)
+            # SMS gets no retry ladder: Twilio takes no idempotency key, so a
+            # retry after a timeout can be a second text, and the agent watching
+            # the bubble can resend. ponytail: every SMS failure is terminal;
+            # retry the provably pre-send ones (breaker open) if that chafes.
+            if channel == "sms":
+                status = cancel(conn, job, err)
+            else:
+                status = mark_failed_or_retry(conn, job, err)
             if status == "dead":
                 conn.execute(
                     text(
