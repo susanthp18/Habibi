@@ -46,8 +46,9 @@ def test_service_factory_tags_success_with_authoritative_ownership():
     assert metadata.error_owner.value == "user"
 
 
-def test_azure_gpt_6_luna_disables_reasoning_without_temperature():
-    with patch("api.services.pipecat.service_factory.AzureLLMService") as service:
+def test_azure_gpt_6_luna_reasons_low_over_the_responses_socket():
+    """Chat completions refuses tools with any reasoning; the Responses API takes them."""
+    with patch("api.services.pipecat.service_factory.AzureResponsesLLMService") as service:
         create_llm_service_from_provider(
             provider="azure",
             model="gpt-6-luna",
@@ -55,10 +56,11 @@ def test_azure_gpt_6_luna_disables_reasoning_without_temperature():
             endpoint="https://example.openai.azure.com/",
         )
 
-    settings = service.call_args.kwargs["settings"]
-    assert settings.model == "gpt-6-luna"
-    assert settings.extra == {"reasoning_effort": "none"}
-    assert "temperature" not in settings.extra
+    kwargs = service.call_args.kwargs
+    assert kwargs["base_url"] == "https://example.openai.azure.com/openai/v1/"
+    assert kwargs["ws_url"] == "wss://example.openai.azure.com/openai/v1/responses"
+    assert kwargs["settings"].model == "gpt-6-luna"
+    assert kwargs["settings"].reasoning.effort == "low"
 
 
 def test_managed_service_constructor_failure_is_attributed_to_dograh(monkeypatch):

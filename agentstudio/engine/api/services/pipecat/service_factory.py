@@ -28,6 +28,7 @@ from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
+from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
 from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
 from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService, CartesiaSTTSettings
@@ -1091,6 +1092,19 @@ def _migrate_deprecated_google_model(model: str) -> str:
     return model
 
 
+class AzureResponsesLLMService(OpenAIResponsesLLMService):
+    """The Responses API over one WebSocket, as Azure OpenAI serves it.
+
+    Azure keeps no connection-local cache of earlier responses: a request that
+    names ``previous_response_id`` comes back ``previous_response_not_found``,
+    and the retry would cost a round trip every turn. So each request carries
+    the whole context, as over HTTP.
+    """
+
+    def _apply_previous_response_optimization(self, params: dict, full_input: list) -> dict:
+        return params
+
+
 @_report_service_factory_failures(ErrorSource.LLM, provider_argument=0)
 def create_llm_service_from_provider(
     provider: str,
@@ -1194,6 +1208,23 @@ def create_llm_service_from_provider(
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:
             _validate_runtime_service_url(endpoint, "endpoint")
+        if model.lower() == "gpt-6-luna" and endpoint:
+            # Low reasoning: replayed over the calls of 29 Sep it took the
+            # right path where none sent a payment change to disputes, went to
+            # record before reading back, and ended a call unverified. Chat
+            # completions refuses tools with any reasoning, so the Responses
+            # API, on one socket for the call (1.73 s to the first token
+            # against 1.94 s over HTTP).
+            root = endpoint.rstrip("/")
+            return AzureResponsesLLMService(
+                api_key=api_key,
+                base_url=f"{root}/openai/v1/",
+                ws_url=f"{root.replace('https://', 'wss://', 1)}/openai/v1/responses",
+                settings=OpenAIResponsesLLMService.Settings(
+                    model=model,
+                    reasoning=OpenAIResponsesLLMService.ReasoningConfig(effort="low"),
+                ),
+            )
         settings = (
             AzureLLMSettings(model=model, extra={"reasoning_effort": "none"})
             if model.lower() == "gpt-6-luna"
