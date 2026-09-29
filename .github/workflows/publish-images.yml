@@ -47,7 +47,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: API image tags
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         id: api
         with:
           images: ${{ env.IMAGE_NS }}/collections-api
