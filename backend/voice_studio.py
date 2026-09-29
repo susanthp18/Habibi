@@ -679,6 +679,18 @@ def _parts(args: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, dict[str,
     return parts, None
 
 
+def _open_revisions(ctx: dict[str, Any]) -> int:
+    """How many times the customer's open promise has been changed so far."""
+    import db
+
+    with db.engine.connect() as conn:
+        count = conn.execute(text(
+            "SELECT revision_count FROM promises WHERE customer_id = :c "
+            "AND status IN ('upcoming', 'due_today') ORDER BY promised_at DESC LIMIT 1"
+        ), {"c": str(ctx.get("customer_id") or "")}).scalar_one_or_none()
+    return int(count or 0)
+
+
 def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
     from agent_core.tools import domain
 
@@ -710,7 +722,11 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
             promise_date=str(args.get("date") or ""),
             interaction_id=interaction_id,
             account_id=ctx.get("account_id"),
-            idempotency_key=f"vs-{ctx.get('workflow_run_id')}-ptp-rev-{args.get('date')}-{args.get('amount')}",
+            # With the revision it changes: going back to terms said earlier in the
+            # call (run 86: 5 Oct, then 6th, 3rd, 5th again) is a new change, not a
+            # replay of the first, which returned the old result and saved nothing.
+            idempotency_key=(f"vs-{ctx.get('workflow_run_id')}-ptp-rev{_open_revisions(ctx)}"
+                             f"-{args.get('date')}-{args.get('amount')}"),
         )
     if result.error == "promise_revision_cap":  # final: a retry cannot succeed
         # A callback, not a colleague: the agents offer a person only when the

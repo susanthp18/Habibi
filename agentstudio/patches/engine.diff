@@ -7931,8 +7931,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-29 21:08:04.315796200 +0530
-@@ -0,0 +1,192 @@
++++ engine/api/tests/test_call_language.py	2026-09-29 22:13:44.980755300 +0530
+@@ -0,0 +1,194 @@
 +"""The call's language follows the caller, but not on a stray word."""
 +
 +import asyncio
@@ -8117,10 +8117,12 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +
 +
 +@pytest.mark.asyncio
-+async def test_the_check_reads_the_models_answer_and_fails_open():
++async def test_only_a_clear_answer_switches():
 +    assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
 +    assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
-+    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True
++    # Run 86: an empty answer to a Tamil-script "yes" switched the call to Tamil.
++    assert await words_are_in(_LLM(""), "யெஸ்", "ta-IN", "en-IN") is False
++    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is False
 +
 +
 +async def _checks_done(tracker):
@@ -9491,15 +9493,14 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      logs_buffer = InMemoryLogsBuffer(workflow_run_id=2122)
      coordinator = TranscriptLogCoordinator(logs_buffer)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_service_factory_failure_reporting.py engine/api/tests/test_service_factory_failure_reporting.py
---- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-29 21:52:23.538150100 +0530
-+++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-29 21:50:10.345506800 +0530
-@@ -46,6 +46,23 @@
+--- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-29 22:15:09.383976700 +0530
++++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-29 22:13:57.746610300 +0530
+@@ -46,6 +46,21 @@
      assert metadata.error_owner.value == "user"
  
  
-+def test_azure_gpt_6_luna_reasons_low_over_the_responses_socket():
-+    """Chat completions refuses tools with any reasoning; the Responses API takes them."""
-+    with patch("api.services.pipecat.service_factory.AzureResponsesLLMService") as service:
++def test_azure_gpt_6_luna_disables_reasoning_without_temperature():
++    with patch("api.services.pipecat.service_factory.AzureLLMService") as service:
 +        create_llm_service_from_provider(
 +            provider="azure",
 +            model="gpt-6-luna",
@@ -9507,11 +9508,10 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            endpoint="https://example.openai.azure.com/",
 +        )
 +
-+    kwargs = service.call_args.kwargs
-+    assert kwargs["base_url"] == "https://example.openai.azure.com/openai/v1/"
-+    assert kwargs["ws_url"] == "wss://example.openai.azure.com/openai/v1/responses"
-+    assert kwargs["settings"].model == "gpt-6-luna"
-+    assert kwargs["settings"].reasoning.effort == "low"
++    settings = service.call_args.kwargs["settings"]
++    assert settings.model == "gpt-6-luna"
++    assert settings.extra == {"reasoning_effort": "none"}
++    assert "temperature" not in settings.extra
 +
 +
  def test_managed_service_constructor_failure_is_attributed_to_dograh(monkeypatch):

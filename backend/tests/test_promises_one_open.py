@@ -325,3 +325,23 @@ def test_the_catalog_and_the_database_agree_on_the_reasons() -> None:
     from db_promises import REVISION_REASONS
 
     assert CATALOG_REASONS == REVISION_REASONS
+
+
+def test_going_back_to_earlier_terms_in_the_same_call_is_a_new_change(db_tx, monkeypatch) -> None:
+    """Run 86: 5 Oct, 6 Oct, 3 Oct, then 5 Oct again -- the last replayed the first and saved nothing."""
+    import voice_studio
+
+    monkeypatch.setattr(voice_studio, "_require_verified", lambda *_a, **_k: None)
+    customer_id, account_id = _customer(db_tx)
+    promise = _create(customer_id, account_id, amount=500, days=2)
+    ctx = {"customer_id": customer_id, "account_id": account_id, "workflow_run_id": f"t-{uuid.uuid4().hex[:8]}"}
+    interaction_id = db_tx.execute(text("SELECT id FROM interactions LIMIT 1")).scalar_one_or_none()
+    if interaction_id is None:
+        pytest.skip("no interaction to record the changes against")
+    for days in (5, 6, 5):
+        out = voice_studio._tool_promise_to_pay(
+            ctx, {"amount": 500, "date": _day(days), "reason": "customer_requested_delay"}, interaction_id)
+        assert out.get("ok") is True, out
+    row = db_tx.execute(text("SELECT promised_at, revision_count FROM promises WHERE id = :id"),
+                        {"id": promise["id"]}).mappings().one()
+    assert _local_day(row["promised_at"]) == _day(5) and row["revision_count"] == 3

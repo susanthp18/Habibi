@@ -99,8 +99,9 @@ async def words_are_in(llm, text: str, locale: str, current: str) -> bool:
     Azure labels an Indian caller's English Hindi or Tamil and writes it in that
     script: "what is the last date I can pay" came as "வாட் இஸ் தி லாஸ்ட் டேட் ஐ
     கேன் பி", ta-IN, nine words, and the call and its voice went Tamil (run 79).
-    Word counts cannot tell that from Tamil; the words can. Fails open: on a slow
-    or failed check the switch goes ahead as it would have.
+    Word counts cannot tell that from Tamil; the words can. Only a clear answer
+    naming the new language switches: an empty or failed check keeps the call's
+    language (run 86 switched to Tamil on an empty answer to a Tamil-script "yes").
     """
     from pipecat.processors.aggregators.llm_context import LLMContext
 
@@ -116,14 +117,14 @@ async def words_are_in(llm, text: str, locale: str, current: str) -> bool:
             reply = await llm.run_inference(
                 LLMContext([{"role": "user", "content": question}]),
                 system_instruction="You name the language of one phrase. Reply with the language only.",
-                max_tokens=64,
+                max_tokens=512,
             )
     except Exception as e:
-        logger.warning(f"Language check failed open: {type(e).__name__}")
-        return True
+        logger.warning(f"Language check failed, keeping {current}: {type(e).__name__}")
+        return False
     answer = (reply or "").strip().lower()
     logger.info(f"Language check {locale} vs {current}: {answer[:20]!r}")
-    return not answer.startswith(current_name.lower())
+    return answer.startswith(name.lower())
 
 
 class CallLanguageTracker(FrameProcessor):

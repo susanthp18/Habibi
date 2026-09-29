@@ -182,10 +182,12 @@ class _LLM:
 
 
 @pytest.mark.asyncio
-async def test_the_check_reads_the_models_answer_and_fails_open():
+async def test_only_a_clear_answer_switches():
     assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
     assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
-    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True
+    # Run 86: an empty answer to a Tamil-script "yes" switched the call to Tamil.
+    assert await words_are_in(_LLM(""), "யெஸ்", "ta-IN", "en-IN") is False
+    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is False
 
 
 async def _checks_done(tracker):
