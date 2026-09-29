@@ -211,9 +211,32 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        "USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
 +    )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/app.py engine/api/app.py
---- dograh/api/app.py	2026-09-29 13:26:35.299878500 +0530
-+++ engine/api/app.py	2026-09-26 10:02:08.530122700 +0530
-@@ -88,13 +88,12 @@
+--- dograh/api/app.py	2026-09-29 16:45:54.284676300 +0530
++++ engine/api/app.py	2026-09-29 16:43:12.804636400 +0530
+@@ -25,6 +25,7 @@
+     print(f"Sentry initialized in environment: {ENVIRONMENT}")
+ 
+ 
++import asyncio
+ from contextlib import asynccontextmanager
+ 
+ from fastapi import APIRouter, FastAPI, Request
+@@ -70,8 +71,14 @@
+         await sync_manager.start()
+         set_worker_sync_manager(sync_manager)
+ 
++        from pipecat.utils.prewarm import warm_deferred_imports
++
+         from api.services.observability import loop_exceptions, loop_lag
+ 
++        # Every call's pipeline waits for these before its greeting; loaded
++        # here, the first call in this process doesn't pay the 1-2 s.
++        await asyncio.to_thread(warm_deferred_imports)
++
+         # Event-loop lag gauge — per-pod saturation signal read off
+         # /health/active-calls during autoscaling load tests.
+         loop_lag.start()
+@@ -88,13 +95,12 @@
  
  
  app = FastAPI(
@@ -4406,6 +4429,30 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      "cannot pin the call and Cloudonix picks among your active "
                      "trunks."
                  ),
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/twilio/provider.py engine/api/services/telephony/providers/twilio/provider.py
+--- dograh/api/services/telephony/providers/twilio/provider.py	2026-09-29 16:45:55.137643100 +0530
++++ engine/api/services/telephony/providers/twilio/provider.py	2026-09-29 16:34:51.005387300 +0530
+@@ -76,8 +76,18 @@
+         logger.info(f"Selected phone number {from_number} for outbound call")
+         logger.info(f"Webhook url received - {webhook_url}")
+ 
+-        # Prepare call data
+-        data = {"To": to_number, "From": from_number, "Url": webhook_url}
++        # Prepare call data. With the ids at hand the TwiML goes with the dial:
++        # fetched from Url it costs a round trip to this server after the
++        # callee answers, silence they hear before the greeting.
++        workflow_id = kwargs.pop("workflow_id", None)
++        organization_id = kwargs.pop("organization_id", None)
++        data = {"To": to_number, "From": from_number}
++        if workflow_run_id and workflow_id and organization_id:
++            data["Twiml"] = await self.get_webhook_response(
++                workflow_id, organization_id, workflow_run_id
++            )
++        else:
++            data["Url"] = webhook_url
+ 
+         # Add status callback if workflow_run_id provided
+         if workflow_run_id:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/twilio/strategies.py engine/api/services/telephony/providers/twilio/strategies.py
 --- dograh/api/services/telephony/providers/twilio/strategies.py	2026-09-29 13:26:35.764551300 +0530
 +++ engine/api/services/telephony/providers/twilio/strategies.py	2026-09-26 10:02:08.630542000 +0530
@@ -7357,6 +7404,64 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  async def _enqueue_webhook_delivery(
      webhook_data: WebhookNodeData,
      render_context: Dict[str, Any],
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/telephony/twilio/test_initiate_call.py engine/api/tests/telephony/twilio/test_initiate_call.py
+--- dograh/api/tests/telephony/twilio/test_initiate_call.py	1970-01-01 05:30:00.000000000 +0530
++++ engine/api/tests/telephony/twilio/test_initiate_call.py	2026-09-29 16:35:08.941439800 +0530
+@@ -0,0 +1,54 @@
++"""The dial carries its TwiML, so Twilio need not fetch it after the answer."""
++
++from unittest.mock import AsyncMock, MagicMock, patch
++
++import pytest
++
++from api.services.telephony.providers.twilio.provider import TwilioProvider
++
++MODULE = "api.services.telephony.providers.twilio.provider"
++
++
++def _provider() -> TwilioProvider:
++    return TwilioProvider(
++        {"account_sid": "AC123", "auth_token": "t", "from_numbers": ["+15551230002"]}
++    )
++
++
++async def _dial(**kwargs) -> dict:
++    """Run initiate_call and return the form Twilio was sent."""
++    response = MagicMock(status=201)
++    response.json = AsyncMock(return_value={"sid": "CA1", "status": "queued"})
++    post = MagicMock()
++    post.return_value.__aenter__ = AsyncMock(return_value=response)
++    post.return_value.__aexit__ = AsyncMock(return_value=False)
++    session = MagicMock(post=post)
++    session.__aenter__ = AsyncMock(return_value=session)
++    session.__aexit__ = AsyncMock(return_value=False)
++    endpoints = AsyncMock(return_value=("https://api.example", "wss://api.example"))
++    with (
++        patch(f"{MODULE}.aiohttp.ClientSession", return_value=session),
++        patch(f"{MODULE}.get_backend_endpoints", endpoints),
++    ):
++        await _provider().initiate_call(
++            "+15551230001", "https://api.example/api/v1/telephony/twiml?x=1", **kwargs
++        )
++    return post.call_args.kwargs["data"]
++
++
++@pytest.mark.asyncio
++async def test_twiml_rides_with_the_dial():
++    data = await _dial(workflow_run_id=73, workflow_id=4, organization_id=1)
++    assert "Url" not in data
++    assert "/api/v1/telephony/ws/4/1/73" in data["Twiml"]
++    assert "<Connect>" in data["Twiml"]
++    # Engine ids are ours, not Twilio parameters.
++    assert "workflow_id" not in data and "organization_id" not in data
++    assert data["StatusCallback"].endswith("/status-callback/73")
++
++
++@pytest.mark.asyncio
++async def test_without_the_ids_twilio_fetches_the_url():
++    data = await _dial(workflow_run_id=73)
++    assert data["Url"].endswith("/twiml?x=1")
++    assert "Twiml" not in data
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/telephony/twilio/test_strategies.py engine/api/tests/telephony/twilio/test_strategies.py
 --- dograh/api/tests/telephony/twilio/test_strategies.py	2026-09-29 13:26:35.926610000 +0530
 +++ engine/api/tests/telephony/twilio/test_strategies.py	2026-09-26 10:02:38.038761700 +0530

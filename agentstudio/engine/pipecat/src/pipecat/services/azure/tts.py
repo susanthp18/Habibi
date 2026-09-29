@@ -35,6 +35,7 @@ from pipecat.utils.types import NOT_GIVEN, NotGiven, assert_given
 try:
     from azure.cognitiveservices.speech import (
         CancellationReason,
+        Connection,
         ResultReason,
         ServicePropertyChannel,
         SpeechConfig,
@@ -579,6 +580,15 @@ class AzureTTSService(TTSService, AzureBaseTTSService):
         self._speech_synthesizer.synthesis_completed.connect(self._handle_completed)
         self._speech_synthesizer.synthesis_canceled.connect(self._handle_canceled)
         self._speech_synthesizer.synthesis_word_boundary.connect(self._handle_word_boundary)
+
+        # Connect now, so the first sentence does not wait on the handshake
+        # (first audio 30-100 ms instead of 150-800 ms). Returns at once; if it
+        # fails, the first synthesis connects as it otherwise would.
+        try:
+            self._connection = Connection.from_speech_synthesizer(self._speech_synthesizer)
+            self._connection.open(True)
+        except Exception as e:
+            logger.debug(f"{self}: could not connect ahead of the first synthesis: {e}")
 
     async def start(self, frame: StartFrame):
         """Start the Azure TTS service and initialize speech synthesizer.

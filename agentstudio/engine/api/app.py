@@ -25,6 +25,7 @@ if SENTRY_DSN and (
     print(f"Sentry initialized in environment: {ENVIRONMENT}")
 
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request
@@ -70,7 +71,13 @@ async def lifespan(app: FastAPI):
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
 
+        from pipecat.utils.prewarm import warm_deferred_imports
+
         from api.services.observability import loop_exceptions, loop_lag
+
+        # Every call's pipeline waits for these before its greeting; loaded
+        # here, the first call in this process doesn't pay the 1-2 s.
+        await asyncio.to_thread(warm_deferred_imports)
 
         # Event-loop lag gauge — per-pod saturation signal read off
         # /health/active-calls during autoscaling load tests.

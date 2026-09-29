@@ -76,8 +76,18 @@ class TwilioProvider(TelephonyProvider):
         logger.info(f"Selected phone number {from_number} for outbound call")
         logger.info(f"Webhook url received - {webhook_url}")
 
-        # Prepare call data
-        data = {"To": to_number, "From": from_number, "Url": webhook_url}
+        # Prepare call data. With the ids at hand the TwiML goes with the dial:
+        # fetched from Url it costs a round trip to this server after the
+        # callee answers, silence they hear before the greeting.
+        workflow_id = kwargs.pop("workflow_id", None)
+        organization_id = kwargs.pop("organization_id", None)
+        data = {"To": to_number, "From": from_number}
+        if workflow_run_id and workflow_id and organization_id:
+            data["Twiml"] = await self.get_webhook_response(
+                workflow_id, organization_id, workflow_run_id
+            )
+        else:
+            data["Url"] = webhook_url
 
         # Add status callback if workflow_run_id provided
         if workflow_run_id:

@@ -336,9 +336,17 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              frame = InterimTranscriptionFrame(
                  event.result.text,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 10:11:52.085053500 +0530
-+++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-27 11:57:36.593934900 +0530
-@@ -94,6 +94,13 @@
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 16:46:16.665212000 +0530
++++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-29 16:40:14.839685900 +0530
+@@ -35,6 +35,7 @@
+ try:
+     from azure.cognitiveservices.speech import (
+         CancellationReason,
++        Connection,
+         ResultReason,
+         ServicePropertyChannel,
+         SpeechConfig,
+@@ -94,6 +95,13 @@
              ``"enhancePronunciation=true"``). Which keys apply depends on the
              voice's base model; standard neural voices ignore the attribute.
          volume: Volume level (e.g., "+20%", "loud", "x-soft").
@@ -352,7 +360,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      """
  
      emphasis: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
-@@ -105,6 +112,83 @@
+@@ -105,6 +113,83 @@
      style_degree: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
      voice_parameters: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
      volume: str | None | NotGiven = field(default_factory=lambda: NOT_GIVEN)
@@ -436,7 +444,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  
  class AzureBaseTTSService:
-@@ -194,29 +278,68 @@
+@@ -194,29 +279,68 @@
          """
          return language_to_azure_language(language)
  
@@ -514,7 +522,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              if self._settings.style_degree:
                  ssml += f" styledegree='{self._settings.style_degree}'"
              if self._settings.role:
-@@ -246,15 +369,13 @@
+@@ -246,15 +370,13 @@
          if prosody_attrs:
              ssml += "</prosody>"
  
@@ -533,6 +541,22 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      def _escape_text(self, text: str) -> str:
          """Escapes XML/SSML reserved characters according to Microsoft documentation.
+@@ -459,6 +581,15 @@
+         self._speech_synthesizer.synthesis_canceled.connect(self._handle_canceled)
+         self._speech_synthesizer.synthesis_word_boundary.connect(self._handle_word_boundary)
+ 
++        # Connect now, so the first sentence does not wait on the handshake
++        # (first audio 30-100 ms instead of 150-800 ms). Returns at once; if it
++        # fails, the first synthesis connects as it otherwise would.
++        try:
++            self._connection = Connection.from_speech_synthesizer(self._speech_synthesizer)
++            self._connection.open(True)
++        except Exception as e:
++            logger.debug(f"{self}: could not connect ahead of the first synthesis: {e}")
++
+     async def start(self, frame: StartFrame):
+         """Start the Azure TTS service and initialize speech synthesizer.
+ 
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
 --- pipecat/src/pipecat/services/mcp_service.py	2026-09-29 10:11:52.657264100 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
