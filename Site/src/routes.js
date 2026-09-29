@@ -10,6 +10,9 @@ import { PlatformPage } from "./pages/Platform";
 import { ProductPage } from "./pages/Product";
 import { SecurityPage } from "./pages/Security";
 
+// The pricing page is hidden for now: pages/Pricing.jsx and its FAQ are kept.
+// To bring it back, add a route for "/pricing/" (nav: "Pricing", foot: "Company",
+// component: PricingPage) and restore the "How we price it" links removed in 1f274052.
 export const routes = [
   {
     path: "/",
