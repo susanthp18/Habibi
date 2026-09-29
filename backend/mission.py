@@ -36,7 +36,7 @@ Mission's own words are: *you are authorised to perform this intervention*.
 from __future__ import annotations
 
 import logging
-from datetime import timezone
+from datetime import timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -583,7 +583,22 @@ def studio_briefing(mission: dict[str, Any]) -> str:
     position = (mission.get("context") or {}).get("position") or {}
     lines = [f"Why you are calling: {mission['brief']}"] if mission.get("brief") else []
     lines += _situation_lines(mission, position.get("currency"))
+    # Given, not worked out: run 85 told a customer Monday was the latest
+    # day it could record when it was Tuesday.
+    lines.append(f"The latest day a promise can be recorded for: {_latest_promise_day(mission)}.")
     return "\n".join(lines)
+
+
+def _latest_promise_day(mission: dict[str, Any]) -> str:
+    """Seven days from today in the customer's timezone, as "Tuesday, 6 October"."""
+    from zoneinfo import ZoneInfo
+
+    try:
+        zone = ZoneInfo(str(mission.get("timezone") or "Asia/Kolkata"))
+    except Exception:
+        zone = ZoneInfo("Asia/Kolkata")
+    day = (_now().astimezone(zone) + timedelta(days=7)).date()
+    return f"{day:%A}, {day.day} {day:%B}"
 
 
 # ---------------------------------------------------------------------------

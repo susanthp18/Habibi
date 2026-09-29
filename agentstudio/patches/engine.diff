@@ -7931,9 +7931,11 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-29 19:33:13.162650200 +0530
-@@ -0,0 +1,181 @@
++++ engine/api/tests/test_call_language.py	2026-09-29 21:08:04.315796200 +0530
+@@ -0,0 +1,192 @@
 +"""The call's language follows the caller, but not on a stray word."""
++
++import asyncio
 +
 +import pytest
 +from pipecat.frames.frames import LLMMessagesAppendFrame
@@ -7949,6 +7951,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +def _tracker():
 +    changes: list[tuple[str, list[str]]] = []
 +    tracker = CallLanguageTracker(initial="en-IN", on_change=lambda lang, spoken: changes.append((lang, spoken)))
++    tracker.checks = []
++    tracker.create_task = lambda coro, name=None: tracker.checks.append(asyncio.ensure_future(coro))
 +    pushed: list = []
 +
 +    async def push(frame, direction=None):
@@ -8082,6 +8086,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    tracker._confirm = confirm
 +    await tracker._observe("en-IN", 6, "Yeah, speaking.")
 +    await tracker._observe("ta-IN", 9, "வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி")
++    await _checks_done(tracker)
 +    assert asked == [("வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி", "ta-IN", "en-IN")]
 +    assert tracker.current == "en-IN" and changes == [("en-IN", ["en-IN"])]
 +    assert "speaking English" in pushed[-1].messages[0]["content"]
@@ -8096,6 +8101,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    tracker._confirm = confirm
 +    await tracker._observe("en-IN", 6)
 +    await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
++    assert tracker.current == "en-IN"  # the words went on; the check runs beside them
++    await _checks_done(tracker)
 +    assert tracker.current == "ta-IN"
 +
 +
@@ -8114,6 +8121,10 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
 +    assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
 +    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True
++
++
++async def _checks_done(tracker):
++    await asyncio.gather(*tracker.checks)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_custom_tools.py engine/api/tests/test_custom_tools.py
 --- dograh/api/tests/test_custom_tools.py	2026-09-29 19:22:41.095255600 +0530
 +++ engine/api/tests/test_custom_tools.py	2026-09-26 20:56:44.642277000 +0530

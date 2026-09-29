@@ -1,5 +1,7 @@
 """The call's language follows the caller, but not on a stray word."""
 
+import asyncio
+
 import pytest
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
@@ -14,6 +16,8 @@ from api.services.pipecat.call_language import (
 def _tracker():
     changes: list[tuple[str, list[str]]] = []
     tracker = CallLanguageTracker(initial="en-IN", on_change=lambda lang, spoken: changes.append((lang, spoken)))
+    tracker.checks = []
+    tracker.create_task = lambda coro, name=None: tracker.checks.append(asyncio.ensure_future(coro))
     pushed: list = []
 
     async def push(frame, direction=None):
@@ -147,6 +151,7 @@ async def test_english_in_tamil_script_is_checked_and_does_not_switch():
     tracker._confirm = confirm
     await tracker._observe("en-IN", 6, "Yeah, speaking.")
     await tracker._observe("ta-IN", 9, "வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி")
+    await _checks_done(tracker)
     assert asked == [("வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி", "ta-IN", "en-IN")]
     assert tracker.current == "en-IN" and changes == [("en-IN", ["en-IN"])]
     assert "speaking English" in pushed[-1].messages[0]["content"]
@@ -161,6 +166,8 @@ async def test_a_checked_real_switch_goes_ahead():
     tracker._confirm = confirm
     await tracker._observe("en-IN", 6)
     await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
+    assert tracker.current == "en-IN"  # the words went on; the check runs beside them
+    await _checks_done(tracker)
     assert tracker.current == "ta-IN"
 
 
@@ -179,3 +186,7 @@ async def test_the_check_reads_the_models_answer_and_fails_open():
     assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
     assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
     assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True
+
+
+async def _checks_done(tracker):
+    await asyncio.gather(*tracker.checks)

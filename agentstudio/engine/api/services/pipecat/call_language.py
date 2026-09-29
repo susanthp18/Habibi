@@ -164,26 +164,41 @@ class CallLanguageTracker(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _observe(self, language: str, words: int, text: str = "") -> None:
-        changed = not self.spoken  # the first phrase establishes the language
         if language == self.current:
             self._pending = None
+            await self._settle(changed=not self.spoken)  # the first phrase sets it
         elif words >= _MIN_WORDS_TO_SWITCH or self._pending == language:
             self._pending = None
-            if self._confirm is not None and not await self._confirm(text, language, self.current):
-                await self.push_frame(LLMMessagesAppendFrame(
-                    [{"role": "system", "content": not_a_switch_note(language, self.current)}],
-                    run_llm=False,
-                ))
-                return
-            self.current = language
-            changed = True
-            # Before the caller's words, so the model reads them in context.
-            await self.push_frame(LLMMessagesAppendFrame(
-                [{"role": "system", "content": switch_note(language)}], run_llm=False,
-            ))
+            if self._confirm is None:
+                await self._switch(language)
+            else:
+                # Beside the turn, not in front of it: the check is a model
+                # call (2-3 s in run 85) and the caller's words need not wait.
+                # The model reads the words as they are, and the voice picks
+                # its language from each sentence's script, so only a real
+                # switch changes anything.
+                self.create_task(self._check_then_switch(text, language))
         else:
             self._pending = language
-            return
+
+    async def _check_then_switch(self, text: str, language: str) -> None:
+        current = self.current
+        if await self._confirm(text, language, current):
+            await self._switch(language)
+        else:
+            await self.push_frame(LLMMessagesAppendFrame(
+                [{"role": "system", "content": not_a_switch_note(language, current)}],
+                run_llm=False,
+            ))
+
+    async def _switch(self, language: str) -> None:
+        self.current = language
+        await self.push_frame(LLMMessagesAppendFrame(
+            [{"role": "system", "content": switch_note(language)}], run_llm=False,
+        ))
+        await self._settle(changed=True)
+
+    async def _settle(self, *, changed: bool) -> None:
         if self.current not in self.spoken:
             self.spoken.append(self.current)
         if changed and self._on_change is not None:
