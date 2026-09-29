@@ -108,7 +108,7 @@ export function AudioBeepTimeline({ record, rules, onToggleSegment, canHearOrigi
                 </div>
                 {segs.map((seg) => (
                   <button
-                    key={seg.findingId}
+                    key={`${seg.findingId}@${seg.atSec}`}
                     type="button"
                     onClick={() => playAt(seg.atSec)}
                     title={`${rules[seg.type]?.label ?? seg.type} at ${formatSec(seg.atSec)} — play`}
@@ -132,7 +132,7 @@ export function AudioBeepTimeline({ record, rules, onToggleSegment, canHearOrigi
 
       <ul className="mt-100 max-h-32 space-y-025 overflow-y-auto text-body-small">
         {record.audioSegments.map((seg) => (
-          <li key={seg.findingId} className="flex items-center gap-100">
+          <li key={`${seg.findingId}@${seg.atSec}`} className="flex items-center gap-100">
             <span
               className="h-100 w-100 rounded-full"
               style={{ background: ENTITY_COLORS[seg.type] }}

@@ -564,9 +564,11 @@ def patch_audio_segment_mute(
         )
         if row is None:
             raise KeyError("audio_segment_not_found")
+        # Every piece: a widened beep is cut to the speech in its gap, so one
+        # finding can own several segments, and the reviewer decides per finding.
         conn.execute(
-            text("UPDATE redaction_audio_segments SET muted = :m WHERE id = :id"),
-            {"id": row["id"], "m": bool(muted)},
+            text("UPDATE redaction_audio_segments SET muted = :m WHERE redaction_id = :rid AND finding_id = :fid"),
+            {"rid": redaction_id, "fid": finding_id, "m": bool(muted)},
         )
         # Muting audio changes what an export of the call contains: an evidence
         # change, and it leaves the same activity row a finding decision does.

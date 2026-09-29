@@ -55,6 +55,66 @@ def test_an_unaligned_word_widens_the_beep_and_never_moves_it() -> None:
     assert seg.start_ms <= 1300 and seg.end_ms >= 5000  # covers every digit, heard or not
 
 
+def _heard(*words: tuple[str, float]) -> list:
+    return [audio._Token(w, s, s + 0.3) for w, s in words]
+
+
+def test_a_name_heard_spelled_otherwise_is_beeped_where_it_was_said() -> None:
+    """The recogniser wrote the CRM's "Susanth" as "susant". It is still the word
+    said there: the beep sits on it instead of widening across the silence to
+    the bot's next turn (7 s of tone over the customer's reply, 2026-09-29)."""
+    turns = [pii.Turn(0, "bot", "Am I speaking with Susanth?"), pii.Turn(2, "bot", "Thanks for confirming.")]
+    heard = _heard(("am", 5.5), ("i", 5.8), ("speaking", 5.9), ("with", 6.4), ("susant", 6.6),
+                   ("thanks", 13.4), ("for", 13.8), ("confirming", 14.0))
+    [seg] = audio.time_findings(pii.detect(turns, crm={"name": ["Susanth"]}), turns, "agent", heard, 20.0)
+    assert seg.source == "aligned"
+    assert (seg.start_ms, seg.end_ms) == (6600 - audio.PAD_MS, 6900 + audio.PAD_MS)
+
+
+def test_an_unheard_digit_widens_over_that_speech_not_to_the_next_turn() -> None:
+    """The recogniser dropped the last digit of the answer. The beep covers the
+    rest of that answer, and stops there: not 27 s later at the customer's next
+    word, over everything the bot said in between."""
+    turns = [pii.Turn(0, "bot", "Tell me the last four digits of your mobile."),
+             pii.Turn(1, "customer", "I think it is 2324."),
+             pii.Turn(3, "customer", "No, actually I want to postpone.")]
+    heard = _heard(("i", 25.8), ("think", 26.9), ("it", 27.3), ("is", 27.7), ("2", 28.1), ("3", 28.5),
+                   ("2", 28.8), ("no", 54.9), ("actually", 56.0), ("i", 56.4), ("want", 56.6),
+                   ("to", 56.8), ("postpone", 57.0))
+    speech = [(25.7, 29.5), (54.8, 59.2)]
+    [seg] = audio.time_findings(pii.detect(turns), turns[1:], "customer", heard, 151.0, speech)
+    assert seg.source == "utterance_fallback"
+    assert (seg.start_ms, seg.end_ms) == (28100 - audio.PAD_MS, 29500 + audio.PAD_MS)
+
+
+def test_a_word_never_heard_is_beeped_wherever_that_speaker_spoke_in_its_gap() -> None:
+    """Nothing the recogniser heard lines up with the flagged word: every run of
+    that speaker's speech between its neighbours is beeped (fail closed), and
+    none of the silence -- a segment per run."""
+    turns = [pii.Turn(0, "customer", "Okay."), pii.Turn(2, "customer", "Harry, come again?"),
+             pii.Turn(4, "customer", "Yes please.")]
+    heard = _heard(("okay", 40.0), ("yes", 83.3), ("please", 83.6))
+    speech = [(39.9, 40.3), (47.0, 47.9), (60.8, 61.8), (83.2, 84.0)]
+    found = pii.detect(turns, model_spans={2: [(0, 5, "name", 0.72)]})
+    segs = audio.time_findings(found, turns, "customer", heard, 127.0, speech)
+    assert [(s.start_ms, s.end_ms, s.source) for s in segs] == [
+        (47000 - audio.PAD_MS, 47900 + audio.PAD_MS, "utterance_fallback"),
+        (60800 - audio.PAD_MS, 61800 + audio.PAD_MS, "utterance_fallback"),
+    ]
+
+
+def test_a_beep_runs_on_to_the_pause_after_its_words() -> None:
+    """A word's timestamp can end before the word does (the tail of a digit was
+    audible past the beep): the end moves on to the pause, by at most SNAP_MS."""
+    turns = [pii.Turn(0, "bot", "Please tell me the OTP."), pii.Turn(1, "customer", "It is 4291.")]
+    heard = _heard(("it", 1.0), ("is", 1.3), ("4", 1.6), ("2", 1.9), ("9", 2.2), ("1", 2.5))
+    found = pii.detect(turns)
+    [near] = audio.time_findings(found, turns[1:], "customer", heard, 10.0, [(0.9, 3.0)])
+    assert near.source == "aligned" and near.end_ms == 3000 + audio.PAD_MS
+    [far] = audio.time_findings(found, turns[1:], "customer", heard, 10.0, [(0.9, 6.0)])
+    assert far.end_ms == 2800 + audio.SNAP_MS + audio.PAD_MS
+
+
 def test_exports_never_ship_the_original_recording(monkeypatch) -> None:
     from call_intel import exports
 
