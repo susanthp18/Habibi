@@ -753,9 +753,12 @@ def _tool_request_callback(ctx: dict[str, Any], args: dict[str, Any], interactio
         """), {"interaction_id": interaction_id,
                 "customer_id": str(ctx.get("customer_id") or "")}).scalar_one_or_none()
     if existing is not None:
-        return {"ok": False, "error": "callback_already_booked",
+        # A success: a callback is booked. The agents' "Callback booked" path
+        # needs a successful request_callback in the step (run 72 took it with
+        # no call at all and said the callback was noted); this one counts.
+        return {"ok": True, "alreadyBooked": True,
                 "existingTime": existing.isoformat(),
-                "say": "A callback is already booked. Confirm its time; do not book or promise another."}
+                "say": "A callback is already booked at existingTime. Tell them that time; do not book or promise another."}
     result = domain.request_callback(
         customer_id=str(ctx.get("customer_id") or ""),
         scheduled_at=str(args.get("when") or ""),

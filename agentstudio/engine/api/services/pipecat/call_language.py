@@ -52,21 +52,32 @@ def multilingual_reply_rule(languages: list[str]) -> str:
     # Not "the language of the latest message": a lone "हाँ" after an English
     # sentence turned a web call's replies into Hindi (run 65). The tracker
     # decides a switch and says so with switch_note.
+    # "By the words, not the script": Azure writes an Indian-English caller's
+    # "It is 2324" as "इट इज़ 2324" even when it labels it English, and the
+    # model, told to answer in the caller's script, answered in Hindi (run 72).
     return (
         f"LANGUAGE: The caller may speak {names}, and may switch at any time. Reply in the "
         "language the caller is speaking, written in that language's own script "
         "(for example Devanagari for Hindi, Tamil script for Tamil, Arabic script for Arabic); "
-        "never transliterate into Latin letters. A word or two in another language (\"haan\", "
-        "\"ok\", \"sorry\") does not change it; you are told when the caller switches. "
+        "never transliterate into Latin letters. Judge the language by the words, not the "
+        "script they were transcribed in: speech recognition often writes English in Hindi or "
+        "Tamil script (\"इट इज़ 2324\" is English, \"it is 2324\"), and that caller is speaking "
+        "English. A word or two in another language (\"haan\", \"ok\", \"sorry\") does not change "
+        "it. If the caller asks for a language, keep to it for the rest of the call. "
         "Names, amounts and dates stay exactly as they are."
     )
 
 
 def switch_note(locale: str) -> str:
+    """A hint, not an order: the recogniser's label can be English in another script."""
     name = language_name(locale)
     script = _SCRIPTS.get(locale.split("-")[0].lower())
     in_script = f", in {script} script" if script else ""
-    return f"The caller is now speaking {name}. Reply in {name}{in_script} from now on."
+    return (
+        f"Speech recognition now hears {name}. If the caller's words really are {name}, not "
+        f"English written in another script, reply in {name}{in_script} from now on; if they "
+        "asked you to keep to a language, keep to it."
+    )
 
 
 class CallLanguageTracker(FrameProcessor):

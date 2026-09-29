@@ -144,8 +144,7 @@ def test_repeat_callback_returns_existing_booking(monkeypatch):
     monkeypatch.setattr(db, "engine", _Engine())
     monkeypatch.setattr(domain, "request_callback", lambda **_kw: (_ for _ in ()).throw(AssertionError("duplicate write")))
     result = voice_studio._tool_request_callback({"customer_id": "customer"}, {"when": "2026-09-27T06:00:00Z"}, "interaction")
-    assert result["ok"] is False
-    assert result["error"] == "callback_already_booked"
+    assert result["ok"] is True and result["alreadyBooked"] is True  # booked, so "Callback booked" may follow
     assert result["existingTime"] == booked.isoformat()
 
 
