@@ -9491,14 +9491,15 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      logs_buffer = InMemoryLogsBuffer(workflow_run_id=2122)
      coordinator = TranscriptLogCoordinator(logs_buffer)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_service_factory_failure_reporting.py engine/api/tests/test_service_factory_failure_reporting.py
---- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-29 19:22:41.174926200 +0530
-+++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-27 15:40:26.429834900 +0530
-@@ -46,6 +46,21 @@
+--- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-29 21:52:23.538150100 +0530
++++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-29 21:50:10.345506800 +0530
+@@ -46,6 +46,23 @@
      assert metadata.error_owner.value == "user"
  
  
-+def test_azure_gpt_6_luna_disables_reasoning_without_temperature():
-+    with patch("api.services.pipecat.service_factory.AzureLLMService") as service:
++def test_azure_gpt_6_luna_reasons_low_over_the_responses_socket():
++    """Chat completions refuses tools with any reasoning; the Responses API takes them."""
++    with patch("api.services.pipecat.service_factory.AzureResponsesLLMService") as service:
 +        create_llm_service_from_provider(
 +            provider="azure",
 +            model="gpt-6-luna",
@@ -9506,10 +9507,11 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            endpoint="https://example.openai.azure.com/",
 +        )
 +
-+    settings = service.call_args.kwargs["settings"]
-+    assert settings.model == "gpt-6-luna"
-+    assert settings.extra == {"reasoning_effort": "none"}
-+    assert "temperature" not in settings.extra
++    kwargs = service.call_args.kwargs
++    assert kwargs["base_url"] == "https://example.openai.azure.com/openai/v1/"
++    assert kwargs["ws_url"] == "wss://example.openai.azure.com/openai/v1/responses"
++    assert kwargs["settings"].model == "gpt-6-luna"
++    assert kwargs["settings"].reasoning.effort == "low"
 +
 +
  def test_managed_service_constructor_failure_is_attributed_to_dograh(monkeypatch):
