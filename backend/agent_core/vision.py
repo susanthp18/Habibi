@@ -29,7 +29,6 @@ def ingest_customer_document(
     interaction_id: str | None = None,
     account_id: str | None = None,
     requested_via: str = "inbox",
-    size_bytes: int | None = None,
 ) -> ToolResult:
     if not vision_ingest_enabled():
         return ToolResult(ok=False, error="vision_ingest_disabled")
@@ -52,12 +51,8 @@ def ingest_customer_document(
         "docType": doc_type,
         "requestedVia": requested_via if requested_via else "vision",
         "source": "vision",
-        "filename": filename or "receipt.jpg",
-        "mimeType": mime,
         "deliveryChannel": "whatsapp",
     }
-    if size_bytes is not None:
-        payload["sizeKb"] = max(1, int(round(size_bytes / 1024)))
     try:
         row = db.create_document_request(payload)
     except Exception:

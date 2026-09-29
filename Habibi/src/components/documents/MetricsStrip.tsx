@@ -25,7 +25,7 @@ export function MetricsStrip({ m }: { m: Metrics }) {
           value: m.generatingCount,
           icon: Loader2,
           tone: "warning",
-          sub: "In flight",
+          sub: "Legacy · nothing generates yet",
         },
         {
           label: "Sent today",
@@ -47,7 +47,7 @@ export function MetricsStrip({ m }: { m: Metrics }) {
             m.avgFulfilMins < 60 ? `${m.avgFulfilMins}m` : `${(m.avgFulfilMins / 60).toFixed(1)}h`,
           icon: Timer,
           tone: "neutral",
-          sub: "Request → delivered",
+          sub: "Request → sent",
         },
       ]}
     />

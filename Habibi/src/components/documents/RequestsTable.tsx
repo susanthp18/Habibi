@@ -35,7 +35,7 @@ interface Props {
   onToggle: (id: string) => void;
   onToggleAll: (ids: string[]) => void;
   onOpen: (d: DocRequest) => void;
-  onGenerate: (d: DocRequest) => void;
+  onMarkSent: (d: DocRequest) => void;
   onRetry: (d: DocRequest) => void;
   isLoading?: boolean;
   isError?: boolean;
@@ -80,7 +80,7 @@ export function RequestsTable({
   onToggle,
   onToggleAll,
   onOpen,
-  onGenerate,
+  onMarkSent,
   onRetry,
   isLoading = false,
   isError = false,
@@ -278,13 +278,13 @@ export function RequestsTable({
             className="inline-flex items-center justify-end gap-050"
             onClick={(e) => e.stopPropagation()}
           >
-            {d.status === "requested" && (
+            {(d.status === "requested" || d.status === "generating") && (
               <Button
                 size="sm"
                 className="h-7 px-100 text-body-small"
-                onClick={() => onGenerate(d)}
+                onClick={() => onMarkSent(d)}
               >
-                <Send className="mr-050 h-3 w-3" /> Generate
+                <Send className="mr-050 h-3 w-3" /> Mark sent…
               </Button>
             )}
             {d.status === "failed" && (
@@ -294,17 +294,7 @@ export function RequestsTable({
                 className="h-7 px-100 text-body-small"
                 onClick={() => onRetry(d)}
               >
-                <RotateCw className="mr-050 h-3 w-3" /> Retry
-              </Button>
-            )}
-            {d.status === "sent" && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-100 text-body-small"
-                onClick={() => onGenerate(d)}
-              >
-                <RotateCw className="mr-050 h-3 w-3" /> Resend
+                <RotateCw className="mr-050 h-3 w-3" /> Reopen
               </Button>
             )}
             <Button
@@ -320,7 +310,7 @@ export function RequestsTable({
         ),
       },
     ],
-    [selected, onToggle, onOpen, onGenerate, onRetry],
+    [selected, onToggle, onOpen, onMarkSent, onRetry],
   );
 
   return (

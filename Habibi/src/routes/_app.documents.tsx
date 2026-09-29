@@ -12,15 +12,22 @@ import { RequestsTable } from "@/components/documents/RequestsTable";
 import { RequestSheet } from "@/components/documents/RequestSheet";
 import { NewRequestSheet } from "@/components/documents/NewRequestSheet";
 import type { DocChannel, DocRequest, DocStatus, DocumentFilters } from "@/api/types/documents";
-import { computeMetrics, defaultFilters, filterDocs } from "@/lib/documents";
+import {
+  CHANNEL_LABELS,
+  DOC_TYPE_LABELS,
+  computeMetrics,
+  defaultFilters,
+  filterDocs,
+} from "@/lib/documents";
 import {
   documentAssigneeOptions,
-  markGenerating,
-  markSent,
+  recordManualSend,
   useDocuments,
   useReassignDocumentChannel,
   useRetryDocument,
 } from "@/api/documents";
+import { apiErrorMessage } from "@/api/config";
+import { useConfirm } from "@/components/ui/use-confirm";
 import { useStaff } from "@/api/staff";
 import { useCustomers } from "@/api/customers";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
@@ -33,13 +40,13 @@ export const Route = createFileRoute("/_app/documents")({
       {
         name: "description",
         content:
-          "Back-office queue for statement, no-dues, foreclosure and other document requests captured by the bot — with templates, channel routing, and delivery audit.",
+          "Back-office queue for statement, no-dues, foreclosure and other document requests captured by the bot — with templates, channel routing, and an audit of manual sends.",
       },
       { property: "og:title", content: "Document Fulfillment Desk" },
       {
         property: "og:description",
         content:
-          "Process bot-captured document requests: generate, deliver via WhatsApp/Email/SMS, and audit fulfillment.",
+          "Process bot-captured document requests: send each one yourself, record the send, and audit fulfillment.",
       },
     ],
   }),
@@ -111,44 +118,26 @@ function DocumentsPage() {
 
   const channelMutation = useReassignDocumentChannel();
   const retryMutation = useRetryDocument();
+  const { confirm, confirmDialog } = useConfirm();
 
-  const runGenerate = async (d: DocRequest) => {
+  // PayInt cannot generate or send a document yet, so the desk records a
+  // person's own send — asked before they send, because that is when the
+  // contact policy has to say yes.
+  const markSentManually = async (d: DocRequest) => {
+    const ok = await confirm({
+      title: "Record a manual send?",
+      description: `PayInt can't generate or send this ${DOC_TYPE_LABELS[d.docType].toLowerCase()}. Recording checks the contact policy for ${CHANNEL_LABELS[d.deliveryChannel]} to ${d.deliveryTarget || "the customer"} and logs that you are sending it yourself. Send it only once this succeeds.`,
+      confirmLabel: "Record manual send",
+    });
+    if (!ok) return;
     try {
-      await markGenerating(d);
-      invalidate();
-      await markSent(d);
-      toast.success(`Sent · ${d.customerName}`);
-      invalidate();
+      await recordManualSend(d);
+      toast.success(`Recorded as sent by you · ${d.customerName}`);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Generate failed");
+      toast.error(`Not recorded — don't send it: ${apiErrorMessage(e)}`);
+    } finally {
       invalidate();
     }
-  };
-
-  const bulkGenerate = () => {
-    const targets = Array.from(selected)
-      .map((id) => items.find((d) => d.id === id))
-      .filter((d): d is DocRequest => !!d && (d.status === "requested" || d.status === "failed"));
-    if (targets.length === 0) {
-      toast("Nothing to generate in selection");
-      return;
-    }
-    toast(`Generating ${targets.length} document${targets.length > 1 ? "s" : ""}…`);
-    targets.forEach((d, i) => setTimeout(() => void runGenerate(d), i * 250));
-    setSelected(new Set());
-  };
-
-  const bulkResend = () => {
-    const targets = Array.from(selected)
-      .map((id) => items.find((d) => d.id === id))
-      .filter((d): d is DocRequest => !!d && d.status === "sent");
-    if (targets.length === 0) {
-      toast("No delivered documents in selection to resend");
-      return;
-    }
-    targets.forEach((d, i) => setTimeout(() => void runGenerate(d), i * 250));
-    toast(`Resending ${targets.length}…`);
-    setSelected(new Set());
   };
 
   const bulkChannel = async (c: DocChannel) => {
@@ -188,7 +177,8 @@ function DocumentsPage() {
                 Document fulfilment desk
               </h1>
               <p className="text-body-small text-text-subtle">
-                Bot captures requests, humans fulfil. Generate, deliver, and audit every document.
+                Bot captures requests, humans fulfil. PayInt doesn't generate or send documents yet
+                — send each one yourself and record it here.
               </p>
             </div>
           </div>
@@ -214,8 +204,6 @@ function DocumentsPage() {
         {selected.size > 0 && (
           <BulkActionBar
             count={selected.size}
-            onGenerate={bulkGenerate}
-            onResend={bulkResend}
             onReassignChannel={(c) => void bulkChannel(c)}
             onClear={() => setSelected(new Set())}
           />
@@ -227,7 +215,7 @@ function DocumentsPage() {
           onToggle={toggleRow}
           onToggleAll={toggleAll}
           onOpen={(d) => setOpenId(d.id)}
-          onGenerate={(d) => void runGenerate(d)}
+          onMarkSent={(d) => void markSentManually(d)}
           onRetry={handleRetry}
           isLoading={docsPending}
           isError={docsError}
@@ -238,7 +226,7 @@ function DocumentsPage() {
           <RequestSheet
             d={openDoc}
             onClose={() => setOpenId(null)}
-            onGenerate={(d) => void runGenerate(d)}
+            onMarkSent={(d) => void markSentManually(d)}
             onMutate={invalidate}
             assignees={assignees}
           />
@@ -251,6 +239,7 @@ function DocumentsPage() {
           />
         )}
       </div>
+      {confirmDialog}
     </>
   );
 }

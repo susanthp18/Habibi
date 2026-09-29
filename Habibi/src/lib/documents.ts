@@ -166,7 +166,7 @@ export function templatesFor(t: DocType): Template[] {
 
 // ---- helpers ----
 export function agingInfo(d: DocRequest): AgingInfo {
-  if (d.status === "sent") return { tone: "done", hours: 0, label: "Delivered" };
+  if (d.status === "sent") return { tone: "done", hours: 0, label: "Sent" };
   const hours = Math.max(0, (Date.now() - new Date(d.requestedAt).getTime()) / 3600000);
   const rounded = Math.round(hours);
   const label = hours < 1 ? `${Math.round(hours * 60)}m` : `${rounded}h`;

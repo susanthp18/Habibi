@@ -237,7 +237,7 @@ function CustomerDetail() {
       const p = payload as { docType: string; delivery: "email" | "whatsapp" };
       documentMutation.mutate(p, {
         onSuccess: () => {
-          toast.success(`${p.docType} queued for ${p.delivery}`);
+          toast.success(`${p.docType} requested on the Document desk`);
           setTab("documents");
         },
       });

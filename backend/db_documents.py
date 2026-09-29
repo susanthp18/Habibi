@@ -16,6 +16,7 @@ from db_core import (
     DEFAULT_DETAIL_LIMIT,
     _account_tail,
     _activity,
+    _actor,
     _actor_user_id,
     _assert_tenant_owns,
     _ensure_customer,
@@ -458,26 +459,20 @@ def create_document_request(
                 "source": source,
             },
         )
-        # Optional file metadata — server owns storage_ref; never trust a client path.
-        if payload.get("filename") or payload.get("mimeType"):
-            _ensure_document_file(
-                conn,
-                document_id,
-                filename=payload.get("filename"),
-                mime_type=payload.get("mimeType"),
-            )
         label = f"Document requested · {doc_type}"
         _activity(conn, "document_request", document_id, "document_requested", label, doc_type, customer_id)
         response = _document_by_id(conn, document_id)
         _store_idempotent_response(conn, idempotency_key, endpoint, response)
         return response
 
-# A request's status is a state machine. `sent` is terminal; a failed
-# generation is retried by requesting or generating again.
+# What a PATCH may move a request to. Nothing in PayInt renders or sends a
+# document yet, so neither `generating` nor `sent` is a target: `sent` is
+# reached only by recording a send (add_document_delivery_attempt) and is
+# terminal. A failed request is reopened by requesting it again.
 _DOCUMENT_TRANSITIONS: dict[str, frozenset[str]] = {
-    "requested": frozenset({"generating", "sent", "failed"}),
-    "generating": frozenset({"sent", "failed"}),
-    "failed": frozenset({"requested", "generating"}),
+    "requested": frozenset({"failed"}),
+    "generating": frozenset({"failed"}),
+    "failed": frozenset({"requested"}),
 }
 
 
@@ -514,6 +509,9 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
 
         updates: list[str] = []
         params: dict[str, Any] = {"id": document_id}
+        # When a file was generated, how big it is, when it went out and how
+        # many sends were tried are facts only a renderer or a recorded send
+        # can establish, so a PATCH cannot write them.
         mapping = {
             "status": "status",
             "assigneeUserId": "assignee_user_id",
@@ -521,40 +519,16 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
             "deliveryTarget": "delivery_target",
             "templateId": "template_id",
             "period": "period",
-            "generatedAt": "generated_at",
-            "sentAt": "sent_at",
             "failedReason": "failed_reason",
-            "sizeKb": "size_kb",
-            "attempts": "attempts",
         }
         for key, column in mapping.items():
             if key in payload:
                 updates.append(f"{column} = :{column}")
                 params[column] = payload[key]
 
-        # Status transitions that imply timestamps when the client didn't send them.
         status = payload.get("status") if "status" in payload else None
-        if status == "generating":
-            if "generatedAt" not in payload:
-                updates.append("generated_at = COALESCE(generated_at, now())")
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
-            if "attempts" not in payload:
-                updates.append("attempts = attempts + 1")
-            _ensure_document_file(conn, document_id)
-        elif status == "sent":
-            if "sentAt" not in payload:
-                updates.append("sent_at = COALESCE(sent_at, now())")
-            if "generatedAt" not in payload:
-                updates.append("generated_at = COALESCE(generated_at, now())")
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
-            _ensure_document_file(conn, document_id, size_kb=payload.get("sizeKb"))
-        elif status == "failed":
-            pass
-        elif status == "requested":
-            if "failedReason" not in payload:
-                updates.append("failed_reason = NULL")
+        if status == "requested" and "failedReason" not in payload:
+            updates.append("failed_reason = NULL")
 
         if "deliveryChannel" in payload and payload["deliveryChannel"] and "deliveryTarget" not in payload:
             channel = _doc_channel(payload["deliveryChannel"])
@@ -584,14 +558,10 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
             label = f"Channel → {payload['deliveryChannel']}"
         elif payload.get("templateId"):
             label = f"Template set · {payload['templateId']}"
-        elif status == "generating":
-            label = "Generation started"
-        elif status == "sent":
-            label = "Document delivered"
         elif status == "failed":
             label = f"Failed · {payload.get('failedReason') or 'Delivery failed'}"
         elif status == "requested":
-            label = "Retry queued" if row["status"] == "failed" else "Status → Requested"
+            label = "Reopened" if row["status"] == "failed" else "Status → Requested"
         elif status:
             label = f"Status → {status}"
         else:
@@ -608,6 +578,13 @@ def patch_document_request(document_id: str, payload: dict[str, Any]) -> dict[st
         return _document_by_id(conn, document_id)
 
 def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Record a person's confirmation that they are sending the document themselves.
+
+    PayInt has no renderer and no document sender, so a manual send is the only
+    attempt it can truthfully record, and the only way a request becomes
+    ``sent``. The contact policy is applied here, when the person confirms,
+    so the confirmation comes before the send.
+    """
     engine = _db().engine
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "document_requests", document_id)
@@ -615,7 +592,7 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
             conn.execute(
                 text(
                     """
-                    SELECT customer_id, delivery_channel, delivery_target, attempts
+                    SELECT customer_id, delivery_channel, delivery_target, attempts, status
                     FROM document_requests WHERE id = :id
                     """
                 ),
@@ -624,6 +601,13 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
         )
         if row is None:
             raise KeyError("document_not_found")
+        if payload.get("status") != "sent" or payload.get("provider") != "manual":
+            raise ValueError("manual_send_confirmation_required")
+        if row["status"] == "sent":
+            raise ValueError("document_already_sent")
+        actor_kind, actor_user_id, _ = _actor()
+        if actor_kind != "human":
+            raise PermissionError("manual_send_needs_a_person")
         import contact_policy
 
         attempt_id = _id("DLV")
@@ -637,17 +621,17 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
             source="doc_delivery",
             related_id=attempt_id,
             actor_kind="human",
+            actor_user_id=actor_user_id,
             endpoint=row["delivery_target"],
         )
         next_attempt = int(row["attempts"] or 0) + 1
-        status = payload.get("status") or "queued"
         conn.execute(
             text(
                 """
                 INSERT INTO document_delivery_attempts
-                  (id, request_id, channel, target, provider, attempt_number, status, error, sent_at)
+                  (id, request_id, channel, target, provider, attempt_number, status, sent_at)
                 VALUES
-                  (:id, :request_id, :channel, :target, :provider, :attempt_number, :status, :error, now())
+                  (:id, :request_id, :channel, :target, 'manual', :attempt_number, 'sent', now())
                 """
             ),
             {
@@ -655,14 +639,18 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
                 "request_id": document_id,
                 "channel": row["delivery_channel"],
                 "target": row["delivery_target"],
-                "provider": payload.get("provider") or "manual",
                 "attempt_number": next_attempt,
-                "status": status,
-                "error": payload.get("error") or payload.get("failedReason"),
             },
         )
         conn.execute(
-            text("UPDATE document_requests SET attempts = :attempts, updated_at = now() WHERE id = :id"),
+            text(
+                """
+                UPDATE document_requests
+                SET status = 'sent', sent_at = now(), failed_reason = NULL,
+                    attempts = :attempts, updated_at = now()
+                WHERE id = :id
+                """
+            ),
             {"attempts": next_attempt, "id": document_id},
         )
         _activity(
@@ -670,11 +658,11 @@ def add_document_delivery_attempt(document_id: str, payload: dict[str, Any]) -> 
             "document_request",
             document_id,
             "document_delivery_attempt",
-            "Document delivery attempted",
-            status,
+            f"Sent manually · {row['delivery_channel']}",
+            "sent",
             row["customer_id"],
         )
-        return {"id": attempt_id, "status": status, "attemptNumber": next_attempt}
+        return {"id": attempt_id, "status": "sent", "attemptNumber": next_attempt}
 
 def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> None:
     existing = conn.execute(
@@ -691,60 +679,3 @@ def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> Non
         ),
         {"id": template_id, "tenant_id": _tenant(), "name": template_id, "doc_type": doc_type},
     )
-
-def _ensure_document_file(
-    conn: Any,
-    document_id: str,
-    *,
-    filename: str | None = None,
-    mime_type: str | None = None,
-    size_kb: int | None = None,
-) -> None:
-    """Create or refresh the generated file row. storage_ref is always server-owned."""
-    existing = _one(
-        conn.execute(
-            text("SELECT id FROM document_files WHERE request_id = :id ORDER BY created_at DESC LIMIT 1"),
-            {"id": document_id},
-        )
-    )
-    mime = mime_type or "application/pdf"
-    if mime.startswith("image/"):
-        ext = ".jpg" if "jpeg" in mime or mime.endswith("/jpg") else ".png" if "png" in mime else ".webp"
-        storage_ref = f"minio://documents/{_tenant()}/{document_id}{ext}"
-        fname = filename or f"{document_id}{ext}"
-    else:
-        storage_ref = f"minio://documents/{_tenant()}/{document_id}.pdf"
-        fname = filename or f"{document_id}.pdf"
-    size_bytes = int(size_kb * 1024) if size_kb is not None else None
-    if existing:
-        if size_bytes is not None:
-            conn.execute(
-                text(
-                    """
-                    UPDATE document_files
-                    SET size_bytes = :size_bytes, generated_at = now()
-                    WHERE id = :id
-                    """
-                ),
-                {"size_bytes": size_bytes, "id": existing["id"]},
-            )
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO document_files
-              (id, request_id, storage_ref, filename, mime_type, size_bytes, generated_at)
-            VALUES
-              (:id, :request_id, :storage_ref, :filename, :mime_type, :size_bytes, now())
-            """
-        ),
-        {
-            "id": f"FILE-{document_id}",
-            "request_id": document_id,
-            "storage_ref": storage_ref,
-            "filename": fname,
-            "mime_type": mime,
-            "size_bytes": size_bytes or 96000,
-        },
-    )
-

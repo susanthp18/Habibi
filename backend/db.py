@@ -1111,7 +1111,6 @@ from db_documents import (  # noqa: E402
     _requested_via_channel as _requested_via_channel,
     _document_by_id as _document_by_id,
     _document_events as _document_events,
-    _ensure_document_file as _ensure_document_file,
     _ensure_document_template as _ensure_document_template,
     add_document_delivery_attempt as add_document_delivery_attempt,
     create_document_request as create_document_request,

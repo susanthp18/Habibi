@@ -36,7 +36,7 @@ import { UNASSIGNED } from "@/api/staff";
 interface Props {
   d: DocRequest;
   onClose: () => void;
-  onGenerate: (d: DocRequest) => void;
+  onMarkSent: (d: DocRequest) => void;
   onMutate: () => void;
   /** Live: real people from /staff. Mock: derived from seed rows. */
   assignees: string[];
@@ -44,7 +44,7 @@ interface Props {
 
 type Tab = "details" | "preview" | "audit";
 
-export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Props) {
+export function RequestSheet({ d, onClose, onMarkSent, onMutate, assignees }: Props) {
   const [tab, setTab] = useState<Tab>("details");
   const [busy, setBusy] = useState(false);
   const tpl = TEMPLATES.find((t) => t.id === d.templateId) ?? DEFAULT_TEMPLATE;
@@ -243,7 +243,7 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                     {fmtDate(d.requestedAt, { dateStyle: "medium", timeStyle: "short" })}
                   </div>
                 </Field>
-                <Field label="Delivered">
+                <Field label="Sent">
                   <div className="text-body text-text">
                     {d.sentAt
                       ? fmtDate(d.sentAt, { dateStyle: "medium", timeStyle: "short" })
@@ -280,7 +280,7 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                   </p>
                 ))}
                 <div className="mt-200 border-t border-dashed border-border pt-100 text-body-small text-text-subtlest">
-                  Preview only · full document generated on demand.
+                  Preview only · PayInt does not generate this document yet.
                 </div>
               </div>
             </div>
@@ -324,27 +324,20 @@ export function RequestSheet({ d, onClose, onGenerate, onMutate, assignees }: Pr
                   className="h-400 text-body-small"
                   disabled={busy}
                   onClick={() => {
-                    void run(() => retryDocument(d), "Retry queued");
+                    void run(() => retryDocument(d), "Request reopened");
                   }}
                 >
-                  <RotateCw className="mr-050 h-3.5 w-3.5" /> Retry
+                  <RotateCw className="mr-050 h-3.5 w-3.5" /> Reopen
                 </Button>
               )}
-              {(d.status === "requested" || d.status === "failed") && (
-                <Button
-                  size="sm"
-                  className="h-400 text-body-small"
-                  disabled={busy}
-                  onClick={() => onGenerate(d)}
-                >
-                  <Send className="mr-050 h-3.5 w-3.5" /> Generate & send
-                </Button>
-              )}
-              {d.status === "generating" && (
-                <div className="text-body-small text-text-warning-bolder">
-                  Generation in flight…
-                </div>
-              )}
+              <Button
+                size="sm"
+                className="h-400 text-body-small"
+                disabled={busy}
+                onClick={() => onMarkSent(d)}
+              >
+                <Send className="mr-050 h-3.5 w-3.5" /> Mark sent manually…
+              </Button>
             </div>
           </div>
         )}
