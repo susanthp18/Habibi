@@ -23,9 +23,9 @@ export function CompliancePage() {
         lede={
           <>
             A floor that listens to two to five per cent of its calls has not heard the one that
-            gets complained about. PayInt scores every conversation, refuses contact that would
-            breach a rule before the attempt exists, and leaves one record per action that answers
-            the question an auditor actually asks.
+            gets complained about. PayInt gives every conversation a scorecard, refuses contact that
+            would break a rule before anything is dialled, and keeps one record per action that
+            answers the question an auditor actually asks.
           </>
         }
         secondary={{
@@ -33,10 +33,10 @@ export function CompliancePage() {
           href: "/security/",
         }}
         proof={[
-          "Every call and message scored",
-          "Gates before the attempt",
-          "Recordings beeped over the PII",
-          "Tamper-evident record",
+          "Every conversation scored",
+          "Gates before the dial",
+          "Recordings beeped over personal data",
+          "Hash-chained evidence",
         ]}
       />
       <Section
@@ -45,7 +45,7 @@ export function CompliancePage() {
         lede={
           <>
             Quality assurance by sampling has a selection problem, not a volume problem. On a large
-            floor, tens of thousands of conversations a day are never heard by anyone — and the one
+            floor, tens of thousands of conversations a day are never heard by anyone, and the one
             that reaches a regulator is, by construction, unlikely to be among the few that were.
           </>
         }
@@ -59,18 +59,18 @@ export function CompliancePage() {
             },
             {
               n: "100%",
-              k: "Of conversations scored by PayInt",
-              note: "A product property rather than an average: there is no sampling path in the runtime.",
+              k: "Of conversations get a scorecard",
+              note: "Voice Studio calls get the full grading. Every other conversation still gets a rules-based card, so nothing goes unreviewed.",
             },
             {
-              n: "Minutes",
-              k: "From hang-up to a scored, redacted record",
-              note: "Masking, the beeped recording and the scorecard are produced inside your perimeter. A language model is asked only about the criteria the rules and small models could not settle.",
+              n: "4",
+              k: "Local models on every call, with no internet access",
+              note: "Personal-data detection, intent, sentiment and beep timing run inside your deployment. The AI judge only ever sees a masked transcript.",
             },
             {
-              n: "0",
-              k: "Attempts placed outside the permitted window",
-              note: "Enforced when the action is planned and again when it is executed, and logged both times.",
+              n: "2",
+              k: "Calling-window checks on every dial",
+              note: "When the action is planned and again when it is placed, in the customer's time zone. If the check cannot run, the call does not happen.",
             },
           ]}
         />
@@ -91,27 +91,27 @@ export function CompliancePage() {
             {[
               [
                 "Calling window",
-                "Time-zone aware, and applied to the planned instant. Conversations in progress conclude before the cutoff rather than being cut off.",
+                "Worked out in the customer's time zone, 08:00 to 19:00 by default, and checked twice: when the action is planned and again at the dial, including calls the voice engine starts itself.",
               ],
               [
                 "Do-not-contact",
-                "Registry status and in-call opt-out, honoured across every channel within hours, counted from the ledger rather than from a counter somebody increments.",
+                "A do-not-disturb flag blocks every channel. An opt-out on a call takes effect immediately, for that channel or for every channel if the customer asks.",
               ],
               [
                 "Frequency",
-                "One cap across voice and messaging together. Capping per channel is how a floor makes persistent contact accidentally.",
+                "One daily cap and one cooling-off period across voice and messaging together, with a weekly limit on top. Capping per channel is how a floor makes persistent contact by accident.",
               ],
               [
                 "Consent",
-                "Purpose-bound, captured at origination. A promotional message needs a different basis from a transactional one, and the difference is recorded.",
+                "Recorded per channel and per purpose, servicing or promotional, with where it came from. A marketing message without a promotional opt-in is refused.",
               ],
               [
                 "Third-party contact",
-                "Refused unless origination consent covers it. A warm transfer to a human does not silently unlock a guarantor's number.",
+                "Refused, always. There is no path to dial a relative or a reference, and the voice engine refuses any number that is not the customer or one of your test handsets.",
               ],
               [
                 "Authority",
-                "Waivers and settlement percentages sit outside what any agent may reach. In-policy goodwill can close on the call; the rest transfers with a packet.",
+                "Settlements always go to a person, and voice agents have no waiver tool at all. Out-of-policy requests transfer with the account packet on screen.",
               ],
             ].map(([f, a]) => (
               <div className="layer rise" data-fx key={f}>
@@ -142,32 +142,32 @@ export function CompliancePage() {
             [
               "Calls outside permitted hours",
               "A recurring finding, dependent on dialler configuration and agent discipline",
-              "Refused at planning time; the attempt is never created",
+              "Refused at planning and again at the dial, and the refusal is recorded",
             ],
             [
               "Missing or partial disclosure",
               "Varies by agent, by script version and by how the day is going",
-              "Part of the flow, and scored on every conversation",
+              "Written into the agent's greeting, checked at publish, and flagged on any call that skips it",
             ],
             [
               "Frequency and persistent contact",
               "Capped per channel, if at all, so the combined total is nobody's number",
-              "One cross-channel cap, enforced before each attempt",
+              "One daily cap across channels, checked before every attempt",
             ],
             [
               "Unauthorised third-party contact",
               "Hard to detect after the fact, easy to do under pressure",
-              "Gated on origination consent before a number reaches the dialler",
+              "No path to dial anyone but the customer",
             ],
             [
               "Recording coverage",
               "Partial, with gaps that surface exactly when they matter",
-              "Complete, with the transcript attached to the same record",
+              "Every Voice Studio call recorded, with the transcript in the same record",
             ],
             [
               "Pressure, intimidation, false statements",
               "Caught only if the call was in the sample",
-              "Scored on every conversation, with the turn that proves it attached to the score",
+              "Scored on every Voice Studio call, with the turn that proves it attached to the score",
             ],
           ]}
           caption="The middle column describes patterns commonly reported in audits of outsourced collections floors, not measurements of any specific client. The right-hand column describes how the control is implemented."
@@ -182,11 +182,11 @@ export function CompliancePage() {
           items={[
             [
               "Policy version",
-              "The rule set in force at that instant, not the one in force today. Rules are versioned data, so a decision made in March can be explained with March's rules.",
+              "The rule set in force at that moment, not the one in force today. Every rule consulted is recorded with its version and whether it fired.",
             ],
             [
-              "Gate results",
-              "Every check that ran, with its outcome — including the ones that were skipped and why, because a check that did not run must never read as a pass.",
+              "What was blocked, and why",
+              "Every option the engine considered, including the ones blocked before scoring, with the reason in plain language.",
             ],
             [
               "The decision behind it",
@@ -194,24 +194,28 @@ export function CompliancePage() {
             ],
             [
               "The conversation",
-              "Recording and transcript, tied to the same record as the decision that caused the call and the number it came from.",
+              "Recording and transcript, tied to the same record as the decision that caused the call.",
             ],
             [
               "Redaction",
-              "Transcripts are masked as they are written and re-checked by models that recognise spoken numbers, names and one-time codes. Recordings get a copy with a tone over every spoken identity or card value, and only roles cleared for raw personal data can play the original, with every play logged.",
+              "Transcripts are masked as they are written: spoken digits in English, Hindi, Tamil and Arabic, card and Aadhaar numbers, one-time codes and PINs, names found by a local model, and anything matching the customer's own record. Recordings get a copy with a tone over every finding. Only roles cleared for raw personal data can play the original, every play is logged, and the play is refused if the log cannot be written.",
             ],
             [
               "Tamper evidence",
-              "Each call's transcript and recording are hashed into a per-tenant chain. Verifying a record recomputes it, so an edited transcript shows up as edited.",
+              "Each Voice Studio call's original transcript and recording are hashed into a per-tenant chain, alongside consent changes, opt-outs, ledger postings and agent publishes. Verify now recomputes it, so an edited original shows up as edited.",
             ],
             [
-              "Retention and legal hold",
-              "Your schedule per record type, with deletion evidence — and a hold that suspends it, tamper-evident, for accounts under legal action.",
+              "Exports and complaint packs",
+              "Watermarked PDF exports, including Hindi, Tamil and Arabic, redacted audio with a hash manifest, and a complaint pack per customer that will not build if any section is missing.",
+            ],
+            [
+              "Retention",
+              "Rules per record type, each with its legal citation, changed only with a second person's approval. Expired call records are redacted in place.",
             ],
           ]}
         />
         <Pull by="What an inspection looks like afterwards">
-          No call has ever been placed outside the window — enforced twice, logged both times.
+          Every dial checked against the window twice, and every refusal on the record.
         </Pull>
       </Section>
       <Section
@@ -228,16 +232,16 @@ export function CompliancePage() {
         <Cols
           items={[
             [
-              "Per-tenant policy",
-              "Each agency floor runs its own policy set and its own agents, with the same gates applied and the same evidence produced.",
+              "Stricter, never looser",
+              "The statutory rule set is published with two-person approval, and a tenant can only make it stricter.",
             ],
             [
-              "Comparable scorecards",
-              "One rubric across every floor, in-house and outsourced, so the comparison is like for like rather than an argument about methodology.",
+              "Agency records, same caps",
+              "Call records from an agency's own dialler can be loaded and checked against the same caps and calling window, so a breach shows up whoever dialled.",
             ],
             [
-              "Consolidated audit",
-              "One place to answer for the whole book, whoever placed the call, without a request going out to a partner and coming back a week later.",
+              "Floors on PayInt",
+              "Agency floors that run on PayInt use the same agents, gates, rubric and evidence trail as your own.",
             ],
           ]}
         />
@@ -247,8 +251,12 @@ export function CompliancePage() {
       </Section>
       <More
         links={[
-          ["/security/", "Security and deployment", "Where the data sits, and what never leaves."],
-          ["/agents/", "The agents", "Grants, gates and the authority envelope."],
+          [
+            "/security/",
+            "Security and deployment",
+            "Where the data sits, and whose keys it runs on.",
+          ],
+          ["/agents/", "The agents", "Pinned tools, the release gate and live supervision."],
           ["/product/", "Every module", "Audit trail, consent, redaction and scorecards."],
         ]}
       />

@@ -1,5 +1,6 @@
 import React from "react";
 import { Helix } from "../components/Helix";
+import { Trace } from "../components/Trace";
 import {
   Closing,
   Cols,
@@ -15,35 +16,52 @@ import {
 } from "../components/ui";
 import { faqs } from "../data/faqs";
 
+// The ten candidate actions, as backend/agent_core/treatment/actions.py defines them.
 const actionRows = [
   ["Wait", "No contact", "Scores exactly zero. Every other action has to beat it."],
   [
     "Re-present the mandate",
-    "No channel",
-    "Costs almost nothing, annoys nobody, invisible to the contact cap. For an insufficient-funds return it is a timing problem, and this is strictly better than any call.",
+    "No contact",
+    "Costs almost nothing, annoys nobody and sits outside the contact cap. For an insufficient-funds return it is a timing problem, and this beats any call.",
   ],
   [
-    "Message with a pay link",
-    "Messaging",
+    "Change the EMI date",
+    "No contact",
+    "When the due date keeps landing a few days before payday, moving it fixes the cause instead of chasing the bounce every month.",
+  ],
+  [
+    "Self-service plan",
+    "No contact",
+    "Opens a resolution path the borrower can take in their own time, where they already are: the app, the portal, the next statement.",
+  ],
+  [
+    "SMS with a pay link",
+    "SMS",
     "Cures the forgot segment at a fraction of a call. Timed to the credit, not the calendar.",
   ],
   [
-    "Voice agent",
-    "Voice",
-    "Volume work in the early book: identity, disclosure, amount, promise, objection.",
+    "WhatsApp with a pay link",
+    "WhatsApp",
+    "The same cure on the channel most customers actually read, inside their consent.",
   ],
+  ["Voice agent", "Voice", "Volume work in the early book: identity, amount, promise, objection."],
   [
-    "Human call",
+    "Agent call",
     "Voice",
-    "Hardship, disputes, settlement, and anything the authority envelope will not cover.",
+    "Hardship, disputes, settlements, and anything outside what an agent may do.",
   ],
   [
     "Field visit",
     "In person",
-    "Expensive and often unanswered. Earned only when digital is exhausted and exposure warrants it.",
+    "Expensive and often unanswered. Only from 31 days past due, above a minimum balance, when digital is exhausted.",
   ],
-  ["Statutory notice", "Legal", "A clock, not a conversation. Permitted even under a legal hold."],
+  [
+    "Legal notice",
+    "Legal",
+    "A clock, not a conversation. Served by registered post, outside the contact cap, and still allowed under a legal hold.",
+  ],
 ];
+
 export function DecisionEnginePage() {
   return (
     <>
@@ -54,19 +72,17 @@ export function DecisionEnginePage() {
           <>
             Most collections models rank customers by how likely they are to pay. That puts the
             people who were going to pay anyway at the top of the list, spends your most expensive
-            capacity on them, and books their payment as the model's own success. PayInt scores the
-            difference your action makes instead.
+            capacity on them, and books their payment as the model's own success. PayInt is built to
+            score the difference your action makes instead, and it shows its working on every
+            decision.
           </>
         }
-        secondary={{
-          label: "See the platform",
-          href: "/platform/",
-        }}
+        secondary={{ label: "See the platform", href: "/platform/" }}
         proof={[
-          "Uplift, not propensity",
+          "Built for uplift",
           "Vetoes before scoring",
           "Scored in money",
-          "Control arm, always",
+          "Every decision explained",
         ]}
       />
       <Section
@@ -87,7 +103,9 @@ export function DecisionEnginePage() {
           <p className="formula__note">
             Read it as: what this intervention is worth on this account, over and above leaving it
             alone. A response model estimates the first term and ignores the second, which is why it
-            recommends contacting self-curers.
+            recommends contacting self-curers. Until an uplift model has beaten the comparison
+            group, PayInt scores from each borrower's own history and from rates learned on your
+            book, and every decision says which.
           </p>
         </div>
         <Cols
@@ -98,7 +116,7 @@ export function DecisionEnginePage() {
             ],
             [
               "The sleeping-dog trap",
-              "For some accounts, contact makes things worse — a complaint, an opt-out, an escalation. Uplift can go negative, and an engine that cannot represent a negative cannot avoid it.",
+              "For some accounts, contact makes things worse: a complaint, an opt-out, an escalation. Uplift can go negative, and an engine that cannot represent a negative cannot avoid it.",
             ],
             [
               "The persuadable middle",
@@ -123,9 +141,9 @@ export function DecisionEnginePage() {
             </h2>
             <p className="rise" data-fx>
               One strand is what happens to an account if you act. The other is what happens if you
-              leave it alone. A propensity model measures the first and never looks at the second —
-              and across most of a book the two are the same line, which is exactly where the money
-              is being spent for nothing.
+              leave it alone. A propensity model measures the first and never looks at the second.
+              Across most of a book the two are the same line, and that is exactly where the money
+              gets spent for nothing.
             </p>
           </div>
           <Helix />
@@ -152,24 +170,24 @@ export function DecisionEnginePage() {
               ],
               [
                 "Candidates",
-                "The full action ladder, each one planned to a specific instant — because asking may-we-dial at 02:00 answers no for every customer alive.",
+                "All ten actions, each planned to a specific moment, because asking may-we-dial at 02:00 answers no for every customer alive.",
               ],
               [
                 "Veto",
-                "Consent, calling window, cross-channel frequency, cooling-off, third-party contact, hardship, dispute, bereavement and legal holds.",
+                "Consent, calling window, contact caps, cooling-off, third-party contact, holds, days-past-due stage, stale bank data, technical bounces and what the customer said on the last call.",
               ],
               ["Score", "Expected value in money for each surviving candidate."],
               ["Arbitrate", "One action wins, with the reasons that eliminated the others."],
               [
                 "Log",
-                "Every invocation, including the suppressed ones, with the propensity it was chosen under.",
+                "Every decision, including the blocked ones, with the probability it was chosen under. Searchable, exportable, and one click from its full trace.",
               ],
-            ].map(([f, a]) => (
-              <div className="layer rise" data-fx key={f}>
+            ].map(([name, body]) => (
+              <div className="layer rise" data-fx key={name}>
                 <div className="layer__label">
-                  <h3>{f}</h3>
+                  <h3>{name}</h3>
                 </div>
-                <p className="layer__body">{a}</p>
+                <p className="layer__body">{body}</p>
               </div>
             ))}
           </div>
@@ -192,19 +210,20 @@ export function DecisionEnginePage() {
             contact fatigue
           </p>
           <p className="formula__note">
-            Waiting evaluates to exactly zero, so a recommended action is always an assertion that
-            doing something beats doing nothing on this account, today, by this much.
+            Waiting evaluates to exactly zero, and anything that acts must also clear a small
+            minimum value, so a recommended action is always a claim that doing something beats
+            doing nothing on this account, today, by this much.
           </p>
         </div>
         <Rows
           items={[
             [
               "Timing is scored, not asked afterwards",
-              "Each candidate is planned to an instant before it is vetoed. Digital nudges land near the credit when the failure was insufficient funds; calls prefer an hour this customer has actually answered at; a field visit takes a day's notice and skips the weekend.",
+              "Each candidate is planned to a moment before it is vetoed. Digital nudges land near the salary credit when the failure was insufficient funds, calls prefer an hour this customer has actually answered at, and a field visit takes a day's notice and never lands on a Sunday.",
             ],
             [
               "Cost is real, not nominal",
-              "Attempts per connect dominates the cost base and is usually unmeasured. At a 30% answer rate a connect costs 3.3 rings; at 15% it costs 6.7. That is a two-fold swing in the economics of the whole operation, so the platform measures it rather than assuming it.",
+              "Attempts per connect dominates the cost base and is usually unmeasured. At a 30% answer rate a connect costs 3.3 rings; at 15% it costs 6.7. Answer rates are learned from your own outcomes and bot-call cost is metered, while the rest of the cost table is yours to set, through review.",
             ],
             [
               "Fatigue is a term, not a policy afterthought",
@@ -212,30 +231,67 @@ export function DecisionEnginePage() {
             ],
             [
               "Book-level allocation, not just per-account",
-              "Agent hours and field slots are finite. Ranking accounts independently overspends the scarcest resource first; the allocation layer prices that scarcity and spends it where uplift is highest.",
+              "Agent hours and field slots are finite. The allocation layer prices that scarcity every night, and it only starts steering decisions once it has cleared its own checks. It ships switched off.",
             ],
           ]}
         />
       </Section>
       <Section
         eyebrow="The action space"
-        title={["Seven things to do,", "and one of them is nothing."]}
+        title={["Ten things to do,", "and one of them is nothing."]}
         lede="Silence is a first-class action with a real score, which is the only way an engine can ever recommend fewer contacts."
         wide
       >
         <Table
+          className="table--tight"
           head={["Action", "Channel", "When it wins"]}
-          rows={actionRows.map(([f, a, r]) => [f, a, r])}
-          caption="Field visits and statutory notices are recommended and logged before any dispatcher exists — so a collections head can see how much field work the ladder would generate before anyone builds it."
+          rows={actionRows}
+          caption="Mandates, field visits and legal notices land in supervisor queues with a Confirm and enact step, so a person signs off on anything that leaves the building. Re-presentation goes to your loan system as a work item unless a payment-rail adapter is connected."
         />
       </Section>
       <Section
-        eyebrow="The model's job"
-        title={["The model speaks.", "The engine decides."]}
+        id="trace"
+        eyebrow="The record"
+        title={["Every decision,", "with its working shown."]}
         lede={
           <>
-            There is a real and useful role for a language model in a collections conversation.
-            Choosing what happens to somebody's money is not it.
+            Open any decision and the engine shows why it acted now, every option it weighed, and
+            where each number came from. A language model can put that into plain words, but only
+            with numbers the record already holds.
+          </>
+        }
+      >
+        <div className="tracegrid">
+          <Rows
+            items={[
+              [
+                "Why now",
+                "The trigger, the facts it relied on, how fresh the bank feed was and which rules were in force.",
+              ],
+              [
+                "Every option",
+                "All ten actions, each scored or marked blocked before scoring, with the reason in plain language.",
+              ],
+              [
+                "Where each number came from",
+                "This borrower's history, a rate learned from recent outcomes, or the starting assumption. It says which.",
+              ],
+              [
+                "What happened next",
+                "The calls, messages, promises and payments that followed, and the version of every rule and model involved.",
+              ],
+            ]}
+          />
+          <Trace />
+        </div>
+      </Section>
+      <Section
+        eyebrow="The model's job"
+        title={["The model explains.", "The engine decides."]}
+        lede={
+          <>
+            There is a real and useful role for a language model around a collections decision.
+            Making it is not that role.
           </>
         }
       >
@@ -243,41 +299,41 @@ export function DecisionEnginePage() {
           <div className="split__col rise" data-fx>
             <h3 className="split__h">What the model does</h3>
             <ul className="ticks ticks--yes">
+              <li>Understands the customer on a call, and follows if they switch language</li>
+              <li>Puts a decision into plain words, using only numbers from its record</li>
               <li>
-                Understands what the customer said, and follows if they switch language mid-call
+                Proposes up to three setting changes a week, with the numbers behind each, for a
+                person to approve
               </li>
-              <li>Captures the reason a payment failed as a structured field</li>
-              <li>Negotiates inside an envelope the authority matrix has already drawn</li>
-              <li>Reorders a shortlist that has already been approved</li>
-              <li>Drafts one line of rationale for the record</li>
+              <li>Drafts a whisper a supervisor can send to a live agent</li>
             </ul>
           </div>
           <div className="split__col rise" data-fx>
             <h3 className="split__h">What it cannot do</h3>
             <ul className="ticks ticks--no">
-              <li>Introduce an action that was not on the approved shortlist</li>
-              <li>Resurrect anything a gate vetoed</li>
-              <li>Change the channel or the instant an action was planned for</li>
-              <li>Quote a settlement percentage or approve a waiver</li>
-              <li>State a figure that was not in the payload it was handed</li>
+              <li>Choose an action, or take any part in scoring, vetoes or arbitration</li>
+              <li>Revive anything a gate blocked</li>
+              <li>Change the channel or the moment an action was planned for</li>
+              <li>Quote a settlement or approve a waiver</li>
+              <li>State a figure the record does not contain</li>
             </ul>
           </div>
         </div>
         <p className="note rise" data-fx>
-          The last one is enforced in code: a rationale containing a number the engine did not
-          supply is rejected outright rather than corrected. Customer speech reaches that context
-          through the account summary, so the constraint cannot be talked around from inside the
-          conversation.
+          The first is enforced by the build itself: the scoring, policy and arbitration code cannot
+          import a language model. The last is enforced at runtime: an explanation containing a
+          number the record does not hold is thrown away, and the rule-written text is shown
+          instead.
         </p>
       </Section>
       <Section
         eyebrow="Stopping"
-        title={["Five reasons to stop", "get a row, not a label."]}
+        title={["Eight reasons to stop", "get a row, not a label."]}
         lede={
           <>
-            Hardship, dispute, complaint, bereavement and legal each place a hold on the account. A
-            hold is a record the runtime reads, which is what binds an agent at 02:00 exactly as it
-            binds a supervisor at noon.
+            Hardship, dispute, complaint, bereavement, legal, cease-and-desist, deceased and
+            no-upsell each place a hold on the account. A hold is a record the runtime reads, which
+            is what binds an agent at 02:00 exactly as it binds a supervisor at noon.
           </>
         }
       >
@@ -290,15 +346,19 @@ export function DecisionEnginePage() {
             ],
             [
               "Holds are precise about what they stop",
-              "A legal hold still permits a statutory notice. A dispute hold still permits a specialist call about the dispute itself. Blanket silence is its own failure mode.",
+              "A legal hold still permits a legal notice. A dispute hold still permits a specialist call about the dispute itself. A hardship hold allows nothing but waiting. Blanket silence is its own failure mode.",
             ],
             [
-              "Cross-sell is separated by policy",
-              "The offer engine reads the same holds, so an account in collections cannot be pitched a product on the same breath — a separation regulators expect and agent training does not reliably deliver.",
+              "Releasing one takes two people",
+              "Legal, cease-and-desist, deceased and bereavement holds need a second person to lift them. And what a customer says on a call can only take options away, never add one.",
+            ],
+            [
+              "Offers come from what customers ask for",
+              "Offers are never spoken on a collections call. A buying signal from a conversation becomes an offer only with a written suitability finding, goes out later by WhatsApp with marketing consent or to a relationship manager, and one in ten is held back to measure.",
             ],
             [
               "The ladder stops on its own",
-              "A broken promise re-enters the engine the hour it breaks, with an attempt cap, a backoff and a repeat penalty. Following up forever is a bug, not persistence.",
+              "A broken promise re-enters the engine the hour it breaks, with a cap of five attempts, a twelve-hour backoff and a repeat penalty. Following up forever is a bug, not persistence.",
             ],
           ]}
         />
@@ -306,35 +366,38 @@ export function DecisionEnginePage() {
       <Section
         eyebrow="Proving it"
         title={["A number nobody", "can argue with."]}
-        lede="An engine that cannot be evaluated is a story. The measurement apparatus ships with it."
+        lede="An engine that cannot be evaluated is a story. The measurement apparatus ships with it, and most of it runs on a schedule."
       >
         <Steps
           items={[
             [
               "Shadow first, always",
-              "The engine runs and logs every decision, including the suppressed ones, without acting. A fortnight of that tells you what it would have done and what it would have cost, before anything changes for a customer.",
+              "The engine runs and logs every decision, including the blocked ones, without acting. A fortnight of that tells you what it would have done and what it would have cost, before anything changes for a customer.",
             ],
             [
-              "Exploration with logged propensities",
-              "Actions are sometimes chosen with deliberate randomisation, and the probability of that choice is recorded. Without it, no honest off-policy estimate is possible later.",
+              "Rates that learn in the open",
+              "Every night, reach and cure rates are re-learned from outcomes and shown side by side: what was assumed, what the engine now uses, and the evidence that moved it.",
             ],
             [
-              "A genuine control arm",
-              "A randomised group stays on the existing process. This is the only thing that separates lift from seasonality, and it is why the platform will not report uplift without one.",
+              "A genuine comparison group",
+              "A randomised group gets only what policy requires. It is the only thing that separates lift from seasonality, and the platform will not report uplift without one.",
             ],
             [
-              "Off-policy evaluation before promotion",
-              "A challenger policy is estimated against logged data — importance sampling, self-normalised, and doubly robust — so it can be compared before it ever touches a customer.",
+              "Off-policy evaluation, every week",
+              "A challenger is trained and estimated against logged decisions (importance sampling, self-normalised and doubly robust), so it can be compared before it ever touches a customer.",
             ],
             [
-              "A promotion gate that refuses by default",
-              "Drift and calibration monitors run continuously, and a challenger is promoted only when it clears the gate. Silence from the gate means no, not yes.",
+              "A promotion gate that says no by default",
+              "A challenger needs a pre-registration signed by a second person and has to clear the gate. Silence from the gate means no.",
+            ],
+            [
+              "Changes need a second person",
+              "About twenty strategy settings, costs included, are edited as proposals with an estimated impact. A change applies only when someone other than its author approves it.",
             ],
           ]}
         />
-        <Pull by="What this buys, said plainly">
-          We reduced contact attempts by a third and recovered the same amount — measured against a
-          control arm, not asserted.
+        <Pull by="The promise behind the engine">
+          Until a model has beaten the comparison group, the engine says so. On every decision.
         </Pull>
       </Section>
       <Section eyebrow="Questions" title={["What people ask", "about the engine."]}>
@@ -342,18 +405,15 @@ export function DecisionEnginePage() {
       </Section>
       <More
         links={[
-          ["/agents/", "The agents", "What executes the decision, and what it may not do."],
+          ["/agents/", "The agents", "What carries out the decision, and what it may not do."],
           ["/pricing/", "Pricing", "Why fewer calls has to be good for both of us."],
           ["/compliance/", "Compliance", "The vetoes, and the evidence they leave."],
         ]}
       />
       <Closing
         title={["Bring your book.", "We will score it."]}
-        lede="In a walkthrough we run the engine over real accounts of yours in shadow mode and show you what it would have done, what it would have suppressed, and why."
-        secondary={{
-          label: "Read the architecture",
-          href: "/security/",
-        }}
+        lede="In a walkthrough we run the engine over real accounts of yours in shadow mode and show you what it would have done, what it would have held back, and why."
+        secondary={{ label: "Read the architecture", href: "/security/" }}
       />
     </>
   );

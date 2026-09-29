@@ -1,30 +1,71 @@
 import React from "react";
-import { Closing, Cols, Faq, More, PageHero, Pull, Rows, Section, Steps } from "../components/ui";
+import { Closing, Cols, Faq, More, PageHero, Pull, Rows, Section, Table } from "../components/ui";
 import { faqs } from "../data/faqs";
+
+const now = <span className="status status--now">Available now</span>;
+const soon = <span className="status status--soon">In development</span>;
+
+// Insurance is in early access: the lending engine's customer-wide machinery
+// carries over today; policy and premium workflows are being built with partners.
+const capabilityRows = [
+  [
+    "One contact budget per customer",
+    now,
+    "Daily caps and cooling-off span every channel for a customer, so two teams cannot each stay inside their own limit.",
+  ],
+  [
+    "One hardship state",
+    now,
+    "A hardship hold placed on any conversation binds every agent and every channel for that customer.",
+  ],
+  [
+    "Suitability before any offer",
+    now,
+    "Eligibility and suitability are checked before scoring, offers are never spoken on a call, and they go out later only with marketing consent.",
+  ],
+  [
+    "One evidence trail",
+    now,
+    "Recording, transcript, rules and decisions land in the same audit store, whatever the conversation was about.",
+  ],
+  [
+    "Policies and premiums in the record",
+    soon,
+    "Policy, premium and renewal data alongside the ledger in Customer 360.",
+  ],
+  [
+    "Renewal reminders and premium mandates",
+    soon,
+    "Pre-due reminders with a payment link, and premium debits retried when the account is likely funded.",
+  ],
+  [
+    "Grace periods and revival windows",
+    soon,
+    "A lapse ladder and a revival clock the engine can score against, measured on policies retained.",
+  ],
+];
 
 export function InsurancePage() {
   return (
     <>
       <PageHero
-        eyebrow="Insurers"
+        eyebrow="Insurers · Early access"
         title={["Persistency is collections", "with a thirteenth-", "month clock."]}
         lede={
           <>
-            Most lapse is not a decision to leave. It is a failed auto-debit, a card that expired, a
-            renewal notice that arrived while somebody was travelling — the same chore as an
-            early-stage instalment miss, with a longer cycle and a wider revival window. It responds
-            to the same machinery.
+            Most lapse is not a decision to leave. It is a failed auto-debit, an expired card or a
+            renewal notice that arrived while somebody was travelling. The machinery PayInt runs on
+            missed instalments fits that problem, and we are building the renewal and lapse
+            workflows with a small group of design partners now.
           </>
         }
-        secondary={{
-          label: "The platform",
-          href: "/platform/",
-        }}
+        primary={{ label: "Become a design partner", href: "/demo/" }}
+        secondary={{ label: "See the platform", href: "/platform/" }}
         proof={[
-          "Renewals and pre-due",
-          "Failed mandate recovery",
-          "Revival windows",
-          "Suitability-gated conversations",
+          "Early access",
+          "Built on the lending engine",
+          "One contact budget per customer",
+          "Suitability-gated offers",
         ]}
       />
       <Section
@@ -43,43 +84,29 @@ export function InsurancePage() {
           items={[
             [
               "A missed debit is a timing problem",
-              "Re-presenting the mandate at the right moment costs almost nothing, annoys nobody, and does not touch the contact budget. For an insufficient-funds return it is strictly better than any call.",
+              "Re-presenting a mandate at the right moment costs almost nothing, annoys nobody and sits outside the contact budget. For an insufficient-funds return it beats any call. This already works on loan mandates.",
             ],
             [
               "A forgotten renewal is a reminder problem",
-              "A message with a payment link cures the same policy a call would have cured, at a fraction of the cost — once you can tell that segment apart, which requires capturing the reason rather than guessing it.",
+              "A message with a payment link cures the same policy a call would, at a fraction of the cost, once you can tell that segment apart. That means capturing the reason, not guessing it.",
             ],
             [
               "A revival window is a deadline problem",
-              "Lapsed policies stay revivable for years, and the value of contact decays across that window rather than falling off a cliff. That decay is in the score, so the engine works the window instead of the calendar month.",
+              "Lapsed policies stay revivable for years, and the value of contact fades across that window rather than falling off a cliff. A revival clock the engine can score against is part of what we are building.",
             ],
           ]}
         />
       </Section>
-      <Section eyebrow="The ladder" title={["From renewal notice", "to revived policy."]}>
-        <Steps
-          items={[
-            [
-              "Before it is due",
-              "A reminder on the channel the policyholder actually uses, with a link that completes the payment. The cheapest cure available, and the one most programmes underuse.",
-            ],
-            [
-              "The debit fails",
-              "The event opens a case the same minute. If the return code says insufficient funds, the first response is a re-presentation timed to when the account is likely funded — not a call.",
-            ],
-            [
-              "Inside the grace period",
-              "Escalating, but still automated: message, then a voice agent that can take the payment, explain what lapse would cost, and capture a promise in writing.",
-            ],
-            [
-              "After lapse",
-              "The revival conversation, with the medical or underwriting requirements stated plainly and the deadline that matters made explicit rather than implied.",
-            ],
-            [
-              "When it needs a person",
-              "Hardship, a complaint, a dispute about what was sold, or a claim in progress. Those get a hold and a human, quickly, with the history already retrieved.",
-            ],
-          ]}
+      <Section
+        eyebrow="Where it stands"
+        title={["What works today,", "and what we are building."]}
+        lede="We would rather you hear it from us than find it in a pilot. Here is the line between what runs now and what design partners are shaping with us."
+        wide
+      >
+        <Table
+          className="table--status"
+          head={["Capability", "Status", "What it means"]}
+          rows={capabilityRows}
         />
       </Section>
       <Section
@@ -88,7 +115,7 @@ export function InsurancePage() {
         lede={
           <>
             A customer behind on an instalment and lapsing a policy is one cash-flow story. Run as
-            two systems, they get two contact budgets, two reminder cadences and two partial views —
+            two systems, they get two contact budgets, two reminder cadences and two partial views,
             and the hardship signal one side captured is invisible to the other.
           </>
         }
@@ -97,19 +124,19 @@ export function InsurancePage() {
           items={[
             [
               "One contact budget",
-              "The frequency cap spans the lending and insurance books together, so a customer cannot be reached six times in a week by two teams each staying inside their own limit.",
+              "The frequency cap is per customer, across every channel, so when policy servicing joins, a customer cannot be reached six times in a week by two teams each staying inside their own limit.",
             ],
             [
               "One hardship state",
-              "A hold placed during a collections conversation binds the renewal agent too, at 02:00, without anyone forwarding an email.",
+              "A hold placed during a collections conversation binds every other agent too, at 02:00, without anyone forwarding an email.",
             ],
             [
               "One record",
-              "The same customer view carries the ledger, the policies, the promises and every interaction on either side of the house.",
+              "The same customer view carries the ledger, the promises and every interaction, and is where policies will sit.",
             ],
             [
               "One evidence trail",
-              "Whichever product the conversation was about, the recording, transcript, policy version and gate results land in the same audit store.",
+              "Whichever product the conversation was about, the recording, transcript, rules in force and gate results land in the same audit store.",
             ],
           ]}
         />
@@ -119,8 +146,8 @@ export function InsurancePage() {
         title={["Only what the customer", "is actually eligible for."]}
         lede={
           <>
-            A renewal call is a suitability-sensitive moment, and the temptation to attach a product
-            to it is exactly why conduct rules exist around it.
+            A renewal is a suitability-sensitive moment, and the temptation to attach a product to
+            it is exactly why conduct rules exist around it.
           </>
         }
       >
@@ -132,14 +159,14 @@ export function InsurancePage() {
               "The recommender cannot surface a product the customer does not qualify for. Eligibility is evaluated before anything is scored, so a high conversion score cannot promote an unsuitable product.",
             ],
             [
-              "Collection and cross-sell stay separate",
-              "An account in collections is not a cross-sell audience. The offer engine reads the same holds the treatment engine does, so that separation is enforced by policy rather than by remembering to.",
+              "Nothing is sold on the call",
+              "Offers are never spoken on a collections call. A buying signal becomes an offer only after an eligibility and suitability check, and goes out later by WhatsApp with marketing consent, or to a relationship manager as a lead.",
             ],
           ]}
         />
         <Pull by="The version of this a conduct team can sign">
-          Nothing was offered on a renewal call that the customer could not have been sold in a
-          branch.
+          Nothing is offered on a call. Anything offered later has a written suitability finding
+          behind it.
         </Pull>
       </Section>
       <Section eyebrow="Questions" title={["What insurers", "ask first."]}>
@@ -147,18 +174,16 @@ export function InsurancePage() {
       </Section>
       <More
         links={[
-          ["/lenders/", "Banks and lenders", "The same pipeline on the lending book."],
+          ["/lenders/", "Banks and lenders", "The same pipeline on the lending book, today."],
           ["/decision-engine/", "Decision intelligence", "Why re-presenting often beats calling."],
           ["/compliance/", "Compliance and QA", "Suitability, disclosure and the evidence trail."],
         ]}
       />
       <Closing
-        title={["Start with one", "renewal month."]}
-        lede="A pilot on a single cohort, with a held-out control group, measured on policies retained rather than on calls made."
-        secondary={{
-          label: "How we price it",
-          href: "/pricing/",
-        }}
+        title={["Help us build", "the renewal side."]}
+        lede="Bring one renewal cohort. We will map it onto the platform with you and measure the pilot on policies retained, against a comparison group."
+        primary={{ label: "Become a design partner", href: "/demo/" }}
+        secondary={{ label: "How we price it", href: "/pricing/" }}
       />
     </>
   );

@@ -4,25 +4,64 @@ import { site } from "../site";
 
 const bookSizes = [
   "Under 50,000 accounts",
-  "50,000 – 250,000 accounts",
-  "250,000 – 1 million accounts",
+  "50,000 to 250,000 accounts",
+  "250,000 to 1 million accounts",
   "Over 1 million accounts",
-  "Insurance book",
+  "Insurance book (early access)",
 ];
+const fields = [
+  ["name", "Name"],
+  ["email", "Work email"],
+  ["company", "Organisation"],
+  ["role", "Role"],
+  ["book", "Book size"],
+  ["notes", "What they would like to see"],
+];
+
 export function DemoPage() {
-  const [f, a] = React.useState("idle");
-  async function r(l) {
-    l.preventDefault();
-    const s = l.currentTarget,
-      c = new FormData(s);
-    if (c.get("company_website")) return;
-    const m = ["name", "email", "company", "role", "book", "notes"].map(
-      (g) => `${g}: ${String(c.get(g) ?? "")}`,
-    ).join(`
-`);
-    ((location.href = `mailto:${site.email}?subject=${encodeURIComponent("Walkthrough request")}&body=${encodeURIComponent(m)}`),
-      a("mail"));
+  // idle -> sending -> sent | error (with a form endpoint), or idle -> mail (without one)
+  const [status, setStatus] = React.useState("idle");
+  const [message, setMessage] = React.useState("");
+  const [copied, setCopied] = React.useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    if (data.get("company_website")) return; // the honeypot: bots fill it, people never see it
+    const body = fields
+      .map(([key, label]) => `${label}: ${String(data.get(key) ?? "")}`)
+      .join("\n");
+    setMessage(body);
+    if (site.formEndpoint) {
+      setStatus("sending");
+      try {
+        const response = await fetch(site.formEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.fromEntries(data)),
+        });
+        setStatus(response.ok ? "sent" : "error");
+      } catch {
+        setStatus("error");
+      }
+      return;
+    }
+    setStatus("mail");
+    window.location.href = `mailto:${site.email}?subject=${encodeURIComponent("Walkthrough request")}&body=${encodeURIComponent(body)}`;
   }
+
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.writeText(
+        `To: ${site.email}\nSubject: Walkthrough request\n\n${message}`,
+      );
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <>
       <PageHero
@@ -30,9 +69,9 @@ export function DemoPage() {
         title={["See a bounce become", "a conversation."]}
         lede={
           <>
-            Thirty minutes, your book, your rules. We run one live account end to end — the trigger,
-            the gates, the decision, the call, and the audit record it leaves behind. No slide deck,
-            and no discovery call before the product appears.
+            Thirty minutes, your book, your rules. We run one account end to end: the trigger, the
+            gates, the decision, the conversation and the audit record it leaves behind. No slide
+            deck, and no discovery call before the product appears.
           </>
         }
         primary={{
@@ -49,7 +88,7 @@ export function DemoPage() {
           items={[
             [
               "Take a failed payment through the whole pipeline",
-              "From the event arriving to the case opening, the gates clearing, the engine choosing an action and the agent placing the call — on a book that looks like yours.",
+              "From the bounce arriving to the case opening, the gates clearing, the engine choosing an action and the agent making contact, on a book that looks like yours.",
             ],
             [
               "Try to break the agent",
@@ -57,7 +96,7 @@ export function DemoPage() {
             ],
             [
               "Open the record afterwards",
-              "The policy version, the gate results, the score, the recording and the transcript — the thing your auditor would actually ask for.",
+              "The rules in force, what was blocked and why, the score, the recording and the transcript: the thing your auditor would actually ask for.",
             ],
             [
               "Talk about your book, not ours",
@@ -68,7 +107,7 @@ export function DemoPage() {
       </Section>
       <Section id="form" eyebrow="Get in touch" title={["Tell us what", "to bring."]}>
         <div className="formgrid">
-          <form className="enquiry rise" data-fx onSubmit={r}>
+          <form className="enquiry rise" data-fx onSubmit={submit}>
             <div className="enquiry__row">
               <label>
                 <span>Name</span>
@@ -118,8 +157,8 @@ export function DemoPage() {
               aria-hidden="true"
             />
             <div className="enquiry__foot">
-              <button className="btn btn--primary" type="submit" disabled={f === "sending"}>
-                {f === "sending" ? "Sending…" : "Request a walkthrough"}
+              <button className="btn btn--primary" type="submit" disabled={status === "sending"}>
+                {status === "sending" ? "Sending…" : "Request a walkthrough"}
               </button>
               <p className="enquiry__note">
                 We use what you send here to arrange the walkthrough and nothing else. No
@@ -127,13 +166,22 @@ export function DemoPage() {
               </p>
             </div>
             <p className="enquiry__status" role="status">
-              {f === "sent"
-                ? "Thank you — we will reply within one working day."
-                : f === "mail"
-                  ? "Your mail client should have opened with the details filled in. If it did not, send them to " +
-                    site.email
-                  : ""}
+              {status === "sent" ? "Thank you. We will reply within one working day." : null}
+              {status === "error"
+                ? `That did not go through. Please write to ${site.email} instead, or copy the message below.`
+                : null}
+              {status === "mail"
+                ? `Your email app should open with everything filled in. If it does not, copy the message below and send it to ${site.email}.`
+                : null}
             </p>
+            {status === "mail" || status === "error" ? (
+              <div className="enquiry__copy">
+                <textarea readOnly value={message} rows={6} aria-label="Your message" />
+                <button className="btn btn--quiet" type="button" onClick={copyMessage}>
+                  {copied ? "Copied" : "Copy message"}
+                </button>
+              </div>
+            ) : null}
           </form>
           <aside className="enquiry__aside rise" data-fx>
             <h3>Or go straight to a person</h3>

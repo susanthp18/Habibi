@@ -97,9 +97,10 @@ export function Rows({ items: f }) {
     </dl>
   );
 }
-export function Steps({ items: f }) {
+/** Numbered steps. `rail` draws a progress line down the steps that fills as the page scrolls. */
+export function Steps({ items: f, rail = false }) {
   return (
-    <ol className="steps">
+    <ol className={rail ? "steps steps--rail" : "steps"} data-rail={rail || undefined}>
       {f.map(([a, r], l) => (
         <li className="rise" data-fx key={l}>
           <span className="steps__n">{String(l + 1).padStart(2, "0")}</span>
@@ -124,9 +125,9 @@ export function Cols({ items: f, of: a = 3 }) {
     </div>
   );
 }
-export function Panel({ eyebrow: f, title: a, lede: r, children: l }) {
+export function Panel({ id, eyebrow: f, title: a, lede: r, children: l }) {
   return (
-    <section className="platform">
+    <section className="platform" id={id}>
       <div className="platform__in">
         <div className="platform__head">
           {f ? (
@@ -165,10 +166,10 @@ export function Metrics({ items: f }) {
     </div>
   );
 }
-export function Table({ head: f, rows: a, caption: r }) {
+export function Table({ head: f, rows: a, caption: r, className }) {
   return (
     <div className="tablewrap rise" data-fx>
-      <table className="table">
+      <table className={className ? `table ${className}` : "table"}>
         <thead>
           <tr>
             {f.map((l) => (

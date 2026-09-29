@@ -19,7 +19,7 @@ const shiftRows = [
   [
     "Before the shift",
     "Log in, take last night's allocated list, skim the broken promises and callbacks.",
-    "The bounce at 00:12 opens a case at 00:13. Nothing waits for an allocation meeting.",
+    "A bounce at 00:12 opens a case straight away, and the written notice is queued for the first permitted hour. Nothing waits for an allocation meeting.",
   ],
   [
     "Dialling",
@@ -29,12 +29,12 @@ const shiftRows = [
   [
     "On the call",
     "Hang-ups, I-will-pay-Saturday, fee arguments, already-paid, waiver requests, a language switch.",
-    "Goodwill inside policy closes on the call. Anything outside it warm-transfers with the packet already open.",
+    "Identity comes first, then the promise. Anything outside policy goes to a person with the account packet already open.",
   ],
   [
     "After each call",
-    "Notes, promise amount and date, callback, dispute flag, CRM update — the after-call work.",
-    "Disposition is structured from the turn itself, and the promise is confirmed in writing within minutes.",
+    "Notes, promise amount and date, callback, dispute flag, CRM update: the after-call work.",
+    "The outcome is filed as a code, not a note, and the promise and its pay link are sent in writing during the call.",
   ],
   [
     "Afternoon",
@@ -44,7 +44,7 @@ const shiftRows = [
   [
     "End of shift",
     "Assemble the report: attempts, contacts, promises, collected. Tomorrow's meeting asks why roll-forward moved.",
-    "Collection efficiency, roll-forward, promises kept and compliance flags are live, not assembled overnight.",
+    "Recovered amount, promises kept, time to first touch and compliance flags are live on the dashboard, not assembled overnight.",
   ],
 ];
 export function PlatformPage() {
@@ -57,7 +57,7 @@ export function PlatformPage() {
           <>
             PayInt is not a voice agent with a dashboard around it. It is the operating system for a
             collections floor: it decides which accounts to work, on which channel, at what hour and
-            under whose authority — then executes that decision and keeps the evidence.
+            under whose authority, then carries that decision out and keeps the evidence.
           </>
         }
         secondary={{
@@ -65,9 +65,9 @@ export function PlatformPage() {
           href: "/product/",
         }}
         proof={[
-          "Event-driven, not batch",
+          "Bounces arrive as events",
           "Gates before scoring",
-          "Voice, messaging, human",
+          "Voice, WhatsApp and people",
           "Evidence on every action",
         ]}
       />
@@ -78,7 +78,7 @@ export function PlatformPage() {
           <>
             A customer who misses an instalment on Day 1 and hears from you on Day 12 has already
             reclassified the debt in their own mind, and in your book. Every hour between the event
-            and a structured intervention raises the chance of rolling into the next bucket — and
+            and a structured intervention raises the chance of rolling into the next bucket, and
             almost none of those hours are spent talking.
           </>
         }
@@ -94,9 +94,9 @@ export function PlatformPage() {
         title={["Voice is a channel.", "The decision is the product."]}
         lede={
           <>
-            Voice AI is commoditising, and a product priced by the minute has to want more minutes.
-            The defensible layer is the one that decides whether a contact is worth making at all —
-            after which adding email, push, a mandate re-presentation, a human agent or a field
+            Voice AI is becoming a commodity, and a product priced by the minute has to want more
+            minutes. The defensible layer is the one that decides whether a contact is worth making
+            at all. After that, adding a channel, a mandate re-presentation, a person or a field
             visit changes nothing upstream.
           </>
         }
@@ -106,23 +106,23 @@ export function PlatformPage() {
             {[
               [
                 "Decide",
-                "Which accounts, which action, which channel, which hour — scored in money against doing nothing.",
+                "Which accounts, which action, which channel, which hour, scored in money against doing nothing.",
               ],
               [
                 "Gate",
-                "Consent, calling window, frequency across every channel, authority, hardship and legal holds.",
+                "Consent, calling window, contact caps across every channel, holds, identity and stale data.",
               ],
               [
                 "Execute",
-                "Voice, messaging, the agent desktop, a document, a pay link, or deliberate silence.",
+                "Voice, WhatsApp, a written notice, a person on the phone, a pay link, a mandate retry, or deliberate silence.",
               ],
               [
                 "Evidence",
-                "Policy version, gate results, score, recording, transcript — one record per action.",
+                "Rules in force, every rule consulted, score, recording, transcript. One record per action.",
               ],
               [
                 "Learn",
-                "Logged propensities, a held-out control arm, and a promotion gate that refuses by default.",
+                "Rates re-learned every night, a comparison group, and a promotion gate that says no until the evidence says yes.",
               ],
             ].map(([f, a]) => (
               <div className="layer rise" data-fx key={f}>
@@ -141,30 +141,31 @@ export function PlatformPage() {
         lede="One account, one morning, with nothing waiting for a person to notice it."
       >
         <Steps
+          rail
           items={[
             [
               "The event arrives, not the batch",
-              "A mandate fails and the payment event reaches the runtime the same minute it hits the core system. The case opens immediately; there is no overnight extract and no morning allocation.",
+              "A mandate fails and the bounce reaches PayInt as a signed event, with its return reason. The case opens immediately. Account and payment data still arrive in your regular bank feeds, and if a feed is late, contact waits instead of guessing.",
             ],
             [
               "The engine picks an action",
-              "Candidate actions — wait, message, voice, human, field, notice — are each planned to an instant, then vetoed, then scored in money. Waiting scores exactly zero, so anything that happens has to beat silence.",
+              "Ten candidate actions, from waiting to a legal notice, are each planned to a specific moment, then vetoed, then scored in money. Waiting scores exactly zero, so anything that happens has to beat silence.",
             ],
             [
               "The gates decide whether it may happen",
-              "Consent, permitted hours, cross-channel frequency, third-party contact, hardship and legal holds are evaluated before the contact exists. A vetoed action cannot be revived by a high score.",
+              "Consent, calling hours, contact caps, third-party contact, holds and stale data are checked before anything is dialled, and the calling window is checked again at the dial. A vetoed action cannot be revived by a high score.",
             ],
             [
               "The agent has the conversation",
-              "Identity, disclosure, the amount and the due date, then the actual negotiation — within an authority envelope that is on screen before it is spoken.",
+              "Identity first, then the amount and the due date, then the actual conversation. Anything outside policy, every settlement request included, goes to a person with the account packet already open.",
             ],
             [
               "The promise becomes an artefact",
-              "Amount, date and channel are captured from the turn, confirmed in writing within minutes, given a pay link, and scheduled for a reminder on the day.",
+              "Amount and date are captured on the call, confirmed in writing with a pay link while the customer is still on the line, and a reminder is set for the day it falls due.",
             ],
             [
               "The loop closes itself",
-              "Kept or broken is computed from the ledger rather than from anyone's honour. A broken promise re-enters the engine the hour it breaks, with an attempt cap and a backoff so the ladder stops instead of grinding.",
+              "Kept or broken is worked out from the ledger, not from anyone's honour. A broken promise goes back to the engine the hour it breaks, with a cap of five attempts and a twelve-hour backoff, so the ladder stops instead of grinding.",
             ],
           ]}
         />
@@ -179,17 +180,17 @@ export function PlatformPage() {
             {
               n: "Hours",
               k: "Time to first touch after a failed payment",
-              note: "The early-bucket profit lever. Days is the industry norm; the target is inside the next permitted window.",
+              note: "Tracked on the dashboard as a median, from the bounce to the first compliant touch. Days is the industry norm.",
             },
             {
-              n: "48h",
-              k: "To cover the whole early book",
-              note: "Coverage is the lift in early delinquency. Dialogue quality matters most further down the book.",
+              n: "Right party",
+              k: "Contacts that reached the actual borrower",
+              note: "Verified on every call before any account detail. Attempts per connect and right-party rate are measured, not guessed.",
             },
             {
               n: "100%",
               k: "Of conversations scored",
-              note: "There is no sampling path in the runtime, so the complained-about call is always in the record.",
+              note: "Voice Studio calls get the full grading, and every other conversation still gets a rules-based card, so the complained-about call is on record.",
             },
             {
               n: "Kept",
@@ -200,7 +201,7 @@ export function PlatformPage() {
         />
         <Pull by="What a bank asks for, in a bank's language">
           Every recovery call we made in March, with the rule set that authorised it, the number it
-          came from, who answered, what was said, what we promised, and whether we kept it — as one
+          came from, who answered, what was said, what we promised, and whether we kept it. As one
           query.
         </Pull>
       </Section>
@@ -223,7 +224,7 @@ export function PlatformPage() {
             ],
             [
               "Floor lead",
-              "Augmented. Floor command and call flags replace the walk-around and the spreadsheet pack, so supervision goes to the exceptions.",
+              "Augmented. Floor command lets a lead listen to, whisper into or take over any live call, so supervision goes to the exceptions instead of the walk-around.",
             ],
             [
               "QA analyst",
@@ -235,7 +236,7 @@ export function PlatformPage() {
             ],
             [
               "Back-office clerk",
-              "The diary replaced by queues that act: broken promises, callbacks, documents and dispute evidence.",
+              "The diary replaced by shared queues with owners and SLA timers: broken promises, callbacks, document requests and disputes.",
             ],
             [
               "Hardship, legal and field specialists",
@@ -277,19 +278,19 @@ export function PlatformPage() {
           [
             "/decision-engine/",
             "Decision intelligence",
-            "Why the engine decides and the model only speaks.",
+            "Why the engine decides and the model only explains.",
           ],
           [
             "/compliance/",
             "Compliance and QA",
             "Gates before contact, and every conversation scored.",
           ],
-          ["/security/", "Security and deployment", "The whole runtime inside your perimeter."],
+          ["/security/", "Security and deployment", "Your servers, your keys, your region."],
         ]}
       />
       <Closing
         title={["See a bounce become", "a conversation."]}
-        lede="Thirty minutes, your book, your rules. We run one live account end to end — the trigger, the gates, the decision, the call, and the record it leaves behind."
+        lede="Thirty minutes, your book, your rules. We run one account end to end: the trigger, the gates, the decision, the conversation and the record it leaves behind."
         secondary={{
           label: "How we price it",
           href: "/pricing/",

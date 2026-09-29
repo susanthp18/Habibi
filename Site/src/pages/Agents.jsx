@@ -1,4 +1,5 @@
 import React from "react";
+import { LiveCall } from "../components/LiveCall";
 import {
   Closing,
   Cols,
@@ -22,21 +23,18 @@ export function AgentsPage() {
         title={["Compose the agent.", "You cannot unbolt", "the safety."]}
         lede={
           <>
-            An agent is a Voice Studio workflow: its voice, the tools it may call, and the knowledge
-            it may use, published as one version. Claude and Codex can draft the workflow and the
-            tools over MCP. A person still publishes. The compliance rails are not a component on
-            the canvas. They are the floor the canvas sits on.
+            An agent is a Voice Studio workflow: its voice, the tools it may call and the knowledge
+            it may use, published as one version. Claude and other MCP clients can draft it. A
+            person still publishes. The safety rails are not blocks on the canvas. They are checks
+            the canvas cannot switch off.
           </>
         }
-        secondary={{
-          label: "How decisions are made",
-          href: "/decision-engine/",
-        }}
+        secondary={{ label: "How decisions are made", href: "/decision-engine/" }}
         proof={[
-          "Versioned Voice Studio agents",
-          "Tools derived, never granted ad hoc",
+          "Versioned agents",
+          "Tools pinned to approved revisions",
           "Rehearsed before it dials",
-          "Published behind gates",
+          "Gated at publish",
         ]}
       />
       <Section
@@ -44,9 +42,9 @@ export function AgentsPage() {
         title={["A contract, checked", "at publish time."]}
         lede={
           <>
-            Everything an agent is allowed to be lives in one published workflow. A new campaign is
-            a version of that workflow going through your change process — not a code deployment,
-            and not a prompt somebody edited on a Friday.
+            Everything an agent is allowed to be lives in one published workflow. A new agent
+            version goes through your change process: not a code deployment, and not a prompt
+            somebody edited on a Friday.
           </>
         }
       >
@@ -54,98 +52,91 @@ export function AgentsPage() {
           items={[
             [
               "Identity and voice",
-              "Who the agent says it is, which is also what the disclosure requirements are written against.",
+              "Who the agent says it is and how it sounds, per language. The disclosure goes in the greeting, and the publish check warns when it is missing.",
             ],
             [
               "Tool grant",
-              "The tools on the workflow. A revision is not callable on a live call until a person approves it, and it stays fixed until the next published release.",
+              "The tools on each step of the workflow, each pinned to an approved revision. A revoked revision stops working even in the middle of a call.",
             ],
             [
               "Handoffs",
-              "The named agents it may transfer a live conversation to. The receiving agent brings its own workflow, and therefore its own tools.",
+              "The named agents it may pass a live conversation to. The next agent brings its own workflow and tools, and gets a summary, not the previous agent's tool calls.",
             ],
             [
               "Drafts over MCP",
-              "Claude, Codex and similar tools can draft the workflow and the tools. Publishing the agent, and approving a tool revision, stay with a person in Voice Studio.",
+              "Claude, Cursor and other MCP clients can draft agents and tools with a personal, scoped key that expires within 90 days. Publishing, and approving tool revisions, stay with people in Voice Studio.",
             ],
             [
-              "Locked engines",
-              "The decision engines an author may not detach. The model proposes; a locked engine disposes; no workflow publishes without them.",
+              "Release gate",
+              "An agent cannot publish without approved identity-check and opt-out tools, and the gate blocks any account tool that could run before identity is verified.",
             ],
             [
               "Campaigns",
-              "A reason to place calls with this agent: the objective, the definition of success, and the time it is allowed to take.",
+              "A published agent, a list and the pacing: concurrency, calls per second, retries, calling slots and a circuit breaker. Every number still passes the contact policy.",
             ],
           ]}
         />
       </Section>
       <Panel
-        eyebrow="Permission"
-        title={["The grant is derived.", "The offer is narrower."]}
+        id="supervision"
+        eyebrow="Supervision"
+        title={["A person can step in", "without breaking the call."]}
         lede={
           <>
-            What an agent may do is computed from its published workflow. What the model is shown on
-            a given turn is a subset of that, chosen to keep the context small. The distinction
-            matters because it means narrowing is always a cost decision and never a safety one — an
-            offer can only ever be smaller than the grant, so a prompt-level mistake cannot widen
-            what the agent is able to execute.
+            From Floor command, a supervisor can listen to any live call, whisper a note to the
+            agent, or take the call over and hand it back. Anyone without access to raw personal
+            data hears and reads a masked version.
           </>
         }
       >
-        <div className="os">
-          <div className="os__stack">
-            {[
-              [
-                "Grant",
-                "The tools on the published workflow. Fixed until the next release. Auditable as a list.",
-              ],
-              [
-                "Offer",
-                "The subset placed in front of the model this turn. Always a subset. Never a superset.",
-              ],
-              [
-                "Gate",
-                "A publish-time check with three honest outcomes: pass, block, or skip. A gate never reports green for a check it did not run.",
-              ],
-              [
-                "Reachability",
-                "Whether traffic can arrive at an agent at all — as the entry agent, through a handoff, by direct address, or not at all. An unreachable agent is shown as unreachable rather than as healthy.",
-              ],
-            ].map(([f, a]) => (
-              <div className="layer rise" data-fx key={f}>
-                <div className="layer__label">
-                  <h3>{f}</h3>
+        <div className="supgrid">
+          <div className="os">
+            <div className="os__stack">
+              {[
+                ["Listen", "The live call and its transcript, as it happens."],
+                [
+                  "Whisper",
+                  "A note to the agent mid-call. The customer never hears it, and AI can draft it.",
+                ],
+                [
+                  "Take over",
+                  "A person takes the call and can hand it back to the agent afterwards.",
+                ],
+                [
+                  "Flags on every turn",
+                  "Out-of-hours contact, account figures before identity, third-party disclosure and ignored opt-outs are flagged: on WhatsApp as each reply goes out, on calls as soon as the call is filed.",
+                ],
+              ].map(([name, body]) => (
+                <div className="layer rise" data-fx key={name}>
+                  <div className="layer__label">
+                    <h3>{name}</h3>
+                  </div>
+                  <p className="layer__body">{body}</p>
                 </div>
-                <p className="layer__body">{a}</p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+          <LiveCall />
         </div>
       </Panel>
       <Section
-        eyebrow="Campaigns"
-        title={["An objective,", "not a script."]}
-        lede={
-          <>
-            A script says what to read. A campaign says what the calls are for, what would count as
-            success, and how long they are allowed to take — which is what lets the same agent
-            handle a customer who answers with something the script never anticipated.
-          </>
-        }
+        eyebrow="Channels"
+        title={["One agent,", "voice and WhatsApp."]}
+        lede="The same published agent answers calls and WhatsApp threads, with the same tools, the same identity rules and the same record."
       >
         <Cols
           items={[
             [
-              "The campaign",
-              "One reason to place calls: the published agent, the definition of success, the time budget. A welcome call that prevents the first failure is worth more than any call after it.",
+              "WhatsApp threads",
+              "A transfer lands in the Conversation inbox. A person replies inside WhatsApp's 24-hour window and hands back, and the agent picks up with the last twelve messages.",
             ],
             [
-              "The attempt",
-              "The object everything is measured on. Every dial, whether or not anyone answers, with its outcome and its cost. Attempts per connect is the dominant term in the economics, and without this object it cannot be known.",
+              "Inbound calls",
+              "The agent recognises the caller by number and answers general questions from the knowledge base. Account questions still need identity first.",
             ],
             [
-              "The outcome",
-              "What the conversation settled, as one code from a closed vocabulary. Post-call obligations and the follow-up cadence both read it, so free text is never the source of truth.",
+              "Requests and leads",
+              "Agents raise document requests for the Document desk, and leads for Upsell after an eligibility and consent re-check.",
             ],
           ]}
         />
@@ -153,7 +144,7 @@ export function AgentsPage() {
       <Section
         eyebrow="Placing the call"
         title={["The part most", "platforms get wrong."]}
-        lede="Everything between deciding to call and somebody saying hello, where the compliance failures and most of the cost actually live."
+        lede="Everything between deciding to call and somebody saying hello, where the compliance failures and most of the cost actually live. Every dial is recorded as an attempt, including the ones the contact policy refused."
         wide
       >
         <Table
@@ -166,28 +157,28 @@ export function AgentsPage() {
             ],
             [
               "Number pools",
-              "Numbers rotated and rested, with per-number health tracked.",
-              "A number burned by spam labelling stops connecting. Answer rate is the cost base, so number health is an operational metric, not an afterthought.",
+              "Rotated, and a number that stops being answered is rested for a week.",
+              "A number burned by spam labelling stops connecting. Answer rate is the cost base, so number health is an operating metric, not an afterthought.",
             ],
             [
               "Voicemail",
-              "A first-class action with its own decision.",
-              "Leaving a message, staying silent and hanging up are three different choices with three different costs. Treating voicemail as a failed call throws away the distinction.",
+              "Set per agent: hang up, speak a short message, or play a recorded one. Call screeners are handled.",
+              "Leaving a message, staying silent and hanging up are three different choices with three different costs.",
             ],
             [
               "Automated menus",
-              "Traversed deterministically where permitted.",
-              "Switchboards and carrier menus are machines. A language model improvising through them is expensive and unreliable.",
+              "Detected, and the agent hangs up and logs it.",
+              "Switchboards and carrier menus are machines. A language model guessing its way through them is expensive and unreliable.",
             ],
             [
               "Right-party contact",
-              "Verified before any account detail is spoken.",
-              "An attempt that reaches the wrong person is fully paid for and worth zero — and disclosing an account to them is a breach, not an inefficiency.",
+              "Verified before any account detail: the last four digits on file, three tries, then lockout.",
+              "An attempt that reaches the wrong person is fully paid for and worth nothing, and disclosing an account to them is a breach, not an inefficiency.",
             ],
             [
               "Third parties",
-              "Refused unless origination consent exists.",
-              "Contacting a family member or reference to apply pressure is prohibited conduct. The gate sits before the number reaches the dialler.",
+              "Refused, always.",
+              "Contacting a family member or a reference to apply pressure is prohibited conduct. The voice engine will only ring the customer or your own allow-listed test handsets.",
             ],
           ]}
         />
@@ -197,9 +188,10 @@ export function AgentsPage() {
         title={["Warm context,", "not cold discovery."]}
         lede={
           <>
-            The agent opens the call already knowing the ledger, the last promise, the reason the
-            payment failed and what it is authorised to offer. Discovery questions the system could
-            have answered itself are how a collections call starts badly.
+            The agent opens the call already knowing the ledger, the last promise and why the
+            payment failed, and the tools that read or change the account refuse to answer until the
+            customer is verified. Discovery questions the system could have answered itself are how
+            a collections call starts badly.
           </>
         }
       >
@@ -207,23 +199,23 @@ export function AgentsPage() {
           items={[
             [
               "Identity and disclosure first",
-              "Who is calling, on whose behalf, why, and that the call is recorded — before any account detail is spoken. Missing disclosures are product bugs here, not training issues.",
+              "Who is calling, on whose behalf, and that the call is recorded, before any account detail is spoken. A call that skips the disclosure is flagged.",
             ],
             [
               "The reason, captured as a field",
-              "Forgot, insufficient funds at the time, dispute, hardship, already paid. This single structured field reprices a large share of the book: a message cures the forgot segment at a fraction of the cost of the call that also cures it.",
+              "Forgot, salary timing, income loss, medical, a broken mandate, a disputed amount. After the call the reason is filed as one of nine codes, and that single field reprices a large share of the book: a message cures the forgot segment at a fraction of the cost of a call.",
             ],
             [
-              "Negotiation inside a real envelope",
-              "The authority matrix says yes, no, or up to this amount, and it says so before the agent speaks. Out-of-policy requests warm-transfer with the packet ready rather than dying as a promise to escalate.",
+              "Out of policy goes to a person",
+              "Voice agents have no waiver or settlement tool at all. A request outside policy transfers to a person, who gets the account packet, the limits and the disclosure checklist on screen.",
             ],
             [
               "The promise, made into an artefact",
-              "Amount, date and channel captured from the turn, confirmed in writing within minutes, with a pay link and a reminder scheduled for the day it falls due.",
+              "Amount and date captured on the call, confirmed in writing with a pay link while the customer is still on the line, and a reminder on the day it falls due.",
             ],
             [
               "Language follows the customer",
-              "If the caller switches language mid-call, the agent follows in that language's own script and in a voice configured for it — Hindi, Tamil, Telugu and the other languages set on the agent.",
+              "If the caller switches language mid-call, speech recognition picks it up and the agent replies in that language, in a voice set up for it. Each agent can listen for up to ten languages, from a set that includes Hindi, Tamil, Telugu, Kannada, Malayalam, Marathi, Bengali, Gujarati, Urdu and Arabic, alongside English.",
             ],
           ]}
         />
@@ -243,15 +235,15 @@ export function AgentsPage() {
           items={[
             [
               "Structured disposition",
-              "Derived from the turn itself. Free-text wrap-up is a comment, never the record that downstream systems read.",
+              "Two codes per attempt, one for how the connection went and one for what the conversation settled. Free-text wrap-up is a comment, never the record.",
             ],
             [
               "Written follow-up",
-              "Confirmation of anything promised, sent within minutes on the channel the customer uses, with the payment link and without reading a URL aloud.",
+              "Confirmation of anything promised, sent within minutes on WhatsApp or SMS, with the payment link and without reading a URL aloud. Hardship, dispute and callback messages use fixed templates, never AI-written text.",
             ],
             [
               "Scheduled obligations",
-              "Reminders, callbacks, documents and dispute evidence enter queues that act on their own rather than waiting for a clerk.",
+              "Callbacks, document requests, disputes and leads land in shared queues with owners and SLA timers instead of a clerk's diary.",
             ],
             [
               "Back into the engine",
@@ -265,21 +257,20 @@ export function AgentsPage() {
           items={[
             [
               "Checks",
-              "Rehearse the workflow against scripted customer lines and see what it does — including when the customer is angry, confused, or someone else entirely. A real call that went wrong becomes a check in one click, so the fix is proven before it is republished.",
+              "Rehearse the workflow against scripted customer lines, with an AI customer playing the other side, and grade it against the agent's guardrails. A real call that went wrong becomes a check in one click, so the fix is proven before it is republished.",
             ],
             [
-              "Publish gates",
-              "Pass, block, or skip. A skipped check is reported as skipped, because a green light for a check that never ran is worse than a red one.",
+              "Publish gate",
+              "It passes, or it lists exactly what blocks it. An agent with open warnings cannot go live on a routed channel, and if the gate cannot run, Publish stays disabled.",
             ],
             [
-              "Versioned deployment",
-              "One version of an agent is live in a given environment, and you can see which — and how each version did on real calls: QA score, violations, leaked personal data. Rolling back is selecting the previous version, not redeploying code.",
+              "Versioned releases",
+              "One live version per agent, each with a change note, and a release page showing how every version did on real calls: QA score, violations, calls where it spoke personal data. Rolling back publishes the old version as a new one, so history is never rewritten.",
             ],
           ]}
         />
         <Pull by="What changes for your compliance team">
-          A new campaign is a config publish they review, not a release they have to take somebody's
-          word for.
+          A new agent version is a change they can review, not a release they have to take on trust.
         </Pull>
       </Section>
       <Section eyebrow="Questions" title={["What people ask", "about the agents."]}>
@@ -292,17 +283,14 @@ export function AgentsPage() {
             "Compliance and QA",
             "Every conversation scored, with the evidence behind each score.",
           ],
-          ["/product/", "Every module", "Voice Studio, knowledge base, checks and routing."],
-          ["/security/", "Deployment", "Your trunks, your models, your perimeter."],
+          ["/product/", "Every module", "Voice Studio, knowledge base, checks and agent routing."],
+          ["/security/", "Deployment", "Your servers, your keys, your carrier."],
         ]}
       />
       <Closing
         title={["Hear one before", "you believe it."]}
         lede="We will build an agent against your policy in Voice Studio during the walkthrough, then try to make it say something it should not."
-        secondary={{
-          label: "See the decision engine",
-          href: "/decision-engine/",
-        }}
+        secondary={{ label: "See the decision engine", href: "/decision-engine/" }}
       />
     </>
   );

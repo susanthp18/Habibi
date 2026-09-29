@@ -10,6 +10,14 @@
     <link rel="preconnect" href="https://db.onlinewebfonts.com" crossorigin />
     <link href="https://db.onlinewebfonts.com/c/5ac3fe7c6abd2f62067f266d89671492?family=HelveticaNowDisplay-Medium" rel="stylesheet" />
     <link href="https://db.onlinewebfonts.com/c/1aa3377e489837a26d019bba501e779d?family=HelveticaNowDisplayW01-Rg" rel="stylesheet" />
+    <script>
+      // Hide reveal targets until the fx script animates them in; show everything
+      // anyway if the bundle has not run within four seconds.
+      document.documentElement.classList.add("fx");
+      setTimeout(function () {
+        if (!window.__payintFx) document.documentElement.classList.remove("fx");
+      }, 4000);
+    </script>
     <!--app-head-->
     <script type="module" src="/src/entry-client.jsx"></script>
   </head>

@@ -3,137 +3,136 @@ import { moduleCount, moduleGroups } from "../data/modules";
 import { isStill, useIsoLayoutEffect } from "../lib/motion";
 import { site } from "../site";
 
-const SCRUB_GAIN = 0.8,
-  SCRUB_EPSILON = 1 / 48,
-  HERO_VIDEO = "/videos/hero-bee.mp4",
-  HERO_POSTER = "/videos/hero-bee.jpg",
-  HERO_GREETING = "Hey there, meet A.P.I.S,",
-  HERO_SYSTEM = "Beeonix's Autonomous Payment Intelligence System",
-  HERO_LINE =
-    "Glad you stopped in. Every account you hold is getting colder. Which one should we work first?",
-  heroPills = [
-    {
-      label: "Sign in to PayInt",
-      href: "/login",
-    },
-    {
-      label: "See how a bounce becomes a call",
-      href: "/platform/",
-    },
-    {
-      label: "Score a next-best treatment",
-      href: "/decision-engine/",
-    },
-    {
-      label: "Read the audit record",
-      href: "/compliance/",
-    },
-  ];
-function useTyped(f, a = 38, r = 600) {
-  const [l, s] = React.useState(f),
-    [c, d] = React.useState(true);
-  return (
-    useIsoLayoutEffect(() => {
-      if (isStill()) return;
-      (s(""), d(false));
-      let m = 0,
-        g = 0;
-      const y = window.setTimeout(() => {
-        g = window.setInterval(() => {
-          ((m += 1), s(f.slice(0, m)), m >= f.length && (window.clearInterval(g), d(true)));
-        }, a);
-      }, r);
-      return () => {
-        (window.clearTimeout(y), window.clearInterval(g));
-      };
-    }, [f, a, r]),
-    {
-      displayed: l,
-      done: c,
-    }
-  );
+/** How far one full-width mouse sweep scrubs through the hero video (share of its length). */
+const SCRUB_GAIN = 0.8;
+/** Seeks smaller than one frame at 48 fps are skipped. */
+const SCRUB_EPSILON = 1 / 48;
+const HERO_VIDEO = "/videos/hero-bee.mp4";
+const HERO_POSTER = "/videos/hero-bee.jpg";
+const HERO_GREETING = "Hey there, meet A.P.I.S.,";
+const HERO_SYSTEM = "Beeonix's Autonomous Payment Intelligence System";
+const HERO_TITLE = "Collections that move the hour the account does.";
+const HERO_LINE =
+  "Glad you stopped in. Every account you hold is getting colder. Which one should we work first?";
+const HERO_NEWS = {
+  label: "Supervisors can now listen, whisper and take over live calls",
+  href: "/agents/#supervision",
+};
+const heroPills = [
+  { label: "Sign in to PayInt", href: "/login" },
+  { label: "Follow a bounce to a promise", href: "/platform/" },
+  { label: "See why the engine picks an action", href: "/decision-engine/" },
+  { label: "Read the audit record", href: "/compliance/" },
+];
+
+/** Types `text` out a character at a time; shows it whole for reduced motion and ?still. */
+function useTyped(text, stepMs = 38, delayMs = 600) {
+  const [shown, setShown] = React.useState(text);
+  const [done, setDone] = React.useState(true);
+  useIsoLayoutEffect(() => {
+    if (isStill()) return;
+    setShown("");
+    setDone(false);
+    let count = 0;
+    let interval = 0;
+    const timeout = window.setTimeout(() => {
+      interval = window.setInterval(() => {
+        count += 1;
+        setShown(text.slice(0, count));
+        if (count >= text.length) {
+          window.clearInterval(interval);
+          setDone(true);
+        }
+      }, stepMs);
+    }, delayMs);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [text, stepMs, delayMs]);
+  return { displayed: shown, done };
 }
-function useScrubVideo(f) {
+
+/** The hero bee follows the mouse: horizontal movement scrubs the video back and forth. */
+function useScrubVideo(ref) {
   React.useEffect(() => {
-    const a = f.current;
-    if (!a) return;
-    let r = null,
-      l = 0,
-      s = false,
-      c = 0,
-      d = true;
-    const m = isStill(),
-      g = () => (Number.isFinite(a.duration) ? a.duration : 0),
-      y = () => {
-        c = 0;
-        const O = g();
-        !O ||
-          s ||
-          Math.abs(a.currentTime - l) < SCRUB_EPSILON ||
-          ((s = true), (a.currentTime = Math.min(O, Math.max(0, l))));
-      },
-      v = () => {
-        c || (c = requestAnimationFrame(y));
-      },
-      b = () => {
-        ((l = g() / 2), (a.currentTime = l));
-      },
-      S = (O) => {
-        if (!d) {
-          r = null;
-          return;
-        }
-        if (r === null) {
-          r = O.clientX;
-          return;
-        }
-        const H = O.clientX - r;
-        r = O.clientX;
-        const U = g();
-        !U ||
-          H === 0 ||
-          ((l = Math.min(U, Math.max(0, l + (H / window.innerWidth) * SCRUB_GAIN * U))), v());
-      },
-      x = () => {
-        ((s = false), Math.abs(a.currentTime - l) >= SCRUB_EPSILON && v());
-      },
-      E = () => {
-        r = null;
-      };
-    if (
-      (m || a.addEventListener("seeked", x),
-      a.readyState >= HTMLMediaElement.HAVE_METADATA
-        ? b()
-        : a.addEventListener("loadedmetadata", b),
-      m)
-    )
-      return () => a.removeEventListener("loadedmetadata", b);
-    const w = new IntersectionObserver(([O]) => {
-      ((d = O.isIntersecting), d || E());
-    });
-    return (
-      w.observe(a),
-      window.addEventListener("mousemove", S, {
-        passive: true,
-      }),
-      window.addEventListener("blur", E),
-      document.addEventListener("mouseleave", E),
-      () => {
-        (cancelAnimationFrame(c),
-          w.disconnect(),
-          a.removeEventListener("loadedmetadata", b),
-          a.removeEventListener("seeked", x),
-          window.removeEventListener("mousemove", S),
-          window.removeEventListener("blur", E),
-          document.removeEventListener("mouseleave", E));
+    const video = ref.current;
+    if (!video) return;
+    let lastX = null;
+    let target = 0;
+    let seeking = false;
+    let frame = 0;
+    let visible = true;
+    const still = isStill();
+    const duration = () => (Number.isFinite(video.duration) ? video.duration : 0);
+    const seek = () => {
+      frame = 0;
+      const length = duration();
+      if (!length || seeking || Math.abs(video.currentTime - target) < SCRUB_EPSILON) return;
+      seeking = true;
+      video.currentTime = Math.min(length, Math.max(0, target));
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(seek);
+    };
+    const centre = () => {
+      target = duration() / 2;
+      video.currentTime = target;
+    };
+    const onMove = (event) => {
+      if (!visible) {
+        lastX = null;
+        return;
       }
-    );
-  }, [f]);
+      if (lastX === null) {
+        lastX = event.clientX;
+        return;
+      }
+      const dx = event.clientX - lastX;
+      lastX = event.clientX;
+      const length = duration();
+      if (!length || dx === 0) return;
+      target = Math.min(
+        length,
+        Math.max(0, target + (dx / window.innerWidth) * SCRUB_GAIN * length),
+      );
+      schedule();
+    };
+    const onSeeked = () => {
+      seeking = false;
+      if (Math.abs(video.currentTime - target) >= SCRUB_EPSILON) schedule();
+    };
+    const reset = () => {
+      lastX = null;
+    };
+    if (!still) video.addEventListener("seeked", onSeeked);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) centre();
+    else video.addEventListener("loadedmetadata", centre);
+    if (still) return () => video.removeEventListener("loadedmetadata", centre);
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (!visible) reset();
+    });
+    observer.observe(video);
+    window.addEventListener("mousemove", onMove, { passive: true });
+    window.addEventListener("blur", reset);
+    document.addEventListener("mouseleave", reset);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      video.removeEventListener("loadedmetadata", centre);
+      video.removeEventListener("seeked", onSeeked);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("blur", reset);
+      document.removeEventListener("mouseleave", reset);
+    };
+  }, [ref]);
 }
-function CopyIcon({ copied: f }) {
+
+function CopyIcon({ copied }) {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      {f ? (
+      {copied ? (
         <path
           d="M1.5 6.4 4.3 9.2 10.5 3"
           stroke="currentColor"
@@ -155,34 +154,38 @@ function CopyIcon({ copied: f }) {
     </svg>
   );
 }
+
 function HomeHero() {
-  const f = React.useRef(null),
-    { displayed: a, done: r } = useTyped(HERO_LINE),
-    [l, s] = React.useState(false),
-    [c, d] = React.useState(false);
-  (useScrubVideo(f),
-    useIsoLayoutEffect(() => {
-      if (isStill()) {
-        s(true);
-        return;
-      }
-      const g = window.setTimeout(() => s(true), 400);
-      return () => window.clearTimeout(g);
-    }, []),
-    React.useEffect(() => {
-      if (!c) return;
-      const g = window.setTimeout(() => d(false), 1800);
-      return () => window.clearTimeout(g);
-    }, [c]));
-  const m = async () => {
+  const videoRef = React.useRef(null);
+  const { displayed, done } = useTyped(HERO_LINE);
+  const [pillsOn, setPillsOn] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  useScrubVideo(videoRef);
+  useIsoLayoutEffect(() => {
+    if (isStill()) {
+      setPillsOn(true);
+      return;
+    }
+    const timeout = window.setTimeout(() => setPillsOn(true), 400);
+    return () => window.clearTimeout(timeout);
+  }, []);
+  React.useEffect(() => {
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(false), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
+  const copyEmail = async () => {
     try {
-      (await navigator.clipboard.writeText(site.email), d(true));
-    } catch {}
+      await navigator.clipboard.writeText(site.email);
+      setCopied(true);
+    } catch {
+      window.location.href = `mailto:${site.email}`;
+    }
   };
   return (
     <section className="scrub" id="top">
       <video
-        ref={f}
+        ref={videoRef}
         className="scrub__video"
         src={HERO_VIDEO}
         poster={HERO_POSTER}
@@ -194,72 +197,85 @@ function HomeHero() {
       />
       <div className="scrub__scrim" aria-hidden="true" />
       <div className="scrub__in">
+        <a className="scrub__news" href={HERO_NEWS.href}>
+          <span className="scrub__news-tag">New</span>
+          <span>{HERO_NEWS.label}</span>
+          <span aria-hidden="true">→</span>
+        </a>
         <p className="scrub__label">
           {HERO_GREETING}
           <br />
           {HERO_SYSTEM}
         </p>
-        <h1 className="scrub__type">
-          {a}
-          {!r && <span className="scrub__caret" aria-hidden="true" />}
-        </h1>
-        <div className={`scrub__pills${l ? " is-on" : ""}`} data-hero-cta>
-          {heroPills.map((g) => (
-            <a className="pill" href={g.href} key={g.href}>
-              {g.label}
+        <h1 className="scrub__title">{HERO_TITLE}</h1>
+        <p className="scrub__type">
+          <span className="u-sr">{HERO_LINE}</span>
+          <span aria-hidden="true">
+            {displayed}
+            {!done && <span className="scrub__caret" />}
+          </span>
+        </p>
+        <div className={`scrub__pills${pillsOn ? " is-on" : ""}`} data-hero-cta>
+          {heroPills.map((pill) => (
+            <a className="pill" href={pill.href} key={pill.href}>
+              {pill.label}
             </a>
           ))}
-          <button className="pill pill--out" type="button" onClick={m}>
+          <button className="pill pill--out" type="button" onClick={copyEmail}>
             <span>
               {"Reach us: "}
               <span className="pill__mail">{site.email}</span>
             </span>
-            <CopyIcon copied={c} />
-            <span className="u-sr">{c ? "Address copied" : "Copy address"}</span>
+            <CopyIcon copied={copied} />
+            <span className="u-sr" aria-live="polite">
+              {copied ? "Address copied" : "Copy address"}
+            </span>
           </button>
         </div>
       </div>
     </section>
   );
 }
+
 const features = [
   {
     id: "f1",
-    title: "Bounce to contact in minutes",
-    body: "A mandate fails at 9:04. The event reaches us the same minute it hits the bank, and an agent is on the phone before tonight's batch file would even have been written.",
-    notes: ["Real-time mandate hooks", "No overnight batch", "Auto-retry windows"],
+    title: "Bounce to contact, in the next permitted window",
+    body: "A mandate fails at 9:04. The bounce reaches PayInt as an event, the case opens straight away, and a written notice with a pay link goes out in the next permitted window. Where you switch calling on, a voice agent follows under the same rules.",
+    notes: ["Real-time bounce events", "Written notice first", "Retry timed to payday"],
   },
   {
     id: "f2",
     title: "Every promise in writing, before the call ends",
-    body: "The promise to pay is confirmed on the call, stamped, and delivered as a written record while the customer is still on the line — with a pay link they can act on immediately.",
-    notes: ["In-call pay link", "Written PTP", "Immutable record"],
+    body: "The promise is captured on the call and sent in writing while the customer is still on the line, with a pay link they can use straight away and a reminder on the day it falls due.",
+    notes: ["In-call pay link", "Written confirmation", "Revision history kept"],
   },
   {
     id: "f3",
-    title: "Decision intelligence, not the model",
-    body: "Next-best-treatment comes from a locked policy engine scoring uplift — who repays because you acted — never from a language model's opinion about what sounds reasonable.",
-    notes: ["Uplift scoring", "Locked engine", "Full decision log"],
+    title: "The engine decides. The model explains.",
+    body: "The next best action comes from a rule-based engine that weighs ten options in money against doing nothing. No language model takes part in that choice. One can explain it afterwards, in plain words, using only numbers from the record.",
+    notes: ["Ten actions scored", "No LLM in the decision", "Every decision explained"],
   },
   {
     id: "f4",
-    title: "Consent and authority are hard gates",
-    body: "Do-not-contact status, permitted contact hours, frequency caps and settlement authority are enforced before a call is allowed to exist. The agent cannot negotiate past a gate, because it never sees one open.",
-    notes: ["Do-not-contact + hours", "Cross-channel caps", "Live authority matrix"],
+    title: "Consent and calling hours are hard gates",
+    body: "Do-not-contact status, calling hours, consent and contact caps are checked before anything is dialled, and the calling window is checked again at the dial. Settlements always go to a person, and voice agents have no waiver tool at all.",
+    notes: ["DND and calling hours", "One daily cap, every channel", "Settlements go to a person"],
   },
   {
     id: "f5",
-    title: "100% of calls scored, not sampled",
-    body: "Not a two percent sample read next week. Every call is graded minutes after it ends: rules on what the call actually did first, small models running inside your perimeter next, and a language-model judge only for the criteria they could not settle. Every score shows who decided it and on what evidence.",
-    notes: ["Every call", "Evidence per score", "Zero sampling"],
+    title: "Every conversation scored, not sampled",
+    body: "Not a two per cent sample read next week. Every Voice Studio call is graded after it ends: rules settle what they can, small models running inside your deployment take the easy judgement calls, and an AI judge reads a masked transcript for the rest. Every score shows what decided it and the turns it relied on.",
+    notes: ["Every conversation", "Evidence per score", "Masked before judging"],
   },
   {
     id: "f6",
     title: "Compose the agent in Voice Studio.",
-    body: "Workflows, tools and knowledge — drafted in the studio or from Claude and Codex over MCP. A person still publishes. The compliance rails are not a component on the canvas — they are the floor the canvas sits on.",
-    notes: ["Voice Studio", "MCP drafts", "Non-removable rails"],
+    body: "Workflows, tools and knowledge, drafted in the studio or from Claude over MCP. A person still publishes, and the release gate will not pass an agent that can reach account data before it has checked who it is talking to.",
+    notes: ["Voice and WhatsApp", "MCP drafts only", "Identity-gated tools"],
   },
 ];
+
 function HomeFeatures() {
   return (
     <section className="section" id="platform">
@@ -277,36 +293,41 @@ function HomeFeatures() {
             </span>
           </h2>
           <p className="lede rise" data-fx>
-            Bounce to contact, promise to paper, decision to action — worked by Voice Studio agents,
-            governed by policy engines the agents cannot talk their way past.
+            Bounce to contact, promise to paper, decision to action. Worked by Voice Studio agents,
+            governed by rules the agents cannot talk their way past.
           </p>
         </div>
         <div className="features">
-          {features.map((f, a) => (
-            <article className={`feature${a % 2 === 1 ? " feature--flip" : ""}`} key={f.id}>
+          {features.map((feature, index) => (
+            <article
+              className={`feature${index % 2 === 1 ? " feature--flip" : ""}`}
+              key={feature.id}
+            >
               <div className="feature__copy">
                 <p className="feature__index rise" data-fx>
-                  {String(a + 1).padStart(2, "0")}
+                  {String(index + 1).padStart(2, "0")}
                 </p>
                 <h3 className="rise" data-fx>
-                  {f.title}
+                  {feature.title}
                 </h3>
                 <p className="rise" data-fx>
-                  {f.body}
+                  {feature.body}
                 </p>
                 <ul className="feature__notes rise" data-fx>
-                  {f.notes.map((r) => (
-                    <li key={r}>{r}</li>
+                  {feature.notes.map((note) => (
+                    <li key={note}>{note}</li>
                   ))}
                 </ul>
               </div>
               <div className="feature__media rise" data-fx>
                 <video
-                  src={`/videos/${f.id}.mp4`}
-                  poster={`/videos/${f.id}.jpg`}
+                  src={`/videos/${feature.id}.mp4`}
+                  poster={`/videos/${feature.id}.jpg`}
                   muted
                   loop
                   playsInline
+                  preload="none"
+                  aria-hidden="true"
                 />
               </div>
             </article>
@@ -316,7 +337,10 @@ function HomeFeatures() {
     </section>
   );
 }
+
+/** Items listed per group on the home panel before "and N more". */
 const PILLAR_PREVIEW = 8;
+
 function HomeModules() {
   return (
     <section className="platform" id="modules">
@@ -327,36 +351,31 @@ function HomeModules() {
           </p>
           <h2 className="display" data-split>
             <span className="line">
-              <i>
-                {moduleCount}
-                {" modules."}
-              </i>
+              <i>{moduleCount} modules.</i>
             </span>
             <span className="line">
               <i>One governed pipeline.</i>
             </span>
           </h2>
           <p className="platform__lede rise" data-fx>
-            Voice, messaging and the workspace your collectors already live in — Voice Studio to
-            compose them, a customer record that remembers everything, and an audit trail that can
+            Voice, WhatsApp and the workspace your collectors already live in. Voice Studio to build
+            the agents, a customer record that remembers everything, and an audit trail that can
             answer for all of it.
           </p>
         </div>
         <div className="platform__grid">
-          {moduleGroups.map((f) => (
-            <div className="pillar rise" data-fx key={f.name}>
-              <h3 className="pillar__name">{f.name}</h3>
-              <p className="pillar__desc">{f.note}</p>
+          {moduleGroups.map((group) => (
+            <div className="pillar rise" data-fx key={group.name}>
+              <h3 className="pillar__name">{group.name}</h3>
+              <p className="pillar__desc">{group.note}</p>
               <ul className="pillar__list">
-                {f.items.slice(0, PILLAR_PREVIEW).map(([a]) => (
-                  <li key={a}>{a}</li>
+                {group.items.slice(0, PILLAR_PREVIEW).map(([name]) => (
+                  <li key={name}>{name}</li>
                 ))}
-                {f.items.length > PILLAR_PREVIEW ? (
+                {group.items.length > PILLAR_PREVIEW ? (
                   <li>
-                    <a href={`/product/#${f.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
-                      {"and "}
-                      {f.items.length - PILLAR_PREVIEW}
-                      {" more"}
+                    <a href={`/product/#${group.name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+                      and {group.items.length - PILLAR_PREVIEW} more
                     </a>
                   </li>
                 ) : null}
@@ -368,57 +387,48 @@ function HomeModules() {
     </section>
   );
 }
+
+// Properties of the code as it ships, not targets or a good month's figures.
 const homeMetrics = [
+  { to: 10, unit: "", k: "Actions weighed in money for every account, waiting included" },
+  { to: 100, unit: "%", k: "Of conversations get a scorecard, not a sample" },
   {
-    to: 4,
-    unit: "min",
-    k: "Median bounce to first live contact",
-  },
-  {
-    to: 100,
-    unit: "%",
-    k: "Of calls scored, not sampled",
-  },
-  {
-    to: 48,
-    unit: "h",
-    k: "Full book coverage window",
-  },
-  {
-    to: 0,
+    to: 2,
     unit: "",
-    k: "Consent and calling-hour breaches",
+    k: "Calling-window checks on every dial: when it is planned and when it is placed",
   },
+  { to: 0, unit: "", k: "Language models inside the decision. One explains it afterwards" },
 ];
+
 function HomeMetrics() {
   return (
     <section className="section">
       <div className="shell">
         <div className="section__head">
           <p className="eyebrow rise" data-fx>
-            The math
+            By design
           </p>
           <h2 className="display" data-split>
             <span className="line">
-              <i>The profit lever is</i>
+              <i>Four numbers that are</i>
             </span>
             <span className="line">
-              <i>delay, not dialogue.</i>
+              <i>properties, not targets.</i>
             </span>
           </h2>
           <p className="lede rise" data-fx>
-            A bounce worked in the first hour cures at a different rate than the same bounce worked
-            on Thursday. Most floors lose the money in the queue, not on the call.
+            Each one describes how the platform behaves today, in code. None of them is a figure
+            from a good month.
           </p>
         </div>
         <div className="metrics">
-          {homeMetrics.map((f) => (
-            <div className="metric rise" data-fx key={f.k}>
+          {homeMetrics.map((metric) => (
+            <div className="metric rise" data-fx key={metric.k}>
               <p className="metric__n">
-                <span data-count={f.to}>0</span>
-                {f.unit ? <span>{f.unit}</span> : null}
+                <span data-count={metric.to}>{metric.to}</span>
+                {metric.unit ? <span className="metric__unit">{metric.unit}</span> : null}
               </p>
-              <p className="metric__k">{f.k}</p>
+              <p className="metric__k">{metric.k}</p>
             </div>
           ))}
         </div>
@@ -426,20 +436,22 @@ function HomeMetrics() {
     </section>
   );
 }
+
 const trustItems = [
   {
-    h: "It runs inside your bank",
-    p: "On-premise by default. Models, recordings and customer data never leave the perimeter, and nothing is shipped to a vendor cloud for scoring.",
+    h: "It runs where you choose",
+    p: "Containers on your own servers or cloud account. Post-call intelligence runs on local models with no internet access. Live speech and language services run on your keys, in your region, or on self-hosted models where a deployment needs it.",
   },
   {
     h: "Every decision is answerable",
-    p: "Each action carries the policy version, the score, the gate results and the transcript. When the auditor asks why this customer was called at that hour, there is one answer.",
+    p: "Each action records the rules in force, every rule it consulted, the options it beat and why. When the auditor asks why this customer was called at that hour, there is one answer.",
   },
   {
-    h: "The same factory for insurance",
-    p: "Renewals, lapsed policies and premium recovery run on the identical engine — different offers and gates, the same governed pipeline.",
+    h: "Insurance, in early access",
+    p: "Mandate recovery, one contact budget per customer and suitability-gated offers already carry over. Renewal and lapse workflows are being built with design partners.",
   },
 ];
+
 function HomeTrust() {
   return (
     <section className="section" id="trust">
@@ -458,10 +470,10 @@ function HomeTrust() {
           </h2>
         </div>
         <div className="trust">
-          {trustItems.map((f) => (
-            <div className="trust__item rise" data-fx key={f.h}>
-              <h4>{f.h}</h4>
-              <p>{f.p}</p>
+          {trustItems.map((item) => (
+            <div className="trust__item rise" data-fx key={item.h}>
+              <h3>{item.h}</h3>
+              <p>{item.p}</p>
             </div>
           ))}
         </div>
@@ -469,6 +481,7 @@ function HomeTrust() {
     </section>
   );
 }
+
 function HomeClosing() {
   return (
     <div className="shell" id="closing">
@@ -482,7 +495,7 @@ function HomeClosing() {
           </span>
         </h2>
         <p className="lede rise" data-fx>
-          Thirty minutes, your book, your rules. We will run one live account end to end.
+          Thirty minutes, your book, your rules. We will run one account end to end.
         </p>
         <div className="closing__row rise" data-fx>
           <a className="btn btn--primary" href="/demo/">
@@ -496,6 +509,7 @@ function HomeClosing() {
     </div>
   );
 }
+
 export function HomePage() {
   return (
     <>

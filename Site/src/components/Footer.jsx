@@ -14,8 +14,8 @@ export function Footer() {
             <span className="nav__word">PayInt</span>
           </a>
           <p>
-            A collections and recovery operating system for banks, lenders, card issuers and
-            insurers. Deployed inside your perimeter.
+            A collections operating system for banks, lenders and card issuers. Deployed on
+            infrastructure you control.
           </p>
           <a className="foot__mail" href={`mailto:${site.email}`}>
             {site.email}
@@ -46,7 +46,7 @@ export function Footer() {
             {new Date().getFullYear()} {site.company}. All rights reserved.
           </span>
         </span>
-        <span>On-premise by default · No customer data leaves your perimeter</span>
+        <span>Runs on your infrastructure · Your keys, your region</span>
       </div>
     </footer>
   );

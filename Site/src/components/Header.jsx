@@ -2,49 +2,55 @@ import React from "react";
 import { CorpMark, Mark } from "./Brand";
 import { navRoutes, routes } from "../routes";
 
-export function Header({ path: f }) {
-  const [a, r] = React.useState(false),
-    [l, s] = React.useState(false),
-    [c, d] = React.useState(false);
-  (React.useEffect(() => {
-    const g = () => r(window.scrollY > 40);
-    return (
-      g(),
-      window.addEventListener("scroll", g, {
-        passive: true,
-      }),
-      () => window.removeEventListener("scroll", g)
-    );
-  }, []),
-    React.useEffect(() => {
-      const g = document.querySelector("[data-hero-cta]");
-      if (!g) {
-        s(true);
-        return;
-      }
-      const y = new IntersectionObserver(([v]) => s(!v.isIntersecting), {
-        threshold: 0,
-      });
-      return (y.observe(g), () => y.disconnect());
-    }, []),
-    React.useEffect(() => {
-      if (!c) return;
-      const g = (v) => {
-          v.key === "Escape" && d(false);
-        },
-        y = document.body.style.overflow;
-      return (
-        (document.body.style.overflow = "hidden"),
-        window.addEventListener("keydown", g),
-        () => {
-          ((document.body.style.overflow = y), window.removeEventListener("keydown", g));
-        }
-      );
-    }, [c]));
-  const m = routes.filter((g) => g.nav || g.path === "/");
+export function Header({ path }) {
+  const [stuck, setStuck] = React.useState(false);
+  // The walkthrough button joins the bar once the page's own call to action
+  // has scrolled away, so the two never compete on screen.
+  const [ctaOn, setCtaOn] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const onScroll = () => setStuck(window.scrollY > 40);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  React.useEffect(() => {
+    const heroCta = document.querySelector("[data-hero-cta]");
+    if (!heroCta) {
+      setCtaOn(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => setCtaOn(!entry.isIntersecting), {
+      threshold: 0,
+    });
+    observer.observe(heroCta);
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = overflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const sheetRoutes = routes.filter((route) => route.nav || route.path === "/");
+  const showCta = path !== "/demo/";
   return (
     <>
-      <header className={`nav${a ? " nav--stuck" : ""}`}>
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
+      <header className={`nav${stuck ? " nav--stuck" : ""}`}>
         <div className="nav__in">
           <a className="nav__brand" href="/" aria-label="PayInt home">
             <Mark />
@@ -54,33 +60,39 @@ export function Header({ path: f }) {
             </span>
           </a>
           <nav className="nav__links" aria-label="Primary">
-            {navRoutes.map((g) => (
+            {navRoutes.map((route) => (
               <a
-                href={g.path}
-                className={f === g.path ? "is-here" : void 0}
-                aria-current={f === g.path ? "page" : void 0}
-                key={g.path}
+                href={route.path}
+                className={path === route.path ? "is-here" : undefined}
+                aria-current={path === route.path ? "page" : undefined}
+                key={route.path}
               >
-                {g.nav}
+                {route.nav}
               </a>
             ))}
           </nav>
           <div className="nav__end">
-            <a
-              className={`btn btn--primary nav__cta${l ? " nav__cta--on" : ""}`}
-              href="/login"
-              aria-hidden={!l}
-              tabIndex={l ? void 0 : -1}
-            >
+            <a className="nav__signin" href="/login">
               Sign in
             </a>
+            {showCta ? (
+              <a
+                className={`btn btn--primary nav__cta${ctaOn ? " nav__cta--on" : ""}`}
+                href="/demo/"
+                aria-hidden={!ctaOn}
+                tabIndex={ctaOn ? undefined : -1}
+              >
+                Book a walkthrough
+              </a>
+            ) : null}
             <CorpMark className="nav__corp" size={64} />
             <button
-              className={`nav__burger${c ? " is-open" : ""}`}
+              className={`nav__burger${open ? " is-open" : ""}`}
               type="button"
-              aria-label={c ? "Close menu" : "Open menu"}
-              aria-expanded={c}
-              onClick={() => d((g) => !g)}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+              aria-controls="site-menu"
+              onClick={() => setOpen((value) => !value)}
             >
               <span />
               <span />
@@ -89,13 +101,24 @@ export function Header({ path: f }) {
           </div>
         </div>
       </header>
-      <div className={`sheet${c ? " is-open" : ""}`} aria-hidden={!c} onClick={() => d(false)}>
+      <div
+        className={`sheet${open ? " is-open" : ""}`}
+        id="site-menu"
+        aria-hidden={!open}
+        inert={open ? undefined : true}
+        onClick={() => setOpen(false)}
+      >
         <nav className="sheet__links" aria-label="Primary, mobile">
-          {m.map((g) => (
-            <a href={g.path} aria-current={f === g.path ? "page" : void 0} key={g.path}>
-              {g.nav ?? "Home"}
+          {sheetRoutes.map((route) => (
+            <a
+              href={route.path}
+              aria-current={path === route.path ? "page" : undefined}
+              key={route.path}
+            >
+              {route.nav ?? "Home"}
             </a>
           ))}
+          <a href="/demo/">Book a walkthrough</a>
           <a className="sheet__cta" href="/login">
             Sign in
           </a>

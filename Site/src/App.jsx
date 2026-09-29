@@ -11,7 +11,7 @@ export function App({ path }) {
   return (
     <>
       <Header path={route.path} />
-      <main>
+      <main id="main" tabIndex={-1}>
         <Page />
       </main>
       <Footer />

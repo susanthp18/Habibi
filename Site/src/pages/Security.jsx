@@ -1,8 +1,11 @@
 import React from "react";
-import { Closing, Cols, Faq, More, PageHero, Pull, Rows, Section, Table } from "../components/ui";
+import { Closing, Faq, More, PageHero, Pull, Rows, Section, Table, Cols } from "../components/ui";
 import { faqs } from "../data/faqs";
 import { site } from "../site";
 
+// The reference deployment as it ships: everything runs on infrastructure the
+// customer controls; live speech and language services are called on the
+// customer's own keys (or run self-hosted); the post-call models run offline.
 function Topology() {
   return (
     <div className="diagram rise" data-fx>
@@ -10,134 +13,141 @@ function Topology() {
         <svg viewBox="0 0 1200 552" role="img" aria-labelledby="archTitle archDesc">
           <title id="archTitle">PayInt reference deployment</title>
           <desc id="archDesc">
-            Systems of record, the PayInt runtime and the channel edge all sit inside the customer
-            perimeter. Only the channel edge reaches the end customer. No vendor cloud is in the
-            path.
+            Systems of record, the PayInt runtime and the channel edge run on infrastructure you
+            control. Live speech and language services run on your own keys in your chosen region,
+            or on self-hosted models. Post-call models run inside the runtime with no internet
+            access.
           </desc>
           <rect className="dg-frame" x="28" y="60" width="930" height="456" rx="22" />
           <text className="dg-frame-label" x="54" y="94">
-            YOUR PERIMETER
+            YOUR INFRASTRUCTURE
           </text>
           <text className="dg-h" x="64" y="140">
             SYSTEMS OF RECORD
           </text>
-          {["Core banking", "Loan management", "CRM and case", "Data warehouse"].map((f, a) => (
-            <g key={f}>
-              <rect className="dg-box" x="64" y={160 + a * 74} width="184" height="56" rx="10" />
-              <text className="dg-t" x="82" y={194 + a * 74}>
-                {f}
-              </text>
-            </g>
-          ))}
-          <path className="dg-arrow" d="M256 296 H292" />
+          {["Core banking", "Loan management", "Bank data feeds", "Data warehouse"].map(
+            (name, i) => (
+              <g key={name}>
+                <rect className="dg-box" x="64" y={160 + i * 74} width="184" height="56" rx="10" />
+                <text className="dg-t" x="82" y={194 + i * 74}>
+                  {name}
+                </text>
+              </g>
+            ),
+          )}
+          <path className="dg-arrow dg-flow" d="M256 296 H292" />
           <path className="dg-arrow-head" d="M292 296 l-9 -5 v10 z" />
           <rect className="dg-core" x="300" y="128" width="352" height="360" rx="16" />
           <text className="dg-h dg-h--on" x="324" y="164">
             PAYINT RUNTIME
           </text>
           {[
-            ["Agent runtime", "voice · messaging · desktop"],
-            ["Decision and policy engine", "uplift scoring, locked policy"],
-            ["Governance gates", "consent · hours · frequency · authority"],
-            ["Evidence and audit store", "immutable, replayable"],
-          ].map(([f, a], r) => (
-            <g key={f}>
-              <rect className="dg-inner" x="324" y={184 + r * 72} width="304" height="58" rx="9" />
-              <text className="dg-t dg-t--on" x="342" y={209 + r * 72}>
-                {f}
+            ["Agent runtime", "voice · WhatsApp · desktop"],
+            ["Decision and policy engine", "ten actions, vetoes first"],
+            ["Governance gates", "consent · hours · caps · identity"],
+            ["Evidence and audit store", "hash-chained, re-checkable"],
+          ].map(([name, sub], i) => (
+            <g key={name}>
+              <rect className="dg-inner" x="324" y={184 + i * 72} width="304" height="58" rx="9" />
+              <text className="dg-t dg-t--on" x="342" y={209 + i * 72}>
+                {name}
               </text>
-              <text className="dg-s" x="342" y={228 + r * 72}>
-                {a}
+              <text className="dg-s" x="342" y={228 + i * 72}>
+                {sub}
               </text>
             </g>
           ))}
           <text className="dg-s dg-s--foot" x="324" y="472">
-            Models are self-hosted in this box.
+            Post-call models run in this box, offline.
           </text>
-          <path className="dg-arrow" d="M660 296 H700" />
+          <path className="dg-arrow dg-flow" d="M660 296 H700" />
           <path className="dg-arrow-head" d="M700 296 l-9 -5 v10 z" />
           <text className="dg-h" x="708" y="140">
             CHANNEL EDGE
           </text>
-          {["SIP / PSTN trunk", "Messaging gateway", "Agent desktop"].map((f, a) => (
-            <g key={f}>
-              <rect className="dg-box" x="708" y={160 + a * 74} width="196" height="56" rx="10" />
-              <text className="dg-t" x="726" y={194 + a * 74}>
-                {f}
+          {["Your carrier", "WhatsApp Business", "Agent desktop"].map((name, i) => (
+            <g key={name}>
+              <rect className="dg-box" x="708" y={160 + i * 74} width="196" height="56" rx="10" />
+              <text className="dg-t" x="726" y={194 + i * 74}>
+                {name}
               </text>
             </g>
           ))}
-          <path className="dg-arrow" d="M912 296 H1024" />
+          <path className="dg-arrow dg-flow" d="M912 296 H1024" />
           <path className="dg-arrow-head" d="M1024 296 l-9 -5 v10 z" />
           <rect className="dg-box dg-box--out" x="1032" y="266" width="140" height="60" rx="10" />
           <text className="dg-t" x="1050" y="302">
             Your customer
           </text>
-          <rect className="dg-ghost" x="1032" y="404" width="140" height="58" rx="10" />
-          <text className="dg-t dg-t--ghost" x="1050" y="438">
-            Vendor cloud
+          <path className="dg-link" d="M652 440 H1024" />
+          <path className="dg-arrow-head dg-arrow-head--link" d="M1024 440 l-9 -5 v10 z" />
+          <text className="dg-s dg-s--link" x="712" y="430">
+            your keys · your region
           </text>
-          <path className="dg-strike" d="M1042 452 L1162 414" />
-          <text className="dg-s dg-s--ghost" x="1032" y="486">
-            Not in the path.
+          <rect className="dg-box dg-box--ai" x="1032" y="404" width="140" height="72" rx="10" />
+          <text className="dg-t" x="1050" y="434">
+            AI services
+          </text>
+          <text className="dg-s dg-s--dark" x="1050" y="456">
+            or self-hosted
           </text>
         </svg>
       </div>
     </div>
   );
 }
-const standards = [
-  "ISO 27001 controls",
-  "SOC 2 control mapping",
-  "Payment-card scope reduction",
-  "Data residency and subject rights",
+
+const reviewTopics = [
+  "Data flows and sub-processors",
+  "Identity and access",
+  "Tenant isolation",
+  "Redaction and retention",
+  "DPDP subject rights",
   "Model and prompt versioning",
-  "Recording retention and legal hold",
 ];
+
 export function SecurityPage() {
   return (
     <>
       <PageHero
         eyebrow="Security and deployment"
-        title={["The whole runtime sits", "inside your perimeter."]}
+        title={["You choose where it runs.", "You hold the keys."]}
         lede={
           <>
-            Containers on your estate, behind your identity provider, on your keys, over your
-            trunks. The customer records, the recordings, the transcripts, the embeddings and the
-            model weights stay where they already are — because there is no vendor cloud in the path
-            to send them to.
+            PayInt ships as containers you run on your own servers or cloud account, behind
+            Microsoft sign-in, with AI services billed to your own keys in the region you pick. The
+            models that read every call afterwards run locally with no internet access, and the
+            voice engine can run on self-hosted speech and language models where a deployment calls
+            for it.
           </>
         }
-        secondary={{
-          label: "Compliance and QA",
-          href: "/compliance/",
-        }}
+        secondary={{ label: "Compliance and QA", href: "/compliance/" }}
         proof={[
-          "On-premise by default",
-          "Air-gapped option",
-          "Your telephony contracts",
-          "Self-hosted models",
+          "Your servers or cloud",
+          "Bring your own AI keys",
+          "Local post-call models",
+          "Row-level tenant isolation",
         ]}
       />
       <Section
         eyebrow="Reference deployment"
         title={["Standard topology,", "drawn honestly."]}
-        lede="Private-cloud and air-gapped variants change where the boundary is drawn, never what crosses it."
+        lede="What runs inside your boundary, what it calls out to on your keys, and what never leaves."
       >
         <Topology />
         <Cols
           items={[
             [
-              "What never leaves",
-              "Customer records, recordings, transcripts, embeddings and model weights. There is no scoring round trip to a vendor, so there is nothing to send and nothing to intercept.",
+              "What stays with you",
+              "Customer records, recordings, transcripts and the evidence chain live in your database and storage. Personal-data detection, intent, sentiment and beep timing run on four local models with no internet access.",
             ],
             [
-              "What you keep",
-              "Your telephony contracts, your data residency, your retention schedule and your change-control process. PayInt deploys into them rather than around them.",
+              "What calls out, on your keys",
+              "Live speech recognition, voices and language models run on Azure OpenAI and Azure Speech under your own subscription and region by default. The voice engine can use other providers, or self-hosted models, per deployment.",
             ],
             [
               "How it lands",
-              "Containers on your Kubernetes or VM estate, behind your identity provider, with read paths into the core banking, loan management and warehouse systems you already run.",
+              "Containers on your servers or cloud account, behind Microsoft Entra ID, with one contract for your core banking and loan data. Nothing starts dialling until an admin switches outbound on.",
             ],
           ]}
         />
@@ -147,19 +157,19 @@ export function SecurityPage() {
           head={["Model", "Where it runs", "What it suits"]}
           rows={[
             [
-              "On-premise",
-              "Your data centre, your Kubernetes or VM estate, your change control.",
-              "The default. Institutions whose data cannot leave the building, and whose auditors want to walk to the rack.",
+              "Your data centre",
+              "Your servers and your change control, with AI services on your own keys.",
+              "Institutions whose records have to stay in the building.",
             ],
             [
-              "Private cloud",
+              "Your cloud account",
               "Your subscription, your region, your keys, your network policy.",
-              "Institutions already operating a governed cloud estate who want the same isolation without the hardware.",
+              "Teams already running a governed cloud estate who want the same isolation without the hardware.",
             ],
             [
-              "Air-gapped",
-              "No egress at all. Updates arrive as signed bundles your team reviews and applies.",
-              "The highest-sensitivity environments, and jurisdictions where egress is a licensing question rather than a preference.",
+              "Self-hosted models",
+              "The voice engine on self-hosted speech and language endpoints, set up per deployment.",
+              "Environments where sending call audio to a cloud AI service is not an option.",
             ],
           ]}
         />
@@ -172,14 +182,20 @@ export function SecurityPage() {
               items={[
                 [
                   "Residency",
-                  "Records, recordings and transcripts never leave the boundary you draw.",
+                  "Records, recordings, transcripts and the evidence chain stay in your database and storage.",
                 ],
                 [
                   "Redaction",
                   "Transcripts masked as they are written; recordings beeped over identity and card values. The original plays only for roles cleared for it, and every play is logged.",
                 ],
-                ["Encryption", "In transit and at rest, on keys you hold and can rotate."],
-                ["Retention", "Your schedule per record type, with evidence of deletion."],
+                [
+                  "Encryption",
+                  "Borrower phone numbers, emails and addresses are encrypted in the database, with a key-rotation script. TLS at the edge.",
+                ],
+                [
+                  "Outbound events",
+                  "No customer data leaves through a webhook until someone reviews the destination and a signed test delivery succeeds. Payloads carry no phone numbers or transcripts.",
+                ],
               ]}
             />
           </div>
@@ -187,10 +203,22 @@ export function SecurityPage() {
             <h3>Identity and access</h3>
             <Rows
               items={[
-                ["Single sign-on", "SAML or OIDC against your provider. No local password store."],
-                ["Authorisation", "Role and scope checks on every module and every export."],
-                ["Separation", "Tenant isolation for agency floors, enforced in the data layer."],
-                ["Session evidence", "Who looked at what, and who exported it."],
+                [
+                  "Single sign-on",
+                  "Microsoft Entra ID. No local passwords, guest and personal accounts refused, and a first-time user gets no role until invited.",
+                ],
+                [
+                  "Authorisation",
+                  "Role and scope checks on every module and every export. Routes that are not registered are denied, and the build checks the coverage.",
+                ],
+                [
+                  "Separation",
+                  "Tenant isolation enforced by Postgres row-level security. A deployment will not start with isolation, append-only audit or data encryption switched off.",
+                ],
+                [
+                  "Session evidence",
+                  "Every export and every playback of a raw recording is logged, with who and when.",
+                ],
               ]}
             />
           </div>
@@ -199,18 +227,21 @@ export function SecurityPage() {
             <Rows
               items={[
                 [
-                  "Self-hosted",
-                  "Speech and language models run in your deployment, on your hardware.",
+                  "Your keys",
+                  "Azure OpenAI and Azure Speech on your own subscription by default. The voice engine can use other providers, or self-hosted models, per agent.",
+                ],
+                [
+                  "Local where it matters",
+                  "Personal-data detection, intent, sentiment and beep timing run on four pinned models inside your deployment, with no internet access.",
                 ],
                 [
                   "Versioned",
-                  "Model and prompt versions are recorded against every decision they touched.",
+                  "The agent version is recorded on every call, and model versions on every post-call result and planning decision.",
                 ],
                 [
                   "No training on your data",
-                  "Weights ship to you. Nothing learned from your book leaves without a separate agreement.",
+                  "The engine's own models learn from your book inside your deployment. Cloud AI services run under your own agreement with the provider.",
                 ],
-                ["Offline updates", "Signed bundles, reviewable, on your schedule."],
               ]}
             />
           </div>
@@ -221,22 +252,23 @@ export function SecurityPage() {
         title={["What to ask us for", "before you sign."]}
         lede={
           <>
-            Controls are mapped to the frameworks below. Attestation status depends on the
-            deployment and on which party hosts it, which is a real distinction rather than a hedge
-            — ask for the current control pack and we will send it with the architecture review.
+            Ask for the architecture review early. What can be attested depends on the deployment
+            and on who hosts it, which is a real distinction rather than a hedge, so we walk through
+            it for your setup.
           </>
         }
       >
         <div className="standards rise" data-fx>
-          <p className="standards__lab">Controls mapped to</p>
+          <p className="standards__lab">What the review covers</p>
           <ul>
-            {standards.map((f) => (
-              <li key={f}>{f}</li>
+            {reviewTopics.map((topic) => (
+              <li key={topic}>{topic}</li>
             ))}
           </ul>
         </div>
         <Pull by="The sentence this page exists to support">
-          Nothing about a customer of ours crosses a boundary we do not control.
+          Every service that touches a customer of ours runs on our keys, in our region, under our
+          contract.
         </Pull>
       </Section>
       <Section eyebrow="Questions" title={["What security teams", "ask first."]}>
@@ -252,14 +284,8 @@ export function SecurityPage() {
       <Closing
         title={["Send us your", "architecture review."]}
         lede="We would rather answer the long questionnaire early than discover a blocker in month three. Send it over and we will fill it in before the first call."
-        secondary={{
-          label: "Book a walkthrough",
-          href: "/demo/",
-        }}
-        primary={{
-          label: "Email the architecture team",
-          href: `mailto:${site.email}`,
-        }}
+        secondary={{ label: "Book a walkthrough", href: "/demo/" }}
+        primary={{ label: "Email the architecture team", href: `mailto:${site.email}` }}
       />
     </>
   );

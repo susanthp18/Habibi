@@ -24,7 +24,7 @@ const ld = (o) =>
 const abs = (p) => new URL(p, site.url + "/").href;
 
 function crumbName(route) {
-  return route.nav ?? route.title;
+  return route.crumb ?? route.nav ?? route.label ?? route.title.split(" | ")[0];
 }
 
 function head(route) {

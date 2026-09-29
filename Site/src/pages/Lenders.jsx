@@ -10,7 +10,7 @@ export function LendersPage() {
         title={["The first thirty days", "are a factory.", "Run it like one."]}
         lede={
           <>
-            Early delinquency is high-volume, low-discretion and tightly regulated — and on most
+            Early delinquency is high-volume, low-discretion and tightly regulated, and on most
             floors it is still a person with a headset, a list printed overnight and a daily target.
             It is the part of the book where speed and coverage decide the outcome, and both are
             things software is better at than staffing.
@@ -21,10 +21,10 @@ export function LendersPage() {
           href: "/decision-engine/",
         }}
         proof={[
-          "Cards, instalment loans, unsecured",
+          "Cards, loans and unsecured",
           "In-house and agency floors",
           "Pre-due to late-stage triage",
-          "Your core systems, read live",
+          "Late data stops contact",
         ]}
       />
       <Section
@@ -60,7 +60,7 @@ export function LendersPage() {
             [
               "61–90 days",
               "Specialist territory. Field and legal are queued behind this.",
-              "Triage only — willing, distressed or disputing — and then route to the right human.",
+              "Triage only (willing, distressed or disputing), then route to the right person.",
             ],
             [
               "90+ days",
@@ -76,7 +76,7 @@ export function LendersPage() {
           items={[
             [
               "Work the failure the hour it happens",
-              "A failed mandate at 00:12 opens a case at 00:13 and produces a first compliant touch inside the next permitted window, with no allocation step. Retries are timed to when the account is actually funded rather than to the next billing cycle — balances peak within a day or two of a salary credit, and a retry scheduled a month later misses that window entirely.",
+              "A failed mandate opens a case the minute the bounce arrives, and the first compliant touch, a written notice with a pay link, goes out in the next permitted window. Re-presentation is proposed for when the account is likely to be funded, around the salary credit, with at least 48 hours between attempts, and a person confirms it before it goes to your loan system.",
             ],
             [
               "Cover the whole early book, not a sampled list",
@@ -84,7 +84,7 @@ export function LendersPage() {
             ],
             [
               "Make promises into artefacts",
-              "Promises made is a vanity number. Amount, date and channel captured from the turn, confirmed in writing within minutes, with a pay link and a reminder on the day — and kept-or-broken computed from the ledger rather than from anyone's honour.",
+              "Promises made is a vanity number. Amount and date captured on the call, confirmed in writing with a pay link before the call ends, a reminder on the day, and kept or broken worked out from the ledger rather than from anyone's honour.",
             ],
           ]}
         />
@@ -95,8 +95,8 @@ export function LendersPage() {
         lede={
           <>
             Third-party figures, given with their sources so you can weigh them yourself. These are
-            published ranges for digital-first and generative-AI collections programmes generally —
-            they are not measurements of a PayInt deployment, and we do not present them as ours.
+            published ranges for digital-first and generative-AI collections programmes generally.
+            They are not measurements of a PayInt deployment, and we do not present them as ours.
           </>
         }
       >
@@ -112,7 +112,7 @@ export function LendersPage() {
             ],
             [
               "Experience",
-              "Customer-satisfaction improvements of up to 30% are reported alongside those cost and recovery figures — an outcome that is unusual in collections, where cost reduction normally comes at the customer's expense.",
+              "Customer-satisfaction improvements of up to 30% are reported alongside those cost and recovery figures, an outcome that is unusual in collections, where cost reduction normally comes at the customer's expense.",
             ],
           ]}
         />
@@ -121,7 +121,7 @@ export function LendersPage() {
           <em>The promise of generative AI for credit customer assistance</em>
           {" (2024) and "}
           <em>Holistic customer assistance</em>. We will walk through the methodology behind our own
-          figures — and their limits — in the walkthrough.
+          figures, and their limits, in the walkthrough.
         </p>
       </Section>
       <Section
@@ -137,11 +137,11 @@ export function LendersPage() {
               "Disputes",
               "Already-paid claims and fee arguments, as a queue with evidence attached.",
             ],
-            ["Settlements", "Outside any agent's authority envelope, by design."],
+            ["Settlements", "Always a person. Voice agents have no settlement or waiver tool, by design."],
             ["Complaints", "Routed with the recording and the decision record already retrieved."],
           ]}
         />
-        <Pull by="The result a collections head can take upstairs">
+        <Pull by="The result a collections head wants to take upstairs">
           Fewer contacts, the same recovery, and an answer for every call we made.
         </Pull>
       </Section>
@@ -157,7 +157,7 @@ export function LendersPage() {
       />
       <Closing
         title={["Start with one", "bucket, one month."]}
-        lede="A pilot on a defined slice of the early book, with a held-out control group, and an audit pack when it ends."
+        lede="A pilot on a defined slice of the early book, with a comparison group, and an audit pack when it ends."
         secondary={{
           label: "How we price it",
           href: "/pricing/",

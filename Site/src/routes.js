@@ -14,17 +14,17 @@ import { SecurityPage } from "./pages/Security";
 export const routes = [
   {
     path: "/",
-    title: "PayInt — collections that move the hour the account does",
+    title: "PayInt | Collections that move the hour the account does",
     description:
-      "A collections operating system for banks, lenders and insurers. Autonomous voice and messaging agents work every account the hour it moves, inside your perimeter.",
+      "A collections operating system for banks and lenders. Voice and WhatsApp agents work every account the hour it moves, under rules they cannot talk their way past.",
     priority: 1,
     component: HomePage,
   },
   {
     path: "/platform/",
-    title: "The collections operating system — PayInt",
+    title: "The collections operating system | PayInt",
     description:
-      "Event to decision to contact to evidence, in one governed pipeline. See how a failed mandate becomes a compliant conversation in minutes rather than overnight.",
+      "Event to decision to contact to evidence, in one governed pipeline. See how a failed mandate becomes a compliant conversation and a written promise.",
     nav: "Platform",
     foot: "Platform",
     priority: 0.9,
@@ -32,9 +32,9 @@ export const routes = [
   },
   {
     path: "/decision-engine/",
-    title: "Decision intelligence for collections — PayInt",
+    title: "Decision intelligence for collections | PayInt",
     description:
-      "Next-best-treatment scored in money, not a 0-to-1 opinion. Uplift instead of propensity, hard vetoes before scoring, and a decision record behind every action.",
+      "Ten actions scored in money against doing nothing, hard vetoes before scoring, no language model in the decision, and a full trace behind every choice.",
     nav: "Decision engine",
     foot: "Platform",
     priority: 0.9,
@@ -42,9 +42,9 @@ export const routes = [
   },
   {
     path: "/agents/",
-    title: "Autonomous voice and messaging agents — PayInt",
+    title: "Voice and WhatsApp agents for collections | PayInt",
     description:
-      "Build collections agents in Voice Studio — workflows, tools and knowledge — rehearse them in Checks, and publish behind gates. Claude and Codex can draft; a person still publishes.",
+      "Build agents in Voice Studio, rehearse them in Checks and publish behind a release gate. Supervisors can listen, whisper and take over any live call.",
     nav: "Agents",
     foot: "Platform",
     priority: 0.8,
@@ -52,9 +52,9 @@ export const routes = [
   },
   {
     path: "/compliance/",
-    title: "Collections compliance and 100% call QA — PayInt",
+    title: "Collections compliance and QA on every conversation | PayInt",
     description:
-      "Every call and message scored, consent and calling-window gates enforced before a contact exists, recordings beeped over the PII, and an audit trail that answers the regulator's question.",
+      "Every conversation scored, calling windows checked at plan and at dial, recordings beeped over personal data, and hash-chained evidence an auditor can verify.",
     nav: "Compliance",
     foot: "Platform",
     priority: 0.8,
@@ -62,9 +62,9 @@ export const routes = [
   },
   {
     path: "/security/",
-    title: "On-premise deployment and security — PayInt",
+    title: "Deployment and security | PayInt",
     description:
-      "Containers on your estate, your identity provider, your keys, your trunks. Records, recordings, transcripts and model weights never leave the perimeter.",
+      "Your servers or cloud account, Microsoft sign-in, AI services on your own keys, local post-call models, and row-level tenant isolation.",
     nav: "Security",
     foot: "Platform",
     priority: 0.8,
@@ -72,18 +72,19 @@ export const routes = [
   },
   {
     path: "/product/",
-    title: "Every module in PayInt — product tour",
-    description: `The ${moduleCount} screens a collections floor runs on, grouped by the job each one does: live operations, resolution, compliance and QA, Voice Studio and bot configuration.`,
+    title: "Every module in PayInt | Product tour",
+    description: `The ${moduleCount} screens a collections floor runs on, grouped by the job each one does: live operations, resolution, compliance and QA, Voice Studio and configuration.`,
     foot: "Platform",
     label: `All ${moduleCount} modules`,
+    crumb: "Product",
     priority: 0.7,
     component: ProductPage,
   },
   {
     path: "/lenders/",
-    title: "Collections software for banks and lenders — PayInt",
+    title: "Collections software for banks and lenders | PayInt",
     description:
-      "Bounce to live contact in minutes, the whole early book covered inside 48 hours, and promises confirmed in writing before the call ends.",
+      "A bounce opens a case the minute it arrives, the first compliant touch goes out in the next permitted window, and promises are confirmed in writing on the call.",
     foot: "Industries",
     label: "Banks and lenders",
     priority: 0.8,
@@ -91,9 +92,9 @@ export const routes = [
   },
   {
     path: "/insurance/",
-    title: "Persistency and renewal recovery for insurers — PayInt",
+    title: "Persistency for insurers, in early access | PayInt",
     description:
-      "Most lapse is a missed auto-debit, not a decision to leave. Work renewals, failed mandates and revival windows on the same governed pipeline as the lending book.",
+      "Most lapse is a missed auto-debit, not a decision to leave. What already works for insurers today, and the renewal workflows we are building with design partners.",
     foot: "Industries",
     label: "Insurance",
     priority: 0.8,
@@ -101,7 +102,7 @@ export const routes = [
   },
   {
     path: "/pricing/",
-    title: "How PayInt is priced — per resolution, not per minute",
+    title: "How PayInt is priced | Per resolution, not per minute",
     description:
       "A working decision engine's first effect is fewer calls. Per-minute pricing would punish that, so PayInt is priced on resolved contacts and recovered value.",
     nav: "Pricing",
@@ -111,9 +112,9 @@ export const routes = [
   },
   {
     path: "/demo/",
-    title: "Book a walkthrough — PayInt",
+    title: "Book a walkthrough | PayInt",
     description:
-      "Thirty minutes, your book, your rules. We run one live account end to end: the trigger, the gates, the decision, the call and the audit record it leaves behind.",
+      "Thirty minutes, your book, your rules. We run one account end to end: the trigger, the gates, the decision, the conversation and the record it leaves behind.",
     foot: "Company",
     label: "Book a walkthrough",
     priority: 0.6,
@@ -129,5 +130,5 @@ export function routeFor(f) {
   return routes.find((l) => l.path === r) ?? routes[0];
 }
 export function shortTitle(f) {
-  return f.split(" — ")[0];
+  return f.split(" | ")[0];
 }

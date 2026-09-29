@@ -25,7 +25,7 @@ export function PricingPage() {
             The first observable effect of a working decision engine is that call volume falls. It
             discovers that a large share of early-bucket dialling is worth less than silence, and it
             stops. Priced per minute, we would be selling you a system whose best behaviour costs us
-            money — so we do not price it that way.
+            money, so we do not price it that way.
           </>
         }
         secondary={{
@@ -36,7 +36,7 @@ export function PricingPage() {
           "No per-seat licence",
           "No per-minute billing",
           "Fixed-fee pilot",
-          "Measured against a control",
+          "Measured against a comparison group",
         ]}
       />
       <Panel
@@ -89,25 +89,25 @@ export function PricingPage() {
               "Scope",
               "One bucket or one cohort, thirty days.",
               "The whole early book, with late-stage triage.",
-              "Multiple floors and in-house teams under one policy estate.",
+              "Your own floor plus agency partners under one statutory rule set.",
             ],
             [
               "Priced on",
               "A fixed fee, agreed before it starts.",
               "Resolved contacts, with a platform fee for the deployment.",
-              "Resolved contacts, with per-tenant isolation and consolidated audit.",
+              "Resolved contacts, with a tenant per floor.",
             ],
             [
               "Deployment",
               "Your infrastructure, standard topology.",
-              "On-premise, private cloud or air-gapped.",
-              "On-premise or private cloud, one estate, many tenants.",
+              "Your servers or your cloud account, with self-hosted models where required.",
+              "Your servers or cloud account, a tenant per floor.",
             ],
             [
               "Includes",
-              "Held-out control group and an audit pack on exit.",
+              "A comparison group and an audit pack on exit.",
               "All modules, unlimited users, your own agents and policy.",
-              "Everything in production, plus per-floor scorecards and comparison.",
+              "Everything in production, plus agency dialler records checked against the same caps.",
             ],
             ["Never priced on", "Minutes or seats.", "Minutes or seats.", "Minutes or seats."],
           ]}
@@ -120,7 +120,7 @@ export function PricingPage() {
         lede={
           <>
             Here is the cost model we use, stated as a model rather than as a claim. Every input is
-            something to be measured in your environment — we will not quote a figure that has your
+            something to be measured in your environment. We will not quote a figure that has your
             book's name on it before we have seen your book.
           </>
         }
@@ -136,7 +136,7 @@ export function PricingPage() {
           </p>
           <p className="formula__note">
             Two properties matter more than any number placed in them. Attempts per connect
-            dominates the cost base and is usually unmeasured — at a 30% answer rate a connect costs
+            dominates the cost base and is usually unmeasured: at a 30% answer rate a connect costs
             3.3 rings, at 15% it costs 6.7, which is a two-fold swing in the economics of the whole
             operation. And τ is incremental: a system that books self-curers as its own success
             shows a magnificent recovery rate and adds nothing.
@@ -154,7 +154,7 @@ export function PricingPage() {
             ],
             [
               "What you get either way",
-              "The measurement apparatus. Logged propensities, a control arm and an audit pack are part of the product, not a consulting add-on.",
+              "The measurement apparatus. Logged decisions, a comparison group and an audit pack are part of the product, not a consulting add-on.",
             ],
           ]}
         />
