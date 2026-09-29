@@ -556,3 +556,47 @@ async def test_verified_leaves_a_real_choice_to_the_model():
     engine, agent = _verify_engine([_edge("a", requires_user_turn=True)], nodes)
     assert await engine.advance_after_verification(agent) is False
     engine.set_node.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_success_edge_is_taken_once_the_action_is_recorded():
+    nodes = {"wrap": SimpleNamespace(is_end=False), "stands": SimpleNamespace(is_end=False)}
+    edges = [_edge("wrap", requires_successful_action=True), _edge("stands")]
+    engine, agent = _verify_engine(edges, nodes)
+    assert await engine.advance_after_action(agent) is True
+    engine.set_node.assert_awaited_once_with("wrap", origin_visit_id="visit")
+    # ...but not into a close, and verification's advance leaves it alone.
+    engine, agent = _verify_engine([_edge("bye", requires_successful_action=True)],
+                                   {"bye": SimpleNamespace(is_end=True)})
+    assert await engine.advance_after_action(agent) is False
+    engine, agent = _verify_engine([_edge("wrap", requires_successful_action=True)], nodes)
+    assert await engine.advance_after_verification(agent) is False
+
+
+@pytest.mark.asyncio
+async def test_no_goodbye_straight_after_the_customers_question():
+    """Run 84: "What is the premium?" and the agent's next words were its goodbye."""
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    engine._context_summary_message = None
+    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "What is the premium?"}])
+    engine._node_entry_user_message = {}
+    engine._customer_action_outcomes = {}
+    engine._verification_required = set()
+    engine._verification_outcomes = {}
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+
+    class Agent:
+        visit_id = "visit"
+        current_node = SimpleNamespace(id="wrap")
+        workflow = SimpleNamespace(nodes={"bye": SimpleNamespace(is_end=True, call_disposition=None)})
+
+        def bind_tool(self, _engine, handler):
+            return handler
+
+    handler = await engine._create_transition_func("Goodbye", "bye", agent=Agent())
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_question_unanswered"

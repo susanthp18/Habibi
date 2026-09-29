@@ -541,6 +541,14 @@ class PipecatEngine:
                 said.append(content)
         return " ".join(s.strip() for s in said if s and s.strip())
 
+    def _customer_just_asked(self) -> bool:
+        """Does the customer's newest message end with a question mark?"""
+        said = self._last_user_message()
+        content = said.get("content") if said else ""
+        text = content if isinstance(content, str) else " ".join(
+            str(p.get("text", "")) for p in content if isinstance(p, dict))
+        return text.rstrip().endswith(("?", "؟"))
+
     def agent_spoke_since_customer(self) -> bool:
         """Has the agent said anything since the customer's last message?"""
         return bool(self.agent_text_since_customer())
@@ -615,6 +623,18 @@ class PipecatEngine:
                         "status": "error", "error": "question_unanswered",
                         "say": ("You have just asked the customer a question. Do not end the "
                                 "conversation: say nothing more and wait for their answer."),
+                    })
+                    return
+                # Nor can it follow a question from the customer that nothing
+                # has answered: run 84 asked "What is the premium?" and the
+                # agent went straight to its goodbye, answer and farewell in one.
+                closing = agent.workflow.nodes[transition_to_node]
+                if (closing.is_end and getattr(closing, "call_disposition", None) != "opted_out"
+                        and self._customer_just_asked() and not self.agent_spoke_since_customer()):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "customer_question_unanswered",
+                        "say": ("The customer has just asked a question. Do not end the "
+                                "conversation: answer it, then ask whether there is anything else."),
                     })
                     return
                 # "Opted out" is what PayInt files and contact policy then
@@ -755,14 +775,32 @@ class PipecatEngine:
         if node is None:
             return False
         onward = [e for e in node.out_edges if not agent.workflow.nodes[e.target].is_end]
-        if len(onward) != 1:
+        if len(onward) != 1 or onward[0].data.requires_successful_action:
             return False
-        edge = onward[0]
-        if (edge.data.requires_user_turn or edge.data.requires_successful_action
-                or edge.transition_speech or edge.data.transition_speech_recording_id):
+        return await self._take_edge_now(agent, onward[0])
+
+    async def advance_after_action(self, agent: AgentRuntime) -> bool:
+        """Take the step's one success edge once its action is recorded.
+
+        An edge that needs a recorded promise, callback or case is the step's
+        way on once one is: the model took "Promise recorded" next on every
+        call, a generation spent (run 84: 1.2 s) before it could say so.
+        """
+        node = agent.current_node
+        if node is None:
+            return False
+        success = [e for e in node.out_edges if e.data.requires_successful_action]
+        if len(success) != 1 or agent.workflow.nodes[success[0].target].is_end:
+            return False
+        return await self._take_edge_now(agent, success[0])
+
+    async def _take_edge_now(self, agent: AgentRuntime, edge) -> bool:
+        """Move along ``edge`` as its transition would, unless it waits or speaks."""
+        if (edge.data.requires_user_turn or edge.transition_speech
+                or edge.data.transition_speech_recording_id):
             return False
         await self._perform_variable_extraction_if_needed(
-            node, run_in_background=self._run_transition_variable_extraction_in_background,
+            agent.current_node, run_in_background=self._run_transition_variable_extraction_in_background,
         )
         await self.set_node(edge.target, origin_visit_id=agent.visit_id)
         return True

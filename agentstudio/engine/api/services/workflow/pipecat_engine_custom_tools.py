@@ -590,16 +590,16 @@ class CustomToolManager:
                     verified = (result.get("status") == "success"
                                 and data.get("ok") is True and data.get("verified") is True)
                     self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = verified
-                    if (verified and self._agent is self._engine.active_agent
-                            and self._agent.current_node is not None
-                            and self._agent.current_node.id == action_node_id):
-                        await self._engine.advance_after_verification(self._agent)
+                    if verified:
+                        await self._advance(self._engine.advance_after_verification, action_node_id)
 
                 if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
                     data = result.get("data") if isinstance(result.get("data"), dict) else {}
                     ok = data.get("ok") is True and result.get("status") == "success"
                     if action_node_id:
                         self._engine._customer_action_outcomes[(self._agent.visit_id, action_node_id)] = ok
+                    if ok:
+                        await self._advance(self._engine.advance_after_action, action_node_id)
 
                 await function_call_params.result_callback(result)
 
@@ -845,6 +845,21 @@ class CustomToolManager:
             )
 
         return transfer_agent_handler
+
+    async def _advance(self, advance, action_node_id) -> None:
+        """Move the call on after a tool's success; never at the tool's expense.
+
+        Only while this agent is speaking and still on the step that ran the
+        tool. The tool's result goes back whatever happens here: a recorded
+        promise reported as failed would be worse than one more model turn.
+        """
+        try:
+            node = self._agent.current_node
+            if (self._agent is self._engine.active_agent and node is not None
+                    and node.id == action_node_id):
+                await advance(self._agent)
+        except Exception as e:
+            logger.warning(f"Moving on after the tool failed: {type(e).__name__}: {e}")
 
     async def _customer_wants_a_person(self) -> bool:
         """Did the customer ask for a person, or accept one when it was offered?

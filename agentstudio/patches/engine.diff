@@ -5725,8 +5725,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      await session.start()
      try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine.py engine/api/services/workflow/pipecat_engine.py
---- dograh/api/services/workflow/pipecat_engine.py	2026-09-29 20:04:27.789559000 +0530
-+++ engine/api/services/workflow/pipecat_engine.py	2026-09-29 19:31:53.066222600 +0530
+--- dograh/api/services/workflow/pipecat_engine.py	2026-09-29 20:39:37.303011200 +0530
++++ engine/api/services/workflow/pipecat_engine.py	2026-09-29 20:33:55.490213700 +0530
 @@ -17,6 +17,7 @@
      CancelFrame,
      EndFrame,
@@ -5788,7 +5788,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          self._transfer_coordinator = None
          self.context = context
          self._call_context_vars = call_context_vars
-@@ -385,6 +422,143 @@
+@@ -385,6 +422,151 @@
              LLMSettings(system_instruction=system_prompt)
          )
  
@@ -5911,6 +5911,14 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                said.append(content)
 +        return " ".join(s.strip() for s in said if s and s.strip())
 +
++    def _customer_just_asked(self) -> bool:
++        """Does the customer's newest message end with a question mark?"""
++        said = self._last_user_message()
++        content = said.get("content") if said else ""
++        text = content if isinstance(content, str) else " ".join(
++            str(p.get("text", "")) for p in content if isinstance(p, dict))
++        return text.rstrip().endswith(("?", "؟"))
++
 +    def agent_spoke_since_customer(self) -> bool:
 +        """Has the agent said anything since the customer's last message?"""
 +        return bool(self.agent_text_since_customer())
@@ -5932,7 +5940,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _format_prompt(self, prompt: str) -> str:
          """Delegate prompt formatting to the shared workflow.utils implementation."""
  
-@@ -398,6 +572,9 @@
+@@ -398,6 +580,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -5942,7 +5950,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -411,6 +588,75 @@
+@@ -411,6 +596,87 @@
              logger.info(f"Arguments: {function_call_params.arguments}")
  
              try:
@@ -5973,6 +5981,18 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                        "status": "error", "error": "question_unanswered",
 +                        "say": ("You have just asked the customer a question. Do not end the "
 +                                "conversation: say nothing more and wait for their answer."),
++                    })
++                    return
++                # Nor can it follow a question from the customer that nothing
++                # has answered: run 84 asked "What is the premium?" and the
++                # agent went straight to its goodbye, answer and farewell in one.
++                closing = agent.workflow.nodes[transition_to_node]
++                if (closing.is_end and getattr(closing, "call_disposition", None) != "opted_out"
++                        and self._customer_just_asked() and not self.agent_spoke_since_customer()):
++                    await function_call_params.result_callback({
++                        "status": "error", "error": "customer_question_unanswered",
++                        "say": ("The customer has just asked a question. Do not end the "
++                                "conversation: answer it, then ask whether there is anything else."),
 +                    })
 +                    return
 +                # "Opted out" is what PayInt files and contact policy then
@@ -6018,7 +6038,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  # Perform variable extraction before transitioning to new node
                  await self._perform_variable_extraction_if_needed(
                      self.active_agent.current_node,
-@@ -496,6 +742,31 @@
+@@ -496,6 +762,49 @@
  
          return agent.bind_tool(self, transition_func)
  
@@ -6035,14 +6055,32 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        if node is None:
 +            return False
 +        onward = [e for e in node.out_edges if not agent.workflow.nodes[e.target].is_end]
-+        if len(onward) != 1:
++        if len(onward) != 1 or onward[0].data.requires_successful_action:
 +            return False
-+        edge = onward[0]
-+        if (edge.data.requires_user_turn or edge.data.requires_successful_action
-+                or edge.transition_speech or edge.data.transition_speech_recording_id):
++        return await self._take_edge_now(agent, onward[0])
++
++    async def advance_after_action(self, agent: AgentRuntime) -> bool:
++        """Take the step's one success edge once its action is recorded.
++
++        An edge that needs a recorded promise, callback or case is the step's
++        way on once one is: the model took "Promise recorded" next on every
++        call, a generation spent (run 84: 1.2 s) before it could say so.
++        """
++        node = agent.current_node
++        if node is None:
++            return False
++        success = [e for e in node.out_edges if e.data.requires_successful_action]
++        if len(success) != 1 or agent.workflow.nodes[success[0].target].is_end:
++            return False
++        return await self._take_edge_now(agent, success[0])
++
++    async def _take_edge_now(self, agent: AgentRuntime, edge) -> bool:
++        """Move along ``edge`` as its transition would, unless it waits or speaks."""
++        if (edge.data.requires_user_turn or edge.transition_speech
++                or edge.data.transition_speech_recording_id):
 +            return False
 +        await self._perform_variable_extraction_if_needed(
-+            node, run_in_background=self._run_transition_variable_extraction_in_background,
++            agent.current_node, run_in_background=self._run_transition_variable_extraction_in_background,
 +        )
 +        await self.set_node(edge.target, origin_visit_id=agent.visit_id)
 +        return True
@@ -6050,7 +6088,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      async def _register_transition_function_with_llm(
          self,
          name: str,
-@@ -504,6 +775,9 @@
+@@ -504,6 +813,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -6060,7 +6098,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -518,6 +792,9 @@
+@@ -518,6 +830,9 @@
              transition_speech,
              transition_speech_type,
              transition_speech_recording_id,
@@ -6070,7 +6108,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              agent=agent,
          )
  
-@@ -559,7 +836,11 @@
+@@ -559,7 +874,11 @@
                      query=query,
                      organization_id=organization_id,
                      document_uuids=document_uuids,
@@ -6083,7 +6121,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      embeddings_api_key=self._embeddings_api_key,
                      embeddings_model=self._embeddings_model,
                      embeddings_base_url=self._embeddings_base_url,
-@@ -570,6 +851,7 @@
+@@ -570,6 +889,7 @@
                          MPS_CORRELATION_ID_CONTEXT_KEY
                      ),
                      tracing_context=self._get_otel_context(),
@@ -6091,7 +6129,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  )
  
                  await function_call_params.result_callback(result)
-@@ -785,6 +1067,9 @@
+@@ -785,6 +1105,9 @@
                      edge.transition_speech,
                      edge.data.transition_speech_type,
                      edge.data.transition_speech_recording_id,
@@ -6101,7 +6139,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      agent=agent,
                  )
          if node.tool_uuids and manager:
-@@ -802,11 +1087,18 @@
+@@ -802,11 +1125,18 @@
              format_prompt=self._format_prompt,
              has_recordings=self._has_recordings,
          )
@@ -6120,7 +6158,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          if apply_settings:
              await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
  
-@@ -865,6 +1157,7 @@
+@@ -865,6 +1195,7 @@
  
          # Set current node for all nodes (including static ones) so STT mute filter works
          self.active_agent.current_node = node
@@ -6128,7 +6166,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          # Track visited nodes in gathered context for call tags
          nodes_visited = self._gathered_context.setdefault("nodes_visited", [])
-@@ -1095,6 +1388,13 @@
+@@ -1095,6 +1426,13 @@
  
      async def _handle_end_node(self, node: Node) -> None:
          """Handle end node execution."""
@@ -6142,7 +6180,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Setup LLM context with prompts and functions.
          await self._setup_llm_context(node)
  
-@@ -1444,6 +1744,11 @@
+@@ -1444,6 +1782,11 @@
          if self._mute_pipeline:
              return True
  
@@ -6154,7 +6192,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Mute while queued speech (transition/tool message) is pending or playing
          if self._queued_speech_mute_state != "idle":
              return True
-@@ -1531,6 +1836,41 @@
+@@ -1531,6 +1874,41 @@
          return self.__dict__.get("_agent_factory") is not None
  
      @property
@@ -6196,7 +6234,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def transfer_coordinator(self):
          """The call's handoff coordinator, created on first use."""
          if self._transfer_coordinator is None:
-@@ -1545,6 +1885,20 @@
+@@ -1545,6 +1923,20 @@
          coordinator = self.__dict__.get("_transfer_coordinator")
          return coordinator is not None and coordinator.in_progress
  
@@ -6217,7 +6255,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      @property
      def agent_visits(self) -> list[dict]:
          """One record per agent visit, oldest first, including the live one."""
-@@ -1853,21 +2207,33 @@
+@@ -1853,21 +2245,33 @@
  
          agent = agent or self.active_agent
          try:
@@ -6261,7 +6299,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              for tool in tools:
                  if tool.category != ToolCategory.MCP.value:
                      continue
-@@ -1891,13 +2257,24 @@
+@@ -1891,13 +2295,24 @@
                              f"MCP tool '{tool.name}': credential fetch failed: {e}"
                          )
                          continue
@@ -6354,8 +6392,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              context.set_messages(new_messages)
              logger.info(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_custom_tools.py engine/api/services/workflow/pipecat_engine_custom_tools.py
---- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 20:04:27.791571300 +0530
-+++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 19:31:53.208750800 +0530
+--- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 20:39:37.308498200 +0530
++++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 20:34:17.799647700 +0530
 @@ -7,7 +7,9 @@
  from __future__ import annotations
  
@@ -6583,16 +6621,16 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                    verified = (result.get("status") == "success"
 +                                and data.get("ok") is True and data.get("verified") is True)
 +                    self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = verified
-+                    if (verified and self._agent is self._engine.active_agent
-+                            and self._agent.current_node is not None
-+                            and self._agent.current_node.id == action_node_id):
-+                        await self._engine.advance_after_verification(self._agent)
++                    if verified:
++                        await self._advance(self._engine.advance_after_verification, action_node_id)
 +
 +                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
 +                    data = result.get("data") if isinstance(result.get("data"), dict) else {}
 +                    ok = data.get("ok") is True and result.get("status") == "success"
 +                    if action_node_id:
 +                        self._engine._customer_action_outcomes[(self._agent.visit_id, action_node_id)] = ok
++                    if ok:
++                        await self._advance(self._engine.advance_after_action, action_node_id)
 +
                  await function_call_params.result_callback(result)
  
@@ -6680,10 +6718,25 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              except Exception as e:
                  logger.error(f"MCP tool '{function_name}' failed: {e}")
                  await function_call_params.result_callback(
-@@ -647,6 +846,48 @@
+@@ -647,6 +846,63 @@
  
          return transfer_agent_handler
  
++    async def _advance(self, advance, action_node_id) -> None:
++        """Move the call on after a tool's success; never at the tool's expense.
++
++        Only while this agent is speaking and still on the step that ran the
++        tool. The tool's result goes back whatever happens here: a recorded
++        promise reported as failed would be worse than one more model turn.
++        """
++        try:
++            node = self._agent.current_node
++            if (self._agent is self._engine.active_agent and node is not None
++                    and node.id == action_node_id):
++                await advance(self._agent)
++        except Exception as e:
++            logger.warning(f"Moving on after the tool failed: {type(e).__name__}: {e}")
++
 +    async def _customer_wants_a_person(self) -> bool:
 +        """Did the customer ask for a person, or accept one when it was offered?
 +
@@ -6729,7 +6782,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _create_transfer_call_handler(self, tool: Any, function_name: str):
          """Create a handler function for a transfer call tool.
  
-@@ -669,6 +910,25 @@
+@@ -669,6 +925,25 @@
                  f"argument_keys={list((function_call_params.arguments or {}).keys())}"
              )
  
@@ -8164,8 +8217,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              await manager.register_handlers([tool.tool_uuid])
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_customer_action_transition.py engine/api/tests/test_customer_action_transition.py
 --- dograh/api/tests/test_customer_action_transition.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_customer_action_transition.py	2026-09-29 19:33:13.281294200 +0530
-@@ -0,0 +1,558 @@
++++ engine/api/tests/test_customer_action_transition.py	2026-09-29 20:32:13.391211000 +0530
+@@ -0,0 +1,602 @@
 +"""A rejected business write cannot enter an ordinary success closing node."""
 +
 +from types import SimpleNamespace
@@ -8724,6 +8777,50 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    engine, agent = _verify_engine([_edge("a", requires_user_turn=True)], nodes)
 +    assert await engine.advance_after_verification(agent) is False
 +    engine.set_node.assert_not_awaited()
++
++
++@pytest.mark.asyncio
++async def test_success_edge_is_taken_once_the_action_is_recorded():
++    nodes = {"wrap": SimpleNamespace(is_end=False), "stands": SimpleNamespace(is_end=False)}
++    edges = [_edge("wrap", requires_successful_action=True), _edge("stands")]
++    engine, agent = _verify_engine(edges, nodes)
++    assert await engine.advance_after_action(agent) is True
++    engine.set_node.assert_awaited_once_with("wrap", origin_visit_id="visit")
++    # ...but not into a close, and verification's advance leaves it alone.
++    engine, agent = _verify_engine([_edge("bye", requires_successful_action=True)],
++                                   {"bye": SimpleNamespace(is_end=True)})
++    assert await engine.advance_after_action(agent) is False
++    engine, agent = _verify_engine([_edge("wrap", requires_successful_action=True)], nodes)
++    assert await engine.advance_after_verification(agent) is False
++
++
++@pytest.mark.asyncio
++async def test_no_goodbye_straight_after_the_customers_question():
++    """Run 84: "What is the premium?" and the agent's next words were its goodbye."""
++    engine = object.__new__(PipecatEngine)
++    engine._engine_notes = []
++    engine._current_llm_generation_reference_text = ""
++    engine._assistant_aggregator = None
++    engine._context_summary_message = None
++    engine.context = SimpleNamespace(messages=[{"role": "user", "content": "What is the premium?"}])
++    engine._node_entry_user_message = {}
++    engine._customer_action_outcomes = {}
++    engine._verification_required = set()
++    engine._verification_outcomes = {}
++    engine._perform_variable_extraction_if_needed = AsyncMock()
++
++    class Agent:
++        visit_id = "visit"
++        current_node = SimpleNamespace(id="wrap")
++        workflow = SimpleNamespace(nodes={"bye": SimpleNamespace(is_end=True, call_disposition=None)})
++
++        def bind_tool(self, _engine, handler):
++            return handler
++
++    handler = await engine._create_transition_func("Goodbye", "bye", agent=Agent())
++    callback = AsyncMock()
++    await handler(SimpleNamespace(arguments={}, result_callback=callback))
++    assert callback.await_args.args[0]["error"] == "customer_question_unanswered"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_end_node_outcome.py engine/api/tests/test_end_node_outcome.py
 --- dograh/api/tests/test_end_node_outcome.py	1970-01-01 05:30:00.000000000 +0530
 +++ engine/api/tests/test_end_node_outcome.py	2026-09-27 15:04:01.450961600 +0530
