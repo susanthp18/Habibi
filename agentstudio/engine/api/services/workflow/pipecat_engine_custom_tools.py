@@ -49,11 +49,16 @@ _TRANSFER_EXTERNAL_PBX_API_TIMEOUT_SECS = 30.0
 _TRANSFER_POST_HANDOFF_DELAY_SECS = 4.0
 
 
+def _text(value: Any) -> str:
+    """A message's text, whether its content is a string or a list of parts."""
+    if isinstance(value, list):
+        return " ".join(str(p.get("text", "")) for p in value if isinstance(p, dict))
+    return str(value or "")
+
+
 def _digits(value: Any) -> str:
     """The decimal digits in ``value`` as ASCII, in whatever script they came."""
-    if isinstance(value, list):  # multi-part message content
-        value = " ".join(str(p.get("text", "")) for p in value if isinstance(p, dict))
-    return "".join(str(unicodedata.decimal(ch)) for ch in str(value or "") if ch.isdecimal())
+    return "".join(str(unicodedata.decimal(ch)) for ch in _text(value) if ch.isdecimal())
 
 
 def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
@@ -521,6 +526,10 @@ class CustomToolManager:
                         "Nothing was recorded: the customer has not asked, in this step, to stop contact."),
                 })
                 return
+            if function_name == "record_opt_out":
+                # The customer asked: the "opted out" close is open now, even
+                # if the write below fails (the close then says it is passed on).
+                self._engine._opt_out_visits.add(self._agent.visit_id)
             verified = any(visit == self._agent.visit_id and accepted
                            for (visit, _node), accepted in self._engine._verification_outcomes.items())
             denied = live_policy_error(policy, self._engine._call_context_vars, verified)
@@ -827,6 +836,48 @@ class CustomToolManager:
 
         return transfer_agent_handler
 
+    async def _customer_wants_a_person(self) -> bool:
+        """Did the customer ask for a person, or accept one when it was offered?
+
+        Asked of the model on its own, from the agent's last line and the
+        customer's reply: in the conversation the model reached for a transfer
+        whenever its documents fell short ("full exclusions not available",
+        run 68; "ask a colleague about purchasing", run 63) though nobody had
+        asked. Fails open, so a customer who did ask is never kept from a person
+        by a slow or failed check.
+        """
+        from pipecat.processors.aggregators.llm_context import LLMContext
+
+        said = self._engine._last_user_message()
+        if said is None:
+            return False
+        messages = self._engine.context.messages
+        at = next((i for i, m in enumerate(messages) if m is said), len(messages))
+        agent_line = next((m.get("content") for m in reversed(messages[:at])
+                           if isinstance(m, dict) and m.get("role") == "assistant"
+                           and isinstance(m.get("content"), str) and m["content"].strip()), "")
+        question = (
+            f"Agent: {agent_line or '(nothing yet)'}\nCustomer: {_text(said.get('content'))}\n\n"
+            "In their last message, did the customer ask to speak to a person or a colleague, "
+            "make a complaint, mention a lawyer or the ombudsman, report fraud or a lost or "
+            "stolen card, become abusive, or say yes to being connected to a colleague? "
+            "Wanting information the agent does not have is not asking for a person. "
+            "Answer YES or NO."
+        )
+        try:
+            async with asyncio.timeout(5):
+                reply = await self._agent.llm.run_inference(
+                    LLMContext([{"role": "user", "content": question}]),
+                    system_instruction="You classify one customer message. Reply with YES or NO only.",
+                    max_tokens=512,
+                )
+        except Exception as e:
+            logger.warning(f"Transfer intent check failed open: {type(e).__name__}")
+            return True
+        answer = (reply or "").strip().upper()
+        logger.info(f"Transfer intent check: {answer[:12]!r}")
+        return not answer.startswith("NO")
+
     def _create_transfer_call_handler(self, tool: Any, function_name: str):
         """Create a handler function for a transfer call tool.
 
@@ -857,6 +908,14 @@ class CustomToolManager:
                     "status": "error", "error": "customer_did_not_ask",
                     "say": self._engine._refusal_hint(
                         "No transfer was made: the caller has not asked for anything in this step yet."),
+                })
+                return
+            if not await self._customer_wants_a_person():
+                await function_call_params.result_callback({
+                    "status": "error", "error": "customer_did_not_ask_for_a_person",
+                    "say": self._engine._refusal_hint(
+                        "No transfer was made: the customer has not asked for a person. Answer them "
+                        "yourself; if you don't have the detail, say so and tell them where to find it."),
                 })
                 return
 

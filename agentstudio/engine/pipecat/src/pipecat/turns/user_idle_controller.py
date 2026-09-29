@@ -70,6 +70,7 @@ class UserIdleController(BaseObject):
         self._waiting_for_user: bool = False
         self._user_turn_in_progress: bool = False
         self._function_calls_in_progress: int = 0
+        self._bot_speaking: bool = False
         self._idle_timer_task: asyncio.Task | None = None
 
         self._register_event_handler("on_user_turn_idle", sync=True)
@@ -113,6 +114,7 @@ class UserIdleController(BaseObject):
             return
 
         if isinstance(frame, BotStoppedSpeakingFrame):
+            self._bot_speaking = False
             # Only start the timer if the user isn't mid-turn and no function
             # calls are pending.
             #
@@ -134,6 +136,7 @@ class UserIdleController(BaseObject):
                 self._waiting_for_user = True
                 await self._start_idle_timer()
         elif isinstance(frame, BotStartedSpeakingFrame):
+            self._bot_speaking = True
             self._waiting_for_user = False
             await self._cancel_idle_timer()
         elif isinstance(frame, UserStartedSpeakingFrame):
@@ -150,8 +153,13 @@ class UserIdleController(BaseObject):
             self._function_calls_in_progress = max(0, self._function_calls_in_progress - 1)
             # AgentStudio: the call's result may lead to a response with no
             # speech (a refused step answered with silence), so the wait for
-            # the caller resumes here; speech that follows cancels it.
-            if self._function_calls_in_progress == 0 and not self._user_turn_in_progress:
+            # the caller resumes here; speech that follows cancels it. Not
+            # while the bot is speaking: a tool called alongside a question
+            # settled mid-sentence, nothing cancelled the timer, and "are you
+            # still there?" followed the question before the caller could
+            # answer. The bot's speech ending arms it instead.
+            if (self._function_calls_in_progress == 0 and not self._user_turn_in_progress
+                    and not self._bot_speaking):
                 self._waiting_for_user = True
                 await self._start_idle_timer()
 

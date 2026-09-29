@@ -249,6 +249,41 @@ class TestUserIdleController(unittest.IsolatedAsyncioTestCase):
 
         await controller.cleanup()
 
+    async def test_function_result_during_bot_speech_waits_for_speech_to_end(self):
+        """AgentStudio: a tool called alongside a question settles mid-sentence.
+
+        The timer must not start then: nothing would cancel it, and the idle
+        prompt would follow the question before the user could answer. It
+        starts when the bot stops speaking.
+        """
+        controller = UserIdleController(user_idle_timeout=USER_IDLE_TIMEOUT)
+        await controller.setup(frame_processor_setup(self.task_manager))
+
+        idle_triggered = False
+
+        @controller.event_handler("on_user_turn_idle")
+        async def on_user_turn_idle(controller):
+            nonlocal idle_triggered
+            idle_triggered = True
+
+        await controller.process_frame(BotStartedSpeakingFrame())
+        await controller.process_frame(
+            FunctionCallsStartedFrame(function_calls=[unittest.mock.Mock()])
+        )
+        await controller.process_frame(
+            FunctionCallResultFrame(
+                function_name="test", tool_call_id="123", arguments={}, result="refused"
+            )
+        )
+        await asyncio.sleep(USER_IDLE_TIMEOUT + 0.1)
+        self.assertFalse(idle_triggered)
+
+        await controller.process_frame(BotStoppedSpeakingFrame())
+        await asyncio.sleep(USER_IDLE_TIMEOUT + 0.1)
+        self.assertTrue(idle_triggered)
+
+        await controller.cleanup()
+
     async def test_function_result_without_speech_rearms_timer(self):
         """AgentStudio: a tool result answered with silence still waits for the user.
 

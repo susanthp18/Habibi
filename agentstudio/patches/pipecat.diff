@@ -1,5 +1,5 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
---- pipecat/src/pipecat/services/azure/stt.py	2026-09-28 21:00:16.056512300 +0530
+--- pipecat/src/pipecat/services/azure/stt.py	2026-09-29 10:11:52.080525600 +0530
 +++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
 @@ -11,6 +11,7 @@
  """
@@ -336,7 +336,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              frame = InterimTranscriptionFrame(
                  event.result.text,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-28 21:00:16.058531000 +0530
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 10:11:52.085053500 +0530
 +++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-27 11:57:36.593934900 +0530
 @@ -94,6 +94,13 @@
              ``"enhancePronunciation=true"``). Which keys apply depends on the
@@ -534,7 +534,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _escape_text(self, text: str) -> str:
          """Escapes XML/SSML reserved characters according to Microsoft documentation.
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
---- pipecat/src/pipecat/services/mcp_service.py	2026-09-28 21:00:16.158120000 +0530
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-29 10:11:52.657264100 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
 @@ -39,7 +39,7 @@
  
@@ -591,23 +591,52 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  read_stream, write_stream = streams[0], streams[1]
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/turns/user_idle_controller.py engine/pipecat/src/pipecat/turns/user_idle_controller.py
---- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-28 21:00:16.329397400 +0530
-+++ engine/pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-28 20:40:51.939149200 +0530
-@@ -148,6 +148,12 @@
+--- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 10:11:53.675190000 +0530
++++ engine/pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 09:57:47.286195900 +0530
+@@ -70,6 +70,7 @@
+         self._waiting_for_user: bool = False
+         self._user_turn_in_progress: bool = False
+         self._function_calls_in_progress: int = 0
++        self._bot_speaking: bool = False
+         self._idle_timer_task: asyncio.Task | None = None
+ 
+         self._register_event_handler("on_user_turn_idle", sync=True)
+@@ -113,6 +114,7 @@
+             return
+ 
+         if isinstance(frame, BotStoppedSpeakingFrame):
++            self._bot_speaking = False
+             # Only start the timer if the user isn't mid-turn and no function
+             # calls are pending.
+             #
+@@ -134,6 +136,7 @@
+                 self._waiting_for_user = True
+                 await self._start_idle_timer()
+         elif isinstance(frame, BotStartedSpeakingFrame):
++            self._bot_speaking = True
+             self._waiting_for_user = False
+             await self._cancel_idle_timer()
+         elif isinstance(frame, UserStartedSpeakingFrame):
+@@ -148,6 +151,17 @@
              await self._cancel_idle_timer()
          elif isinstance(frame, (FunctionCallResultFrame, FunctionCallCancelFrame)):
              self._function_calls_in_progress = max(0, self._function_calls_in_progress - 1)
 +            # AgentStudio: the call's result may lead to a response with no
 +            # speech (a refused step answered with silence), so the wait for
-+            # the caller resumes here; speech that follows cancels it.
-+            if self._function_calls_in_progress == 0 and not self._user_turn_in_progress:
++            # the caller resumes here; speech that follows cancels it. Not
++            # while the bot is speaking: a tool called alongside a question
++            # settled mid-sentence, nothing cancelled the timer, and "are you
++            # still there?" followed the question before the caller could
++            # answer. The bot's speech ending arms it instead.
++            if (self._function_calls_in_progress == 0 and not self._user_turn_in_progress
++                    and not self._bot_speaking):
 +                self._waiting_for_user = True
 +                await self._start_idle_timer()
  
      async def _start_idle_timer(self):
          """Start (or restart) the idle timer."""
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
---- pipecat/tests/test_azure_stt.py	2026-09-28 21:00:16.437568800 +0530
+--- pipecat/tests/test_azure_stt.py	2026-09-29 10:11:54.677406200 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530
 @@ -164,3 +164,45 @@
  
@@ -656,7 +685,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        service = self._service()
 +        assert service._detected_language(SimpleNamespace()) == "en-IN"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_tts.py engine/pipecat/tests/test_azure_tts.py
---- pipecat/tests/test_azure_tts.py	2026-09-28 21:00:16.438565900 +0530
+--- pipecat/tests/test_azure_tts.py	2026-09-29 10:11:54.678924700 +0530
 +++ engine/pipecat/tests/test_azure_tts.py	2026-09-27 11:57:36.673304800 +0530
 @@ -209,3 +209,61 @@
          "</lang>"
@@ -721,12 +750,47 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    # is left to detect the language from the text.
 +    assert "<lang" not in ssml and "en-US-AvaMultilingualNeural" in ssml
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_user_idle_controller.py engine/pipecat/tests/test_user_idle_controller.py
---- pipecat/tests/test_user_idle_controller.py	2026-09-28 21:00:16.588002200 +0530
-+++ engine/pipecat/tests/test_user_idle_controller.py	2026-09-28 20:41:38.505705000 +0530
-@@ -249,6 +249,38 @@
+--- pipecat/tests/test_user_idle_controller.py	2026-09-29 10:11:55.912371500 +0530
++++ engine/pipecat/tests/test_user_idle_controller.py	2026-09-29 09:58:06.797134600 +0530
+@@ -249,6 +249,73 @@
  
          await controller.cleanup()
  
++    async def test_function_result_during_bot_speech_waits_for_speech_to_end(self):
++        """AgentStudio: a tool called alongside a question settles mid-sentence.
++
++        The timer must not start then: nothing would cancel it, and the idle
++        prompt would follow the question before the user could answer. It
++        starts when the bot stops speaking.
++        """
++        controller = UserIdleController(user_idle_timeout=USER_IDLE_TIMEOUT)
++        await controller.setup(frame_processor_setup(self.task_manager))
++
++        idle_triggered = False
++
++        @controller.event_handler("on_user_turn_idle")
++        async def on_user_turn_idle(controller):
++            nonlocal idle_triggered
++            idle_triggered = True
++
++        await controller.process_frame(BotStartedSpeakingFrame())
++        await controller.process_frame(
++            FunctionCallsStartedFrame(function_calls=[unittest.mock.Mock()])
++        )
++        await controller.process_frame(
++            FunctionCallResultFrame(
++                function_name="test", tool_call_id="123", arguments={}, result="refused"
++            )
++        )
++        await asyncio.sleep(USER_IDLE_TIMEOUT + 0.1)
++        self.assertFalse(idle_triggered)
++
++        await controller.process_frame(BotStoppedSpeakingFrame())
++        await asyncio.sleep(USER_IDLE_TIMEOUT + 0.1)
++        self.assertTrue(idle_triggered)
++
++        await controller.cleanup()
++
 +    async def test_function_result_without_speech_rearms_timer(self):
 +        """AgentStudio: a tool result answered with silence still waits for the user.
 +

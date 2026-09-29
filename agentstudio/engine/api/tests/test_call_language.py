@@ -52,6 +52,15 @@ async def test_one_short_word_does_not_flip_but_two_do():
 
 
 @pytest.mark.asyncio
+async def test_two_english_words_in_tamil_script_do_not_flip():
+    """Run 67: "No thanks" came back as "நோ தாங்க்ஸ்" (ta-IN) and the goodbye was in Tamil."""
+    tracker, changes, _ = _tracker()
+    await tracker._observe("en-IN", 12)
+    await tracker._observe("ta-IN", 2)
+    assert tracker.current == "en-IN"
+
+
+@pytest.mark.asyncio
 async def test_switching_back_is_a_change_too():
     tracker, changes, _ = _tracker()
     await tracker._observe("en-IN", 5)

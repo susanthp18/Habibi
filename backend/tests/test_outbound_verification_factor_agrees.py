@@ -26,3 +26,17 @@ def test_a_mission_without_offers_forbids_pitching_but_not_answering() -> None:
     assert "Do NOT mention any product" in brief
     assert "unless they ask about one first" in brief
     assert "never recommend or pitch" in brief
+
+
+def test_a_voice_studio_brief_gives_the_situation_not_a_verification_answer() -> None:
+    """Run 66: the brief's "account ending 2324" matched the registered mobile,
+    and the agent called verify_identity with it before the customer spoke."""
+    m = {**_BRIEF, "context": {
+        "position": {"outstandingInr": 62400, "minimumDueInr": 4800, "dpd": 32, "accountTail": "2324"},
+        "promise": {"amountInr": 4000, "promisedDate": "2026-10-10", "status": "upcoming"},
+    }}
+    brief = mission.studio_briefing(m)
+    assert brief.startswith("Why you are calling: Their account is overdue.")
+    assert "promised" in brief and "Do NOT mention any product" in brief
+    for legacy in ("2324", "get_account_position", "by name", "OUTBOUND CALL"):
+        assert legacy not in brief

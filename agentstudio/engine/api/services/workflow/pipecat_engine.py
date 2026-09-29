@@ -185,6 +185,9 @@ class PipecatEngine:
         self._customer_action_outcomes: dict[tuple[str, str], bool] = {}
         self._verification_required: set[tuple[str, str]] = set()
         self._verification_outcomes: dict[tuple[str, str], bool] = {}
+        # Agent visits in which record_opt_out was called: only those may close
+        # with the "opted_out" disposition.
+        self._opt_out_visits: set[str] = set()
         # The caller's newest message when each node visit began, and the one
         # the last verify_identity answered: a guarded edge or a verification
         # needs a caller message newer than both.
@@ -455,6 +458,7 @@ class PipecatEngine:
             "action_outcome": self._customer_action_outcomes.get(key) if key else None,
             "verified_message": place(self._verified_user_message),
             "written_message": place(self._written_user_message),
+            "opt_out_requested": agent.visit_id in self._opt_out_visits,
         }
 
     def import_guard_state(self, state: dict | None) -> None:
@@ -479,6 +483,8 @@ class PipecatEngine:
             self._customer_action_outcomes[key] = state["action_outcome"]
         self._verified_user_message = message_at(state.get("verified_message"))
         self._written_user_message = message_at(state.get("written_message"))
+        if state.get("opt_out_requested"):
+            self._opt_out_visits.add(agent.visit_id)
 
     def engine_note(self, content: str) -> dict:
         """A user-role instruction to the model that is not the caller speaking."""
@@ -609,6 +615,22 @@ class PipecatEngine:
                         "status": "error", "error": "question_unanswered",
                         "say": ("You have just asked the customer a question. Do not end the "
                                 "conversation: say nothing more and wait for their answer."),
+                    })
+                    return
+                # "Opted out" is what PayInt files and contact policy then
+                # enforces, so it needs the opt-out itself: run 66 closed on
+                # Stop contact after "I will pay the entire 4000 by 8 October.
+                # No need to call me." with no record_opt_out, and recorded
+                # neither the opt-out nor the promise.
+                target = agent.workflow.nodes[transition_to_node]
+                if (target.is_end and getattr(target, "call_disposition", None) == "opted_out"
+                        and agent.visit_id not in self._opt_out_visits):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "opt_out_not_recorded",
+                        "say": self._refusal_hint(
+                            "This path is only for a customer who asked never to be contacted, after "
+                            "record_opt_out. Declining a callback, or saying they will pay so there is "
+                            "no need to call, is not that: carry on as this step says."),
                     })
                     return
                 if (node_key in self._verification_required

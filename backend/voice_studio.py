@@ -228,7 +228,7 @@ def mission_context(m: dict[str, Any], attempt_id: str, custom: dict[str, str]) 
         "first_name": m.get("firstName"),
         "language": m.get("language"),
         "timezone": m.get("timezone"),
-        "mission_brief": mission_mod.briefing(m) if m else None,
+        "mission_brief": mission_mod.studio_briefing(m) if m else None,
         "decision_id": custom.get("treatment_decision_id"),
         "campaign_run_id": m.get("campaignRunId"),
     }

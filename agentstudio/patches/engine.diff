@@ -1,12 +1,12 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/.gitmodules engine/.gitmodules
---- dograh/.gitmodules	2026-09-28 22:51:56.925621400 +0530
+--- dograh/.gitmodules	2026-09-29 10:11:07.140912200 +0530
 +++ engine/.gitmodules	1970-01-01 05:30:00.000000000 +0530
 @@ -1,3 +0,0 @@
 -[submodule "pipecat"]
 -	path = pipecat
 -	url = https://github.com/dograh-hq/pipecat.git
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/Dockerfile engine/api/Dockerfile
---- dograh/api/Dockerfile	2026-09-28 22:51:56.950231300 +0530
+--- dograh/api/Dockerfile	2026-09-29 10:11:07.446278800 +0530
 +++ engine/api/Dockerfile	2026-09-26 16:20:02.995436900 +0530
 @@ -1,8 +1,11 @@
  # syntax=docker/dockerfile:1
@@ -211,7 +211,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        "USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
 +    )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/app.py engine/api/app.py
---- dograh/api/app.py	2026-09-28 22:51:57.058796800 +0530
+--- dograh/api/app.py	2026-09-29 10:11:10.340511600 +0530
 +++ engine/api/app.py	2026-09-26 10:02:08.530122700 +0530
 @@ -88,13 +88,12 @@
  
@@ -230,7 +230,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      ],
  )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/constants.py engine/api/constants.py
---- dograh/api/constants.py	2026-09-28 22:51:57.141143100 +0530
+--- dograh/api/constants.py	2026-09-29 10:11:10.712086800 +0530
 +++ engine/api/constants.py	2026-09-26 10:02:08.540511600 +0530
 @@ -68,6 +68,10 @@
      o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
@@ -454,7 +454,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +wrapt==1.17.3
 +yarl==1.25.1
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/db/knowledge_base_client.py engine/api/db/knowledge_base_client.py
---- dograh/api/db/knowledge_base_client.py	2026-09-28 22:51:57.152248900 +0530
+--- dograh/api/db/knowledge_base_client.py	2026-09-29 10:11:10.903378400 +0530
 +++ engine/api/db/knowledge_base_client.py	2026-09-28 22:04:19.482026200 +0530
 @@ -476,6 +476,26 @@
                      f"Stored full text for document {document_id} ({len(full_text)} chars)"
@@ -484,7 +484,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          self,
          organization_id: int,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/db/models.py engine/api/db/models.py
---- dograh/api/db/models.py	2026-09-28 22:51:57.153249000 +0530
+--- dograh/api/db/models.py	2026-09-29 10:11:10.905479400 +0530
 +++ engine/api/db/models.py	2026-09-28 22:42:41.947646900 +0530
 @@ -1286,6 +1286,47 @@
      )
@@ -553,7 +553,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        # empty or off-topic results (migration e4b7c2a9f015).
      )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/db/organization_usage_client.py engine/api/db/organization_usage_client.py
---- dograh/api/db/organization_usage_client.py	2026-09-28 22:51:57.156086400 +0530
+--- dograh/api/db/organization_usage_client.py	2026-09-29 10:11:10.910646600 +0530
 +++ engine/api/db/organization_usage_client.py	2026-09-26 15:20:00.889905500 +0530
 @@ -152,6 +152,7 @@
          filters: Optional[list[dict]] = None,
@@ -573,7 +573,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              # Only allow specific filters for usage history endpoint
              # This ensures security and prevents unexpected filter attributes
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/db/tool_client.py engine/api/db/tool_client.py
---- dograh/api/db/tool_client.py	2026-09-28 22:51:57.159474600 +0530
+--- dograh/api/db/tool_client.py	2026-09-29 10:11:10.985933800 +0530
 +++ engine/api/db/tool_client.py	2026-09-27 11:23:35.691331900 +0530
 @@ -1,15 +1,20 @@
  """Database client for managing tools."""
@@ -836,7 +836,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          """Soft delete a tool by setting its status to archived.
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/db/workflow_client.py engine/api/db/workflow_client.py
---- dograh/api/db/workflow_client.py	2026-09-28 22:51:57.162689000 +0530
+--- dograh/api/db/workflow_client.py	2026-09-29 10:11:10.988934400 +0530
 +++ engine/api/db/workflow_client.py	2026-09-27 11:20:40.934697100 +0530
 @@ -7,7 +7,12 @@
  from sqlalchemy.orm import load_only, selectinload
@@ -1013,7 +1013,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          self,
          workflow_id: int,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/errors/failure.py engine/api/errors/failure.py
---- dograh/api/errors/failure.py	2026-09-28 22:51:57.171970000 +0530
+--- dograh/api/errors/failure.py	2026-09-29 10:11:11.229805500 +0530
 +++ engine/api/errors/failure.py	2026-09-26 10:02:08.543032000 +0530
 @@ -179,7 +179,7 @@
          return f"The {label} account has insufficient quota or credits."
@@ -1025,7 +1025,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  def _valid_http_status(value: object) -> int | None:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/errors/mps.py engine/api/errors/mps.py
---- dograh/api/errors/mps.py	2026-09-28 22:51:57.171970000 +0530
+--- dograh/api/errors/mps.py	2026-09-29 10:11:11.230831400 +0530
 +++ engine/api/errors/mps.py	2026-09-26 10:02:08.547199600 +0530
 @@ -1,7 +1,7 @@
  """Errors raised at the Model Proxy Service boundary."""
@@ -1037,7 +1037,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/errors/telephony_errors.py engine/api/errors/telephony_errors.py
---- dograh/api/errors/telephony_errors.py	2026-09-28 22:51:57.171970000 +0530
+--- dograh/api/errors/telephony_errors.py	2026-09-29 10:11:11.231354600 +0530
 +++ engine/api/errors/telephony_errors.py	2026-09-26 10:02:08.547199600 +0530
 @@ -58,7 +58,7 @@
                  type=ErrorType.SYSTEM_ERROR,
@@ -1049,7 +1049,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  retryable=None,
                  context={
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/mcp_server/auth.py engine/api/mcp_server/auth.py
---- dograh/api/mcp_server/auth.py	2026-09-28 22:51:57.174463500 +0530
+--- dograh/api/mcp_server/auth.py	2026-09-29 10:11:11.237361600 +0530
 +++ engine/api/mcp_server/auth.py	2026-09-28 10:33:09.873527700 +0530
 @@ -3,7 +3,8 @@
  from opentelemetry import trace
@@ -1109,7 +1109,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 -    return user
 +    return await _handle_api_key_auth(api_key, method="POST", path="/mcp")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/mcp_server/instructions.py engine/api/mcp_server/instructions.py
---- dograh/api/mcp_server/instructions.py	2026-09-28 22:51:57.176047400 +0530
+--- dograh/api/mcp_server/instructions.py	2026-09-29 10:11:11.238360600 +0530
 +++ engine/api/mcp_server/instructions.py	2026-09-27 11:20:55.269795500 +0530
 @@ -40,6 +40,7 @@
  1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
@@ -1129,7 +1129,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  ## Allowed source shape
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/mcp_server/server.py engine/api/mcp_server/server.py
---- dograh/api/mcp_server/server.py	2026-09-28 22:51:57.177064200 +0530
+--- dograh/api/mcp_server/server.py	2026-09-29 10:11:11.240361700 +0530
 +++ engine/api/mcp_server/server.py	2026-09-27 11:26:15.088297200 +0530
 @@ -2,6 +2,7 @@
  from mcp.types import ToolAnnotations
@@ -1328,7 +1328,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    _, saved = await _current(workflow_id, user.selected_organization_id)
 +    return {"updated": True, **await _settings(workflow_id, user.selected_organization_id, saved)}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/mcp_server/tools/create_workflow.py engine/api/mcp_server/tools/create_workflow.py
---- dograh/api/mcp_server/tools/create_workflow.py	2026-09-28 22:51:57.180398600 +0530
+--- dograh/api/mcp_server/tools/create_workflow.py	2026-09-29 10:11:11.597433900 +0530
 +++ engine/api/mcp_server/tools/create_workflow.py	2026-09-27 11:21:09.916716200 +0530
 @@ -1,16 +1,17 @@
  """MCP tool that accepts LLM-authored SDK TypeScript and creates a new workflow.
@@ -1505,7 +1505,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            "name": updated.name, "status": updated.status,
 +            "definition": updated.definition}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/requirements.txt engine/api/requirements.txt
---- dograh/api/requirements.txt	2026-09-28 22:51:57.254118800 +0530
+--- dograh/api/requirements.txt	2026-09-29 10:11:12.174216900 +0530
 +++ engine/api/requirements.txt	2026-09-26 16:17:47.172693900 +0530
 @@ -22,3 +22,7 @@
  # Pin the reviewed wheel bytes, not only the package version.
@@ -1516,7 +1516,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +python-docx==1.2.0
 +beautifulsoup4==4.15.0
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/campaign.py engine/api/routes/campaign.py
---- dograh/api/routes/campaign.py	2026-09-28 22:51:57.260229400 +0530
+--- dograh/api/routes/campaign.py	2026-09-29 10:11:12.203499300 +0530
 +++ engine/api/routes/campaign.py	2026-09-27 11:22:47.185993700 +0530
 @@ -449,6 +449,11 @@
          from api.services.workflow.dto import ReactFlowDTO
@@ -1531,7 +1531,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          if workflow_def:
              try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/main.py engine/api/routes/main.py
---- dograh/api/routes/main.py	2026-09-28 22:51:57.265764300 +0530
+--- dograh/api/routes/main.py	2026-09-29 10:11:12.298809500 +0530
 +++ engine/api/routes/main.py	2026-09-26 08:08:30.339407400 +0530
 @@ -1,7 +1,7 @@
  import secrets
@@ -1562,7 +1562,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  router.include_router(reports_router)
  router.include_router(webrtc_signaling_router)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/organization.py engine/api/routes/organization.py
---- dograh/api/routes/organization.py	2026-09-28 22:51:57.268541800 +0530
+--- dograh/api/routes/organization.py	2026-09-29 10:11:12.300864100 +0530
 +++ engine/api/routes/organization.py	2026-09-26 10:02:08.579478900 +0530
 @@ -1145,7 +1145,7 @@
          raise HTTPException(
@@ -1574,7 +1574,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  f"this configuration need no trunk."
              ),
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/organization_usage.py engine/api/routes/organization_usage.py
---- dograh/api/routes/organization_usage.py	2026-09-28 22:51:57.269657200 +0530
+--- dograh/api/routes/organization_usage.py	2026-09-29 10:11:12.301886000 +0530
 +++ engine/api/routes/organization_usage.py	2026-09-26 15:20:00.893457100 +0530
 @@ -10,7 +10,11 @@
  from api.constants import DEPLOYMENT_MODE, UI_APP_URL
@@ -1619,7 +1619,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          total_pages = (total_count + limit - 1) // limit
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/public_agent.py engine/api/routes/public_agent.py
---- dograh/api/routes/public_agent.py	2026-09-28 22:51:57.270759300 +0530
+--- dograh/api/routes/public_agent.py	2026-09-29 10:11:12.302878500 +0530
 +++ engine/api/routes/public_agent.py	2026-09-28 10:33:33.741753100 +0530
 @@ -14,6 +14,7 @@
  
@@ -1643,7 +1643,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/tool.py engine/api/routes/tool.py
---- dograh/api/routes/tool.py	2026-09-28 22:51:57.278683400 +0530
+--- dograh/api/routes/tool.py	2026-09-29 10:11:12.309882900 +0530
 +++ engine/api/routes/tool.py	2026-09-27 11:24:55.958296700 +0530
 @@ -35,7 +35,7 @@
      build_tool_response,
@@ -1817,7 +1817,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  @router.delete("/{tool_uuid}")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/user.py engine/api/routes/user.py
---- dograh/api/routes/user.py	2026-09-28 22:51:57.280950800 +0530
+--- dograh/api/routes/user.py	2026-09-29 10:11:12.633898600 +0530
 +++ engine/api/routes/user.py	2026-09-28 16:50:27.063046300 +0530
 @@ -1,7 +1,7 @@
  from datetime import datetime, timedelta
@@ -1959,7 +1959,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # The MPS boundary emitted the classified failure. The app-level handler
          # converts this typed dependency failure to a customer-safe HTTP 503.
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/workflow.py engine/api/routes/workflow.py
---- dograh/api/routes/workflow.py	2026-09-28 22:51:57.283144400 +0530
+--- dograh/api/routes/workflow.py	2026-09-29 10:11:12.635897400 +0530
 +++ engine/api/routes/workflow.py	2026-09-27 11:22:39.100435300 +0530
 @@ -10,7 +10,6 @@
  from loguru import logger
@@ -2189,7 +2189,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          workflow_def,
          user.id,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/workflow_embed.py engine/api/routes/workflow_embed.py
---- dograh/api/routes/workflow_embed.py	2026-09-28 22:51:57.284182600 +0530
+--- dograh/api/routes/workflow_embed.py	2026-09-29 10:11:12.636895800 +0530
 +++ engine/api/routes/workflow_embed.py	2026-09-26 10:02:08.589995900 +0530
 @@ -20,7 +20,7 @@
      """Generate the embed script for a given token."""
@@ -2201,7 +2201,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
    (function(d, s, id) {{
      var js, fjs = d.getElementsByTagName(s)[0];
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/workflow_recording.py engine/api/routes/workflow_recording.py
---- dograh/api/routes/workflow_recording.py	2026-09-28 22:51:57.285223500 +0530
+--- dograh/api/routes/workflow_recording.py	2026-09-29 10:11:12.637898900 +0530
 +++ engine/api/routes/workflow_recording.py	2026-09-26 10:02:08.591775000 +0530
 @@ -5,7 +5,6 @@
  from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -2261,7 +2261,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      except Exception as exc:
          logger.error(f"Error transcribing audio: {exc}")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/routes/workflow_text_chat.py engine/api/routes/workflow_text_chat.py
---- dograh/api/routes/workflow_text_chat.py	2026-09-28 22:51:57.286219000 +0530
+--- dograh/api/routes/workflow_text_chat.py	2026-09-29 10:11:12.638896300 +0530
 +++ engine/api/routes/workflow_text_chat.py	2026-09-28 17:55:37.204074400 +0530
 @@ -36,6 +36,9 @@
      name: str | None = None
@@ -2283,7 +2283,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          )
          workflow_run = await db_client.create_workflow_run(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/schemas/ai_model_configuration.py engine/api/schemas/ai_model_configuration.py
---- dograh/api/schemas/ai_model_configuration.py	2026-09-28 22:51:57.287219700 +0530
+--- dograh/api/schemas/ai_model_configuration.py	2026-09-29 10:11:12.639894300 +0530
 +++ engine/api/schemas/ai_model_configuration.py	2026-09-26 10:02:08.592937700 +0530
 @@ -187,4 +187,4 @@
      if service is None:
@@ -2292,7 +2292,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 -        raise ValueError(f"BYOK {section} cannot use Dograh provider")
 +        raise ValueError(f"BYOK {section} cannot use PayInt Voice Studio provider")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/schemas/organization_preferences.py engine/api/schemas/organization_preferences.py
---- dograh/api/schemas/organization_preferences.py	2026-09-28 22:51:57.292891200 +0530
+--- dograh/api/schemas/organization_preferences.py	2026-09-29 10:11:12.705263300 +0530
 +++ engine/api/schemas/organization_preferences.py	2026-09-26 10:02:08.595468900 +0530
 @@ -15,7 +15,7 @@
      disposition_mapping: dict[str, str] = Field(
@@ -2304,7 +2304,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              "so webhooks, run filters, reports and external-PBX write-backs all "
              "read the organization's own vocabulary. Dispositions absent from "
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/schemas/tool.py engine/api/schemas/tool.py
---- dograh/api/schemas/tool.py	2026-09-28 22:51:57.296227900 +0530
+--- dograh/api/schemas/tool.py	2026-09-29 10:11:12.710263700 +0530
 +++ engine/api/schemas/tool.py	2026-09-26 17:25:01.882763700 +0530
 @@ -124,7 +124,7 @@
      preset_parameters: list[PresetToolParameter] | None = Field(
@@ -2360,7 +2360,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  class CreatedByResponse(BaseModel):
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/auth/depends.py engine/api/services/auth/depends.py
---- dograh/api/services/auth/depends.py	2026-09-28 22:51:57.303016700 +0530
+--- dograh/api/services/auth/depends.py	2026-09-29 10:11:12.719782900 +0530
 +++ engine/api/services/auth/depends.py	2026-09-28 10:32:52.695752800 +0530
 @@ -1,12 +1,15 @@
 +import secrets
@@ -2694,7 +2694,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +def phrase_lists_supported(candidates: list[str]) -> bool:
 +    return not any(lang in NO_PHRASE_LIST_LOCALES for lang in candidates)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/configuration/check_validity.py engine/api/services/configuration/check_validity.py
---- dograh/api/services/configuration/check_validity.py	2026-09-28 22:51:57.324561700 +0530
+--- dograh/api/services/configuration/check_validity.py	2026-09-29 10:11:13.004890800 +0530
 +++ engine/api/services/configuration/check_validity.py	2026-09-27 12:47:18.040361700 +0530
 @@ -97,6 +97,8 @@
          else:
@@ -2782,7 +2782,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              )
          auth = getattr(self, "_auth_context", {})
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/configuration/options/azure.py engine/api/services/configuration/options/azure.py
---- dograh/api/services/configuration/options/azure.py	2026-09-28 22:51:57.330697800 +0530
+--- dograh/api/services/configuration/options/azure.py	2026-09-29 10:11:13.010888600 +0530
 +++ engine/api/services/configuration/options/azure.py	2026-09-27 15:48:12.725222200 +0530
 @@ -1,4 +1,4 @@
 -AZURE_MODELS = ["gpt-4.1-mini"]
@@ -2829,7 +2829,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  AZURE_EMBEDDING_MODELS = [
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/configuration/registry.py engine/api/services/configuration/registry.py
---- dograh/api/services/configuration/registry.py	2026-09-28 22:51:57.340033700 +0530
+--- dograh/api/services/configuration/registry.py	2026-09-29 10:11:13.110048800 +0530
 +++ engine/api/services/configuration/registry.py	2026-09-27 12:49:50.298899600 +0530
 @@ -21,7 +21,6 @@
      AZURE_SPEECH_REGIONS,
@@ -3004,7 +3004,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  SMALLEST_STT_MODELS = ["pulse"]
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/filesystem/minio.py engine/api/services/filesystem/minio.py
---- dograh/api/services/filesystem/minio.py	2026-09-28 22:51:57.345027600 +0530
+--- dograh/api/services/filesystem/minio.py	2026-09-29 10:11:13.210038300 +0530
 +++ engine/api/services/filesystem/minio.py	2026-09-26 11:02:36.296305600 +0530
 @@ -1,7 +1,9 @@
  import asyncio
@@ -3150,7 +3150,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              logger.error(f"Error generating MinIO upload URL: {e}")
              return None
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/gen_ai/embedding/azure_openai_service.py engine/api/services/gen_ai/embedding/azure_openai_service.py
---- dograh/api/services/gen_ai/embedding/azure_openai_service.py	2026-09-28 22:51:57.350981200 +0530
+--- dograh/api/services/gen_ai/embedding/azure_openai_service.py	2026-09-29 10:11:13.311612500 +0530
 +++ engine/api/services/gen_ai/embedding/azure_openai_service.py	2026-09-26 10:02:08.603470100 +0530
 @@ -102,7 +102,7 @@
                  raise ValueError(
@@ -3162,7 +3162,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  )
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/integrations/base.py engine/api/services/integrations/base.py
---- dograh/api/services/integrations/base.py	2026-09-28 22:51:57.381847200 +0530
+--- dograh/api/services/integrations/base.py	2026-09-29 10:11:13.681111600 +0530
 +++ engine/api/services/integrations/base.py	2026-09-28 09:29:09.493709300 +0530
 @@ -30,6 +30,8 @@
      user_config: Any
@@ -3174,7 +3174,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  @dataclass(frozen=True)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/integrations/noveum/node.py engine/api/services/integrations/noveum/node.py
---- dograh/api/services/integrations/noveum/node.py	2026-09-28 22:51:57.388265000 +0530
+--- dograh/api/services/integrations/noveum/node.py	2026-09-29 10:11:13.713865200 +0530
 +++ engine/api/services/integrations/noveum/node.py	2026-09-26 10:02:08.604470100 +0530
 @@ -56,7 +56,7 @@
          },
@@ -3195,7 +3195,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      noveum_api_key: str | None = spec_field(
          default=None,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/integrations/paygent/node.py engine/api/services/integrations/paygent/node.py
---- dograh/api/services/integrations/paygent/node.py	2026-09-28 22:51:57.395073100 +0530
+--- dograh/api/services/integrations/paygent/node.py	2026-09-29 10:11:14.260913800 +0530
 +++ engine/api/services/integrations/paygent/node.py	2026-09-26 10:02:08.605474200 +0530
 @@ -59,7 +59,7 @@
          },
@@ -3779,7 +3779,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +def create_runtime_sessions(context: IntegrationRuntimeContext) -> list[IntegrationRuntimeSession]:
 +    return [SupervisorSession(context)]
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/integrations/tuner/node.py engine/api/services/integrations/tuner/node.py
---- dograh/api/services/integrations/tuner/node.py	2026-09-28 22:51:57.403343300 +0530
+--- dograh/api/services/integrations/tuner/node.py	2026-09-29 10:11:14.318742100 +0530
 +++ engine/api/services/integrations/tuner/node.py	2026-09-26 10:02:08.607009200 +0530
 @@ -75,7 +75,7 @@
          },
@@ -4044,7 +4044,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert out[-1]["chunk_metadata"] == {"page": 2}
 +    print("ok", len(out), "chunks")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/organization_bootstrap.py engine/api/services/organization_bootstrap.py
---- dograh/api/services/organization_bootstrap.py	2026-09-28 22:51:57.412523700 +0530
+--- dograh/api/services/organization_bootstrap.py	2026-09-29 10:11:14.421836800 +0530
 +++ engine/api/services/organization_bootstrap.py	2026-09-26 10:02:08.607009200 +0530
 @@ -61,6 +61,11 @@
      Never raises. A provisioning failure must not fail authentication — the
@@ -4059,7 +4059,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          return True
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/quota_service.py engine/api/services/quota_service.py
---- dograh/api/services/quota_service.py	2026-09-28 22:51:57.460231700 +0530
+--- dograh/api/services/quota_service.py	2026-09-29 10:11:14.512226400 +0530
 +++ engine/api/services/quota_service.py	2026-09-26 10:02:08.621284200 +0530
 @@ -47,18 +47,18 @@
  )
@@ -4228,7 +4228,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            error_message="Could not verify PayInt Voice Studio credits. Please try again.",
          )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/failure_reporting.py engine/api/services/telephony/failure_reporting.py
---- dograh/api/services/telephony/failure_reporting.py	2026-09-28 22:51:57.475108500 +0530
+--- dograh/api/services/telephony/failure_reporting.py	2026-09-29 10:11:14.627763200 +0530
 +++ engine/api/services/telephony/failure_reporting.py	2026-09-27 18:03:20.838806900 +0530
 @@ -68,6 +68,11 @@
              workflow_run_id = args[2]
@@ -4303,7 +4303,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        reason = decision.get("reason") or "refused"
 +        raise DialRefused(f"Blocked by PayInt contact policy: {reason}")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/ari/__init__.py engine/api/services/telephony/providers/ari/__init__.py
---- dograh/api/services/telephony/providers/ari/__init__.py	2026-09-28 22:51:57.480931500 +0530
+--- dograh/api/services/telephony/providers/ari/__init__.py	2026-09-29 10:11:14.636292300 +0530
 +++ engine/api/services/telephony/providers/ari/__init__.py	2026-09-26 10:02:08.621795200 +0530
 @@ -144,7 +144,7 @@
              type="select",
@@ -4315,7 +4315,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              ),
              options=[ProviderUIOption(value="vicidial", label="VICIdial")],
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/cloudonix/__init__.py engine/api/services/telephony/providers/cloudonix/__init__.py
---- dograh/api/services/telephony/providers/cloudonix/__init__.py	2026-09-28 22:51:57.492111900 +0530
+--- dograh/api/services/telephony/providers/cloudonix/__init__.py	2026-09-29 10:11:14.824238600 +0530
 +++ engine/api/services/telephony/providers/cloudonix/__init__.py	2026-09-26 10:02:08.623808300 +0530
 @@ -731,7 +731,7 @@
              type="text",
@@ -4327,7 +4327,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          ),
          ProviderUIField(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/cloudonix/setup.py engine/api/services/telephony/providers/cloudonix/setup.py
---- dograh/api/services/telephony/providers/cloudonix/setup.py	2026-09-28 22:51:57.498556100 +0530
+--- dograh/api/services/telephony/providers/cloudonix/setup.py	2026-09-29 10:11:14.832764200 +0530
 +++ engine/api/services/telephony/providers/cloudonix/setup.py	2026-09-26 10:02:08.628002100 +0530
 @@ -42,7 +42,7 @@
                  "SIP domain provisioned" if managed else "Cloudonix credentials saved"
@@ -4366,7 +4366,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      "trunks."
                  ),
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/twilio/strategies.py engine/api/services/telephony/providers/twilio/strategies.py
---- dograh/api/services/telephony/providers/twilio/strategies.py	2026-09-28 22:51:57.525799800 +0530
+--- dograh/api/services/telephony/providers/twilio/strategies.py	2026-09-29 10:11:14.888502300 +0530
 +++ engine/api/services/telephony/providers/twilio/strategies.py	2026-09-26 10:02:08.630542000 +0530
 @@ -178,7 +178,7 @@
                              "runtime call context"
@@ -4378,7 +4378,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          ),
                          provider="twilio",
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/telephony/providers/vobiz/provider.py engine/api/services/telephony/providers/vobiz/provider.py
---- dograh/api/services/telephony/providers/vobiz/provider.py	2026-09-28 22:51:57.529250300 +0530
+--- dograh/api/services/telephony/providers/vobiz/provider.py	2026-09-29 10:11:14.893110900 +0530
 +++ engine/api/services/telephony/providers/vobiz/provider.py	2026-09-26 10:02:08.632571200 +0530
 @@ -603,9 +603,9 @@
                              message = (
@@ -4454,7 +4454,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            http1=True, http2=False, retries=0,
 +        )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/tool_management.py engine/api/services/tool_management.py
---- dograh/api/services/tool_management.py	2026-09-28 22:51:57.542784300 +0530
+--- dograh/api/services/tool_management.py	2026-09-29 10:11:15.032581100 +0530
 +++ engine/api/services/tool_management.py	2026-09-26 18:18:46.393822600 +0530
 @@ -14,12 +14,13 @@
  
@@ -5419,7 +5419,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +
 +    return {"provider": provider, "voices": [v for v in voices if keep(v)], "facets": facets}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/dto.py engine/api/services/workflow/dto.py
---- dograh/api/services/workflow/dto.py	2026-09-28 22:51:57.565201300 +0530
+--- dograh/api/services/workflow/dto.py	2026-09-29 10:11:15.063198700 +0530
 +++ engine/api/services/workflow/dto.py	2026-09-28 16:51:34.021721300 +0530
 @@ -505,6 +505,7 @@
      property_order=(
@@ -5479,7 +5479,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  class RFEdgeDTO(BaseModel):
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/mcp_tool_session.py engine/api/services/workflow/mcp_tool_session.py
---- dograh/api/services/workflow/mcp_tool_session.py	2026-09-28 22:51:57.572433400 +0530
+--- dograh/api/services/workflow/mcp_tool_session.py	2026-09-29 10:11:15.227968100 +0530
 +++ engine/api/services/workflow/mcp_tool_session.py	2026-09-26 20:55:43.989553700 +0530
 @@ -19,6 +19,8 @@
  from pipecat.services.mcp_service import MCPClient
@@ -5637,8 +5637,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      await session.start()
      try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine.py engine/api/services/workflow/pipecat_engine.py
---- dograh/api/services/workflow/pipecat_engine.py	2026-09-28 22:51:57.578981400 +0530
-+++ engine/api/services/workflow/pipecat_engine.py	2026-09-28 22:51:10.249856100 +0530
+--- dograh/api/services/workflow/pipecat_engine.py	2026-09-29 10:11:15.239661100 +0530
++++ engine/api/services/workflow/pipecat_engine.py	2026-09-29 09:57:15.359399700 +0530
 @@ -17,6 +17,7 @@
      CancelFrame,
      EndFrame,
@@ -5665,7 +5665,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  class PipecatEngine:
      def __init__(
          self,
-@@ -168,9 +180,31 @@
+@@ -168,9 +180,34 @@
          self._retired_agents: list[AgentRuntime] = []
          self._agent_visits: list[dict] = []
          self._transfer_outcomes: list[dict] = []
@@ -5674,6 +5674,9 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        self._customer_action_outcomes: dict[tuple[str, str], bool] = {}
 +        self._verification_required: set[tuple[str, str]] = set()
 +        self._verification_outcomes: dict[tuple[str, str], bool] = {}
++        # Agent visits in which record_opt_out was called: only those may close
++        # with the "opted_out" disposition.
++        self._opt_out_visits: set[str] = set()
 +        # The caller's newest message when each node visit began, and the one
 +        # the last verify_identity answered: a guarded edge or a verification
 +        # needs a caller message newer than both.
@@ -5697,7 +5700,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          self._transfer_coordinator = None
          self.context = context
          self._call_context_vars = call_context_vars
-@@ -385,6 +419,140 @@
+@@ -385,6 +422,143 @@
              LLMSettings(system_instruction=system_prompt)
          )
  
@@ -5737,6 +5740,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            "action_outcome": self._customer_action_outcomes.get(key) if key else None,
 +            "verified_message": place(self._verified_user_message),
 +            "written_message": place(self._written_user_message),
++            "opt_out_requested": agent.visit_id in self._opt_out_visits,
 +        }
 +
 +    def import_guard_state(self, state: dict | None) -> None:
@@ -5761,6 +5765,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +            self._customer_action_outcomes[key] = state["action_outcome"]
 +        self._verified_user_message = message_at(state.get("verified_message"))
 +        self._written_user_message = message_at(state.get("written_message"))
++        if state.get("opt_out_requested"):
++            self._opt_out_visits.add(agent.visit_id)
 +
 +    def engine_note(self, content: str) -> dict:
 +        """A user-role instruction to the model that is not the caller speaking."""
@@ -5838,7 +5844,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _format_prompt(self, prompt: str) -> str:
          """Delegate prompt formatting to the shared workflow.utils implementation."""
  
-@@ -398,6 +566,9 @@
+@@ -398,6 +572,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -5848,7 +5854,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -411,6 +582,59 @@
+@@ -411,6 +588,75 @@
              logger.info(f"Arguments: {function_call_params.arguments}")
  
              try:
@@ -5881,6 +5887,22 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                                "conversation: say nothing more and wait for their answer."),
 +                    })
 +                    return
++                # "Opted out" is what PayInt files and contact policy then
++                # enforces, so it needs the opt-out itself: run 66 closed on
++                # Stop contact after "I will pay the entire 4000 by 8 October.
++                # No need to call me." with no record_opt_out, and recorded
++                # neither the opt-out nor the promise.
++                target = agent.workflow.nodes[transition_to_node]
++                if (target.is_end and getattr(target, "call_disposition", None) == "opted_out"
++                        and agent.visit_id not in self._opt_out_visits):
++                    await function_call_params.result_callback({
++                        "status": "error", "error": "opt_out_not_recorded",
++                        "say": self._refusal_hint(
++                            "This path is only for a customer who asked never to be contacted, after "
++                            "record_opt_out. Declining a callback, or saying they will pay so there is "
++                            "no need to call, is not that: carry on as this step says."),
++                    })
++                    return
 +                if (node_key in self._verification_required
 +                        and not agent.workflow.nodes[transition_to_node].is_end
 +                        and self._verification_outcomes.get(node_key) is not True):
@@ -5908,7 +5930,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  # Perform variable extraction before transitioning to new node
                  await self._perform_variable_extraction_if_needed(
                      self.active_agent.current_node,
-@@ -504,6 +728,9 @@
+@@ -504,6 +750,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -5918,7 +5940,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -518,6 +745,9 @@
+@@ -518,6 +767,9 @@
              transition_speech,
              transition_speech_type,
              transition_speech_recording_id,
@@ -5928,7 +5950,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              agent=agent,
          )
  
-@@ -785,6 +1015,9 @@
+@@ -785,6 +1037,9 @@
                      edge.transition_speech,
                      edge.data.transition_speech_type,
                      edge.data.transition_speech_recording_id,
@@ -5938,7 +5960,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      agent=agent,
                  )
          if node.tool_uuids and manager:
-@@ -802,11 +1035,18 @@
+@@ -802,11 +1057,18 @@
              format_prompt=self._format_prompt,
              has_recordings=self._has_recordings,
          )
@@ -5957,7 +5979,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          if apply_settings:
              await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
  
-@@ -865,6 +1105,7 @@
+@@ -865,6 +1127,7 @@
  
          # Set current node for all nodes (including static ones) so STT mute filter works
          self.active_agent.current_node = node
@@ -5965,7 +5987,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          # Track visited nodes in gathered context for call tags
          nodes_visited = self._gathered_context.setdefault("nodes_visited", [])
-@@ -1095,6 +1336,13 @@
+@@ -1095,6 +1358,13 @@
  
      async def _handle_end_node(self, node: Node) -> None:
          """Handle end node execution."""
@@ -5979,7 +6001,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Setup LLM context with prompts and functions.
          await self._setup_llm_context(node)
  
-@@ -1444,6 +1692,11 @@
+@@ -1444,6 +1714,11 @@
          if self._mute_pipeline:
              return True
  
@@ -5991,7 +6013,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Mute while queued speech (transition/tool message) is pending or playing
          if self._queued_speech_mute_state != "idle":
              return True
-@@ -1531,6 +1784,41 @@
+@@ -1531,6 +1806,41 @@
          return self.__dict__.get("_agent_factory") is not None
  
      @property
@@ -6033,7 +6055,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def transfer_coordinator(self):
          """The call's handoff coordinator, created on first use."""
          if self._transfer_coordinator is None:
-@@ -1545,6 +1833,20 @@
+@@ -1545,6 +1855,20 @@
          coordinator = self.__dict__.get("_transfer_coordinator")
          return coordinator is not None and coordinator.in_progress
  
@@ -6054,7 +6076,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      @property
      def agent_visits(self) -> list[dict]:
          """One record per agent visit, oldest first, including the live one."""
-@@ -1853,21 +2155,33 @@
+@@ -1853,21 +2177,33 @@
  
          agent = agent or self.active_agent
          try:
@@ -6098,7 +6120,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              for tool in tools:
                  if tool.category != ToolCategory.MCP.value:
                      continue
-@@ -1891,13 +2205,24 @@
+@@ -1891,13 +2227,24 @@
                              f"MCP tool '{tool.name}': credential fetch failed: {e}"
                          )
                          continue
@@ -6125,7 +6147,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
                  )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_callbacks.py engine/api/services/workflow/pipecat_engine_callbacks.py
---- dograh/api/services/workflow/pipecat_engine_callbacks.py	2026-09-28 22:51:57.580059100 +0530
+--- dograh/api/services/workflow/pipecat_engine_callbacks.py	2026-09-29 10:11:15.241235300 +0530
 +++ engine/api/services/workflow/pipecat_engine_callbacks.py	2026-09-28 20:40:51.945558900 +0530
 @@ -44,27 +44,26 @@
          supervisor = getattr(self._engine, "answer_supervisor", None)
@@ -6179,7 +6201,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          await engine.end_call_with_reason(
              EndTaskReason.CALL_DURATION_EXCEEDED.value,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_context_summarizer.py engine/api/services/workflow/pipecat_engine_context_summarizer.py
---- dograh/api/services/workflow/pipecat_engine_context_summarizer.py	2026-09-28 22:51:57.581203500 +0530
+--- dograh/api/services/workflow/pipecat_engine_context_summarizer.py	2026-09-29 10:11:15.242768400 +0530
 +++ engine/api/services/workflow/pipecat_engine_context_summarizer.py	2026-09-28 17:54:13.343331000 +0530
 @@ -171,6 +171,8 @@
                  new_messages.append(first_system_msg)
@@ -6191,8 +6213,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              context.set_messages(new_messages)
              logger.info(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_custom_tools.py engine/api/services/workflow/pipecat_engine_custom_tools.py
---- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-28 22:51:57.583191800 +0530
-+++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-28 22:03:12.585964800 +0530
+--- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 10:11:15.245295700 +0530
++++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 10:00:35.382693700 +0530
 @@ -7,7 +7,9 @@
  from __future__ import annotations
  
@@ -6220,15 +6242,20 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  if TYPE_CHECKING:
      from api.services.workflow.mcp_tool_session import McpToolSession
-@@ -46,6 +49,27 @@
+@@ -46,6 +49,32 @@
  _TRANSFER_POST_HANDOFF_DELAY_SECS = 4.0
  
  
++def _text(value: Any) -> str:
++    """A message's text, whether its content is a string or a list of parts."""
++    if isinstance(value, list):
++        return " ".join(str(p.get("text", "")) for p in value if isinstance(p, dict))
++    return str(value or "")
++
++
 +def _digits(value: Any) -> str:
 +    """The decimal digits in ``value`` as ASCII, in whatever script they came."""
-+    if isinstance(value, list):  # multi-part message content
-+        value = " ".join(str(p.get("text", "")) for p in value if isinstance(p, dict))
-+    return "".join(str(unicodedata.decimal(ch)) for ch in str(value or "") if ch.isdecimal())
++    return "".join(str(unicodedata.decimal(ch)) for ch in _text(value) if ch.isdecimal())
 +
 +
 +def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
@@ -6248,7 +6275,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def _render_transfer_destination(
      destination_template: Any,
      call_context_vars: Optional[Dict[str, Any]],
-@@ -169,7 +193,11 @@
+@@ -169,7 +198,11 @@
              return []
  
          try:
@@ -6261,7 +6288,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
              schemas: list[FunctionSchema] = []
              for tool in tools:
-@@ -248,7 +276,11 @@
+@@ -248,7 +281,11 @@
              return
  
          try:
@@ -6274,7 +6301,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
              for tool in tools:
                  if tool.category == ToolCategory.CALCULATOR.value:
-@@ -277,7 +309,7 @@
+@@ -277,7 +314,7 @@
                          self._agent.llm.register_function(
                              fs.name,
                              self._agent.bind_tool(
@@ -6283,7 +6310,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                              ),
                              timeout_secs=session.call_timeout_secs,
                          )
-@@ -289,6 +321,10 @@
+@@ -289,6 +326,10 @@
  
                  schema = tool_to_function_schema(tool)
                  function_name = schema["function"]["name"]
@@ -6294,7 +6321,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
                  # Create and register the handler
                  handler, timeout_secs = self._create_handler(tool, function_name)
-@@ -385,7 +421,7 @@
+@@ -385,7 +426,7 @@
  
          async def calculate_func(function_call_params: FunctionCallParams) -> None:
              logger.info("LLM Function Call EXECUTED: safe_calculator")
@@ -6303,7 +6330,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              try:
                  expr = function_call_params.arguments.get("expression", "")
                  result = safe_calculator(expr)
-@@ -414,7 +450,83 @@
+@@ -414,7 +455,87 @@
              function_call_params: FunctionCallParams,
          ) -> None:
              logger.info(f"HTTP Tool EXECUTED: {function_name}")
@@ -6379,6 +6406,10 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                        "Nothing was recorded: the customer has not asked, in this step, to stop contact."),
 +                })
 +                return
++            if function_name == "record_opt_out":
++                # The customer asked: the "opted out" close is open now, even
++                # if the write below fails (the close then says it is passed on).
++                self._engine._opt_out_visits.add(self._agent.visit_id)
 +            verified = any(visit == self._agent.visit_id and accepted
 +                           for (visit, _node), accepted in self._engine._verification_outcomes.items())
 +            denied = live_policy_error(policy, self._engine._call_context_vars, verified)
@@ -6388,7 +6419,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
              try:
                  # Queue custom message before executing the API call
-@@ -451,23 +563,42 @@
+@@ -451,23 +572,42 @@
  
                  result = await execute_http_tool(
                      tool=tool,
@@ -6433,7 +6464,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          """Create a handler that proxies an LLM function call to a live MCP
          session. Errors are returned to the LLM as structured text so the
          agent can recover verbally; the call is never crashed."""
-@@ -476,12 +607,61 @@
+@@ -476,12 +616,61 @@
              function_call_params: FunctionCallParams,
          ) -> None:
              logger.info(f"MCP Tool EXECUTED: {function_name}")
@@ -6498,7 +6529,56 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              except Exception as e:
                  logger.error(f"MCP tool '{function_name}' failed: {e}")
                  await function_call_params.result_callback(
-@@ -669,6 +849,17 @@
+@@ -647,6 +836,48 @@
+ 
+         return transfer_agent_handler
+ 
++    async def _customer_wants_a_person(self) -> bool:
++        """Did the customer ask for a person, or accept one when it was offered?
++
++        Asked of the model on its own, from the agent's last line and the
++        customer's reply: in the conversation the model reached for a transfer
++        whenever its documents fell short ("full exclusions not available",
++        run 68; "ask a colleague about purchasing", run 63) though nobody had
++        asked. Fails open, so a customer who did ask is never kept from a person
++        by a slow or failed check.
++        """
++        from pipecat.processors.aggregators.llm_context import LLMContext
++
++        said = self._engine._last_user_message()
++        if said is None:
++            return False
++        messages = self._engine.context.messages
++        at = next((i for i, m in enumerate(messages) if m is said), len(messages))
++        agent_line = next((m.get("content") for m in reversed(messages[:at])
++                           if isinstance(m, dict) and m.get("role") == "assistant"
++                           and isinstance(m.get("content"), str) and m["content"].strip()), "")
++        question = (
++            f"Agent: {agent_line or '(nothing yet)'}\nCustomer: {_text(said.get('content'))}\n\n"
++            "In their last message, did the customer ask to speak to a person or a colleague, "
++            "make a complaint, mention a lawyer or the ombudsman, report fraud or a lost or "
++            "stolen card, become abusive, or say yes to being connected to a colleague? "
++            "Wanting information the agent does not have is not asking for a person. "
++            "Answer YES or NO."
++        )
++        try:
++            async with asyncio.timeout(5):
++                reply = await self._agent.llm.run_inference(
++                    LLMContext([{"role": "user", "content": question}]),
++                    system_instruction="You classify one customer message. Reply with YES or NO only.",
++                    max_tokens=512,
++                )
++        except Exception as e:
++            logger.warning(f"Transfer intent check failed open: {type(e).__name__}")
++            return True
++        answer = (reply or "").strip().upper()
++        logger.info(f"Transfer intent check: {answer[:12]!r}")
++        return not answer.startswith("NO")
++
+     def _create_transfer_call_handler(self, tool: Any, function_name: str):
+         """Create a handler function for a transfer call tool.
+ 
+@@ -669,6 +900,25 @@
                  f"argument_keys={list((function_call_params.arguments or {}).keys())}"
              )
  
@@ -6512,12 +6592,20 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                        "No transfer was made: the caller has not asked for anything in this step yet."),
 +                })
 +                return
++            if not await self._customer_wants_a_person():
++                await function_call_params.result_callback({
++                    "status": "error", "error": "customer_did_not_ask_for_a_person",
++                    "say": self._engine._refusal_hint(
++                        "No transfer was made: the customer has not asked for a person. Answer them "
++                        "yourself; if you don't have the detail, say so and tell them where to find it."),
++                })
++                return
 +
              try:
                  # Get the transfer call configuration
                  config = tool.definition.get("config", {})
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/run_creation.py engine/api/services/workflow/run_creation.py
---- dograh/api/services/workflow/run_creation.py	2026-09-28 22:51:57.591363800 +0530
+--- dograh/api/services/workflow/run_creation.py	2026-09-29 10:11:15.255716700 +0530
 +++ engine/api/services/workflow/run_creation.py	2026-09-27 11:23:14.831650700 +0530
 @@ -9,6 +9,10 @@
      use_draft: bool = False
@@ -6545,7 +6633,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      default_context = {}
      if include_template_context:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/text_chat_runner.py engine/api/services/workflow/text_chat_runner.py
---- dograh/api/services/workflow/text_chat_runner.py	2026-09-28 22:51:57.594279700 +0530
+--- dograh/api/services/workflow/text_chat_runner.py	2026-09-29 10:11:15.278792400 +0530
 +++ engine/api/services/workflow/text_chat_runner.py	2026-09-28 20:00:09.906293300 +0530
 @@ -638,6 +638,11 @@
          # leaving a node so teardown cannot discard the result before checkpointing.
@@ -6591,7 +6679,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      updated_checkpoint = {
          "version": TEXT_CHAT_CHECKPOINT_VERSION,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/tools/custom_tool.py engine/api/services/workflow/tools/custom_tool.py
---- dograh/api/services/workflow/tools/custom_tool.py	2026-09-28 22:51:57.598000700 +0530
+--- dograh/api/services/workflow/tools/custom_tool.py	2026-09-29 10:11:15.288086600 +0530
 +++ engine/api/services/workflow/tools/custom_tool.py	2026-09-26 21:00:03.958631000 +0530
 @@ -1,7 +1,9 @@
  """Custom tool execution for user-defined HTTP API tools."""
@@ -6784,7 +6872,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  "data": response_data,
              }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/tools/knowledge_base.py engine/api/services/workflow/tools/knowledge_base.py
---- dograh/api/services/workflow/tools/knowledge_base.py	2026-09-28 22:51:57.598571900 +0530
+--- dograh/api/services/workflow/tools/knowledge_base.py	2026-09-29 10:11:15.289595600 +0530
 +++ engine/api/services/workflow/tools/knowledge_base.py	2026-09-28 22:49:33.994549700 +0530
 @@ -301,11 +301,19 @@
              f"document_filter={document_uuids}"
@@ -6835,7 +6923,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          ),
                      }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/workflow_graph.py engine/api/services/workflow/workflow_graph.py
---- dograh/api/services/workflow/workflow_graph.py	2026-09-28 22:51:57.603985000 +0530
+--- dograh/api/services/workflow/workflow_graph.py	2026-09-29 10:11:15.296886000 +0530
 +++ engine/api/services/workflow/workflow_graph.py	2026-09-27 15:01:10.242626100 +0530
 @@ -136,6 +136,7 @@
          self.tool_uuids = getattr(data, "tool_uuids", None)
@@ -6973,7 +7061,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        detail="Could not draft a valid agent from that description; try adding more detail.",
 +    )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tasks/knowledge_base_processing.py engine/api/tasks/knowledge_base_processing.py
---- dograh/api/tasks/knowledge_base_processing.py	2026-09-28 22:51:57.609218700 +0530
+--- dograh/api/tasks/knowledge_base_processing.py	2026-09-29 10:11:15.306536100 +0530
 +++ engine/api/tasks/knowledge_base_processing.py	2026-09-26 10:02:08.634089100 +0530
 @@ -1,10 +1,10 @@
  """ARQ background task for processing knowledge base documents.
@@ -7031,7 +7119,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          docling_metadata = mps_response.get("docling_metadata", {})
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tasks/run_integrations.py engine/api/tasks/run_integrations.py
---- dograh/api/tasks/run_integrations.py	2026-09-28 22:51:57.610318700 +0530
+--- dograh/api/tasks/run_integrations.py	2026-09-29 10:11:15.307552900 +0530
 +++ engine/api/tasks/run_integrations.py	2026-09-28 16:50:27.055051700 +0530
 @@ -1,5 +1,6 @@
  """Execute integrations (QA analysis, webhooks) after workflow run completion."""
@@ -7144,7 +7232,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      webhook_data: WebhookNodeData,
      render_context: Dict[str, Any],
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/telephony/twilio/test_strategies.py engine/api/tests/telephony/twilio/test_strategies.py
---- dograh/api/tests/telephony/twilio/test_strategies.py	2026-09-28 22:51:57.658522900 +0530
+--- dograh/api/tests/telephony/twilio/test_strategies.py	2026-09-29 10:11:15.520631200 +0530
 +++ engine/api/tests/telephony/twilio/test_strategies.py	2026-09-26 10:02:38.038761700 +0530
 @@ -51,6 +51,6 @@
      assert failure.error_owner == ErrorOwner.OPERATOR
@@ -7511,7 +7599,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert "خمسمائة" in spell_arabic_amounts("ادفع AED 500 اليوم.")
 +    assert "ألف" in spell_arabic_amounts("بمبلغ 1000 اليوم.")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_azure_speech_service_factory.py engine/api/tests/test_azure_speech_service_factory.py
---- dograh/api/tests/test_azure_speech_service_factory.py	2026-09-28 22:51:57.676326400 +0530
+--- dograh/api/tests/test_azure_speech_service_factory.py	2026-09-29 10:11:16.501180900 +0530
 +++ engine/api/tests/test_azure_speech_service_factory.py	2026-09-28 16:53:37.168174200 +0530
 @@ -52,6 +52,7 @@
      assert kwargs["region"] == "eastus"
@@ -7523,8 +7611,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-27 12:49:03.986835300 +0530
-@@ -0,0 +1,106 @@
++++ engine/api/tests/test_call_language.py	2026-09-29 09:58:26.925010600 +0530
+@@ -0,0 +1,115 @@
 +"""The call's language follows the caller, but not on a stray word."""
 +
 +import pytest
@@ -7576,6 +7664,15 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert tracker.current == "en-IN" and pushed == []
 +    await tracker._observe("ta-IN", 1)
 +    assert tracker.current == "ta-IN"
++
++
++@pytest.mark.asyncio
++async def test_two_english_words_in_tamil_script_do_not_flip():
++    """Run 67: "No thanks" came back as "நோ தாங்க்ஸ்" (ta-IN) and the goodbye was in Tamil."""
++    tracker, changes, _ = _tracker()
++    await tracker._observe("en-IN", 12)
++    await tracker._observe("ta-IN", 2)
++    assert tracker.current == "en-IN"
 +
 +
 +@pytest.mark.asyncio
@@ -7632,7 +7729,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    plain = SimpleNamespace(_settings=SimpleNamespace(voice_map=None))
 +    await engine._follow_caller_language(SimpleNamespace(tts=plain))
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_custom_tools.py engine/api/tests/test_custom_tools.py
---- dograh/api/tests/test_custom_tools.py	2026-09-28 22:51:57.689946300 +0530
+--- dograh/api/tests/test_custom_tools.py	2026-09-29 10:11:16.847961900 +0530
 +++ engine/api/tests/test_custom_tools.py	2026-09-26 20:56:44.642277000 +0530
 @@ -412,6 +412,25 @@
      """Tests for execute_http_tool function."""
@@ -7734,8 +7831,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              await manager.register_handlers([tool.tool_uuid])
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_customer_action_transition.py engine/api/tests/test_customer_action_transition.py
 --- dograh/api/tests/test_customer_action_transition.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_customer_action_transition.py	2026-09-28 22:49:24.221929000 +0530
-@@ -0,0 +1,435 @@
++++ engine/api/tests/test_customer_action_transition.py	2026-09-29 10:03:22.552335200 +0530
+@@ -0,0 +1,514 @@
 +"""A rejected business write cannot enter an ordinary success closing node."""
 +
 +from types import SimpleNamespace
@@ -8109,6 +8206,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        engine._node_entry_user_message = {}
 +        engine._verified_user_message = None
 +        engine._written_user_message = None
++        engine._opt_out_visits = set()
 +        return engine
 +
 +    digits = {"role": "user", "content": "1234"}
@@ -8116,6 +8214,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    first._verification_outcomes[("visit-1", "verify")] = True
 +    first._node_entry_user_message[("visit-1", "resolve")] = digits
 +    first._verified_user_message = digits
++    first._opt_out_visits.add("visit-1")
 +    state = first.export_guard_state()
 +
 +    restored = [{"role": "user", "content": "hi"}, {"role": "user", "content": "1234"}]
@@ -8124,6 +8223,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert second._verification_outcomes[("visit-2", "resolve")] is True
 +    assert second._node_entry_user_message[("visit-2", "resolve")] is restored[1]
 +    assert second._verified_user_message is restored[1]
++    assert "visit-2" in second._opt_out_visits
 +
 +
 +@pytest.mark.asyncio
@@ -8171,6 +8271,82 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    callback = AsyncMock()
 +    await handler(SimpleNamespace(arguments={"reason": "x"}, result_callback=callback))
 +    assert callback.await_args.args[0]["error"] == "customer_did_not_ask"
++
++
++@pytest.mark.asyncio
++async def test_a_transfer_needs_the_customer_to_want_a_person():
++    """Run 68: "Tell me all" about exclusions was answered with a transfer."""
++    from api.services.workflow import pipecat_engine_custom_tools as tools
++
++    engine = object.__new__(PipecatEngine)
++    engine._engine_notes = []
++    engine._current_llm_generation_reference_text = ""
++    engine._assistant_aggregator = None
++    engine._context_summary_message = None
++    said = {"role": "user", "content": "Tell me all"}
++    engine.context = SimpleNamespace(messages=[
++        {"role": "assistant", "content": "Would you like help finding a specific exclusion?"}, said])
++    engine._node_entry_user_message = {("visit", "help"): None}
++    asked = []
++
++    async def run_inference(context, **_kw):
++        asked.append(context.messages[0]["content"])
++        return "NO"
++
++    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="help"),
++                            llm=SimpleNamespace(run_inference=run_inference))
++    manager = tools.CustomToolManager(engine, agent)
++    handler = manager._create_transfer_call_handler(SimpleNamespace(definition={"config": {}}), "transfer_to_human")
++    callback = AsyncMock()
++    await handler(SimpleNamespace(arguments={"reason": "full exclusions"}, result_callback=callback))
++    assert callback.await_args.args[0]["error"] == "customer_did_not_ask_for_a_person"
++    assert "Customer: Tell me all" in asked[0] and "specific exclusion" in asked[0]
++
++    # A failed check lets a real request through.
++    async def broken(*_a, **_kw):
++        raise TimeoutError
++    agent.llm = SimpleNamespace(run_inference=broken)
++    assert await manager._customer_wants_a_person() is True
++
++
++@pytest.mark.asyncio
++async def test_an_opted_out_close_needs_the_opt_out():
++    """Run 66: "No need to call me" (declining a callback) closed on Stop contact
++    with no record_opt_out, and the promise was never recorded."""
++    engine = object.__new__(PipecatEngine)
++    engine._engine_notes = []
++    engine._current_llm_generation_reference_text = ""
++    engine._assistant_aggregator = None
++    engine.context = SimpleNamespace(messages=[
++        {"role": "user", "content": "I will pay the entire 4000 by 8 October. No need to call me."}])
++    engine._node_entry_user_message = {}
++    engine._context_summary_message = None
++    engine._customer_action_outcomes = {}
++    engine._verification_required = set()
++    engine._verification_outcomes = {}
++    engine._opt_out_visits = set()
++    engine._perform_variable_extraction_if_needed = AsyncMock()
++
++    class Agent:
++        visit_id = "visit"
++        current_node = SimpleNamespace(id="hardship")
++        workflow = SimpleNamespace(nodes={"stop": SimpleNamespace(is_end=True, call_disposition="opted_out")})
++
++        def bind_tool(self, _engine, handler):
++            return handler
++
++    handler = await engine._create_transition_func("Stop contact", "stop", agent=Agent())
++    callback = AsyncMock()
++    await handler(SimpleNamespace(arguments={}, result_callback=callback))
++    assert callback.await_args.args[0]["error"] == "opt_out_not_recorded"
++
++    engine._opt_out_visits.add("visit")  # record_opt_out was called
++    engine._active_agent = Agent()
++    engine._run_transition_variable_extraction_in_background = False
++    engine.set_node = AsyncMock()
++    engine.arm_speech_playback = Mock()
++    await handler(SimpleNamespace(arguments={}, result_callback=callback))
++    engine.set_node.assert_awaited_once_with("stop", origin_visit_id="visit")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_end_node_outcome.py engine/api/tests/test_end_node_outcome.py
 --- dograh/api/tests/test_end_node_outcome.py	1970-01-01 05:30:00.000000000 +0530
 +++ engine/api/tests/test_end_node_outcome.py	2026-09-27 15:04:01.450961600 +0530
@@ -8224,7 +8400,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    with pytest.raises(ValidationError):
 +        EndCallNodeData(name="c", prompt="p", call_disposition="wrong number!")
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_failure_classification.py engine/api/tests/test_failure_classification.py
---- dograh/api/tests/test_failure_classification.py	2026-09-28 22:51:57.704152800 +0530
+--- dograh/api/tests/test_failure_classification.py	2026-09-29 10:11:16.885822100 +0530
 +++ engine/api/tests/test_failure_classification.py	2026-09-26 10:02:38.213971500 +0530
 @@ -207,7 +207,7 @@
  def test_dograh_boundary_changes_attribution():
@@ -8272,7 +8448,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert result["documents_searched"] == ["Car_FAQs.txt", "Travel_FAQs.txt"]
 +    db.get_document_filenames.assert_awaited_once_with(organization_id=1, document_uuids=["u1", "u2"])
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_langfuse_trace_visibility.py engine/api/tests/test_langfuse_trace_visibility.py
---- dograh/api/tests/test_langfuse_trace_visibility.py	2026-09-28 22:51:57.732634100 +0530
+--- dograh/api/tests/test_langfuse_trace_visibility.py	2026-09-29 10:11:16.920897000 +0530
 +++ engine/api/tests/test_langfuse_trace_visibility.py	2026-09-28 16:53:02.175380400 +0530
 @@ -7,7 +7,7 @@
  """
@@ -8310,7 +8486,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      """Unregistered orgs export to Dograh's project, so its policy applies."""
      set_current_org_id(ORG)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_mcp_create_workflow.py engine/api/tests/test_mcp_create_workflow.py
---- dograh/api/tests/test_mcp_create_workflow.py	2026-09-28 22:51:57.740525500 +0530
+--- dograh/api/tests/test_mcp_create_workflow.py	2026-09-29 10:11:16.930719500 +0530
 +++ engine/api/tests/test_mcp_create_workflow.py	2026-09-27 11:21:33.115004600 +0530
 @@ -54,7 +54,7 @@
              return_value=payload,
@@ -8393,7 +8569,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    publish_mock.assert_not_awaited()
 +    sync_mock.assert_not_awaited()
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_mcp_custom_tool_manager.py engine/api/tests/test_mcp_custom_tool_manager.py
---- dograh/api/tests/test_mcp_custom_tool_manager.py	2026-09-28 22:51:57.741743700 +0530
+--- dograh/api/tests/test_mcp_custom_tool_manager.py	2026-09-29 10:11:16.932721100 +0530
 +++ engine/api/tests/test_mcp_custom_tool_manager.py	2026-09-26 18:19:24.790708900 +0530
 @@ -16,6 +16,8 @@
      t.name = "Acme MCP"
@@ -8432,7 +8608,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          try:
              # Allow only raw "echo" for this node
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_mcp_instructions_drift.py engine/api/tests/test_mcp_instructions_drift.py
---- dograh/api/tests/test_mcp_instructions_drift.py	2026-09-28 22:51:57.744513300 +0530
+--- dograh/api/tests/test_mcp_instructions_drift.py	2026-09-29 10:11:17.069567400 +0530
 +++ engine/api/tests/test_mcp_instructions_drift.py	2026-09-27 11:26:22.474688400 +0530
 @@ -24,6 +24,7 @@
  
@@ -8459,7 +8635,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  )
  async def test_tool_documents_every_error_code_it_returns(tool_name, module):
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_mcp_tool_session.py engine/api/tests/test_mcp_tool_session.py
---- dograh/api/tests/test_mcp_tool_session.py	2026-09-28 22:51:57.749795400 +0530
+--- dograh/api/tests/test_mcp_tool_session.py	2026-09-29 10:11:17.076567300 +0530
 +++ engine/api/tests/test_mcp_tool_session.py	2026-09-26 20:56:34.457362200 +0530
 @@ -1,9 +1,10 @@
  from datetime import timedelta
@@ -8512,7 +8688,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  @pytest.mark.asyncio
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_mps_failure_http.py engine/api/tests/test_mps_failure_http.py
---- dograh/api/tests/test_mps_failure_http.py	2026-09-28 22:51:57.755812000 +0530
+--- dograh/api/tests/test_mps_failure_http.py	2026-09-29 10:11:17.150506000 +0530
 +++ engine/api/tests/test_mps_failure_http.py	2026-09-26 08:35:47.622112300 +0530
 @@ -3,6 +3,7 @@
  from unittest.mock import AsyncMock, Mock
@@ -8553,7 +8729,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_node_specs.py engine/api/tests/test_node_specs.py
---- dograh/api/tests/test_node_specs.py	2026-09-28 22:51:57.757492500 +0530
+--- dograh/api/tests/test_node_specs.py	2026-09-29 10:11:17.153012300 +0530
 +++ engine/api/tests/test_node_specs.py	2026-09-27 15:05:39.233013900 +0530
 @@ -337,6 +337,7 @@
              [
@@ -8694,7 +8870,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +
 +    notice.assert_awaited_once_with(run, 11, 42)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_realtime_feedback_events.py engine/api/tests/test_realtime_feedback_events.py
---- dograh/api/tests/test_realtime_feedback_events.py	2026-09-28 22:51:57.788567400 +0530
+--- dograh/api/tests/test_realtime_feedback_events.py	2026-09-29 10:11:17.356283100 +0530
 +++ engine/api/tests/test_realtime_feedback_events.py	2026-09-26 16:52:50.351059300 +0530
 @@ -22,10 +22,48 @@
              "function_name": "lookup_contact",
@@ -8767,7 +8943,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert summary["duration_ms"] == 412
 +    assert summary["verified"] is False
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_realtime_feedback_observer.py engine/api/tests/test_realtime_feedback_observer.py
---- dograh/api/tests/test_realtime_feedback_observer.py	2026-09-28 22:51:57.789121900 +0530
+--- dograh/api/tests/test_realtime_feedback_observer.py	2026-09-29 10:11:17.358020200 +0530
 +++ engine/api/tests/test_realtime_feedback_observer.py	2026-09-28 22:02:38.660173200 +0530
 @@ -396,6 +396,29 @@
  
@@ -8800,7 +8976,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      logs_buffer = InMemoryLogsBuffer(workflow_run_id=2122)
      coordinator = TranscriptLogCoordinator(logs_buffer)
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_service_factory_failure_reporting.py engine/api/tests/test_service_factory_failure_reporting.py
---- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-28 22:51:57.795939500 +0530
+--- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-29 10:11:17.371188000 +0530
 +++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-27 15:40:26.429834900 +0530
 @@ -46,6 +46,21 @@
      assert metadata.error_owner.value == "user"
@@ -8942,7 +9118,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +
 +    assert config.tts["voice_map"] == {}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/utils/common.py engine/api/utils/common.py
---- dograh/api/utils/common.py	2026-09-28 22:51:57.832741500 +0530
+--- dograh/api/utils/common.py	2026-09-29 10:11:17.506463900 +0530
 +++ engine/api/utils/common.py	2026-09-26 10:02:08.635108000 +0530
 @@ -8,7 +8,7 @@
  
@@ -8965,7 +9141,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  f"BACKEND_API_ENDPOINT is not publicly reachable ({BACKEND_API_ENDPOINT}), checking tunnel URL"
              )
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/api-keys/page.tsx engine/ui/src/app/api-keys/page.tsx
---- dograh/ui/src/app/api-keys/page.tsx	2026-09-28 22:51:58.416793600 +0530
+--- dograh/ui/src/app/api-keys/page.tsx	2026-09-29 10:11:20.500702600 +0530
 +++ engine/ui/src/app/api-keys/page.tsx	2026-09-26 17:05:15.761049700 +0530
 @@ -1,7 +1,7 @@
  "use client";
@@ -9110,7 +9286,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                          <p className="text-sm text-yellow-600 dark:text-yellow-500">
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/campaigns/CampaignAdvancedSettings.tsx engine/ui/src/app/campaigns/CampaignAdvancedSettings.tsx
---- dograh/ui/src/app/campaigns/CampaignAdvancedSettings.tsx	2026-09-28 22:51:58.443941400 +0530
+--- dograh/ui/src/app/campaigns/CampaignAdvancedSettings.tsx	2026-09-29 10:11:20.675056100 +0530
 +++ engine/ui/src/app/campaigns/CampaignAdvancedSettings.tsx	2026-09-26 08:55:00.255237900 +0530
 @@ -272,7 +272,7 @@
                                          value={String(slot.day_of_week)}
@@ -9140,7 +9316,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                                          }}
                                          className="w-[130px]"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/campaigns/[campaignId]/page.tsx engine/ui/src/app/campaigns/[campaignId]/page.tsx
---- dograh/ui/src/app/campaigns/[campaignId]/page.tsx	2026-09-28 22:51:58.449496700 +0530
+--- dograh/ui/src/app/campaigns/[campaignId]/page.tsx	2026-09-29 10:11:20.682580200 +0530
 +++ engine/ui/src/app/campaigns/[campaignId]/page.tsx	2026-09-26 08:55:00.253241600 +0530
 @@ -144,7 +144,7 @@
          if (!date) return undefined;
@@ -9241,7 +9417,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    );
 +}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/files/page.tsx engine/ui/src/app/files/page.tsx
---- dograh/ui/src/app/files/page.tsx	2026-09-28 22:51:58.455818800 +0530
+--- dograh/ui/src/app/files/page.tsx	2026-09-29 10:11:20.692114500 +0530
 +++ engine/ui/src/app/files/page.tsx	2026-09-26 18:30:13.062587500 +0530
 @@ -17,6 +17,7 @@
  
@@ -9272,7 +9448,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  <DialogContent>
                      <DialogHeader>
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/recordings/RecordingsUploadDialog.tsx engine/ui/src/app/recordings/RecordingsUploadDialog.tsx
---- dograh/ui/src/app/recordings/RecordingsUploadDialog.tsx	2026-09-28 22:51:58.467286300 +0530
+--- dograh/ui/src/app/recordings/RecordingsUploadDialog.tsx	2026-09-29 10:11:20.719574400 +0530
 +++ engine/ui/src/app/recordings/RecordingsUploadDialog.tsx	2026-09-26 08:55:00.256239400 +0530
 @@ -233,7 +233,7 @@
  
@@ -9301,7 +9477,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          },
                      })),
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/recordings/page.tsx engine/ui/src/app/recordings/page.tsx
---- dograh/ui/src/app/recordings/page.tsx	2026-09-28 22:51:58.468304400 +0530
+--- dograh/ui/src/app/recordings/page.tsx	2026-09-29 10:11:20.721223300 +0530
 +++ engine/ui/src/app/recordings/page.tsx	2026-09-26 17:04:46.888151100 +0530
 @@ -36,7 +36,7 @@
      return (
@@ -9325,7 +9501,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          </div>
                          <Button onClick={() => setIsUploadOpen(true)}>
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/settings/page.tsx engine/ui/src/app/settings/page.tsx
---- dograh/ui/src/app/settings/page.tsx	2026-09-28 22:51:58.473690400 +0530
+--- dograh/ui/src/app/settings/page.tsx	2026-09-29 10:11:20.729164000 +0530
 +++ engine/ui/src/app/settings/page.tsx	2026-09-26 22:45:20.344171700 +0530
 @@ -2,7 +2,9 @@
  
@@ -9348,7 +9524,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          </Card>
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/telephony-configurations/page.tsx engine/ui/src/app/telephony-configurations/page.tsx
---- dograh/ui/src/app/telephony-configurations/page.tsx	2026-09-28 22:51:58.479818800 +0530
+--- dograh/ui/src/app/telephony-configurations/page.tsx	2026-09-29 10:11:20.736190200 +0530
 +++ engine/ui/src/app/telephony-configurations/page.tsx	2026-09-26 17:05:15.762052700 +0530
 @@ -13,7 +13,7 @@
  } from "lucide-react";
@@ -10031,7 +10207,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    );
 +}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx engine/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx
---- dograh/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx	2026-09-28 22:51:58.486752200 +0530
+--- dograh/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx	2026-09-29 10:11:20.756383900 +0530
 +++ engine/ui/src/app/tools/[toolUuid]/components/TransferCallToolConfig.tsx	2026-09-26 08:55:00.257239600 +0530
 @@ -123,7 +123,7 @@
          const target = index + offset;
@@ -10043,7 +10219,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      };
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/tools/[toolUuid]/components/index.ts engine/ui/src/app/tools/[toolUuid]/components/index.ts
---- dograh/ui/src/app/tools/[toolUuid]/components/index.ts	2026-09-28 22:51:58.493774700 +0530
+--- dograh/ui/src/app/tools/[toolUuid]/components/index.ts	2026-09-29 10:11:20.764429300 +0530
 +++ engine/ui/src/app/tools/[toolUuid]/components/index.ts	2026-09-26 19:35:07.109971500 +0530
 @@ -3,6 +3,12 @@
  export { buildHttpToolTestSnapshot, HttpToolTestDialog } from "./http-tool-test";
@@ -10059,7 +10235,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      type TransferAgentToolConfigProps,
      type TransferAgentWorkflowOption,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/tools/[toolUuid]/page.tsx engine/ui/src/app/tools/[toolUuid]/page.tsx
---- dograh/ui/src/app/tools/[toolUuid]/page.tsx	2026-09-28 22:51:58.495770800 +0530
+--- dograh/ui/src/app/tools/[toolUuid]/page.tsx	2026-09-29 10:11:20.767427500 +0530
 +++ engine/ui/src/app/tools/[toolUuid]/page.tsx	2026-09-26 19:35:27.225000800 +0530
 @@ -69,6 +69,7 @@
      EndCallToolConfig,
@@ -10121,7 +10297,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          {isHttpApiTool && (
                              hasUnsavedHttpChanges ? (
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/tools/page.tsx engine/ui/src/app/tools/page.tsx
---- dograh/ui/src/app/tools/page.tsx	2026-09-28 22:51:58.497569700 +0530
+--- dograh/ui/src/app/tools/page.tsx	2026-09-29 10:11:20.769430200 +0530
 +++ engine/ui/src/app/tools/page.tsx	2026-09-26 17:05:15.762052700 +0530
 @@ -2,7 +2,7 @@
  
@@ -10189,7 +10365,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                                      {[1, 2, 3].map((i) => (
                                          <div
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/RenderWorkflow.tsx engine/ui/src/app/workflow/[workflowId]/RenderWorkflow.tsx
---- dograh/ui/src/app/workflow/[workflowId]/RenderWorkflow.tsx	2026-09-28 22:51:58.503537900 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/RenderWorkflow.tsx	2026-09-29 10:11:20.775007000 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/RenderWorkflow.tsx	2026-09-27 15:00:33.628942300 +0530
 @@ -34,7 +34,7 @@
  import { WorkflowVersionDiffDialog } from './components/WorkflowVersionDiffDialog';
@@ -10294,7 +10470,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
                  {versionDiffPair && (
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx engine/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx	2026-09-28 22:51:58.512551200 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx	2026-09-29 10:11:20.876511300 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/PhoneCallDialog.tsx	2026-09-26 08:55:00.258750700 +0530
 @@ -128,7 +128,7 @@
                          callable.find((c) => c.is_default_outbound) ??
@@ -10306,7 +10482,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  }
              } catch (err) {
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx engine/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx	2026-09-28 22:51:58.512551200 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx	2026-09-29 10:11:20.878516600 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/RecordingsDialog.tsx	2026-09-26 08:55:00.256239400 +0530
 @@ -291,7 +291,7 @@
              // Step 2: Upload all files to storage in parallel
@@ -10335,7 +10511,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                          },
                      })),
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/VersionHistoryPanel.tsx engine/ui/src/app/workflow/[workflowId]/components/VersionHistoryPanel.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/VersionHistoryPanel.tsx	2026-09-28 22:51:58.516112300 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/VersionHistoryPanel.tsx	2026-09-29 10:11:20.883554700 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/VersionHistoryPanel.tsx	2026-09-26 17:08:13.587366800 +0530
 @@ -6,6 +6,7 @@
  
@@ -10393,7 +10569,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                              );
                          })}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/WorkflowEditorHeader.tsx engine/ui/src/app/workflow/[workflowId]/components/WorkflowEditorHeader.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowEditorHeader.tsx	2026-09-28 22:51:58.518649900 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowEditorHeader.tsx	2026-09-29 10:11:20.884554400 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/WorkflowEditorHeader.tsx	2026-09-26 17:08:03.187424000 +0530
 @@ -6,10 +6,7 @@
  import { useRef, useState } from "react";
@@ -10505,7 +10681,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  {!isViewingHistoricalVersion && (
                      <Button
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.test.tsx engine/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.test.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.test.tsx	2026-09-28 22:51:58.520561500 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.test.tsx	2026-09-29 10:11:20.887079600 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.test.tsx	2026-09-26 18:46:05.935683400 +0530
 @@ -40,8 +40,8 @@
      ManualTextChatPanel: () => <div data-testid="chat-panel" />,
@@ -10519,7 +10695,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  import { WorkflowTesterPanel } from "./WorkflowTesterPanel";
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.tsx engine/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.tsx	2026-09-28 22:51:58.520561500 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.tsx	2026-09-29 10:11:20.889079000 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/WorkflowTesterPanel.tsx	2026-09-26 18:46:05.904461700 +0530
 @@ -16,7 +16,7 @@
  import { useAuth } from "@/lib/auth";
@@ -10540,7 +10716,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      </div>
                  </TabsContent>
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx engine/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx	2026-09-28 22:51:58.523583800 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx	2026-09-29 10:11:20.892082100 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/WorkflowVersionDiffDialog.tsx	2026-09-26 08:55:00.259763800 +0530
 @@ -147,7 +147,7 @@
      }, [activeChangeIndex, changeHunks.length, hasChanges, scrollToChange]);
@@ -10552,7 +10728,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      return (
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/components/workflow-tester/AiSimulatorPlaceholder.tsx engine/ui/src/app/workflow/[workflowId]/components/workflow-tester/AiSimulatorPlaceholder.tsx
---- dograh/ui/src/app/workflow/[workflowId]/components/workflow-tester/AiSimulatorPlaceholder.tsx	2026-09-28 22:51:58.526583500 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/components/workflow-tester/AiSimulatorPlaceholder.tsx	2026-09-29 10:11:20.895611900 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/components/workflow-tester/AiSimulatorPlaceholder.tsx	1970-01-01 05:30:00.000000000 +0530
 @@ -1,38 +0,0 @@
 -"use client";
@@ -10594,7 +10770,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 -    );
 -}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx engine/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx
---- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx	2026-09-28 22:51:58.550259300 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx	2026-09-29 10:11:20.942925700 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/run/[runId]/hooks/useWebSocketRTC.tsx	2026-09-26 09:05:44.655405500 +0530
 @@ -1,14 +1,13 @@
  import { useCallback, useEffect, useRef, useState } from "react";
@@ -10642,7 +10818,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          return new Promise<void>((resolve, reject) => {
              logger.info(`Connecting to WebSocket: ${wsUrl}`);
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx engine/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx
---- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx	2026-09-28 22:51:58.551259500 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx	2026-09-29 10:11:20.944940000 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/run/[runId]/page.tsx	2026-09-27 18:18:38.549048700 +0530
 @@ -21,6 +21,7 @@
  import { toast } from 'sonner';
@@ -10780,7 +10956,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                              costInfo={workflowRun?.cost_info ?? null}
                              logs={workflowRun?.logs ?? null}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts engine/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts
---- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts	2026-09-28 22:51:58.553482800 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts	2026-09-29 10:11:20.947942100 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/run/[runId]/utils/webrtcUtils.ts	2026-09-26 08:55:06.953950000 +0530
 @@ -18,21 +18,21 @@
  
@@ -10837,7 +11013,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  sdp += lines[i] + '\n';
              }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/settings/page.tsx engine/ui/src/app/workflow/[workflowId]/settings/page.tsx
---- dograh/ui/src/app/workflow/[workflowId]/settings/page.tsx	2026-09-28 22:51:58.557562700 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/settings/page.tsx	2026-09-29 10:11:20.962441600 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/settings/page.tsx	2026-09-26 17:04:48.045847800 +0530
 @@ -106,7 +106,7 @@
          if (!date) return undefined;
@@ -10872,7 +11048,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                                          </Link>
                                      </Button>
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts engine/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts
---- dograh/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts	2026-09-28 22:51:58.558868700 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts	2026-09-29 10:11:20.965972500 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/stores/workflowStore.ts	2026-09-26 08:55:00.285168200 +0530
 @@ -172,7 +172,7 @@
      const state = get();
@@ -10893,7 +11069,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          nodes: historicState.nodes,
          edges: historicState.edges,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts engine/ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts
---- dograh/ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts	2026-09-28 22:51:58.559887200 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts	2026-09-29 10:11:20.967970500 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/utils/layoutNodes.ts	2026-09-27 15:14:57.812084100 +0530
 @@ -3,194 +3,126 @@
  
@@ -11197,7 +11373,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    return arranged;
  };
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts engine/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts
---- dograh/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts	2026-09-28 22:51:58.562908000 +0530
+--- dograh/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts	2026-09-29 10:11:20.969971200 +0530
 +++ engine/ui/src/app/workflow/[workflowId]/utils/workflowVersionDiff.ts	2026-09-26 08:55:00.285168200 +0530
 @@ -229,7 +229,7 @@
                  let backtrackSelectedIndex = selectedLength;
@@ -11256,7 +11432,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  removed.push({
                      kind: "removed",
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/client/index.ts engine/ui/src/client/index.ts
---- dograh/ui/src/client/index.ts	2026-09-28 22:51:58.575489400 +0530
+--- dograh/ui/src/client/index.ts	2026-09-29 10:11:21.085062200 +0530
 +++ engine/ui/src/client/index.ts	2026-09-26 17:59:14.400318000 +0530
 @@ -1,4 +1,4 @@
  // This file is auto-generated by @hey-api/openapi-ts
@@ -11266,7 +11442,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +export { activeCallsApiV1HealthActiveCallsGet, appendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPost, archiveApiKeyApiV1UserApiKeysApiKeyIdDelete, archiveServiceKeyApiV1UserServiceKeysServiceKeyIdDelete, autoscaleMetricApiV1HealthAutoscaleMetricGet, completeTransferFunctionCallApiV1TelephonyTransferResultTransferIdPost, createApiKeyApiV1UserApiKeysPost, createCampaignApiV1CampaignCreatePost, createCredentialApiV1CredentialsPost, createFolderApiV1FolderPost, createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost, createOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPost, createPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPost, createRecordingsApiV1WorkflowRecordingsPost, createServiceKeyApiV1UserServiceKeysPost, createTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPost, createTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPost, createTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPost, createToolApiV1ToolsPost, createWorkflowApiV1WorkflowCreateDefinitionPost, createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost, createWorkflowRunApiV1WorkflowWorkflowIdRunsPost, deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete, deleteCredentialApiV1CredentialsCredentialUuidDelete, deleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDelete, deleteFolderApiV1FolderFolderIdDelete, deleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDelete, deletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDelete, deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete, deleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDelete, deleteTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdDelete, deleteToolApiV1ToolsToolUuidDelete, downloadCampaignReportApiV1CampaignCampaignIdReportGet, downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, downloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGet, downloadWorkflowReportApiV1WorkflowWorkflowIdReportGet, duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost, duplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePost, endPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPost, endTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPost, getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost, getApiKeysApiV1UserApiKeysGet, getAuthUserApiV1UserAuthUserGet, getBillingCreditsApiV1OrganizationsBillingCreditsGet, getCampaignApiV1CampaignCampaignIdGet, getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet, getCampaignProgressApiV1CampaignCampaignIdProgressGet, getCampaignRunsApiV1CampaignCampaignIdRunsGet, getCampaignsApiV1CampaignGet, getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet, getCredentialApiV1CredentialsCredentialUuidGet, getCurrentOrganizationContextApiV1OrganizationsContextGet, getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet, getCurrentUserApiV1AuthMeGet, getDailyReportApiV1OrganizationsReportsDailyGet, getDailyRunsDetailApiV1OrganizationsReportsDailyRunsGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet, getDispositionCodesApiV1OrganizationsDispositionCodesGet, getDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGet, getEmbedConfigApiV1PublicEmbedConfigTokenGet, getEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGet, getFileMetadataApiV1S3FileMetadataGet, getLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGet, getModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGet, getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get, getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet, getNodeTypeApiV1NodeTypesNameGet, getPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGet, getPreferencesApiV1OrganizationsPreferencesGet, getPresignedUploadUrlApiV1S3PresignedUploadUrlPost, getPublicChatSessionApiV1PublicEmbedChatSessionTokenGet, getPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGet, getServiceKeysApiV1UserServiceKeysGet, getSignedUrlApiV1S3SignedUrlGet, getTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGet, getTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGet, getTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGet, getTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGet, getToolApiV1ToolsToolUuidGet, getTurnCredentialsApiV1TurnCredentialsGet, getUploadUrlApiV1KnowledgeBaseUploadUrlPost, getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost, getUsageHistoryApiV1OrganizationsUsageRunsGet, getUserConfigurationsApiV1UserConfigurationsUserGet, getUserOnboardingStateApiV1UserOnboardingStateGet, getVoicesApiV1UserConfigurationsVoicesProviderGet, getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowCountApiV1WorkflowCountGet, getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet, getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet, getWorkflowRunsApiV1SuperuserWorkflowRunsGet, getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet, getWorkflowsApiV1WorkflowFetchGet, getWorkflowsSummaryApiV1WorkflowSummaryGet, getWorkflowTemplatesApiV1WorkflowTemplatesGet, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, handleCloudonixCdrApiV1TelephonyCloudonixCdrPost, handleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPost, handleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPost, handleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPost, handleInboundFallbackApiV1TelephonyInboundFallbackPost, handleInboundRunApiV1TelephonyInboundRunGet, handleInboundRunApiV1TelephonyInboundRunPost, handleInboundTelephonyApiV1TelephonyInboundWorkflowIdPost, handlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPost, handlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPost, handleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPost, handleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransferIdPost, handleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPost, handleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPost, handleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPost, handleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPost, handleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPost, handleVonageEventsWithoutRunApiV1TelephonyVonageEventsPost, healthApiV1HealthGet, impersonateApiV1SuperuserImpersonatePost, initializeEmbedSessionApiV1PublicEmbedInitPost, initiateCallApiV1PublicAgentUuidPost, initiateCallApiV1TelephonyInitiateCallPost, initiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPost, initiateCallTestApiV1PublicAgentTestUuidPost, initiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPost, listCredentialsApiV1CredentialsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listFoldersApiV1FolderGet, listNodeTypesApiV1NodeTypesGet, listPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGet, listRecordingsApiV1WorkflowRecordingsGet, listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet, listTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGet, listToolRevisionsApiV1ToolsToolUuidRevisionsGet, listToolsApiV1ToolsGet, loginApiV1AuthLoginPost, migrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePost, moveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPut, type Options, optionsEmbedConfigApiV1PublicEmbedConfigTokenOptions, optionsInitApiV1PublicEmbedInitOptions, optionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptions, optionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptions, optionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptions, optionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptions, pauseCampaignApiV1CampaignCampaignIdPausePost, postPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPost, previewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGet, previewVoiceApiV1UserConfigurationsVoicesProviderPreviewPost, processDocumentApiV1KnowledgeBaseProcessDocumentPost, publishWorkflowApiV1WorkflowWorkflowIdPublishPost, reactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePut, reactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePut, reactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePost, redialCampaignApiV1CampaignCampaignIdRedialPost, refreshMcpToolsApiV1ToolsToolUuidMcpRefreshPost, renameFolderApiV1FolderFolderIdPut, restoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePost, resumeCampaignApiV1CampaignCampaignIdResumePost, reviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPost, rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost, saveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPost, saveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Put, savePreferencesApiV1OrganizationsPreferencesPut, searchChunksApiV1KnowledgeBaseSearchPost, setDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPost, setDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPost, signupApiV1AuthSignupPost, startCampaignApiV1CampaignCampaignIdStartPost, submitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPost, testToolApiV1ToolsToolUuidTestPost, transcribeAudioApiV1WorkflowRecordingsTranscribePost, unarchiveToolApiV1ToolsToolUuidUnarchivePost, updateCampaignApiV1CampaignCampaignIdPatch, updateCredentialApiV1CredentialsCredentialUuidPut, updatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPut, updateRecordingApiV1WorkflowRecordingsIdPatch, updateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPut, updateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPut, updateToolApiV1ToolsToolUuidPut, updateUserConfigurationsApiV1UserConfigurationsUserPut, updateUserOnboardingStateApiV1UserOnboardingStatePut, updateWorkflowApiV1WorkflowWorkflowIdPut, updateWorkflowStatusApiV1WorkflowWorkflowIdStatusPut, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from './sdk.gen';
 +export type { ActiveCallsApiV1HealthActiveCallsGetData, ActiveCallsApiV1HealthActiveCallsGetError, ActiveCallsApiV1HealthActiveCallsGetErrors, ActiveCallsApiV1HealthActiveCallsGetResponse, ActiveCallsApiV1HealthActiveCallsGetResponses, ActiveCallsResponse, AmbientNoiseConfigurationDefaults, AmbientNoiseUploadRequest, AmbientNoiseUploadResponse, ApiKeyResponse, ApiKeyStatus, ApiKeyStatusResponse, AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostData, AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostError, AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostErrors, AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponse, AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses, AppendTextChatMessageRequest, ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteData, ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteError, ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteErrors, ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteResponse, ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteResponses, ArchiveServiceKeyApiV1UserServiceKeysServiceKeyIdDeleteData, ArchiveServiceKeyApiV1UserServiceKeysServiceKeyIdDeleteError, ArchiveServiceKeyApiV1UserServiceKeysServiceKeyIdDeleteErrors, ArchiveServiceKeyApiV1UserServiceKeysServiceKeyIdDeleteResponses, AriConfigurationRequest, AssemblyAisttConfiguration, AtlasCloudLlmService, AuthResponse, AuthUserResponse, AutoscaleMetricApiV1HealthAutoscaleMetricGetData, AutoscaleMetricApiV1HealthAutoscaleMetricGetError, AutoscaleMetricApiV1HealthAutoscaleMetricGetErrors, AutoscaleMetricApiV1HealthAutoscaleMetricGetResponse, AutoscaleMetricApiV1HealthAutoscaleMetricGetResponses, AutoscaleMetricResponse, AwsBedrockLlmConfiguration, AwsNovaSonicRealtimeLlmConfiguration, AzureLlmService, AzureOpenAiEmbeddingsConfiguration, AzureRealtimeLlmConfiguration, AzureSpeechSttConfiguration, AzureSpeechTtsConfiguration, BatchRecordingCreateRequestSchema, BatchRecordingCreateResponseSchema, BatchRecordingUploadRequestSchema, BatchRecordingUploadResponseSchema, BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost, ByokaiModelConfiguration, ByokPipelineAiModelConfiguration, ByokRealtimeAiModelConfiguration, CalculatorToolDefinition, CallDispositionCodes, CallDispositionOption, CallType, CambTtsConfiguration, CampaignDefaultsResponse, CampaignLogEntryResponse, CampaignProgressResponse, CampaignResponse, CampaignRunsResponse, CampaignSourceDownloadResponse, CampaignsResponse, CartesiaSttConfiguration, CartesiaTtsConfiguration, ChunkResponseSchema, ChunkSearchRequestSchema, ChunkSearchResponseSchema, CircuitBreakerConfigRequest, CircuitBreakerConfigResponse, ClientOptions, CloudonixConfigurationRequest, CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostData, CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError, CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors, CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses, ContextDestinationMappingConfig, ContextDestinationRoute, ContextDestinationRule, CreateApiKeyApiV1UserApiKeysPostData, CreateApiKeyApiV1UserApiKeysPostError, CreateApiKeyApiV1UserApiKeysPostErrors, CreateApiKeyApiV1UserApiKeysPostResponse, CreateApiKeyApiV1UserApiKeysPostResponses, CreateApiKeyRequest, CreateApiKeyResponse, CreateCampaignApiV1CampaignCreatePostData, CreateCampaignApiV1CampaignCreatePostError, CreateCampaignApiV1CampaignCreatePostErrors, CreateCampaignApiV1CampaignCreatePostResponse, CreateCampaignApiV1CampaignCreatePostResponses, CreateCampaignRequest, CreateCredentialApiV1CredentialsPostData, CreateCredentialApiV1CredentialsPostError, CreateCredentialApiV1CredentialsPostErrors, CreateCredentialApiV1CredentialsPostResponse, CreateCredentialApiV1CredentialsPostResponses, CreateCredentialRequest, CreatedByResponse, CreateFolderApiV1FolderPostData, CreateFolderApiV1FolderPostError, CreateFolderApiV1FolderPostErrors, CreateFolderApiV1FolderPostResponse, CreateFolderApiV1FolderPostResponses, CreateFolderRequest, CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostData, CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostError, CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostErrors, CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponse, CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses, CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostData, CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostError, CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostErrors, CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponse, CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses, CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostData, CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostError, CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostErrors, CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponse, CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses, CreateRecordingsApiV1WorkflowRecordingsPostData, CreateRecordingsApiV1WorkflowRecordingsPostError, CreateRecordingsApiV1WorkflowRecordingsPostErrors, CreateRecordingsApiV1WorkflowRecordingsPostResponse, CreateRecordingsApiV1WorkflowRecordingsPostResponses, CreateServiceKeyApiV1UserServiceKeysPostData, CreateServiceKeyApiV1UserServiceKeysPostError, CreateServiceKeyApiV1UserServiceKeysPostErrors, CreateServiceKeyApiV1UserServiceKeysPostResponse, CreateServiceKeyApiV1UserServiceKeysPostResponses, CreateServiceKeyRequest, CreateServiceKeyResponse, CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostData, CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostError, CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostErrors, CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponse, CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponses, CreateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPostData, CreateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPostError, CreateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPostErrors, CreateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPostResponse, CreateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksPostResponses, CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostData, CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostError, CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostErrors, CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponse, CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponses, CreateTextChatSessionRequest, CreateToolApiV1ToolsPostData, CreateToolApiV1ToolsPostError, CreateToolApiV1ToolsPostErrors, CreateToolApiV1ToolsPostResponse, CreateToolApiV1ToolsPostResponses, CreateToolRequest, CreateWorkflowApiV1WorkflowCreateDefinitionPostData, CreateWorkflowApiV1WorkflowCreateDefinitionPostError, CreateWorkflowApiV1WorkflowCreateDefinitionPostErrors, CreateWorkflowApiV1WorkflowCreateDefinitionPostResponse, CreateWorkflowApiV1WorkflowCreateDefinitionPostResponses, CreateWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPostData, CreateWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPostError, CreateWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPostErrors, CreateWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPostResponse, CreateWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPostResponses, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostData, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostError, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostErrors, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponse, CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses, CreateWorkflowRequest, CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostData, CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostError, CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostErrors, CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostResponse, CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostResponses, CreateWorkflowRunRequest, CreateWorkflowRunResponse, CreateWorkflowTemplateRequest, CredentialResponse, CurrentUsageResponse, DailyReportResponse, DailyUsageBreakdownResponse, DailyUsageItem, DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData, DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteError, DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteErrors, DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponse, DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponses, DeepgramSttConfiguration, DeepgramTtsConfiguration, DefaultConfigurationsResponse, DeleteCredentialApiV1CredentialsCredentialUuidDeleteData, DeleteCredentialApiV1CredentialsCredentialUuidDeleteError, DeleteCredentialApiV1CredentialsCredentialUuidDeleteErrors, DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponse, DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponses, DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteData, DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteError, DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteErrors, DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteResponses, DeleteFolderApiV1FolderFolderIdDeleteData, DeleteFolderApiV1FolderFolderIdDeleteError, DeleteFolderApiV1FolderFolderIdDeleteErrors, DeleteFolderApiV1FolderFolderIdDeleteResponse, DeleteFolderApiV1FolderFolderIdDeleteResponses, DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteData, DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteError, DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteErrors, DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteResponses, DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteData, DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteError, DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteErrors, DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteResponses, DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteData, DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteError, DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors, DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteResponses, DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteData, DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteError, DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteErrors, DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteResponses, DeleteTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdDeleteData, DeleteTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdDeleteError, DeleteTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdDeleteErrors, DeleteTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdDeleteResponses, DeleteToolApiV1ToolsToolUuidDeleteData, DeleteToolApiV1ToolsToolUuidDeleteError, DeleteToolApiV1ToolsToolUuidDeleteErrors, DeleteToolApiV1ToolsToolUuidDeleteResponse, DeleteToolApiV1ToolsToolUuidDeleteResponses, DisplayOptions, DispositionCodesResponse, DocumentListResponseSchema, DocumentResponseSchema, DocumentUploadRequestSchema, DocumentUploadResponseSchema, DograhEmbeddingsConfiguration, DograhLlmService, DograhManagedAiModelConfiguration, DograhSttService, DograhTtsService, DownloadCampaignReportApiV1CampaignCampaignIdReportGetData, DownloadCampaignReportApiV1CampaignCampaignIdReportGetError, DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors, DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses, DownloadUsageRunsReportApiV1OrganizationsUsageRunsReportGetData, DownloadUsageRunsReportApiV1OrganizationsUsageRunsReportGetError, DownloadUsageRunsReportApiV1OrganizationsUsageRunsReportGetErrors, DownloadUsageRunsReportApiV1OrganizationsUsageRunsReportGetResponses, DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetData, DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetError, DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetErrors, DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetResponses, DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData, DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetError, DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetErrors, DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetResponses, DuplicateTemplateRequest, DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostData, DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostError, DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostErrors, DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponse, DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponses, DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostData, DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostError, DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostErrors, DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponse, DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponses, ElevenlabsSttConfiguration, ElevenlabsTtsConfiguration, EmbedConfigResponse, EmbedTokenRequest, EmbedTokenResponse, EndCallConfig, EndCallToolDefinition, EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostData, EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostError, EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostErrors, EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponse, EndPublicChatSessionApiV1PublicEmbedChatSessionTokenEndPostResponses, EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostData, EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostError, EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostErrors, EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponse, EndTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdEndPostResponses, EndTextChatSessionRequest, ExotelConfigurationRequest, ExternalPbxFieldMapping, FileDescriptor, FileMetadataResponse, FolderResponse, GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostData, GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostError, GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostErrors, GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponse, GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses, GetApiKeysApiV1UserApiKeysGetData, GetApiKeysApiV1UserApiKeysGetError, GetApiKeysApiV1UserApiKeysGetErrors, GetApiKeysApiV1UserApiKeysGetResponse, GetApiKeysApiV1UserApiKeysGetResponses, GetAuthUserApiV1UserAuthUserGetData, GetAuthUserApiV1UserAuthUserGetError, GetAuthUserApiV1UserAuthUserGetErrors, GetAuthUserApiV1UserAuthUserGetResponse, GetAuthUserApiV1UserAuthUserGetResponses, GetBillingCreditsApiV1OrganizationsBillingCreditsGetData, GetBillingCreditsApiV1OrganizationsBillingCreditsGetError, GetBillingCreditsApiV1OrganizationsBillingCreditsGetErrors, GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponse, GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponses, GetCampaignApiV1CampaignCampaignIdGetData, GetCampaignApiV1CampaignCampaignIdGetError, GetCampaignApiV1CampaignCampaignIdGetErrors, GetCampaignApiV1CampaignCampaignIdGetResponse, GetCampaignApiV1CampaignCampaignIdGetResponses, GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetData, GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetError, GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetErrors, GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponse, GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses, GetCampaignProgressApiV1CampaignCampaignIdProgressGetData, GetCampaignProgressApiV1CampaignCampaignIdProgressGetError, GetCampaignProgressApiV1CampaignCampaignIdProgressGetErrors, GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponse, GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponses, GetCampaignRunsApiV1CampaignCampaignIdRunsGetData, GetCampaignRunsApiV1CampaignCampaignIdRunsGetError, GetCampaignRunsApiV1CampaignCampaignIdRunsGetErrors, GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponse, GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses, GetCampaignsApiV1CampaignGetData, GetCampaignsApiV1CampaignGetError, GetCampaignsApiV1CampaignGetErrors, GetCampaignsApiV1CampaignGetResponse, GetCampaignsApiV1CampaignGetResponses, GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetData, GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetError, GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetErrors, GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponse, GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses, GetCredentialApiV1CredentialsCredentialUuidGetData, GetCredentialApiV1CredentialsCredentialUuidGetError, GetCredentialApiV1CredentialsCredentialUuidGetErrors, GetCredentialApiV1CredentialsCredentialUuidGetResponse, GetCredentialApiV1CredentialsCredentialUuidGetResponses, GetCurrentOrganizationContextApiV1OrganizationsContextGetData, GetCurrentOrganizationContextApiV1OrganizationsContextGetError, GetCurrentOrganizationContextApiV1OrganizationsContextGetErrors, GetCurrentOrganizationContextApiV1OrganizationsContextGetResponse, GetCurrentOrganizationContextApiV1OrganizationsContextGetResponses, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetData, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetError, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetErrors, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses, GetCurrentUserApiV1AuthMeGetData, GetCurrentUserApiV1AuthMeGetError, GetCurrentUserApiV1AuthMeGetErrors, GetCurrentUserApiV1AuthMeGetResponse, GetCurrentUserApiV1AuthMeGetResponses, GetDailyReportApiV1OrganizationsReportsDailyGetData, GetDailyReportApiV1OrganizationsReportsDailyGetError, GetDailyReportApiV1OrganizationsReportsDailyGetErrors, GetDailyReportApiV1OrganizationsReportsDailyGetResponse, GetDailyReportApiV1OrganizationsReportsDailyGetResponses, GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetData, GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetError, GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetErrors, GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponse, GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses, GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetData, GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetError, GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetErrors, GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetResponse, GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetResponses, GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetData, GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetErrors, GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponse, GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetResponses, GetDispositionCodesApiV1OrganizationsDispositionCodesGetData, GetDispositionCodesApiV1OrganizationsDispositionCodesGetError, GetDispositionCodesApiV1OrganizationsDispositionCodesGetErrors, GetDispositionCodesApiV1OrganizationsDispositionCodesGetResponse, GetDispositionCodesApiV1OrganizationsDispositionCodesGetResponses, GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetData, GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetError, GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetErrors, GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse, GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses, GetEmbedConfigApiV1PublicEmbedConfigTokenGetData, GetEmbedConfigApiV1PublicEmbedConfigTokenGetError, GetEmbedConfigApiV1PublicEmbedConfigTokenGetErrors, GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponse, GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponses, GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetData, GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetError, GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetErrors, GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponse, GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponses, GetFileMetadataApiV1S3FileMetadataGetData, GetFileMetadataApiV1S3FileMetadataGetError, GetFileMetadataApiV1S3FileMetadataGetErrors, GetFileMetadataApiV1S3FileMetadataGetResponse, GetFileMetadataApiV1S3FileMetadataGetResponses, GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetData, GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetError, GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetErrors, GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponse, GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponses, GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetData, GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetError, GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetErrors, GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponse, GetModelConfigurationPricingApiV1OrganizationsModelConfigurationsV2PricingGetResponses, GetModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2GetData, GetModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2GetError, GetModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2GetErrors, GetModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2GetResponse, GetModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2GetResponses, GetModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGetData, GetModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGetError, GetModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGetErrors, GetModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGetResponses, GetNodeTypeApiV1NodeTypesNameGetData, GetNodeTypeApiV1NodeTypesNameGetError, GetNodeTypeApiV1NodeTypesNameGetErrors, GetNodeTypeApiV1NodeTypesNameGetResponse, GetNodeTypeApiV1NodeTypesNameGetResponses, GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetData, GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetError, GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetErrors, GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponse, GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponses, GetPreferencesApiV1OrganizationsPreferencesGetData, GetPreferencesApiV1OrganizationsPreferencesGetError, GetPreferencesApiV1OrganizationsPreferencesGetErrors, GetPreferencesApiV1OrganizationsPreferencesGetResponse, GetPreferencesApiV1OrganizationsPreferencesGetResponses, GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostData, GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostError, GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostErrors, GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponse, GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponses, GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetData, GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetError, GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetErrors, GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponse, GetPublicChatSessionApiV1PublicEmbedChatSessionTokenGetResponses, GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetData, GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetError, GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetErrors, GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponse, GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponses, GetServiceKeysApiV1UserServiceKeysGetData, GetServiceKeysApiV1UserServiceKeysGetError, GetServiceKeysApiV1UserServiceKeysGetErrors, GetServiceKeysApiV1UserServiceKeysGetResponse, GetServiceKeysApiV1UserServiceKeysGetResponses, GetSignedUrlApiV1S3SignedUrlGetData, GetSignedUrlApiV1S3SignedUrlGetError, GetSignedUrlApiV1S3SignedUrlGetErrors, GetSignedUrlApiV1S3SignedUrlGetResponse, GetSignedUrlApiV1S3SignedUrlGetResponses, GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetData, GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetError, GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetErrors, GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponse, GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponses, GetTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGetData, GetTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGetError, GetTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGetErrors, GetTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGetResponse, GetTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGetResponses, GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetData, GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetError, GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetErrors, GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponse, GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponses, GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetData, GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetError, GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetErrors, GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponse, GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses, GetToolApiV1ToolsToolUuidGetData, GetToolApiV1ToolsToolUuidGetError, GetToolApiV1ToolsToolUuidGetErrors, GetToolApiV1ToolsToolUuidGetResponse, GetToolApiV1ToolsToolUuidGetResponses, GetTurnCredentialsApiV1TurnCredentialsGetData, GetTurnCredentialsApiV1TurnCredentialsGetError, GetTurnCredentialsApiV1TurnCredentialsGetErrors, GetTurnCredentialsApiV1TurnCredentialsGetResponse, GetTurnCredentialsApiV1TurnCredentialsGetResponses, GetUploadUrlApiV1KnowledgeBaseUploadUrlPostData, GetUploadUrlApiV1KnowledgeBaseUploadUrlPostError, GetUploadUrlApiV1KnowledgeBaseUploadUrlPostErrors, GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponse, GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponses, GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostData, GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostError, GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostErrors, GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponse, GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponses, GetUsageHistoryApiV1OrganizationsUsageRunsGetData, GetUsageHistoryApiV1OrganizationsUsageRunsGetError, GetUsageHistoryApiV1OrganizationsUsageRunsGetErrors, GetUsageHistoryApiV1OrganizationsUsageRunsGetResponse, GetUsageHistoryApiV1OrganizationsUsageRunsGetResponses, GetUserConfigurationsApiV1UserConfigurationsUserGetData, GetUserConfigurationsApiV1UserConfigurationsUserGetError, GetUserConfigurationsApiV1UserConfigurationsUserGetErrors, GetUserConfigurationsApiV1UserConfigurationsUserGetResponse, GetUserConfigurationsApiV1UserConfigurationsUserGetResponses, GetUserOnboardingStateApiV1UserOnboardingStateGetData, GetUserOnboardingStateApiV1UserOnboardingStateGetError, GetUserOnboardingStateApiV1UserOnboardingStateGetErrors, GetUserOnboardingStateApiV1UserOnboardingStateGetResponse, GetUserOnboardingStateApiV1UserOnboardingStateGetResponses, GetVoicesApiV1UserConfigurationsVoicesProviderGetData, GetVoicesApiV1UserConfigurationsVoicesProviderGetError, GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors, GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse, GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses, GetWorkflowApiV1WorkflowFetchWorkflowIdGetData, GetWorkflowApiV1WorkflowFetchWorkflowIdGetError, GetWorkflowApiV1WorkflowFetchWorkflowIdGetErrors, GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponse, GetWorkflowApiV1WorkflowFetchWorkflowIdGetResponses, GetWorkflowCountApiV1WorkflowCountGetData, GetWorkflowCountApiV1WorkflowCountGetError, GetWorkflowCountApiV1WorkflowCountGetErrors, GetWorkflowCountApiV1WorkflowCountGetResponse, GetWorkflowCountApiV1WorkflowCountGetResponses, GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetData, GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetError, GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetErrors, GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetResponse, GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetResponses, GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetData, GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetError, GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetErrors, GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse, GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses, GetWorkflowRunsApiV1SuperuserWorkflowRunsGetData, GetWorkflowRunsApiV1SuperuserWorkflowRunsGetError, GetWorkflowRunsApiV1SuperuserWorkflowRunsGetErrors, GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponse, GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses, GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetData, GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetError, GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetErrors, GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetResponse, GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetResponses, GetWorkflowsApiV1WorkflowFetchGetData, GetWorkflowsApiV1WorkflowFetchGetError, GetWorkflowsApiV1WorkflowFetchGetErrors, GetWorkflowsApiV1WorkflowFetchGetResponse, GetWorkflowsApiV1WorkflowFetchGetResponses, GetWorkflowsSummaryApiV1WorkflowSummaryGetData, GetWorkflowsSummaryApiV1WorkflowSummaryGetError, GetWorkflowsSummaryApiV1WorkflowSummaryGetErrors, GetWorkflowsSummaryApiV1WorkflowSummaryGetResponse, GetWorkflowsSummaryApiV1WorkflowSummaryGetResponses, GetWorkflowTemplatesApiV1WorkflowTemplatesGetData, GetWorkflowTemplatesApiV1WorkflowTemplatesGetErrors, GetWorkflowTemplatesApiV1WorkflowTemplatesGetResponse, GetWorkflowTemplatesApiV1WorkflowTemplatesGetResponses, GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetData, GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetError, GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetErrors, GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponse, GetWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGetResponses, GladiaSttConfiguration, GoogleLlmService, GoogleRealtimeLlmConfiguration, GoogleSttConfiguration, GoogleTtsConfiguration, GoogleVertexLlmConfiguration, GoogleVertexRealtimeLlmConfiguration, GraphConstraints, GrokRealtimeLlmConfiguration, GroqLlmService, HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostData, HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors, HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses, HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostData, HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostError, HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors, HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostResponses, HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostData, HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostError, HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostErrors, HandleCloudonixTransferResultApiV1TelephonyCloudonixTransferResultTransferIdPostResponses, HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostData, HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostError, HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostErrors, HandleExotelStatusCallbackApiV1TelephonyExotelStatusCallbackWorkflowRunIdPostResponses, HandleInboundFallbackApiV1TelephonyInboundFallbackPostData, HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors, HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses, HandleInboundRunApiV1TelephonyInboundRunGetData, HandleInboundRunApiV1TelephonyInboundRunGetErrors, HandleInboundRunApiV1TelephonyInboundRunGetResponses, HandleInboundRunApiV1TelephonyInboundRunPostData, HandleInboundRunApiV1TelephonyInboundRunPostErrors, HandleInboundRunApiV1TelephonyInboundRunPostResponses, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses, HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostData, HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostError, HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostErrors, HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostResponses, HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostData, HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostError, HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostErrors, HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostResponses, HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostData, HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostError, HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostErrors, HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostResponses, HandleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransferIdPostData, HandleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransferIdPostError, HandleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransferIdPostErrors, HandleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransferIdPostResponses, HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostData, HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostError, HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors, HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostResponses, HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostData, HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostError, HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors, HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostResponses, HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostData, HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostError, HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostErrors, HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostResponses, HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostData, HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostError, HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors, HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostResponses, HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData, HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError, HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors, HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses, HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostData, HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors, HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses, HealthApiV1HealthGetData, HealthApiV1HealthGetErrors, HealthApiV1HealthGetResponse, HealthApiV1HealthGetResponses, HealthResponse, HttpApiConfig, HttpApiToolDefinition, HttpTransferResolverConfig, HttpValidationError, HuggingFaceLlmConfiguration, HuggingFaceSttConfiguration, ImpersonateApiV1SuperuserImpersonatePostData, ImpersonateApiV1SuperuserImpersonatePostError, ImpersonateApiV1SuperuserImpersonatePostErrors, ImpersonateApiV1SuperuserImpersonatePostResponse, ImpersonateApiV1SuperuserImpersonatePostResponses, ImpersonateRequest, ImpersonateResponse, InitEmbedRequest, InitEmbedResponse, InitializeEmbedSessionApiV1PublicEmbedInitPostData, InitializeEmbedSessionApiV1PublicEmbedInitPostError, InitializeEmbedSessionApiV1PublicEmbedInitPostErrors, InitializeEmbedSessionApiV1PublicEmbedInitPostResponse, InitializeEmbedSessionApiV1PublicEmbedInitPostResponses, InitiateCallApiV1PublicAgentUuidPostData, InitiateCallApiV1PublicAgentUuidPostError, InitiateCallApiV1PublicAgentUuidPostErrors, InitiateCallApiV1PublicAgentUuidPostResponse, InitiateCallApiV1PublicAgentUuidPostResponses, InitiateCallApiV1TelephonyInitiateCallPostData, InitiateCallApiV1TelephonyInitiateCallPostError, InitiateCallApiV1TelephonyInitiateCallPostErrors, InitiateCallApiV1TelephonyInitiateCallPostResponses, InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostData, InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostError, InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostErrors, InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponse, InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponses, InitiateCallRequest, InitiateCallTestApiV1PublicAgentTestUuidPostData, InitiateCallTestApiV1PublicAgentTestUuidPostError, InitiateCallTestApiV1PublicAgentTestUuidPostErrors, InitiateCallTestApiV1PublicAgentTestUuidPostResponse, InitiateCallTestApiV1PublicAgentTestUuidPostResponses, InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostData, InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostError, InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostErrors, InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponse, InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponses, InworldTtsConfiguration, ItemKind, LangfuseCredentialsRequest, LangfuseCredentialsResponse, LastCampaignSettingsResponse, ListCredentialsApiV1CredentialsGetData, ListCredentialsApiV1CredentialsGetError, ListCredentialsApiV1CredentialsGetErrors, ListCredentialsApiV1CredentialsGetResponse, ListCredentialsApiV1CredentialsGetResponses, ListDocumentsApiV1KnowledgeBaseDocumentsGetData, ListDocumentsApiV1KnowledgeBaseDocumentsGetError, ListDocumentsApiV1KnowledgeBaseDocumentsGetErrors, ListDocumentsApiV1KnowledgeBaseDocumentsGetResponse, ListDocumentsApiV1KnowledgeBaseDocumentsGetResponses, ListFoldersApiV1FolderGetData, ListFoldersApiV1FolderGetError, ListFoldersApiV1FolderGetErrors, ListFoldersApiV1FolderGetResponse, ListFoldersApiV1FolderGetResponses, ListNodeTypesApiV1NodeTypesGetData, ListNodeTypesApiV1NodeTypesGetError, ListNodeTypesApiV1NodeTypesGetErrors, ListNodeTypesApiV1NodeTypesGetResponse, ListNodeTypesApiV1NodeTypesGetResponses, ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetData, ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetError, ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetErrors, ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponse, ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponses, ListRecordingsApiV1WorkflowRecordingsGetData, ListRecordingsApiV1WorkflowRecordingsGetError, ListRecordingsApiV1WorkflowRecordingsGetErrors, ListRecordingsApiV1WorkflowRecordingsGetResponse, ListRecordingsApiV1WorkflowRecordingsGetResponses, ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetData, ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetError, ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetErrors, ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponse, ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponses, ListTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGetData, ListTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGetError, ListTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGetErrors, ListTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGetResponse, ListTelephonyTrunksApiV1OrganizationsTelephonyConfigsConfigIdTrunksGetResponses, ListToolRevisionsApiV1ToolsToolUuidRevisionsGetData, ListToolRevisionsApiV1ToolsToolUuidRevisionsGetError, ListToolRevisionsApiV1ToolsToolUuidRevisionsGetErrors, ListToolRevisionsApiV1ToolsToolUuidRevisionsGetResponse, ListToolRevisionsApiV1ToolsToolUuidRevisionsGetResponses, ListToolsApiV1ToolsGetData, ListToolsApiV1ToolsGetError, ListToolsApiV1ToolsGetErrors, ListToolsApiV1ToolsGetResponse, ListToolsApiV1ToolsGetResponses, LmntTtsConfiguration, LoginApiV1AuthLoginPostData, LoginApiV1AuthLoginPostError, LoginApiV1AuthLoginPostErrors, LoginApiV1AuthLoginPostResponse, LoginApiV1AuthLoginPostResponses, LoginRequest, McpRefreshResponse, McpToolConfig, McpToolDefinition, MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostData, MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostError, MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostErrors, MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostResponse, MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostResponses, MiniMaxLlmConfiguration, MiniMaxTtsConfiguration, ModelConfigurationMetricPrice, ModelConfigurationPricingResponse, MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutData, MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutError, MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutErrors, MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponse, MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponses, MoveWorkflowToFolderRequest, MpsBillingAccountResponse, MpsBillingCreditsResponse, MpsCreditLedgerEntryResponse, MpsCreditPurchaseUrlResponse, NodeCategory, NodeExample, NodeSpec, NodeTypesResponse, NumberInputOptions, OnboardingState, OnboardingStateUpdate, OpenAiEmbeddingsConfiguration, OpenAillmService, OpenAiRealtimeLlmConfiguration, OpenAisttConfiguration, OpenAittsService, OpenRouterEmbeddingsConfiguration, OpenRouterLlmConfiguration, OptionsEmbedConfigApiV1PublicEmbedConfigTokenOptionsData, OptionsEmbedConfigApiV1PublicEmbedConfigTokenOptionsError, OptionsEmbedConfigApiV1PublicEmbedConfigTokenOptionsErrors, OptionsEmbedConfigApiV1PublicEmbedConfigTokenOptionsResponses, OptionsInitApiV1PublicEmbedInitOptionsData, OptionsInitApiV1PublicEmbedInitOptionsErrors, OptionsInitApiV1PublicEmbedInitOptionsResponses, OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsData, OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsError, OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsErrors, OptionsPublicChatEndApiV1PublicEmbedChatSessionTokenEndOptionsResponses, OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsData, OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsError, OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsErrors, OptionsPublicChatMessagesApiV1PublicEmbedChatSessionTokenMessagesOptionsResponses, OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsData, OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsError, OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsErrors, OptionsPublicChatSessionApiV1PublicEmbedChatSessionTokenOptionsResponses, OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsData, OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsError, OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors, OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsResponses, OrganizationAiModelConfigurationResponse, OrganizationAiModelConfigurationV2, OrganizationContextResponse, OrganizationModelServicesContext, OrganizationPreferences, PauseCampaignApiV1CampaignCampaignIdPausePostData, PauseCampaignApiV1CampaignCampaignIdPausePostError, PauseCampaignApiV1CampaignCampaignIdPausePostErrors, PauseCampaignApiV1CampaignCampaignIdPausePostResponse, PauseCampaignApiV1CampaignCampaignIdPausePostResponses, PhoneNumberCreateRequest, PhoneNumberListResponse, PhoneNumberResponse, PhoneNumberUpdateRequest, PlivoConfigurationRequest, PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostData, PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostError, PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostErrors, PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponse, PostPublicChatMessageApiV1PublicEmbedChatSessionTokenMessagesPostResponses, PresetToolParameter, PresignedUploadUrlRequest, PresignedUploadUrlResponse, PreviewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGetData, PreviewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGetError, PreviewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGetErrors, PreviewModelConfigurationV2MigrationApiV1OrganizationsModelConfigurationsV2MigrationPreviewGetResponses, PreviewVoiceApiV1UserConfigurationsVoicesProviderPreviewPostData, PreviewVoiceApiV1UserConfigurationsVoicesProviderPreviewPostError, PreviewVoiceApiV1UserConfigurationsVoicesProviderPreviewPostErrors, PreviewVoiceApiV1UserConfigurationsVoicesProviderPreviewPostResponses, ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostData, ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostError, ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostErrors, ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponse, ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponses, ProcessDocumentRequestSchema, PropertyLayoutOptions, PropertyOption, PropertyRendererOptions, PropertySpec, PropertyType, ProviderSetupChecklist, ProviderSyncStatus, PublicEmbedChatEndRequest, PublicEmbedChatMessage, PublicEmbedChatMessageRequest, PublicEmbedChatSessionResponse, PublicEmbedChatTurn, PublishWorkflowApiV1WorkflowWorkflowIdPublishPostData, PublishWorkflowApiV1WorkflowWorkflowIdPublishPostError, PublishWorkflowApiV1WorkflowWorkflowIdPublishPostErrors, PublishWorkflowApiV1WorkflowWorkflowIdPublishPostResponses, ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutData, ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutError, ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutErrors, ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponse, ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponses, ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutData, ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutError, ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutErrors, ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutResponses, ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostData, ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostError, ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostErrors, ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponse, ReactivateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdReactivatePostResponses, RecordingCreateRequestSchema, RecordingListResponseSchema, RecordingResponseSchema, RecordingUpdateRequestSchema, RecordingUploadResponseSchema, RedialCampaignApiV1CampaignCampaignIdRedialPostData, RedialCampaignApiV1CampaignCampaignIdRedialPostError, RedialCampaignApiV1CampaignCampaignIdRedialPostErrors, RedialCampaignApiV1CampaignCampaignIdRedialPostResponse, RedialCampaignApiV1CampaignCampaignIdRedialPostResponses, RedialCampaignRequest, RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostData, RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostError, RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors, RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponse, RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses, RenameFolderApiV1FolderFolderIdPutData, RenameFolderApiV1FolderFolderIdPutError, RenameFolderApiV1FolderFolderIdPutErrors, RenameFolderApiV1FolderFolderIdPutResponse, RenameFolderApiV1FolderFolderIdPutResponses, RestoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePostData, RestoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePostError, RestoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePostErrors, RestoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePostResponse, RestoreWorkflowVersionApiV1WorkflowWorkflowIdVersionsVersionIdRestorePostResponses, ResumeCampaignApiV1CampaignCampaignIdResumePostData, ResumeCampaignApiV1CampaignCampaignIdResumePostError, ResumeCampaignApiV1CampaignCampaignIdResumePostErrors, ResumeCampaignApiV1CampaignCampaignIdResumePostResponse, ResumeCampaignApiV1CampaignCampaignIdResumePostResponses, RetryConfigRequest, RetryConfigResponse, ReviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPostData, ReviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPostError, ReviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPostErrors, ReviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPostResponse, ReviewToolRevisionApiV1ToolsToolUuidRevisionsRevisionReviewPostResponses, RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostData, RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostError, RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostErrors, RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponse, RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses, RewindTextChatSessionRequest, RimeTtsConfiguration, S3SignedUrlResponse, SarvamLlmConfiguration, SarvamSttConfiguration, SarvamTtsConfiguration, SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostData, SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostError, SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostErrors, SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostResponses, SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutData, SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutError, SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutErrors, SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutResponse, SaveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2PutResponses, SavePreferencesApiV1OrganizationsPreferencesPutData, SavePreferencesApiV1OrganizationsPreferencesPutError, SavePreferencesApiV1OrganizationsPreferencesPutErrors, SavePreferencesApiV1OrganizationsPreferencesPutResponse, SavePreferencesApiV1OrganizationsPreferencesPutResponses, ScheduleConfigRequest, ScheduleConfigResponse, SearchChunksApiV1KnowledgeBaseSearchPostData, SearchChunksApiV1KnowledgeBaseSearchPostError, SearchChunksApiV1KnowledgeBaseSearchPostErrors, SearchChunksApiV1KnowledgeBaseSearchPostResponse, SearchChunksApiV1KnowledgeBaseSearchPostResponses, ServiceKeyResponse, SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostData, SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostError, SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostErrors, SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponse, SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponses, SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostData, SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostError, SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostErrors, SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponse, SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses, SetupStep, SignupApiV1AuthSignupPostData, SignupApiV1AuthSignupPostError, SignupApiV1AuthSignupPostErrors, SignupApiV1AuthSignupPostResponse, SignupApiV1AuthSignupPostResponses, SignupRequest, SipConnectivityDetails, SipRegionDetails, SipTransportDetails, SmallestAisttConfiguration, SmallestAittsConfiguration, SpeachesLlmConfiguration, SpeachesSttConfiguration, SpeachesTtsConfiguration, SpeechifyTtsConfiguration, SpeechmaticsSttConfiguration, StartCampaignApiV1CampaignCampaignIdStartPostData, StartCampaignApiV1CampaignCampaignIdStartPostError, StartCampaignApiV1CampaignCampaignIdStartPostErrors, StartCampaignApiV1CampaignCampaignIdStartPostResponse, StartCampaignApiV1CampaignCampaignIdStartPostResponses, SubmitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPostData, SubmitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPostError, SubmitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPostErrors, SubmitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPostResponse, SubmitToolRevisionApiV1ToolsToolUuidRevisionsRevisionSubmitPostResponses, SuperuserWorkflowRunResponse, SuperuserWorkflowRunsListResponse, TelephonyConfigurationCreateRequest, TelephonyConfigurationDetail, TelephonyConfigurationListItem, TelephonyConfigurationListResponse, TelephonyConfigurationUpdateRequest, TelephonyConfigWarningsResponse, TelephonyProviderMetadata, TelephonyProvidersMetadataResponse, TelephonyProviderUiCondition, TelephonyProviderUiField, TelephonyProviderUiOption, TelnyxConfigurationRequest, TestToolApiV1ToolsToolUuidTestPostData, TestToolApiV1ToolsToolUuidTestPostError, TestToolApiV1ToolsToolUuidTestPostErrors, TestToolApiV1ToolsToolUuidTestPostResponse, TestToolApiV1ToolsToolUuidTestPostResponses, TextChatInactivityTimeoutConstraints, TimeSlotRequest, TimeSlotResponse, ToolParameter, ToolResponse, ToolTestRequest, ToolTestResponse, TranscribeAudioApiV1WorkflowRecordingsTranscribePostData, TranscribeAudioApiV1WorkflowRecordingsTranscribePostError, TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors, TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses, TransferAgentConfig, TransferAgentToolDefinition, TransferCallConfig, TransferCallToolDefinition, TriggerCallRequest, TriggerCallResponse, TrunkCreateRequest, TrunkListResponse, TrunkResponse, TrunkUpdateRequest, TurnCredentialsResponse, TwilioConfigurationRequest, UltravoxRealtimeLlmConfiguration, UnarchiveToolApiV1ToolsToolUuidUnarchivePostData, UnarchiveToolApiV1ToolsToolUuidUnarchivePostError, UnarchiveToolApiV1ToolsToolUuidUnarchivePostErrors, UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse, UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses, UpdateCampaignApiV1CampaignCampaignIdPatchData, UpdateCampaignApiV1CampaignCampaignIdPatchError, UpdateCampaignApiV1CampaignCampaignIdPatchErrors, UpdateCampaignApiV1CampaignCampaignIdPatchResponse, UpdateCampaignApiV1CampaignCampaignIdPatchResponses, UpdateCampaignRequest, UpdateCredentialApiV1CredentialsCredentialUuidPutData, UpdateCredentialApiV1CredentialsCredentialUuidPutError, UpdateCredentialApiV1CredentialsCredentialUuidPutErrors, UpdateCredentialApiV1CredentialsCredentialUuidPutResponse, UpdateCredentialApiV1CredentialsCredentialUuidPutResponses, UpdateCredentialRequest, UpdateFolderRequest, UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutData, UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutError, UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutErrors, UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponse, UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponses, UpdateRecordingApiV1WorkflowRecordingsIdPatchData, UpdateRecordingApiV1WorkflowRecordingsIdPatchError, UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors, UpdateRecordingApiV1WorkflowRecordingsIdPatchResponse, UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses, UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutData, UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutError, UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutErrors, UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponse, UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses, UpdateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPutData, UpdateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPutError, UpdateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPutErrors, UpdateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPutResponse, UpdateTelephonyTrunkApiV1OrganizationsTelephonyConfigsConfigIdTrunksTrunkIdPutResponses, UpdateToolApiV1ToolsToolUuidPutData, UpdateToolApiV1ToolsToolUuidPutError, UpdateToolApiV1ToolsToolUuidPutErrors, UpdateToolApiV1ToolsToolUuidPutResponse, UpdateToolApiV1ToolsToolUuidPutResponses, UpdateToolRequest, UpdateUserConfigurationsApiV1UserConfigurationsUserPutData, UpdateUserConfigurationsApiV1UserConfigurationsUserPutError, UpdateUserConfigurationsApiV1UserConfigurationsUserPutErrors, UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponse, UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses, UpdateUserOnboardingStateApiV1UserOnboardingStatePutData, UpdateUserOnboardingStateApiV1UserOnboardingStatePutError, UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors, UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponse, UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses, UpdateWorkflowApiV1WorkflowWorkflowIdPutData, UpdateWorkflowApiV1WorkflowWorkflowIdPutError, UpdateWorkflowApiV1WorkflowWorkflowIdPutErrors, UpdateWorkflowApiV1WorkflowWorkflowIdPutResponse, UpdateWorkflowApiV1WorkflowWorkflowIdPutResponses, UpdateWorkflowRequest, UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutData, UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutError, UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutErrors, UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponse, UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponses, UpdateWorkflowStatusRequest, UsageHistoryResponse, UserConfigurationRequestResponseSchema, UserResponse, ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetData, ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetError, ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetErrors, ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetResponse, ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetResponses, ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData, ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostError, ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostErrors, ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostResponse, ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostResponses, ValidateWorkflowResponse, ValidationError, VicidialAgentApiConfiguration, VicidialExternalPbxConfiguration, VicidialNonAgentApiConfiguration, VobizConfigurationRequest, VoiceFacets, VoiceInfo, VoicePreviewRequest, VoicesResponse, VonageConfigurationRequest, WebhookCredentialType, WidgetTexts, WorkflowConfigurationDefaults, WorkflowCountResponse, WorkflowError, WorkflowListResponse, WorkflowOption, WorkflowResponse, WorkflowRunDetail, WorkflowRunResponseSchema, WorkflowRunsResponse, WorkflowRunTextSessionResponse, WorkflowRunUsageResponse, WorkflowSummaryResponse, WorkflowTemplateResponse, WorkflowVersionResponse, XaittsConfiguration } from './types.gen';
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/client/sdk.gen.ts engine/ui/src/client/sdk.gen.ts
---- dograh/ui/src/client/sdk.gen.ts	2026-09-28 22:51:58.581243900 +0530
+--- dograh/ui/src/client/sdk.gen.ts	2026-09-29 10:11:21.089597500 +0530
 +++ engine/ui/src/client/sdk.gen.ts	2026-09-26 17:59:14.400318000 +0530
 @@ -2,7 +2,7 @@
  
@@ -11384,7 +11560,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  export const transcribeAudioApiV1WorkflowRecordingsTranscribePost = <ThrowOnError extends boolean = false>(options: Options<TranscribeAudioApiV1WorkflowRecordingsTranscribePostData, ThrowOnError>): RequestResult<TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses, TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors, ThrowOnError> => (options.client ?? client).post<TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses, TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors, ThrowOnError>({
      ...formDataBodySerializer,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/client/types.gen.ts engine/ui/src/client/types.gen.ts
---- dograh/ui/src/client/types.gen.ts	2026-09-28 22:51:58.585799400 +0530
+--- dograh/ui/src/client/types.gen.ts	2026-09-29 10:11:21.093121600 +0530
 +++ engine/ui/src/client/types.gen.ts	2026-09-28 16:50:27.133294700 +0530
 @@ -1,7 +1,7 @@
  // This file is auto-generated by @hey-api/openapi-ts
@@ -11948,7 +12124,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      url: '/api/v1/organizations/usage/runs';
  };
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/AIModelConfigurationV2Editor.tsx engine/ui/src/components/AIModelConfigurationV2Editor.tsx
---- dograh/ui/src/components/AIModelConfigurationV2Editor.tsx	2026-09-28 22:51:58.586312200 +0530
+--- dograh/ui/src/components/AIModelConfigurationV2Editor.tsx	2026-09-29 10:11:21.096120300 +0530
 +++ engine/ui/src/components/AIModelConfigurationV2Editor.tsx	2026-09-26 08:56:17.636819600 +0530
 @@ -20,6 +20,7 @@
  import { Label } from "@/components/ui/label";
@@ -12012,7 +12188,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  <TabsContent value="byok" className="mt-0">
                      <p className="mb-4 text-sm text-muted-foreground">
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/LLMConfigSelector.tsx engine/ui/src/components/LLMConfigSelector.tsx
---- dograh/ui/src/components/LLMConfigSelector.tsx	2026-09-28 22:51:58.593220500 +0530
+--- dograh/ui/src/components/LLMConfigSelector.tsx	2026-09-29 10:11:21.109171100 +0530
 +++ engine/ui/src/components/LLMConfigSelector.tsx	2026-09-26 08:55:00.286167200 +0530
 @@ -136,7 +136,7 @@
                                      onCheckedChange={(checked) => {
@@ -12169,7 +12345,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    );
 +}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/ServiceConfigurationForm.tsx engine/ui/src/components/ServiceConfigurationForm.tsx
---- dograh/ui/src/components/ServiceConfigurationForm.tsx	2026-09-28 22:51:58.601219300 +0530
+--- dograh/ui/src/components/ServiceConfigurationForm.tsx	2026-09-29 10:11:21.131649900 +0530
 +++ engine/ui/src/components/ServiceConfigurationForm.tsx	2026-09-27 12:02:56.827541400 +0530
 @@ -14,6 +14,8 @@
  import { Switch } from "@/components/ui/switch";
@@ -12455,7 +12631,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    );
 +};
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/VoiceSelector.tsx engine/ui/src/components/VoiceSelector.tsx
---- dograh/ui/src/components/VoiceSelector.tsx	2026-09-28 22:51:58.605300800 +0530
+--- dograh/ui/src/components/VoiceSelector.tsx	2026-09-29 10:11:21.139649200 +0530
 +++ engine/ui/src/components/VoiceSelector.tsx	2026-09-27 12:45:24.171725100 +0530
 @@ -4,19 +4,29 @@
  import { useCallback, useEffect, useState } from "react";
@@ -12728,7 +12904,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                                              >
                                                  <Volume2
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/filters/DateRangeFilter.tsx engine/ui/src/components/filters/DateRangeFilter.tsx
---- dograh/ui/src/components/filters/DateRangeFilter.tsx	2026-09-28 22:51:58.612861700 +0530
+--- dograh/ui/src/components/filters/DateRangeFilter.tsx	2026-09-29 10:11:21.149222600 +0530
 +++ engine/ui/src/components/filters/DateRangeFilter.tsx	2026-09-26 08:55:00.255237900 +0530
 @@ -73,9 +73,9 @@
      const timeString = type === 'from' ? fromTime : toTime;
@@ -12743,7 +12919,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      }
    };
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/flow/MentionTextarea.tsx engine/ui/src/components/flow/MentionTextarea.tsx
---- dograh/ui/src/components/flow/MentionTextarea.tsx	2026-09-28 22:51:58.626430900 +0530
+--- dograh/ui/src/components/flow/MentionTextarea.tsx	2026-09-29 10:11:21.173776400 +0530
 +++ engine/ui/src/components/flow/MentionTextarea.tsx	2026-09-26 08:55:00.288167900 +0530
 @@ -130,7 +130,7 @@
                  setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
@@ -12755,7 +12931,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  e.preventDefault();
                  setShowDropdown(false);
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/flow/edges/CustomEdge.tsx engine/ui/src/components/flow/edges/CustomEdge.tsx
---- dograh/ui/src/components/flow/edges/CustomEdge.tsx	2026-09-28 22:51:58.629428700 +0530
+--- dograh/ui/src/components/flow/edges/CustomEdge.tsx	2026-09-29 10:11:21.180777500 +0530
 +++ engine/ui/src/components/flow/edges/CustomEdge.tsx	2026-09-28 16:51:34.138035100 +0530
 @@ -31,6 +31,9 @@
      const [transitionSpeech, setTransitionSpeech] = useState(data?.transition_speech ?? '');
@@ -12814,7 +12990,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  <DialogFooter>
                      <div className="flex items-center gap-2">
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/flow/nodes/GenericNode.tsx engine/ui/src/components/flow/nodes/GenericNode.tsx
---- dograh/ui/src/components/flow/nodes/GenericNode.tsx	2026-09-28 22:51:58.632477300 +0530
+--- dograh/ui/src/components/flow/nodes/GenericNode.tsx	2026-09-29 10:11:21.186384900 +0530
 +++ engine/ui/src/components/flow/nodes/GenericNode.tsx	2026-09-26 19:19:28.222212500 +0530
 @@ -690,6 +690,8 @@
                              values={values}
@@ -12826,7 +13002,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                                  documents: documents ?? [],
                                  recordings: recordings ?? [],
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/flow/renderer/PropertyInput.tsx engine/ui/src/components/flow/renderer/PropertyInput.tsx
---- dograh/ui/src/components/flow/renderer/PropertyInput.tsx	2026-09-28 22:51:58.637748500 +0530
+--- dograh/ui/src/components/flow/renderer/PropertyInput.tsx	2026-09-29 10:11:21.282410100 +0530
 +++ engine/ui/src/components/flow/renderer/PropertyInput.tsx	2026-09-26 19:19:28.109723700 +0530
 @@ -8,6 +8,7 @@
  } from "@/client/types.gen";
@@ -12880,7 +13056,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      );
  }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/flow/types.ts engine/ui/src/components/flow/types.ts
---- dograh/ui/src/components/flow/types.ts	2026-09-28 22:51:58.641276600 +0530
+--- dograh/ui/src/components/flow/types.ts	2026-09-29 10:11:21.380747500 +0530
 +++ engine/ui/src/components/flow/types.ts	2026-09-28 16:51:34.114406300 +0530
 @@ -81,6 +81,9 @@
      transition_speech?: string;
@@ -12893,7 +13069,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      validationMessage?: string | null;
  }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/http/key-value-editor.tsx engine/ui/src/components/http/key-value-editor.tsx
---- dograh/ui/src/components/http/key-value-editor.tsx	2026-09-28 22:51:58.645294700 +0530
+--- dograh/ui/src/components/http/key-value-editor.tsx	2026-09-29 10:11:21.480726400 +0530
 +++ engine/ui/src/components/http/key-value-editor.tsx	2026-09-26 08:55:00.288167900 +0530
 @@ -34,7 +34,7 @@
  
@@ -12905,7 +13081,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      };
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/http/parameter-editor.tsx engine/ui/src/components/http/parameter-editor.tsx
---- dograh/ui/src/components/http/parameter-editor.tsx	2026-09-28 22:51:58.645806200 +0530
+--- dograh/ui/src/components/http/parameter-editor.tsx	2026-09-29 10:11:21.480726400 +0530
 +++ engine/ui/src/components/http/parameter-editor.tsx	2026-09-26 08:55:00.288167900 +0530
 @@ -55,7 +55,7 @@
          value: string | boolean
@@ -12926,7 +13102,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      };
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/http/url-input.tsx engine/ui/src/components/http/url-input.tsx
---- dograh/ui/src/components/http/url-input.tsx	2026-09-28 22:51:58.646825300 +0530
+--- dograh/ui/src/components/http/url-input.tsx	2026-09-29 10:11:21.483788500 +0530
 +++ engine/ui/src/components/http/url-input.tsx	2026-09-26 08:55:00.290164900 +0530
 @@ -22,7 +22,7 @@
  }
@@ -12938,7 +13114,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  }
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/telephony/ConfigFormDialog.tsx engine/ui/src/components/telephony/ConfigFormDialog.tsx
---- dograh/ui/src/components/telephony/ConfigFormDialog.tsx	2026-09-28 22:51:58.668958000 +0530
+--- dograh/ui/src/components/telephony/ConfigFormDialog.tsx	2026-09-29 10:11:21.799764900 +0530
 +++ engine/ui/src/components/telephony/ConfigFormDialog.tsx	2026-09-26 08:55:00.291166900 +0530
 @@ -92,7 +92,7 @@
        }
@@ -12959,7 +13135,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          }
        }
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/telephony/PhoneNumberDialog.tsx engine/ui/src/components/telephony/PhoneNumberDialog.tsx
---- dograh/ui/src/components/telephony/PhoneNumberDialog.tsx	2026-09-28 22:51:58.669980900 +0530
+--- dograh/ui/src/components/telephony/PhoneNumberDialog.tsx	2026-09-29 10:11:21.800768500 +0530
 +++ engine/ui/src/components/telephony/PhoneNumberDialog.tsx	2026-09-28 09:51:14.864610800 +0530
 @@ -29,6 +29,7 @@
  } from "@/components/ui/select";
@@ -13067,7 +13243,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
            </div>
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/ui/json-editor.tsx engine/ui/src/components/ui/json-editor.tsx
---- dograh/ui/src/components/ui/json-editor.tsx	2026-09-28 22:51:58.682555800 +0530
+--- dograh/ui/src/components/ui/json-editor.tsx	2026-09-29 10:11:21.988971600 +0530
 +++ engine/ui/src/components/ui/json-editor.tsx	2026-09-26 08:55:00.291166900 +0530
 @@ -91,10 +91,10 @@
      // Extract position info from error if available
@@ -13156,7 +13332,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    );
 +}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/workflow/conversation/ConversationTimeline.tsx engine/ui/src/components/workflow/conversation/ConversationTimeline.tsx
---- dograh/ui/src/components/workflow/conversation/ConversationTimeline.tsx	2026-09-28 22:51:58.703871600 +0530
+--- dograh/ui/src/components/workflow/conversation/ConversationTimeline.tsx	2026-09-29 10:11:22.103819700 +0530
 +++ engine/ui/src/components/workflow/conversation/ConversationTimeline.tsx	2026-09-26 18:31:05.340533700 +0530
 @@ -7,6 +7,7 @@
  
@@ -13201,7 +13377,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          </div>
      );
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/components/workflow/conversation/types.ts engine/ui/src/components/workflow/conversation/types.ts
---- dograh/ui/src/components/workflow/conversation/types.ts	2026-09-28 22:51:58.713388700 +0530
+--- dograh/ui/src/components/workflow/conversation/types.ts	2026-09-29 10:11:22.120365500 +0530
 +++ engine/ui/src/components/workflow/conversation/types.ts	2026-09-26 17:04:48.571037500 +0530
 @@ -43,6 +43,14 @@
          tool_call_id?: string;
@@ -13219,7 +13395,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          node_name?: string;
          previous_node_id?: string;
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/lib/logger.ts engine/ui/src/lib/logger.ts
---- dograh/ui/src/lib/logger.ts	2026-09-28 22:51:58.763093100 +0530
+--- dograh/ui/src/lib/logger.ts	2026-09-29 10:11:22.197466200 +0530
 +++ engine/ui/src/lib/logger.ts	2026-09-26 08:55:00.291166900 +0530
 @@ -26,7 +26,7 @@
  
@@ -13271,7 +13447,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    return `${wsUrl}/api/v1/ws/signaling/${workflowId}/${workflowRunId}?token=${accessToken}`;
 +}
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/lib/uuid.ts engine/ui/src/lib/uuid.ts
---- dograh/ui/src/lib/uuid.ts	2026-09-28 22:51:58.768688200 +0530
+--- dograh/ui/src/lib/uuid.ts	2026-09-29 10:11:22.203464600 +0530
 +++ engine/ui/src/lib/uuid.ts	2026-09-26 08:55:00.292168100 +0530
 @@ -12,8 +12,8 @@
      const bytes = webCrypto.getRandomValues(new Uint8Array(16));

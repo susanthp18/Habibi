@@ -4,8 +4,10 @@ Azure reports a language on every transcript (continuous language
 identification). ``CallLanguageTracker`` sits right after speech-to-text and
 turns that per-phrase signal into the call's current language:
 
-* a switch needs a phrase of at least two words, or two short phrases in a
-  row, so a stray "ok" or a name does not flip the conversation;
+* a switch needs a phrase of at least three words, or two short phrases in a
+  row, so a stray "ok", a name, or an English "No thanks" that Tamil
+  recognition wrote in Tamil script ("நோ தாங்க்ஸ்", run 67) does not flip the
+  conversation;
 * only the agent's languages count: a detection outside them (open-range
   refinement can label a Tamil phrase Arabic) is taken as the listed language
   of the same base language, or ignored;
@@ -30,7 +32,7 @@ LANGUAGE_NAMES = {
 _SCRIPTS = {"hi": "Devanagari", "mr": "Devanagari", "ta": "Tamil", "ar": "Arabic", "ur": "Arabic",
             "te": "Telugu", "kn": "Kannada", "ml": "Malayalam", "bn": "Bengali", "gu": "Gujarati"}
 
-_MIN_WORDS_TO_SWITCH = 2
+_MIN_WORDS_TO_SWITCH = 3
 
 
 def language_name(locale: str) -> str:

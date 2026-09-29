@@ -502,6 +502,17 @@ def briefing(mission: dict[str, Any]) -> str:
             + (f", account ending {tail}." if tail else ".")
         )
 
+    lines += _situation_lines(mission, currency)
+    return "\n".join(lines)
+
+
+def _situation_lines(mission: dict[str, Any], currency: Any) -> list[str]:
+    """What stands on the account and what this call may cover: the facts
+    every outbound agent needs, whatever script it follows."""
+    from money_inr import spoken_money
+
+    ctx = mission.get("context") or {}
+    lines: list[str] = []
     promise = ctx.get("promise")
     if promise and promise.get("amountInr") is not None:
         state = "was not kept" if promise.get("status") == "broken" else "is open"
@@ -537,6 +548,21 @@ def briefing(mission: dict[str, Any]) -> str:
             f"Keep this call under about {int(budget) // 60} minutes. If you are "
             "not converging, offer a callback rather than continuing."
         )
+    return lines
+
+
+def studio_briefing(mission: dict[str, Any]) -> str:
+    """``{{mission_brief}}`` for a Voice Studio agent: why the call was placed.
+
+    Only the situation. The agent's own steps greet, verify and read the
+    account, so ``briefing``'s opening script, its tool names and the account
+    figures stay out: its "account ending 2324" matched the customer's
+    registered mobile, and run 66 called verify_identity with it before the
+    customer had said a digit.
+    """
+    position = (mission.get("context") or {}).get("position") or {}
+    lines = [f"Why you are calling: {mission['brief']}"] if mission.get("brief") else []
+    lines += _situation_lines(mission, position.get("currency"))
     return "\n".join(lines)
 
 

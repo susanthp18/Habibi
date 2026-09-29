@@ -371,6 +371,7 @@ def test_guard_state_survives_a_text_chat_turn():
         engine._node_entry_user_message = {}
         engine._verified_user_message = None
         engine._written_user_message = None
+        engine._opt_out_visits = set()
         return engine
 
     digits = {"role": "user", "content": "1234"}
@@ -378,6 +379,7 @@ def test_guard_state_survives_a_text_chat_turn():
     first._verification_outcomes[("visit-1", "verify")] = True
     first._node_entry_user_message[("visit-1", "resolve")] = digits
     first._verified_user_message = digits
+    first._opt_out_visits.add("visit-1")
     state = first.export_guard_state()
 
     restored = [{"role": "user", "content": "hi"}, {"role": "user", "content": "1234"}]
@@ -386,6 +388,7 @@ def test_guard_state_survives_a_text_chat_turn():
     assert second._verification_outcomes[("visit-2", "resolve")] is True
     assert second._node_entry_user_message[("visit-2", "resolve")] is restored[1]
     assert second._verified_user_message is restored[1]
+    assert "visit-2" in second._opt_out_visits
 
 
 @pytest.mark.asyncio
@@ -433,3 +436,79 @@ async def test_a_transfer_needs_the_caller_to_ask_in_this_step():
     callback = AsyncMock()
     await handler(SimpleNamespace(arguments={"reason": "x"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "customer_did_not_ask"
+
+
+@pytest.mark.asyncio
+async def test_a_transfer_needs_the_customer_to_want_a_person():
+    """Run 68: "Tell me all" about exclusions was answered with a transfer."""
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    engine._context_summary_message = None
+    said = {"role": "user", "content": "Tell me all"}
+    engine.context = SimpleNamespace(messages=[
+        {"role": "assistant", "content": "Would you like help finding a specific exclusion?"}, said])
+    engine._node_entry_user_message = {("visit", "help"): None}
+    asked = []
+
+    async def run_inference(context, **_kw):
+        asked.append(context.messages[0]["content"])
+        return "NO"
+
+    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="help"),
+                            llm=SimpleNamespace(run_inference=run_inference))
+    manager = tools.CustomToolManager(engine, agent)
+    handler = manager._create_transfer_call_handler(SimpleNamespace(definition={"config": {}}), "transfer_to_human")
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"reason": "full exclusions"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "customer_did_not_ask_for_a_person"
+    assert "Customer: Tell me all" in asked[0] and "specific exclusion" in asked[0]
+
+    # A failed check lets a real request through.
+    async def broken(*_a, **_kw):
+        raise TimeoutError
+    agent.llm = SimpleNamespace(run_inference=broken)
+    assert await manager._customer_wants_a_person() is True
+
+
+@pytest.mark.asyncio
+async def test_an_opted_out_close_needs_the_opt_out():
+    """Run 66: "No need to call me" (declining a callback) closed on Stop contact
+    with no record_opt_out, and the promise was never recorded."""
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    engine.context = SimpleNamespace(messages=[
+        {"role": "user", "content": "I will pay the entire 4000 by 8 October. No need to call me."}])
+    engine._node_entry_user_message = {}
+    engine._context_summary_message = None
+    engine._customer_action_outcomes = {}
+    engine._verification_required = set()
+    engine._verification_outcomes = {}
+    engine._opt_out_visits = set()
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+
+    class Agent:
+        visit_id = "visit"
+        current_node = SimpleNamespace(id="hardship")
+        workflow = SimpleNamespace(nodes={"stop": SimpleNamespace(is_end=True, call_disposition="opted_out")})
+
+        def bind_tool(self, _engine, handler):
+            return handler
+
+    handler = await engine._create_transition_func("Stop contact", "stop", agent=Agent())
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "opt_out_not_recorded"
+
+    engine._opt_out_visits.add("visit")  # record_opt_out was called
+    engine._active_agent = Agent()
+    engine._run_transition_variable_extraction_in_background = False
+    engine.set_node = AsyncMock()
+    engine.arm_speech_playback = Mock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    engine.set_node.assert_awaited_once_with("stop", origin_visit_id="visit")
