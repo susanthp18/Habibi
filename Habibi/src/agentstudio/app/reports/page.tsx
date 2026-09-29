@@ -57,7 +57,12 @@ export default function ReportsPage() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata');
+  // Browsers can report legacy IANA aliases (Windows: Asia/Calcutta) that the
+  // engine's zoneinfo rejects with a 500, so map them to the canonical name.
+  const [timezone, setTimezone] = useState(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+    return ({ 'Asia/Calcutta': 'Asia/Kolkata', 'Asia/Katmandu': 'Asia/Kathmandu', 'Asia/Saigon': 'Asia/Ho_Chi_Minh', 'Asia/Rangoon': 'Asia/Yangon' } as Record<string, string>)[tz] ?? tz;
+  });
   const auth = useAuth();
 
   // Fetch workflows on mount

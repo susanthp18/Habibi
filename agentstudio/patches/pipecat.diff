@@ -1,5 +1,5 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
---- pipecat/src/pipecat/services/azure/stt.py	2026-09-29 10:11:52.080525600 +0530
+--- pipecat/src/pipecat/services/azure/stt.py	2026-09-29 19:23:02.505276800 +0530
 +++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
 @@ -11,6 +11,7 @@
  """
@@ -336,7 +336,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              frame = InterimTranscriptionFrame(
                  event.result.text,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 16:46:16.665212000 +0530
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 19:23:02.506346600 +0530
 +++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-29 16:40:14.839685900 +0530
 @@ -35,6 +35,7 @@
  try:
@@ -558,7 +558,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          """Start the Azure TTS service and initialize speech synthesizer.
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
---- pipecat/src/pipecat/services/mcp_service.py	2026-09-29 10:11:52.657264100 +0530
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-29 19:23:02.671664700 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
 @@ -39,7 +39,7 @@
  
@@ -615,7 +615,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  read_stream, write_stream = streams[0], streams[1]
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/turns/user_idle_controller.py engine/pipecat/src/pipecat/turns/user_idle_controller.py
---- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 10:11:53.675190000 +0530
+--- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 19:23:02.957765500 +0530
 +++ engine/pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 09:57:47.286195900 +0530
 @@ -70,6 +70,7 @@
          self._waiting_for_user: bool = False
@@ -660,7 +660,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      async def _start_idle_timer(self):
          """Start (or restart) the idle timer."""
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/utils/enums.py engine/pipecat/src/pipecat/utils/enums.py
---- pipecat/src/pipecat/utils/enums.py	2026-09-29 17:10:40.875705500 +0530
+--- pipecat/src/pipecat/utils/enums.py	2026-09-29 19:23:03.013370800 +0530
 +++ engine/pipecat/src/pipecat/utils/enums.py	2026-09-29 17:00:15.824931000 +0530
 @@ -28,6 +28,8 @@
      TTFB_METRIC = "rtf-ttfb-metric"
@@ -672,7 +672,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      BOT_STARTED_SPEAKING = "rtf-bot-started-speaking"
      BOT_STOPPED_SPEAKING = "rtf-bot-stopped-speaking"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
---- pipecat/tests/test_azure_stt.py	2026-09-29 10:11:54.677406200 +0530
+--- pipecat/tests/test_azure_stt.py	2026-09-29 19:23:03.146539300 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530
 @@ -164,3 +164,45 @@
  
@@ -721,7 +721,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        service = self._service()
 +        assert service._detected_language(SimpleNamespace()) == "en-IN"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_tts.py engine/pipecat/tests/test_azure_tts.py
---- pipecat/tests/test_azure_tts.py	2026-09-29 10:11:54.678924700 +0530
+--- pipecat/tests/test_azure_tts.py	2026-09-29 19:23:03.148874500 +0530
 +++ engine/pipecat/tests/test_azure_tts.py	2026-09-27 11:57:36.673304800 +0530
 @@ -209,3 +209,61 @@
          "</lang>"
@@ -786,7 +786,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    # is left to detect the language from the text.
 +    assert "<lang" not in ssml and "en-US-AvaMultilingualNeural" in ssml
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_user_idle_controller.py engine/pipecat/tests/test_user_idle_controller.py
---- pipecat/tests/test_user_idle_controller.py	2026-09-29 10:11:55.912371500 +0530
+--- pipecat/tests/test_user_idle_controller.py	2026-09-29 19:23:03.470647800 +0530
 +++ engine/pipecat/tests/test_user_idle_controller.py	2026-09-29 09:58:06.797134600 +0530
 @@ -249,6 +249,73 @@
  
