@@ -18,7 +18,7 @@ export function BehaviorMetricsStrip({ metrics }: { metrics: BehaviorMetrics }) 
           : ("default" as const),
     },
     {
-      label: "Open dispute $",
+      label: "Open disputes",
       value: fmtMoney(metrics.openDisputeAmount),
       tone: metrics.openDisputeAmount > 0 ? ("warning" as const) : ("default" as const),
     },
@@ -34,7 +34,7 @@ export function BehaviorMetricsStrip({ metrics }: { metrics: BehaviorMetrics }) 
       tone: "success" as const,
     },
     {
-      label: "Active PTP $",
+      label: "Active PTP",
       value: fmtMoney(metrics.activePromiseAmount),
       tone: "default" as const,
     },

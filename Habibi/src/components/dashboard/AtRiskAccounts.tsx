@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import type { AtRiskAccount } from "@/api/types/dashboard";
 import { Lozenge, type LozengeTone } from "@/components/ui/lozenge";
-import { fmtMoney } from "@/lib/format";
+import { fmtMoney, fmtRelative } from "@/lib/format";
 
 const riskTone: Record<AtRiskAccount["risk"], LozengeTone> = {
   critical: "danger",
@@ -57,7 +57,7 @@ export function AtRiskAccounts({ accounts }: { accounts: AtRiskAccount[] }) {
                 <div className="text-sm font-semibold text-text tabular">
                   {fmtMoney(a.outstanding)}
                 </div>
-                <div className="text-body-small text-text-subtlest">Last: {a.lastContact}</div>
+                <div className="text-body-small text-text-subtlest">Last contact {fmtRelative(a.lastContact)}</div>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-text-subtlest" />
             </Link>

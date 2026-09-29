@@ -43,7 +43,7 @@ export function DeliveryRow({
           // from a delivery that actually reached the endpoint, which is how
           // this log spent its whole life reporting sends that never happened.
           <Lozenge tone="warning" className="shrink-0">
-            Simulated
+            Test event
           </Lozenge>
         )}
         <span

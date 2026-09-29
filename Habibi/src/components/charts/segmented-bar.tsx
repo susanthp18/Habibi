@@ -36,6 +36,7 @@ export function SegmentedBar({
       {active?.valueLabel ? (
         <span className="mt-050 block heading-medium font-semibold tracking-tight text-text tabular-nums">
           {active.valueLabel}
+          <span className="ml-100 text-body-small font-medium text-text-subtle">{active.label}</span>
         </span>
       ) : null}
 

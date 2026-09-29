@@ -32,8 +32,8 @@ export function PromisesTab({ customer, onCreate }: { customer: Customer; onCrea
           value={keepRate !== null ? `${keepRate}%` : "—"}
           tone="brand"
         />
-        <Metric label="$ Active" value={fmtMoney(active)} />
-        <Metric label="$ Broken" value={fmtMoney(atRisk)} tone="danger" />
+        <Metric label="Active" value={fmtMoney(active)} />
+        <Metric label="Broken" value={fmtMoney(atRisk)} tone="danger" />
       </div>
 
       {customer.promises.length === 0 ? (

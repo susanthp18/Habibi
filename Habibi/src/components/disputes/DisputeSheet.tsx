@@ -330,7 +330,7 @@ export function DisputeSheet({ dispute: d, onClose, onMutate, assignees }: Props
                   </Button>
                 </div>
                 <div className="mt-050 text-body-small text-text-subtlest">
-                  Simulated upload · files logged with actor and timestamp.
+                  Records the file name with who attached it and when.
                 </div>
               </div>
 

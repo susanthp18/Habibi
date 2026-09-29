@@ -588,6 +588,13 @@ def rotate_webhook_secret(endpoint_id: str) -> dict[str, Any]:
 
 def _delivery_contract(row: dict[str, Any], max_attempts: int = 3) -> dict[str, Any]:
     created = row.get("created_at")
+    # db._rows hands timestamps back as ISO strings; without parsing them every
+    # delivery fell back to "now" and the log read "-1s ago" on every row.
+    if isinstance(created, str):
+        try:
+            created = datetime.fromisoformat(created)
+        except ValueError:
+            created = None
     at_ms = int(created.timestamp() * 1000) if isinstance(created, datetime) else int(time.time() * 1000)
     payload = row.get("payload") or {}
     if isinstance(payload, str):
