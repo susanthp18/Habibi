@@ -59,7 +59,6 @@ export function ProductPage() {
       <Closing
         title={["A tour, not", "a slide deck."]}
         lede="We will open the console on a book that looks like yours and work one account from the failed payment to the written promise."
-        secondary={{ label: "How we price it", href: "/pricing/" }}
       />
     </>
   );

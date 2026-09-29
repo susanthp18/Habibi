@@ -183,7 +183,6 @@ export function InsurancePage() {
         title={["Help us build", "the renewal side."]}
         lede="Bring one renewal cohort. We will map it onto the platform with you and measure the pilot on policies retained, against a comparison group."
         primary={{ label: "Become a design partner", href: "/demo/" }}
-        secondary={{ label: "How we price it", href: "/pricing/" }}
       />
     </>
   );

@@ -158,10 +158,6 @@ export function LendersPage() {
       <Closing
         title={["Start with one", "bucket, one month."]}
         lede="A pilot on a defined slice of the early book, with a comparison group, and an audit pack when it ends."
-        secondary={{
-          label: "How we price it",
-          href: "/pricing/",
-        }}
       />
     </>
   );

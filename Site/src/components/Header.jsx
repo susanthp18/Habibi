@@ -4,9 +4,6 @@ import { navRoutes, routes } from "../routes";
 
 export function Header({ path }) {
   const [stuck, setStuck] = React.useState(false);
-  // The walkthrough button joins the bar once the page's own call to action
-  // has scrolled away, so the two never compete on screen.
-  const [ctaOn, setCtaOn] = React.useState(false);
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -14,19 +11,6 @@ export function Header({ path }) {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  React.useEffect(() => {
-    const heroCta = document.querySelector("[data-hero-cta]");
-    if (!heroCta) {
-      setCtaOn(true);
-      return;
-    }
-    const observer = new IntersectionObserver(([entry]) => setCtaOn(!entry.isIntersecting), {
-      threshold: 0,
-    });
-    observer.observe(heroCta);
-    return () => observer.disconnect();
   }, []);
 
   React.useEffect(() => {
@@ -44,7 +28,6 @@ export function Header({ path }) {
   }, [open]);
 
   const sheetRoutes = routes.filter((route) => route.nav || route.path === "/");
-  const showCta = path !== "/demo/";
   return (
     <>
       <a className="skip" href="#main">
@@ -75,16 +58,6 @@ export function Header({ path }) {
             <a className="nav__signin" href="/login">
               Sign in
             </a>
-            {showCta ? (
-              <a
-                className={`btn btn--primary nav__cta${ctaOn ? " nav__cta--on" : ""}`}
-                href="/demo/"
-                aria-hidden={!ctaOn}
-                tabIndex={ctaOn ? undefined : -1}
-              >
-                Book a walkthrough
-              </a>
-            ) : null}
             <CorpMark className="nav__corp" size={64} />
             <button
               className={`nav__burger${open ? " is-open" : ""}`}

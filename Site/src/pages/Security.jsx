@@ -278,7 +278,7 @@ export function SecurityPage() {
         links={[
           ["/compliance/", "Compliance and QA", "Gates, scoring and the evidence trail."],
           ["/platform/", "The platform", "How the whole pipeline runs."],
-          ["/pricing/", "Pricing", "What a deployment and a pilot cost to run."],
+          ["/agents/", "The agents", "What carries out the work, and what it may not do."],
         ]}
       />
       <Closing

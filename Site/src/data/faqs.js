@@ -107,20 +107,6 @@ export const faqs = {
       "The decision engine's models learn from your book inside your deployment. Cloud AI services run under your own agreement with the provider, on your keys, not ours.",
     ],
   ],
-  "/pricing/": [
-    [
-      "Why not price per minute?",
-      "Because the first observable effect of a working decision engine is a drop in call volume: it discovers that a large share of early-bucket dialling is worth less than silence. Priced per minute, the intelligence layer would cannibalise the revenue line. Priced per resolution, the same behaviour is the product.",
-    ],
-    [
-      "Is there a per-seat licence?",
-      "No. Seats are the wrong unit for a floor whose headcount should be falling on the early book while it holds steady on hardship and disputes.",
-    ],
-    [
-      "What does a pilot cost?",
-      "A fixed fee for thirty days on a defined slice of the book, with a comparison group and an audit pack on exit. If the lift is not attributable against that group, you have that in writing.",
-    ],
-  ],
   "/lenders/": [
     [
       "Where should voice agents not be used?",

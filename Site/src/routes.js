@@ -7,7 +7,6 @@ import { HomePage } from "./pages/Home";
 import { InsurancePage } from "./pages/Insurance";
 import { LendersPage } from "./pages/Lenders";
 import { PlatformPage } from "./pages/Platform";
-import { PricingPage } from "./pages/Pricing";
 import { ProductPage } from "./pages/Product";
 import { SecurityPage } from "./pages/Security";
 
@@ -99,16 +98,6 @@ export const routes = [
     label: "Insurance",
     priority: 0.8,
     component: InsurancePage,
-  },
-  {
-    path: "/pricing/",
-    title: "How PayInt is priced | Per resolution, not per minute",
-    description:
-      "A working decision engine's first effect is fewer calls. Per-minute pricing would punish that, so PayInt is priced on resolved contacts and recovered value.",
-    nav: "Pricing",
-    foot: "Company",
-    priority: 0.7,
-    component: PricingPage,
   },
   {
     path: "/demo/",

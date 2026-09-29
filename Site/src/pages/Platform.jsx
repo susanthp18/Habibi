@@ -291,10 +291,6 @@ export function PlatformPage() {
       <Closing
         title={["See a bounce become", "a conversation."]}
         lede="Thirty minutes, your book, your rules. We run one account end to end: the trigger, the gates, the decision, the conversation and the record it leaves behind."
-        secondary={{
-          label: "How we price it",
-          href: "/pricing/",
-        }}
       />
     </>
   );

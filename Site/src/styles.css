@@ -247,21 +247,6 @@ html.fx .rise {
   height: 64px;
   object-fit: contain;
 }
-.nav__cta {
-  opacity: 0;
-  transform: translateY(-7px) scale(0.96);
-  pointer-events: none;
-  transition:
-    opacity 0.55s var(--ease),
-    transform 0.55s var(--ease),
-    background 0.5s var(--ease),
-    box-shadow 0.5s var(--ease);
-}
-.nav__cta--on {
-  opacity: 1;
-  transform: none;
-  pointer-events: auto;
-}
 .nav__star {
   display: none;
   font-size: 22px;
@@ -1942,18 +1927,11 @@ html.is-still .phero:before {
   filter: blur(20px);
 }
 @media (max-width: 1020px) {
-  .nav__cta {
-    padding: 11px 18px;
-    font-size: 14px;
-  }
   .phero {
     padding-top: 104px;
   }
 }
 @media (max-width: 720px) {
-  .nav__cta {
-    display: none;
-  }
   .hero {
     padding-top: 92px;
   }

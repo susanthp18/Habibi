@@ -406,7 +406,7 @@ export function DecisionEnginePage() {
       <More
         links={[
           ["/agents/", "The agents", "What carries out the decision, and what it may not do."],
-          ["/pricing/", "Pricing", "Why fewer calls has to be good for both of us."],
+          ["/platform/", "The platform", "How the whole pipeline runs."],
           ["/compliance/", "Compliance", "The vetoes, and the evidence they leave."],
         ]}
       />
