@@ -590,6 +590,10 @@ class CustomToolManager:
                     verified = (result.get("status") == "success"
                                 and data.get("ok") is True and data.get("verified") is True)
                     self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = verified
+                    if (verified and self._agent is self._engine.active_agent
+                            and self._agent.current_node is not None
+                            and self._agent.current_node.id == action_node_id):
+                        await self._engine.advance_after_verification(self._agent)
 
                 if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
                     data = result.get("data") if isinstance(result.get("data"), dict) else {}

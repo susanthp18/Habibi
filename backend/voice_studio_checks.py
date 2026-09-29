@@ -136,6 +136,19 @@ def _persona(scenario_id: str | None) -> dict[str, Any]:
     return dict(TEST_PERSONA)
 
 
+def _position(persona: dict[str, Any]) -> dict[str, Any]:
+    """The persona's account, as account_position reports it."""
+    return {
+        "rehearsal": True,
+        "currency": persona.get("currency") or "INR",
+        "outstanding_amount": _money(persona.get("overdue"), persona.get("currency")),
+        "days_past_due": persona.get("dpd"),
+        "minimum_due": _money(persona.get("minimumDue"), persona.get("currency")),
+        "minimum_due_value": persona.get("minimumDue"),
+        "product_name": persona.get("product"),
+    }
+
+
 def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     """A tool call from a test or rehearsal: answered from the persona, nothing written."""
     persona = _persona(ctx.get("rehearsal"))
@@ -150,20 +163,13 @@ def rehearsal_tool(name: str, ctx: dict[str, Any], args: dict[str, Any]) -> dict
         if known and digits not in known:
             return {"ok": True, "verified": False, "attempts_left": 2, "say": "Those digits don't match our records."}
         _verified_runs.add(run)
-        return {"ok": True, "verified": True, "customer_name": persona.get("name"), "rehearsal": True}
+        # With the account, as a live verification returns it.
+        return {"ok": True, "verified": True, "customer_name": persona.get("name"), **_position(persona)}
     if name == "account_position":
         if run not in _verified_runs:
             return {"ok": False, "error": "identity_not_verified",
                     "say": "Verify the customer's identity before discussing the account."}
-        return {
-            "ok": True, "rehearsal": True,
-            "currency": persona.get("currency") or "INR",
-            "outstanding_amount": _money(persona.get("overdue"), persona.get("currency")),
-            "days_past_due": persona.get("dpd"),
-            "minimum_due": _money(persona.get("minimumDue"), persona.get("currency")),
-            "minimum_due_value": persona.get("minimumDue"),
-            "product_name": persona.get("product"),
-        }
+        return {"ok": True, **_position(persona)}
     if name == "record_opt_out":
         return {"ok": True, "rehearsal": True, "note": "Test conversation: no opt-out was recorded."}
     if name in ("promise_to_pay", "request_callback", "flag_dispute", "request_documents", "capture_lead"):
@@ -422,7 +428,7 @@ if __name__ == "__main__":  # self-check of the persona tools (no DB, no engine)
     ctx = {"workflow_run_id": 1}
     assert rehearsal_tool("account_position", ctx, {})["error"] == "identity_not_verified"
     assert rehearsal_tool("verify_identity", ctx, {"value": "1111"})["verified"] is False
-    assert rehearsal_tool("verify_identity", ctx, {"value": "4821"})["verified"] is True
+    assert rehearsal_tool("verify_identity", ctx, {"value": "4821"})["minimum_due_value"] == 2100
     assert rehearsal_tool("account_position", ctx, {})["days_past_due"] == 30
     assert rehearsal_tool("promise_to_pay", ctx, {"amount": 1, "date": "2026-10-01"})["rehearsal"] is True
     assert is_test({}) and not is_test({"direction": "inbound"}) and is_test({"direction": "outbound", "rehearsal": "x"})

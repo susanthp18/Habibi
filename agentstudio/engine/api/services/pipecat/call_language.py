@@ -21,8 +21,10 @@ turns that per-phrase signal into the call's current language:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
+from loguru import logger
 from pipecat.frames.frames import Frame, LLMMessagesAppendFrame, TranscriptionFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -82,6 +84,48 @@ def switch_note(locale: str) -> str:
     )
 
 
+def not_a_switch_note(locale: str, current: str) -> str:
+    """For a phrase recognition labelled ``locale`` that the check found was ``current``."""
+    return (
+        f"Speech recognition wrote the caller's last words in {language_name(locale)} script, "
+        f"but they are speaking {language_name(current)}: read them as {language_name(current)} "
+        f"and reply in {language_name(current)}."
+    )
+
+
+async def words_are_in(llm, text: str, locale: str, current: str) -> bool:
+    """Ask the model whether ``text`` is really ``locale``, not ``current`` in its script.
+
+    Azure labels an Indian caller's English Hindi or Tamil and writes it in that
+    script: "what is the last date I can pay" came as "வாட் இஸ் தி லாஸ்ட் டேட் ஐ
+    கேன் பி", ta-IN, nine words, and the call and its voice went Tamil (run 79).
+    Word counts cannot tell that from Tamil; the words can. Fails open: on a slow
+    or failed check the switch goes ahead as it would have.
+    """
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    name, current_name = language_name(locale), language_name(current)
+    question = (
+        f"A phone caller's words, as speech recognition wrote them: {text}\n\n"
+        "Speech recognition often writes English in Hindi or Tamil script. Judge by the "
+        f"words, not the script: is the caller speaking {name} or {current_name}? "
+        f"Reply {name} or {current_name}."
+    )
+    try:
+        async with asyncio.timeout(3):
+            reply = await llm.run_inference(
+                LLMContext([{"role": "user", "content": question}]),
+                system_instruction="You name the language of one phrase. Reply with the language only.",
+                max_tokens=64,
+            )
+    except Exception as e:
+        logger.warning(f"Language check failed open: {type(e).__name__}")
+        return True
+    answer = (reply or "").strip().lower()
+    logger.info(f"Language check {locale} vs {current}: {answer[:20]!r}")
+    return not answer.startswith(current_name.lower())
+
+
 class CallLanguageTracker(FrameProcessor):
     """Follows the caller's language through the call; see the module docstring."""
 
@@ -91,6 +135,7 @@ class CallLanguageTracker(FrameProcessor):
         initial: str,
         languages: list[str] | None = None,
         on_change: Callable[[str, list[str]], Awaitable[None] | None] | None = None,
+        confirm: Callable[[str, str, str], Awaitable[bool]] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -100,6 +145,8 @@ class CallLanguageTracker(FrameProcessor):
         self.spoken: list[str] = []
         self._pending: str | None = None
         self._on_change = on_change
+        # (text, detected, current) -> is it really the detected language?
+        self._confirm = confirm
 
     def _listed(self, detected: str) -> str | None:
         """``detected`` as one of the agent's languages, or None."""
@@ -113,15 +160,21 @@ class CallLanguageTracker(FrameProcessor):
         if isinstance(frame, TranscriptionFrame) and frame.language and (words := letter_words(frame.text)):
             language = self._listed(str(frame.language))
             if language is not None:
-                await self._observe(language, words)
+                await self._observe(language, words, frame.text)
         await self.push_frame(frame, direction)
 
-    async def _observe(self, language: str, words: int) -> None:
+    async def _observe(self, language: str, words: int, text: str = "") -> None:
         changed = not self.spoken  # the first phrase establishes the language
         if language == self.current:
             self._pending = None
         elif words >= _MIN_WORDS_TO_SWITCH or self._pending == language:
             self._pending = None
+            if self._confirm is not None and not await self._confirm(text, language, self.current):
+                await self.push_frame(LLMMessagesAppendFrame(
+                    [{"role": "system", "content": not_a_switch_note(language, self.current)}],
+                    run_llm=False,
+                ))
+                return
             self.current = language
             changed = True
             # Before the caller's words, so the model reads them in context.

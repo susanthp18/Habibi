@@ -519,3 +519,40 @@ async def test_an_opted_out_close_needs_the_opt_out():
     engine.arm_speech_playback = Mock()
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
     engine.set_node.assert_awaited_once_with("stop", origin_visit_id="visit")
+
+
+def _verify_engine(edges, nodes):
+    engine = object.__new__(PipecatEngine)
+    engine._run_transition_variable_extraction_in_background = True
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+    engine.set_node = AsyncMock()
+    agent = SimpleNamespace(
+        visit_id="visit",
+        current_node=SimpleNamespace(id="verify", out_edges=edges),
+        workflow=SimpleNamespace(nodes=nodes),
+    )
+    return engine, agent
+
+
+def _edge(target, **data):
+    flags = {"requires_user_turn": False, "requires_successful_action": False,
+             "transition_speech_recording_id": None, **data}
+    return SimpleNamespace(target=target, transition_speech=None, data=SimpleNamespace(**flags))
+
+
+@pytest.mark.asyncio
+async def test_verified_takes_the_only_onward_edge():
+    nodes = {"account": SimpleNamespace(is_end=False), "close": SimpleNamespace(is_end=True)}
+    engine, agent = _verify_engine([_edge("account"), _edge("close")], nodes)
+    assert await engine.advance_after_verification(agent) is True
+    engine.set_node.assert_awaited_once_with("account", origin_visit_id="visit")
+
+
+@pytest.mark.asyncio
+async def test_verified_leaves_a_real_choice_to_the_model():
+    nodes = {"a": SimpleNamespace(is_end=False), "b": SimpleNamespace(is_end=False)}
+    engine, agent = _verify_engine([_edge("a"), _edge("b")], nodes)
+    assert await engine.advance_after_verification(agent) is False
+    engine, agent = _verify_engine([_edge("a", requires_user_turn=True)], nodes)
+    assert await engine.advance_after_verification(agent) is False
+    engine.set_node.assert_not_awaited()

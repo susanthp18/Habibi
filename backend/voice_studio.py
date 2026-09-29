@@ -580,7 +580,10 @@ def _tool_verify_identity(ctx: dict[str, Any], args: dict[str, Any], interaction
 
     with db.engine.connect() as conn:
         if _identity_verified(conn, interaction_id, ctx):
-            return {"ok": True, "verified": True, "note": "already verified on this call"}
+            # With the account, as a first verification returns it: the step
+            # after verification reads it from here, not from account_position.
+            return {"ok": True, "verified": True, "note": "already verified on this call",
+                    **_account_position(ctx.get("customer_id"), ctx.get("account_id"))}
         attempts = _verification_attempts(conn, interaction_id, ctx)
     if attempts >= MAX_VERIFY_ATTEMPTS:
         return {"ok": False, "verified": False, "error": "locked",

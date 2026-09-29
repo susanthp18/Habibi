@@ -5725,8 +5725,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      await session.start()
      try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine.py engine/api/services/workflow/pipecat_engine.py
---- dograh/api/services/workflow/pipecat_engine.py	2026-09-29 19:22:40.958236800 +0530
-+++ engine/api/services/workflow/pipecat_engine.py	2026-09-29 12:29:03.883821000 +0530
+--- dograh/api/services/workflow/pipecat_engine.py	2026-09-29 20:04:27.789559000 +0530
++++ engine/api/services/workflow/pipecat_engine.py	2026-09-29 19:31:53.066222600 +0530
 @@ -17,6 +17,7 @@
      CancelFrame,
      EndFrame,
@@ -6018,7 +6018,39 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  # Perform variable extraction before transitioning to new node
                  await self._perform_variable_extraction_if_needed(
                      self.active_agent.current_node,
-@@ -504,6 +750,9 @@
+@@ -496,6 +742,31 @@
+ 
+         return agent.bind_tool(self, transition_func)
+ 
++    async def advance_after_verification(self, agent: AgentRuntime) -> bool:
++        """Take a verification step's one onward edge once it is verified.
++
++        Then the only edge that doesn't close the call is the next step, and
++        the model took it next on every call (runs 70-79): a generation of
++        about a second spent on a choice with one answer. Moving here, before
++        the tool result goes back, lets the next step's model read it. Steps
++        with any other way on, or an edge that speaks, are left to the model.
++        """
++        node = agent.current_node
++        if node is None:
++            return False
++        onward = [e for e in node.out_edges if not agent.workflow.nodes[e.target].is_end]
++        if len(onward) != 1:
++            return False
++        edge = onward[0]
++        if (edge.data.requires_user_turn or edge.data.requires_successful_action
++                or edge.transition_speech or edge.data.transition_speech_recording_id):
++            return False
++        await self._perform_variable_extraction_if_needed(
++            node, run_in_background=self._run_transition_variable_extraction_in_background,
++        )
++        await self.set_node(edge.target, origin_visit_id=agent.visit_id)
++        return True
++
+     async def _register_transition_function_with_llm(
+         self,
+         name: str,
+@@ -504,6 +775,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -6028,7 +6060,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -518,6 +767,9 @@
+@@ -518,6 +792,9 @@
              transition_speech,
              transition_speech_type,
              transition_speech_recording_id,
@@ -6038,7 +6070,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              agent=agent,
          )
  
-@@ -559,7 +811,11 @@
+@@ -559,7 +836,11 @@
                      query=query,
                      organization_id=organization_id,
                      document_uuids=document_uuids,
@@ -6051,7 +6083,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      embeddings_api_key=self._embeddings_api_key,
                      embeddings_model=self._embeddings_model,
                      embeddings_base_url=self._embeddings_base_url,
-@@ -570,6 +826,7 @@
+@@ -570,6 +851,7 @@
                          MPS_CORRELATION_ID_CONTEXT_KEY
                      ),
                      tracing_context=self._get_otel_context(),
@@ -6059,7 +6091,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  )
  
                  await function_call_params.result_callback(result)
-@@ -785,6 +1042,9 @@
+@@ -785,6 +1067,9 @@
                      edge.transition_speech,
                      edge.data.transition_speech_type,
                      edge.data.transition_speech_recording_id,
@@ -6069,7 +6101,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      agent=agent,
                  )
          if node.tool_uuids and manager:
-@@ -802,11 +1062,18 @@
+@@ -802,11 +1087,18 @@
              format_prompt=self._format_prompt,
              has_recordings=self._has_recordings,
          )
@@ -6088,7 +6120,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          if apply_settings:
              await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
  
-@@ -865,6 +1132,7 @@
+@@ -865,6 +1157,7 @@
  
          # Set current node for all nodes (including static ones) so STT mute filter works
          self.active_agent.current_node = node
@@ -6096,7 +6128,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          # Track visited nodes in gathered context for call tags
          nodes_visited = self._gathered_context.setdefault("nodes_visited", [])
-@@ -1095,6 +1363,13 @@
+@@ -1095,6 +1388,13 @@
  
      async def _handle_end_node(self, node: Node) -> None:
          """Handle end node execution."""
@@ -6110,7 +6142,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Setup LLM context with prompts and functions.
          await self._setup_llm_context(node)
  
-@@ -1444,6 +1719,11 @@
+@@ -1444,6 +1744,11 @@
          if self._mute_pipeline:
              return True
  
@@ -6122,7 +6154,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Mute while queued speech (transition/tool message) is pending or playing
          if self._queued_speech_mute_state != "idle":
              return True
-@@ -1531,6 +1811,41 @@
+@@ -1531,6 +1836,41 @@
          return self.__dict__.get("_agent_factory") is not None
  
      @property
@@ -6164,7 +6196,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def transfer_coordinator(self):
          """The call's handoff coordinator, created on first use."""
          if self._transfer_coordinator is None:
-@@ -1545,6 +1860,20 @@
+@@ -1545,6 +1885,20 @@
          coordinator = self.__dict__.get("_transfer_coordinator")
          return coordinator is not None and coordinator.in_progress
  
@@ -6185,7 +6217,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      @property
      def agent_visits(self) -> list[dict]:
          """One record per agent visit, oldest first, including the live one."""
-@@ -1853,21 +2182,33 @@
+@@ -1853,21 +2207,33 @@
  
          agent = agent or self.active_agent
          try:
@@ -6229,7 +6261,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              for tool in tools:
                  if tool.category != ToolCategory.MCP.value:
                      continue
-@@ -1891,13 +2232,24 @@
+@@ -1891,13 +2257,24 @@
                              f"MCP tool '{tool.name}': credential fetch failed: {e}"
                          )
                          continue
@@ -6322,8 +6354,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              context.set_messages(new_messages)
              logger.info(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine_custom_tools.py engine/api/services/workflow/pipecat_engine_custom_tools.py
---- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 19:22:40.962565300 +0530
-+++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 13:18:19.702467000 +0530
+--- dograh/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 20:04:27.791571300 +0530
++++ engine/api/services/workflow/pipecat_engine_custom_tools.py	2026-09-29 19:31:53.208750800 +0530
 @@ -7,7 +7,9 @@
  from __future__ import annotations
  
@@ -6534,7 +6566,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
              try:
                  # Queue custom message before executing the API call
-@@ -451,23 +578,42 @@
+@@ -451,23 +578,46 @@
  
                  result = await execute_http_tool(
                      tool=tool,
@@ -6551,6 +6583,10 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +                    verified = (result.get("status") == "success"
 +                                and data.get("ok") is True and data.get("verified") is True)
 +                    self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = verified
++                    if (verified and self._agent is self._engine.active_agent
++                            and self._agent.current_node is not None
++                            and self._agent.current_node.id == action_node_id):
++                        await self._engine.advance_after_verification(self._agent)
 +
 +                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
 +                    data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -6579,7 +6615,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          """Create a handler that proxies an LLM function call to a live MCP
          session. Errors are returned to the LLM as structured text so the
          agent can recover verbally; the call is never crashed."""
-@@ -476,12 +622,61 @@
+@@ -476,12 +626,61 @@
              function_call_params: FunctionCallParams,
          ) -> None:
              logger.info(f"MCP Tool EXECUTED: {function_name}")
@@ -6644,7 +6680,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              except Exception as e:
                  logger.error(f"MCP tool '{function_name}' failed: {e}")
                  await function_call_params.result_callback(
-@@ -647,6 +842,48 @@
+@@ -647,6 +846,48 @@
  
          return transfer_agent_handler
  
@@ -6693,7 +6729,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def _create_transfer_call_handler(self, tool: Any, function_name: str):
          """Create a handler function for a transfer call tool.
  
-@@ -669,6 +906,25 @@
+@@ -669,6 +910,25 @@
                  f"argument_keys={list((function_call_params.arguments or {}).keys())}"
              )
  
@@ -7842,8 +7878,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-29 18:50:22.745926600 +0530
-@@ -0,0 +1,133 @@
++++ engine/api/tests/test_call_language.py	2026-09-29 19:33:13.162650200 +0530
+@@ -0,0 +1,181 @@
 +"""The call's language follows the caller, but not on a stray word."""
 +
 +import pytest
@@ -7853,6 +7889,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    CallLanguageTracker,
 +    multilingual_reply_rule,
 +    switch_note,
++    words_are_in,
 +)
 +
 +
@@ -7977,6 +8014,53 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    # No voice map: nothing to follow, the agent's language is left alone.
 +    plain = SimpleNamespace(_settings=SimpleNamespace(voice_map=None))
 +    await engine._follow_caller_language(SimpleNamespace(tts=plain))
++
++
++@pytest.mark.asyncio
++async def test_english_in_tamil_script_is_checked_and_does_not_switch():
++    """Run 79: "what is the last date I can pay" came as nine Tamil-script words, ta-IN."""
++    asked: list = []
++
++    async def confirm(text, locale, current):
++        asked.append((text, locale, current))
++        return False
++
++    tracker, changes, pushed = _tracker()
++    tracker._confirm = confirm
++    await tracker._observe("en-IN", 6, "Yeah, speaking.")
++    await tracker._observe("ta-IN", 9, "வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி")
++    assert asked == [("வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி", "ta-IN", "en-IN")]
++    assert tracker.current == "en-IN" and changes == [("en-IN", ["en-IN"])]
++    assert "speaking English" in pushed[-1].messages[0]["content"]
++
++
++@pytest.mark.asyncio
++async def test_a_checked_real_switch_goes_ahead():
++    async def confirm(text, locale, current):
++        return True
++
++    tracker, changes, _ = _tracker()
++    tracker._confirm = confirm
++    await tracker._observe("en-IN", 6)
++    await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
++    assert tracker.current == "ta-IN"
++
++
++class _LLM:
++    def __init__(self, reply=None, error=None):
++        self.reply, self.error = reply, error
++
++    async def run_inference(self, context, **kwargs):
++        if self.error:
++            raise self.error
++        return self.reply
++
++
++@pytest.mark.asyncio
++async def test_the_check_reads_the_models_answer_and_fails_open():
++    assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
++    assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
++    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_custom_tools.py engine/api/tests/test_custom_tools.py
 --- dograh/api/tests/test_custom_tools.py	2026-09-29 19:22:41.095255600 +0530
 +++ engine/api/tests/test_custom_tools.py	2026-09-26 20:56:44.642277000 +0530
@@ -8080,8 +8164,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              await manager.register_handlers([tool.tool_uuid])
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_customer_action_transition.py engine/api/tests/test_customer_action_transition.py
 --- dograh/api/tests/test_customer_action_transition.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_customer_action_transition.py	2026-09-29 13:18:46.969192200 +0530
-@@ -0,0 +1,521 @@
++++ engine/api/tests/test_customer_action_transition.py	2026-09-29 19:33:13.281294200 +0530
+@@ -0,0 +1,558 @@
 +"""A rejected business write cannot enter an ordinary success closing node."""
 +
 +from types import SimpleNamespace
@@ -8603,6 +8687,43 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    engine.arm_speech_playback = Mock()
 +    await handler(SimpleNamespace(arguments={}, result_callback=callback))
 +    engine.set_node.assert_awaited_once_with("stop", origin_visit_id="visit")
++
++
++def _verify_engine(edges, nodes):
++    engine = object.__new__(PipecatEngine)
++    engine._run_transition_variable_extraction_in_background = True
++    engine._perform_variable_extraction_if_needed = AsyncMock()
++    engine.set_node = AsyncMock()
++    agent = SimpleNamespace(
++        visit_id="visit",
++        current_node=SimpleNamespace(id="verify", out_edges=edges),
++        workflow=SimpleNamespace(nodes=nodes),
++    )
++    return engine, agent
++
++
++def _edge(target, **data):
++    flags = {"requires_user_turn": False, "requires_successful_action": False,
++             "transition_speech_recording_id": None, **data}
++    return SimpleNamespace(target=target, transition_speech=None, data=SimpleNamespace(**flags))
++
++
++@pytest.mark.asyncio
++async def test_verified_takes_the_only_onward_edge():
++    nodes = {"account": SimpleNamespace(is_end=False), "close": SimpleNamespace(is_end=True)}
++    engine, agent = _verify_engine([_edge("account"), _edge("close")], nodes)
++    assert await engine.advance_after_verification(agent) is True
++    engine.set_node.assert_awaited_once_with("account", origin_visit_id="visit")
++
++
++@pytest.mark.asyncio
++async def test_verified_leaves_a_real_choice_to_the_model():
++    nodes = {"a": SimpleNamespace(is_end=False), "b": SimpleNamespace(is_end=False)}
++    engine, agent = _verify_engine([_edge("a"), _edge("b")], nodes)
++    assert await engine.advance_after_verification(agent) is False
++    engine, agent = _verify_engine([_edge("a", requires_user_turn=True)], nodes)
++    assert await engine.advance_after_verification(agent) is False
++    engine.set_node.assert_not_awaited()
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_end_node_outcome.py engine/api/tests/test_end_node_outcome.py
 --- dograh/api/tests/test_end_node_outcome.py	1970-01-01 05:30:00.000000000 +0530
 +++ engine/api/tests/test_end_node_outcome.py	2026-09-27 15:04:01.450961600 +0530

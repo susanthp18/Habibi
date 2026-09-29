@@ -1183,7 +1183,7 @@ async def _run_pipeline_impl(
             from api.services.configuration.azure_speech_capabilities import (
                 normalize_languages,
             )
-            from api.services.pipecat.call_language import CallLanguageTracker
+            from api.services.pipecat.call_language import CallLanguageTracker, words_are_in
 
             # The main language first, as the recognizer is given them.
             stt_languages = normalize_languages(
@@ -1194,6 +1194,9 @@ async def _run_pipeline_impl(
                 initial=stt_languages[0],
                 languages=stt_languages,
                 on_change=engine.record_caller_language,
+                confirm=lambda text, locale, current: words_are_in(
+                    engine.active_agent.llm, text, locale, current
+                ),
                 name=f"{call_worker_name}::CallLanguage",
             )
         # AgentStudio: kept on the engine so a supervisor taking the call can

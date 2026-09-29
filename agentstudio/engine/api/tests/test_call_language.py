@@ -7,6 +7,7 @@ from api.services.pipecat.call_language import (
     CallLanguageTracker,
     multilingual_reply_rule,
     switch_note,
+    words_are_in,
 )
 
 
@@ -131,3 +132,50 @@ async def test_the_voice_follows_the_caller_into_a_shared_script():
     # No voice map: nothing to follow, the agent's language is left alone.
     plain = SimpleNamespace(_settings=SimpleNamespace(voice_map=None))
     await engine._follow_caller_language(SimpleNamespace(tts=plain))
+
+
+@pytest.mark.asyncio
+async def test_english_in_tamil_script_is_checked_and_does_not_switch():
+    """Run 79: "what is the last date I can pay" came as nine Tamil-script words, ta-IN."""
+    asked: list = []
+
+    async def confirm(text, locale, current):
+        asked.append((text, locale, current))
+        return False
+
+    tracker, changes, pushed = _tracker()
+    tracker._confirm = confirm
+    await tracker._observe("en-IN", 6, "Yeah, speaking.")
+    await tracker._observe("ta-IN", 9, "வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி")
+    assert asked == [("வாட் இஸ் தி லாஸ்ட் டேட் ஐ கேன் பி", "ta-IN", "en-IN")]
+    assert tracker.current == "en-IN" and changes == [("en-IN", ["en-IN"])]
+    assert "speaking English" in pushed[-1].messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_a_checked_real_switch_goes_ahead():
+    async def confirm(text, locale, current):
+        return True
+
+    tracker, changes, _ = _tracker()
+    tracker._confirm = confirm
+    await tracker._observe("en-IN", 6)
+    await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
+    assert tracker.current == "ta-IN"
+
+
+class _LLM:
+    def __init__(self, reply=None, error=None):
+        self.reply, self.error = reply, error
+
+    async def run_inference(self, context, **kwargs):
+        if self.error:
+            raise self.error
+        return self.reply
+
+
+@pytest.mark.asyncio
+async def test_the_check_reads_the_models_answer_and_fails_open():
+    assert await words_are_in(_LLM("English"), "वाट इज़", "hi-IN", "en-IN") is False
+    assert await words_are_in(_LLM("Hindi"), "मुझे पैसे", "hi-IN", "en-IN") is True
+    assert await words_are_in(_LLM(error=RuntimeError()), "x", "ta-IN", "en-IN") is True

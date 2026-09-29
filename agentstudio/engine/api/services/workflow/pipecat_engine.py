@@ -742,6 +742,31 @@ class PipecatEngine:
 
         return agent.bind_tool(self, transition_func)
 
+    async def advance_after_verification(self, agent: AgentRuntime) -> bool:
+        """Take a verification step's one onward edge once it is verified.
+
+        Then the only edge that doesn't close the call is the next step, and
+        the model took it next on every call (runs 70-79): a generation of
+        about a second spent on a choice with one answer. Moving here, before
+        the tool result goes back, lets the next step's model read it. Steps
+        with any other way on, or an edge that speaks, are left to the model.
+        """
+        node = agent.current_node
+        if node is None:
+            return False
+        onward = [e for e in node.out_edges if not agent.workflow.nodes[e.target].is_end]
+        if len(onward) != 1:
+            return False
+        edge = onward[0]
+        if (edge.data.requires_user_turn or edge.data.requires_successful_action
+                or edge.transition_speech or edge.data.transition_speech_recording_id):
+            return False
+        await self._perform_variable_extraction_if_needed(
+            node, run_in_background=self._run_transition_variable_extraction_in_background,
+        )
+        await self.set_node(edge.target, origin_visit_id=agent.visit_id)
+        return True
+
     async def _register_transition_function_with_llm(
         self,
         name: str,
