@@ -24,6 +24,10 @@ APPROVED_ARGUMENTS: dict[str, dict[str, str]] = {
     # "this_channel" or "all". Needs no identity check: it only
     # restricts contact and discloses nothing.
     "record_opt_out": {"scope": "string"},
+    # The seed's starter agents attach these too (952902ce); channel, period,
+    # summary and amount are optional and not checked here.
+    "request_documents": {"type": "string"},
+    "capture_lead": {"product": "string"},
 }
 REQUIRED_PRESETS = {
     "workflow_run_id": "number", "agent_id": "string", "direction": "string",
