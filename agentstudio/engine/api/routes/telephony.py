@@ -197,6 +197,9 @@ async def initiate_call(
                     "phone_number": phone_number,
                     "called_number": phone_number,
                     "direction": "outbound",
+                    # The editor's "call a phone" rings a draft: a test, never
+                    # filed or written against whoever answers.
+                    "rehearsal": "editor",
                     "provider": provider.PROVIDER_NAME,
                     "telephony_configuration_id": telephony_configuration_id,
                 },

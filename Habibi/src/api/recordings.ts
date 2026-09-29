@@ -28,6 +28,12 @@ export function useRecording(interactionId: string, variant: RecordingVariant = 
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
+    // Callers mount before they know the call (the Audit drawer, a run whose
+    // interaction is still loading): no id, no request.
+    if (!interactionId) {
+      setState({ kind: "none" });
+      return;
+    }
     setState({ kind: "loading" });
     apiGetBlob(`/interactions/${encodeURIComponent(interactionId)}/recording?variant=${variant}`)
       .then(({ blob, headers }) => {

@@ -196,6 +196,7 @@ def process_one(engine: Engine, *, source_engine: Engine | None = None) -> bool:
             source_engine, source_kind = reporting_engine()
         except RuntimeError as exc:
             # Claimed already: a job left 'working' here would never run again.
+            logger.error("wk-batch job %s cannot run: %s", job["id"], exc)
             _finish(engine, str(job["id"]), ok=False, error=str(exc))
             return True
     lock_name = f"wk-batch:{job['workflow_type']}:{job['idempotency_key']}"

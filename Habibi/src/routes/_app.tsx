@@ -15,6 +15,10 @@ import {
  * each page wrapping itself (twenty-nine did, and `/login` did not).
  */
 export const Route = createFileRoute("/_app")({
+  // Browser only, like /studio: the API token exists only in the browser, so a
+  // server-side loader (the Customer 360's) went out unsigned and a hard load
+  // or refresh of that page answered 500.
+  ssr: false,
   component: GatedShell,
 });
 

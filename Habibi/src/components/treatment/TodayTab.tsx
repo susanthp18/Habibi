@@ -16,7 +16,9 @@ const STATUS = {
 } as const;
 
 export function TodayTab({ days }: { days: number }) {
-  const health = useTreatmentHealth(days);
+  // Health looks back at most 30 days (GET /treatment/health le=30); the page's
+  // 90-day window applies to the insights below.
+  const health = useTreatmentHealth(Math.min(days, 30));
   const insights = useTreatmentInsights(days);
   return (
     <div className="flex flex-col gap-200">

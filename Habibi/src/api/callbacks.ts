@@ -128,7 +128,9 @@ export async function setPriority(cb: Callback, priority: CbPriority): Promise<v
 }
 
 export async function rescheduleCallback(cb: Callback, newISO: string): Promise<void> {
-  await apiPatch(`/callbacks/${cb.id}`, { scheduledAt: newISO, status: "scheduled" });
+  // `rescheduled`, not `scheduled`: a missed or reminded slot may only move to
+  // rescheduled (db_callbacks._CALLBACK_TRANSITIONS); anything else is a 409.
+  await apiPatch(`/callbacks/${cb.id}`, { scheduledAt: newISO, status: "rescheduled" });
 }
 
 export async function cancelCallback(cb: Callback, _reason: string): Promise<void> {

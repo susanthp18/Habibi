@@ -62,6 +62,9 @@ _PHONE_NUMBER = re.compile(r"^/organizations/telephony-configs/\d+/phone-numbers
 PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...], str | None]] = [
     (_ANY, re.compile(r"^/(auth|superuser|public|agent-stream|mcp)(/|$)"), _DENY, None),
     (_W, re.compile(r"^/tools/[^/]+/revisions/\d+/review$"), _DENY, None),
+    # The carrier's media socket. Twilio reaches it through nginx with a signed
+    # token; no browser should be handed a ticket that lets it become a call.
+    (_ANY, re.compile(r"^/telephony/ws(/|$)"), _DENY, None),
     (_R, re.compile(r"^/(health|node-types|turn)(/|$)"), (authz.BOT_READ,), None),
     (_ANY, re.compile(r"^/ws(/|$)"), (authz.VOICE_OPERATE,), "Talk to an agent from the browser"),
     # Supervising a live call (voice_studio_supervision): a socket ticket is
@@ -74,8 +77,13 @@ PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...], str | N
     (_W, re.compile(r"^/workflow/\d+/runs$"), (authz.VOICE_OPERATE,), "Start a run of an agent"),
     (_W, re.compile(r"^/telephony/initiate-call$"), (authz.VOICE_OPERATE,), "Ring a test number from the editor"),
     # Files of borrower numbers and call outcomes: raw personal data.
-    (_R, re.compile(r"^/campaign/\d+/(source-download-url|report)$|^/workflow/\d+/report$"),
+    (_R, re.compile(r"^/campaign/\d+/(source-download-url|report)$|^/workflow/\d+/report$"
+                    r"|^/organizations/usage/runs/report$"),
      (authz.PII_RAW_READ,), "Download campaign and agent reports (unmasked)"),
+    # Changing a running campaign's schedule, pace or retries is as much a
+    # launch decision as starting it.
+    ({"PATCH"}, re.compile(r"^/campaign/\d+$"), (authz.COLLECTIONS_WRITE,),
+     "Change a campaign's schedule, pace or retries"),
     # Ringing phones is a launch, as with PayInt campaigns; drafting one is not.
     (_W, re.compile(r"^/campaign/\d+/(start|resume|redial)$"), (authz.COLLECTIONS_WRITE,),
      "Start, resume or redial a Voice Studio campaign"),
@@ -92,6 +100,8 @@ PERMISSION_RULES: list[tuple[set[str], re.Pattern[str], tuple[str, ...], str | N
     # Tools are part of the agent: edited by its authors, released by an
     # approver through tool revisions (review is PayInt's, above).
     (_W, re.compile(r"^/tools(/|$)"), (authz.AGENT_EDIT,), "Create, edit and test the tools an agent calls"),
+    # An approver must be able to open the tool whose revision they approve.
+    (_R, re.compile(r"^/tools(/|$)"), (authz.INTEGRATIONS_READ, authz.TOOL_APPROVE), None),
     (
         _R,
         re.compile(r"^/(tools|credentials|telephony|user/configurations)(/|$)"

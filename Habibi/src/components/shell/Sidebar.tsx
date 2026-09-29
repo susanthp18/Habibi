@@ -61,8 +61,9 @@ type NavItem = {
   icon: LucideIcon;
   to?: string;
   soon?: boolean;
-  /** Every one is required (Voice Studio pages also need its bot.read floor). */
-  permission?: string | string[];
+  /** Every entry is required (Voice Studio pages also need its bot.read
+   *  floor); a nested list is satisfied by any one of its permissions. */
+  permission?: string | (string | string[])[];
 };
 
 type NavGroup = { label: string; items: NavItem[] };
@@ -156,7 +157,8 @@ const groups: NavGroup[] = [
         label: "Tools",
         icon: Wrench,
         to: "/studio/tools",
-        permission: ["perm-bot-read", "perm-integrations-read"],
+        // Approvers open the tool whose revision they review (gateway rule).
+        permission: ["perm-bot-read", ["perm-integrations-read", "perm-tool-approve"]],
       },
       {
         key: "studio-models",
@@ -293,7 +295,11 @@ export function NavLinks({
       .map((group) => ({
         ...group,
         items: group.items.filter(
-          (item) => !item.permission || [item.permission].flat().every((p) => can(me, p)),
+          (item) =>
+            !item.permission ||
+            (typeof item.permission === "string" ? [item.permission] : item.permission).every((p) =>
+              typeof p === "string" ? can(me, p) : p.some((q) => can(me, q)),
+            ),
         ),
       }))
       .filter((group) => group.items.length > 0);

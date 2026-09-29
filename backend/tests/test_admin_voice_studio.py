@@ -150,6 +150,11 @@ def test_the_roles_screen_lists_the_gateways_own_rules() -> None:
     assert gw.required_permissions("POST", "/workflow/3/embed-token") == (authz.AGENT_PUBLISH,)
     assert gw.required_permissions("POST", "/campaign/3/start") == (authz.COLLECTIONS_WRITE,)
     assert gw.required_permissions("GET", "/campaign/3/report") == (authz.PII_RAW_READ,)
+    assert gw.required_permissions("GET", "/organizations/usage/runs/report") == (authz.PII_RAW_READ,)
+    assert gw.required_permissions("PATCH", "/campaign/3") == (authz.COLLECTIONS_WRITE,)
+    assert gw.required_permissions("GET", "/telephony/ws/4/1/9") == ()
+    assert authz.TOOL_APPROVE in gw.required_permissions("GET", "/tools/abc/revisions")
+    assert gw.required_permissions("GET", "/organizations/usage/runs") == (authz.ANALYTICS_READ,)
 
 
 def test_designing_and_releasing_take_two_people() -> None:

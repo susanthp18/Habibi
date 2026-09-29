@@ -1473,6 +1473,10 @@ async def create_workflow_run(
     )
 
     initial_context = dict(run_inputs.initial_context or {})
+    # A run started from the editor is a test. PayInt keys "real contact" off
+    # `direction`, which is stamped below, so say it explicitly: tools answer
+    # from the test persona and nothing is filed against a borrower.
+    initial_context["rehearsal"] = "editor"
     call_type = CallType.OUTBOUND
     if request.mode == WorkflowRunMode.SMALLWEBRTC.value:
         configured_direction = initial_context.get("direction")
