@@ -217,14 +217,14 @@ function StatementForm({
   const [delivery, setDelivery] = useState<"email" | "whatsapp">("email");
   return (
     <FormShell
-      title="Send document"
-      desc="Generate a statement or letter and send it to the customer."
+      title="Request document"
+      desc="Raises a request on the Document desk. PayInt doesn't generate or send documents yet — the desk team sends it."
       footer={
         <div className="flex w-full justify-end gap-100">
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button onClick={() => onSubmit({ docType, delivery })}>Send</Button>
+          <Button onClick={() => onSubmit({ docType, delivery })}>Create request</Button>
         </div>
       }
     >

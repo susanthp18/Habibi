@@ -459,12 +459,14 @@ async def ingest_document_request(
         ),
         interaction_id=interaction_id,
         requested_via="inbox",
-        size_bytes=len(raw),
+        content=raw,
     )
     if not result.ok:
         code = 403 if result.error == "identity_not_verified" else 400
         if result.error == "vision_ingest_disabled":
             code = 404
+        if result.error == "storage_unavailable":
+            code = 503
         raise HTTPException(status_code=code, detail=result.error)
     return result.data
 

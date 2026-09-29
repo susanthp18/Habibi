@@ -1,11 +1,12 @@
 // -----------------------------------------------------------------------------
 // Document Fulfilment Desk — data access seam.
 //   fetchDocuments() → queue list  (GET /document-requests)
-//   create / assign / channel / template / status transitions → Phase 3A writes
+//   create / assign / channel / template / reopen → Phase 3A writes
 //
-// Writes map to POST/PATCH (+ delivery-attempts on retry); the screen shape is
-// richer than the write response, so callers invalidate + refetch. Assignees
-// resolve through /staff.
+// PayInt renders and sends no documents yet. A request becomes "sent" only
+// through recordManualSend (POST .../delivery-attempts): a person confirming
+// they are sending it themselves. The screen shape is richer than the write
+// response, so callers invalidate + refetch. Assignees resolve through /staff.
 // -----------------------------------------------------------------------------
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -44,9 +45,6 @@ export async function createRequest(input: NewRequestInput): Promise<{ id: strin
     templateId: input.templateId,
     requestedVia: "agent",
     assigneeUserId: me.id,
-    // filename/mimeType optional — server derives storage_ref if a file row is created.
-    filename: `${input.docType}.pdf`,
-    mimeType: "application/pdf",
   });
   return created;
 }
@@ -71,51 +69,23 @@ export async function changeTemplate(doc: DocRequest, templateId: string): Promi
   await apiPatch(`/document-requests/${doc.id}`, { templateId });
 }
 
-export async function setStatus(
-  doc: DocRequest,
-  next: DocStatus,
-  extra?: Partial<Pick<DocRequest, "generatedAt" | "sentAt" | "failedReason" | "sizeKb">>,
-): Promise<void> {
-  await apiPatch(`/document-requests/${doc.id}`, {
-    status: next,
-    ...extra,
-  });
-}
-
-export async function markGenerating(doc: DocRequest): Promise<void> {
-  await apiPatch(`/document-requests/${doc.id}`, {
-    status: "generating",
-    generatedAt: new Date().toISOString(),
-    failedReason: null,
-  });
-}
-
-export async function markSent(doc: DocRequest): Promise<void> {
-  const sizeKb = doc.sizeKb ?? 140 + Math.floor(Math.random() * 400);
-  await apiPatch(`/document-requests/${doc.id}`, {
+/**
+ * A person confirming they are sending this document themselves. The server
+ * applies the contact policy and refuses (409, with the reason) when the
+ * customer may not be contacted on this channel now; nothing is recorded then.
+ */
+export async function recordManualSend(doc: DocRequest): Promise<void> {
+  await apiPost(`/document-requests/${doc.id}/delivery-attempts`, {
     status: "sent",
-    sentAt: new Date().toISOString(),
-    sizeKb,
-    failedReason: null,
+    provider: "manual",
   });
 }
 
-export async function markFailed(doc: DocRequest, reason: string): Promise<void> {
-  await apiPatch(`/document-requests/${doc.id}`, {
-    status: "failed",
-    failedReason: reason,
-  });
-}
-
-/** Reset to requested and bump attempts via the delivery-attempts endpoint. */
+/** Reopen a failed request. Nothing is sent or queued. */
 export async function retryDocument(doc: DocRequest): Promise<void> {
   await apiPatch(`/document-requests/${doc.id}`, {
     status: "requested",
     failedReason: null,
-  });
-  await apiPost(`/document-requests/${doc.id}/delivery-attempts`, {
-    status: "queued",
-    provider: "manual",
   });
 }
 
@@ -139,7 +109,7 @@ export function useRetryDocument() {
     mutationFn: (doc: DocRequest) => retryDocument(doc),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["documents"] });
-      toast.success("Retry queued");
+      toast.success("Request reopened");
     },
   });
 }

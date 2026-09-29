@@ -89,7 +89,7 @@ export function QuickActionsRail({
         {
           id: "qa-stmt",
           rank: 4,
-          title: "Send statement",
+          title: "Request statement",
           reason: "",
           action: "statement" as const,
           priority: "low" as const,

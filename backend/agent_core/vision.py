@@ -1,17 +1,23 @@
 """Vision ingest — analysis profile, identity-gated, never on the voice mouth.
 
-A receipt photo becomes a ``document_requests`` row. OCR is best-effort on the
-analysis Azure profile; creating the row does not wait on a human.
+A receipt photo becomes a ``document_requests`` row, and the image itself is
+kept: stored in the ``customer-uploads`` bucket first, then indexed by a
+``document_files`` row in the same transaction as the request. No file row
+exists for an image that was not stored. OCR is best-effort on the analysis
+Azure profile; creating the row does not wait on a human.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import mimetypes
+import uuid
 
 from agent_core.platform_flags import vision_ingest_enabled
 from agent_core.tools.catalog import DOCUMENT_TYPES
 from agent_core.tools.domain import ToolResult
-from db_core import is_unknown_caller
+from db_core import _tenant, is_unknown_caller
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +32,10 @@ def ingest_customer_document(
     filename: str,
     mime_type: str,
     identity_verified: bool,
+    content: bytes,
     interaction_id: str | None = None,
     account_id: str | None = None,
     requested_via: str = "inbox",
-    size_bytes: int | None = None,
 ) -> ToolResult:
     if not vision_ingest_enabled():
         return ToolResult(ok=False, error="vision_ingest_disabled")
@@ -38,12 +44,33 @@ def ingest_customer_document(
     mime = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
     if mime not in _IMAGE_TYPES and not mime.startswith("image/"):
         return ToolResult(ok=False, error="not_an_image")
+    if not content:
+        return ToolResult(ok=False, error="empty_upload")
 
     doc_type = _classify(filename, mime) or "payment_receipt"
     if doc_type not in DOCUMENT_TYPES:
         doc_type = "payment_receipt"
 
+    import circuit_breaker
     import db
+    import storage
+
+    ext = mimetypes.guess_extension(mime) or ""
+    key = f"{_tenant()}/{uuid.uuid4().hex}{ext}"
+    try:
+        storage_ref = storage.put_bytes(
+            key, content, mime, bucket=storage.CUSTOMER_UPLOADS_BUCKET
+        )
+    except (storage.StorageUnavailable, circuit_breaker.CircuitOpenError):
+        logger.exception("vision ingest could not store the upload")
+        return ToolResult(ok=False, error="storage_unavailable")
+    upload = {
+        "storage_ref": storage_ref,
+        "filename": filename or f"upload{ext}",
+        "mime_type": mime,
+        "size_bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
 
     payload = {
         "customerId": customer_id,
@@ -52,16 +79,14 @@ def ingest_customer_document(
         "docType": doc_type,
         "requestedVia": requested_via if requested_via else "vision",
         "source": "vision",
-        "filename": filename or "receipt.jpg",
-        "mimeType": mime,
         "deliveryChannel": "whatsapp",
     }
-    if size_bytes is not None:
-        payload["sizeKb"] = max(1, int(round(size_bytes / 1024)))
     try:
-        row = db.create_document_request(payload)
+        row = db.create_document_request(payload, upload=upload)
     except Exception:
         logger.exception("vision ingest write failed")
+        # Nothing indexes the object now, so nothing would ever expire it.
+        storage.delete_object(storage_ref)
         return ToolResult(ok=False, error="crm_write_failed")
     doc_id = row.get("id") if isinstance(row, dict) else None
     return ToolResult(

@@ -138,9 +138,13 @@ def get_bucket() -> str:
 #: recording filed beside the knowledge base, under the KB's retention.
 RECORDINGS_BUCKET = "recordings"
 
+#: Receipts and KYC photos customers send. Their own bucket: tenant-keyed PII
+#: under the `customer_upload` retention rule, not the global KB's policy.
+CUSTOMER_UPLOADS_BUCKET = "customer-uploads"
+
 
 def buckets() -> tuple[str, ...]:
-    return (get_bucket(), RECORDINGS_BUCKET)
+    return (get_bucket(), RECORDINGS_BUCKET, CUSTOMER_UPLOADS_BUCKET)
 
 
 def ensure_bucket() -> None:

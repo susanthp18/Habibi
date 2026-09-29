@@ -448,25 +448,22 @@ class DocumentRequestCreateRequest(BaseModel):
     requestedVia: Literal["bot_voice", "bot_chat", "agent"] | None = None
     # Omitted → assign acting user. Explicit null → Unassigned.
     assigneeUserId: str | None = None
-    # Optional file metadata for generation; server owns storage_ref.
-    filename: str | None = None
-    mimeType: str | None = None
 
 
 class DocumentPatchRequest(BaseModel):
-    """Document Fulfilment Desk PATCH. Sent with exclude_unset so explicit nulls clear."""
+    """Document Fulfilment Desk PATCH. Sent with exclude_unset so explicit nulls clear.
 
-    status: Literal["requested", "generating", "sent", "failed"] | None = None
+    No `sent` or `generating`, and no sizes or timestamps: those are facts a
+    renderer or a recorded send establishes (POST .../delivery-attempts).
+    """
+
+    status: Literal["requested", "failed"] | None = None
     assigneeUserId: str | None = None
     deliveryChannel: Literal["whatsapp", "email", "sms"] | None = None
     deliveryTarget: str | None = None
     templateId: str | None = None
     period: str | None = None
-    generatedAt: str | None = None
-    sentAt: str | None = None
     failedReason: str | None = None
-    sizeKb: int | None = None
-    attempts: int | None = None
     note: str | None = None
 
 
@@ -694,12 +691,16 @@ class DocumentIngestResponse(BaseModel):
 
 
 class DocumentDeliveryAttemptCreateRequest(BaseModel):
+    """A person confirming they are sending the document themselves.
+
+    PayInt renders and sends no documents yet, so this is the only attempt a
+    client can record. Both fields are required so the claim is explicit.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    status: str | None = None
-    provider: str | None = None
-    error: str | None = None
-    failedReason: str | None = None
+    status: Literal["sent"]
+    provider: Literal["manual"]
 
 
 class DocumentDeliveryAttemptResponse(BaseModel):
