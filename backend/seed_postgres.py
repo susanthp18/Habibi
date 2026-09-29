@@ -433,6 +433,8 @@ TENANT_SCOPED_SEED_TABLES = frozenset(
         "kb_documents",
         "export_jobs",
         "retrieval_logs",
+        # Rooted by 20260929_0174 (customer uploads).
+        "document_files",
     }
 )
 

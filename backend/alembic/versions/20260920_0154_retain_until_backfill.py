@@ -29,8 +29,11 @@ def upgrade() -> None:
 
     conn = op.get_bind()
     tenants = [str(row[0]) for row in conn.execute(text("SELECT id FROM tenants"))]
+    # The four kinds sql/28_retention.sql stamps, pinned: a kind added to
+    # DEFAULTS later brings its columns in a later migration, and iterating
+    # the live dict here ran its backfill before those columns existed.
     for tenant_id in tenants:
-        for kind in retention.DEFAULTS:
+        for kind in ("treatment_decision", "offer_decision", "contact_event", "interaction"):
             retention.backfill(conn, tenant_id=tenant_id, record_kind=kind)
 
 

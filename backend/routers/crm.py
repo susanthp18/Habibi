@@ -446,8 +446,7 @@ async def ingest_document_request(
     from agent_core.vision import ingest_customer_document
     from agent_core.tools.gates import interaction_identity_verified
 
-    # Read to enforce the cap; the image itself is not stored anywhere yet.
-    await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
+    raw = await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
     # A vision call and a DB write, off the loop like kb_upload_document.
     result = await asyncio.to_thread(
         ingest_customer_document,
@@ -460,11 +459,14 @@ async def ingest_document_request(
         ),
         interaction_id=interaction_id,
         requested_via="inbox",
+        content=raw,
     )
     if not result.ok:
         code = 403 if result.error == "identity_not_verified" else 400
         if result.error == "vision_ingest_disabled":
             code = 404
+        if result.error == "storage_unavailable":
+            code = 503
         raise HTTPException(status_code=code, detail=result.error)
     return result.data
 

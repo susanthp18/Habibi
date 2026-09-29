@@ -85,7 +85,7 @@ echo "== build =="
 "${COMPOSE[@]}" build ml_worker
 
 echo "== schema: sql/66-75 (additive): Voice Studio, account currency, call intelligence, rubric versions, evidence chain, decision intelligence =="
-for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql          sql/70_account_currency.sql sql/71_call_intelligence.sql          sql/72_qa_rubric_versions.sql sql/73_evidence_chain.sql          sql/75_decision_intelligence.sql sql/76_retire_legacy_routing.sql          sql/77_webhook_subscription_review.sql sql/78_admin_voice_studio.sql; do
+for f in sql/66_voice_studio_agents.sql sql/67_voice_studio_releases.sql          sql/68_voice_studio_mcp_keys.sql sql/69_voice_studio_release_attempts.sql          sql/70_account_currency.sql sql/71_call_intelligence.sql          sql/72_qa_rubric_versions.sql sql/73_evidence_chain.sql          sql/75_decision_intelligence.sql sql/76_retire_legacy_routing.sql          sql/77_webhook_subscription_review.sql sql/78_admin_voice_studio.sql sql/79_customer_uploads.sql; do
   docker exec -i collections_db psql -U collections -d collections -v ON_ERROR_STOP=1 < "$f"
 done
 
