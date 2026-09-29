@@ -124,4 +124,8 @@ def test_every_bucket_the_platform_writes_is_provisioned(monkeypatch) -> None:
     monkeypatch.setattr(storage, "is_configured", lambda: True)
     monkeypatch.setattr(storage, "get_client", lambda: _Client())
     storage.ensure_bucket()
-    assert set(made) == {storage.get_bucket(), storage.RECORDINGS_BUCKET}
+    assert set(made) == {
+        storage.get_bucket(),
+        storage.RECORDINGS_BUCKET,
+        storage.CUSTOMER_UPLOADS_BUCKET,
+    }

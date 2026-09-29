@@ -103,6 +103,10 @@ class Rule:
     #: Where the row goes after redaction, and for how long from that moment.
     becomes: str | None = None
     becomes_days: int = 0
+    #: A column holding a ``minio://`` ref. The object is deleted before its
+    #: row, and a row whose object could not be deleted stays for the next run:
+    #: a row gone with its object left behind is an image nobody can find.
+    object_column: str | None = None
 
     @property
     def effective_days(self) -> int:
@@ -169,6 +173,20 @@ DEFAULTS: dict[str, Rule] = {
         redact=("summary", "source_payload"),
         becomes=PSEUDONYMOUS,
         becomes_days=PSEUDONYMOUS_YEARS_UNSIGNED * _YEAR,
+    ),
+    "customer_upload": Rule(
+        record_kind="customer_upload",
+        # Only rows the upload path stamps are swept; a generated document in
+        # the same table carries no retain_until until it gets its own rule.
+        table="document_files",
+        anchor="created_at",
+        # A receipt or KYC image is the customer's data outright. Nothing in it
+        # is worth keeping pseudonymously, so expiry destroys it.
+        retention_class=IDENTIFIED,
+        retain_days=_YEAR,
+        floor_days=DPDP_RULE_8_3_DAYS,
+        citation="DPDP Rules 2025 r.8(3); purpose limitation s.8(7)",
+        object_column="storage_ref",
     ),
 }
 
@@ -514,6 +532,16 @@ def _expire_identified(conn: Any, rule: Rule, *, ids: list[str]) -> int:
 
 
 def _expire_terminal(conn: Any, rule: Rule, *, ids: list[str]) -> int:
+    if rule.object_column:
+        import storage
+
+        refs = conn.execute(
+            text(f"SELECT id, {rule.object_column} AS ref FROM {rule.table} WHERE id = ANY(:ids)"),  # noqa: S608
+            {"ids": ids},
+        ).mappings().all()
+        ids = [r["id"] for r in refs if storage.delete_object(r["ref"])]
+        if not ids:
+            return 0
     return int(
         conn.execute(
             text(f"DELETE FROM {rule.table} WHERE id = ANY(:ids)"),  # noqa: S608

@@ -373,8 +373,14 @@ def list_documents(*, limit: int | None = None, offset: int | None = None) -> li
         return result
 
 def create_document_request(
-    payload: dict[str, Any], idempotency_key: str | None = None
+    payload: dict[str, Any],
+    idempotency_key: str | None = None,
+    *,
+    upload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """``upload`` is a file already stored in MinIO (vision ingest), indexed in
+    the same transaction as its request. Keyword-only and never from a payload:
+    the server owns every storage_ref."""
     engine = _db().engine
     endpoint = "POST /documents"
     with engine.begin() as conn:
@@ -459,6 +465,8 @@ def create_document_request(
                 "source": source,
             },
         )
+        if upload is not None:
+            _insert_uploaded_file(conn, document_id, upload)
         label = f"Document requested · {doc_type}"
         _activity(conn, "document_request", document_id, "document_requested", label, doc_type, customer_id)
         response = _document_by_id(conn, document_id)
@@ -678,4 +686,44 @@ def _ensure_document_template(conn: Any, template_id: str, doc_type: str) -> Non
             """
         ),
         {"id": template_id, "tenant_id": _tenant(), "name": template_id, "doc_type": doc_type},
+    )
+
+
+def _insert_uploaded_file(conn: Any, document_id: str, upload: dict[str, Any]) -> None:
+    """Index a stored customer upload, stamped with its expiry at write."""
+    from agent_core import retention
+    from agent_core.clock import utc_now
+
+    tenant_id = _tenant()
+    received_at = utc_now()
+    stamp = retention.stamp_for(
+        conn, tenant_id=tenant_id, record_kind="customer_upload", anchor_at=received_at
+    )
+    if stamp is None:
+        raise RuntimeError("customer_upload retention rule missing")
+    retention_class, retain_until = stamp
+    conn.execute(
+        text(
+            """
+            INSERT INTO document_files
+              (id, request_id, tenant_id, storage_ref, filename, mime_type, size_bytes, hash,
+               generated_at, created_at, retention_class, retain_until)
+            VALUES
+              (:id, :request_id, :tenant_id, :storage_ref, :filename, :mime_type, :size_bytes, :hash,
+               :received_at, :received_at, :retention_class, :retain_until)
+            """
+        ),
+        {
+            "id": _id("FILE"),
+            "request_id": document_id,
+            "tenant_id": tenant_id,
+            "storage_ref": upload["storage_ref"],
+            "filename": upload["filename"],
+            "mime_type": upload["mime_type"],
+            "size_bytes": upload["size_bytes"],
+            "hash": upload["sha256"],
+            "received_at": received_at,
+            "retention_class": retention_class,
+            "retain_until": retain_until,
+        },
     )

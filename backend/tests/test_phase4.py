@@ -335,7 +335,9 @@ def test_broken_ptp_reenters_without_opening_the_diary(db_tx, account, monkeypat
 
 def test_receipt_photo_becomes_document_row(db_tx, account, monkeypatch) -> None:
     _require_column(db_tx, "document_requests", "source")
+    _require_column(db_tx, "document_files", "retain_until")
     monkeypatch.setenv("VISION_INGEST_ENABLED", "true")
+    monkeypatch.setattr("storage.put_bytes", lambda key, *_a, bucket=None: f"minio://{bucket}/{key}")
     import azure_openai
 
     monkeypatch.setattr(
@@ -350,6 +352,7 @@ def test_receipt_photo_becomes_document_row(db_tx, account, monkeypatch) -> None
         filename="upi.jpg",
         mime_type="image/jpeg",
         identity_verified=False,
+        content=b"jpeg",
     )
     assert denied.ok is False
     assert denied.error == "identity_not_verified"
@@ -360,6 +363,7 @@ def test_receipt_photo_becomes_document_row(db_tx, account, monkeypatch) -> None
         mime_type="image/jpeg",
         identity_verified=True,
         requested_via="inbox",
+        content=b"jpeg",
     )
     assert ok.ok is True
     doc_id = ok.data["documentRequestId"]
