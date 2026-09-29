@@ -293,6 +293,20 @@ def test_a_promise_paid_in_parts_keeps_its_total_and_records_the_parts(db_tx) ->
         db.set_promise_schedule(first["id"], [{"amount": 100, "date": _day(4)}, {"amount": 200, "date": _day(6)}])
 
 
+def test_a_payment_plan_the_promise_began_is_not_read_as_its_parts(db_tx) -> None:
+    """Run 70: a seeded plan (4,800 + 4,800) that the promise was the first
+    instalment of was read out as the parts of a 4,000 promise."""
+    import mission
+
+    customer_id, account_id = _customer(db_tx)
+    db.create_payment_plan({
+        "customerId": customer_id, "accountId": account_id, "totalAmount": 400,
+        "installments": [{"dueDate": _day(3), "amount": 200}, {"dueDate": _day(10), "amount": 200}],
+    })
+    promise = mission._open_promise(db_tx, customer_id)
+    assert promise["amountInr"] == 200.0 and "parts" not in promise
+
+
 def test_the_voice_tool_reads_parts_in_date_order_and_refuses_ones_that_do_not_add_up() -> None:
     from voice_studio import _parts
 

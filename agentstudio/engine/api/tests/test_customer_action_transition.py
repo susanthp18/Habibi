@@ -184,6 +184,13 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
     execute.assert_not_awaited()
 
+    # Run 70: the question and a guessed call ("????") came in one response; the
+    # refusal must not have it ask again over the customer's answer.
+    engine._current_llm_generation_reference_text = "Could you tell me the last four digits?"
+    await handler(SimpleNamespace(arguments={"value": "????"}, result_callback=callback))
+    assert "say nothing more" in callback.await_args.args[0]["say"]
+    engine._current_llm_generation_reference_text = ""
+
     engine.context.messages.append({"role": "user", "content": "2324"})
     await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
     execute.assert_awaited_once()

@@ -492,9 +492,15 @@ class CustomToolManager:
                 heard = bool(said) and len(given) == 4 and given in _digits(said.get("content"))
                 if (said is None or said is self._engine._verified_user_message
                         or not (heard or self._engine.caller_spoke_in_node(self._agent))):
+                    # The hint, not a fixed "ask for the digits": run 70 asked in
+                    # the same response as a guessed call ("????"), and the
+                    # re-ask ("Sorry, could you tell me...") talked over the
+                    # customer's answer.
                     await function_call_params.result_callback({
                         "status": "error", "error": "no_new_digits_from_caller",
-                        "say": "Ask the customer for the four digits and wait for their answer.",
+                        "say": self._engine._refusal_hint(
+                            "Nothing was checked: the customer has not given the four digits yet. "
+                            "Ask for them if you have not."),
                     })
                     return
                 self._engine._verified_user_message = said

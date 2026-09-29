@@ -718,13 +718,14 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
                         "again; the open promise stands as it is. Do not retry or confirm a new date; tell "
                         "them, and offer a specialist callback.")}
     if parts and (result.ok or result.error == "nothing_to_revise"):
-        return _schedule(result.to_llm(), parts)
+        return _schedule(result.to_llm(), parts, interaction_id)
     return result.to_llm()
 
 
-def _schedule(out: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
+def _schedule(out: dict[str, Any], parts: list[dict[str, Any]], interaction_id: str) -> dict[str, Any]:
     """Attach the parts to the promise just recorded (or that already held these terms)."""
     import db
+    from agent_core.tools import domain
 
     try:
         db.set_promise_schedule(str(out.get("promiseId")), parts)
@@ -733,6 +734,7 @@ def _schedule(out: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any
         return {**out, "ok": False, "error": "parts_not_recorded",
                 "say": ("The promise itself stands, but the parts could not be recorded. Say so plainly; "
                         "do not say the split was recorded.")}
+    domain._mark_ptp_captured(interaction_id, str(out.get("promiseId")))
     out = {k: v for k, v in out.items() if k not in ("error", "detail")}
     return {**out, "ok": True, "parts": parts,
             "say": "Recorded, in parts. Read the parts back: each amount and its date."}

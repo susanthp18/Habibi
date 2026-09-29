@@ -919,6 +919,24 @@ def _revision_spoken(before: dict[str, Any], after: dict[str, Any]) -> str:
     )
 
 
+def _mark_ptp_captured(interaction_id: str | None, promise_id: str) -> None:
+    """The call renegotiated a promise: it captured one, like a new promise does.
+
+    Run 70 filed promise_to_pay with ptp_captured false after a recorded
+    split. The revision is committed; a failed mark is logged, not reported.
+    """
+    if not interaction_id:
+        return
+    import capture
+    import db
+
+    try:
+        with db.engine.begin() as conn:
+            capture.mark_ptp_captured(conn, interaction_id)
+    except Exception:
+        logger.exception("mark_ptp_captured failed promise=%s", promise_id)
+
+
 def revise_promise_to_pay(
     *,
     customer_id: str,
@@ -990,6 +1008,7 @@ def revise_promise_to_pay(
             data={"detail": "crm_write_failed"},
             spoken_summary="apologise and offer a callback or human agent",
         )
+    _mark_ptp_captured(interaction_id, pid)
     fulfillment = (row or {}).get("_fulfillment") or {}
     summary = _open_promise_summary(pid)
     spoken = _revision_spoken(before, summary) + (

@@ -729,6 +729,11 @@ def set_promise_schedule(promise_id: str, parts: list[dict[str, Any]]) -> dict[s
         ):
             raise ValueError("schedule_mismatch")
         plan_id = row["plan_id"]
+        if plan_id and conn.execute(
+            text("SELECT 1 FROM promises WHERE plan_id = :p AND id <> :id LIMIT 1"),
+            {"p": plan_id, "id": promise_id},
+        ).first():
+            plan_id = None  # a plan other promises share is theirs too: start this one's own
         if plan_id:
             conn.execute(text("DELETE FROM promise_installments WHERE plan_id = :p"), {"p": plan_id})
             conn.execute(
