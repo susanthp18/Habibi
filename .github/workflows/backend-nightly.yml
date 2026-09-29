@@ -38,7 +38,7 @@ jobs:
       PII_ENCRYPTION_KEY: ci-only-pii-key-not-for-any-deployment
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v5
         with:
