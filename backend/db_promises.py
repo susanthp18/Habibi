@@ -574,8 +574,6 @@ def revise_promise(
             raise KeyError("promise_not_found")
         if row["status"] not in OPEN_STATUSES:
             raise ValueError(f"promise_not_open:{row['status']}")
-        if int(row["revision_count"] or 0) >= policy_rules.PTP_MAX_REVISIONS:
-            raise ValueError("promise_revision_cap")
         new_amount = row["amount"]
         capped = False
         if payload.get("amount") is not None:
@@ -583,8 +581,13 @@ def revise_promise(
         # _one stringifies timestamps; back to an instant for the compare.
         prior_at = datetime.fromisoformat(str(row["promised_at"]))
         new_at = clock.local_midnight(payload["promisedDate"]) if payload.get("promisedDate") else prior_at
+        # Before the cap: the same terms change nothing, so they are not a
+        # revision to refuse (run 69 read "the maximum number of times" to a
+        # customer restating the promise they already had).
         if float(new_amount) == float(row["amount"]) and new_at == prior_at:
             raise ValueError("nothing_to_revise")
+        if int(row["revision_count"] or 0) >= policy_rules.PTP_MAX_REVISIONS:
+            raise ValueError("promise_revision_cap")
         seq = int(row["revision_count"] or 0) + 1
         actor_kind, actor_user_id, actor_bot_id = _actor()
         conn.execute(
@@ -685,6 +688,75 @@ def cancel_promise(promise_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             conn, "promise", promise_id, "promise_cancelled", f"Promise cancelled ({reason})",
             payload.get("note"), row["customer_id"],
         )
+        return _promise_by_id(conn, promise_id)
+
+
+def set_promise_schedule(promise_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Record how an open promise will be paid: in parts, each an amount and a day.
+
+    The promise stays the one commitment -- its total, due by the last part --
+    so reminders, the pay link and settlement are unchanged; partial payments
+    already move it to ``partial``. The parts are its plan, shown on the
+    Promises screen. They must add up to the promise and end on its day; a
+    schedule that moves either is a revision first (:func:`revise_promise`).
+    Setting a schedule again replaces it.
+
+    ponytail: no reminder before an earlier part's day; the promise's own
+    reminder covers the last one. Add per-part reminders when desks ask.
+    """
+    with _db().engine.begin() as conn:
+        _assert_tenant_owns(conn, "promises", promise_id)
+        row = _one(
+            conn.execute(
+                text(
+                    "SELECT status, customer_id, account_id, amount, promised_at, plan_id "
+                    "FROM promises WHERE id = :id FOR UPDATE"
+                ),
+                {"id": promise_id},
+            )
+        )
+        if row is None:
+            raise KeyError("promise_not_found")
+        if row["status"] not in OPEN_STATUSES:
+            raise ValueError(f"promise_not_open:{row['status']}")
+        days = [clock.local_midnight(p["date"]) for p in parts]
+        total = round(sum(float(p["amount"]) for p in parts), 2)
+        if (
+            len(parts) < 2
+            or days != sorted(days)
+            or total != round(float(row["amount"]), 2)
+            or days[-1] != datetime.fromisoformat(str(row["promised_at"]))
+        ):
+            raise ValueError("schedule_mismatch")
+        plan_id = row["plan_id"]
+        if plan_id:
+            conn.execute(text("DELETE FROM promise_installments WHERE plan_id = :p"), {"p": plan_id})
+            conn.execute(
+                text("UPDATE payment_plans SET total_amount = :t, updated_at = now() WHERE id = :p"),
+                {"t": total, "p": plan_id},
+            )
+        else:
+            plan_id = _id("PLAN")
+            conn.execute(
+                text(
+                    "INSERT INTO payment_plans (id, customer_id, account_id, total_amount) "
+                    "VALUES (:id, :c, :a, :t)"
+                ),
+                {"id": plan_id, "c": row["customer_id"], "a": row["account_id"], "t": total},
+            )
+            conn.execute(text("UPDATE promises SET plan_id = :p WHERE id = :id"), {"p": plan_id, "id": promise_id})
+        for idx, (part, day) in enumerate(zip(parts, days), start=1):
+            conn.execute(
+                text(
+                    "INSERT INTO promise_installments (id, plan_id, installment_index, due_date, amount, paid_status) "
+                    "VALUES (:id, :p, :i, :d, :a, 'upcoming')"
+                ),
+                {"id": f"{plan_id}-{idx}", "p": plan_id, "i": idx, "d": day, "a": float(part["amount"])},
+            )
+        label = "Promise to be paid in parts: " + ", ".join(
+            f"{float(p['amount']):.2f} by {p['date']}" for p in parts
+        )
+        _activity(conn, "promise", promise_id, "promise_scheduled", label, None, row["customer_id"])
         return _promise_by_id(conn, promise_id)
 
 

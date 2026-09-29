@@ -496,6 +496,23 @@ class KnowledgeBaseClient(BaseDBClient):
             result = await session.execute(query)
             return list(result.scalars().all())
 
+    async def get_document_uuids_named(
+        self,
+        organization_id: int,
+        document_uuids: List[str],
+        prefix: str,
+    ) -> List[str]:
+        """The documents among ``document_uuids`` whose filename starts with ``prefix``."""
+        async with self.async_session() as session:
+            query = select(KnowledgeBaseDocumentModel.document_uuid).where(
+                KnowledgeBaseDocumentModel.organization_id == organization_id,
+                KnowledgeBaseDocumentModel.document_uuid.in_(document_uuids),
+                KnowledgeBaseDocumentModel.is_active == True,
+                KnowledgeBaseDocumentModel.filename.ilike(f"{prefix}%"),
+            )
+            result = await session.execute(query)
+            return [str(u) for u in result.scalars().all()]
+
     async def get_full_text_documents(
         self,
         organization_id: int,

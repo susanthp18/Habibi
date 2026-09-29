@@ -1162,6 +1162,7 @@ from db_promises import (  # noqa: E402
     list_promises as list_promises,
     patch_promise as patch_promise,
     resend_promise_confirm as resend_promise_confirm,
+    set_promise_schedule as set_promise_schedule,
 )
 
 from db_callbacks import (  # noqa: E402

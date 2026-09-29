@@ -152,7 +152,7 @@ def _open_promise(conn: Any, customer_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         text(
             """
-            SELECT id, amount, promised_at, status
+            SELECT id, amount, promised_at, status, plan_id
             FROM promises
             WHERE customer_id = :cid AND status IN ('upcoming','due_today','broken','partial')
             ORDER BY promised_at DESC
@@ -168,7 +168,7 @@ def _open_promise(conn: Any, customer_id: str) -> dict[str, Any] | None:
     if promised is not None:
         at = promised if promised.tzinfo else promised.replace(tzinfo=timezone.utc)
         days_late = max(0, int((_now() - at).total_seconds() // 86_400))
-    return {
+    out = {
         "promiseId": row["id"],
         "amountInr": float(row["amount"]) if row["amount"] is not None else None,
         # The customer's day, not the UTC one: see clock.local_day.
@@ -176,6 +176,15 @@ def _open_promise(conn: Any, customer_id: str) -> dict[str, Any] | None:
         "status": row["status"],
         "daysLate": days_late,
     }
+    if row["plan_id"]:  # paying it in parts (db_promises.set_promise_schedule)
+        out["parts"] = [
+            {"amount": float(p["amount"]), "date": clock.local_day(p["due_date"]).isoformat()}
+            for p in conn.execute(
+                text("SELECT amount, due_date FROM promise_installments WHERE plan_id = :p ORDER BY installment_index"),
+                {"p": row["plan_id"]},
+            ).mappings()
+        ]
+    return out
 
 
 def _last_contact(conn: Any, customer_id: str) -> dict[str, Any] | None:
@@ -517,10 +526,15 @@ def _situation_lines(mission: dict[str, Any], currency: Any) -> list[str]:
     if promise and promise.get("amountInr") is not None:
         state = "was not kept" if promise.get("status") == "broken" else "is open"
         late = f", {promise['daysLate']} days ago" if promise.get("daysLate") else ""
+        parts = "; ".join(
+            f"{spoken_money(p['amount'], currency)} by {clock.spoken_date(p['date'])}"
+            for p in promise.get("parts") or []
+        )
         lines.append(
             f"They promised {spoken_money(promise['amountInr'], currency)} by "
-            f"{clock.spoken_date(promise.get('promisedDate'))}{late} and that promise {state}. "
-            "Refer to it without reproach."
+            f"{clock.spoken_date(promise.get('promisedDate'))}{late}"
+            + (f", in parts ({parts})" if parts else "")
+            + f" and that promise {state}. Refer to it without reproach."
         )
 
     last = ctx.get("lastContact")

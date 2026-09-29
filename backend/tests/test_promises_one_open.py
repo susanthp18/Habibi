@@ -266,6 +266,46 @@ def test_the_revise_tool_with_nothing_open_says_so(db_tx) -> None:
     assert out.ok is False and out.error == "promise_not_open"
 
 
+def test_a_promise_paid_in_parts_keeps_its_total_and_records_the_parts(db_tx) -> None:
+    """Run 69: "2,000 by the 8th and 2,000 by the 10th" against a 4,000 promise due
+    the 10th was told "your promise stands" and nothing was written; restated, it
+    was refused as a revision past the cap."""
+    import mission
+    import policy_rules
+
+    customer_id, account_id = _customer(db_tx)
+    first = _create(customer_id, account_id, amount=400, days=6)
+    db_tx.execute(
+        text("UPDATE promises SET revision_count = :n WHERE id = :id"),
+        {"n": policy_rules.PTP_MAX_REVISIONS, "id": first["id"]},
+    )
+    with pytest.raises(ValueError, match="nothing_to_revise"):  # same terms: not a capped revision
+        db.revise_promise(first["id"], {"reason": "partial_payment_agreed", "amount": 400, "promisedDate": _day(6)})
+
+    parts = [{"amount": 200, "date": _day(4)}, {"amount": 200, "date": _day(6)}]
+    db.set_promise_schedule(first["id"], parts)
+    db.set_promise_schedule(first["id"], parts)  # again: replaced, not doubled
+    promise = mission._open_promise(db_tx, customer_id)
+    assert promise["amountInr"] == 400.0 and promise["promisedDate"] == _day(6)
+    assert promise["parts"] == [{"amount": 200.0, "date": _day(4)}, {"amount": 200.0, "date": _day(6)}]
+
+    with pytest.raises(ValueError, match="schedule_mismatch"):  # must add up to the promise
+        db.set_promise_schedule(first["id"], [{"amount": 100, "date": _day(4)}, {"amount": 200, "date": _day(6)}])
+
+
+def test_the_voice_tool_reads_parts_in_date_order_and_refuses_ones_that_do_not_add_up() -> None:
+    from voice_studio import _parts
+
+    parts, refused = _parts({"parts": [{"amount": 2000, "date": "2026-10-10"}, {"amount": 2000, "date": "2026-10-08"}],
+                             "amount": 4000, "date": "2026-10-10"})
+    assert refused is None and [p["date"] for p in parts] == ["2026-10-08", "2026-10-10"]
+    assert _parts({"parts": '[{"amount": 2000, "date": "2026-10-08"}, {"amount": 2000, "date": "2026-10-10"}]'})[0]
+    assert _parts({"parts": [{"amount": 2000, "date": "2026-10-08"}, {"amount": 1000, "date": "2026-10-10"}],
+                   "amount": 4000})[1]["error"] == "invalid_parts"
+    assert _parts({"parts": [{"amount": 4000, "date": "2026-10-10"}]})[1]["error"] == "invalid_parts"
+    assert _parts({"amount": 4000}) == (None, None)
+
+
 def test_the_catalog_and_the_database_agree_on_the_reasons() -> None:
     from agent_core.tools.catalog import REVISION_REASONS as CATALOG_REASONS
     from db_promises import REVISION_REASONS

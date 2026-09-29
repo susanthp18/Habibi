@@ -64,9 +64,25 @@ async def test_two_english_words_in_tamil_script_do_not_flip():
 async def test_switching_back_is_a_change_too():
     tracker, changes, _ = _tracker()
     await tracker._observe("en-IN", 5)
-    await tracker._observe("ar-AE", 5)
-    await tracker._observe("en-IN", 5)
+    await tracker._observe("ar-AE", 6)
+    await tracker._observe("en-IN", 6)
     assert changes[-1] == ("en-IN", ["en-IN", "ar-AE"])
+
+
+@pytest.mark.asyncio
+async def test_short_english_written_in_hindi_does_not_flip():
+    """Run 69: "It is 2324" and "No worries, thanks" came back as Hindi script
+    (hi-IN) and each flipped the call, voice and all, to Hindi."""
+    from api.services.pipecat.call_language import letter_words
+
+    tracker, _, pushed = _tracker()
+    await tracker._observe("en-IN", 3)
+    assert letter_words("इट इज़। 2324।") == 2  # the digits are not a word
+    await tracker._observe("hi-IN", letter_words("इट इज़। 2324।"))
+    await tracker._observe("en-IN", letter_words("Wait, wait, I I don't understand really."))
+    await tracker._observe("hi-IN", letter_words("नो वोर्री थैंक्स।"))
+    assert tracker.current == "en-IN" and pushed == []
+    assert letter_words("2324") == 0
 
 
 def test_rules_name_the_languages_and_scripts():

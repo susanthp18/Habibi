@@ -4,10 +4,12 @@ Azure reports a language on every transcript (continuous language
 identification). ``CallLanguageTracker`` sits right after speech-to-text and
 turns that per-phrase signal into the call's current language:
 
-* a switch needs a phrase of at least three words, or two short phrases in a
-  row, so a stray "ok", a name, or an English "No thanks" that Tamil
-  recognition wrote in Tamil script ("நோ தாங்க்ஸ்", run 67) does not flip the
-  conversation;
+* a switch needs a phrase of at least six words, or two phrases in a row in
+  the new language; digits are not words. Azure labels short English replies
+  as Hindi or Tamil and spells them out in that script: "No thanks" as
+  "நோ தாங்க்ஸ்" (run 67), "It is 2324" as "इट इज़। 2324।" and "No worries,
+  thanks" as "नो वोर्री थैंक्स।" (run 69, where three words, the digits among
+  them, flipped the call to Hindi twice);
 * only the agent's languages count: a detection outside them (open-range
   refinement can label a Tamil phrase Arabic) is taken as the listed language
   of the same base language, or ignored;
@@ -32,7 +34,12 @@ LANGUAGE_NAMES = {
 _SCRIPTS = {"hi": "Devanagari", "mr": "Devanagari", "ta": "Tamil", "ar": "Arabic", "ur": "Arabic",
             "te": "Telugu", "kn": "Kannada", "ml": "Malayalam", "bn": "Bengali", "gu": "Gujarati"}
 
-_MIN_WORDS_TO_SWITCH = 3
+_MIN_WORDS_TO_SWITCH = 6
+
+
+def letter_words(text: str) -> int:
+    """Words with at least one letter: "2324" and "₹500" say nothing about language."""
+    return sum(1 for word in text.split() if any(ch.isalpha() for ch in word))
 
 
 def language_name(locale: str) -> str:
@@ -90,10 +97,10 @@ class CallLanguageTracker(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, TranscriptionFrame) and frame.language and frame.text.strip():
+        if isinstance(frame, TranscriptionFrame) and frame.language and (words := letter_words(frame.text)):
             language = self._listed(str(frame.language))
             if language is not None:
-                await self._observe(language, len(frame.text.split()))
+                await self._observe(language, words)
         await self.push_frame(frame, direction)
 
     async def _observe(self, language: str, words: int) -> None:

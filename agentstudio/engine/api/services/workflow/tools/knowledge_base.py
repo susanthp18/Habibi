@@ -7,6 +7,7 @@ Implements OpenTelemetry tracing for observability in Langfuse.
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -31,6 +32,7 @@ async def retrieve_from_knowledge_base(
     embeddings_api_version: Optional[str] = None,
     correlation_id: Optional[str] = None,
     tracing_context=None,
+    documents: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieve relevant information from the knowledge base using vector similarity search.
 
@@ -55,6 +57,22 @@ async def retrieve_from_knowledge_base(
         - query: The original query
         - total_results: Number of results returned
     """
+    # AgentStudio: one product's files, when the model names them. Ten
+    # products share near-identical policy wording, so "Travel exclusions"
+    # over all thirty files ranked Choice's and Car's exclusions and a bare
+    # "GENERAL EXCLUSIONS" heading above Travel's own clauses (run 68).
+    # An unknown name searches everything rather than nothing.
+    prefix = re.split(r"[\s_.]", (documents or "").strip())[0]
+    if prefix and document_uuids:
+        document_uuids = (
+            await db_client.get_document_uuids_named(
+                organization_id=organization_id,
+                document_uuids=document_uuids,
+                prefix=prefix,
+            )
+            or document_uuids
+        )
+
     # Create span for retrieval operation if tracing is enabled
     if ensure_tracing():
         try:
@@ -377,7 +395,22 @@ def get_knowledge_base_tool(
                             "the caller is speaking. "
                             "Example: 'What is the refund policy for canceled orders?'"
                         ),
-                    }
+                    },
+                    **(
+                        {
+                            "documents": {
+                                "type": "string",
+                                "description": (
+                                    "Optional. Search only the files whose names start with this, "
+                                    "for example Travel for Travel_FAQs.txt, Travel_benefits.txt and "
+                                    "Travel_policy.md. Use it whenever the question is about one "
+                                    "product; leave it out for a question across products."
+                                ),
+                            }
+                        }
+                        if document_uuids
+                        else {}
+                    ),
                 },
                 "required": ["query"],
             },

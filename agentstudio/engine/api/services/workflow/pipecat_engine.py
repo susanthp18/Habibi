@@ -811,7 +811,11 @@ class PipecatEngine:
                     query=query,
                     organization_id=organization_id,
                     document_uuids=document_uuids,
-                    limit=3,  # Return top 3 most relevant chunks
+                    # AgentStudio: five, not three. A benefit schedule or an
+                    # exclusion list spans several chunks; with three, runs 67
+                    # and 68 said "the documents don't give me the full Gold
+                    # schedule" and offered a colleague instead.
+                    limit=5,
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
                     embeddings_base_url=self._embeddings_base_url,
@@ -822,6 +826,7 @@ class PipecatEngine:
                         MPS_CORRELATION_ID_CONTEXT_KEY
                     ),
                     tracing_context=self._get_otel_context(),
+                    documents=function_call_params.arguments.get("documents"),
                 )
 
                 await function_call_params.result_callback(result)

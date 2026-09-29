@@ -93,6 +93,9 @@ TOOLS: list[dict[str, Any]] = [
             {"name": "reason", "type": "string", "required": False,
              "description": "Only when this changes an existing promise: customer_requested_delay, salary_delayed, "
                             "medical, dispute_raised, partial_payment_agreed or other."},
+            {"name": "parts", "type": "array", "required": False,
+             "description": "Only when paying in parts: every part as {\"amount\": number, \"date\": "
+                            "\"YYYY-MM-DD\"}. amount is then their total and date the last part's date."},
         ],
     },
     {

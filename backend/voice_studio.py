@@ -637,11 +637,57 @@ def _amount(value: Any) -> float | None:
     return amount if amount > 0 else None
 
 
+_BAD_PARTS = {
+    "ok": False, "error": "invalid_parts",
+    "say": ("Nothing was recorded. Paying in parts needs two or more parts, each an amount and a date "
+            "(YYYY-MM-DD); amount must be their total and date the last part's date. Read the parts back "
+            "and ask again."),
+}
+
+
+def _parts(args: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    """The customer's parts when they pay in parts, in date order, or a refusal."""
+    raw = args.get("parts")
+    if raw in (None, "", []):
+        return None, None
+    if isinstance(raw, str):  # a model may send the list as JSON text
+        try:
+            import json
+
+            raw = json.loads(raw)
+        except ValueError:
+            return None, _BAD_PARTS
+    parts = []
+    for part in raw if isinstance(raw, list) else []:
+        amount = _amount(part.get("amount")) if isinstance(part, dict) else None
+        day = str(part.get("date") or "").split("T", 1)[0] if isinstance(part, dict) else ""
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            return None, _BAD_PARTS
+        if amount is None:
+            return None, _BAD_PARTS
+        parts.append({"amount": amount, "date": day})
+    parts.sort(key=lambda p: p["date"])
+    total = round(sum(p["amount"] for p in parts), 2)
+    if (len(parts) < 2 or args.get("date") not in (None, "", parts[-1]["date"])
+            or (_amount(args.get("amount")) not in (None, total))):
+        return None, _BAD_PARTS
+    return parts, None
+
+
 def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
     from agent_core.tools import domain
 
     if (blocked := _require_verified(interaction_id, ctx)) is not None:
         return blocked
+    parts, refused = _parts(args)
+    if refused:
+        return refused
+    if parts:
+        # One promise for the total, due by the last part; the parts are its schedule.
+        args = {**args, "amount": round(sum(p["amount"] for p in parts), 2), "date": parts[-1]["date"],
+                "reason": args.get("reason") or "partial_payment_agreed"}
     result = domain.create_promise_to_pay(
         customer_id=str(ctx.get("customer_id") or ""),
         amount=args.get("amount"),
@@ -664,10 +710,32 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
             idempotency_key=f"vs-{ctx.get('workflow_run_id')}-ptp-rev-{args.get('date')}-{args.get('amount')}",
         )
     if result.error == "promise_revision_cap":  # final: a retry cannot succeed
+        # A callback, not a colleague: the agents offer a person only when the
+        # customer asks for one, and "offer to connect a colleague" here had
+        # them offering one unprompted.
         return {**result.to_llm(), "ok": False, "retry": False,
                 "say": ("This promise has been changed the maximum number of times and cannot be changed "
-                        "again. Do not retry or confirm a new date; offer to connect a colleague.")}
+                        "again; the open promise stands as it is. Do not retry or confirm a new date; tell "
+                        "them, and offer a specialist callback.")}
+    if parts and (result.ok or result.error == "nothing_to_revise"):
+        return _schedule(result.to_llm(), parts)
     return result.to_llm()
+
+
+def _schedule(out: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Attach the parts to the promise just recorded (or that already held these terms)."""
+    import db
+
+    try:
+        db.set_promise_schedule(str(out.get("promiseId")), parts)
+    except (KeyError, ValueError):
+        logger.warning("promise schedule not recorded promise=%s", out.get("promiseId"), exc_info=True)
+        return {**out, "ok": False, "error": "parts_not_recorded",
+                "say": ("The promise itself stands, but the parts could not be recorded. Say so plainly; "
+                        "do not say the split was recorded.")}
+    out = {k: v for k, v in out.items() if k not in ("error", "detail")}
+    return {**out, "ok": True, "parts": parts,
+            "say": "Recorded, in parts. Read the parts back: each amount and its date."}
 
 
 def _tool_request_callback(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
