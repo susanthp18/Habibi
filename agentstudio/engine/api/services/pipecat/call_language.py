@@ -55,13 +55,15 @@ def multilingual_reply_rule(languages: list[str]) -> str:
     # "By the words, not the script": Azure writes an Indian-English caller's
     # "It is 2324" as "इट इज़ 2324" even when it labels it English, and the
     # model, told to answer in the caller's script, answered in Hindi (run 72).
+    # The example has no digits: with "it is 2324" in its prompt the model sent
+    # 2324 to verify_identity before the caller said a word (run 76).
     return (
         f"LANGUAGE: The caller may speak {names}, and may switch at any time. Reply in the "
         "language the caller is speaking, written in that language's own script "
         "(for example Devanagari for Hindi, Tamil script for Tamil, Arabic script for Arabic); "
         "never transliterate into Latin letters. Judge the language by the words, not the "
         "script they were transcribed in: speech recognition often writes English in Hindi or "
-        "Tamil script (\"इट इज़ 2324\" is English, \"it is 2324\"), and that caller is speaking "
+        "Tamil script (\"नो थैंक्स\" is English, \"no thanks\"), and that caller is speaking "
         "English. A word or two in another language (\"haan\", \"ok\", \"sorry\") does not change "
         "it. If the caller asks for a language, keep to it for the rest of the call. "
         "Names, amounts and dates stay exactly as they are."

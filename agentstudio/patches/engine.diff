@@ -7842,8 +7842,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-29 12:17:18.868002000 +0530
-@@ -0,0 +1,131 @@
++++ engine/api/tests/test_call_language.py	2026-09-29 18:50:22.745926600 +0530
+@@ -0,0 +1,133 @@
 +"""The call's language follows the caller, but not on a stray word."""
 +
 +import pytest
@@ -7934,6 +7934,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +def test_rules_name_the_languages_and_scripts():
 +    rule = multilingual_reply_rule(["en-IN", "hi-IN", "ta-IN"])
 +    assert "English, Hindi, Tamil" in rule and "never transliterate" in rule
++    # Digits in an example get sent to verify_identity (run 76).
++    assert not any(ch.isdigit() for ch in rule)
 +    assert "Tamil script" in switch_note("ta-IN")
 +    assert "Arabic script" in switch_note("ar-AE")
 +
@@ -9844,6 +9846,18 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                              </CardDescription>
                          </div>
                          <Button onClick={() => setIsUploadOpen(true)}>
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/reports/page.tsx engine/ui/src/app/reports/page.tsx
+--- dograh/ui/src/app/reports/page.tsx	2026-09-29 18:56:21.701655900 +0530
++++ engine/ui/src/app/reports/page.tsx	2026-09-29 18:42:55.004751000 +0530
+@@ -57,7 +57,7 @@
+   const [report, setReport] = useState<DailyReport | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState<string | null>(null);
+-  const [timezone, setTimezone] = useState('America/New_York');
++  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata');
+   const auth = useAuth();
+ 
+   // Fetch workflows on mount
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/ui/src/app/settings/page.tsx engine/ui/src/app/settings/page.tsx
 --- dograh/ui/src/app/settings/page.tsx	2026-09-29 13:26:36.870255300 +0530
 +++ engine/ui/src/app/settings/page.tsx	2026-09-26 22:45:20.344171700 +0530

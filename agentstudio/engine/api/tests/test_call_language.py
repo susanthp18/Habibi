@@ -88,6 +88,8 @@ async def test_short_english_written_in_hindi_does_not_flip():
 def test_rules_name_the_languages_and_scripts():
     rule = multilingual_reply_rule(["en-IN", "hi-IN", "ta-IN"])
     assert "English, Hindi, Tamil" in rule and "never transliterate" in rule
+    # Digits in an example get sent to verify_identity (run 76).
+    assert not any(ch.isdigit() for ch in rule)
     assert "Tamil script" in switch_note("ta-IN")
     assert "Arabic script" in switch_note("ar-AE")
 
