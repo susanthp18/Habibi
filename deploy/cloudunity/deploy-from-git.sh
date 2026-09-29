@@ -10,8 +10,9 @@
 #
 # It packs the same four trees pack-release.sh packs on the laptop, from
 # `git archive <sha>` (never a working tree), and runs the same rollout. The
-# marketing site (Site/) is not in git: it is left as it is unless a fresh
-# site.tgz is passed as the second argument.
+# marketing site (Site/) is built from the same commit, in a pinned Node
+# container, and released with it; a site.tgz passed as the second argument
+# is released instead. A commit without Site/ leaves the live site as it is.
 set -euo pipefail
 
 REF=${1:?usage: deploy-from-git.sh <branch|tag|sha> [site.tgz]}
@@ -36,11 +37,28 @@ cp "$tmp/deploy/cloudunity/voice-studio-rollout.sh" /tmp/voice-studio-rollout.sh
 rm -rf "$tmp"
 
 # A site.tgz left in /tmp by an earlier laptop deploy is not what this commit
-# describes; release a site only when one is named.
-if [ -z "$SITE" ]; then
+# describes: release the one named, else the one this commit builds, else none.
+rm -f /tmp/site.tgz.next
+if [ -n "$SITE" ]; then
+  [ "$SITE" -ef /tmp/site.tgz ] || cp "$SITE" /tmp/site.tgz
+elif git -C "$SRC" cat-file -e "$SHA:Site/package.json" 2>/dev/null; then
+  build=$(mktemp -d)
+  git -C "$SRC" archive --format=tar "$SHA" Site | tar -xf - -C "$build"
+  echo "building the marketing site from $SHORT"
+  if docker run --rm --memory=2g --cpus=2 -v "$build/Site:/app" -w /app node:22-bookworm \
+       sh -c 'npm ci --no-audit --no-fund --loglevel=error && npm run build >/dev/null' &&
+     tar -czf /tmp/site.tgz.next -C "$build/Site/dist/client" .; then
+    mv /tmp/site.tgz.next /tmp/site.tgz
+  else
+    # The site is independent of the app: a failed build keeps the old site.
+    echo "marketing site build FAILED; the live site is left as it is" >&2
+    rm -f /tmp/site.tgz /tmp/site.tgz.next
+  fi
+  # The container wrote as root; clear the build tree the same way.
+  docker run --rm -v "$build:/b" node:22-bookworm rm -rf /b/Site >/dev/null 2>&1 || true
+  rm -rf "$build"
+else
   rm -f /tmp/site.tgz
-elif ! [ "$SITE" -ef /tmp/site.tgz ]; then
-  cp "$SITE" /tmp/site.tgz
 fi
 
 exec bash /tmp/voice-studio-rollout.sh

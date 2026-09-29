@@ -44,7 +44,7 @@ esac
 echo '== unpack and check the bundle =='
 mkdir -p "$RELEASE"
 tar -xzf "$BUNDLE" -C "$RELEASE"
-for page in "" platform decision-engine agents compliance security product lenders insurance pricing demo; do
+for page in "" platform decision-engine agents compliance security product lenders insurance demo; do
   test -f "$RELEASE/$page${page:+/}index.html" || { echo "bundle is missing /$page" >&2; exit 1; }
 done
 if grep -rlqE '/@vite/client|/src/entry-client' "$RELEASE"/index.html "$RELEASE"/*/index.html; then
