@@ -201,7 +201,9 @@ def _violation_rows_to_screen(
                 "status": _violation_status_screen(r["status"]),
                 "assignee": r["assignee"] or None,
                 "notes": notes.get(r["id"]) or [],
-                "resolvedAt": r["resolved_at"].isoformat() if r.get("resolved_at") else None,
+                # db._rows already hands timestamps back as ISO strings; calling
+                # .isoformat() on one 500'd the whole feed once anything was resolved.
+                "resolvedAt": r.get("resolved_at") or None,
             }
         )
     return result
