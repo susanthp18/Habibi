@@ -314,9 +314,16 @@ def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None)
     )
 
 
-def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: str | None, suppressed: bool) -> str:
+def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: str | None, suppressed: bool,
+            deferred: bool = False) -> str:
     date_s = _promised_date_ist(promised_at).strftime("%d %B")
     rupees = money_inr.template_amount(amount)
+    if deferred:
+        return (
+            f"I've recorded a promise of {rupees} rupees by {date_s}. "
+            "The written confirmation with the payment link will be sent in the morning, "
+            "within messaging hours."
+        )
     if suppressed or not channel:
         return (
             f"I've recorded a promise of {rupees} rupees by {date_s}. "
@@ -639,6 +646,8 @@ def _enqueue_sms_reminder(
     promise: dict[str, Any],
     body: str,
     resend: bool,
+    channel: str = "sms",
+    scheduled_at: datetime | None = None,
 ) -> None:
     import db as dbmod
 
@@ -675,14 +684,30 @@ def _enqueue_sms_reminder(
             INSERT INTO promise_reminders (
               id, promise_id, channel, kind, scheduled_at, status
             ) VALUES (
-              :id, :promise_id, 'sms', 'confirm', now(), 'queued'
+              :id, :promise_id, :channel, 'confirm', COALESCE(:scheduled_at, now()),
+              CASE WHEN :scheduled_at IS NULL THEN 'queued' ELSE 'scheduled' END
             )
             """
         ),
-        {"id": dbmod._id("PRM"), "promise_id": promise["id"]},
+        {"id": dbmod._id("PRM"), "promise_id": promise["id"], "channel": channel,
+         "scheduled_at": scheduled_at},
     )
     # Body lives on the intent pay_url path; drain reads the open intent.
     _ = body
+
+
+def _next_messaging_slot(now: datetime) -> datetime:
+    """08:15 IST, today if it is still ahead, else tomorrow: when the due reminders go.
+
+    ponytail: the platform's 08:00 window start plus a margin, not each tenant's
+    published window; the drain re-admits at send time and defers again (two
+    hours at a time) if the window is still closed.
+    """
+    local = now.astimezone(IST)
+    slot = local.replace(hour=8, minute=15, second=0, microsecond=0)
+    if slot <= local:
+        slot += timedelta(days=1)
+    return slot.astimezone(timezone.utc)
 
 
 def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentResult:
@@ -775,6 +800,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             endpoint=phone,
         )
 
+    wanted_channel = channel
     if channel is not None:
         decision = _admit_channel(channel)
         if not decision.allowed:
@@ -788,6 +814,17 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
                 channel = None
                 reason = decision.reason or "channel_opted_out"
 
+    # A statutory confirmation outside messaging hours waits for them. It was
+    # recorded as "deferred" and then dropped: run 90's evening promise got its
+    # due reminders but never its confirmation.
+    deferred = (channel is None and wanted_channel is not None
+                and reason == contact_policy.REASON_WINDOW_DEFERRED_STATUTORY)
+    if deferred:
+        # SMS unless it is blocked: a WhatsApp send outside its service window
+        # needs a template, and live sends fall back to SMS without one too.
+        _enqueue_sms_reminder(conn, promise=promise, body=body, resend=resend,
+                              channel="sms" if not sms_blocked else wanted_channel,
+                              scheduled_at=_next_messaging_slot(utc_now()))
     if channel is None:
         result.suppressed = True
         result.suppression_reason = reason or "channel_opted_out"
@@ -807,7 +844,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             "promise",
             promise_id,
             "promise_confirmed",
-            "Payment link suppressed",
+            "Payment link deferred to messaging hours" if deferred else "Payment link suppressed",
             result.suppression_reason,
             promise["customer_id"],
         )
@@ -817,6 +854,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             channel=None,
             last4=last4,
             suppressed=True,
+            deferred=deferred,
         )
         _sync_due_reminders(conn, promise, "whatsapp")
         return result

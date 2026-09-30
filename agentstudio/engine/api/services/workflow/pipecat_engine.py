@@ -784,12 +784,16 @@ class PipecatEngine:
                 current = agent.current_node
                 node_key = (agent.visit_id, current.id) if current else None
                 # Back to a step this turn just left, with nothing new from the
-                # caller: run 88 went Agree -> Hardship -> Agree -> Hardship on
-                # one "I can only do 2,000 this week", four model rounds and
-                # 8.7 s before a word. Both steps matched; neither may bounce.
+                # caller. Once per customer message it is a correction: run 90
+                # misrouted "Actually, yes, go ahead" into Dispute, whose prompt
+                # sends a mistaken arrival straight back, and refusing that return
+                # stranded a confirmed change. A second is ping-pong: run 88 went
+                # Agree -> Hardship -> Agree -> Hardship on one message, four
+                # model rounds and 8.7 s before a word.
                 left = self.__dict__.get("_node_left_user_message", {})
-                if ((agent.visit_id, transition_to_node) in left
-                        and left[(agent.visit_id, transition_to_node)] is self._last_user_message()):
+                returning = ((agent.visit_id, transition_to_node) in left
+                             and left[(agent.visit_id, transition_to_node)] is self._last_user_message())
+                if returning and self.__dict__.get("_returned_on_user_message") is left[(agent.visit_id, transition_to_node)]:
                     await function_call_params.result_callback({
                         "status": "error", "error": "node_bounce",
                         "say": self._refusal_hint(
@@ -915,6 +919,9 @@ class PipecatEngine:
                 elif transition_speech:
                     await self.queue_text_message(transition_speech, mute_user=True)
 
+                # This message's one correction is used (see the bounce check).
+                if returning:
+                    self._returned_on_user_message = left[(agent.visit_id, transition_to_node)]
                 # Set context for the new node, so that when the function call result
                 # frame is received by LLMContextAggregator and an LLM generation
                 # is done, we have updated context and functions

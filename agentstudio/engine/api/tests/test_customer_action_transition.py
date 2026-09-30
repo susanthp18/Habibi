@@ -625,16 +625,18 @@ async def test_no_goodbye_straight_after_the_customers_question():
 
 
 @pytest.mark.asyncio
-async def test_no_bounce_back_to_the_step_just_left_without_the_caller():
-    """Run 88: Agree -> Hardship -> Agree -> Hardship on one "I can only do 2000 this week"."""
+async def test_one_return_per_message_corrects_a_misroute_but_a_second_is_ping_pong():
+    """Run 90: "Actually, yes, go ahead" was misrouted Agree -> Dispute, whose prompt
+    sends a mistaken arrival straight back; refusing that return stranded a confirmed
+    change. Run 88: Agree -> Hardship -> Agree -> Hardship on one message."""
     engine = object.__new__(PipecatEngine)
     engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
     engine._assistant_aggregator = None
-    offer = {"role": "user", "content": "I can only do 2000 this week."}
-    engine.context = SimpleNamespace(messages=[offer])
-    engine._node_entry_user_message = {("visit", "hardship"): offer}
-    engine._node_left_user_message = {("visit", "agree"): offer}  # left Agree on this very message
+    said = {"role": "user", "content": "Actually, yes, go ahead with the Wednesday date."}
+    engine.context = SimpleNamespace(messages=[said])
+    engine._node_entry_user_message = {("visit", "dispute"): said}
+    engine._node_left_user_message = {("visit", "agree"): said}  # left Agree on this very message
     engine._context_summary_message = None
     engine._customer_action_outcomes = {}
     engine._verification_required = set()
@@ -645,23 +647,33 @@ async def test_no_bounce_back_to_the_step_just_left_without_the_caller():
 
     class Agent:
         visit_id = "visit"
-        current_node = SimpleNamespace(id="hardship")
-        workflow = SimpleNamespace(nodes={"agree": SimpleNamespace(is_end=False)})
+        current_node = SimpleNamespace(id="dispute")
+        workflow = SimpleNamespace(nodes={"agree": SimpleNamespace(is_end=False),
+                                          "dispute": SimpleNamespace(is_end=False)})
 
         def bind_tool(self, _engine, handler):
             return handler
 
-    engine._active_agent = Agent()
-    handler = await engine._create_transition_func("Discuss payment", "agree", agent=Agent())
+    agent = Agent()
+    engine._active_agent = agent
+    back = await engine._create_transition_func("Discuss payment", "agree", agent=agent)
     callback = AsyncMock()
-    await handler(SimpleNamespace(arguments={}, result_callback=callback))
-    assert callback.await_args.args[0]["error"] == "node_bounce"
-    engine.set_node.assert_not_awaited()
-
-    # The caller answers the hardship offer with a payment: now it may go back.
-    engine.context.messages.append({"role": "user", "content": "Actually, 2500 on Friday and 2500 next Tuesday."})
-    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    # The correction: back to the step just left, once.
+    await back(SimpleNamespace(arguments={}, result_callback=callback))
     engine.set_node.assert_awaited_once_with("agree", origin_visit_id="visit")
+
+    # Ping-pong: straight out again on the same message is refused.
+    agent.current_node = SimpleNamespace(id="agree")
+    engine._node_left_user_message[("visit", "dispute")] = said
+    again = await engine._create_transition_func("Dispute or already paid", "dispute", agent=agent)
+    await again(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "node_bounce"
+    assert engine.set_node.await_count == 1
+
+    # Something new from the caller: it may move again.
+    engine.context.messages.append({"role": "user", "content": "The amount is wrong, actually."})
+    await again(SimpleNamespace(arguments={}, result_callback=callback))
+    engine.set_node.assert_awaited_with("dispute", origin_visit_id="visit")
 
 
 @pytest.mark.asyncio
