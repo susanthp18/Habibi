@@ -94,3 +94,28 @@ def test_a_voice_azure_lists_can_be_saved():
     assert config.voice == name and config.voice_map == {"hi-IN": name}
     with pytest.raises(ValueError):
         AzureSpeechTTSConfiguration(api_key="k", voice=" ")
+
+
+@pytest.mark.parametrize("style, voice, expected", [
+    (None, "en-US-Ethan:MAI-Voice-2.1-Flash", None),
+    ("happy", "en-US-Ethan:MAI-Voice-2.1-Flash", None),
+    ("cheerful", "en-US-Ethan:MAI-Voice-2.1-Flash", "has no 'cheerful' style (it offers: happy, joyful)"),
+    ("cheerful", "en-AU-WilliamNeural", "(it offers: no styles)"),
+    ("cheerful", "xx-XX-NotListed", None),
+])
+def test_a_saved_style_must_be_one_the_voice_offers(style, voice, expected):
+    """30 Sep: MAI voices return Azure 502 for a style they lack ("cheerful")."""
+    from api.services.configuration.check_validity import UserConfigurationValidator
+
+    catalog = {"en-US-Ethan:MAI-Voice-2.1-Flash": {"styles": ["happy", "joyful"]},
+               "en-AU-WilliamNeural": {"styles": []}}
+    issues = UserConfigurationValidator._validate_voice_style(SimpleNamespace(style=style, voice=voice), catalog)
+    messages = [issue["message"] for issue in issues]
+    assert (not messages) if expected is None else (len(messages) == 1 and expected in messages[0])
+
+
+def test_a_style_that_cannot_be_confirmed_is_not_saved():
+    from api.services.configuration.check_validity import UserConfigurationValidator
+
+    issues = UserConfigurationValidator._validate_voice_style(SimpleNamespace(style="happy", voice="v"), None)
+    assert "Could not reach Azure's voice list" in issues[0]["message"]

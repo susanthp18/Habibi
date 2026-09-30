@@ -122,6 +122,38 @@ def test_nested_fields_and_exception_groups_are_masked_too():
         "0123456789abcdef0123", "[REDACTED]")}], "n": 3}
 
 
+
+def test_an_exception_met_twice_is_masked_both_times():
+    """Fourth review: the same exception twice in a group; the second kept its text."""
+    from loguru._recattrs import RecordException
+
+    same = ConnectionError("to +919876543210")
+    error = ExceptionGroup("dial failed", [same, same])
+    record = {**_record(40), "message": "boom", "exception": RecordException(type(error), error, None)}
+    enrich_log_record(record)
+    first, second = record["exception"].value.exceptions
+    assert first is second and "9876543210" not in str(second)
+
+
+def test_a_chain_that_loops_back_is_cut_masked():
+    from loguru._recattrs import RecordException
+
+    outer, inner = RuntimeError("to +919876543210"), ValueError("again")
+    outer.__context__, inner.__context__ = inner, outer
+    record = {**_record(40), "message": "boom", "exception": RecordException(type(outer), outer, None)}
+    enrich_log_record(record)
+    loop = record["exception"].value.__context__.__context__
+    assert "9876543210" not in str(record["exception"].value) and "9876543210" not in str(loop)
+
+
+def test_a_field_that_holds_itself_does_not_lose_the_record():
+    """Fourth review: a cyclic dict raised RecursionError from the log patcher."""
+    payload = {"to": "+919876543210"}
+    payload["self"] = payload
+    record = {**_record(20), "message": "ok", "extra": {"payload": payload}}
+    enrich_log_record(record)
+    assert record["extra"]["payload"] == {"to": "+…3210", "self": "<cycle>"}
+
 def test_warning_only_gets_run_context():
     record = _record(30)
 

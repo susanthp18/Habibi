@@ -1,5 +1,6 @@
 from typing import (
     TYPE_CHECKING,
+    Any,
     Awaitable,
     Callable,
     Iterable,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
+import copy
 import time
 
 from loguru import logger
@@ -62,6 +64,7 @@ from api.services.workflow.action_confirmation import (
     terms_key,
 )
 from api.services.workflow.action_confirmation import (
+    STALE as CONFIRMATION_STALE,
     UNAVAILABLE as CONFIRMATION_UNAVAILABLE,
 )
 from api.services.workflow.answer_handling import ANSWER_TERMINAL_REASONS, handle_answer
@@ -593,12 +596,22 @@ class PipecatEngine:
                     or message is self._context_summary_message
                     or any(message is note for note in self._engine_notes)):
                 continue
-            content = message.get("content")
-            text = content if isinstance(content, str) else " ".join(
-                str(p.get("text", "")) for p in content or () if isinstance(p, dict))
+            text = self._message_text(message)
             if text.strip():
                 turns.append((message["role"], text.strip()))
         return turns[::-1]
+
+    @staticmethod
+    def _message_text(message: dict) -> str:
+        content = message.get("content")
+        return content if isinstance(content, str) else " ".join(
+            str(p.get("text", "")) for p in content or () if isinstance(p, dict))
+
+    def still_answering(self, said: Any, step: tuple[str, str] | None) -> bool:
+        """Is ``said`` still the customer's newest message, in the same step?
+        A write runs only on the answer it was authorised by: checked again
+        after every await between the check and the write (compare-and-set)."""
+        return said is not None and self._last_user_message() is said and self._step() == step
 
     def _action_confirmation(self) -> ActionConfirmationService | None:
         llm = self.active_agent.confirmation_llm
@@ -621,7 +634,8 @@ class PipecatEngine:
         if held:
             held.cancel()
         self._pending_action = PendingAction(
-            visit_id=step[0], node_id=step[1], action=action, terms=dict(terms), key=key,
+            # A deep copy: nested parts changed after holding must not ride on this key.
+            visit_id=step[0], node_id=step[1], action=action, terms=copy.deepcopy(terms), key=key,
             after=self._last_user_message())
 
     def release_action(self) -> None:
@@ -645,7 +659,9 @@ class PipecatEngine:
             held.check = asyncio.create_task(
                 self._run_confirmation(held.action, held.terms, self.recent_turns()),
                 name=f"confirm:{held.action}")
+        # Numerals alone are read without the model (the verify guard does it).
         if (step in self._verification_required and not self._verification_outcomes.get(step)
+                and any(ch.isalpha() for ch in self._message_text(said))
                 and (self._digit_read is None or self._digit_read[0] is not said)):
             if self._digit_read:
                 self._digit_read[1].cancel()
@@ -659,23 +675,38 @@ class PipecatEngine:
         judged this same message, these same terms, this action and this step;
         anything else is checked now. NONE on any failure: the guard fails
         closed and the agent asks again."""
-        said = self._last_user_message()
+        said, step = self._last_user_message(), self._step()
         held = self._pending_action
         if (held and held.check is not None and held.reply is said and held.action == action
-                and held.key == terms_key(terms) and (held.visit_id, held.node_id) == self._step()):
-            verdict = await asyncio.shield(held.check)
+                and held.key == terms_key(terms) and (held.visit_id, held.node_id) == step):
+            verdict = await self._superseded_or(held.check, CONFIRMATION_STALE)
         else:
             verdict = await self._run_confirmation(action, terms, self.recent_turns())
+        if not self.still_answering(said, step):
+            return CONFIRMATION_STALE
         if verdict.status == "denied":
             self.release_action()
         return verdict
 
+    @staticmethod
+    async def _superseded_or(task: asyncio.Task, superseded: Any) -> Any:
+        """The result of a check started on arrival, or ``superseded`` when a
+        newer customer message cancelled it; our own cancellation still raises."""
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            return superseded
+
     async def read_digits(self) -> str:
         """The digits the customer gave as their answer in their newest message."""
-        said = self._last_user_message()
+        said, step = self._last_user_message(), self._step()
         if self._digit_read and self._digit_read[0] is said:
-            return await asyncio.shield(self._digit_read[1])
-        return await self._run_digits(self.recent_turns())
+            digits = await self._superseded_or(self._digit_read[1], "")
+        else:
+            digits = await self._run_digits(self.recent_turns())
+        return digits if self.still_answering(said, step) else ""
 
     async def _run_confirmation(self, action: str, terms: dict, turns: list[tuple[str, str]]) -> Verdict:
         service = self._action_confirmation()
@@ -683,7 +714,10 @@ class PipecatEngine:
             logger.warning("No confirmation model on this agent; {} not confirmed", action)
             return CONFIRMATION_UNAVAILABLE
         try:
-            verdict = await asyncio.wait_for(service.confirm(action, terms, turns), timeout=CHECK_TIMEOUT_SECS)
+            # The customer's time zone (PayInt's call context): read-backs speak local time.
+            zone = (self._call_context_vars or {}).get("timezone")
+            verdict = await asyncio.wait_for(service.confirm(action, terms, turns, zone=zone),
+                                             timeout=CHECK_TIMEOUT_SECS)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

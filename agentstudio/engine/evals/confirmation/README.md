@@ -8,7 +8,12 @@ its behaviour is measured here instead of being coded per language.
 `cases.json` holds the terms, a read-back per language, the customer's replies
 with the verdict each must get, digit answers, and the gate. `not_confirmed`
 means `none` or `denied`. The replies Codex found getting past earlier guards
-are in it, as are digit answers with numbers that are not the answer.
+are in it, as are digit answers with numbers that are not the answer, terms
+that differ from the read-back, decisions changed mid-reply, mixed-language
+replies, callbacks in another time zone than the read-back, disputes recorded
+as a different complaint than the customer's, and longer conversations (a case's
+`earlier` turns come before the read-back). `timezone` is the customer's zone,
+as PayInt's call context gives it: read-backs speak its local time.
 
 ## Gate
 

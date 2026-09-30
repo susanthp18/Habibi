@@ -97,8 +97,11 @@ class UserConfigurationValidator:
         else:
             status_list.extend(self._validate_service(configuration.stt, "stt"))
             status_list.extend(self._validate_service(configuration.tts, "tts"))
-            if not status_list:
-                status_list.extend(await self._validate_language_voices(configuration))
+            tts = configuration.tts
+            if not status_list and getattr(getattr(tts, "provider", None), "value", getattr(tts, "provider", None))                     == ServiceProviders.AZURE_SPEECH.value:
+                catalog = await self._azure_voice_catalog(tts)
+                status_list.extend(self._validate_voice_style(tts, catalog))
+                status_list.extend(self._validate_language_voices(configuration, catalog))
         # Embeddings is optional - only validate if configured
         status_list.extend(
             self._validate_service(
@@ -111,8 +114,42 @@ class UserConfigurationValidator:
 
         return {"status": [{"model": "all", "message": "ok"}]}
 
-    async def _validate_language_voices(
-        self, configuration: EffectiveAIModelConfiguration,
+    @staticmethod
+    async def _azure_voice_catalog(tts) -> dict[str, dict] | None:
+        """The region's live voice list by name; ``None`` when Azure can't be reached."""
+        import httpx
+
+        from api.services.voice_catalog_local import _azure
+
+        key = tts.api_key[0] if isinstance(tts.api_key, list) else tts.api_key
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                return {v["voice_id"]: v for v in await _azure(client, key, tts.region)}
+        except (httpx.HTTPError, ValueError, KeyError):
+            return None
+
+    @staticmethod
+    def _validate_voice_style(tts, catalog: dict[str, dict] | None) -> list[APIKeyStatus]:
+        """A speaking style must be one the voice offers, as Azure's voice list says.
+
+        Standard voices ignore a style they lack; MAI voices fail the whole
+        request (Azure 502), so every line on a call would go unspoken.
+        """
+        style = str(getattr(tts, "style", None) or "").strip()
+        if not style:
+            return []
+        if catalog is None:
+            return [{"model": "tts", "message": "Could not reach Azure's voice list to confirm the voice "
+                     "offers the style " + repr(style) + "; try saving again."}]
+        voice = catalog.get(str(tts.voice))
+        if voice is None or style in voice.get("styles", []):
+            return []  # an unlisted voice is Azure's to refuse; the style is not the question
+        offered = ", ".join(voice["styles"]) or "no styles"
+        return [{"model": "tts", "message": f"{tts.voice} has no {style!r} style (it offers: {offered}). "
+                 "Choose one of those or clear Style."}]
+
+    def _validate_language_voices(
+        self, configuration: EffectiveAIModelConfiguration, catalog: dict[str, dict] | None,
     ) -> list[APIKeyStatus]:
         """Every language an Azure agent listens for needs a voice that speaks it.
 
@@ -134,9 +171,7 @@ class UserConfigurationValidator:
             or (getattr(stt, "language_id_mode", None) or "single") == "single"
         ):
             return []
-        import httpx
-
-        from api.services.voice_catalog_local import _azure, voice_speaks
+        from api.services.voice_catalog_local import voice_speaks
         from pipecat.services.azure.tts import _script_of_locale
 
         voice_map = dict(getattr(tts, "voice_map", None) or {})
@@ -148,12 +183,6 @@ class UserConfigurationValidator:
             same_script = [v for loc, v in voice_map.items() if _script_of_locale(loc) == script]
             return same_script[0] if same_script else tts.voice
 
-        key = tts.api_key[0] if isinstance(tts.api_key, list) else tts.api_key
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-                catalog = {v["voice_id"]: v for v in await _azure(client, key, tts.region)}
-        except (httpx.HTTPError, ValueError, KeyError):
-            catalog = None
         missing, unconfirmed = [], []
         for language in stt.languages or []:
             name = voice_for(language)

@@ -69,10 +69,13 @@ async def _run(service, repeat: int) -> int:
     passed, total = Counter(), Counter()
     false_confirmations, seconds = 0, {"confirm": [], "digits": []}
     for case in CASES["confirm"]:
-        turns = [("assistant", CASES["read_backs"][case["agent"]]), ("user", case["customer"])]
+        # Longer conversations carry their earlier turns, oldest first.
+        turns = [(role, text) for role, text in case.get("earlier", [])] + [
+            ("assistant", CASES["read_backs"][case["agent"]]), ("user", case["customer"])]
         for _ in range(repeat):
             verdict, took = await _timed(
-                service.confirm(case["action"], CASES["terms"][case["terms"]], turns), UNAVAILABLE)
+                service.confirm(case["action"], CASES["terms"][case["terms"]], turns, zone=CASES["timezone"]),
+                UNAVAILABLE)
             seconds["confirm"].append(took)
             ok = _passes(case["expect"], verdict)
             for bucket in (f"kind:{case['expect']}", f"lang:{case['lang']}"):
@@ -108,13 +111,16 @@ async def _run(service, repeat: int) -> int:
             print(f"{kind} latency: p50 {times[len(times) // 2]:.2f}s, "
                   f"p95 {times[int(len(times) * 0.95)]:.2f}s, max {times[-1]:.2f}s")
     print(f"false confirmations: {false_confirmations}")
+    if not total:
+        print("no checks ran: nothing is proven")
+        return 1
     return 1 if failing or false_confirmations > gate["false_confirmations"] else 0
 
 
 class _Inert:
     """Refuses everything and reads no digits: the gate must reject it."""
 
-    async def confirm(self, *_a) -> Verdict:
+    async def confirm(self, *_a, **_k) -> Verdict:
         return UNAVAILABLE
 
     async def digits(self, *_a) -> str:
@@ -124,7 +130,7 @@ class _Inert:
 class _Yes:
     """Confirms everything: the gate must reject it."""
 
-    async def confirm(self, *_a) -> Verdict:
+    async def confirm(self, *_a, **_k) -> Verdict:
         return Verdict(Confirmation.CONFIRMED, "agreed")
 
     async def digits(self, *_a) -> str:
@@ -134,13 +140,21 @@ class _Yes:
 def _self_check() -> int:
     for fake in (_Inert(), _Yes()):
         assert asyncio.run(_run(fake, 1)) == 1, f"the gate passed {type(fake).__name__}"
-    print("self-check: the gate rejects a service that refuses everything and one that confirms everything")
+    assert asyncio.run(_run(_Yes(), 0)) == 1, "the gate passed a run with no checks"
+    print("self-check: the gate rejects a service that refuses everything, one that confirms everything, "
+          "and a run with no checks")
     return 0
+
+
+def _positive(value: str) -> int:
+    if not value.isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError("must be a whole number of at least 1")
+    return int(value)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repeat", type=int, default=1, help="runs per case, to see instability")
+    parser.add_argument("--repeat", type=_positive, default=1, help="runs per case, to see instability")
     parser.add_argument("--self-check", action="store_true", help="check the gate itself, with no model")
     args = parser.parse_args()
     sys.exit(_self_check() if args.self_check else asyncio.run(_run(_service(), args.repeat)))

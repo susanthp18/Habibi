@@ -7,6 +7,7 @@ during workflow execution.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import time
 import unicodedata
@@ -73,6 +74,7 @@ _NOT_CONFIRMED = {
     "other_terms": "the customer's terms differ from these. Read back the terms they gave and ask them to confirm.",
     "not_read_back": "these terms were not read back to the customer. Read them back and ask them to confirm.",
     "unavailable": "the customer's answer could not be checked. Read the terms back once more and ask them to confirm.",
+    "stale": "the customer said something new while this was being checked. Answer what they said.",
     "unsure": "the customer has not clearly agreed. Answer what they said; if they still want this, check it "
               "with them before calling this again.",
 }
@@ -492,7 +494,11 @@ class CustomToolManager:
                 return
 
             policy = getattr(tool, "policy", None) or {}
-            arguments = dict(function_call_params.arguments or {})
+            # One frozen copy: the terms the customer confirms are the terms written.
+            terms = copy.deepcopy(dict(function_call_params.arguments or {}))
+            arguments = dict(terms)
+            # The customer message and step a guarded call was authorised on.
+            authorised_on = None
             if policy.get("risk") in {"read", "write"}:
                 declared = {str(p.get("name")) for p in (tool.definition.get("config") or {}).get("parameters") or []}
                 if set(arguments) - declared:
@@ -510,7 +516,7 @@ class CustomToolManager:
                 # used to be enough once the step had begun, so a guess passed
                 # after "I don't understand". Each message backs one attempt.
                 said = self._engine._last_user_message()
-                given = _digits((function_call_params.arguments or {}).get("value"))
+                given = _digits(terms.get("value"))
                 heard = False
                 if said is not None and said is not self._engine._verified_user_message and len(given) == 4:
                     # The digits must be the customer's answer, not a numeral
@@ -536,6 +542,7 @@ class CustomToolManager:
                     })
                     return
                 self._engine._verified_user_message = said
+                authorised_on = (said, self._engine._step())
             if function_name in CONFIRMED_WRITES:
                 # Terms the customer has not confirmed in this step are the
                 # model's own: a smoke run recorded a ₹6,000 promise nobody said.
@@ -550,7 +557,7 @@ class CustomToolManager:
                     # checked against them the moment it arrives, alongside
                     # the agent's reply, so the write that follows a yes does
                     # not wait for a second model call.
-                    self._engine.hold_action(function_name, function_call_params.arguments or {})
+                    self._engine.hold_action(function_name, terms)
                     await function_call_params.result_callback({
                         "status": "error", "error": "customer_not_confirmed",
                         "say": self._engine._refusal_hint(
@@ -564,8 +571,10 @@ class CustomToolManager:
                 # that", "Maybe" and "Yes, only if my salary comes" were all new
                 # answers (Codex F16). The customer's words are judged against
                 # the terms, in whatever language they spoke (action_confirmation).
-                verdict = await self._engine.confirm_action(function_name, function_call_params.arguments or {})
+                step = self._engine._step()
+                verdict = await self._engine.confirm_action(function_name, terms)
                 confirmation = {"status": verdict.status.value, "reason": verdict.reason}
+                authorised_on = (said, step)
                 if not verdict.confirmed:
                     await function_call_params.result_callback({
                         "status": "error",
@@ -628,6 +637,15 @@ class CustomToolManager:
                     await self._engine.queue_text_message(
                         custom_message, mute_user=True
                     )
+
+                if authorised_on and not self._engine.still_answering(*authorised_on):
+                    # The customer spoke while the check or the message above
+                    # ran: what authorised this call is no longer their answer.
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "customer_spoke_again", "reason": "stale",
+                        "say": self._engine._refusal_hint("Nothing was recorded: " + _NOT_CONFIRMED["stale"]),
+                    })
+                    return
 
                 result = await execute_http_tool(
                     tool=tool,

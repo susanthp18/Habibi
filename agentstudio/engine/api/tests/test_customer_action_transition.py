@@ -174,6 +174,7 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     engine._call_context_vars = {}
     engine._gathered_context = {}
     agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify"))
+    engine._active_agent = agent
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
     tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
@@ -239,6 +240,7 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     engine._call_context_vars = {}
     engine._gathered_context = {}
     agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="resolve"))
+    engine._active_agent = agent
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
     tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
@@ -683,6 +685,7 @@ async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     engine._call_context_vars = {}
     engine._gathered_context = {}
     agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify"))
+    engine._active_agent = agent
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
     handler = manager._create_http_tool_handler(
@@ -708,7 +711,7 @@ def test_numerals_of_any_script_are_digits():
     assert _digits("२३२४") == "2324"  # Devanagari
 
 
-def _writer(monkeypatch, verdict):
+def _writer(monkeypatch, verdict, config=None, setup=None):
     from api.services.workflow import pipecat_engine_custom_tools as tools
 
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
@@ -731,9 +734,12 @@ def _writer(monkeypatch, verdict):
     engine.confirm_action = AsyncMock(return_value=verdict)
     engine.hold_action, engine.release_action = Mock(), Mock()
     agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="resolve"))
+    engine._active_agent = agent
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
-    tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
+    tool = SimpleNamespace(definition={"config": config or {}}, policy=None, revision_id=None)
+    if setup:
+        setup(engine)
     return manager._create_http_tool_handler(tool, "promise_to_pay"), execute
 
 
@@ -791,7 +797,8 @@ async def test_identity_digits_must_be_the_answer_not_any_numeral(monkeypatch):
     answers = {"No, 2324 is wrong; the correct digits are 9876.": "9876",
                "My reference number is 12345678.": "", "I am 23 years old and paid on the 24th.": ""}
     engine.read_digits = AsyncMock(side_effect=lambda: answers[engine._last_user_message()["content"]])
-    manager = tools.CustomToolManager(engine, SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify")))
+    engine._active_agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify"))
+    manager = tools.CustomToolManager(engine, engine._active_agent)
     manager.get_organization_id = AsyncMock(return_value=1)
     handler = manager._create_http_tool_handler(
         SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None), "verify_identity")
@@ -808,3 +815,31 @@ async def test_identity_digits_must_be_the_answer_not_any_numeral(monkeypatch):
     await handler(SimpleNamespace(arguments={"value": "9876"}, result_callback=callback))
     execute.assert_awaited_once()
 
+
+
+@pytest.mark.asyncio
+async def test_a_write_runs_only_on_the_answer_that_authorised_it(monkeypatch):
+    """Fourth review: the customer spoke again between the verdict and the write
+    (here while the tool's message played) and the write ran on the old yes."""
+    def setup(engine):
+        async def speak(*_a, **_k):
+            engine.context.messages.append({"role": "user", "content": "No, stop, don't record it"})
+        engine.queue_text_message = speak
+
+    handler, execute = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"),
+                               config={"customMessage": "One moment while I record that."}, setup=setup)
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    result = callback.await_args.args[0]
+    assert (result["error"], result["reason"]) == ("customer_spoke_again", "stale")
+    execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_the_terms_confirmed_are_the_terms_written(monkeypatch):
+    """The confirmation and the write share one frozen copy of the arguments."""
+    handler, execute = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"))
+    arguments = {"amount": 5000, "parts": [{"amount": 3000, "date": "2026-10-02"}]}
+    await handler(SimpleNamespace(arguments=arguments, result_callback=AsyncMock()))
+    written = execute.await_args.kwargs["arguments"]
+    assert written == arguments and written["parts"] is not arguments["parts"]

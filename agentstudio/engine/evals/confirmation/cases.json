@@ -2,13 +2,21 @@
   "gate": {
     "false_confirmations": 0,
     "min_accuracy": 0.95,
+    "note_timezone": "The customer's time zone, as PayInt's call context gives it; read-backs speak its local time.",
     "note": "Every expected kind (confirmed, denied, not_confirmed, digits) and every language must reach min_accuracy over all repeats; any false confirmation fails the run."
   },
+  "timezone": "Asia/Kolkata",
   "terms": {
     "promise": {"amount": 5000, "date": "2026-10-07",
                 "parts": [{"amount": 3000, "date": "2026-10-02"}, {"amount": 2000, "date": "2026-10-07"}]},
     "callback": {"time": "2026-10-02T17:00:00+05:30"},
-    "dispute": {"type": "not_my_transaction", "summary": "Says the loan is not theirs."}
+    "dispute": {"type": "not_my_transaction", "summary": "Says the loan is not theirs."},
+    "promise_swapped": {"amount": 5000, "date": "2026-10-07", "parts": [{"amount": 2000, "date": "2026-10-02"}, {"amount": 3000, "date": "2026-10-07"}]},
+    "promise_4000": {"amount": 4000, "date": "2026-10-07", "parts": [{"amount": 2000, "date": "2026-10-02"}, {"amount": 2000, "date": "2026-10-07"}]},
+    "callback_utc": {"time": "2026-10-02T11:30:00Z"},
+    "callback_wrong_zone": {"time": "2026-10-02T17:00:00Z"},
+    "dispute_paid": {"type": "already_paid", "summary": "Says they already paid this month's instalment."},
+    "dispute_amount": {"type": "wrong_amount", "summary": "Says the balance is higher than it should be."}
   },
   "read_backs": {
     "en": "So that's 3,000 rupees on Friday the 2nd of October and 2,000 on Wednesday the 7th, 5,000 in all. Shall I record that?",
@@ -24,7 +32,9 @@
     "callback_en": "I'll book a callback for Friday the 2nd of October at 5 pm India time. Is that right?",
     "dispute_en": "I'm sorry to hear that. Which part of the balance don't you recognise?",
     "none_en": "Is there anything else I can help you with today?",
-    "digits_en": "To keep your account safe, could you tell me the last four digits of your registered mobile number?"
+    "digits_en": "To keep your account safe, could you tell me the last four digits of your registered mobile number?",
+    "callback_hi": "तो मैं शुक्रवार 2 अक्टूबर को शाम 5 बजे (भारतीय समय) कॉलबैक बुक कर दूँ?",
+    "callback_ar": "سأحجز لك اتصالاً يوم الجمعة 2 أكتوبر الساعة 5 مساءً بتوقيت الهند. هل هذا مناسب؟"
   },
   "confirm": [
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes, please record it.", "expect": "confirmed"},
@@ -85,7 +95,36 @@
     {"lang": "en", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "No, don't file a dispute.", "expect": "not_confirmed"},
     {"lang": "en", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "Wait, let me check my statement first.", "expect": "not_confirmed"},
     {"lang": "hi", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "dispute mat karo, main check karta hoon", "expect": "not_confirmed"},
-    {"lang": "ar", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "لم آخذ هذا القرض أبداً.", "expect": "confirmed"}
+    {"lang": "ar", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "لم آخذ هذا القرض أبداً.", "expect": "confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise_swapped", "agent": "en", "customer": "Yes, record it.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise_4000", "agent": "en", "customer": "Yes, record it.", "expect": "not_confirmed"},
+    {"lang": "hi", "action": "promise_to_pay", "terms": "promise_swapped", "agent": "hi", "customer": "हाँ, दर्ज कर दीजिए।", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes... actually no, wait, let me check with my wife first.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Hmm, no wait... actually yes, that's right, record it.", "expect": "confirmed"},
+    {"lang": "es", "action": "promise_to_pay", "terms": "promise", "agent": "es", "customer": "Sí, bueno, no, mejor no, déjame pensarlo.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Okay, go ahead.", "expect": "confirmed", "earlier": [["assistant", "Can you pay the 5,000 this week?"], ["user", "No, not this week, maybe in two parts."], ["assistant", "I could split it: 3,000 on the 2nd and 2,000 on the 7th?"], ["user", "Hmm, 2,500 each would be easier."], ["assistant", "The system allows 3,000 and 2,000 on those days."]]},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "none_en", "customer": "Yes.", "expect": "not_confirmed", "earlier": [["user", "Please don't record anything today, I'll call the bank myself."], ["assistant", "I understand."]]},
+    {"lang": "hi-en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Haan theek hai, record kar do.", "expect": "confirmed"},
+    {"lang": "hi-en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Nahi yaar, abhi mat karo, salary aane do.", "expect": "not_confirmed"},
+    {"lang": "ta-en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Seri, okay, record pannunga.", "expect": "confirmed"},
+    {"lang": "ta-en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Illa, wait pannunga, naan confirm panren.", "expect": "not_confirmed"},
+    {"lang": "ar-en", "action": "promise_to_pay", "terms": "promise", "agent": "ar", "customer": "Tayyib, okay, sajjilha.", "expect": "confirmed"},
+    {"lang": "ar-en", "action": "promise_to_pay", "terms": "promise", "agent": "ar", "customer": "La, mish dilwa'ti, ba'dein.", "expect": "not_confirmed"},
+    {"lang": "es-en", "action": "promise_to_pay", "terms": "promise", "agent": "es", "customer": "Sí, okay, go ahead y regístralo.", "expect": "confirmed"},
+    {"lang": "en", "action": "request_callback", "terms": "callback_utc", "agent": "callback_en", "customer": "Yes, that works.", "expect": "confirmed"},
+    {"lang": "en", "action": "request_callback", "terms": "callback_wrong_zone", "agent": "callback_en", "customer": "Yes, that works.", "expect": "not_confirmed"},
+    {"lang": "hi", "action": "request_callback", "terms": "callback", "agent": "callback_hi", "customer": "हाँ, 5 बजे ठीक है।", "expect": "confirmed"},
+    {"lang": "hi", "action": "request_callback", "terms": "callback", "agent": "callback_hi", "customer": "नहीं, 5 नहीं, 7 बजे कीजिए।", "expect": "not_confirmed"},
+    {"lang": "ar", "action": "request_callback", "terms": "callback", "agent": "callback_ar", "customer": "نعم، الخامسة مناسبة.", "expect": "confirmed"},
+    {"lang": "ar", "action": "request_callback", "terms": "callback", "agent": "callback_ar", "customer": "لا، لا تحجز شيئاً.", "expect": "denied"},
+    {"lang": "en", "action": "request_callback", "terms": "callback", "agent": "callback_en", "customer": "Friday? Hmm, could we do Monday instead?", "expect": "not_confirmed"},
+    {"lang": "en", "action": "request_callback", "terms": "callback", "agent": "callback_en", "customer": "Sure, whatever.", "expect": "confirmed"},
+    {"lang": "en", "action": "flag_dispute", "terms": "dispute_paid", "agent": "dispute_en", "customer": "The amount is wrong, it's much higher than my statement.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "flag_dispute", "terms": "dispute_paid", "agent": "dispute_en", "customer": "I already paid this month, on the 25th.", "expect": "confirmed"},
+    {"lang": "en", "action": "flag_dispute", "terms": "dispute_amount", "agent": "dispute_en", "customer": "The balance is higher than it should be, please raise it.", "expect": "confirmed"},
+    {"lang": "en", "action": "flag_dispute", "terms": "dispute_amount", "agent": "dispute_en", "customer": "I already paid this month.", "expect": "not_confirmed"},
+    {"lang": "hi", "action": "flag_dispute", "terms": "dispute_paid", "agent": "dispute_en", "customer": "मैंने इस महीने की किस्त पहले ही भर दी है।", "expect": "confirmed"},
+    {"lang": "en", "action": "flag_dispute", "terms": "dispute_paid", "agent": "dispute_en", "customer": "Yes, please raise it.", "expect": "not_confirmed", "earlier": [["user", "This loan isn't mine, I never signed anything."]]}
   ],
   "digits": [
     {"lang": "en", "customer": "two three two four", "expect": "2324"},
@@ -101,6 +140,8 @@
     {"lang": "ar", "customer": "اثنان ثلاثة اثنان أربعة", "expect": "2324"},
     {"lang": "ms", "customer": "dua tiga dua empat", "expect": "2324"},
     {"lang": "zh", "customer": "二三二四", "expect": "2324"},
-    {"lang": "es", "customer": "dos tres dos cuatro", "expect": "2324"}
+    {"lang": "es", "customer": "dos tres dos cuatro", "expect": "2324"},
+    {"lang": "hi-en", "customer": "Haan, do teen do chaar.", "expect": "2324"},
+    {"lang": "en", "customer": "Sorry, I said 2342 earlier, it's actually 2324.", "expect": "2324"}
   ]
 }

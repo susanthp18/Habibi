@@ -69,25 +69,32 @@ def redact_message(message: str) -> str:
     return message
 
 
-def _redacted_exception(exc: BaseException, seen: set[int] | None = None) -> BaseException:
+def _redacted_exception(exc: BaseException, memo: dict[int, BaseException | None] | None = None
+                        ) -> BaseException:
     """``exc``, or a stand-in of the same name whose text is masked, with its
     chained causes and, for an exception group, every exception in it: a
-    traceback prints ``str()`` of each, a dial URL or number and all."""
-    seen = seen if seen is not None else set()
-    if id(exc) in seen:
-        return exc
-    seen.add(id(exc))
-    cause = exc.__cause__ and _redacted_exception(exc.__cause__, seen)
-    context = exc.__context__ and _redacted_exception(exc.__context__, seen)
+    traceback prints ``str()`` of each, a dial URL or number and all.
+
+    An exception met twice (the same one twice in a group, a shared cause)
+    gets the same replacement both times; one met again while it is still
+    being replaced (a chain that loops back) is cut at a masked stand-in."""
+    memo = memo if memo is not None else {}
     group = isinstance(exc, BaseExceptionGroup)
-    members = [_redacted_exception(e, seen) for e in exc.exceptions] if group else []
     text = exc.message if group else str(exc)
     clean = redact_message(text)
-    if (clean == text and cause is exc.__cause__ and context is exc.__context__
-            and all(a is b for a, b in zip(members, exc.exceptions if group else ()))):
-        return exc
     kind = type(exc)
     names = {"__module__": kind.__module__, "__qualname__": kind.__qualname__}
+    if id(exc) in memo:
+        done = memo[id(exc)]
+        return done if done is not None else type(kind.__name__, (Exception,), names)(clean)
+    memo[id(exc)] = None
+    cause = exc.__cause__ and _redacted_exception(exc.__cause__, memo)
+    context = exc.__context__ and _redacted_exception(exc.__context__, memo)
+    members = [_redacted_exception(e, memo) for e in exc.exceptions] if group else []
+    if (clean == text and cause is exc.__cause__ and context is exc.__context__
+            and all(a is b for a, b in zip(members, exc.exceptions if group else ()))):
+        memo[id(exc)] = exc
+        return exc
     if group:
         base = ExceptionGroup if all(isinstance(e, Exception) for e in members) else BaseExceptionGroup
         stand_in = type(kind.__name__, (base,), names)(clean, members)
@@ -95,18 +102,24 @@ def _redacted_exception(exc: BaseException, seen: set[int] | None = None) -> Bas
         stand_in = type(kind.__name__, (Exception,), names)(clean)
     stand_in.__cause__, stand_in.__context__ = cause, context
     stand_in.__suppress_context__ = exc.__suppress_context__
-    return stand_in.with_traceback(exc.__traceback__)
+    memo[id(exc)] = stand_in.with_traceback(exc.__traceback__)
+    return memo[id(exc)]
 
 
-def _redacted_value(value):
+def _redacted_value(value, _open: frozenset[int] = frozenset()):
     """A bound log field with every string in it masked, however deeply nested;
-    another object whose text would carry a secret is replaced by its masked text."""
+    another object whose text would carry a secret is replaced by its masked
+    text. A container that holds itself is cut where it loops, not recursed
+    until the record is lost."""
     if isinstance(value, str):
         return redact_message(value)
-    if isinstance(value, dict):
-        return {k: _redacted_value(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return type(value)(_redacted_value(v) for v in value)
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        if id(value) in _open:
+            return "<cycle>"
+        inner = _open | {id(value)}
+        if isinstance(value, dict):
+            return {k: _redacted_value(v, inner) for k, v in value.items()}
+        return type(value)(_redacted_value(v, inner) for v in value)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     text = str(value)

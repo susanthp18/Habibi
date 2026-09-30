@@ -275,7 +275,11 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         let source = previewUrl;
         if (!source) {
             try {
-                const ownStyle = styleVoice === undefined || voiceId === styleVoice;
+                // The style goes only to a voice that offers it: MAI voices fail
+                // outright on one they lack (Azure 502), standard ones ignore it.
+                const offered = voices.find((v) => v.voice_id === voiceId)?.styles ?? [];
+                const ownStyle = (styleVoice === undefined || voiceId === styleVoice)
+                    && offered.includes(previewSettings?.style ?? "");
                 source = await fetchVoicePreviewUrl(provider, {
                     ...previewSettings,
                     ...(ownStyle ? {} : { style: undefined, style_degree: undefined }),

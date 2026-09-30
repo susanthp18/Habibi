@@ -34,12 +34,14 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from opentelemetry import trace
 from opentelemetry.context import Context
+from opentelemetry.trace import StatusCode
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.utils.tracing.langfuse_helpers import mark_trace_public
@@ -72,6 +74,8 @@ class Verdict:
 
 
 UNAVAILABLE = Verdict(Confirmation.NONE, "unavailable")
+#: The customer spoke again while the check ran: it judged an answer that is no longer their last.
+STALE = Verdict(Confirmation.NONE, "stale")
 
 
 def terms_key(terms: dict[str, Any]) -> str:
@@ -131,7 +135,7 @@ _COMMITMENT = _PREAMBLE + """
 Reply with one JSON object and nothing else: {"read_back": "...", "reply": "..."}
 
 read_back -- did the agent, just before the customer's last message, state these terms? Figures in words or any numeral system, and a weekday that matches the date, count.
-- "matches": every amount with its own date (each part with its own date), or the callback day and time, as in the terms
+- "matches": every amount with its own date (each part with its own date), or the callback day and time, as in the terms (a time matches when it is the local time given with the terms)
 - "differs": it stated terms, but a figure or the pairing of an amount with a date differs
 - "absent": it did not state the terms
 
@@ -144,13 +148,26 @@ reply -- what did the customer's last message do?
 - "unsure": hesitates or is not sure -- a guess, a "maybe", a yes said as a question ("I guess so?") -- or wants to wait, think or ask someone first
 - "off_topic": talks about something else"""
 
+#: A callback also reports the time of day the agent said; code compares it with
+#: the terms' local time, because a model does not do time-zone arithmetic reliably.
+_CALLBACK = _COMMITMENT.replace(
+    '{"read_back": "...", "reply": "..."}',
+    '{"read_back": "...", "said_time": "HH:MM", "reply": "..."}',
+) + """
+
+said_time -- the time of day the agent stated for the callback just before the customer's last message, on a 24-hour clock as the agent meant it ("5 pm" is "17:00", "half past nine in the morning" is "09:30"), or "" if it stated none."""
+
 #: A dispute is authorised by the customer's own account of it, not by a yes.
 _DISPUTE = _PREAMBLE + """
 
-Reply with one JSON object and nothing else: {"account": "...", "reply": "..."}
+Reply with one JSON object and nothing else: {"account": "...", "terms": "...", "reply": "..."}
 
 account -- has the customer, in these turns, said what they dispute (already paid, a wrong amount, a transaction that isn't theirs)?
 - "given" or "absent"
+
+terms -- is the dispute about to be recorded (its type and summary) the one the customer described?
+- "matches": the same complaint
+- "differs": a different one (they say the amount is wrong; the terms say already paid), or the account is absent
 
 reply -- what did the customer's last message do? A "no" about the debt itself ("No, I never took this loan") is their account, not a refusal.
 - "proceeds": gives or keeps to their account, or wants it raised
@@ -160,7 +177,7 @@ reply -- what did the customer's last message do? A "no" about the debt itself (
 
 _ACTIONS = {
     "promise_to_pay": ("record a promise to pay", _COMMITMENT),
-    "request_callback": ("book a callback", _COMMITMENT),
+    "request_callback": ("book a callback", _CALLBACK),
     "flag_dispute": ("raise a dispute about the account", _DISPUTE),
 }
 
@@ -176,11 +193,13 @@ def decide(action: str, answers: dict[str, Any]) -> Verdict:
     authorises a write."""
     reply = answers.get("reply")
     if action == "flag_dispute":
-        account = answers.get("account")
-        if account not in ("given", "absent") or reply not in _DISPUTE_REPLIES:
+        account, terms = answers.get("account"), answers.get("terms")
+        if account not in ("given", "absent") or terms not in ("matches", "differs")                 or reply not in _DISPUTE_REPLIES:
             return UNAVAILABLE
         if reply == "declines":
             return Verdict(Confirmation.DENIED, "declined")
+        if account == "given" and terms == "differs":
+            return Verdict(Confirmation.NONE, "other_terms")
         if account == "given" and reply == "proceeds":
             return Verdict(Confirmation.CONFIRMED, "agreed")
         return Verdict(Confirmation.NONE, {"unsure": "paused", "off_topic": "off_topic"}.get(reply, "unsure"))
@@ -215,18 +234,72 @@ def _json(text: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _dated(terms: dict[str, Any]) -> str:
-    """The terms as JSON, and the weekday of each date in them: a read-back says
-    "Friday" as often as it says the date."""
+_STAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?")
+
+
+def _zone(name: str | None) -> ZoneInfo | None:
+    try:
+        return ZoneInfo(name) if name else None
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def _dated(terms: dict[str, Any], zone: str | None = None) -> str:
+    """The terms as JSON, with the weekday of each date and the local time of
+    each moment worked out here: a read-back says "Friday" and "5 pm India
+    time", and a model does not reliably turn 11:30Z into 17:00 in India (it
+    confirmed a 17:00Z callback read back as "5 pm India time", 5.5 hours off).
+    ``zone``: the customer's time zone (IANA), the one a read-back speaks in."""
     rendered = json.dumps(terms, ensure_ascii=False, default=str, sort_keys=True)
-    days = sorted(set(re.findall(r"\b(\d{4}-\d{2}-\d{2})", rendered)))
-    weekdays = []
-    for day in days:
+    notes = []
+    for day in sorted(set(re.findall(r"\b(\d{4}-\d{2}-\d{2})\b(?!T)", rendered))):
         try:
-            weekdays.append(f"{day} is a {date.fromisoformat(day).strftime('%A')}")
+            notes.append(f"{day} is a {date.fromisoformat(day).strftime('%A')}")
         except ValueError:
             continue
-    return rendered + (f"\n({'; '.join(weekdays)})" if weekdays else "")
+    local = _zone(zone)
+    for stamp in sorted(set(_STAMP.findall(rendered))):
+        try:
+            moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            where = "the customer's local time"
+        elif local is not None:
+            moment, where = moment.astimezone(local), f"{zone} time"
+        else:
+            offset = moment.strftime("%z")
+            where = f"UTC{offset[:3]}:{offset[3:]}"
+        notes.append(f"{stamp} is {moment.strftime('%A %d %B %Y, %H:%M')} {where}")
+    return rendered + (f"\n({'; '.join(notes)})" if notes else "")
+
+
+def _local_clock(terms: dict[str, Any], zone: str | None) -> str | None:
+    """The terms' one moment as the customer's local time of day ("17:00"), or
+    None when they hold no single moment to compare."""
+    stamps = set(_STAMP.findall(json.dumps(terms, default=str)))
+    if len(stamps) != 1:
+        return None
+    try:
+        moment = datetime.fromisoformat(stamps.pop().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    local = _zone(zone)
+    if moment.tzinfo is not None and local is not None:
+        moment = moment.astimezone(local)
+    return moment.strftime("%H:%M")
+
+
+def _same_time(verdict: Verdict, said: Any, terms: dict[str, Any], zone: str | None) -> Verdict:
+    """A confirmed callback stands only if the time the agent said is the terms'
+    local time: a callback read back as "5 pm India time" with 17:00Z terms
+    (22:30 in India) was confirmed by the model on every run."""
+    expected = _local_clock(terms, zone)
+    if expected is None:
+        return verdict
+    if not isinstance(said, str) or not re.fullmatch(r"\d{2}:\d{2}", said):
+        return UNAVAILABLE
+    return verdict if said == expected else Verdict(Confirmation.NONE, "other_terms")
 
 
 def _transcript(turns: list[tuple[str, str]]) -> str:
@@ -246,12 +319,17 @@ class ActionConfirmationService:
         if isinstance(getattr(settings, "temperature", None), (int, float)):
             setattr(settings, "temperature", 0.01 if isinstance(llm, MiniMaxLLMService) else _TEMPERATURE)
 
-    async def confirm(self, action: str, terms: dict[str, Any], turns: list[tuple[str, str]]) -> Verdict:
-        """``turns``: the latest (role, text) pairs, oldest first, the customer's last message last."""
+    async def confirm(self, action: str, terms: dict[str, Any], turns: list[tuple[str, str]],
+                      zone: str | None = None) -> Verdict:
+        """``turns``: the latest (role, text) pairs, oldest first, the customer's last message last.
+        ``zone``: the customer's time zone, when the call knows it."""
         what, system = _ACTIONS[action]
-        user = f"Action: {what}\nTerms: {_dated(terms)}\n\n{_transcript(turns)}"
+        user = f"Action: {what}\nTerms: {_dated(terms, zone)}\n\n{_transcript(turns)}"
         with self._span("llm-action-confirmation", action=action, turns=len(turns)) as span:
-            verdict = decide(action, _json(await self._infer(system, user)))
+            answers = _json(await self._infer(system, user))
+            verdict = decide(action, answers)
+            if action == "request_callback" and verdict.confirmed:
+                verdict = _same_time(verdict, answers.get("said_time"), terms, zone)
             span.set_attribute("confirmation.status", verdict.status.value)
             span.set_attribute("confirmation.reason", verdict.reason)
         return verdict
@@ -268,7 +346,11 @@ class ActionConfirmationService:
     def _span(self, name: str, **attributes: Any) -> Iterator[Any]:
         parent = self._get_parent_context() if self._get_parent_context else None
         started = time.monotonic()
-        with trace.get_tracer("pipecat").start_as_current_span(name, context=parent) as span:
+        # Exceptions are recorded by class only: their text can carry what the
+        # provider echoed back (the conversation, the terms), and span events
+        # are not redacted like log records.
+        with trace.get_tracer("pipecat").start_as_current_span(
+                name, context=parent, record_exception=False, set_status_on_exception=False) as span:
             mark_trace_public(span)
             model = getattr(getattr(self._llm, "_settings", None), "model", None)
             span.set_attribute("gen_ai.request.model", model if isinstance(model, str) else "unknown")
@@ -276,6 +358,10 @@ class ActionConfirmationService:
                 span.set_attribute(f"confirmation.{key}", value)
             try:
                 yield span
+            except BaseException as exc:
+                span.set_attribute("confirmation.error", type(exc).__name__)
+                span.set_status(StatusCode.ERROR)
+                raise
             finally:
                 span.set_attribute("confirmation.seconds", round(time.monotonic() - started, 3))
 
