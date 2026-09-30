@@ -1,15 +1,14 @@
-// AgentStudio: spoken previews of a voice exactly as configured (Azure voices
-// have no hosted samples). The engine synthesizes a short sample with the same
-// SSML the live call uses; the result is an object URL the caller must revoke.
+// The engine previews the selected voice with the same synthesis settings as
+// runtime. The result is an object URL the caller must revoke.
 import { previewVoiceApiV1UserConfigurationsVoicesProviderPreviewPost } from "@/client/sdk.gen";
 import type { VoicePreviewRequest } from "@/client/types.gen";
 import { detailFromError } from "@/lib/apiError";
 
-export const PREVIEW_PROVIDERS = new Set(["azure_speech"]);
+export const PREVIEW_PROVIDERS = new Set(["azure_speech", "openrouter", "fish"]);
 
 export async function fetchVoicePreviewUrl(provider: string, body: VoicePreviewRequest): Promise<string> {
     const response = await previewVoiceApiV1UserConfigurationsVoicesProviderPreviewPost({
-        path: { provider: provider as "azure_speech" },
+        path: { provider: provider as "azure_speech" | "openrouter" | "fish" },
         body,
         parseAs: "blob",
     });

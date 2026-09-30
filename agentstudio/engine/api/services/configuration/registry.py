@@ -66,6 +66,12 @@ from api.services.configuration.options.google import (
     GOOGLE_VERTEX_LOCATIONS,
     GOOGLE_VERTEX_MODELS,
 )
+from api.services.configuration.fish_tts import FISH_MODEL
+from api.services.configuration.openrouter_tts import (
+    FISH_DEFAULT_STYLE,
+    FISH_DEMO_VOICE,
+    FISH_FREE_MODEL,
+)
 
 
 class ServiceType(Enum):
@@ -112,6 +118,7 @@ class ServiceProviders(str, Enum):
     XAI = "xai"
     LMNT = "lmnt"
     SPEECHIFY = "speechify"
+    FISH = "fish"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -1252,6 +1259,75 @@ OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
 
 
 @register_tts
+class OpenRouterTTSConfiguration(BaseTTSConfiguration):
+    model_config = provider_model_config(
+        title="OpenRouter",
+        description="Fish Audio speech through OpenRouter. Free model availability and response time vary.",
+        provider_docs_url="https://openrouter.ai/docs/guides/overview/multimodal/tts",
+    )
+    provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
+    model: Literal["fish-audio/s2.1-pro-free:free"] = Field(
+        default=FISH_FREE_MODEL, description="Fish Audio S2.1 Pro Free.",
+        json_schema_extra={"examples": [FISH_FREE_MODEL]},
+    )
+    voice: str = Field(
+        default=FISH_DEMO_VOICE, min_length=1, max_length=80,
+        description="Fish public voice ID. Catalog languages describe reference recordings.",
+    )
+    style: str = Field(
+        default=FISH_DEFAULT_STYLE, min_length=1, max_length=40,
+        pattern=r"^[^\[\]\r\n]+$",
+        description="Speaking style, such as calm and conversational (up to 40 characters).",
+    )
+
+    @field_validator("style", mode="before")
+    @classmethod
+    def trim_style(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+# "Amir": a conversational English + Hindi reference voice, chosen by audition.
+FISH_DEFAULT_VOICE = "7cccb9161ca24b13861f77f038aaa97a"
+
+
+@register_tts
+class FishAudioTTSConfiguration(BaseTTSConfiguration):
+    model_config = provider_model_config(
+        title="Fish Audio",
+        description="Fish Audio S2.1 Pro, 83 languages detected from the text. Free model; best-effort availability.",
+        provider_docs_url="https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech",
+    )
+    provider: Literal[ServiceProviders.FISH] = ServiceProviders.FISH
+    model: Literal["s2.1-pro-free"] = Field(
+        default=FISH_MODEL, description="Fish Audio S2.1 Pro Free.",
+        json_schema_extra={"examples": [FISH_MODEL]},
+    )
+    voice: str = Field(
+        default=FISH_DEFAULT_VOICE, min_length=1, max_length=80,
+        description="Fish voice ID. Catalog languages describe reference recordings.",
+    )
+    style: str | None = Field(
+        default=None, min_length=1, max_length=40, pattern=r"^[^\[\]\r\n]+$",
+        description="Optional speaking style, such as empathetic or calm and conversational.",
+    )
+    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speaking rate multiplier.")
+    volume: float = Field(default=0, ge=-20, le=20, description="Volume change in dB.")
+    latency: Literal["balanced", "low"] = Field(
+        default="balanced",
+        description="Streaming mode. Both stream; Fish's 'normal' mode waits for the whole clip, so it is not offered.",
+    )
+    temperature: float | None = Field(default=None, ge=0, le=1, description="Expressiveness (Fish default 0.7).")
+    top_p: float | None = Field(default=None, ge=0, le=1, description="Diversity (Fish default 0.7).")
+
+    @field_validator("style", mode="before")
+    @classmethod
+    def blank_style_is_none(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
+
+
+@register_tts
 class OpenAITTSService(BaseTTSConfiguration):
     model_config = OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
@@ -1793,6 +1869,8 @@ TTSConfig = Annotated[
         DeepgramTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
+        OpenRouterTTSConfiguration,
+        FishAudioTTSConfiguration,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
         InworldTTSConfiguration,

@@ -659,11 +659,11 @@ export function ServiceConfigurationForm({
                 )}
 
                 {/* AgentStudio: hear the configured voice before saving it. */}
-                {service === "tts" && currentProvider === "azure_speech" && (
+                {service === "tts" && (currentProvider === "azure_speech" || currentProvider === "openrouter" || currentProvider === "fish") && (
                     <VoicePreviewPanel
                         provider={currentProvider}
                         settings={{ voice: String(watch("tts_voice") || ""), ...ttsPreviewSettings() }}
-                        voiceMap={parseMap(watch("tts_voice_map"))}
+                        voiceMap={currentProvider === "azure_speech" ? parseMap(watch("tts_voice_map")) : {}}
                     />
                 )}
 
@@ -674,7 +674,7 @@ export function ServiceConfigurationForm({
                         {apiKeys[service].map((key, index) => (
                             <div key={index} className="flex gap-2">
                                 <Input
-                                    type="text"
+                                    type={currentProvider === "openrouter" || currentProvider === "fish" ? "password" : "text"}
                                     placeholder="Enter API key"
                                     value={key}
                                     onChange={(e) => {
@@ -761,13 +761,17 @@ export function ServiceConfigurationForm({
     const ttsPreviewSettings = () => {
         const typedKey = apiKeys.tts.map(k => k.trim()).find(k => k.length > 0 && !k.includes("*"));
         return {
+            model: (watch("tts_model") as string) || undefined,
             language: (watch("tts_language") as string) || undefined,
             region: (watch("tts_region") as string) || undefined,
             speed: Number(watch("tts_speed") ?? 1),
             style: (watch("tts_style") as string) || undefined,
             style_degree: Number(watch("tts_style_degree") ?? 1),
             pitch: Number(watch("tts_pitch") ?? 0),
-            volume: Number(watch("tts_volume") ?? 100),
+            // Fish's volume is a dB change; Azure's is a percentage.
+            ...(serviceProviders.tts === "fish"
+                ? { volume_db: Number(watch("tts_volume") ?? 0) }
+                : { volume: Number(watch("tts_volume") ?? 100) }),
             api_key: typedKey,
         };
     };

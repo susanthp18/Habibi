@@ -346,8 +346,73 @@ _preview_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
 _PREVIEW_CACHE_SIZE = 64
 
 
+async def _fish_preview(organization_id: int, params: Any) -> bytes:
+    from api.services.configuration.fish_tts import (
+        FISH_MP3_RATE, FISH_TTS_URL, fish_headers, fish_request,
+    )
+
+    typed_key = str(getattr(params, "api_key", None) or "").strip()
+    key = typed_key if typed_key and "*" not in typed_key else await _provider_key(organization_id, "fish")
+    if not key:
+        raise HTTPException(status_code=400, detail="Enter a Fish Audio key to preview voices.")
+    style = str(getattr(params, "style", None) or "").strip() or None
+    if style and (len(style) > 40 or any(c in style for c in "[]\r\n")):
+        raise HTTPException(status_code=400, detail="Use a speaking style of up to 40 characters without brackets.")
+    payload = fish_request(
+        text=(str(getattr(params, "text", None) or "").strip()
+              or preview_text_for(getattr(params, "language", None), str(params.voice)))[:_PREVIEW_MAX_CHARS],
+        voice=str(params.voice), style=style,
+        speed=min(max(float(getattr(params, "speed", None) or 1.0), 0.5), 2.0),
+        volume=float(getattr(params, "volume_db", None) or 0),
+        response_format="mp3", sample_rate=FISH_MP3_RATE,
+    )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+            response = await client.post(FISH_TTS_URL, json=payload, headers=fish_headers(key))
+    except httpx.RequestError:
+        raise HTTPException(status_code=502, detail="Fish Audio preview timed out or could not connect.") from None
+    if response.status_code in (400, 401, 402, 403, 404, 422, 429):
+        raise HTTPException(status_code=400 if response.status_code in (401, 403) else response.status_code,
+                            detail=f"Fish Audio rejected the preview (HTTP {response.status_code}).")
+    if response.status_code != 200 or not response.content or response.headers.get("content-type", "").split(";")[0] != "audio/mpeg":
+        raise HTTPException(status_code=502, detail="Fish Audio did not return a valid preview.")
+    return response.content
+
+
 async def preview_voice(*, organization_id: int, provider: str, params: Any) -> bytes:
     """Speak a short sample with exactly the configured voice and delivery (MP3)."""
+    if provider == "openrouter":
+        from api.services.configuration.openrouter_tts import (
+            OPENROUTER_SPEECH_URL, speech_request,
+        )
+
+        typed_key = str(getattr(params, "api_key", None) or "").strip()
+        key = typed_key if typed_key and "*" not in typed_key else await _provider_key(organization_id, provider)
+        if not key:
+            raise HTTPException(status_code=400, detail="Enter an OpenRouter key to preview voices.")
+        try:
+            payload = speech_request(
+                text=str(getattr(params, "text", None) or "").strip()
+                or preview_text_for(getattr(params, "language", None), str(params.voice)),
+                model=getattr(params, "model", None), voice=str(params.voice),
+                style=getattr(params, "style", None), response_format="mp3",
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
+                response = await client.post(OPENROUTER_SPEECH_URL, json=payload,
+                                             headers={"Authorization": f"Bearer {key}"})
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="OpenRouter speech preview timed out or could not connect.") from None
+        if response.status_code in (400, 401, 403, 404, 422, 429):
+            raise HTTPException(status_code=response.status_code,
+                                detail=f"OpenRouter rejected the speech preview (HTTP {response.status_code}).")
+        if response.status_code != 200 or not response.content or response.headers.get("content-type", "").split(";")[0] not in {"audio/mpeg", "audio/mp3"}:
+            raise HTTPException(status_code=502, detail="OpenRouter did not return a valid speech preview.")
+        return response.content
+    if provider == "fish":
+        return await _fish_preview(organization_id, params)
     if provider != "azure_speech":
         raise HTTPException(
             status_code=404,
@@ -403,6 +468,43 @@ async def preview_voice(*, organization_id: int, provider: str, params: Any) -> 
     return r.content
 
 
+async def _fish_catalog(provider: str, *, q, language, gender, page_number: int, page_size: int) -> dict:
+    """Fish's public voice library, searched and paged by Fish (it holds ~1,000
+    reachable voices per query, far too many to filter here)."""
+    from api.services.configuration.fish_tts import FISH_CATALOG_URL
+
+    query = {"page_number": page_number, "page_size": page_size}
+    if q:
+        query["title"] = q
+    if language:
+        query["language"] = language.split("-")[0].lower()
+    if gender:
+        query["tag"] = gender
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.get(FISH_CATALOG_URL, params=query)
+            response.raise_for_status()
+            body = response.json()
+        voices = []
+        for item in body["items"]:
+            tags = item.get("tags") or []
+            languages = item.get("languages") or []
+            voices.append(_voice(
+                item["_id"], item.get("title"), description=item.get("description"),
+                gender=next((tag for tag in tags if tag.lower() in {"male", "female"}), None),
+                accent=next((tag for tag in tags if "accent" in tag.lower()), None),
+                language=languages[0] if languages else None, tags=tags,
+                reference_languages=languages,
+                samples=[{"title": sample.get("title"), "audio": sample.get("audio")}
+                         for sample in item.get("samples") or []],
+            ))
+        return {"provider": provider, "voices": voices,
+                "pagination": {"page_number": page_number, "page_size": page_size,
+                               "has_more": bool(body["has_more"])}}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raise HTTPException(status_code=502, detail="Fish voice catalog is unavailable.") from None
+
+
 async def list_voices(
     *,
     organization_id: int,
@@ -416,7 +518,24 @@ async def list_voices(
     multilingual: bool | None = None,
     has_styles: bool | None = None,
     status: str | None = None,
+    page_number: int = 1,
+    page_size: int = 50,
 ) -> dict:
+    if provider == "openrouter":
+        from api.services.configuration.openrouter_tts import FISH_FREE_MODEL
+
+        if model is not None and model != FISH_FREE_MODEL:
+            raise HTTPException(status_code=400, detail="Select the supported Fish free model.")
+        return await _fish_catalog(provider, q=q, language=language, gender=gender,
+                                   page_number=page_number, page_size=page_size)
+    if provider == "fish":
+        result = await _fish_catalog(provider, q=q, language=language, gender=gender,
+                                     page_number=page_number, page_size=page_size)
+        # A voice's own recorded sample plays at once; voices without one use the
+        # spoken preview.
+        for voice in result["voices"]:
+            voice["preview_url"] = next((s["audio"] for s in voice["samples"] if s.get("audio")), None)
+        return result
     if provider == "sarvam":
         voices = _sarvam(model)
     elif provider == "azure_speech":

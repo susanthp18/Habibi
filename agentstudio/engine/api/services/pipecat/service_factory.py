@@ -696,6 +696,41 @@ def create_tts_service(
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.OPENROUTER.value:
+        from api.services.pipecat.openrouter_tts import OpenRouterTTSService
+
+        return OpenRouterTTSService(
+            api_key=user_config.tts.api_key,
+            model=user_config.tts.model,
+            voice=user_config.tts.voice,
+            style=user_config.tts.style,
+            aiohttp_session=aiohttp.ClientSession(),
+            text_filters=[xml_function_tag_filter, markdown_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.FISH.value:
+        from api.services.pipecat.fish_tts import FishAudioHTTPTTSService
+
+        tts = user_config.tts
+        return FishAudioHTTPTTSService(
+            api_key=tts.api_key,
+            voice=tts.voice,
+            style=tts.style,
+            speed=tts.speed,
+            volume=tts.volume,
+            latency=tts.latency,
+            temperature=tts.temperature,
+            top_p=tts.top_p,
+            # Measured: aiohttp's 15 s default drops the connection while the caller
+            # talks (first audio 0.52-0.71 s after idle); 120 s keeps it ~0.36-0.43 s.
+            aiohttp_session=aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(keepalive_timeout=120)
+            ),
+            text_filters=[xml_function_tag_filter, markdown_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         kwargs = {}
         base_url = getattr(user_config.tts, "base_url", None)

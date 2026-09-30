@@ -438,7 +438,12 @@ async def reactivate_api_key(
 
 
 # Voice Configuration Endpoints
-TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech"]
+TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech", "openrouter", "fish"]
+
+
+class VoiceSample(BaseModel):
+    title: Optional[str] = None
+    audio: Optional[str] = None
 
 
 class VoiceInfo(BaseModel):
@@ -461,12 +466,15 @@ class VoiceInfo(BaseModel):
     words_per_minute: Optional[int] = None
     price_per_million_chars: Optional[float] = None
     cost_per_minute: Optional[float] = None
+    reference_languages: Optional[List[str]] = None
+    samples: Optional[List[VoiceSample]] = None
 
 
 class VoicePreviewRequest(BaseModel):
     """AgentStudio: speak a sample with a voice and delivery before saving it."""
 
     voice: str = Field(min_length=1, max_length=80)
+    model: Optional[str] = Field(default=None, max_length=100)
     language: Optional[str] = Field(default=None, max_length=20)
     region: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=300)
@@ -475,6 +483,7 @@ class VoicePreviewRequest(BaseModel):
     style_degree: float = Field(default=1.0, ge=0.01, le=2.0)
     pitch: int = Field(default=0, ge=-12, le=12)
     volume: int = Field(default=100, ge=50, le=150)
+    volume_db: Optional[float] = Field(default=None, ge=-20, le=20)  # Fish: a dB change
     # Unsaved values on the form: a key typed but not yet saved is used for
     # this preview only and never stored or returned.
     api_key: Optional[str] = Field(default=None, max_length=200)
@@ -489,10 +498,17 @@ class VoiceFacets(BaseModel):
     tiers: List[str] = []
 
 
+class VoicePagination(BaseModel):
+    page_number: int
+    page_size: int
+    has_more: bool
+
+
 class VoicesResponse(BaseModel):
     provider: str
     voices: List[VoiceInfo]
     facets: Optional[VoiceFacets] = None
+    pagination: Optional[VoicePagination] = None
 
 
 @router.post("/configurations/voices/{provider}/preview")
@@ -520,6 +536,8 @@ async def get_voices(
     multilingual: Optional[bool] = None,
     has_styles: Optional[bool] = None,
     status: Optional[str] = None,
+    page_number: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
     """Get available voices for a TTS provider."""
@@ -537,11 +555,14 @@ async def get_voices(
             multilingual=multilingual,
             has_styles=has_styles,
             status=status,
+            page_number=page_number,
+            page_size=page_size,
         )
         return VoicesResponse(
             provider=result.get("provider", provider),
             voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
             facets=result.get("facets"),
+            pagination=result.get("pagination"),
         )
     except HTTPException:
         raise

@@ -7,7 +7,8 @@ fresh engine is usable without anyone pasting keys into a form:
 
     LLM         Azure OpenAI  (AZURE_OPENAI_VOICE_* deployment)
     Transcriber Azure Speech  (AZURE_SPEECH_KEY / _REGION, AZURE_SPEECH_STT_LANGUAGE)
-    Voice       Azure Speech  (AZURE_SPEECH_KEY / _REGION / _TTS_VOICE_DEFAULT)
+    Voice       Fish Audio    (FISH_API_KEYS, FISH_TTS_VOICE_DEFAULT); Azure Speech
+                (AZURE_SPEECH_KEY / _REGION / _TTS_VOICE_DEFAULT) when no Fish key is set
     Embeddings  Azure OpenAI  (AZURE_OPENAI_EMBEDDING_DEPLOYMENT, 1536 dims)
 
 The organization transcribes in one language; an agent whose callers may
@@ -50,6 +51,25 @@ def build_stt() -> dict:
     }
 
 
+def build_tts() -> dict:
+    fish_key = (env_str("FISH_API_KEYS") or "").split(",")[0].strip()
+    if fish_key:
+        # Fish S2.1 Pro (free) detects the spoken language from the text; "Amir" is
+        # the English + Hindi voice chosen by audition.
+        return {
+            "provider": "fish",
+            "voice": env_str("FISH_TTS_VOICE_DEFAULT", "7cccb9161ca24b13861f77f038aaa97a"),
+            "api_key": fish_key,
+        }
+    return {
+        "provider": "azure_speech",
+        "region": _require("AZURE_SPEECH_REGION"),
+        "voice": env_str("AZURE_SPEECH_TTS_VOICE_DEFAULT", "en-IN-NeerjaNeural"),
+        "language": "en-IN",
+        "api_key": _require("AZURE_SPEECH_KEY"),
+    }
+
+
 def build_configuration() -> dict:
     return {
         "version": 2,
@@ -64,13 +84,7 @@ def build_configuration() -> dict:
                     "api_key": _require("AZURE_OPENAI_VOICE_API_KEY"),
                 },
                 "stt": build_stt(),
-                "tts": {
-                    "provider": "azure_speech",
-                    "region": _require("AZURE_SPEECH_REGION"),
-                    "voice": env_str("AZURE_SPEECH_TTS_VOICE_DEFAULT", "en-IN-NeerjaNeural"),
-                    "language": "en-IN",
-                    "api_key": _require("AZURE_SPEECH_KEY"),
-                },
+                "tts": build_tts(),
                 "embeddings": {
                     "provider": "azure",
                     "model": _require("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),

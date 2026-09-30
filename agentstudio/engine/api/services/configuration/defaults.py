@@ -12,7 +12,7 @@ left as ``None``.
 
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
-    ElevenlabsTTSConfiguration,
+    FishAudioTTSConfiguration,
     OpenAIEmbeddingsConfiguration,
     OpenAILLMService,
     ServiceProviders,
@@ -21,7 +21,7 @@ from api.services.configuration.registry import (
 # Mapping of service to (provider enum, configuration class)
 _DEFAULTS = {
     "llm": (ServiceProviders.OPENAI, OpenAILLMService),
-    "tts": (ServiceProviders.ELEVENLABS, ElevenlabsTTSConfiguration),
+    "tts": (ServiceProviders.FISH, FishAudioTTSConfiguration),
     "stt": (ServiceProviders.DEEPGRAM, DeepgramSTTConfiguration),
     "embeddings": (ServiceProviders.OPENAI, OpenAIEmbeddingsConfiguration),
 }

@@ -46,6 +46,7 @@ class UserConfigurationValidator:
             ServiceProviders.GOOGLE.value: self._check_google_api_key,
             ServiceProviders.AZURE.value: self._check_azure_api_key,
             ServiceProviders.AZURE_SPEECH.value: self._check_azure_speech_api_key,
+            ServiceProviders.FISH.value: self._check_fish_api_key,
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
@@ -324,6 +325,20 @@ class UserConfigurationValidator:
         service_config: Optional[ServiceConfig] = None,
     ) -> bool:
         """Check if an API key for a provider is valid."""
+        from api.services.configuration.registry import OpenRouterTTSConfiguration
+
+        if isinstance(service_config, OpenRouterTTSConfiguration):
+            try:
+                response = httpx.get("https://openrouter.ai/api/v1/key",
+                                     headers={"Authorization": f"Bearer {api_key}"}, timeout=10.0)
+            except httpx.RequestError:
+                raise ValueError("Could not validate the OpenRouter speech key; try again later") from None
+            if response.status_code in (401, 403):
+                raise ValueError("OpenRouter rejected the speech API key")
+            if response.status_code != 200:
+                raise ValueError("OpenRouter speech key validation is unavailable; try again later")
+            return True
+
         validator = self._validator_map.get(provider)
         if not validator:
             return False
@@ -520,6 +535,22 @@ class UserConfigurationValidator:
         raise ValueError(
             "LMNT is no longer available. Please select another TTS provider."
         )
+
+    def _check_fish_api_key(self, model: str, api_key: str) -> bool:
+        # Read-only: the API-credit endpoint answers 200 for a valid key and 401 for
+        # a bad one (verified 2026-09-30); the free model works with zero credit.
+        from api.services.configuration.fish_tts import FISH_KEY_CHECK_URL
+
+        try:
+            response = httpx.get(FISH_KEY_CHECK_URL,
+                                 headers={"Authorization": f"Bearer {api_key}"}, timeout=10.0)
+        except httpx.RequestError:
+            raise ValueError("Could not validate the Fish Audio key; try again later") from None
+        if response.status_code in (401, 403):
+            raise ValueError("Fish Audio rejected the API key")
+        if response.status_code != 200:
+            raise ValueError("Fish Audio key validation is unavailable; try again later")
+        return True
 
     def _check_speechify_api_key(self, model: str, api_key: str) -> bool:
         # Best-effort smoke test against Speechify's voice-list endpoint. Only a

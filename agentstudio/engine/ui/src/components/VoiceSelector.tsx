@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Loader2, Search, Volume2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getVoicesApiV1UserConfigurationsVoicesProviderGet } from "@/client/sdk.gen";
 import type { VoiceInfo, VoicePreviewRequest } from "@/client/types.gen";
@@ -12,13 +12,19 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { detailFromError } from "@/lib/apiError";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { fetchVoicePreviewUrl, PREVIEW_PROVIDERS } from "@/lib/voicePreview";
 
 // Providers that have MPS voice endpoints
-type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime" | "azure_speech";
-const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech"];
+type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime" | "azure_speech" | "openrouter" | "fish";
+const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime", "azure_speech", "openrouter", "fish"];
 const ALL_FILTER_VALUE = "__all__";
+// Fish's catalog codes (it detects the spoken language from the text itself).
+const FISH_LANGUAGES: Record<string, string> = {
+    en: "English", hi: "Hindi", ta: "Tamil", te: "Telugu", kn: "Kannada", ml: "Malayalam",
+    bn: "Bengali", mr: "Marathi", ar: "Arabic", es: "Spanish", fr: "French",
+};
 const TIER_LABELS: Record<string, string> = { neural: "Neural", hd: "HD", mai: "MAI" };
 
 // AgentStudio: what a voice costs to speak, from the region's list price.
@@ -56,8 +62,19 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     previewSettings,
     styleVoice,
 }) => {
+    const { user, loading: authLoading } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [catalogSearch, setCatalogSearch] = useState("");
+    const [pageNumber, setPageNumber] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
+    const requestSequence = useRef(0);
+    // Both providers browse Fish's own voice library, searched and paged by Fish.
+    const isFish = provider === "openrouter" || provider === "fish";
+    const [fishLanguage, setFishLanguage] = useState(ALL_FILTER_VALUE);
+    const [fishGender, setFishGender] = useState(ALL_FILTER_VALUE);
+    const remoteSearch = isFish ? catalogSearch : "";
+    const remotePage = isFish ? pageNumber : 1;
     const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
     const [languageFilter, setLanguageFilter] = useState(ALL_FILTER_VALUE);
     const [accentFilter, setAccentFilter] = useState(ALL_FILTER_VALUE);
@@ -90,11 +107,14 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             dograh: "dograh",
             rime: "rime",
             azure_speech: "azure_speech",
+            openrouter: "openrouter",
+            fish: "fish",
         };
         return providerMap[providerName.toLowerCase()] || null;
     }, []);
 
     const fetchVoices = useCallback(async () => {
+        const sequence = ++requestSequence.current;
         const providerKey = getProviderKey(provider);
         if (!providerKey) {
             setVoices([]);
@@ -105,13 +125,20 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         setError(null);
 
         try {
-            const query: { model?: string; language?: string } = {};
+            const query: { model?: string; language?: string; gender?: string; q?: string; page_number?: number } = {};
             if (model) query.model = model;
             if (language) query.language = language;
+            if (isFish) {
+                query.q = remoteSearch || undefined;
+                query.page_number = remotePage;
+                if (fishLanguage !== ALL_FILTER_VALUE) query.language = fishLanguage;
+                if (fishGender !== ALL_FILTER_VALUE) query.gender = fishGender;
+            }
             const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
                 path: { provider: providerKey },
                 query: Object.keys(query).length > 0 ? query : undefined,
             });
+            if (sequence !== requestSequence.current) return;
 
             if (response.error) {
                 setError(detailFromError(response.error, "Failed to load voices"));
@@ -120,27 +147,42 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             }
             if (response.data?.voices) {
                 setVoices(response.data.voices);
+                setHasMore(response.data.pagination?.has_more ?? false);
             }
         } catch (err) {
+            if (sequence !== requestSequence.current) return;
             console.error("Failed to fetch voices:", err);
             setError("Failed to load voices");
             setVoices([]);
         } finally {
-            setIsLoading(false);
+            if (sequence === requestSequence.current) setIsLoading(false);
         }
-    }, [provider, model, language, getProviderKey]);
+    }, [provider, model, language, getProviderKey, remoteSearch, remotePage, isFish, fishLanguage, fishGender]);
 
     useEffect(() => {
-        if (provider) {
-            fetchVoices();
+        // Only a changed search resets paging; otherwise the first debounce would
+        // jump back to page 1 after an early "Next".
+        const term = searchTerm.trim();
+        if (!isFish || term === catalogSearch) return;
+        const timer = setTimeout(() => {
+            setCatalogSearch(term);
+            setPageNumber(1);
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [searchTerm, isFish, catalogSearch]);
+
+    useEffect(() => {
+        if (provider && user && !authLoading) {
+            void fetchVoices();
         }
-    }, [provider, fetchVoices]);
+        return () => { requestSequence.current += 1; };
+    }, [provider, fetchVoices, user, authLoading]);
 
     // Check if the current value exists in the voices list
     useEffect(() => {
         if (value && voices.length > 0) {
             const voiceExists = voices.some((v) => v.voice_id === value);
-            if (!voiceExists && allowManualInput) {
+            if (!voiceExists && allowManualInput && !isFish) {
                 // If the value doesn't exist in the list, switch to manual input mode
                 setIsManualInput(true);
                 setManualVoiceId(value);
@@ -148,7 +190,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 setIsManualInput(false);
             }
         }
-    }, [value, voices, allowManualInput]);
+    }, [value, voices, allowManualInput, isFish]);
 
     // Cleanup audio on unmount or when popover closes
     useEffect(() => {
@@ -179,7 +221,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             (voice.gender?.toLowerCase() || "").includes(searchLower) ||
             (voice.language?.toLowerCase() || "").includes(searchLower)
         );
-        if (!matchesSearch) return false;
+        if (!isFish && !matchesSearch) return false;
         if (genderFilter !== ALL_FILTER_VALUE && (voice.gender || "").toLowerCase() !== genderFilter) return false;
         // A multilingual voice counts for every language it speaks.
         const spoken = (voice.locales?.length ? voice.locales : [voice.language || ""]).map((l) => l.toLowerCase());
@@ -235,7 +277,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         } else {
             // When switching back to dropdown, try to find the current value in voices
             const existingVoice = voices.find((v) => v.voice_id === value);
-            if (!existingVoice && voices.length > 0) {
+            if (!existingVoice && voices.length > 0 && !isFish) {
                 // If current value not in list, select the first voice
                 onChange(voices[0]!.voice_id);
             }
@@ -278,7 +320,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 // The style goes only to a voice that offers it: MAI voices fail
                 // outright on one they lack (Azure 502), standard ones ignore it.
                 const offered = voices.find((v) => v.voice_id === voiceId)?.styles ?? [];
-                const ownStyle = (styleVoice === undefined || voiceId === styleVoice)
+                const ownStyle = isFish || (styleVoice === undefined || voiceId === styleVoice)
                     && offered.includes(previewSettings?.style ?? "");
                 source = await fetchVoicePreviewUrl(provider, {
                     ...previewSettings,
@@ -349,6 +391,10 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                         Add Voice ID Manually
                     </Label>
                 </div>
+                {isFish && value && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void playPreview(null, value)}>Preview voice</Button>
+                )}
+                {previewError && <p className="text-xs text-red-500">{previewError.message}</p>}
             </div>
         );
     }
@@ -389,7 +435,33 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             />
                         </div>
 
-                        {showFilters && (
+                        {isFish && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Select value={fishLanguage} onValueChange={(v) => { setFishLanguage(v); setPageNumber(1); }}>
+                                    <SelectTrigger className="h-8" aria-label="Reference language">
+                                        <SelectValue placeholder="Language" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={ALL_FILTER_VALUE}>All languages</SelectItem>
+                                        {Object.entries(FISH_LANGUAGES).map(([code, label]) => (
+                                            <SelectItem key={code} value={code}>{label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Select value={fishGender} onValueChange={(v) => { setFishGender(v); setPageNumber(1); }}>
+                                    <SelectTrigger className="h-8" aria-label="Gender">
+                                        <SelectValue placeholder="Gender" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={ALL_FILTER_VALUE}>All genders</SelectItem>
+                                        <SelectItem value="female">Female</SelectItem>
+                                        <SelectItem value="male">Male</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+                        {isFish && <p className="text-xs text-muted-foreground">Languages describe reference recordings; they do not limit synthesis languages.</p>}
+                        {showFilters && !isFish && (
                             <div className="grid gap-2 sm:grid-cols-3">
                                 <Select value={genderFilter} onValueChange={setGenderFilter}>
                                     <SelectTrigger className="h-8">
@@ -534,7 +606,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                                 )}
                                                 {voice.language && (
                                                     <span className="text-xs bg-secondary px-1.5 py-0.5 rounded uppercase">
-                                                        {voice.language}
+                                                        {isFish ? `Reference: ${(voice.reference_languages ?? [voice.language]).join(", ")}` : voice.language}
                                                     </span>
                                                 )}
                                             </div>
@@ -563,6 +635,13 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                             )}
                         </div>
 
+                        {isFish && (
+                            <div className="flex items-center justify-between gap-2">
+                                <Button type="button" variant="outline" size="sm" disabled={isLoading || pageNumber === 1} onClick={() => setPageNumber(page => page - 1)}>Previous</Button>
+                                <span className="text-xs">Page {pageNumber}</span>
+                                <Button type="button" variant="outline" size="sm" disabled={isLoading || !hasMore} onClick={() => setPageNumber(page => page + 1)}>Next</Button>
+                            </div>
+                        )}
                         <div className="pt-2 border-t flex items-center justify-between">
                             {allowManualInput ? (
                                 <div className="flex items-center space-x-2">

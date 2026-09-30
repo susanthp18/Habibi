@@ -59,6 +59,14 @@ async def _settings(workflow_id: int, organization_id: int, configs: dict) -> di
     }
 
 
+async def _organization_pipeline(organization_id: int) -> dict[str, Any]:
+    resolved = await get_resolved_ai_model_configuration(organization_id=organization_id)
+    if resolved.organization_configuration is None:
+        return {}
+    data = resolved.organization_configuration.model_dump(mode="json", exclude_none=True)
+    return (data.get("byok") or {}).get("pipeline") or {}
+
+
 @traced_tool
 async def get_agent_settings(workflow_id: int) -> dict[str, Any]:
     """Read an agent's speech-to-text, voice and model settings (secrets omitted).
@@ -97,12 +105,15 @@ async def update_agent_settings(
       ends at an exit without its own call_disposition.
 
     Keys and other secrets are never accepted here; set them in Voice Studio.
-    Changing a section's provider also needs its key, so it is done there too.
+    A section may switch to the provider the organization's Models page uses
+    (tts: {"provider": "fish", "voice": "..."}): it starts from the organization's
+    section, whose key is copied server-side.
 
     On failure the result has `updated: false`, an `error_code` and an `error`:
     - `not_found` — no such workflow in this organization.
     - `secret_field` — a key or credential was passed; set it in Voice Studio.
-    - `provider_change` — a section's provider was changed; do it in Voice Studio.
+    - `provider_change` — the organization's Models page does not use that provider,
+      so there is no key to switch to; set it there (or in the agent's Voice Studio settings).
     - `invalid_settings` — nothing to change, or the settings failed validation
       (unsupported language, too many languages, a language with no voice, …).
     """
@@ -134,10 +145,24 @@ async def update_agent_settings(
         pipeline = (base.get("byok") or {}).get("pipeline")
         if not pipeline:
             return _error_result("invalid_settings", "Agent settings apply to speech pipelines (bring-your-own-key mode).")
+        organization_pipeline = None
         for name, fields in changes.items():
             current = pipeline.get(name) or {}
             if fields.get("provider") and fields["provider"] != current.get("provider"):
-                return _error_result("provider_change", f"Change the {name} provider in Voice Studio, where its key is set.")
+                if organization_pipeline is None:
+                    organization_pipeline = await _organization_pipeline(user.selected_organization_id)
+                organization_section = organization_pipeline.get(name) or {}
+                if organization_section.get("provider") != fields["provider"]:
+                    return _error_result(
+                        "provider_change",
+                        f"The organization's Models page does not use {fields['provider']} for {name}; "
+                        "set it and its key there first, or change it in the agent's Voice Studio settings.",
+                    )
+                # Nothing of the old provider's section carries over. The
+                # organization's section, key included, is copied server-side; the
+                # key never crosses MCP (results omit secrets).
+                pipeline[name] = {**organization_section, **fields}
+                continue
             pipeline[name] = {**current, **fields}
         configs[WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY] = base
         configs.pop("model_overrides", None)

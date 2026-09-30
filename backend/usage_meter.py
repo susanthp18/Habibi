@@ -148,7 +148,13 @@ def embed_cost_inr(*, prompt_tokens: int) -> Decimal:
     return (Decimal(int(prompt_tokens)) / _MILLION) * p * fx_rate_decimal()
 
 
-def tts_cost_inr(*, chars: int) -> Decimal:
+# Fish Audio's free S2.1 Pro model, direct and through OpenRouter: $0 per character.
+_FREE_TTS_MODELS = frozenset({"s2.1-pro-free", "fish-audio/s2.1-pro-free:free"})
+
+
+def tts_cost_inr(*, chars: int, model: str | None = None) -> Decimal:
+    if model in _FREE_TTS_MODELS:
+        return Decimal(0)
     p = _env_decimal("PRICE_TTS_USD_PER_1M_CHARS")
     return (Decimal(int(chars)) / _MILLION) * p * fx_rate_decimal()
 
@@ -708,7 +714,7 @@ def record_tts_usage(
     record_usage(
         service_id=SERVICE_TTS,
         units=Decimal(int(chars)) / Decimal(1000),
-        cost_inr=tts_cost_inr(chars=chars),
+        cost_inr=tts_cost_inr(chars=chars, model=voice),
         meta={"chars": chars, "voice": voice},
         source_ref=source_ref,
         interaction_id=interaction_id,
