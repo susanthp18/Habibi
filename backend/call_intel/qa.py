@@ -94,13 +94,19 @@ def tier1(cid: str, sig: dict[str, Any], facts: dict[str, Any]) -> tuple[float, 
 
 def _facts(conn: Any, interaction_id: str) -> dict[str, Any]:
     row = conn.execute(
-        text("SELECT upsell_presented, ptp_captured FROM interactions WHERE id = :ix"), {"ix": interaction_id}
+        text("SELECT upsell_presented, ptp_captured, source_payload -> 'languages' AS languages "
+             "FROM interactions WHERE id = :ix"), {"ix": interaction_id}
     ).mappings().first() or {}
+    languages = row.get("languages") if isinstance(row.get("languages"), dict) else {}
     flags = [r[0] for r in conn.execute(
         text("SELECT DISTINCT flag FROM interaction_flags WHERE interaction_id = :ix"), {"ix": interaction_id})]
     return {
         "flags": flags,
         "upsell_presented": bool(row.get("upsell_presented")),
+        # The call's languages and the agent's replies in a script none of them
+        # use (voice_studio.call_languages): evidence for any language criterion.
+        "languages": [str(lang) for lang in languages.get("spoken") or []],
+        "off_script": [str(o.get("script")) for o in languages.get("offScript") or [] if isinstance(o, dict)],
         "ptp": bool(row.get("ptp_captured")),
         "handoff": bool(conn.execute(text("SELECT 1 FROM interaction_handoffs WHERE interaction_id = :ix LIMIT 1"),
                                      {"ix": interaction_id}).first()),
@@ -128,6 +134,11 @@ def _evidence_text(sig: dict[str, Any], facts: dict[str, Any]) -> str:
     lines.append(f"- Promise to pay captured: {'yes' if facts['ptp'] else 'no'}")
     lines.append(f"- Handed to a person: {'yes' if facts['handoff'] else 'no'}")
     lines.append(f"- Guardrail flags: {', '.join(facts['flags']) or 'none'}")
+    if facts.get("languages"):
+        lines.append(f"- Languages the customer spoke: {', '.join(facts['languages'])}")
+    if facts.get("off_script"):
+        lines.append(f"- Agent replies written in a script none of those languages use: {len(facts['off_script'])} "
+                     f"({', '.join(sorted(set(facts['off_script'])))})")
     return "\n".join(lines)
 
 

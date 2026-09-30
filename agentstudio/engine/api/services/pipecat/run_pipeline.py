@@ -1130,6 +1130,12 @@ async def _run_pipeline_impl(
         async def on_user_turn_stopped(aggregator, strategy, message):
             await engine.handle_user_turn_stopped(aggregator, getattr(message, "content", None))
 
+    # The customer's words are in context: the write guard's checks start now,
+    # alongside the reply, not after the model asks for the write.
+    @user_context_aggregator.event_handler("on_user_turn_message_added")
+    async def on_user_turn_message_added(aggregator, message):
+        engine.on_customer_message()
+
     recording_router = None
 
     # Create recording audio fetcher (used by recording router, audio greetings,

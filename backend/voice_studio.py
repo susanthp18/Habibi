@@ -1184,6 +1184,10 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
         lang for e, lang in zip(turns, by_turn) if lang and e.get("type") == "rtf-user-transcription"))
     # The agent's own replies, by script: run 88 answered an English caller in
     # Kannada, a language the agent does not even speak, and nothing recorded it.
+    # A script signal, not a language check: French on an English call, or
+    # English on an Arabic one, share or fall back on Latin and pass. Whether
+    # the agent kept to the caller's language is the QA judge's to assess after
+    # the call (call_intel.qa gives it these languages and this signal).
     allowed = {"Latn"}.union(*(_scripts_of(str(lang)) for lang in spoken))
     off = [{"turn": i, "script": script} for i, e in enumerate(turns)
            if e.get("type") == "rtf-bot-text" and (script := _off_script(spoken_text(e), allowed))]
@@ -1191,7 +1195,7 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
         return None
     out = {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
     if off:
-        out["offLanguage"] = off
+        out["offScript"] = off
     return out
 
 

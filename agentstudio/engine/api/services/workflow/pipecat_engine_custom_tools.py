@@ -513,10 +513,16 @@ class CustomToolManager:
                 given = _digits((function_call_params.arguments or {}).get("value"))
                 heard = False
                 if said is not None and said is not self._engine._verified_user_message and len(given) == 4:
-                    # Numerals of any script are read here; digits spoken as
-                    # words, in whatever language, are read by the model.
+                    # The digits must be the customer's answer, not a numeral
+                    # somewhere in the message ("No, 2324 is wrong, it's 9876";
+                    # "I'm 23 and paid on the 24th"). A reply of numerals alone
+                    # (any script) says nothing else and is read here; any reply
+                    # with words is read by the model, in whatever language.
                     content = _text(said.get("content"))
-                    heard = given in _digits(content) or given in await self._engine.spoken_digits(content)
+                    if any(ch.isalpha() for ch in content):
+                        heard = await self._engine.read_digits() == given
+                    else:
+                        heard = _digits(content) == given
                 if not heard:
                     # The hint, not a fixed "ask for the digits": run 70 asked in
                     # the same response as a guessed call ("????"), and the
@@ -540,11 +546,17 @@ class CustomToolManager:
                 if (not self._engine.caller_spoke_in_node(self._agent)
                         or said is self._engine._written_user_message or unanswered):
                     self._engine._written_user_message = said
+                    # Held with these exact terms: the customer's answer is
+                    # checked against them the moment it arrives, alongside
+                    # the agent's reply, so the write that follows a yes does
+                    # not wait for a second model call.
+                    self._engine.hold_action(function_name, function_call_params.arguments or {})
                     await function_call_params.result_callback({
                         "status": "error", "error": "customer_not_confirmed",
                         "say": self._engine._refusal_hint(
-                            "Nothing was recorded: the customer has not confirmed these terms. Read them back, "
-                            "ask them to confirm, and once they say yes call this with no words before it."),
+                            "Nothing was recorded yet: these terms are held until the customer confirms them. "
+                            "Read them back, ask them to confirm, and once they say yes call this again with "
+                            "the same terms and no words before it."),
                     })
                     return
                 self._engine._written_user_message = said
@@ -553,6 +565,7 @@ class CustomToolManager:
                 # answers (Codex F16). The customer's words are judged against
                 # the terms, in whatever language they spoke (action_confirmation).
                 verdict = await self._engine.confirm_action(function_name, function_call_params.arguments or {})
+                confirmation = {"status": verdict.status.value, "reason": verdict.reason}
                 if not verdict.confirmed:
                     await function_call_params.result_callback({
                         "status": "error",
@@ -638,6 +651,11 @@ class CustomToolManager:
                     ok = data.get("ok") is True and result.get("status") == "success"
                     if action_node_id:
                         self._engine._customer_action_outcomes[(self._agent.visit_id, action_node_id)] = ok
+                    # What authorised this write goes with its result, into the
+                    # run's tool record: the audit trail of each write names the
+                    # confirmation it was made on.
+                    result = {**result, "confirmation": confirmation}
+                    self._engine.release_action()
                     if ok:
                         await self._advance(self._engine.advance_after_action, action_node_id)
 

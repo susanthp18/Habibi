@@ -127,9 +127,21 @@ class AgentRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def close_mcp_sessions(self):
+        """Release this visit's connection owners: its MCP sessions, and the
+        write guard's model client, which no pipeline cleans up (it never
+        enters one)."""
         for session in reversed(list(self.mcp_sessions.values())):
             await session.close_managed()
         self.mcp_sessions.clear()
+        client, self.confirmation_llm = getattr(self.confirmation_llm, "_client", None), None
+        close = getattr(client, "close", None)
+        if close is not None:
+            try:
+                closing = close()
+                if asyncio.iscoroutine(closing):
+                    await closing
+            except Exception as exc:
+                logger.warning(f"Agent visit {self.visit_id}: confirmation client not closed: {exc!r}")
 
     _close_task: asyncio.Task | None = field(default=None, init=False, repr=False)
 

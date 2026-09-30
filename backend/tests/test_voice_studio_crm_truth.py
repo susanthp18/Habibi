@@ -238,10 +238,10 @@ def test_a_reply_in_a_language_the_caller_never_spoke_is_recorded() -> None:
         {"type": "rtf-bot-text", "payload": {"text": "Sorry, could you tell me the last four digits?"}},
     ]
     got = voice_studio.call_languages({"languages_spoken": ["en-IN"]}, turns)
-    assert got["offLanguage"] == [{"turn": 1, "script": "KANNADA"}]
+    assert got["offScript"] == [{"turn": 1, "script": "KANNADA"}]
     hindi = [{"type": "rtf-user-transcription", "payload": {"text": "हाँ जी", "language": "hi-IN"}},
              {"type": "rtf-bot-text", "payload": {"text": "धन्यवाद"}}]
-    assert "offLanguage" not in voice_studio.call_languages({"languages_spoken": ["hi-IN"]}, hindi)
+    assert "offScript" not in voice_studio.call_languages({"languages_spoken": ["hi-IN"]}, hindi)
 
 
 @pytest.mark.parametrize("language, reply, off", [
@@ -258,7 +258,7 @@ def test_the_scripts_a_language_is_written_in_come_from_cldr(language, reply, of
     turns = [{"type": "rtf-user-transcription", "payload": {"text": "…", "language": language}},
              {"type": "rtf-bot-text", "payload": {"text": reply}}]
     got = voice_studio.call_languages({"languages_spoken": [language]}, turns)
-    assert got.get("offLanguage") == ([{"turn": 1, "script": off}] if off else None)
+    assert got.get("offScript") == ([{"turn": 1, "script": off}] if off else None)
 
 
 def test_the_status_callback_names_the_customer_and_the_reminder(monkeypatch) -> None:
@@ -283,4 +283,16 @@ def test_the_status_callback_names_the_customer_and_the_reminder(monkeypatch) ->
     monkeypatch.setattr("agent_core.carrier_guard.refuse_real_carrier", lambda _n: None)
     twilio_sms.send(to_phone="+919876543210", body="hi", customer_id="C-1", related_id="PRM-1")
     assert sent["status_callback"] == "https://pay.example/twilio/sms/status?c=C-1&r=PRM-1"
+
+
+def test_the_qa_judge_is_given_the_calls_languages_and_script_signal() -> None:
+    """A script is not a language (third review): whether the agent kept to the
+    caller's language is judged after the call, with this as evidence."""
+    from call_intel import qa
+
+    facts = {"verified": True, "ptp": False, "handoff": False, "flags": [],
+             "languages": ["en-IN"], "off_script": ["KANNADA"]}
+    evidence = qa._evidence_text({"intents": {}, "sentiment": []}, facts)
+    assert "- Languages the customer spoke: en-IN" in evidence
+    assert "script none of those languages use: 1 (KANNADA)" in evidence
 

@@ -57,7 +57,9 @@ from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.action_confirmation import (
     CHECK_TIMEOUT_SECS,
     ActionConfirmationService,
+    PendingAction,
     Verdict,
+    terms_key,
 )
 from api.services.workflow.action_confirmation import (
     UNAVAILABLE as CONFIRMATION_UNAVAILABLE,
@@ -208,6 +210,11 @@ class PipecatEngine:
         self._node_left_user_message: dict[tuple[str, str], object] = {}
         self._verified_user_message: object = None
         self._written_user_message: object = None
+        # The write held until the customer confirms it, and the digits read
+        # from the customer's newest message: both checks start when that
+        # message reaches context, alongside the agent's reply to it.
+        self._pending_action: PendingAction | None = None
+        self._digit_read: tuple[object, asyncio.Task] | None = None
         self._context_summary_message: object = None
         # User-role messages the engine writes itself (idle and "didn't catch
         # that" prompts). They ask the model to speak; the caller said nothing.
@@ -473,6 +480,9 @@ class PipecatEngine:
             "verified_message": place(self._verified_user_message),
             "written_message": place(self._written_user_message),
             "opt_out_requested": agent.visit_id in self._opt_out_visits,
+            "held_action": (
+                {"action": held.action, "terms": held.terms, "after": place(held.after)}
+                if (held := self._pending_action) and key == (held.visit_id, held.node_id) else None),
         }
 
     def import_guard_state(self, state: dict | None) -> None:
@@ -499,6 +509,10 @@ class PipecatEngine:
         self._written_user_message = message_at(state.get("written_message"))
         if state.get("opt_out_requested"):
             self._opt_out_visits.add(agent.visit_id)
+        if held := state.get("held_action"):
+            self._pending_action = PendingAction(
+                visit_id=agent.visit_id, node_id=node.id, action=held["action"], terms=held["terms"],
+                key=terms_key(held["terms"]), after=message_at(held.get("after")))
 
     def engine_note(self, content: str) -> dict:
         """A user-role instruction to the model that is not the caller speaking."""
@@ -590,29 +604,102 @@ class PipecatEngine:
         llm = self.active_agent.confirmation_llm
         return ActionConfirmationService(llm, get_parent_context=self._get_otel_context) if llm else None
 
+    def _step(self) -> tuple[str, str] | None:
+        node = self.active_agent.current_node
+        return (self.active_agent.visit_id, node.id) if node else None
+
+    def hold_action(self, action: str, terms: dict) -> None:
+        """Hold a write the customer has not yet confirmed, with its exact terms.
+        Their next message is checked against these terms as soon as it arrives."""
+        step = self._step()
+        if step is None:
+            return
+        key = terms_key(terms)
+        held = self._pending_action
+        if held and (held.visit_id, held.node_id, held.action, held.key) == (*step, action, key):
+            return  # the same terms again: the check already running still applies
+        if held:
+            held.cancel()
+        self._pending_action = PendingAction(
+            visit_id=step[0], node_id=step[1], action=action, terms=dict(terms), key=key,
+            after=self._last_user_message())
+
+    def release_action(self) -> None:
+        if self._pending_action:
+            self._pending_action.cancel()
+        self._pending_action = None
+
+    def on_customer_message(self) -> None:
+        """The customer's newest message is in context: start the checks it
+        settles, so they run while the agent's reply is generated instead of
+        after it. Cheap when nothing is held and no digits are asked for."""
+        said = self._last_user_message()
+        step = self._step()
+        if said is None or step is None:
+            return
+        held = self._pending_action
+        if (held and (held.visit_id, held.node_id) == step and said is not held.after
+                and held.reply is not said):
+            held.cancel()
+            held.reply = said
+            held.check = asyncio.create_task(
+                self._run_confirmation(held.action, held.terms, self.recent_turns()),
+                name=f"confirm:{held.action}")
+        if (step in self._verification_required and not self._verification_outcomes.get(step)
+                and (self._digit_read is None or self._digit_read[0] is not said)):
+            if self._digit_read:
+                self._digit_read[1].cancel()
+            self._digit_read = (said, asyncio.create_task(self._run_digits(self.recent_turns()),
+                                                          name="read-digits"))
+
     async def confirm_action(self, action: str, terms: dict) -> Verdict:
-        """Did the customer authorise ``action`` with ``terms``? NONE on any
-        failure: the guard fails closed and the agent asks again."""
+        """Did the customer's newest message authorise ``action`` with ``terms``?
+
+        The verdict already running for a held write is used only when it
+        judged this same message, these same terms, this action and this step;
+        anything else is checked now. NONE on any failure: the guard fails
+        closed and the agent asks again."""
+        said = self._last_user_message()
+        held = self._pending_action
+        if (held and held.check is not None and held.reply is said and held.action == action
+                and held.key == terms_key(terms) and (held.visit_id, held.node_id) == self._step()):
+            verdict = await asyncio.shield(held.check)
+        else:
+            verdict = await self._run_confirmation(action, terms, self.recent_turns())
+        if verdict.status == "denied":
+            self.release_action()
+        return verdict
+
+    async def read_digits(self) -> str:
+        """The digits the customer gave as their answer in their newest message."""
+        said = self._last_user_message()
+        if self._digit_read and self._digit_read[0] is said:
+            return await asyncio.shield(self._digit_read[1])
+        return await self._run_digits(self.recent_turns())
+
+    async def _run_confirmation(self, action: str, terms: dict, turns: list[tuple[str, str]]) -> Verdict:
         service = self._action_confirmation()
         if service is None:
             logger.warning("No confirmation model on this agent; {} not confirmed", action)
             return CONFIRMATION_UNAVAILABLE
         try:
-            verdict = await asyncio.wait_for(
-                service.confirm(action, terms, self.recent_turns()), timeout=CHECK_TIMEOUT_SECS)
+            verdict = await asyncio.wait_for(service.confirm(action, terms, turns), timeout=CHECK_TIMEOUT_SECS)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning("Confirmation of {} failed: {!r}", action, exc)
             return CONFIRMATION_UNAVAILABLE
         logger.info("Confirmation of {}: {} ({})", action, verdict.status, verdict.reason)
         return verdict
 
-    async def spoken_digits(self, said: str) -> str:
-        """The digits the customer spoke as words, in any language; "" on any failure."""
+    async def _run_digits(self, turns: list[tuple[str, str]]) -> str:
         service = self._action_confirmation()
         if service is None:
             return ""
         try:
-            return await asyncio.wait_for(service.digits(said), timeout=CHECK_TIMEOUT_SECS)
+            return await asyncio.wait_for(service.digits(turns), timeout=CHECK_TIMEOUT_SECS)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             logger.warning("Spoken digits not read: {!r}", exc)
             return ""
@@ -2423,6 +2510,12 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
+
+        # A check still running has nobody left to answer.
+        self.release_action()
+        if self._digit_read:
+            self._digit_read[1].cancel()
+            self._digit_read = None
 
         # Cancel any in-flight background summarization.
         if self._context_summarization_manager:

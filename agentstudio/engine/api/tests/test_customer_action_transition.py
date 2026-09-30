@@ -179,7 +179,8 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
     handler = manager._create_http_tool_handler(tool, "verify_identity")
     callback = AsyncMock()
-    engine.spoken_digits = AsyncMock(return_value="")
+    # Replies with words are read by the model (stubbed: the digits in the message, if any).
+    engine.read_digits = AsyncMock(side_effect=lambda: "2324" if "2324" in engine._last_user_message()["content"] else "")
 
     # The opening turn: nothing said since the node began, so no call.
     await handler(SimpleNamespace(arguments={"value": "4821"}, result_callback=callback))
@@ -244,6 +245,7 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     handler = manager._create_http_tool_handler(tool, "promise_to_pay")
     callback = AsyncMock()
     engine.confirm_action = AsyncMock(return_value=Verdict(Confirmation.CONFIRMED, "agreed"))
+    engine.hold_action, engine.release_action = Mock(), Mock()
 
     await handler(SimpleNamespace(arguments={"amount": 6000, "date": "2026-10-02"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
@@ -260,12 +262,16 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
     execute.assert_not_awaited()
 
-    # Timing refusals never reach the confirmation model.
+    # Timing refusals never reach the confirmation model; they hold the terms.
     engine.confirm_action.assert_not_awaited()
+    engine.hold_action.assert_called_with("promise_to_pay", {"amount": 4000, "date": "2026-10-02"})
     engine.context.messages.append({"role": "user", "content": "Yes"})
     await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
     execute.assert_awaited_once()
     engine.confirm_action.assert_awaited_once_with("promise_to_pay", {"amount": 4000, "date": "2026-10-02"})
+    # The write's result names the confirmation it was made on, and the hold is released.
+    assert callback.await_args.args[0]["confirmation"] == {"status": "confirmed", "reason": "agreed"}
+    engine.release_action.assert_called_once()
 
 
 def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
@@ -385,6 +391,8 @@ def test_guard_state_survives_a_text_chat_turn():
         engine._verified_user_message = None
         engine._written_user_message = None
         engine._opt_out_visits = set()
+        engine._pending_action = None
+        engine._context_summary_message = None
         return engine
 
     digits = {"role": "user", "content": "1234"}
@@ -393,6 +401,9 @@ def test_guard_state_survives_a_text_chat_turn():
     first._node_entry_user_message[("visit-1", "resolve")] = digits
     first._verified_user_message = digits
     first._opt_out_visits.add("visit-1")
+    # A write held for the customer's confirmation carries over too: their
+    # answer arrives in the next message, on a rebuilt engine.
+    first.hold_action("promise_to_pay", {"amount": 4000, "date": "2026-10-02"})
     state = first.export_guard_state()
 
     restored = [{"role": "user", "content": "hi"}, {"role": "user", "content": "1234"}]
@@ -402,6 +413,9 @@ def test_guard_state_survives_a_text_chat_turn():
     assert second._node_entry_user_message[("visit-2", "resolve")] is restored[1]
     assert second._verified_user_message is restored[1]
     assert "visit-2" in second._opt_out_visits
+    held = second._pending_action
+    assert (held.visit_id, held.node_id, held.action) == ("visit-2", "resolve", "promise_to_pay")
+    assert held.terms == {"amount": 4000, "date": "2026-10-02"} and held.after is restored[1]
 
 
 @pytest.mark.asyncio
@@ -675,7 +689,7 @@ async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
         SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None), "verify_identity")
     callback = AsyncMock()
     # Digits spoken as words, in any language, are read by the confirmation model.
-    engine.spoken_digits = AsyncMock(side_effect=lambda said: "2324" if "two" in said else "")
+    engine.read_digits = AsyncMock(side_effect=lambda: "2324" if "two" in engine._last_user_message()["content"] else "")
 
     await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
@@ -715,6 +729,7 @@ def _writer(monkeypatch, verdict):
     engine._call_context_vars = {}
     engine._gathered_context = {}
     engine.confirm_action = AsyncMock(return_value=verdict)
+    engine.hold_action, engine.release_action = Mock(), Mock()
     agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="resolve"))
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
@@ -749,3 +764,47 @@ def test_guarded_tools_get_the_checks_time_on_top_of_their_own():
     assert manager._create_handler(tool, "promise_to_pay")[1] == 8 + CHECK_TIMEOUT_SECS
     assert manager._create_handler(tool, "verify_identity")[1] == 8 + CHECK_TIMEOUT_SECS
     assert manager._create_handler(tool, "lookup_account")[1] == 8
+
+
+@pytest.mark.asyncio
+async def test_identity_digits_must_be_the_answer_not_any_numeral(monkeypatch):
+    """Third review: "No, 2324 is wrong...", a reference number and an age
+    plus a date all held the four digits somewhere."""
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+
+    execute = AsyncMock(return_value={"status": "success", "data": {"ok": True, "verified": True}})
+    monkeypatch.setattr(tools, "execute_http_tool", execute)
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    entry = {"role": "user", "content": "Yes, speaking"}
+    engine.context = SimpleNamespace(messages=[entry])
+    engine._node_entry_user_message = {("visit", "verify"): entry}
+    engine._context_summary_message = None
+    engine._verified_user_message = None
+    engine._verification_outcomes = {}
+    engine._customer_action_outcomes = {}
+    engine._call_context_vars = {}
+    engine._gathered_context = {}
+    engine._verification_required = set()
+    answers = {"No, 2324 is wrong; the correct digits are 9876.": "9876",
+               "My reference number is 12345678.": "", "I am 23 years old and paid on the 24th.": ""}
+    engine.read_digits = AsyncMock(side_effect=lambda: answers[engine._last_user_message()["content"]])
+    manager = tools.CustomToolManager(engine, SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify")))
+    manager.get_organization_id = AsyncMock(return_value=1)
+    handler = manager._create_http_tool_handler(
+        SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None), "verify_identity")
+    callback = AsyncMock()
+    for said, given in (("No, 2324 is wrong; the correct digits are 9876.", "2324"),
+                        ("My reference number is 12345678.", "3456"),
+                        ("I am 23 years old and paid on the 24th.", "2324")):
+        engine.context.messages.append({"role": "user", "content": said})
+        await handler(SimpleNamespace(arguments={"value": given}, result_callback=callback))
+        assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller", said
+    execute.assert_not_awaited()
+    # The corrected digits are the answer.
+    engine.context.messages.append({"role": "user", "content": "No, 2324 is wrong; the correct digits are 9876."})
+    await handler(SimpleNamespace(arguments={"value": "9876"}, result_callback=callback))
+    execute.assert_awaited_once()
+

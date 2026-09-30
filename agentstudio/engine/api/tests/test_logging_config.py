@@ -101,6 +101,27 @@ def test_exceptions_and_bound_fields_are_masked_too():
     assert record["extra"]["to"] == "+…3210"
 
 
+def test_nested_fields_and_exception_groups_are_masked_too():
+    """Third review: a nested bound field and an ExceptionGroup's members went out as given."""
+    from loguru._recattrs import RecordException
+
+    url = "wss://pay.example/api/v1/telephony/ws/4/1/88/0123456789abcdef0123"
+    try:
+        raise ExceptionGroup("dial failed", [ConnectionError("to +919876543210"), ValueError(f"stream {url}")])
+    except ExceptionGroup as exc:
+        error = exc
+    record = {**_record(40), "message": "boom",
+              "exception": RecordException(type(error), error, error.__traceback__)}
+    record["extra"]["payload"] = {"to": "+919876543210", "calls": [{"url": url}], "n": 3}
+    enrich_log_record(record)
+    shown = record["exception"].value
+    assert isinstance(shown, ExceptionGroup) and type(shown).__name__ == "ExceptionGroup"
+    members = " ".join(str(e) for e in shown.exceptions)
+    assert "9876543210" not in members and "0123456789abcdef" not in members and "+…3210" in members
+    assert record["extra"]["payload"] == {"to": "+…3210", "calls": [{"url": url.replace(
+        "0123456789abcdef0123", "[REDACTED]")}], "n": 3}
+
+
 def test_warning_only_gets_run_context():
     record = _record(30)
 

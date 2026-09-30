@@ -70,24 +70,48 @@ def redact_message(message: str) -> str:
 
 
 def _redacted_exception(exc: BaseException, seen: set[int] | None = None) -> BaseException:
-    """``exc``, or a stand-in of the same name whose text (and chained causes')
-    is masked: a traceback prints ``str(exc)``, a dial URL or number and all."""
+    """``exc``, or a stand-in of the same name whose text is masked, with its
+    chained causes and, for an exception group, every exception in it: a
+    traceback prints ``str()`` of each, a dial URL or number and all."""
     seen = seen if seen is not None else set()
     if id(exc) in seen:
         return exc
     seen.add(id(exc))
     cause = exc.__cause__ and _redacted_exception(exc.__cause__, seen)
     context = exc.__context__ and _redacted_exception(exc.__context__, seen)
-    text = str(exc)
+    group = isinstance(exc, BaseExceptionGroup)
+    members = [_redacted_exception(e, seen) for e in exc.exceptions] if group else []
+    text = exc.message if group else str(exc)
     clean = redact_message(text)
-    if clean == text and cause is exc.__cause__ and context is exc.__context__:
+    if (clean == text and cause is exc.__cause__ and context is exc.__context__
+            and all(a is b for a, b in zip(members, exc.exceptions if group else ()))):
         return exc
     kind = type(exc)
-    stand_in = type(kind.__name__, (Exception,), {"__module__": kind.__module__,
-                                                   "__qualname__": kind.__qualname__})(clean)
+    names = {"__module__": kind.__module__, "__qualname__": kind.__qualname__}
+    if group:
+        base = ExceptionGroup if all(isinstance(e, Exception) for e in members) else BaseExceptionGroup
+        stand_in = type(kind.__name__, (base,), names)(clean, members)
+    else:
+        stand_in = type(kind.__name__, (Exception,), names)(clean)
     stand_in.__cause__, stand_in.__context__ = cause, context
     stand_in.__suppress_context__ = exc.__suppress_context__
     return stand_in.with_traceback(exc.__traceback__)
+
+
+def _redacted_value(value):
+    """A bound log field with every string in it masked, however deeply nested;
+    another object whose text would carry a secret is replaced by its masked text."""
+    if isinstance(value, str):
+        return redact_message(value)
+    if isinstance(value, dict):
+        return {k: _redacted_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return type(value)(_redacted_value(v) for v in value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    text = str(value)
+    clean = redact_message(text)
+    return value if clean == text else clean
 
 
 def enrich_log_record(record):
@@ -100,8 +124,7 @@ def enrich_log_record(record):
             value=_redacted_exception(record["exception"].value))
     extra = record["extra"]
     for key, value in extra.items():
-        if isinstance(value, str):
-            extra[key] = redact_message(value)
+        extra[key] = _redacted_value(value)
     extra["run_id"] = run_id_var.get()
 
     if record["level"].no < logging.ERROR:

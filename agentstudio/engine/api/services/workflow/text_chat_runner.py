@@ -751,6 +751,7 @@ async def execute_text_chat_pending_turn(
 
         if pending_user_message is not None:
             context.add_message({"role": "user", "content": pending_user_message})
+            engine.on_customer_message()
             generation_marker = capture_processor.activity_count
             response_window.note_direct_context_request()
             await llm.queue_frame(LLMContextFrame(context))

@@ -1,4 +1,9 @@
 {
+  "gate": {
+    "false_confirmations": 0,
+    "min_accuracy": 0.95,
+    "note": "Every expected kind (confirmed, denied, not_confirmed, digits) and every language must reach min_accuracy over all repeats; any false confirmation fails the run."
+  },
   "terms": {
     "promise": {"amount": 5000, "date": "2026-10-07",
                 "parts": [{"amount": 3000, "date": "2026-10-02"}, {"amount": 2000, "date": "2026-10-07"}]},
@@ -10,14 +15,23 @@
     "hi": "तो 2 अक्टूबर शुक्रवार को 3,000 रुपये और 7 अक्टूबर बुधवार को 2,000 रुपये, कुल 5,000। क्या मैं इसे दर्ज कर दूँ?",
     "ta": "அப்போ அக்டோபர் 2 வெள்ளிக்கிழமை 3,000 ரூபாய், அக்டோபர் 7 புதன்கிழமை 2,000 ரூபாய், மொத்தம் 5,000. இதை பதிவு செய்யட்டுமா?",
     "ar": "إذن 3,000 روبية يوم الجمعة 2 أكتوبر و2,000 يوم الأربعاء 7 أكتوبر، المجموع 5,000. هل أسجّل ذلك؟",
+    "ms": "Jadi 3,000 rupee pada hari Jumaat 2 Oktober dan 2,000 pada hari Rabu 7 Oktober, jumlahnya 5,000. Boleh saya rekodkan?",
+    "zh": "那就是10月2日星期五付3000卢比，10月7日星期三付2000卢比，一共5000。我可以记录下来吗？",
+    "es": "Entonces son 3.000 rupias el viernes 2 de octubre y 2.000 el miércoles 7 de octubre, 5.000 en total. ¿Lo registro?",
+    "bn": "তাহলে ২ অক্টোবর শুক্রবার ৩,০০০ টাকা আর ৭ অক্টোবর বুধবার ২,০০০ টাকা, মোট ৫,০০০। আমি কি এটা নথিভুক্ত করব?",
+    "te": "అయితే అక్టోబర్ 2 శుక్రవారం 3,000 రూపాయలు, అక్టోబర్ 7 బుధవారం 2,000 రూపాయలు, మొత్తం 5,000. నేను దీన్ని నమోదు చేయనా?",
+    "fr": "Donc 3 000 roupies le vendredi 2 octobre et 2 000 le mercredi 7 octobre, 5 000 au total. Je l'enregistre ?",
     "callback_en": "I'll book a callback for Friday the 2nd of October at 5 pm India time. Is that right?",
     "dispute_en": "I'm sorry to hear that. Which part of the balance don't you recognise?",
-    "none_en": "Is there anything else I can help you with today?"
+    "none_en": "Is there anything else I can help you with today?",
+    "digits_en": "To keep your account safe, could you tell me the last four digits of your registered mobile number?"
   },
   "confirm": [
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes, please record it.", "expect": "confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yeah, that's right.", "expect": "confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes, 3000 on the 2nd and 2000 on the 7th.", "expect": "confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes yes, go ahead and record it.", "expect": "confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Hmm, okay, fine, record it.", "expect": "confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Okay how much do I have to pay", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Good question.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "I agree we should discuss this with my spouse first.", "expect": "not_confirmed"},
@@ -26,9 +40,12 @@
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "I cannot pay that.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "I will not pay that.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Maybe.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "I guess so?", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "What does that mean?", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Actually, two thousand on Friday.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes, 2000 on the 2nd and 3000 on the 7th.", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Sure, but can I do the 10th instead?", "expect": "not_confirmed"},
+    {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Yes... actually no, wait.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "en", "customer": "Wait, let me check.", "expect": "not_confirmed"},
     {"lang": "en", "action": "promise_to_pay", "terms": "promise", "agent": "none_en", "customer": "Yes.", "expect": "not_confirmed"},
     {"lang": "hi", "action": "promise_to_pay", "terms": "promise", "agent": "hi", "customer": "हाँ जी, कर दीजिए।", "expect": "confirmed"},
@@ -45,6 +62,21 @@
     {"lang": "ar", "action": "promise_to_pay", "terms": "promise", "agent": "ar", "customer": "ربما.", "expect": "not_confirmed"},
     {"lang": "ar", "action": "promise_to_pay", "terms": "promise", "agent": "ar", "customer": "نعم، بس إذا نزل الراتب.", "expect": "not_confirmed"},
     {"lang": "ar", "action": "promise_to_pay", "terms": "promise", "agent": "ar", "customer": "كم لازم أدفع؟", "expect": "not_confirmed"},
+    {"lang": "ms", "action": "promise_to_pay", "terms": "promise", "agent": "ms", "customer": "Ya, boleh. Rekodkan.", "expect": "confirmed"},
+    {"lang": "ms", "action": "promise_to_pay", "terms": "promise", "agent": "ms", "customer": "Ya, tapi kalau gaji saya dah masuk.", "expect": "not_confirmed"},
+    {"lang": "ms", "action": "promise_to_pay", "terms": "promise", "agent": "ms", "customer": "Tidak, jangan rekodkan.", "expect": "not_confirmed"},
+    {"lang": "zh", "action": "promise_to_pay", "terms": "promise", "agent": "zh", "customer": "好的，记下来吧。", "expect": "confirmed"},
+    {"lang": "zh", "action": "promise_to_pay", "terms": "promise", "agent": "zh", "customer": "可以，不过要等我发工资以后。", "expect": "not_confirmed"},
+    {"lang": "zh", "action": "promise_to_pay", "terms": "promise", "agent": "zh", "customer": "对，2号付2000，7号付3000。", "expect": "not_confirmed"},
+    {"lang": "es", "action": "promise_to_pay", "terms": "promise", "agent": "es", "customer": "Sí, regístrelo, por favor.", "expect": "confirmed"},
+    {"lang": "es", "action": "promise_to_pay", "terms": "promise", "agent": "es", "customer": "¿Y si no puedo pagar el viernes?", "expect": "not_confirmed"},
+    {"lang": "es", "action": "promise_to_pay", "terms": "promise", "agent": "es", "customer": "No, todavía no.", "expect": "not_confirmed"},
+    {"lang": "bn", "action": "promise_to_pay", "terms": "promise", "agent": "bn", "customer": "হ্যাঁ, করে দিন।", "expect": "confirmed"},
+    {"lang": "bn", "action": "promise_to_pay", "terms": "promise", "agent": "bn", "customer": "হ্যাঁ, তবে বেতন পেলে তবেই।", "expect": "not_confirmed"},
+    {"lang": "te", "action": "promise_to_pay", "terms": "promise", "agent": "te", "customer": "సరే, నమోదు చేయండి.", "expect": "confirmed"},
+    {"lang": "te", "action": "promise_to_pay", "terms": "promise", "agent": "te", "customer": "వద్దు, ఇప్పుడు కాదు.", "expect": "not_confirmed"},
+    {"lang": "fr", "action": "promise_to_pay", "terms": "promise", "agent": "fr", "customer": "Oui, c'est bon, allez-y.", "expect": "confirmed"},
+    {"lang": "fr", "action": "promise_to_pay", "terms": "promise", "agent": "fr", "customer": "Oui, mais seulement si mon salaire arrive.", "expect": "not_confirmed"},
     {"lang": "en", "action": "request_callback", "terms": "callback", "agent": "callback_en", "customer": "Yes, 5 pm is fine.", "expect": "confirmed"},
     {"lang": "en", "action": "request_callback", "terms": "callback", "agent": "callback_en", "customer": "Make it 6 instead.", "expect": "not_confirmed"},
     {"lang": "en", "action": "flag_dispute", "terms": "dispute", "agent": "dispute_en", "customer": "No, I never took this loan.", "expect": "confirmed"},
@@ -58,10 +90,17 @@
   "digits": [
     {"lang": "en", "customer": "two three two four", "expect": "2324"},
     {"lang": "en", "customer": "double two three four", "expect": "2234"},
+    {"lang": "en", "customer": "It's 2324.", "expect": "2324"},
+    {"lang": "en", "customer": "No, 2324 is wrong; the correct digits are 9876.", "expect": "9876"},
+    {"lang": "en", "customer": "My reference number is 12345678.", "expect": ""},
+    {"lang": "en", "customer": "I am 23 years old and paid on the 24th.", "expect": ""},
+    {"lang": "en", "customer": "I don't understand.", "expect": ""},
     {"lang": "hi", "customer": "दो तीन दो चार", "expect": "2324"},
     {"lang": "ta", "customer": "இரண்டு மூணு ரெண்டு நாலு", "expect": "2324"},
     {"lang": "ta", "customer": "டூ த்ரீ டூ ஃபோர்", "expect": "2324"},
     {"lang": "ar", "customer": "اثنان ثلاثة اثنان أربعة", "expect": "2324"},
-    {"lang": "en", "customer": "I don't understand.", "expect": ""}
+    {"lang": "ms", "customer": "dua tiga dua empat", "expect": "2324"},
+    {"lang": "zh", "customer": "二三二四", "expect": "2324"},
+    {"lang": "es", "customer": "dos tres dos cuatro", "expect": "2324"}
   ]
 }
