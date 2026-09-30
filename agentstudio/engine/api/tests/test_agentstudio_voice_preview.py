@@ -1,9 +1,9 @@
 """AgentStudio voice delivery: one mapping for live calls and previews."""
 
 from types import SimpleNamespace
+from xml.sax.saxutils import quoteattr
 
 import pytest
-from fastapi import HTTPException
 
 from api.services.voice_catalog_local import (
     _azure_tier,
@@ -45,9 +45,18 @@ def test_preview_ssml_matches_the_call_and_escapes_text():
     assert "Pay &lt;now&gt; &amp; save" in ssml
 
 
-def test_preview_rejects_a_voice_name_that_could_inject_ssml():
-    with pytest.raises(HTTPException):
-        azure_preview_ssml(voice="a'/><x", language=None, speed=1.0, delivery={}, text="hi")
+def test_a_voice_name_is_escaped_so_it_cannot_inject_ssml():
+    ssml = azure_preview_ssml(voice="a'/><x", language=None, speed=1.0, delivery={}, text="hi")
+    assert "<x" not in ssml and "name=\"a'/&gt;&lt;x\"" in ssml
+
+
+@pytest.mark.parametrize("voice", ["en-US-Harper:MAI-Voice-2-Flash", "tr-TR-Aydın:MAI-Voice-2-Flash",
+                                   "en-US-Voice:MAI-Voice-1.5 (Preview)"])
+def test_any_name_azure_lists_can_be_previewed(voice):
+    """30 Sep: MAI voices from Azure's own list were refused as "Invalid voice name":
+    names are escaped, never matched against a character pattern."""
+    assert f"<voice name={quoteattr(voice)}>" in azure_preview_ssml(
+        voice=voice, language=None, speed=1.0, delivery={}, text="hi")
 
 
 def test_hd_voices_are_labelled_as_premium():
@@ -75,3 +84,13 @@ def test_preview_speaks_a_sample_in_the_language_previewed():
     assert preview_text_for("ta-IN", "ta-IN-PallaviNeural") != PREVIEW_TEXT
     assert preview_text_for(None, "ar-AE-FatimaNeural").startswith("مرحباً")
     assert preview_text_for("en-IN", "en-US-AvaMultilingualNeural") == PREVIEW_TEXT
+
+
+def test_a_voice_azure_lists_can_be_saved():
+    from api.services.configuration.registry import AzureSpeechTTSConfiguration
+
+    name = "en-US-Voice:MAI-Voice-1.5 (Preview)"
+    config = AzureSpeechTTSConfiguration(api_key="k", voice=name, voice_map={"hi-IN": name})
+    assert config.voice == name and config.voice_map == {"hi-IN": name}
+    with pytest.raises(ValueError):
+        AzureSpeechTTSConfiguration(api_key="k", voice=" ")

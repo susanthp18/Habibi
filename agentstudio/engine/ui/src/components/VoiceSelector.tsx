@@ -71,6 +71,8 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [playingPreview, setPlayingPreview] = useState<string | null>(null);
+    // AgentStudio: a failed preview belongs to its voice; the list stays usable.
+    const [previewError, setPreviewError] = useState<{ voiceId: string; message: string } | null>(null);
     const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
     // Check if provider has MPS voice endpoint
@@ -268,6 +270,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         }
 
         setPlayingPreview(voiceId);
+        setPreviewError(null);
         // AgentStudio: voices without a hosted sample are spoken on demand.
         let source = previewUrl;
         if (!source) {
@@ -279,7 +282,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                     voice: voiceId,
                 });
             } catch (err) {
-                setError(err instanceof Error ? err.message : "Could not preview this voice");
+                setPreviewError({ voiceId, message: err instanceof Error ? err.message : "Could not preview this voice" });
                 setPlayingPreview(null);
                 return;
             }
@@ -494,6 +497,9 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                                 <p className="text-xs text-muted-foreground line-clamp-2">
                                                     {voice.description}
                                                 </p>
+                                            )}
+                                            {previewError?.voiceId === voice.voice_id && (
+                                                <p className="text-xs text-red-500">{previewError.message}</p>
                                             )}
                                             <div className="flex flex-wrap items-center gap-2 mt-1">
                                                 {voice.tier && voice.tier !== "neural" && (

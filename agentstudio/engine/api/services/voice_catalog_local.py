@@ -300,9 +300,11 @@ def azure_delivery(config: Any) -> dict[str, str]:
 
 def azure_preview_ssml(*, voice: str, language: str | None, speed: float,
                        delivery: dict[str, str], text: str) -> str:
-    """The SSML Pipecat's Azure service sends, for one sample sentence."""
-    if not _SAFE_TOKEN.match(voice):
-        raise HTTPException(status_code=400, detail="Invalid voice name")
+    """The SSML Pipecat's Azure service sends, for one sample sentence.
+
+    The voice name is escaped, not matched against a pattern: it is whatever
+    Azure's own voice list calls the voice.
+    """
     lang = language if language and _SAFE_TOKEN.match(language) else "-".join(voice.split("-")[:2])
     prosody = {"rate": f"{speed:.2f}"} | {k: delivery[k] for k in ("pitch", "volume") if k in delivery}
     attrs = " ".join(f"{k}={quoteattr(v)}" for k, v in prosody.items())

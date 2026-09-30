@@ -135,6 +135,16 @@ def test_construct_ssml_default_has_no_lang_element(service_class):
 
 
 @pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
+def test_construct_ssml_escapes_the_voice_name(service_class):
+    """A voice name is Azure's own and is escaped like text, so it can't break the SSML."""
+    service = service_class(api_key="test-key", region="eastus", voice="en-US-X:MAI-Voice-2 'a'/><x")
+
+    ssml = service._construct_ssml("Hello there.")
+
+    assert "<voice name='en-US-X:MAI-Voice-2 &apos;a&apos;/&gt;&lt;x'>" in ssml and "<x" not in ssml
+
+
+@pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
 def test_construct_ssml_force_locale_false_matches_default(service_class):
     """force_locale=False explicitly must match the unset default byte-for-byte."""
     default_service = service_class(api_key="test-key", region="eastus")

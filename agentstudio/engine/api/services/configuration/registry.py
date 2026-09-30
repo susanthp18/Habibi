@@ -1596,13 +1596,14 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     @field_validator("voice_map")
     @classmethod
     def _voice_map_entries(cls, value: dict[str, str]) -> dict[str, str]:
-        # Both halves are written into SSML: locale codes and voice names only.
+        # Keys are locale codes. Voice names are Azure's own and are escaped
+        # into SSML, so only their length is checked.
         # A language left without a voice falls back to `voice`.
         import re
 
         token = re.compile(r"^[\w:-]{1,80}$")
         entries = {str(k).strip(): str(v).strip() for k, v in (value or {}).items() if v and str(v).strip()}
-        bad = [f"{k} -> {v}" for k, v in entries.items() if not (token.match(k) and token.match(v))]
+        bad = [f"{k} -> {v}" for k, v in entries.items() if not (token.match(k) and len(v) <= 80)]
         if bad:
             raise ValueError("Invalid voice per language: " + ", ".join(bad))
         return entries
@@ -1610,10 +1611,9 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     @field_validator("voice")
     @classmethod
     def _voice_name(cls, value: str) -> str:
-        import re
-
+        # Azure's own name, escaped into SSML: any name its voice list gives.
         value = (value or "").strip()
-        if not re.match(r"^[\w:-]{1,80}$", value):
+        if not 0 < len(value) <= 80:
             raise ValueError(f"Invalid Azure voice name {value!r}.")
         return value
 

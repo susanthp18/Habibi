@@ -308,7 +308,7 @@ class AzureBaseTTSService:
     def _construct_ssml(self, text: str) -> str:
         segments = self._voice_segments(text)
         ssml = (
-            f"<speak version='1.0' xml:lang='{segments[0][1]}' "
+            f"<speak version='1.0' xml:lang='{self._escape_text(segments[0][1])}' "
             "xmlns='http://www.w3.org/2001/10/synthesis' "
             "xmlns:mstts='http://www.w3.org/2001/mstts'>"
         )
@@ -321,7 +321,9 @@ class AzureBaseTTSService:
         escaped_text = self._escape_text(text)
         own_voice = voice == self._settings.voice
 
-        voice_attrs = f"name='{voice}'"
+        # Names and locales are escaped like text: Azure's own names carry
+        # characters a hand-written allowlist misses.
+        voice_attrs = f"name='{self._escape_text(voice)}'"
         if self._settings.voice_parameters and own_voice:
             voice_attrs += f" parameters='{self._settings.voice_parameters}'"
 
@@ -334,7 +336,7 @@ class AzureBaseTTSService:
         # only on request: pinned to a locale outside its set it speaks nothing.
         pin_locale = bool(self._settings.force_locale)
         if pin_locale:
-            ssml += f"<lang xml:lang='{language}'>"
+            ssml += f"<lang xml:lang='{self._escape_text(language)}'>"
 
         # Styles and roles are chosen for the agent's own voice; another
         # language's voice may not offer them.

@@ -1,5 +1,5 @@
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
---- pipecat/src/pipecat/services/azure/stt.py	2026-09-29 19:23:02.505276800 +0530
+--- pipecat/src/pipecat/services/azure/stt.py	2026-09-30 16:05:34.089548200 +0530
 +++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
 @@ -11,6 +11,7 @@
  """
@@ -336,8 +336,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              frame = InterimTranscriptionFrame(
                  event.result.text,
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/tts.py engine/pipecat/src/pipecat/services/azure/tts.py
---- pipecat/src/pipecat/services/azure/tts.py	2026-09-29 19:23:02.506346600 +0530
-+++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-29 16:40:14.839685900 +0530
+--- pipecat/src/pipecat/services/azure/tts.py	2026-09-30 16:05:34.090541700 +0530
++++ engine/pipecat/src/pipecat/services/azure/tts.py	2026-09-30 15:56:09.608324500 +0530
 @@ -35,6 +35,7 @@
  try:
      from azure.cognitiveservices.speech import (
@@ -444,7 +444,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
  
  class AzureBaseTTSService:
-@@ -194,29 +279,68 @@
+@@ -194,29 +279,70 @@
          """
          return language_to_azure_language(language)
  
@@ -478,7 +478,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 -        language = self._settings.language
 +        segments = self._voice_segments(text)
 +        ssml = (
-+            f"<speak version='1.0' xml:lang='{segments[0][1]}' "
++            f"<speak version='1.0' xml:lang='{self._escape_text(segments[0][1])}' "
 +            "xmlns='http://www.w3.org/2001/10/synthesis' "
 +            "xmlns:mstts='http://www.w3.org/2001/mstts'>"
 +        )
@@ -493,7 +493,9 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
 -        voice_attrs = f"name='{self._settings.voice}'"
 -        if self._settings.voice_parameters:
-+        voice_attrs = f"name='{voice}'"
++        # Names and locales are escaped like text: Azure's own names carry
++        # characters a hand-written allowlist misses.
++        voice_attrs = f"name='{self._escape_text(voice)}'"
 +        if self._settings.voice_parameters and own_voice:
              voice_attrs += f" parameters='{self._settings.voice_parameters}'"
  
@@ -506,14 +508,16 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          )
  
 -        if self._settings.force_locale:
+-            ssml += f"<lang xml:lang='{language}'>"
+-
+-        if self._settings.style:
+-            ssml += f"<mstts:express-as style='{self._settings.style}'"
 +        # A multilingual voice picks its language from the text. It is pinned
 +        # only on request: pinned to a locale outside its set it speaks nothing.
 +        pin_locale = bool(self._settings.force_locale)
 +        if pin_locale:
-             ssml += f"<lang xml:lang='{language}'>"
- 
--        if self._settings.style:
--            ssml += f"<mstts:express-as style='{self._settings.style}'"
++            ssml += f"<lang xml:lang='{self._escape_text(language)}'>"
++
 +        # Styles and roles are chosen for the agent's own voice; another
 +        # language's voice may not offer them.
 +        style = self._settings.style if own_voice else None
@@ -522,7 +526,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              if self._settings.style_degree:
                  ssml += f" styledegree='{self._settings.style_degree}'"
              if self._settings.role:
-@@ -246,15 +370,13 @@
+@@ -246,15 +372,13 @@
          if prosody_attrs:
              ssml += "</prosody>"
  
@@ -541,7 +545,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
      def _escape_text(self, text: str) -> str:
          """Escapes XML/SSML reserved characters according to Microsoft documentation.
-@@ -459,6 +581,15 @@
+@@ -459,6 +583,15 @@
          self._speech_synthesizer.synthesis_canceled.connect(self._handle_canceled)
          self._speech_synthesizer.synthesis_word_boundary.connect(self._handle_word_boundary)
  
@@ -558,7 +562,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          """Start the Azure TTS service and initialize speech synthesizer.
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/mcp_service.py engine/pipecat/src/pipecat/services/mcp_service.py
---- pipecat/src/pipecat/services/mcp_service.py	2026-09-29 19:23:02.671664700 +0530
+--- pipecat/src/pipecat/services/mcp_service.py	2026-09-30 16:05:34.161446000 +0530
 +++ engine/pipecat/src/pipecat/services/mcp_service.py	2026-09-26 18:09:56.541786600 +0530
 @@ -39,7 +39,7 @@
  
@@ -615,7 +619,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  read_stream, write_stream = streams[0], streams[1]
  
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/turns/user_idle_controller.py engine/pipecat/src/pipecat/turns/user_idle_controller.py
---- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 19:23:02.957765500 +0530
+--- pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-30 16:05:34.301299400 +0530
 +++ engine/pipecat/src/pipecat/turns/user_idle_controller.py	2026-09-29 09:57:47.286195900 +0530
 @@ -70,6 +70,7 @@
          self._waiting_for_user: bool = False
@@ -660,7 +664,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      async def _start_idle_timer(self):
          """Start (or restart) the idle timer."""
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/utils/enums.py engine/pipecat/src/pipecat/utils/enums.py
---- pipecat/src/pipecat/utils/enums.py	2026-09-29 19:23:03.013370800 +0530
+--- pipecat/src/pipecat/utils/enums.py	2026-09-30 16:05:34.335103800 +0530
 +++ engine/pipecat/src/pipecat/utils/enums.py	2026-09-29 17:00:15.824931000 +0530
 @@ -28,6 +28,8 @@
      TTFB_METRIC = "rtf-ttfb-metric"
@@ -672,7 +676,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      BOT_STARTED_SPEAKING = "rtf-bot-started-speaking"
      BOT_STOPPED_SPEAKING = "rtf-bot-stopped-speaking"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_stt.py engine/pipecat/tests/test_azure_stt.py
---- pipecat/tests/test_azure_stt.py	2026-09-29 19:23:03.146539300 +0530
+--- pipecat/tests/test_azure_stt.py	2026-09-30 16:05:34.461294900 +0530
 +++ engine/pipecat/tests/test_azure_stt.py	2026-09-27 11:48:18.208091700 +0530
 @@ -164,3 +164,45 @@
  
@@ -721,9 +725,26 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +        service = self._service()
 +        assert service._detected_language(SimpleNamespace()) == "en-IN"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_azure_tts.py engine/pipecat/tests/test_azure_tts.py
---- pipecat/tests/test_azure_tts.py	2026-09-29 19:23:03.148874500 +0530
-+++ engine/pipecat/tests/test_azure_tts.py	2026-09-27 11:57:36.673304800 +0530
-@@ -209,3 +209,61 @@
+--- pipecat/tests/test_azure_tts.py	2026-09-30 16:05:34.461294900 +0530
++++ engine/pipecat/tests/test_azure_tts.py	2026-09-30 15:57:11.783070100 +0530
+@@ -135,6 +135,16 @@
+ 
+ 
+ @pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
++def test_construct_ssml_escapes_the_voice_name(service_class):
++    """A voice name is Azure's own and is escaped like text, so it can't break the SSML."""
++    service = service_class(api_key="test-key", region="eastus", voice="en-US-X:MAI-Voice-2 'a'/><x")
++
++    ssml = service._construct_ssml("Hello there.")
++
++    assert "<voice name='en-US-X:MAI-Voice-2 &apos;a&apos;/&gt;&lt;x'>" in ssml and "<x" not in ssml
++
++
++@pytest.mark.parametrize("service_class", SSML_SERVICE_CLASSES)
+ def test_construct_ssml_force_locale_false_matches_default(service_class):
+     """force_locale=False explicitly must match the unset default byte-for-byte."""
+     default_service = service_class(api_key="test-key", region="eastus")
+@@ -209,3 +219,61 @@
          "</lang>"
          "</voice></speak>"
      )
@@ -786,7 +807,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    # is left to detect the language from the text.
 +    assert "<lang" not in ssml and "en-US-AvaMultilingualNeural" in ssml
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_user_idle_controller.py engine/pipecat/tests/test_user_idle_controller.py
---- pipecat/tests/test_user_idle_controller.py	2026-09-29 19:23:03.470647800 +0530
+--- pipecat/tests/test_user_idle_controller.py	2026-09-30 16:05:34.628505900 +0530
 +++ engine/pipecat/tests/test_user_idle_controller.py	2026-09-29 09:58:06.797134600 +0530
 @@ -249,6 +249,73 @@
  
