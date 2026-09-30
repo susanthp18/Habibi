@@ -1317,7 +1317,8 @@ class FishAudioTTSConfiguration(BaseTTSConfiguration):
         description="Streaming mode. Both stream; Fish's 'normal' mode waits for the whole clip, so it is not offered.",
     )
     temperature: float | None = Field(default=None, ge=0, le=1, description="Expressiveness (Fish default 0.7).")
-    top_p: float | None = Field(default=None, ge=0, le=1, description="Diversity (Fish default 0.7).")
+    # Fish refuses top_p 0 ("must be in (0, 1]", verified): every sentence would fail.
+    top_p: float | None = Field(default=None, gt=0, le=1, description="Diversity (Fish default 0.7).")
 
     @field_validator("style", mode="before")
     @classmethod

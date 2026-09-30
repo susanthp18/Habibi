@@ -26,7 +26,7 @@ def test_fish_parses_in_the_tts_union_with_streaming_defaults():
     assert (c.model, c.latency, c.style, c.speed, c.volume) == ("s2.1-pro-free", "balanced", None, 1.0, 0)
     assert "fish" in REGISTRY[ServiceType.TTS]
     for bad in ({"latency": "normal"}, {"speed": 5}, {"style": "[angry]"}, {"volume": 30},
-                {"model": "s2.1-pro"}, {"temperature": 2}):
+                {"model": "s2.1-pro"}, {"temperature": 2}, {"top_p": 0}):
         with pytest.raises(ValidationError):
             config(**bad)
 
@@ -123,6 +123,17 @@ async def test_failures_are_classified(response, category):
     frames = [f async for f in service(Session(response)).run_tts("Hello.", "ctx")]
     assert len(frames) == 1 and frames[0].category.value == category
     assert "Fish Audio" in frames[0].error
+
+
+def test_every_settings_field_is_initialized():
+    """Run 89 logged "TTSSettings: the following fields are NOT_GIVEN: language" at start."""
+    from dataclasses import fields
+
+    from pipecat.services.settings import is_given
+
+    settings = service(Session())._settings
+    assert all(is_given(getattr(settings, f.name)) for f in fields(settings) if f.name != "extra")
+    assert settings.language is None
 
 
 @pytest.mark.asyncio

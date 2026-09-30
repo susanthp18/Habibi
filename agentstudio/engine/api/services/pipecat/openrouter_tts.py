@@ -52,7 +52,9 @@ class OpenRouterTTSService(TTSService):
         **kwargs,
     ):
         super().__init__(
-            settings=TTSSettings(model=model, voice=voice),
+            # The provider detects the language from the text; Pipecat's store mode
+            # wants every field initialized, so an unsupported one is None.
+            settings=TTSSettings(model=model, voice=voice, language=None),
             push_start_frame=True,
             push_stop_frames=True,
             **kwargs,
