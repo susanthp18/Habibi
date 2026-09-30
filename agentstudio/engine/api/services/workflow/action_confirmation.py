@@ -234,7 +234,10 @@ def _json(text: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-_STAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?")
+#: The callback tool's time argument (PayInt's request_callback), read exactly
+#: as PayInt reads it: ``agent_core.clock.to_instant`` (``fromisoformat`` with
+#: "Z" as UTC; no offset means local time).
+CALLBACK_TIME = "when"
 
 
 def _zone(name: str | None) -> ZoneInfo | None:
@@ -244,62 +247,54 @@ def _zone(name: str | None) -> ZoneInfo | None:
         return None
 
 
+def _callback_moment(terms: dict[str, Any], zone: str | None) -> tuple[datetime, str] | None:
+    """The callback time as the customer hears it, and where; None when the
+    terms hold no time PayInt could parse. An offset is converted to the
+    customer's zone when the call knows it (outbound calls do), else kept in
+    its own offset; a time with no offset is already local."""
+    raw = str(terms.get(CALLBACK_TIME) or "").strip()
+    try:
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return moment, "the customer's local time"
+    local = _zone(zone)
+    if local is not None:
+        return moment.astimezone(local), f"{zone} time"
+    offset = moment.strftime("%z")
+    return moment, f"UTC{offset[:3]}:{offset[3:]}"
+
+
 def _dated(terms: dict[str, Any], zone: str | None = None) -> str:
-    """The terms as JSON, with the weekday of each date and the local time of
-    each moment worked out here: a read-back says "Friday" and "5 pm India
-    time", and a model does not reliably turn 11:30Z into 17:00 in India (it
-    confirmed a 17:00Z callback read back as "5 pm India time", 5.5 hours off).
+    """The terms as JSON, with the weekday of each date and the callback's local
+    time worked out here: a read-back says "Friday" and "5 pm India time".
     ``zone``: the customer's time zone (IANA), the one a read-back speaks in."""
     rendered = json.dumps(terms, ensure_ascii=False, default=str, sort_keys=True)
+    # The callback time's own date is its UTC date, not always the local one.
+    others = json.dumps({k: v for k, v in terms.items() if k != CALLBACK_TIME}, default=str)
     notes = []
-    for day in sorted(set(re.findall(r"\b(\d{4}-\d{2}-\d{2})\b(?!T)", rendered))):
+    for day in sorted(set(re.findall(r"\b(\d{4}-\d{2}-\d{2})\b(?!T)", others))):
         try:
             notes.append(f"{day} is a {date.fromisoformat(day).strftime('%A')}")
         except ValueError:
             continue
-    local = _zone(zone)
-    for stamp in sorted(set(_STAMP.findall(rendered))):
-        try:
-            moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if moment.tzinfo is None:
-            where = "the customer's local time"
-        elif local is not None:
-            moment, where = moment.astimezone(local), f"{zone} time"
-        else:
-            offset = moment.strftime("%z")
-            where = f"UTC{offset[:3]}:{offset[3:]}"
-        notes.append(f"{stamp} is {moment.strftime('%A %d %B %Y, %H:%M')} {where}")
+    callback = _callback_moment(terms, zone) if CALLBACK_TIME in terms else None
+    if callback:
+        moment, where = callback
+        notes.append(f"{terms[CALLBACK_TIME]} is {moment.strftime('%A %d %B %Y, %H:%M')} {where}")
     return rendered + (f"\n({'; '.join(notes)})" if notes else "")
 
 
-def _local_clock(terms: dict[str, Any], zone: str | None) -> str | None:
-    """The terms' one moment as the customer's local time of day ("17:00"), or
-    None when they hold no single moment to compare."""
-    stamps = set(_STAMP.findall(json.dumps(terms, default=str)))
-    if len(stamps) != 1:
-        return None
-    try:
-        moment = datetime.fromisoformat(stamps.pop().replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    local = _zone(zone)
-    if moment.tzinfo is not None and local is not None:
-        moment = moment.astimezone(local)
-    return moment.strftime("%H:%M")
-
-
 def _same_time(verdict: Verdict, said: Any, terms: dict[str, Any], zone: str | None) -> Verdict:
-    """A confirmed callback stands only if the time the agent said is the terms'
-    local time: a callback read back as "5 pm India time" with 17:00Z terms
-    (22:30 in India) was confirmed by the model on every run."""
-    expected = _local_clock(terms, zone)
-    if expected is None:
-        return verdict
-    if not isinstance(said, str) or not re.fullmatch(r"\d{2}:\d{2}", said):
+    """A confirmed callback stands only if the time the agent said is the
+    callback's local time: a callback read back as "5 pm India time" with 17:00Z
+    terms (22:30 in India) was confirmed by the model on every run. Terms with
+    no time PayInt could parse, or no time said, fail closed."""
+    callback = _callback_moment(terms, zone)
+    if callback is None or not isinstance(said, str) or not re.fullmatch(r"\d{2}:\d{2}", said):
         return UNAVAILABLE
-    return verdict if said == expected else Verdict(Confirmation.NONE, "other_terms")
+    return verdict if said == callback[0].strftime("%H:%M") else Verdict(Confirmation.NONE, "other_terms")
 
 
 def _transcript(turns: list[tuple[str, str]]) -> str:

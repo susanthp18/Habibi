@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -41,6 +42,8 @@ TYPE_MAP = {
 
 _FULL_PLACEHOLDER = re.compile(r"^\{\{\s*([^|\s}]+)(?:\s*\|[^}]*)?\s*\}\}$")
 _LIVE_HTTP_LIMIT = asyncio.Semaphore(16)
+#: The error when a request's precondition no longer held at dispatch.
+DISPATCH_PRECONDITION_FAILED = "dispatch_precondition_failed"
 
 
 def custom_tool_function_name(name: str) -> str:
@@ -288,6 +291,7 @@ async def execute_http_tool(
     organization_id: int | None = None,
     include_request_headers: bool = False,
     secure_destination: bool = False,
+    precondition: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Execute an HTTP API tool.
 
@@ -301,6 +305,10 @@ async def execute_http_tool(
         organization_id: Organization ID for credential lookup
         include_request_headers: Include a client-safe header preview in the result.
             Headers supplied by a stored credential are masked.
+        precondition: Checked once the request holds an HTTP slot, immediately
+            before it is sent: what authorised it (the customer's answer) can
+            change while credentials load and the request queues. False sends
+            nothing and returns ``DISPATCH_PRECONDITION_FAILED``.
 
     Returns:
         Result dict with response data or error
@@ -493,6 +501,8 @@ async def execute_http_tool(
             timeout=timeout_seconds, follow_redirects=False, trust_env=False,
             transport=transport,
         ) as client:
+            if precondition is not None and not precondition():
+                return build_result({"status": "error", "error": DISPATCH_PRECONDITION_FAILED})
             if secure_destination:
                 request = client.build_request(method, url, headers=headers, json=body, params=params)
                 streamed = await client.send(request, stream=True)

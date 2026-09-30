@@ -328,18 +328,19 @@ async def test_a_callback_time_is_judged_in_the_customers_local_time():
     llm = _Llm('{"read_back": "differs", "reply": "agrees"}')
     engine = _engine(llm)
     engine.context.messages.append({"role": "user", "content": "Yes, that works."})
-    await engine.confirm_action("request_callback", {"scheduled_at": "2026-10-02T17:00:00Z"})
+    await engine.confirm_action("request_callback", {"when": "2026-10-02T17:00:00Z"})
     assert "2026-10-02T17:00:00Z is Friday 02 October 2026, 22:30 Asia/Kolkata time" in llm.asked[0][1]
 
 
 def test_times_without_a_known_zone_are_labelled_not_guessed():
     from api.services.workflow.action_confirmation import _dated
 
-    assert "17:00 the customer's local time" in _dated({"t": "2026-10-02T17:00"}, "Asia/Kolkata")
-    assert "17:00 UTC+05:30" in _dated({"t": "2026-10-02T17:00:00+05:30"}, None)
-    assert "17:00 UTC+05:30" in _dated({"t": "2026-10-02T17:00:00+05:30"}, "Not/AZone")
+    assert "17:00 the customer's local time" in _dated({"when": "2026-10-02T17:00"}, "Asia/Kolkata")
+    assert "17:00 UTC+05:30" in _dated({"when": "2026-10-02T17:00:00+05:30"}, None)
+    assert "17:00 UTC+05:30" in _dated({"when": "2026-10-02T17:00:00+05:30"}, "Not/AZone")
     # A moment's date is not given a weekday of its own: the local day can differ.
-    assert "is a" not in _dated({"t": "2026-10-02T20:00:00Z"}, "Asia/Kolkata")
+    assert "is a" not in _dated({"when": "2026-10-02T20:00:00Z"}, "Asia/Kolkata")
+    assert "is a" not in _dated({"when": "2026-10-02 20:00:00+00:00"}, "Asia/Kolkata")
 
 
 @pytest.mark.asyncio
@@ -356,4 +357,26 @@ async def test_a_callback_stands_only_at_the_time_the_agent_said(said, when, exp
     answer = {"read_back": "matches", "reply": "agrees", **({"said_time": said} if said else {})}
     service = ActionConfirmationService(_Llm(json.dumps(answer)))
     turns = [("assistant", "A callback on Friday at 5 pm India time?"), ("user", "Yes, that works.")]
-    assert await service.confirm("request_callback", {"scheduled_at": when}, turns, zone="Asia/Kolkata") == expected
+    assert await service.confirm("request_callback", {"when": when}, turns, zone="Asia/Kolkata") == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("when, zone, said, expected", [
+    # Every form PayInt's parser takes (agent_core.clock.to_instant), converted the same way.
+    ("2026-10-02T17:00:00+0000", "Asia/Kolkata", "17:00", Verdict(Confirmation.NONE, "other_terms")),  # 22:30
+    ("2026-10-02 17:00:00+00:00", "Asia/Kolkata", "17:00", Verdict(Confirmation.NONE, "other_terms")),
+    ("2026-10-02 11:30:00+00:00", "Asia/Kolkata", "17:00", Verdict(Confirmation.CONFIRMED, "agreed")),
+    ("20261002T113000Z", "Asia/Kolkata", "17:00", Verdict(Confirmation.CONFIRMED, "agreed")),
+    ("2026-10-02T17:00:00+05:30", None, "17:00", Verdict(Confirmation.CONFIRMED, "agreed")),   # own offset
+    ("2026-10-02T17:00", "Asia/Kolkata", "17:00", Verdict(Confirmation.CONFIRMED, "agreed")),  # local already
+    # Nothing PayInt could parse: an approving verdict does not survive.
+    ("2026-10-02 5pm", "Asia/Kolkata", "17:00", UNAVAILABLE),
+    ("", "Asia/Kolkata", "17:00", UNAVAILABLE),
+    (None, "Asia/Kolkata", "17:00", UNAVAILABLE),
+])
+async def test_the_callback_time_is_read_as_payint_reads_it(when, zone, said, expected):
+    """Sixth review: "+0000" lost its offset and a space-separated time skipped the comparison."""
+    service = ActionConfirmationService(_Llm(json.dumps({"read_back": "matches", "reply": "agrees", "said_time": said})))
+    turns = [("assistant", "A callback on Friday at 5 pm?"), ("user", "Yes.")]
+    terms = {"reason": "busy"} if when is None else {"when": when, "reason": "busy"}
+    assert await service.confirm("request_callback", terms, turns, zone=zone) == expected

@@ -31,6 +31,7 @@ from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.action_confirmation import CHECK_TIMEOUT_SECS
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
+    DISPATCH_PRECONDITION_FAILED,
     execute_http_tool,
     tool_to_function_schema,
 )
@@ -638,13 +639,18 @@ class CustomToolManager:
                         custom_message, mute_user=True
                     )
 
-                if authorised_on and not self._engine.still_answering(*authorised_on):
-                    # The customer spoke while the check or the message above
-                    # ran: what authorised this call is no longer their answer.
-                    await function_call_params.result_callback({
-                        "status": "error", "error": "customer_spoke_again", "reason": "stale",
-                        "say": self._engine._refusal_hint("Nothing was recorded: " + _NOT_CONFIRMED["stale"]),
-                    })
+                # What authorised this call must still be the customer's answer
+                # when it is sent: checked here, after the message above, and
+                # again at dispatch, after credentials load and the request
+                # waits for an HTTP slot (compare-and-set at commit).
+                still_authorised = (
+                    (lambda: self._engine.still_answering(*authorised_on)) if authorised_on else None)
+                spoke_again = {
+                    "status": "error", "error": "customer_spoke_again", "reason": "stale",
+                    "say": self._engine._refusal_hint("Nothing was recorded: " + _NOT_CONFIRMED["stale"]),
+                }
+                if still_authorised and not still_authorised():
+                    await function_call_params.result_callback(spoke_again)
                     return
 
                 result = await execute_http_tool(
@@ -653,7 +659,11 @@ class CustomToolManager:
                     call_context_vars=self._engine._call_context_vars,
                     gathered_context_vars=self._engine._gathered_context,
                     organization_id=await self.get_organization_id(),
+                    precondition=still_authorised,
                 )
+                if result.get("error") == DISPATCH_PRECONDITION_FAILED:
+                    await function_call_params.result_callback(spoke_again)
+                    return
 
                 if (function_name == "verify_identity" and action_node_id
                         and (not policy or policy.get("risk") == "platform")):

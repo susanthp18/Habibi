@@ -711,11 +711,12 @@ def test_numerals_of_any_script_are_digits():
     assert _digits("२३२४") == "2324"  # Devanagari
 
 
-def _writer(monkeypatch, verdict, config=None, setup=None):
+def _writer(monkeypatch, verdict, config=None, setup=None, real_executor=False):
     from api.services.workflow import pipecat_engine_custom_tools as tools
 
     execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
-    monkeypatch.setattr(tools, "execute_http_tool", execute)
+    if not real_executor:
+        monkeypatch.setattr(tools, "execute_http_tool", execute)
     engine = object.__new__(PipecatEngine)
     engine._engine_notes = []
     engine._current_llm_generation_reference_text = ""
@@ -737,7 +738,8 @@ def _writer(monkeypatch, verdict, config=None, setup=None):
     engine._active_agent = agent
     manager = tools.CustomToolManager(engine, agent)
     manager.get_organization_id = AsyncMock(return_value=1)
-    tool = SimpleNamespace(definition={"config": config or {}}, policy=None, revision_id=None)
+    tool = SimpleNamespace(definition={"config": config or {}}, policy=None, revision_id=None,
+                           name="promise_to_pay", tool_uuid="tool-1")
     if setup:
         setup(engine)
     return manager._create_http_tool_handler(tool, "promise_to_pay"), execute
@@ -843,3 +845,77 @@ async def test_the_terms_confirmed_are_the_terms_written(monkeypatch):
     await handler(SimpleNamespace(arguments=arguments, result_callback=AsyncMock()))
     written = execute.await_args.kwargs["arguments"]
     assert written == arguments and written["parts"] is not arguments["parts"]
+
+
+def _network(monkeypatch):
+    """The real executor with the network boundary mocked: the requests it sends."""
+    import httpx
+
+    from api.services.workflow.tools import custom_tool
+
+    sent = []
+    real_client = httpx.AsyncClient
+
+    def reply(request):
+        sent.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(custom_tool.httpx, "AsyncClient",
+                        lambda **kw: real_client(**{**kw, "transport": httpx.MockTransport(reply)}))
+    monkeypatch.setattr(custom_tool, "validate_user_configured_service_url", lambda *a, **k: None)
+    return sent
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_while_the_write_waits_for_an_http_slot_stops_it(monkeypatch):
+    """Sixth review: approve, wait for an HTTP slot, refuse, slot opens: the request went out "confirmed"."""
+    import asyncio
+
+    from api.services.workflow.tools import custom_tool
+
+    sent = _network(monkeypatch)
+    slots = asyncio.Semaphore(0)
+    monkeypatch.setattr(custom_tool, "_LIVE_HTTP_LIMIT", slots)
+    engines = []
+    handler, _ = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"),
+                         config={"url": "https://payint.example/cb", "method": "POST"},
+                         setup=engines.append, real_executor=True)
+    callback = AsyncMock()
+    write = asyncio.create_task(
+        handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback)))
+    await asyncio.sleep(0.05)                       # queued behind the HTTP limit
+    engines[0].context.messages.append({"role": "user", "content": "No, don't record it"})
+    slots.release()
+    await write
+    assert not sent
+    assert (callback.await_args.args[0]["error"], callback.await_args.args[0]["reason"]) ==         ("customer_spoke_again", "stale")
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_during_the_credential_lookup_stops_the_write(monkeypatch):
+    from api.services.workflow.tools import custom_tool
+
+    sent = _network(monkeypatch)
+    engines = []
+
+    async def lookup(*_a, **_k):
+        engines[0].context.messages.append({"role": "user", "content": "Wait, no."})
+        return None
+
+    monkeypatch.setattr(custom_tool.db_client, "get_credential_by_uuid", lookup)
+    handler, _ = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"),
+                         config={"url": "https://payint.example/cb", "method": "POST", "credential_uuid": "c"},
+                         setup=engines.append, real_executor=True)
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    assert not sent and callback.await_args.args[0]["error"] == "customer_spoke_again"
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_answer_is_still_sent_through_the_real_executor(monkeypatch):
+    sent = _network(monkeypatch)
+    handler, _ = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"),
+                         config={"url": "https://payint.example/cb", "method": "POST"}, real_executor=True)
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    assert len(sent) == 1 and callback.await_args.args[0]["confirmation"]["status"] == "confirmed"

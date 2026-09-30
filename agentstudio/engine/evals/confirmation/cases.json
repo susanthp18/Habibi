@@ -9,12 +9,12 @@
   "terms": {
     "promise": {"amount": 5000, "date": "2026-10-07",
                 "parts": [{"amount": 3000, "date": "2026-10-02"}, {"amount": 2000, "date": "2026-10-07"}]},
-    "callback": {"time": "2026-10-02T17:00:00+05:30"},
+    "callback": {"when": "2026-10-02T17:00:00+05:30"},
     "dispute": {"type": "not_my_transaction", "summary": "Says the loan is not theirs."},
     "promise_swapped": {"amount": 5000, "date": "2026-10-07", "parts": [{"amount": 2000, "date": "2026-10-02"}, {"amount": 3000, "date": "2026-10-07"}]},
     "promise_4000": {"amount": 4000, "date": "2026-10-07", "parts": [{"amount": 2000, "date": "2026-10-02"}, {"amount": 2000, "date": "2026-10-07"}]},
-    "callback_utc": {"time": "2026-10-02T11:30:00Z"},
-    "callback_wrong_zone": {"time": "2026-10-02T17:00:00Z"},
+    "callback_utc": {"when": "2026-10-02T11:30:00Z"},
+    "callback_wrong_zone": {"when": "2026-10-02T17:00:00Z"},
     "dispute_paid": {"type": "already_paid", "summary": "Says they already paid this month's instalment."},
     "dispute_amount": {"type": "wrong_amount", "summary": "Says the balance is higher than it should be."}
   },
