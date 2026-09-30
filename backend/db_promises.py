@@ -774,7 +774,8 @@ def _set_promise_schedule(conn: Any, promise_id: str, parts: list[dict[str, Any]
     total = round(sum(float(p["amount"]) for p in parts), 2)
     if (
         len(parts) < 2
-        or days != sorted(days)
+        # One part a day: the day's reminder says what is due that day.
+        or any(a >= b for a, b in zip(days, days[1:]))
         or total != round(float(row["amount"]), 2)
         or days[-1] != datetime.fromisoformat(str(row["promised_at"]))
     ):

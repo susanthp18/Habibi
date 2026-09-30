@@ -183,20 +183,48 @@ def test_a_job_for_a_live_call_is_not_claimed(db_tx, monkeypatch) -> None:
     assert ix in {j["interaction_id"] for j in jobs.claim(500)}
 
 
-def test_a_question_the_agent_answered_straight_after_is_not_unanswered() -> None:
-    """Run 88's call outcome listed the adventure-sports question the agent had just answered."""
-    import call_closer
+def test_a_failure_the_carrier_reports_early_or_late_is_applied_to_that_send_only(db_tx, by_sms) -> None:
+    """Codex review of run 88: a receipt that beat the drain's "sent" was lost,
+    and an old confirmation's failure reset the intent a newer one had sent."""
+    import delivery_receipts
 
-    turns = [
-        SimpleNamespace(speaker="customer", text="Does your travel insurance cover adventure sports?"),
-        SimpleNamespace(speaker="bot", text="No. Travel Protect360 doesn't cover adventure activities; "
-                                            "extreme sports are excluded."),
-        SimpleNamespace(speaker="customer", text="What's the premium?"),
-        SimpleNamespace(speaker="bot", text="Is there anything else I can help with?"),
-    ]
-    conn = SimpleNamespace(execute=lambda *a, **k: SimpleNamespace(all=lambda: turns))
-    asked = ["Does your travel insurance cover adventure sports?", "What's the premium?"]
-    assert call_closer._still_unanswered(conn, "CL-1", asked) == ["What's the premium?"]
+    customer_id, account_id = _customer(db_tx)
+    promise = db.create_promise({"customerId": customer_id, "accountId": account_id, "amount": 800,
+                                 "promisedDate": _day(4)}, idempotency_key=f"early-{uuid.uuid4().hex}")
+    first = db_tx.execute(text("SELECT id, promise_id, kind FROM promise_reminders WHERE promise_id = :p "
+                               "AND kind = 'confirm'"), {"p": promise["id"]}).mappings().first()
+    if first is None:
+        pytest.skip("no SMS confirmation queued")
+    intent = lambda: db_tx.execute(text("SELECT status FROM payment_intents WHERE promise_id = :p"),  # noqa: E731
+                                   {"p": promise["id"]}).scalar()
+
+    # Early: the carrier's failure lands while the drain still holds the send.
+    sid = f"SM{uuid.uuid4().hex}"
+    delivery_receipts.record(db_tx, tenant_id=db.current_tenant(), customer_id=customer_id, channel="sms",
+                             provider="twilio", provider_ref=sid, related_id=first["id"], state="failed",
+                             reason="30044")
+    pf._record_reminder(db_tx, dict(first), ok=True, err=None, provider_delivery_id=sid)
+    row = db_tx.execute(text("SELECT status, last_error FROM promise_reminders WHERE id = :id"),
+                        {"id": first["id"]}).one()
+    assert tuple(row) == ("failed", "twilio:30044") and intent() == "created"
+
+    # Superseded: the terms changed and a newer confirmation went out; the
+    # older one's failure is about the older message only.
+    db_tx.execute(text("UPDATE promise_reminders SET status = 'sent', created_at = now() - interval '1 hour' "
+                       "WHERE id = :id"), {"id": first["id"]})
+    db_tx.execute(text("UPDATE payment_intents SET status = 'sent' WHERE promise_id = :p"), {"p": promise["id"]})
+    db_tx.execute(text("INSERT INTO promise_reminders (id, promise_id, channel, kind, scheduled_at, status) "
+                       "VALUES (:id, :p, 'sms', 'confirm', now(), 'sent')"),
+                  {"id": f"PRM-{uuid.uuid4().hex[:10]}", "p": promise["id"]})
+    assert pf.delivery_failed(db_tx, first["id"], "twilio:30044") is True
+    assert intent() == "sent"
+
+
+def test_two_parts_on_one_day_are_refused() -> None:
+    """Codex review of run 88: the day's reminder named only the first of them."""
+    parts, refused = voice_studio._parts({"amount": 5000, "date": _day(6), "parts": [
+        {"amount": 2500, "date": _day(6)}, {"amount": 2500, "date": _day(6)}]})
+    assert parts is None and refused["error"] == "invalid_parts"
 
 
 def test_a_reply_in_a_language_the_caller_never_spoke_is_recorded() -> None:

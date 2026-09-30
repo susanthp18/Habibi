@@ -16,7 +16,7 @@ BACKUP_DIR=/etc/nginx/payint-backups   # not sites-enabled: nginx would load a c
 sudo tee "$CONF" >/dev/null <<'NGINX'
 # PayInt: the media socket's path with its capability token masked (see deploy/cloudunity/nginx-redact-media-token.sh).
 map $request_uri $payint_log_uri {
-    ~^(?<keep>/api/v1/telephony/ws/[^/]+/[^/]+/[^/]+)/[0-9a-f]{16,} "$keep/[REDACTED]";
+    "~^(?<keep>/api/v1/telephony/ws/[^/]+/[^/]+/[^/]+)/[0-9a-f]{16,}" "$keep/[REDACTED]";
     default $request_uri;
 }
 log_format payint_redacted '$remote_addr - $remote_user [$time_local] "$request_method $payint_log_uri $server_protocol" '

@@ -687,7 +687,7 @@ def _amount(value: Any) -> float | None:
 _BAD_PARTS = {
     "ok": False, "error": "invalid_parts",
     "say": ("Nothing was recorded. Paying in parts needs two or more parts, each an amount and a date "
-            "(YYYY-MM-DD); amount must be their total and date the last part's date. Read the parts back "
+            "(YYYY-MM-DD), one part a day; amount must be their total and date the last part's date. Read the parts back "
             "and ask again."),
 }
 
@@ -717,7 +717,8 @@ def _parts(args: dict[str, Any]) -> tuple[list[dict[str, Any]] | None, dict[str,
         parts.append({"amount": amount, "date": day})
     parts.sort(key=lambda p: p["date"])
     total = round(sum(p["amount"] for p in parts), 2)
-    if (len(parts) < 2 or args.get("date") not in (None, "", parts[-1]["date"])
+    if (len(parts) < 2 or len({p["date"] for p in parts}) < len(parts)
+            or args.get("date") not in (None, "", parts[-1]["date"])
             or (_amount(args.get("amount")) not in (None, total))):
         return None, _BAD_PARTS
     return parts, None

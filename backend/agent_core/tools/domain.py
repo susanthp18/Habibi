@@ -887,7 +887,7 @@ _REVISE_SPOKEN: dict[str, str] = {
     "nothing_to_revise": "the date and amount are the same as the promise already holds",
     "invalid_revision_reason": "choose one of the listed reasons",
     "schedule_mismatch": (
-        "nothing was recorded: the parts must add up to the total and end on its date, "
+        "nothing was recorded: the parts must add up to the total and end on its date, one part a day, "
         "and the total cannot exceed what is owed; agree the parts again"
     ),
 }

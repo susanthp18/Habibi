@@ -65,6 +65,19 @@ def test_partial_error_classification_falls_back_as_a_unit():
     assert record["extra"]["classification_mode"] == "fallback"
 
 
+def test_token_and_phone_numbers_are_masked_in_every_line():
+    """Run 88: the media socket token and the full callee and caller numbers were logged."""
+    record = {**_record(20), "message": (
+        "to phone number +919876543210; Selected phone number +14155550123; "
+        "GET /api/v1/telephony/ws/4/1/88/0123456789abcdef0123 101; at +05:30"
+    )}
+    enrich_log_record(record)
+    assert "9876543210" not in record["message"] and "+…3210" in record["message"]
+    assert "4155550123" not in record["message"] and "+…0123" in record["message"]
+    assert "0123456789abcdef" not in record["message"] and "/88/[REDACTED]" in record["message"]
+    assert "+05:30" in record["message"]
+
+
 def test_warning_only_gets_run_context():
     record = _record(30)
 

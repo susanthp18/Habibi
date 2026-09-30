@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 
 import loguru
@@ -41,23 +42,38 @@ class InterceptHandler(logging.Handler):
         except ValueError:
             level = record.levelno
 
-        message = record.getMessage()
-        if "/telephony/ws/" in message:
-            # uvicorn's access and WebSocket lines carry the media socket's
-            # path, capability token and all (run 88).
-            from api.services.telephony.ws_auth import redact_token
-
-            message = redact_token(message)
         # Use the original record's information instead of trying to find the caller
         # This preserves the logger name (e.g., "uvicorn.access") in the logs
         loguru.logger.patch(lambda r: r.update(name=record.name)).opt(
             exception=record.exc_info
-        ).log(level, message)
+        ).log(level, record.getMessage())
+
+
+#: A phone number in E.164 form; its last four digits are kept.
+_PHONE = re.compile(r"\+\d{6,11}(\d{4})\b")
+
+
+def redact_message(message: str) -> str:
+    """The media socket's capability token and phone numbers, masked.
+
+    uvicorn's access lines carried the socket path, token and all, and the
+    dial and number-selection lines the whole callee and caller numbers (run
+    88). One place, for loguru's own lines and the intercepted ones alike.
+    """
+    if "/telephony/ws/" in message:
+        from api.services.telephony.ws_auth import redact_token
+
+        message = redact_token(message)
+    if "+" in message:
+        message = _PHONE.sub(r"+…\1", message)
+    return message
 
 
 def enrich_log_record(record):
-    """Inject run context and conservatively classify every ERROR record."""
+    """Mask secrets, inject run context and conservatively classify every ERROR record."""
 
+    if record.get("message"):
+        record["message"] = redact_message(record["message"])
     extra = record["extra"]
     extra["run_id"] = run_id_var.get()
 

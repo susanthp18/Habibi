@@ -134,7 +134,7 @@ def redact_token(text: str) -> str:
     The path form used to be left in clear on the grounds that uvicorn and
     nginx log the request path anyway (run 88's TwiML, WebSocket accept and
     access lines all carried it). The engine's uvicorn lines now pass through
-    here (``logging_config.InterceptHandler``) and nginx's log format drops the
+    here (``logging_config.redact_message``) and nginx's log format drops the
     segment, so the one remaining copy was this helper's own blind spot.
     """
     text = _TOKEN_IN_TEXT.sub(r"\1[REDACTED]", text)

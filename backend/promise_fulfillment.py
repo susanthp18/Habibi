@@ -1311,15 +1311,32 @@ def _record_reminder(
         },
     )
     if ok and reminder["kind"] == "due":
+        # 'failed' too: an earlier part's failure is not this part's.
         conn.execute(
             text(
                 """
                 UPDATE promises SET reminder_status = 'sent'
-                WHERE id = :id AND reminder_status IN ('queued','scheduled')
+                WHERE id = :id AND reminder_status IN ('queued','scheduled','failed')
                 """
             ),
             {"id": reminder["promise_id"]},
         )
+    if ok and provider_delivery_id:
+        # The carrier can fail a message before this "sent" is written; its
+        # receipt was stored then and is applied now.
+        early = conn.execute(
+            text(
+                """
+                SELECT state, reason FROM contact_delivery_events
+                WHERE provider = 'twilio' AND provider_ref = :sid
+                  AND state IN ('failed','undelivered')
+                LIMIT 1
+                """
+            ),
+            {"sid": provider_delivery_id},
+        ).mappings().first()
+        if early:
+            delivery_failed(conn, reminder["id"], f"twilio:{early['reason'] or early['state']}")
 
 
 def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
@@ -1328,14 +1345,14 @@ def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
     Run 88's confirmation SMS was accepted (201), then failed (Twilio 30044),
     and the reminder, the pay intent and the next revision all went on saying
     it was sent. Only a ``sent`` reminder moves, and only to ``failed``, so a
-    replayed or late callback changes nothing. A failed confirmation puts the
-    intent back to ``created``: still the open intent with the same link (ADR
+    replayed callback changes nothing; one that beats the drain's own "sent"
+    write is applied by :func:`_record_reminder`. A failed confirmation puts the
+    intent back to ``created`` -- still the open intent with the same link (ADR
     0008), now reading as not delivered wherever ``payLinkSent`` is shown, and
-    the next change of terms sends it again. Nothing is re-sent from here.
-
-    ponytail: a receipt that beats the drain's own "sent" write (the carrier
-    answering within the ~100 ms between send and record) is not applied; the
-    receipt row in contact_delivery_events still holds it.
+    the next change of terms sends it again -- unless a newer confirmation has
+    been queued or sent since: the intent's state is that one's. Likewise a
+    failed due reminder marks the promise only if no later one has gone out.
+    Nothing is re-sent from here.
     """
     import db as dbmod
 
@@ -1345,7 +1362,7 @@ def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
             UPDATE promise_reminders
             SET status = 'failed', last_error = :err, updated_at = now()
             WHERE id = :id AND status = 'sent'
-            RETURNING promise_id, kind
+            RETURNING promise_id, kind, created_at, sent_at
             """
         ),
         {"id": reminder_id, "err": error[:200]},
@@ -1357,14 +1374,32 @@ def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
     ).scalar()
     if row["kind"] == "confirm":
         conn.execute(
-            text("UPDATE payment_intents SET status = 'created' WHERE promise_id = :pid AND status = 'sent'"),
-            {"pid": row["promise_id"]},
+            text(
+                """
+                UPDATE payment_intents SET status = 'created'
+                WHERE promise_id = :pid AND status = 'sent'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM promise_reminders r
+                    WHERE r.promise_id = :pid AND r.kind = 'confirm' AND r.id <> :id
+                      AND r.status IN ('queued','scheduled','sent') AND r.created_at > :at)
+                """
+            ),
+            {"pid": row["promise_id"], "id": reminder_id, "at": row["created_at"]},
         )
         label = "Payment link not delivered"
     else:
         conn.execute(
-            text("UPDATE promises SET reminder_status = 'failed' WHERE id = :pid AND reminder_status = 'sent'"),
-            {"pid": row["promise_id"]},
+            text(
+                """
+                UPDATE promises SET reminder_status = 'failed'
+                WHERE id = :pid AND reminder_status = 'sent'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM promise_reminders r
+                    WHERE r.promise_id = :pid AND r.kind = 'due' AND r.id <> :id
+                      AND r.status = 'sent' AND r.sent_at > :at)
+                """
+            ),
+            {"pid": row["promise_id"], "id": reminder_id, "at": row["sent_at"]},
         )
         label = "Due reminder not delivered"
     dbmod.record_activity(conn, "promise", row["promise_id"], "promise_confirmed", label, error, customer_id)

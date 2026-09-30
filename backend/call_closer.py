@@ -532,6 +532,9 @@ Return a strict JSON object with exactly these keys:
                  only when they said it. Empty array if none.
   "unanswered" — array of questions the borrower asked that the agent did not
                  answer. Verbatim, short, no account numbers. Empty if none.
+                 A reply that gives what was asked, even in part, is an answer;
+                 a refusal, "I can't help with that", a referral elsewhere, or no
+                 reply is not. Read the agent's turns after each question first.
   "summary"    — two sentences, plain English, describing what happened and what
                  was agreed.
 
@@ -612,42 +615,6 @@ def _clean_list(value: Any, *, limit: int = 6, max_len: int = 120) -> list[str]:
         if isinstance(item, str) and item.strip():
             out.append(item.strip()[:max_len])
     return out
-
-
-def _words(value: str) -> str:
-    return " ".join(re.findall(r"\w+", value.lower()))
-
-
-def _topic(value: str) -> set[str]:
-    return {w for w in re.findall(r"\w+", value.lower()) if len(w) >= 5}
-
-
-def _still_unanswered(conn: Any, interaction_id: str | None, questions: list[str]) -> list[str]:
-    """Drop the questions the transcript shows the agent answering.
-
-    Run 88 listed "Does your travel insurance cover adventure sports?" as
-    unanswered; the agent's very next turn answered it from the policy. A
-    question is taken as answered only when it is found in a customer turn and
-    the agent's reply straight after it shares two of its words ("travel",
-    "cover", "adventure", "sports"); a paraphrase, a reply about something
-    else, or a question that ended the call stays unanswered.
-    """
-    if not questions or not interaction_id:
-        return questions
-    turns = conn.execute(
-        text("SELECT speaker, text FROM interaction_transcript WHERE interaction_id = :ix ORDER BY turn_index"),
-        {"ix": interaction_id},
-    ).all()
-    answered: set[str] = set()
-    for turn, reply in zip(turns, turns[1:]):
-        if turn.speaker != "customer" or reply.speaker == "customer":
-            continue
-        said = _words(turn.text or "")
-        answered.update(
-            q for q in questions
-            if _words(q) and _words(q) in said and len(_topic(q) & _topic(reply.text or "")) >= 2
-        )
-    return [q for q in questions if q not in answered]
 
 
 # ---------------------------------------------------------------------------
@@ -1028,9 +995,7 @@ def close_one(
             reason = model_reason
         objections = [o for o in _clean_list(enrichment.get("objections"), limit=6, max_len=64)
                       if o in OBJECTIONS]
-        unanswered = _still_unanswered(
-            conn, interaction_id, _clean_list(enrichment.get("unanswered"), limit=5, max_len=200)
-        )
+        unanswered = _clean_list(enrichment.get("unanswered"), limit=5, max_len=200)
         proposed = str(enrichment.get("summary") or "").strip()
         # The fence: the summary was told to contain no digits at all, so the
         # allowed set is empty and any number in it fails.

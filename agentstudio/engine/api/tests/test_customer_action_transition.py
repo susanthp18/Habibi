@@ -690,19 +690,31 @@ async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     execute.assert_awaited_once()
 
 
-def test_a_no_a_hold_or_other_figures_are_not_agreement():
-    """Codex F16: a new message was enough, so "No, don't record that" would have written."""
-    from api.services.workflow.pipecat_engine_custom_tools import _not_agreed
+def test_digits_survive_separators():
+    """Codex review of run 88: "2,324" and "2-3-2-4" read as no digits at all."""
+    from api.services.workflow.pipecat_engine_custom_tools import _heard_digits
+
+    assert _heard_digits("2,324") == "2324"
+    assert _heard_digits("2-3-2-4") == "2324"
+    assert _heard_digits("two-three-two-four") == "2324"
+
+
+def test_only_a_clear_yes_to_the_terms_is_agreement():
+    """Codex F16 and its review: a new message was enough ("No, don't record
+    that"), then a refusal list still let "Maybe" or "I cannot pay that" write."""
+    from api.services.workflow.pipecat_engine_custom_tools import _agreed, _held
 
     terms = {"amount": 5000, "date": "2026-10-07",
              "parts": [{"amount": 2500, "date": "2026-10-02"}, {"amount": 2500, "date": "2026-10-07"}]}
-    assert _not_agreed("No, don't record that.", terms, figures=True)
-    assert _not_agreed("नहीं", terms, figures=True)
-    assert _not_agreed("Wait, let me check.", terms, figures=True)
-    assert _not_agreed("Actually, 3000 on Friday.", terms, figures=True)  # other terms
-    assert not _not_agreed("Yes.", terms, figures=True)
-    assert not _not_agreed("யெஸ்", terms, figures=True)  # "yes" in Tamil script
-    assert not _not_agreed("No problem, record it.", terms, figures=True)
-    assert not _not_agreed("Yes, 2500 on the 2nd and the rest on the 7th.", terms, figures=True)
-    # The dispute step files on the customer's answer, figures and all.
-    assert not _not_agreed("I paid 4800 on the 25th by UPI.", {"type": "already_paid"}, figures=False)
+    for said in ("No, don't record that.", "नहीं", "Wait, let me check.", "Actually, 3000 on Friday.",
+                 "I cannot pay that.", "I will not pay that.", "Maybe.", "What does that mean?",
+                 "Actually, two thousand on Friday.", "Yes, two thousand on Friday.", "Yes, but 3000.",
+                 "Okay?", "Yes, I'm not sure.", "I can pay on Friday."):
+        assert not _agreed(said, terms), said
+    for said in ("Yes.", "யெஸ்", "हाँ जी", "சரி", "No problem, record it.", "Okay, go ahead.",
+                 "Yes, 2500 on the 2nd and the rest on the 7th.", "Yes, that's right."):
+        assert _agreed(said, terms), said
+    assert _agreed("Yes, 5 pm is fine.", {"time": "2026-10-02T17:00:00+05:30"})
+    # The dispute step files on the customer's own account, a "no" and all; only a pause holds it.
+    assert not _held("No, I never took this loan.")
+    assert _held("Wait, let me check my statement.")
