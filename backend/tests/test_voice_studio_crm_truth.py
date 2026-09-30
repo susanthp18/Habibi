@@ -198,11 +198,13 @@ def test_a_failure_the_carrier_reports_early_or_late_is_applied_to_that_send_onl
     intent = lambda: db_tx.execute(text("SELECT status FROM payment_intents WHERE promise_id = :p"),  # noqa: E731
                                    {"p": promise["id"]}).scalar()
 
-    # Early: the carrier's failure lands while the drain still holds the send.
+    # Early: the carrier's failure lands before the send's own receipt row
+    # exists (second review); the signed callback URL says whose it is.
     sid = f"SM{uuid.uuid4().hex}"
+    assert delivery_receipts.record_twilio_sms_status(sid=sid, state="failed", reason="30044",
+                                                      customer_id=customer_id, related_id=first["id"]) is True
     delivery_receipts.record(db_tx, tenant_id=db.current_tenant(), customer_id=customer_id, channel="sms",
-                             provider="twilio", provider_ref=sid, related_id=first["id"], state="failed",
-                             reason="30044")
+                             provider="twilio", provider_ref=sid, related_id=first["id"], state="queued")
     pf._record_reminder(db_tx, dict(first), ok=True, err=None, provider_delivery_id=sid)
     row = db_tx.execute(text("SELECT status, last_error FROM promise_reminders WHERE id = :id"),
                         {"id": first["id"]}).one()
@@ -240,3 +242,45 @@ def test_a_reply_in_a_language_the_caller_never_spoke_is_recorded() -> None:
     hindi = [{"type": "rtf-user-transcription", "payload": {"text": "हाँ जी", "language": "hi-IN"}},
              {"type": "rtf-bot-text", "payload": {"text": "धन्यवाद"}}]
     assert "offLanguage" not in voice_studio.call_languages({"languages_spoken": ["hi-IN"]}, hindi)
+
+
+@pytest.mark.parametrize("language, reply, off", [
+    ("zh-CN", "您好，我是银行的助理。", None),
+    ("ja-JP", "こんにちは、田中です。カードの件でお電話しました。", None),
+    ("ko-KR", "안녕하세요, 은행입니다.", None),
+    ("ar-AE", "مرحبا، أنا مساعدة البنك.", None),
+    ("ar-AE", "ಕ್ಷಮಿಸಿ, ಅದನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.", "KANNADA"),
+    ("sr-Latn-RS", "Dobar dan, zovem iz banke.", None),
+    ("en-IN", "नमस्ते, मैं बैंक से बोल रही हूँ।", "DEVANAGARI"),
+])
+def test_the_scripts_a_language_is_written_in_come_from_cldr(language, reply, off) -> None:
+    """No table of languages: any language CLDR knows (second review of run 88)."""
+    turns = [{"type": "rtf-user-transcription", "payload": {"text": "…", "language": language}},
+             {"type": "rtf-bot-text", "payload": {"text": reply}}]
+    got = voice_studio.call_languages({"languages_spoken": [language]}, turns)
+    assert got.get("offLanguage") == ([{"turn": 1, "script": off}] if off else None)
+
+
+def test_the_status_callback_names_the_customer_and_the_reminder(monkeypatch) -> None:
+    """So a status that beats the send's receipt row can still be attributed."""
+    import twilio_sms
+    from voice import twilio_ops
+
+    sent = {}
+
+    class _Client:
+        class messages:  # noqa: N801
+            @staticmethod
+            def create(**kw):
+                sent.update(kw)
+                return SimpleNamespace(sid="SM1", status="queued")
+
+    monkeypatch.setattr(twilio_sms, "configured", lambda: True)
+    monkeypatch.setattr(twilio_sms, "from_number", lambda: "+15005550006")
+    monkeypatch.setattr(twilio_sms, "status_callback_url", lambda: "https://pay.example/twilio/sms/status")
+    monkeypatch.setattr(twilio_sms, "_record_sent", lambda **_k: None)
+    monkeypatch.setattr(twilio_ops, "rest_client", lambda: _Client())
+    monkeypatch.setattr("agent_core.carrier_guard.refuse_real_carrier", lambda _n: None)
+    twilio_sms.send(to_phone="+919876543210", body="hi", customer_id="C-1", related_id="PRM-1")
+    assert sent["status_callback"] == "https://pay.example/twilio/sms/status?c=C-1&r=PRM-1"
+

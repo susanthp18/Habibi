@@ -54,3 +54,9 @@ sentry-sdk==2.66.1
 # image via pipecat.
 numpy==2.4.6
 scipy==1.18.1
+# Which script each language is written in (CLDR likely subtags), and matching
+# a reply's letters against it by Unicode script property: call_languages' check
+# that the agent kept to the caller's languages, for any language. regex is
+# pinned with the ml image, which is constrained by this file.
+babel==2.18.0
+regex==2026.9.10

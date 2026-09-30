@@ -78,6 +78,29 @@ def test_token_and_phone_numbers_are_masked_in_every_line():
     assert "+05:30" in record["message"]
 
 
+def test_exceptions_and_bound_fields_are_masked_too():
+    """Second review of run 88: a traceback prints str(exc), and bound fields went out as given."""
+    from loguru._recattrs import RecordException
+
+    url = "wss://pay.example/api/v1/telephony/ws/4/1/88/0123456789abcdef0123"
+    try:
+        try:
+            raise ConnectionError("dial +919876543210 failed")
+        except ConnectionError as cause:
+            raise RuntimeError(f"stream {url} closed") from cause
+    except RuntimeError as exc:
+        error = exc
+    record = {**_record(40), "message": "boom",
+              "exception": RecordException(type(error), error, error.__traceback__)}
+    record["extra"]["to"] = "+919876543210"
+    enrich_log_record(record)
+    shown = record["exception"].value
+    assert type(shown).__name__ == "RuntimeError" and "0123456789abcdef" not in str(shown)
+    assert "9876543210" not in str(shown.__cause__) and "+…3210" in str(shown.__cause__)
+    assert shown.__traceback__ is error.__traceback__
+    assert record["extra"]["to"] == "+…3210"
+
+
 def test_warning_only_gets_run_context():
     record = _record(30)
 

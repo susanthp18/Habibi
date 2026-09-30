@@ -173,6 +173,8 @@ async def twilio_sms_status(request: Request):
         sid=sid,
         state=state,
         reason=str(form.get("ErrorCode") or "") or None,
+        customer_id=request.query_params.get("c"),
+        related_id=request.query_params.get("r"),
     )
     if not known:
         logger.info("twilio sms status for unknown sid=%s state=%s", sid, state)

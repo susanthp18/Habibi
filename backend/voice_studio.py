@@ -22,6 +22,7 @@ and is reached from the engine over four seams:
 
 from __future__ import annotations
 
+import functools
 import hmac
 import logging
 import unicodedata
@@ -1183,9 +1184,9 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
         lang for e, lang in zip(turns, by_turn) if lang and e.get("type") == "rtf-user-transcription"))
     # The agent's own replies, by script: run 88 answered an English caller in
     # Kannada, a language the agent does not even speak, and nothing recorded it.
-    allowed = {"LATIN"} | {_LANGUAGE_SCRIPTS.get(str(lang).split("-")[0].lower(), "LATIN") for lang in spoken}
+    allowed = {"Latn"}.union(*(_scripts_of(str(lang)) for lang in spoken))
     off = [{"turn": i, "script": script} for i, e in enumerate(turns)
-           if e.get("type") == "rtf-bot-text" and (script := _script(spoken_text(e))) and script not in allowed]
+           if e.get("type") == "rtf-bot-text" and (script := _off_script(spoken_text(e), allowed))]
     if not spoken and not off:
         return None
     out = {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
@@ -1194,18 +1195,45 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
     return out
 
 
-#: The script each language is written in, as Unicode names it.
-_LANGUAGE_SCRIPTS = {"hi": "DEVANAGARI", "mr": "DEVANAGARI", "ta": "TAMIL", "te": "TELUGU", "kn": "KANNADA",
-                     "ml": "MALAYALAM", "bn": "BENGALI", "gu": "GUJARATI", "pa": "GURMUKHI", "ar": "ARABIC",
-                     "ur": "ARABIC"}
+#: ISO 15924 codes that stand for more than one Unicode script: Japanese is
+#: written in three, Korean in two, and Chinese in Han either way.
+_SCRIPT_SETS = {"Hans": ("Hani",), "Hant": ("Hani",), "Jpan": ("Hani", "Hira", "Kana"), "Kore": ("Hang", "Hani")}
 
 
-def _script(value: str) -> str | None:
-    """The script most of ``value``'s letters are in ("LATIN", "KANNADA"...), or None."""
+@functools.lru_cache(maxsize=256)
+def _scripts_of(language: str) -> frozenset[str]:
+    """The Unicode scripts a language is written in (ISO 15924 codes), from
+    CLDR's likely subtags: "hi-IN" -> Deva, "zh-CN" -> Hani, "ar-AE" -> Arab.
+    A script in the tag itself wins ("sr-Latn"). Empty for a tag CLDR does not know."""
+    from babel.core import get_global
+
+    parts = language.replace("-", "_").split("_")
+    script = next((p.title() for p in parts[1:] if len(p) == 4 and p.isalpha()), None)
+    if script is None:
+        likely = get_global("likely_subtags")
+        full = likely.get("_".join(parts)) or likely.get(parts[0].lower()) or ""
+        script = next((p for p in full.split("_")[1:] if len(p) == 4 and p.isalpha()), None)
+    return frozenset(_SCRIPT_SETS.get(script, (script,))) if script else frozenset()
+
+
+def _off_script(text: str, allowed: set[str]) -> str | None:
+    """The script (as Unicode names it: "KANNADA") most of a reply's letters are
+    in, when most of them are in none of the ``allowed`` scripts; else None."""
+    import regex
+
+    letters = [ch for ch in text if ch.isalpha()]
+    classes = []
+    for code in sorted(allowed):
+        try:
+            classes.append(regex.compile(rf"\p{{Script={code}}}"))
+        except regex.error:
+            continue  # a CLDR script this regex build does not know
+    outside = [ch for ch in letters if not any(c.match(ch) for c in classes)]
+    if not outside or len(outside) * 2 <= len(letters):
+        return None
     from collections import Counter
 
-    counts = Counter(unicodedata.name(ch, "?").split()[0] for ch in value if ch.isalpha())
-    return counts.most_common(1)[0][0] if counts else None
+    return Counter(unicodedata.name(ch, "?").split()[0] for ch in outside).most_common(1)[0][0]
 
 
 def test_numbers(conn: Any) -> set[str]:

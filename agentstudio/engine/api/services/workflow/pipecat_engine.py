@@ -54,6 +54,14 @@ from loguru import logger
 
 from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.action_confirmation import (
+    CHECK_TIMEOUT_SECS,
+    ActionConfirmationService,
+    Verdict,
+)
+from api.services.workflow.action_confirmation import (
+    UNAVAILABLE as CONFIRMATION_UNAVAILABLE,
+)
 from api.services.workflow.answer_handling import ANSWER_TERMINAL_REASONS, handle_answer
 from api.services.workflow.disposition_extraction import (
     CALL_DISPOSITION_CONTEXT_KEY,
@@ -109,6 +117,7 @@ _ENGINE_OWNED_CONTEXT_KEYS = frozenset(
 FINAL_EXTRACTION_TIMEOUT_SECONDS = 10.0
 
 
+
 def supervisor_note_rule(text: str) -> str:
     """AgentStudio: how a floor supervisor's whisper reads in the system prompt."""
     return (
@@ -128,6 +137,7 @@ class PipecatEngine:
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
         variable_extraction_llm: Optional["LLMService"] = None,
+        confirmation_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
@@ -168,6 +178,7 @@ class PipecatEngine:
             # tagged managed-model client without rerouting normal
             # conversation calls.
             variable_extraction_llm=variable_extraction_llm or resolved_inference_llm,
+            confirmation_llm=confirmation_llm,
             worker=task,
             is_realtime=is_realtime,
             entered_at=time.time(),
@@ -555,6 +566,56 @@ class PipecatEngine:
     def agent_spoke_since_customer(self) -> bool:
         """Has the agent said anything since the customer's last message?"""
         return bool(self.agent_text_since_customer())
+
+    def recent_turns(self, limit: int = 8) -> list[tuple[str, str]]:
+        """The latest customer and agent words, oldest first: what the write
+        guard judges. Tool calls, engine notes and the context summary are the
+        engine's own, not the conversation."""
+        turns: list[tuple[str, str]] = []
+        for message in reversed(self.context.messages):
+            if len(turns) >= limit:
+                break
+            if (not isinstance(message, dict) or message.get("role") not in ("user", "assistant")
+                    or message is self._context_summary_message
+                    or any(message is note for note in self._engine_notes)):
+                continue
+            content = message.get("content")
+            text = content if isinstance(content, str) else " ".join(
+                str(p.get("text", "")) for p in content or () if isinstance(p, dict))
+            if text.strip():
+                turns.append((message["role"], text.strip()))
+        return turns[::-1]
+
+    def _action_confirmation(self) -> ActionConfirmationService | None:
+        llm = self.active_agent.confirmation_llm
+        return ActionConfirmationService(llm, get_parent_context=self._get_otel_context) if llm else None
+
+    async def confirm_action(self, action: str, terms: dict) -> Verdict:
+        """Did the customer authorise ``action`` with ``terms``? NONE on any
+        failure: the guard fails closed and the agent asks again."""
+        service = self._action_confirmation()
+        if service is None:
+            logger.warning("No confirmation model on this agent; {} not confirmed", action)
+            return CONFIRMATION_UNAVAILABLE
+        try:
+            verdict = await asyncio.wait_for(
+                service.confirm(action, terms, self.recent_turns()), timeout=CHECK_TIMEOUT_SECS)
+        except Exception as exc:
+            logger.warning("Confirmation of {} failed: {!r}", action, exc)
+            return CONFIRMATION_UNAVAILABLE
+        logger.info("Confirmation of {}: {} ({})", action, verdict.status, verdict.reason)
+        return verdict
+
+    async def spoken_digits(self, said: str) -> str:
+        """The digits the customer spoke as words, in any language; "" on any failure."""
+        service = self._action_confirmation()
+        if service is None:
+            return ""
+        try:
+            return await asyncio.wait_for(service.digits(said), timeout=CHECK_TIMEOUT_SECS)
+        except Exception as exc:
+            logger.warning("Spoken digits not read: {!r}", exc)
+            return ""
 
     def _refusal_hint(self, reason: str) -> str:
         """What the model should do after a refused path, so it neither

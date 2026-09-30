@@ -73,7 +73,13 @@ def send(
     kwargs: dict[str, Any] = {"to": to, "from_": from_number(), "body": body}
     callback = status_callback_url()
     if callback:
-        kwargs["status_callback"] = callback
+        # Who the message is for rides in the (signed) callback URL: a
+        # failure can arrive before _record_sent below has stored the SID,
+        # and it used to be dropped as an unknown message.
+        from urllib.parse import urlencode
+
+        ids = {k: v for k, v in (("c", customer_id), ("r", related_id)) if v}
+        kwargs["status_callback"] = f"{callback}?{urlencode(ids)}" if ids else callback
     from voice.twilio_ops import CarrierOptOut, carrier_call
 
     try:

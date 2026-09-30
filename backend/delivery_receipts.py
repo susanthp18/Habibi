@@ -69,11 +69,22 @@ _SMS_BUBBLE = {
 }
 
 
-def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> bool:
+def record_twilio_sms_status(
+    *,
+    sid: str,
+    state: str,
+    reason: str | None,
+    customer_id: str | None = None,
+    related_id: str | None = None,
+) -> bool:
     """Twilio's SMS status callback, attributed to the send that made it.
 
     Also moves the Inbox bubble of an agent's SMS, found by the SID the outbox
     worker stored as its ``provider_ref``.
+
+    ``customer_id``/``related_id`` come from the signed callback URL: a status
+    can beat the send's own receipt row, and is then attributed from them (the
+    reminder drain applies a stored failure when it records the send).
 
     Returns False (and records nothing) when the sid is not one we sent.
     """
@@ -92,6 +103,12 @@ def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> boo
             ),
             {"sid": sid},
         ).mappings().first()
+        if origin is None and customer_id:
+            tenant = conn.execute(
+                text("SELECT tenant_id FROM customers WHERE id = :c"), {"c": customer_id}
+            ).scalar()
+            if tenant:
+                origin = {"tenant_id": tenant, "customer_id": customer_id, "related_id": related_id}
         if origin is None:
             return False
         bubble = _SMS_BUBBLE.get(state)

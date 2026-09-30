@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 import unicodedata
 import uuid
@@ -28,6 +27,7 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.external_pbx import resolve_external_pbx_field_mappings
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
+from api.services.workflow.action_confirmation import CHECK_TIMEOUT_SECS
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
@@ -62,135 +62,20 @@ def _digits(value: Any) -> str:
     return "".join(str(unicodedata.decimal(ch)) for ch in _text(value) if ch.isdecimal())
 
 
-def _number_words() -> dict[str, str]:
-    words: dict[str, str] = {}
-    for digit, spellings in {
-        "0": "zero oh shunya shoonya poojyam saibar शून्य ज़ीरो जीरो பூஜ்யம் பூஜ்ஜியம் சைபர் ஜீரோ",
-        "1": "one ek onnu ondru एक वन ஒன்று ஒண்ணு ஒன்",
-        "2": "two do rendu irandu दो टू இரண்டு ரெண்டு டூ",
-        "3": "three teen tin moonu moondru तीन थ्री மூன்று மூணு த்ரீ",
-        "4": "four char chaar naalu naangu चार फोर फ़ोर நான்கு நாலு ஃபோர் போர்",
-        "5": "five paanch panch anju ainthu पांच पाँच फाइव फ़ाइव ஐந்து அஞ்சு ஃபைவ் பைவ்",
-        "6": "six chhe che chhah aaru छह छः छे सिक्स ஆறு சிக்ஸ்",
-        "7": "seven saat sat ezhu सात सेवन ஏழு செவன்",
-        "8": "eight aath ath ettu आठ एट एइट எட்டு எய்ட்",
-        "9": "nine nau onbadhu ombodhu नौ नाइन ஒன்பது நைன்",
-    }.items():
-        words.update(dict.fromkeys(spellings.split(), digit))
-    return words
+#: Writes that run only on the customer's confirmation (action_confirmation).
+CONFIRMED_WRITES = frozenset({"promise_to_pay", "request_callback", "flag_dispute"})
+#: Tools whose handler may call the confirmation model before the tool runs.
+GUARDED_BY_CONFIRMATION = CONFIRMED_WRITES | {"verify_identity"}
 
-
-_NUMBER_WORDS = _number_words()
-_REPEATS = {"double": 2, "triple": 3, "डबल": 2, "ट्रिपल": 3, "டபுள்": 2, "ட்ரிபிள்": 3}
-
-
-def _tokens(value: Any) -> list[str]:
-    """A message's words, lower-cased. Split on spaces, not ``\\w``: a Devanagari
-    or Tamil vowel sign is not a word character and would cut the word in two.
-    Separators inside a token split it too, so "2,324" and "2-3-2-4" are digits."""
-    text = re.sub(r"[,.\-–—/।॥]", " ", _text(value).lower().replace("’", "'"))
-    return [w for w in (t.strip("!?;:\"'()[]") for t in text.split()) if w]
-
-
-def _heard_digits(value: Any) -> str:
-    """The digits a caller said, in order: numerals, or digit words in English,
-    Hindi or Tamil ("two three two four", "दो तीन दो चार", "double two three
-    four"), including English written in those scripts, as recognition often
-    writes it ("டூ த்ரீ").
-
-    ponytail: digit by digit only; "two thousand three hundred" is not read.
-    """
-    out, repeat = [], 1
-    for token in _tokens(value):
-        if token in _REPEATS:
-            repeat = _REPEATS[token]
-            continue
-        digits = _digits(token) if token.isdecimal() else _NUMBER_WORDS.get(token, "")
-        out.append(digits * repeat if len(digits) == 1 else digits)
-        repeat = 1
-    return "".join(out)
-
-
-#: A yes, in English, Hindi or Tamil, or English as recognition writes it in those scripts.
-_YES = frozenset({
-    "yes", "yeah", "yea", "yep", "yup", "ya", "yah", "sure", "okay", "ok", "okey", "fine", "correct",
-    "right", "alright", "agreed", "agree", "confirm", "confirmed", "absolutely", "definitely",
-    "certainly", "exactly", "perfect", "great", "good", "done", "mhm",
-    "haan", "han", "haa", "haanji", "ji", "theek", "thik", "sahi", "bilkul",
-    "aamaa", "aama", "aamam", "ama", "sari", "seri",
-    "हाँ", "हां", "हा", "जी", "ठीक", "सही", "बिल्कुल", "बिलकुल", "ओके", "यस", "कन्फर्म",
-    "ஆமா", "ஆமாம்", "ஆம்", "ஆமாங்க", "சரி", "சரிங்க", "ஓகே", "யெஸ்", "கரெக்ட்",
-})
-_YES_PHRASES = ("go ahead", "please do", "that works", "sounds good", "of course", "mm hmm", "uh huh",
-                "why not", "no problem", "no worries", "no issue", "not a problem", "nahi problem")
-#: Anywhere in the reply, a no: "I cannot pay that", "I will not".
-_NO = frozenset({
-    "no", "not", "nope", "nah", "never", "cannot", "can't", "cant", "won't", "wont", "don't", "dont",
-    "didn't", "didnt", "isn't", "isnt", "nahi", "nahin", "nai", "illai", "illa", "mudiyadhu",
-    "mudiyathu", "vendam", "venam", "नहीं", "नही", "नो", "मत", "இல்லை", "இல்ல", "முடியாது",
-    "வேண்டாம்", "வேணாம்", "நோ",
-})
-#: Anywhere in the reply, the customer is pausing, unsure, or changing the terms.
-_HOLD = frozenset({
-    "wait", "cancel", "change", "wrong", "actually", "instead", "maybe", "perhaps", "probably",
-    "unsure", "mat", "ruko", "badlo", "shayad", "रुको", "रुकिए", "बदलो", "गलत", "शायद",
-    "இருங்க", "மாத்துங்க", "மாற்று", "தப்பு",
-})
-_HOLD_PHRASES = ("hold on", "one second", "one minute", "let me think", "let me check", "let me see",
-                 "not sure", "ek minute", "ek second")
-#: An amount in words cannot be checked against the terms, so it is taken as other terms.
-_SCALES = frozenset({
-    "hundred", "thousand", "lakh", "lakhs", "lac", "k", "sau", "hazaar", "hazar", "hajar",
-    "aayiram", "ayiram", "nooru", "सौ", "हज़ार", "हजार", "लाख", "நூறு", "ஆயிரம்", "லட்சம்",
-})
-
-
-def _numbers(value: Any) -> set[int]:
-    """Every whole number in a tool argument or a message: amounts, and the
-    parts of an ISO date or time ("2026-10-07" -> 2026, 10, 7)."""
-    if isinstance(value, dict):
-        return set().union(*map(_numbers, value.values())) if value else set()
-    if isinstance(value, list):
-        return set().union(*map(_numbers, value)) if value else set()
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return {int(value)} if float(value).is_integer() else set()
-    return {int(n.replace(",", "")) for n in re.findall(r"\d[\d,]*", _text(value)) if n.replace(",", "")}
-
-
-def _held(said: Any) -> bool:
-    """Is the customer pausing or changing their mind ("wait", "let me check")?"""
-    words = _tokens(said)
-    joined = f" {' '.join(words)} "
-    return any(w in _HOLD for w in words) or any(f" {p} " in joined for p in _HOLD_PHRASES)
-
-
-def _agreed(said: Any, arguments: dict[str, Any]) -> bool:
-    """Does the customer's latest message say yes to these terms, and only yes?
-
-    Timing alone (a new message, no question left unanswered) let "No, don't
-    record that" through (Codex F16), and a list of refusals still let "Maybe",
-    "What does that mean?" and "I cannot pay that" through. So a promise or a
-    callback needs a yes -- after the read-back the prompt asks for -- with no
-    no, no pause, no question, and no figure the terms do not hold ("Yes, but
-    3000"). An amount in words ("two thousand") cannot be checked, so it too is
-    taken as other terms: the agent reads them back and asks again.
-
-    ponytail: figures are compared as a set, so "yes, 2000 on the 2nd and 3000
-    on the 7th" against the reverse passes; the read-back is what pairs them.
-    """
-    words = _tokens(said)
-    if not words or _text(said).rstrip().endswith("?") or _held(said):
-        return False
-    joined = f" {' '.join(words)} "
-    yes_phrase = next((p for p in _YES_PHRASES if f" {p} " in joined), None)
-    rest = joined.replace(f" {yes_phrase} ", " ").split() if yes_phrase else words
-    if any(w in _NO for w in rest) or " do not " in joined or any(w in _SCALES for w in words):
-        return False
-    if not (yes_phrase or any(w in _YES for w in words)):
-        return False
-    allowed = _numbers(arguments)
-    allowed |= {n - 12 for n in allowed if 12 < n < 24}  # "5 pm" for 17:00
-    return not _numbers(said) - allowed
+#: The next step after each reason the customer's reply did not confirm a write.
+_NOT_CONFIRMED = {
+    "declined": "the customer said no. Acknowledge it and carry on with this step.",
+    "other_terms": "the customer's terms differ from these. Read back the terms they gave and ask them to confirm.",
+    "not_read_back": "these terms were not read back to the customer. Read them back and ask them to confirm.",
+    "unavailable": "the customer's answer could not be checked. Read the terms back once more and ask them to confirm.",
+    "unsure": "the customer has not clearly agreed. Answer what they said; if they still want this, check it "
+              "with them before calling this again.",
+}
 
 
 def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
@@ -517,6 +402,10 @@ class CustomToolManager:
                 "timeout_ms", 5000
             )
             timeout_secs = float(timeout_ms) / 1000
+            if function_name in GUARDED_BY_CONFIRMATION:
+                # The customer's words are checked before the request goes out;
+                # the tool's own budget starts after that.
+                timeout_secs += CHECK_TIMEOUT_SECS
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs
@@ -622,8 +511,13 @@ class CustomToolManager:
                 # after "I don't understand". Each message backs one attempt.
                 said = self._engine._last_user_message()
                 given = _digits((function_call_params.arguments or {}).get("value"))
-                heard = bool(said) and len(given) == 4 and given in _heard_digits(said.get("content"))
-                if said is None or said is self._engine._verified_user_message or not heard:
+                heard = False
+                if said is not None and said is not self._engine._verified_user_message and len(given) == 4:
+                    # Numerals of any script are read here; digits spoken as
+                    # words, in whatever language, are read by the model.
+                    content = _text(said.get("content"))
+                    heard = given in _digits(content) or given in await self._engine.spoken_digits(content)
+                if not heard:
                     # The hint, not a fixed "ask for the digits": run 70 asked in
                     # the same response as a guessed call ("????"), and the
                     # re-ask ("Sorry, could you tell me...") talked over the
@@ -636,7 +530,7 @@ class CustomToolManager:
                     })
                     return
                 self._engine._verified_user_message = said
-            if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
+            if function_name in CONFIRMED_WRITES:
                 # Terms the customer has not confirmed in this step are the
                 # model's own: a smoke run recorded a ₹6,000 promise nobody said.
                 # Each write answers one customer message, and a read-back said
@@ -654,17 +548,18 @@ class CustomToolManager:
                     })
                     return
                 self._engine._written_user_message = said
-                # A dispute files on the customer's own account of it ("No, I
-                # never took this loan"), not on a yes: only a pause holds it.
-                content = (said or {}).get("content")
-                if (_held(content) if function_name == "flag_dispute"
-                        else not _agreed(content, function_call_params.arguments or {})):
+                # Timing proves a new answer, not agreement: "No, don't record
+                # that", "Maybe" and "Yes, only if my salary comes" were all new
+                # answers (Codex F16). The customer's words are judged against
+                # the terms, in whatever language they spoke (action_confirmation).
+                verdict = await self._engine.confirm_action(function_name, function_call_params.arguments or {})
+                if not verdict.confirmed:
                     await function_call_params.result_callback({
-                        "status": "error", "error": "customer_did_not_agree",
+                        "status": "error",
+                        "error": "customer_declined" if verdict.status == "denied" else "customer_did_not_agree",
+                        "reason": verdict.reason,
                         "say": self._engine._refusal_hint(
-                            "Nothing was recorded: the customer's last words are not a clear yes to these "
-                            "terms. Answer what they said; if they gave other terms, read those back and ask "
-                            "them to confirm."),
+                            "Nothing was recorded: " + _NOT_CONFIRMED.get(verdict.reason, _NOT_CONFIRMED["unsure"])),
                     })
                     return
             if (function_name == "record_opt_out"
@@ -738,7 +633,7 @@ class CustomToolManager:
                     if verified:
                         await self._advance(self._engine.advance_after_verification, action_node_id)
 
-                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
+                if function_name in CONFIRMED_WRITES:
                     data = result.get("data") if isinstance(result.get("data"), dict) else {}
                     ok = data.get("ok") is True and result.get("status") == "success"
                     if action_node_id:
@@ -753,7 +648,7 @@ class CustomToolManager:
                 if (function_name == "verify_identity" and action_node_id
                         and (not policy or policy.get("risk") == "platform")):
                     self._engine._verification_outcomes[(self._agent.visit_id, action_node_id)] = False
-                if function_name in {"promise_to_pay", "request_callback", "flag_dispute"}:
+                if function_name in CONFIRMED_WRITES:
                     if action_node_id:
                         self._engine._customer_action_outcomes[(self._agent.visit_id, action_node_id)] = False
                 await function_call_params.result_callback(

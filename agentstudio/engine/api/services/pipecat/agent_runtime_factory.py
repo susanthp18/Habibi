@@ -208,6 +208,11 @@ class AgentRuntimeFactory:
             llm=llm,
             inference_llm=inference_llm,
             variable_extraction_llm=variable_extraction_llm,
+            confirmation_llm=create_llm_service(
+                user_config,
+                correlation_id=self._mps_correlation_id,
+                usage_context="action_confirmation",
+            ),
             tts=tts,
             recording_router=recording_router,
             user_config=user_config,

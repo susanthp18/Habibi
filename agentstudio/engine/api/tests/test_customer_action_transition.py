@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.action_confirmation import Confirmation, Verdict
 
 
 @pytest.mark.asyncio
@@ -178,6 +179,7 @@ async def test_verify_identity_needs_digits_the_caller_just_gave(monkeypatch):
     tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
     handler = manager._create_http_tool_handler(tool, "verify_identity")
     callback = AsyncMock()
+    engine.spoken_digits = AsyncMock(return_value="")
 
     # The opening turn: nothing said since the node began, so no call.
     await handler(SimpleNamespace(arguments={"value": "4821"}, result_callback=callback))
@@ -241,6 +243,7 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
     handler = manager._create_http_tool_handler(tool, "promise_to_pay")
     callback = AsyncMock()
+    engine.confirm_action = AsyncMock(return_value=Verdict(Confirmation.CONFIRMED, "agreed"))
 
     await handler(SimpleNamespace(arguments={"amount": 6000, "date": "2026-10-02"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
@@ -257,9 +260,12 @@ async def test_a_write_needs_the_customer_to_speak_in_this_step(monkeypatch):
     assert callback.await_args.args[0]["error"] == "customer_not_confirmed"
     execute.assert_not_awaited()
 
+    # Timing refusals never reach the confirmation model.
+    engine.confirm_action.assert_not_awaited()
     engine.context.messages.append({"role": "user", "content": "Yes"})
     await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
     execute.assert_awaited_once()
+    engine.confirm_action.assert_awaited_once_with("promise_to_pay", {"amount": 4000, "date": "2026-10-02"})
 
 
 def test_a_refusal_after_speech_asks_for_silence_not_a_repeat():
@@ -642,18 +648,6 @@ async def test_no_bounce_back_to_the_step_just_left_without_the_caller():
     engine.set_node.assert_awaited_once_with("agree", origin_visit_id="visit")
 
 
-def test_digits_count_as_numerals_or_words_the_caller_said():
-    from api.services.workflow.pipecat_engine_custom_tools import _heard_digits
-
-    assert _heard_digits("2324.") == "2324" and _heard_digits("1111।") == "1111"
-    assert _heard_digits("two three two four") == "2324"
-    assert _heard_digits("double two three four") == "2234"
-    assert _heard_digits("दो तीन दो चार") == "2324"
-    assert _heard_digits("இரண்டு மூணு ரெண்டு நாலு") == "2324"
-    assert _heard_digits("டூ த்ரீ டூ ஃபோர்") == "2324"  # English, written in Tamil script
-    assert _heard_digits("I don't understand.") == ""
-
-
 @pytest.mark.asyncio
 async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     """Codex F15: any new message in the step let model-supplied digits through."""
@@ -680,6 +674,8 @@ async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     handler = manager._create_http_tool_handler(
         SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None), "verify_identity")
     callback = AsyncMock()
+    # Digits spoken as words, in any language, are read by the confirmation model.
+    engine.spoken_digits = AsyncMock(side_effect=lambda said: "2324" if "two" in said else "")
 
     await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
@@ -690,31 +686,66 @@ async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     execute.assert_awaited_once()
 
 
-def test_digits_survive_separators():
-    """Codex review of run 88: "2,324" and "2-3-2-4" read as no digits at all."""
-    from api.services.workflow.pipecat_engine_custom_tools import _heard_digits
+def test_numerals_of_any_script_are_digits():
+    from api.services.workflow.pipecat_engine_custom_tools import _digits
 
-    assert _heard_digits("2,324") == "2324"
-    assert _heard_digits("2-3-2-4") == "2324"
-    assert _heard_digits("two-three-two-four") == "2324"
+    assert _digits("2,324") == _digits("2-3-2-4") == "2324" and _digits("1111।") == "1111"
+    assert _digits("٢٣٢٤") == "2324"  # Arabic-Indic
+    assert _digits("२३२४") == "2324"  # Devanagari
 
 
-def test_only_a_clear_yes_to_the_terms_is_agreement():
-    """Codex F16 and its review: a new message was enough ("No, don't record
-    that"), then a refusal list still let "Maybe" or "I cannot pay that" write."""
-    from api.services.workflow.pipecat_engine_custom_tools import _agreed, _held
+def _writer(monkeypatch, verdict):
+    from api.services.workflow import pipecat_engine_custom_tools as tools
 
-    terms = {"amount": 5000, "date": "2026-10-07",
-             "parts": [{"amount": 2500, "date": "2026-10-02"}, {"amount": 2500, "date": "2026-10-07"}]}
-    for said in ("No, don't record that.", "नहीं", "Wait, let me check.", "Actually, 3000 on Friday.",
-                 "I cannot pay that.", "I will not pay that.", "Maybe.", "What does that mean?",
-                 "Actually, two thousand on Friday.", "Yes, two thousand on Friday.", "Yes, but 3000.",
-                 "Okay?", "Yes, I'm not sure.", "I can pay on Friday."):
-        assert not _agreed(said, terms), said
-    for said in ("Yes.", "யெஸ்", "हाँ जी", "சரி", "No problem, record it.", "Okay, go ahead.",
-                 "Yes, 2500 on the 2nd and the rest on the 7th.", "Yes, that's right."):
-        assert _agreed(said, terms), said
-    assert _agreed("Yes, 5 pm is fine.", {"time": "2026-10-02T17:00:00+05:30"})
-    # The dispute step files on the customer's own account, a "no" and all; only a pause holds it.
-    assert not _held("No, I never took this loan.")
-    assert _held("Wait, let me check my statement.")
+    execute = AsyncMock(return_value={"status": "success", "data": {"ok": True}})
+    monkeypatch.setattr(tools, "execute_http_tool", execute)
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    entry = {"role": "user", "content": "I can pay 4000 on Friday"}
+    engine.context = SimpleNamespace(messages=[entry, {"role": "assistant", "content": "Shall I record 4,000 for "
+                                                       "Friday 2 October?"}, {"role": "user", "content": "..."}])
+    engine._node_entry_user_message = {("visit", "resolve"): entry}
+    engine._context_summary_message = None
+    engine._verified_user_message = None
+    engine._written_user_message = None
+    engine._assistant_aggregator = SimpleNamespace(_aggregation=[])
+    engine._verification_outcomes = {}
+    engine._customer_action_outcomes = {}
+    engine._call_context_vars = {}
+    engine._gathered_context = {}
+    engine.confirm_action = AsyncMock(return_value=verdict)
+    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="resolve"))
+    manager = tools.CustomToolManager(engine, agent)
+    manager.get_organization_id = AsyncMock(return_value=1)
+    tool = SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None)
+    return manager._create_http_tool_handler(tool, "promise_to_pay"), execute
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict, error", [
+    (Verdict(Confirmation.NONE, "conditional"), "customer_did_not_agree"),
+    (Verdict(Confirmation.NONE, "other_terms"), "customer_did_not_agree"),
+    (Verdict(Confirmation.DENIED, "declined"), "customer_declined"),
+    (Verdict(Confirmation.NONE, "unavailable"), "customer_did_not_agree"),
+])
+async def test_a_write_waits_for_the_customers_confirmation(monkeypatch, verdict, error):
+    """Codex F16 and both reviews: a new message is not a yes, in any language."""
+    handler, execute = _writer(monkeypatch, verdict)
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    result = callback.await_args.args[0]
+    assert (result["error"], result["reason"]) == (error, verdict.reason)
+    assert result["say"].startswith("Nothing was recorded")
+    execute.assert_not_awaited()
+
+
+def test_guarded_tools_get_the_checks_time_on_top_of_their_own():
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+    from api.services.workflow.action_confirmation import CHECK_TIMEOUT_SECS
+
+    manager = tools.CustomToolManager(object.__new__(PipecatEngine), SimpleNamespace())
+    tool = SimpleNamespace(category="http_api", definition={"config": {"timeout_ms": 8000}})
+    assert manager._create_handler(tool, "promise_to_pay")[1] == 8 + CHECK_TIMEOUT_SECS
+    assert manager._create_handler(tool, "verify_identity")[1] == 8 + CHECK_TIMEOUT_SECS
+    assert manager._create_handler(tool, "lookup_account")[1] == 8

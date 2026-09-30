@@ -820,6 +820,14 @@ async def _run_pipeline_impl(
         else inference_llm or llm
     )
 
+    # The write guard's own instance (action_confirmation): a text LLM even
+    # in realtime mode, created like the voicemail classifier's.
+    confirmation_llm = create_llm_service(
+        user_config,
+        correlation_id=mps_correlation_id,
+        usage_context="action_confirmation",
+    )
+
     # Stamp the providers/models actually resolved for this run onto
     # initial_context so they're available for post-call analytics
     # (model_overrides may have shifted them away from the org-level
@@ -955,6 +963,7 @@ async def _run_pipeline_impl(
         llm=llm,
         inference_llm=inference_llm,
         variable_extraction_llm=variable_extraction_llm,
+        confirmation_llm=confirmation_llm,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,

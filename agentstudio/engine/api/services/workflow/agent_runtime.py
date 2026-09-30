@@ -76,6 +76,9 @@ class AgentRuntime:
     # through `PipecatEngine.call_worker`.
     worker: PipelineWorker | None = None
     tts: Any = None
+    # The write guard's own model instance (action_confirmation): its sampling
+    # is pinned, so it is never the conversation's.
+    confirmation_llm: Any = None
     recording_router: Any = None
     user_config: Any = None
     runtime_configuration: dict[str, Any] = field(default_factory=dict)

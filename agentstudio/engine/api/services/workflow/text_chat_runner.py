@@ -501,6 +501,9 @@ async def execute_text_chat_pending_turn(
 
     llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
+    confirmation_llm = create_llm_service(
+        user_config, correlation_id=mps_correlation_id, usage_context="action_confirmation"
+    )
     call_dispositions = WorkflowConfigurationDefaults.model_validate(
         {"call_dispositions": run_configs.get("call_dispositions") or []}
     ).call_dispositions
@@ -620,6 +623,7 @@ async def execute_text_chat_pending_turn(
         llm=llm,
         inference_llm=inference_llm,
         variable_extraction_llm=variable_extraction_llm,
+        confirmation_llm=confirmation_llm,
         context=context,
         workflow=workflow_graph,
         call_context_vars=initial_context,
