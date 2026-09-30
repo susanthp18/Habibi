@@ -29,6 +29,8 @@ interface SchemaProperty {
     anyOf?: SchemaProperty[];
     minimum?: number;
     maximum?: number;
+    exclusiveMinimum?: number;
+    exclusiveMaximum?: number;
     enum?: string[];
     examples?: string[];
     model_options?: Record<string, string[]>;
@@ -156,6 +158,19 @@ function getNumberSchema(schema: SchemaProperty | undefined): SchemaProperty | u
     return schema?.anyOf?.find(option => option.type === "number");
 }
 
+// The field's own bounds, checked before saving: a Fish top_p of 0 is outside
+// (0, 1] and failed every sentence of a live call (run 89). Empty is "unset".
+function numberBoundsError(value: unknown, schema: SchemaProperty): string | true {
+    if (value === undefined || value === null || value === "") return true;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "Enter a number";
+    if (schema.minimum !== undefined && n < schema.minimum) return `Must be at least ${schema.minimum}`;
+    if (schema.exclusiveMinimum !== undefined && n <= schema.exclusiveMinimum) return `Must be more than ${schema.exclusiveMinimum}`;
+    if (schema.maximum !== undefined && n > schema.maximum) return `Must be at most ${schema.maximum}`;
+    if (schema.exclusiveMaximum !== undefined && n >= schema.exclusiveMaximum) return `Must be less than ${schema.exclusiveMaximum}`;
+    return true;
+}
+
 function isVisibleForModel(schema: SchemaProperty | undefined, model?: string): boolean {
     if (schema?.visible_for_models && !schema.visible_for_models.includes(model || "")) return false;
     return !schema?.hidden_for_models?.includes(model || "");
@@ -208,7 +223,7 @@ export function ServiceConfigurationForm({
     const {
         register,
         handleSubmit,
-        formState: { },
+        formState: { errors },
         reset,
         getValues,
         setValue,
@@ -952,22 +967,29 @@ export function ServiceConfigurationForm({
             );
         }
 
+        const fieldError = errors[`${service}_${field}`]?.message;
         return (
-            <Input
-                type={numberSchema ? "number" : "text"}
-                {...(numberSchema && {
-                    step: "any",
-                    min: numberSchema.minimum,
-                    max: numberSchema.maximum,
-                })}
-                placeholder={`Enter ${field}`}
-                {...register(`${service}_${field}`, {
-                    required: service !== "embeddings" && providerSchema.required?.includes(field),
-                    ...(numberSchema && {
-                        setValueAs: (value: string) => value === "" ? undefined : Number(value),
-                    }),
-                })}
-            />
+            <>
+                <Input
+                    type={numberSchema ? "number" : "text"}
+                    {...(numberSchema && {
+                        step: "any",
+                        min: numberSchema.minimum ?? numberSchema.exclusiveMinimum,
+                        max: numberSchema.maximum ?? numberSchema.exclusiveMaximum,
+                    })}
+                    // An optional setting left empty uses the provider's own default.
+                    placeholder={actualSchema?.default === null ? "Provider default" : `Enter ${field}`}
+                    aria-invalid={fieldError ? true : undefined}
+                    {...register(`${service}_${field}`, {
+                        required: service !== "embeddings" && providerSchema.required?.includes(field),
+                        ...(numberSchema && {
+                            setValueAs: (value: string) => value === "" ? undefined : Number(value),
+                            validate: (value: unknown) => numberBoundsError(value, numberSchema),
+                        }),
+                    })}
+                />
+                {typeof fieldError === "string" && <p className="text-xs text-red-500">{fieldError}</p>}
+            </>
         );
     };
 
