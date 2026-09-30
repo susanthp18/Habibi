@@ -25,6 +25,8 @@ from __future__ import annotations
 import hmac
 import logging
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -240,9 +242,13 @@ def mission_context(m: dict[str, Any], attempt_id: str, custom: dict[str, str]) 
         ctx["account_id"] = custom["account_id"]
     promise = context.get("promise") or {}
     if promise:
-        ctx["open_promise_date"] = promise.get("promisedDate") or promise.get("date")
-        ctx["open_promise_amount"] = spoken_money(promise.get("amountInr") or promise.get("amount"),
-                                                  ctx.get("currency"))
+        from db_promises import OPEN_STATUSES
+
+        # Same split as _account_position: a broken promise is not open.
+        prefix = "open_promise" if promise.get("status", "upcoming") in OPEN_STATUSES else "missed_promise"
+        ctx[f"{prefix}_date"] = promise.get("promisedDate") or promise.get("date")
+        ctx[f"{prefix}_amount"] = spoken_money(promise.get("amountInr") or promise.get("amount"),
+                                               ctx.get("currency"))
     if custom.get("demo"):
         ctx["demo"] = True
     return {k: v for k, v in ctx.items() if v not in (None, "")}
@@ -424,6 +430,37 @@ def ensure_bot(conn: Any, agent_id: Any, name: str | None = None) -> str:
     return bot_id
 
 
+@contextmanager
+def _as_agent(ctx: dict[str, Any]) -> Iterator[str]:
+    """Write this hook's CRM rows as the agent, not as the process's default user.
+
+    The hooks are auth-exempt, so no request actor is set, and every row was
+    audited as ``ACTOR_USER_ID``: run 88's promise, its revision and its
+    reminders all read "human, priya-nair". The bot is registered first
+    because ``activity_events.actor_bot_id`` references ``bots``.
+    """
+    import actor_context
+    import db
+
+    with db.engine.begin() as conn:
+        bot_id = ensure_bot(conn, ctx.get("agent_id") or ctx.get("workflow_id"))
+    with actor_context.acting_as("bot", bot_id=bot_id):
+        yield bot_id
+
+
+#: The engine's run mode (its WorkflowRunMode) as a voice_sessions transport;
+#: any other telephony provider streams media over a websocket.
+_TRANSPORTS = {"twilio": "twilio", "ari": "asterisk", "smallwebrtc": "smallwebrtc", "webrtc": "smallwebrtc"}
+
+
+def transport_for(mode: Any) -> str | None:
+    """How the call's media reached the engine, or None when unknown or not a call."""
+    mode = str(mode or "").strip().lower()
+    if not mode or mode in ("textchat", "chat"):
+        return None
+    return _TRANSPORTS.get(mode, "websocket")
+
+
 def _session_id(run_id: Any) -> str:
     return f"VS-studio-{run_id}"
 
@@ -464,7 +501,9 @@ def ensure_interaction(run_id: Any, ctx: dict[str, Any], *, started_at: datetime
         created = persist.start_voice_call(
             session_id=session_id,
             deployment_id=None,
-            transport="voice-studio",
+            # From the call-started notice; a tool that opens the call first
+            # does not know it, and filing corrects it (_complete_run).
+            transport=transport_for(ctx.get("mode")) or "voice-studio",
             provider_call_id=str(run_id),
             customer_id=customer_id,
             account_id=ctx.get("account_id"),
@@ -527,10 +566,15 @@ def _account_position(customer_id: str | None, account_id: str | None) -> dict[s
         last = mission_mod._last_contact(conn, customer_id) if customer_id else None
     out = _position_context(position)
     if promise:
+        from db_promises import OPEN_STATUSES
         from money_inr import spoken_money
 
+        # Open means the promise can still be kept (db_promises.OPEN_STATUSES);
+        # a broken or part-paid one is history to acknowledge. Run 88 asked
+        # "are you still on track?" about a promise broken 28 days earlier.
+        key = "open_promise" if promise.get("status") in OPEN_STATUSES else "missed_promise"
         # In the account's currency: the stored key says Inr for every account.
-        out["open_promise"] = {
+        out[key] = {
             "amount": spoken_money(promise.get("amountInr"), out.get("currency")),
             **{k: v for k, v in promise.items() if k != "amountInr"},
         }
@@ -712,6 +756,7 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
         channel=str(ctx.get("channel") or "voice"),
         bot_id=_ctx_bot_id(ctx),
         idempotency_key=f"vs-{ctx.get('workflow_run_id')}-ptp-{args.get('date')}-{args.get('amount')}",
+        parts=parts,
     )
     if result.error == "promise_already_open":  # the customer is renegotiating it
         result = domain.revise_promise_to_pay(
@@ -727,6 +772,7 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
             # replay of the first, which returned the old result and saved nothing.
             idempotency_key=(f"vs-{ctx.get('workflow_run_id')}-ptp-rev{_open_revisions(ctx)}"
                              f"-{args.get('date')}-{args.get('amount')}"),
+            parts=parts,
         )
     if result.error == "promise_revision_cap":  # final: a retry cannot succeed
         # A callback, not a colleague: the agents offer a person only when the
@@ -741,8 +787,17 @@ def _tool_promise_to_pay(ctx: dict[str, Any], args: dict[str, Any], interaction_
     return result.to_llm()
 
 
+_PARTS_SAY = "Recorded, in parts. Read the parts back: each amount and its date."
+
+
 def _schedule(out: dict[str, Any], parts: list[dict[str, Any]], interaction_id: str) -> dict[str, Any]:
-    """Attach the parts to the promise just recorded (or that already held these terms)."""
+    """Make sure the promise holds these parts.
+
+    A new or revised promise was written with them (one transaction) and this
+    changes nothing; it matters when the terms were already held (a split of
+    the same total by the same day) or the write was an idempotent replay
+    carrying other parts. Only a real change re-sends the confirmation.
+    """
     import db
     from agent_core.tools import domain
 
@@ -755,8 +810,7 @@ def _schedule(out: dict[str, Any], parts: list[dict[str, Any]], interaction_id: 
                         "do not say the split was recorded.")}
     domain._mark_ptp_captured(interaction_id, str(out.get("promiseId")))
     out = {k: v for k, v in out.items() if k not in ("error", "detail")}
-    return {**out, "ok": True, "parts": parts,
-            "say": "Recorded, in parts. Read the parts back: each amount and its date."}
+    return {**out, "ok": True, "parts": parts, "say": _PARTS_SAY}
 
 
 def _tool_request_callback(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
@@ -816,7 +870,6 @@ def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_
     ``scope`` "all" closes every channel; the default closes this one.
     Contact policy then blocks further calls and messages on it.
     """
-    import actor_context
     import db
 
     customer_id = str(ctx.get("customer_id") or "")
@@ -826,11 +879,7 @@ def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_
     whatsapp = ctx.get("channel") == "whatsapp"
     scope = str(args.get("scope") or "this_channel").lower()
     channel = "all" if scope == "all" else ("whatsapp" if whatsapp else "call")
-    # The activity log's actor must be a registered bot (activity_events.actor_bot_id
-    # references bots): the agent's own row, as its interactions and promises name it.
-    with db.engine.begin() as conn:
-        bot_id = ensure_bot(conn, ctx.get("agent_id") or ctx.get("workflow_id"))
-    actor_context.bind_service_actor("bot", bot_id=bot_id)
+    # Written as the agent: run_tool acts as it for every tool (_as_agent).
     try:
         db.opt_out(customer_id, {
             "channel": channel,
@@ -986,28 +1035,29 @@ def run_tool(name: str, body: dict[str, Any]) -> dict[str, Any]:
 
     if voice_studio_checks.is_test(ctx):  # editor test or scripted check: nothing real is touched
         return voice_studio_checks.rehearsal_tool(name, ctx, args)
-    interaction_id = _interaction(ctx)
-    if not ctx.get("customer_id"):
-        ctx.update(_verified_caller(interaction_id))
-    started = datetime.now(timezone.utc)
-    try:
-        result = handler(ctx, args, interaction_id)
-    except Exception:
-        logger.exception("voice studio tool %s failed for run %s", name, run_id)
-        result = {"ok": False, "error": "tool_failed"}
-    try:
-        persist.record_voice_tool_call(
-            interaction_id=interaction_id,
-            turn_index=0,
-            tool_name=name,
-            result_ok=bool(result.get("ok")),
-            error=result.get("error"),
-            latency_ms=int((datetime.now(timezone.utc) - started).total_seconds() * 1000),
-            args=args,
-            channel=str(ctx.get("channel") or "voice"),
-        )
-    except Exception:
-        logger.exception("voice studio tool %s: audit write failed", name)
+    with _as_agent(ctx):
+        interaction_id = _interaction(ctx)
+        if not ctx.get("customer_id"):
+            ctx.update(_verified_caller(interaction_id))
+        started = datetime.now(timezone.utc)
+        try:
+            result = handler(ctx, args, interaction_id)
+        except Exception:
+            logger.exception("voice studio tool %s failed for run %s", name, run_id)
+            result = {"ok": False, "error": "tool_failed"}
+        try:
+            persist.record_voice_tool_call(
+                interaction_id=interaction_id,
+                turn_index=0,
+                tool_name=name,
+                result_ok=bool(result.get("ok")),
+                error=result.get("error"),
+                latency_ms=int((datetime.now(timezone.utc) - started).total_seconds() * 1000),
+                args=args,
+                channel=str(ctx.get("channel") or "voice"),
+            )
+        except Exception:
+            logger.exception("voice studio tool %s: audit write failed", name)
     return result
 
 
@@ -1022,12 +1072,13 @@ def transfer_destination(body: dict[str, Any]) -> dict[str, Any]:
     if voice_studio_checks.is_test(ctx):
         return {"transfer_context": {"destination": "", "custom_message": "This is a test conversation; no one is transferred."}}
     if ctx.get("workflow_run_id"):
-        interaction_id = _interaction(ctx)
-        persist.record_handoff(
-            interaction_id=interaction_id,
-            reason=str(body.get("reason") or "customer_requested"),
-            bot_id=_ctx_bot_id(ctx),
-        )
+        with _as_agent(ctx):
+            interaction_id = _interaction(ctx)
+            persist.record_handoff(
+                interaction_id=interaction_id,
+                reason=str(body.get("reason") or "customer_requested"),
+                bot_id=_ctx_bot_id(ctx),
+            )
     if ctx.get("channel") == "whatsapp":  # whatsapp_studio escalates the thread to the Inbox
         return {"transfer_context": {"destination": "", "custom_message": "Connecting you to a colleague."}}
     if not destination:
@@ -1129,9 +1180,31 @@ def call_languages(gathered: dict[str, Any], turns: list[dict[str, Any]]) -> dic
     by_turn = [(e.get("payload") or {}).get("language") for e in turns]
     spoken = list(gathered.get("languages_spoken") or []) or list(dict.fromkeys(
         lang for e, lang in zip(turns, by_turn) if lang and e.get("type") == "rtf-user-transcription"))
-    if not spoken:
+    # The agent's own replies, by script: run 88 answered an English caller in
+    # Kannada, a language the agent does not even speak, and nothing recorded it.
+    allowed = {"LATIN"} | {_LANGUAGE_SCRIPTS.get(str(lang).split("-")[0].lower(), "LATIN") for lang in spoken}
+    off = [{"turn": i, "script": script} for i, e in enumerate(turns)
+           if e.get("type") == "rtf-bot-text" and (script := _script(spoken_text(e))) and script not in allowed]
+    if not spoken and not off:
         return None
-    return {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
+    out = {"spoken": spoken, "switches": int(gathered.get("language_switches") or 0), "turns": by_turn}
+    if off:
+        out["offLanguage"] = off
+    return out
+
+
+#: The script each language is written in, as Unicode names it.
+_LANGUAGE_SCRIPTS = {"hi": "DEVANAGARI", "mr": "DEVANAGARI", "ta": "TAMIL", "te": "TELUGU", "kn": "KANNADA",
+                     "ml": "MALAYALAM", "bn": "BENGALI", "gu": "GUJARATI", "pa": "GURMUKHI", "ar": "ARABIC",
+                     "ur": "ARABIC"}
+
+
+def _script(value: str) -> str | None:
+    """The script most of ``value``'s letters are in ("LATIN", "KANNADA"...), or None."""
+    from collections import Counter
+
+    counts = Counter(unicodedata.name(ch, "?").split()[0] for ch in value if ch.isalpha())
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def test_numbers(conn: Any) -> set[str]:
@@ -1163,6 +1236,14 @@ def admit_engine_call(body: dict[str, Any]) -> dict[str, Any]:
     it is one of the tenant's test numbers (``VOICE_STUDIO_TEST_NUMBERS``):
     the engine does not dial strangers on the bank's behalf.
     """
+    import actor_context
+
+    # The platform's decision, not the agent's or a person's (the hook has no actor).
+    with actor_context.acting_as("system"):
+        return _admit_engine_call(body)
+
+
+def _admit_engine_call(body: dict[str, Any]) -> dict[str, Any]:
     import re
 
     import contact_policy
@@ -1555,6 +1636,9 @@ def reconcile_runs(*, hours: int = 48, settle_minutes: int = 20, limit: int = 10
             "SELECT i.id, s.provider_call_id, i.handler_bot_id FROM interactions i "
             "JOIN voice_sessions s ON s.interaction_id = i.id AND s.id LIKE 'VS-studio-%' "
             "WHERE NOT (i.source_payload ? 'voiceStudio') "
+            # Finished calls only, as below: run 88 was marked and analysed
+            # while live, on 0 turns, and that analysis was never redone.
+            "AND i.status IN ('completed', 'abandoned') "
             "AND (i.handler_bot_id LIKE 'voice-studio-%' OR i.handler_bot_id = 'voice-studio') LIMIT 50"
         )).all()
     report["provenance"] = 0
@@ -1644,7 +1728,10 @@ def call_started(body: dict[str, Any]) -> dict[str, Any]:
     if body.get("workflow_id"):
         ctx["workflow_id"] = body["workflow_id"]
         ctx.setdefault("agent_id", body["workflow_id"])
-    return {"ok": True, "interactionId": ensure_interaction(run_id, ctx)}
+    if body.get("mode"):
+        ctx["mode"] = body["mode"]
+    with _as_agent(ctx):
+        return {"ok": True, "interactionId": ensure_interaction(run_id, ctx)}
 
 
 def complete_run(body: dict[str, Any]) -> dict[str, Any]:
@@ -1665,7 +1752,10 @@ def complete_run(body: dict[str, Any]) -> dict[str, Any]:
     with db.engine.connect() as conn:
         conn.execute(text("SELECT pg_advisory_lock(hashtext(:r))"), {"r": ref})
         try:
-            return _complete_run(body)
+            # As the agent, whoever files it: the engine's notice (no actor) and
+            # the reconcile sweep (bound "system") used to disagree.
+            with _as_agent({"workflow_id": body["workflow_id"]}):
+                return _complete_run(body)
         finally:
             conn.execute(text("SELECT pg_advisory_unlock(hashtext(:r))"), {"r": ref})
 
@@ -1771,6 +1861,28 @@ def _complete_run(body: dict[str, Any]) -> dict[str, Any]:
                     {"p": json.dumps(provenance), "ix": interaction_id},
                 )
         file_recording(interaction_id, run)
+        # How the call ended (the engine's own status: end_call,
+        # call_duration_exceeded, user_idle_max_duration_exceeded...) and how
+        # its media arrived. "completed" alone hid run 88's hard cut at the
+        # time limit, and every Voice Studio call was filed as smallwebrtc.
+        import json
+
+        transport = transport_for(run.get("mode"))
+        # With the run's identity, so the reconcile sweep (which marks calls
+        # lacking a voiceStudio key) never mistakes this for a marked call.
+        studio = {"engineRunId": run_id, "workflowId": workflow_id,
+                  "definitionId": run.get("definition_id"), "endReason": status or None}
+        with db.engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE interactions SET source_payload = source_payload || jsonb_build_object("
+                "'voiceStudio', COALESCE(source_payload->'voiceStudio', '{}'::jsonb) || CAST(:studio AS jsonb)) "
+                "|| CASE WHEN CAST(:transport AS text) IS NULL THEN '{}'::jsonb "
+                "ELSE jsonb_build_object('transport', CAST(:transport AS text)) END "
+                "WHERE id = :ix"
+            ), {"studio": json.dumps(studio), "transport": transport, "ix": interaction_id})
+            if transport:
+                conn.execute(text("UPDATE voice_sessions SET transport = :t WHERE id = :sid"),
+                             {"t": transport, "sid": session_id})
         try:
             import evidence_chain
 
@@ -1816,7 +1928,9 @@ def _complete_run(body: dict[str, Any]) -> dict[str, Any]:
             from call_intel import jobs as call_intel_jobs
 
             # PII masking, the redacted recording, signals and QA: the batch pass.
-            call_intel_jobs.enqueue(interaction_id)
+            # Rerun: the filed call is the input; anything analysed before it
+            # (a live call caught by a sweep) is stale.
+            call_intel_jobs.enqueue(interaction_id, rerun=True)
         except Exception:
             logger.exception("voice studio: call intelligence not queued for %s", interaction_id)
     else:

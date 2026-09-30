@@ -192,6 +192,9 @@ class PipecatEngine:
         # the last verify_identity answered: a guarded edge or a verification
         # needs a caller message newer than both.
         self._node_entry_user_message: dict[tuple[str, str], object] = {}
+        # ...and when each was last left: going back to a step needs something
+        # new from the caller since leaving it (see transition_func).
+        self._node_left_user_message: dict[tuple[str, str], object] = {}
         self._verified_user_message: object = None
         self._written_user_message: object = None
         self._context_summary_message: object = None
@@ -598,6 +601,20 @@ class PipecatEngine:
             try:
                 current = agent.current_node
                 node_key = (agent.visit_id, current.id) if current else None
+                # Back to a step this turn just left, with nothing new from the
+                # caller: run 88 went Agree -> Hardship -> Agree -> Hardship on
+                # one "I can only do 2,000 this week", four model rounds and
+                # 8.7 s before a word. Both steps matched; neither may bounce.
+                left = self.__dict__.get("_node_left_user_message", {})
+                if ((agent.visit_id, transition_to_node) in left
+                        and left[(agent.visit_id, transition_to_node)] is self._last_user_message()):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "node_bounce",
+                        "say": self._refusal_hint(
+                            "You have just come from that step and the customer has said nothing "
+                            "since. Stay in this step and answer them as it says."),
+                    })
+                    return
                 # A close needs the customer's word in this step, whatever the
                 # edge says: a refused write once chained Hardship into a
                 # WhatsApp close while its question was still unanswered.
@@ -1193,6 +1210,9 @@ class PipecatEngine:
             else None
         )
 
+        if previous_node_id is not None:
+            self.__dict__.setdefault("_node_left_user_message", {})[
+                (agent.visit_id, previous_node_id)] = self._last_user_message()
         # Set current node for all nodes (including static ones) so STT mute filter works
         self.active_agent.current_node = node
         self._node_entry_user_message[(agent.visit_id, node.id)] = self._last_user_message()

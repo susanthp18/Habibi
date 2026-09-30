@@ -10,6 +10,7 @@ unit-testing.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -80,22 +81,61 @@ def create_user_idle_handler(engine: "PipecatEngine") -> UserIdleHandler:
 # ---------------------------------------------------------------------------
 
 
+#: At the time limit the agent says goodbye; the call ends when it has, or
+#: after this long if the goodbye never starts (a tool call, a failed TTS).
+LIMIT_GOODBYE_START_SECONDS = 8.0
+LIMIT_GOODBYE_PLAYBACK_SECONDS = 20.0
+
+_LIMIT_GOODBYE_NOTE = (
+    "The call has reached its time limit and must end now. In one or two short sentences, in the "
+    "language the caller is speaking: thank them, say the bank can call them back if they need "
+    "anything more, and say goodbye. Do not ask a question, and do not call any tool or take any path."
+)
+
+
 def create_max_duration_callback(engine: "PipecatEngine"):
-    """Return a callback that cancels the task when the hard call limit is exceeded."""
+    """Return a callback that closes the call once its time limit has passed.
+
+    It used to cancel the pipeline on the spot: run 88 was cut mid-conversation
+    at 300 s, the caller's question unheard and no goodbye. The agent now says
+    goodbye first, then the call ends normally. The closing runs in its own
+    task: the clock awaits this callback on its frame path, and waiting there
+    for the goodbye (or the final extraction) held the call pipeline.
+    """
 
     async def handle_max_duration():
-        if getattr(engine, "generation_on_hold", False):
+        if getattr(engine, "generation_on_hold", False) is True:
             # AgentStudio: a supervisor has the call; the limit applies once
             # they hand it back. False tells the clock to ask again later.
             # ponytail: no hard cap during a takeover; add one if it is abused.
             return False
-        logger.debug("Max call duration exceeded. Terminating call")
-        await engine.end_call_with_reason(
-            EndTaskReason.CALL_DURATION_EXCEEDED.value,
-            abort_immediately=True,
-        )
+        if engine.__dict__.get("_limit_close_task") is None:
+            logger.debug("Max call duration exceeded. Saying goodbye, then ending the call")
+            engine._limit_close_task = asyncio.create_task(
+                close_at_time_limit(engine), name="call-time-limit"
+            )
 
     return handle_max_duration
+
+
+async def close_at_time_limit(engine: "PipecatEngine") -> None:
+    """Have the agent say goodbye, then end the call gracefully."""
+    try:
+        agent = engine.active_agent
+        if engine.agent_can_act(agent):
+            # As an end node closes: the goodbye is the last thing said.
+            engine.arm_speech_playback()
+            engine._mute_pipeline = True
+            await agent.queue_frame(
+                LLMMessagesAppendFrame([engine.engine_note(_LIMIT_GOODBYE_NOTE)], run_llm=True)
+            )
+            await engine.wait_for_speech_playback(
+                start_timeout=LIMIT_GOODBYE_START_SECONDS,
+                playback_timeout=LIMIT_GOODBYE_PLAYBACK_SECONDS,
+            )
+    except Exception:
+        logger.exception("Time-limit goodbye failed; ending the call without it")
+    await engine.end_call_with_reason(EndTaskReason.CALL_DURATION_EXCEEDED.value)
 
 
 # ---------------------------------------------------------------------------

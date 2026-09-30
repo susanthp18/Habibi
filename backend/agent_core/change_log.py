@@ -662,7 +662,7 @@ def record_consent_change(
     conn: Any,
     *,
     tenant_id: str,
-    actor_user_id: str,
+    actor_user_id: str | None,
     customer_id: str,
     change: dict[str, Any],
 ) -> dict[str, Any]:

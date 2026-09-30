@@ -66,11 +66,15 @@ def claim(limit: int) -> list[dict[str, Any]]:
                 UPDATE call_intelligence_jobs j
                 SET status = 'running', locked_at = now(), attempts = j.attempts + 1, updated_at = now()
                 WHERE j.id IN (
-                  SELECT id FROM call_intelligence_jobs
-                  WHERE (status = 'queued' AND available_at <= now())
-                     OR (status = 'running' AND locked_at < now() - interval '{STALE_MINUTES} minutes')
-                  ORDER BY available_at
-                  FOR UPDATE SKIP LOCKED
+                  SELECT q.id FROM call_intelligence_jobs q
+                  -- A finished call only: its transcript and recording are
+                  -- filed at the end, so a live one has nothing to analyse yet.
+                  JOIN interactions i ON i.id = q.interaction_id
+                   AND i.status IN ('completed', 'abandoned')
+                  WHERE (q.status = 'queued' AND q.available_at <= now())
+                     OR (q.status = 'running' AND q.locked_at < now() - interval '{STALE_MINUTES} minutes')
+                  ORDER BY q.available_at
+                  FOR UPDATE OF q SKIP LOCKED
                   LIMIT :n
                 )
                 RETURNING j.id, j.interaction_id, j.stages_done, j.attempts

@@ -61,6 +61,101 @@ def _digits(value: Any) -> str:
     return "".join(str(unicodedata.decimal(ch)) for ch in _text(value) if ch.isdecimal())
 
 
+def _number_words() -> dict[str, str]:
+    words: dict[str, str] = {}
+    for digit, spellings in {
+        "0": "zero oh shunya shoonya poojyam saibar शून्य ज़ीरो जीरो பூஜ்யம் பூஜ்ஜியம் சைபர் ஜீரோ",
+        "1": "one ek onnu ondru एक वन ஒன்று ஒண்ணு ஒன்",
+        "2": "two do rendu irandu दो टू இரண்டு ரெண்டு டூ",
+        "3": "three teen tin moonu moondru तीन थ्री மூன்று மூணு த்ரீ",
+        "4": "four char chaar naalu naangu चार फोर फ़ोर நான்கு நாலு ஃபோர் போர்",
+        "5": "five paanch panch anju ainthu पांच पाँच फाइव फ़ाइव ஐந்து அஞ்சு ஃபைவ் பைவ்",
+        "6": "six chhe che chhah aaru छह छः छे सिक्स ஆறு சிக்ஸ்",
+        "7": "seven saat sat ezhu सात सेवन ஏழு செவன்",
+        "8": "eight aath ath ettu आठ एट एइट எட்டு எய்ட்",
+        "9": "nine nau onbadhu ombodhu नौ नाइन ஒன்பது நைன்",
+    }.items():
+        words.update(dict.fromkeys(spellings.split(), digit))
+    return words
+
+
+_NUMBER_WORDS = _number_words()
+_REPEATS = {"double": 2, "triple": 3, "डबल": 2, "ट्रिपल": 3, "டபுள்": 2, "ட்ரிபிள்": 3}
+
+
+def _heard_digits(value: Any) -> str:
+    """The digits a caller said, in order: numerals, or digit words in English,
+    Hindi or Tamil ("two three two four", "दो तीन दो चार", "double two three
+    four"), including English written in those scripts, as recognition often
+    writes it ("டூ த்ரீ"). Split on spaces, not ``\\w``: a Devanagari or Tamil
+    vowel sign is not a word character and would cut the word in two.
+
+    ponytail: digit by digit only; "two thousand three hundred" is not read.
+    """
+    out, repeat = [], 1
+    for token in _text(value).lower().split():
+        token = token.strip(".,!?;:\"'()[]-–—।॥")
+        if token in _REPEATS:
+            repeat = _REPEATS[token]
+            continue
+        digits = _digits(token) if token.isdecimal() else _NUMBER_WORDS.get(token, "")
+        out.append(digits * repeat if len(digits) == 1 else digits)
+        repeat = 1
+    return "".join(out)
+
+
+#: A reply that opens with one of these is a no, whatever follows ("No, don't record it").
+_NO = frozenset({
+    "no", "nope", "nah", "not", "nahi", "nahin", "illai", "illa", "vendam", "venam",
+    "नहीं", "नही", "नो", "इल्लै", "இல்லை", "இல்ல", "வேண்டாம்", "வேணாம்", "நோ",
+})
+#: Anywhere in the reply, these hold the write back: the customer is stopping or changing it.
+_HOLD = frozenset({
+    "don't", "dont", "wait", "cancel", "change", "wrong", "mat", "ruko", "badlo",
+    "मत", "रुको", "रुकिए", "बदलो", "गलत", "வேண்டாம்", "மாத்துங்க", "மாற்று", "தப்பு",
+})
+
+
+def _numbers(value: Any) -> set[int]:
+    """Every whole number in a tool argument or a message: amounts, and the
+    parts of an ISO date or time ("2026-10-07" -> 2026, 10, 7)."""
+    import re
+
+    if isinstance(value, dict):
+        return set().union(*map(_numbers, value.values())) if value else set()
+    if isinstance(value, list):
+        return set().union(*map(_numbers, value)) if value else set()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return {int(value)} if float(value).is_integer() else set()
+    return {int(n.replace(",", "")) for n in re.findall(r"\d[\d,]*", _text(value)) if n.replace(",", "")}
+
+
+def _not_agreed(said: Any, arguments: dict[str, Any], *, figures: bool) -> bool:
+    """Is the customer's latest message a no, a hold, or other terms?
+
+    Timing alone (a new message, no question left unanswered) let "No, don't
+    record that" through (Codex F16). Not a yes-only rule: the dispute step
+    files on the customer's answer, and recognition mangles "yes" into other
+    scripts. ``figures``: a number in the reply that is not being written
+    ("Actually, 3000 on Friday") is a change, not a confirmation.
+    """
+    text = _text(said).lower()
+    words = [w.strip(".,!?;:\"'()[]-–—।॥") for w in text.split()]
+    words = [w for w in words if w]
+    if not words:
+        return False
+    # "No problem, record it" is a yes.
+    opens_no = words[0] in _NO and " ".join(words[:3]) not in _YES_AFTER_ALL \
+        and " ".join(words[:2]) not in _YES_AFTER_ALL
+    if opens_no or any(w in _HOLD for w in words) or "do not" in text or "hold on" in text:
+        return True
+    return figures and bool(_numbers(said) - _numbers(arguments))
+
+
+_YES_AFTER_ALL = frozenset({"no problem", "no worries", "no issue", "no issues", "not a problem",
+                            "no problem at all", "nahi problem"})
+
+
 def _write_arguments(engine: "PipecatEngine", agent: Any, tool: Any,
                      arguments: dict[str, Any], function_name: str) -> dict[str, Any]:
     """Supply one stable idempotency key for a node visit's write action."""
@@ -483,15 +578,15 @@ class CustomToolManager:
             if function_name == "verify_identity":
                 # Digits the caller has not given are a guess: on WhatsApp the
                 # opening turn once "verified" with 4821 and burned an attempt.
-                # They count when the caller's latest message holds them -- even
-                # the one that led into this step ("I think it is 2324", run 58)
-                # -- or, spoken as words, when it came after the step began.
-                # Each message backs one attempt.
+                # They count when the caller's latest message holds them, as
+                # numerals or as digit words -- even the message that led into
+                # this step ("I think it is 2324", run 58). Any message at all
+                # used to be enough once the step had begun, so a guess passed
+                # after "I don't understand". Each message backs one attempt.
                 said = self._engine._last_user_message()
                 given = _digits((function_call_params.arguments or {}).get("value"))
-                heard = bool(said) and len(given) == 4 and given in _digits(said.get("content"))
-                if (said is None or said is self._engine._verified_user_message
-                        or not (heard or self._engine.caller_spoke_in_node(self._agent))):
+                heard = bool(said) and len(given) == 4 and given in _heard_digits(said.get("content"))
+                if said is None or said is self._engine._verified_user_message or not heard:
                     # The hint, not a fixed "ask for the digits": run 70 asked in
                     # the same response as a guessed call ("????"), and the
                     # re-ask ("Sorry, could you tell me...") talked over the
@@ -522,6 +617,16 @@ class CustomToolManager:
                     })
                     return
                 self._engine._written_user_message = said
+                if _not_agreed((said or {}).get("content"), function_call_params.arguments or {},
+                               figures=function_name != "flag_dispute"):
+                    await function_call_params.result_callback({
+                        "status": "error", "error": "customer_did_not_agree",
+                        "say": self._engine._refusal_hint(
+                            "Nothing was recorded: the customer's last words decline or change these terms. "
+                            "Answer what they said; if they gave other terms, read those back and ask them "
+                            "to confirm."),
+                    })
+                    return
             if (function_name == "record_opt_out"
                     and not self._engine.caller_spoke_in_node(self._agent)):
                 # Only the customer can ask to stop contact: a smoke run opted a

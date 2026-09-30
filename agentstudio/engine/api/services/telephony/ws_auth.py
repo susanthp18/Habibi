@@ -107,9 +107,8 @@ def build_media_ws_url(
     With no secret configured this returns the exact legacy URL, so switching a
     provider over to this helper changes nothing until an operator opts in.
 
-    The returned URL carries a bearer capability. :func:`redact_token` only
-    masks the ``?token=`` form, so the path form does reach the logs — see the
-    note there.
+    The returned URL carries a bearer capability: log it only through
+    :func:`redact_token`, which masks both forms.
     """
     url = (
         f"{wss_base.rstrip('/')}{_WS_PATH}"
@@ -125,17 +124,21 @@ def build_media_ws_url(
 # Stops at whatever delimits the token in the surrounding document: whitespace,
 # a quote (TwiML/CXML attribute), & (another query param) or < (element text).
 _TOKEN_IN_TEXT = re.compile(r"(token=)[^\s\"'&<>]+")
+# The carrier form: the hex token is the last segment after the three ids.
+_TOKEN_IN_PATH = re.compile(re.escape(_WS_PATH) + r"((?:/[^/\s\"'<>]+){3})/[0-9a-f]{16,}")
 
 
 def redact_token(text: str) -> str:
-    """Mask any ``token=…`` in *text* so it is safe to log.
+    """Mask the capability token in *text*, query (``token=…``) or path form, so it is safe to log.
 
-    Only the query form. Since the carrier token moved into the URL path it is
-    no longer masked anywhere — deliberately: uvicorn and nginx both log the
-    request path in full, so masking our own lines bought little for the
-    machinery it took. Treat log access to this deployment as socket access.
+    The path form used to be left in clear on the grounds that uvicorn and
+    nginx log the request path anyway (run 88's TwiML, WebSocket accept and
+    access lines all carried it). The engine's uvicorn lines now pass through
+    here (``logging_config.InterceptHandler``) and nginx's log format drops the
+    segment, so the one remaining copy was this helper's own blind spot.
     """
-    return _TOKEN_IN_TEXT.sub(r"\1[REDACTED]", text)
+    text = _TOKEN_IN_TEXT.sub(r"\1[REDACTED]", text)
+    return _TOKEN_IN_PATH.sub(lambda m: f"{_WS_PATH}{m.group(1)}/[REDACTED]", text)
 
 
 def log_configuration_status() -> None:

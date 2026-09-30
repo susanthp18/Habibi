@@ -600,3 +600,109 @@ async def test_no_goodbye_straight_after_the_customers_question():
     callback = AsyncMock()
     await handler(SimpleNamespace(arguments={}, result_callback=callback))
     assert callback.await_args.args[0]["error"] == "customer_question_unanswered"
+
+
+@pytest.mark.asyncio
+async def test_no_bounce_back_to_the_step_just_left_without_the_caller():
+    """Run 88: Agree -> Hardship -> Agree -> Hardship on one "I can only do 2000 this week"."""
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    offer = {"role": "user", "content": "I can only do 2000 this week."}
+    engine.context = SimpleNamespace(messages=[offer])
+    engine._node_entry_user_message = {("visit", "hardship"): offer}
+    engine._node_left_user_message = {("visit", "agree"): offer}  # left Agree on this very message
+    engine._context_summary_message = None
+    engine._customer_action_outcomes = {}
+    engine._verification_required = set()
+    engine._verification_outcomes = {}
+    engine._perform_variable_extraction_if_needed = AsyncMock()
+    engine._run_transition_variable_extraction_in_background = False
+    engine.set_node = AsyncMock()
+
+    class Agent:
+        visit_id = "visit"
+        current_node = SimpleNamespace(id="hardship")
+        workflow = SimpleNamespace(nodes={"agree": SimpleNamespace(is_end=False)})
+
+        def bind_tool(self, _engine, handler):
+            return handler
+
+    engine._active_agent = Agent()
+    handler = await engine._create_transition_func("Discuss payment", "agree", agent=Agent())
+    callback = AsyncMock()
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "node_bounce"
+    engine.set_node.assert_not_awaited()
+
+    # The caller answers the hardship offer with a payment: now it may go back.
+    engine.context.messages.append({"role": "user", "content": "Actually, 2500 on Friday and 2500 next Tuesday."})
+    await handler(SimpleNamespace(arguments={}, result_callback=callback))
+    engine.set_node.assert_awaited_once_with("agree", origin_visit_id="visit")
+
+
+def test_digits_count_as_numerals_or_words_the_caller_said():
+    from api.services.workflow.pipecat_engine_custom_tools import _heard_digits
+
+    assert _heard_digits("2324.") == "2324" and _heard_digits("1111।") == "1111"
+    assert _heard_digits("two three two four") == "2324"
+    assert _heard_digits("double two three four") == "2234"
+    assert _heard_digits("दो तीन दो चार") == "2324"
+    assert _heard_digits("இரண்டு மூணு ரெண்டு நாலு") == "2324"
+    assert _heard_digits("டூ த்ரீ டூ ஃபோர்") == "2324"  # English, written in Tamil script
+    assert _heard_digits("I don't understand.") == ""
+
+
+@pytest.mark.asyncio
+async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
+    """Codex F15: any new message in the step let model-supplied digits through."""
+    from api.services.workflow import pipecat_engine_custom_tools as tools
+
+    execute = AsyncMock(return_value={"status": "success", "data": {"ok": True, "verified": False}})
+    monkeypatch.setattr(tools, "execute_http_tool", execute)
+    engine = object.__new__(PipecatEngine)
+    engine._engine_notes = []
+    engine._current_llm_generation_reference_text = ""
+    engine._assistant_aggregator = None
+    yes = {"role": "user", "content": "Yes, speaking"}
+    engine.context = SimpleNamespace(messages=[yes, {"role": "user", "content": "I don't understand."}])
+    engine._node_entry_user_message = {("visit", "verify"): yes}
+    engine._context_summary_message = None
+    engine._verified_user_message = None
+    engine._verification_outcomes = {}
+    engine._customer_action_outcomes = {}
+    engine._call_context_vars = {}
+    engine._gathered_context = {}
+    agent = SimpleNamespace(visit_id="visit", current_node=SimpleNamespace(id="verify"))
+    manager = tools.CustomToolManager(engine, agent)
+    manager.get_organization_id = AsyncMock(return_value=1)
+    handler = manager._create_http_tool_handler(
+        SimpleNamespace(definition={"config": {}}, policy=None, revision_id=None), "verify_identity")
+    callback = AsyncMock()
+
+    await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
+    assert callback.await_args.args[0]["error"] == "no_new_digits_from_caller"
+    execute.assert_not_awaited()
+
+    engine.context.messages.append({"role": "user", "content": "two three two four"})
+    await handler(SimpleNamespace(arguments={"value": "2324"}, result_callback=callback))
+    execute.assert_awaited_once()
+
+
+def test_a_no_a_hold_or_other_figures_are_not_agreement():
+    """Codex F16: a new message was enough, so "No, don't record that" would have written."""
+    from api.services.workflow.pipecat_engine_custom_tools import _not_agreed
+
+    terms = {"amount": 5000, "date": "2026-10-07",
+             "parts": [{"amount": 2500, "date": "2026-10-02"}, {"amount": 2500, "date": "2026-10-07"}]}
+    assert _not_agreed("No, don't record that.", terms, figures=True)
+    assert _not_agreed("नहीं", terms, figures=True)
+    assert _not_agreed("Wait, let me check.", terms, figures=True)
+    assert _not_agreed("Actually, 3000 on Friday.", terms, figures=True)  # other terms
+    assert not _not_agreed("Yes.", terms, figures=True)
+    assert not _not_agreed("யெஸ்", terms, figures=True)  # "yes" in Tamil script
+    assert not _not_agreed("No problem, record it.", terms, figures=True)
+    assert not _not_agreed("Yes, 2500 on the 2nd and the rest on the 7th.", terms, figures=True)
+    # The dispute step files on the customer's answer, figures and all.
+    assert not _not_agreed("I paid 4800 on the 25th by UPI.", {"type": "already_paid"}, figures=False)

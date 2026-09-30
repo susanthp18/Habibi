@@ -123,7 +123,7 @@ def test_the_confirm_copy_is_internally_consistent_after_a_refresh() -> None:
         amount=Decimal("4800.00"), promised_at=promised_at,
         pay_url="https://pay.example/x", expires_at=expires,
     )
-    assert "28 Aug 2026" in body
+    assert "Rs 4,800 by 28 Aug" in body and "valid till 29 Aug" in body
     # The link must outlive the date it is asking to be paid by.
     assert expires > promised_at, body
 

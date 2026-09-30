@@ -717,8 +717,13 @@ def create_promise_to_pay(
     channel: str = "voice",
     bot_id: str | None = None,
     idempotency_key: str | None = None,
+    parts: list[dict[str, Any]] | None = None,
 ) -> ToolResult:
-    """Write a promise-to-pay row and flag the interaction for analytics."""
+    """Write a promise-to-pay row and flag the interaction for analytics.
+
+    ``parts``: paid in parts, each ``{amount, date}``, adding up to ``amount``
+    and ending on ``promised_date``; written with the promise.
+    """
     import capture
     import db
 
@@ -746,6 +751,8 @@ def create_promise_to_pay(
         payload["accountId"] = account_id
     if bot_id:
         payload["ownerBotId"] = bot_id
+    if parts:
+        payload["parts"] = parts
 
     try:
         try:
@@ -773,6 +780,9 @@ def create_promise_to_pay(
                     "then use revise_promise_to_pay"
                 ),
             )
+        if str(exc) == "schedule_mismatch":  # the parts do not add up to the (capped) promise
+            return ToolResult(ok=False, error="invalid_parts", data={"detail": "schedule_mismatch"},
+                              spoken_summary=_REVISE_SPOKEN["schedule_mismatch"])
         logger.exception("create_promise failed customer=%s", customer_id)
         return ToolResult(
             ok=False,
@@ -876,6 +886,10 @@ _REVISE_SPOKEN: dict[str, str] = {
     "promise_not_open": "there is no open promise to move; offer to record a new one",
     "nothing_to_revise": "the date and amount are the same as the promise already holds",
     "invalid_revision_reason": "choose one of the listed reasons",
+    "schedule_mismatch": (
+        "nothing was recorded: the parts must add up to the total and end on its date, "
+        "and the total cannot exceed what is owed; agree the parts again"
+    ),
 }
 
 
@@ -948,8 +962,12 @@ def revise_promise_to_pay(
     interaction_id: str | None = None,
     account_id: str | None = None,
     idempotency_key: str | None = None,
+    parts: list[dict[str, Any]] | None = None,
 ) -> ToolResult:
-    """Renegotiate the account's open promise: a new date and/or amount, with why."""
+    """Renegotiate the account's open promise: a new date and/or amount, with why.
+
+    ``parts`` restates how the revised promise will be paid; written with it.
+    """
     import db
     from sqlalchemy import text
 
@@ -990,13 +1008,15 @@ def revise_promise_to_pay(
         payload["promisedDate"] = str(promise_date).strip().split("T", 1)[0]
     if note:
         payload["note"] = str(note)[:500]
+    if parts:
+        payload["parts"] = parts
     try:
         row = db.revise_promise(pid, payload, idempotency_key=idempotency_key)
     except ValueError as exc:
         code = str(exc).split(":", 1)[0]
         return ToolResult(
             ok=False,
-            error=code,
+            error="invalid_parts" if code == "schedule_mismatch" else code,
             data={"promiseId": pid, "detail": str(exc), **_open_promise_summary(pid)},
             spoken_summary=_REVISE_SPOKEN.get(code, "apologise and offer a callback or human agent"),
         )

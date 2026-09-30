@@ -59,6 +59,8 @@ def multilingual_reply_rule(languages: list[str]) -> str:
     # model, told to answer in the caller's script, answered in Hindi (run 72).
     # The example has no digits: with "it is 2324" in its prompt the model sent
     # 2324 to verify_identity before the caller said a word (run 76).
+    # "Never ... other than": the rule named the languages but did not rule out
+    # the rest, and run 88 answered "1111।" (after a Tamil-script "yes") in Kannada.
     return (
         f"LANGUAGE: The caller may speak {names}, and may switch at any time. Reply in the "
         "language the caller is speaking, written in that language's own script "
@@ -68,6 +70,8 @@ def multilingual_reply_rule(languages: list[str]) -> str:
         "Tamil script (\"नो थैंक्स\" is English, \"no thanks\"), and that caller is speaking "
         "English. A word or two in another language (\"haan\", \"ok\", \"sorry\") does not change "
         "it. If the caller asks for a language, keep to it for the rest of the call. "
+        f"Never reply in any language other than {names}, whatever the transcript looks like; "
+        "when unsure, keep to the language you were speaking. "
         "Names, amounts and dates stay exactly as they are."
     )
 

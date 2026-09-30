@@ -357,15 +357,15 @@ def test_redact_token_masks_the_query_form(secret):
         assert "workflow_id=7" in redacted
 
 
-def test_path_form_token_is_logged_not_masked(secret):
-    """The carrier token is *not* redacted, and that is the accepted trade.
-
-    uvicorn logs the request path in full and so does nginx, so masking our own
-    lines would not have kept the token out of the logs anyway. Pinned so the
-    exposure is a decision on record rather than a surprise.
-    """
+def test_path_form_token_is_masked_too(secret):
+    """Run 88: the carrier token was in clear in the TwiML, WebSocket and access log lines."""
     url = ws_auth.build_media_ws_url("wss://api.test", 7, 3, 42)
-    assert ws_auth.mint_ws_token(7, 3, 42) in ws_auth.redact_token(f'url="{url}"')
+    token = ws_auth.mint_ws_token(7, 3, 42)
+    for line in (f'<Stream url="{url}"></Stream>',
+                 f'1.2.3.4:0 - "WebSocket {url.removeprefix("wss://api.test")}" [accepted]'):
+        redacted = ws_auth.redact_token(line)
+        assert token not in redacted
+        assert "/api/v1/telephony/ws/7/3/42/[REDACTED]" in redacted
 
 
 def test_redact_token_is_a_noop_without_a_token(no_secret):

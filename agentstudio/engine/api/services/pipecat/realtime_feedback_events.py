@@ -101,7 +101,9 @@ def summarize_realtime_feedback_tool_result(result: Any) -> dict[str, Any]:
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
     status = result.get("status")
     explicit_ok = data.get("ok") if isinstance(data.get("ok"), bool) else result.get("ok")
-    ok = explicit_ok if isinstance(explicit_ok, bool) else (status == "success" if status else None)
+    # "done" is how a taken transition (and other engine tools) reports success:
+    # run 88's eight node moves were all shown as Failed.
+    ok = explicit_ok if isinstance(explicit_ok, bool) else (status in ("success", "done") if status else None)
     if status == "error":
         ok = False
     code = data.get("error") or result.get("error")

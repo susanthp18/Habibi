@@ -52,7 +52,9 @@ async def _notify_started(run: Any, context: dict[str, Any]) -> None:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.post(
                 url,
-                json={"workflow_run_id": run.id, "workflow_id": run.workflow_id, "initial_context": context},
+                # mode: how the media arrives (twilio, ari, smallwebrtc...), for PayInt's transport.
+                json={"workflow_run_id": run.id, "workflow_id": run.workflow_id, "mode": run.mode,
+                      "initial_context": context},
                 headers={"Authorization": f"Bearer {os.getenv('PAYINT_HOOK_TOKEN', '')}"},
             )
             resp.raise_for_status()

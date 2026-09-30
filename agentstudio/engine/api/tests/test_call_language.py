@@ -192,3 +192,10 @@ async def test_only_a_clear_answer_switches():
 
 async def _checks_done(tracker):
     await asyncio.gather(*tracker.checks)
+
+
+def test_the_rule_rules_out_every_other_language():
+    """Run 88 answered an English caller in Kannada; the rule only listed the allowed languages."""
+    rule = multilingual_reply_rule(["en-IN", "hi-IN", "ta-IN"])
+    assert "Never reply in any language other than English, Hindi, Tamil" in rule
+    assert not any(ch.isdigit() for ch in rule)

@@ -41,11 +41,18 @@ class InterceptHandler(logging.Handler):
         except ValueError:
             level = record.levelno
 
+        message = record.getMessage()
+        if "/telephony/ws/" in message:
+            # uvicorn's access and WebSocket lines carry the media socket's
+            # path, capability token and all (run 88).
+            from api.services.telephony.ws_auth import redact_token
+
+            message = redact_token(message)
         # Use the original record's information instead of trying to find the caller
         # This preserves the logger name (e.g., "uvicorn.access") in the logs
         loguru.logger.patch(lambda r: r.update(name=record.name)).opt(
             exception=record.exc_info
-        ).log(level, record.getMessage())
+        ).log(level, message)
 
 
 def enrich_log_record(record):

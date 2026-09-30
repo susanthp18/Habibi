@@ -5,6 +5,7 @@ from api.services.pipecat.realtime_feedback_events import (
     build_user_transcription_event,
     realtime_feedback_event_sort_key,
     stamp_realtime_feedback_event,
+    summarize_realtime_feedback_tool_result,
 )
 from api.utils.transcript import generate_transcript_text
 
@@ -145,3 +146,10 @@ def test_summary_keeps_tool_provenance():
     assert summary["tool_uuid"] == "3f0c6a52-0000-4000-8000-000000000001"
     assert summary["duration_ms"] == 412
     assert summary["verified"] is False
+
+
+def test_a_taken_transition_is_a_success_and_a_refused_one_a_failure():
+    """Run 88: every {'status': 'done'} node move was shown as Failed in the run view."""
+    assert summarize_realtime_feedback_tool_result({"status": "done"})["ok"] is True
+    refused = summarize_realtime_feedback_tool_result({"status": "error", "error": "user_turn_required"})
+    assert refused["ok"] is False and refused["error_code"] == "user_turn_required"

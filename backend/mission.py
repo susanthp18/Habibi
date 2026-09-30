@@ -176,20 +176,11 @@ def _open_promise(conn: Any, customer_id: str) -> dict[str, Any] | None:
         "status": row["status"],
         "daysLate": days_late,
     }
-    if row["plan_id"]:  # paying it in parts (db_promises.set_promise_schedule)
-        parts = [
-            {"amount": float(p["amount"]), "date": clock.local_day(p["due_date"]).isoformat()}
-            for p in conn.execute(
-                text("SELECT amount, due_date FROM promise_installments WHERE plan_id = :p ORDER BY installment_index"),
-                {"p": row["plan_id"]},
-            ).mappings()
-        ]
-        # Only a schedule of this promise: an older payment plan the promise
-        # was the first instalment of (the seeded ₹4,800 + ₹4,800) was read
-        # out as its parts on run 70.
-        if (parts and round(sum(p["amount"] for p in parts), 2) == out["amountInr"]
-                and parts[-1]["date"] == out["promisedDate"]):
-            out["parts"] = parts
+    from db_promises import promise_parts
+
+    # Paying it in parts (db_promises.set_promise_schedule); only a schedule of this promise.
+    if parts := promise_parts(conn, row["plan_id"], row["amount"], promised):
+        out["parts"] = parts
     return out
 
 

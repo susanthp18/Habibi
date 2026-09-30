@@ -155,11 +155,6 @@ def _intent_expiry(promised_at: datetime, *, now: datetime | None = None) -> dat
     return (end + timedelta(days=1)).astimezone(timezone.utc)
 
 
-def _due_reminder_at(promised_at: datetime) -> datetime:
-    day = _promised_date_ist(promised_at)
-    return datetime(day.year, day.month, day.day, 8, 15, tzinfo=IST).astimezone(timezone.utc)
-
-
 def _refreshed(
     conn: Any,
     existing: Any,
@@ -227,7 +222,7 @@ def _load_promise(conn: Any, promise_id: str) -> dict[str, Any] | None:
         text(
             """
             SELECT p.id, p.customer_id, p.account_id, p.interaction_id, p.amount,
-                   p.promised_at, p.status, p.paid_amount, p.channel,
+                   p.promised_at, p.status, p.paid_amount, p.channel, p.plan_id,
                    c.tenant_id, c.name AS customer_name, c.phone_primary, c.phone_alt,
                    c.dnd, a.outstanding
             FROM promises p
@@ -275,16 +270,47 @@ def _inside_service_window(conn: Any, conversation_id: str, *, now: datetime | N
     return (now - last) <= timedelta(hours=24)
 
 
-def _confirm_copy(*, amount: Any, promised_at: datetime, pay_url: str, expires_at: datetime | None) -> str:
-    date_s = _promised_date_ist(promised_at).strftime("%d %b %Y")
-    rupees = money_inr.template_amount(amount)
+def _day_s(day: Any) -> str:
+    """ "02 Oct": the promise window is days, so the year only lengthens the SMS."""
+    d = day if isinstance(day, date) and not isinstance(day, datetime) else None
+    if d is None:
+        d = _promised_date_ist(day) if isinstance(day, datetime) else date.fromisoformat(str(day))
+    return d.strftime("%d %b")
+
+
+def _confirm_copy(
+    *,
+    amount: Any,
+    promised_at: datetime,
+    pay_url: str,
+    expires_at: datetime | None,
+    parts: list[dict[str, Any]] | None = None,
+) -> str:
+    """The written confirmation: the terms as recorded, parts and all, and the link.
+
+    GSM-7 only ("Rs", not the rupee sign): one non-GSM character makes the whole
+    message UCS-2, 67 characters a segment, and run 88's four-segment SMS was
+    refused by the carrier (Twilio 30044). Kept to two segments with a real pay
+    URL; see tests/test_promise_sms_copy.py.
+    """
+    terms = f"Rs {money_inr.template_amount(amount)} by {_day_s(promised_at)}"
+    if parts:
+        terms += " (" + ", ".join(
+            f"Rs {money_inr.template_amount(p['amount'])} by {_day_s(p['date'])}" for p in parts
+        ) + ")"
     expiry = ""
     if expires_at is not None:
         exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
-        expiry = f" This link is valid until {exp.astimezone(IST).strftime('%d %b %Y, %I:%M %p IST')}."
+        expiry = f", valid till {exp.astimezone(IST).strftime('%d %b %I:%M %p')}"
+    return f"Your promise to pay {terms} is recorded. Pay: {pay_url}{expiry}. Do not share this link."
+
+
+def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None) -> str:
+    """The due-day reminder: what is due today (this part, if paid in parts)."""
+    which = f" (part {part[0]} of {part[1]})" if part else ""
     return (
-        f"We've recorded your promise to pay ₹{rupees} by {date_s}. "
-        f"Pay securely here: {pay_url}.{expiry} Do not share this link."
+        f"Reminder: Rs {money_inr.template_amount(amount)} is due today on your promise{which}. "
+        f"Pay: {pay_url} Do not share this link."
     )
 
 
@@ -300,11 +326,13 @@ def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: s
     dest = f"ending {last4}" if last4 else "on file"
     if channel == "whatsapp":
         return (
-            f"I've recorded {rupees} rupees by {date_s} and sent a payment link "
+            f"I've recorded {rupees} rupees by {date_s}, and a payment link is on its way "
             f"to WhatsApp {dest}."
         )
+    # "On its way", not "sent": it is queued here and delivered (or refused by
+    # the carrier) after the call has moved on; run 88's SMS never arrived.
     return (
-        f"I've recorded {rupees} rupees by {date_s} and sent a payment link "
+        f"I've recorded {rupees} rupees by {date_s}, and a payment link is on its way "
         f"by SMS to the number {dest}."
     )
 
@@ -450,42 +478,74 @@ def _get_or_create_intent(conn: Any, promise: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _schedule_due_reminder(conn: Any, promise: dict[str, Any], channel: str) -> None:
+def _parts(conn: Any, promise: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The promise's parts, if it is paid in parts (``db_promises.promise_parts``)."""
+    from db_promises import promise_parts
+
+    return promise_parts(conn, promise.get("plan_id"), promise["amount"], promise["promised_at"])
+
+
+def _sync_due_reminders(conn: Any, promise: dict[str, Any], channel: str) -> None:
+    """One due-day reminder per payment day still ahead, matching the live terms.
+
+    The day of each part, or the promise's own day when it is one payment,
+    08:15 IST. Re-run on every fulfil, so a revision moves them: run 88's
+    reminder stayed on the old 6 Oct after the promise moved to the 7th,
+    because a due row that already existed was left as it was. An unsent
+    reminder for a day no longer owed is switched off; a sent one is history.
+    """
     import db as dbmod
 
-    promised_day = _promised_date_ist(promise["promised_at"])
     today = utc_now().astimezone(IST).date()
-    if promised_day <= today:
-        return
-    exists = conn.execute(
+    days = [date.fromisoformat(p["date"]) for p in (_parts(conn, promise) or [])]         or [_promised_date_ist(promise["promised_at"])]
+    wanted = {day for day in days if day > today}
+    rows = conn.execute(
         text(
             """
-            SELECT 1 FROM promise_reminders
+            SELECT id, due_on, status, sending_at FROM promise_reminders
             WHERE promise_id = :pid AND kind = 'due'
-            LIMIT 1
+            FOR UPDATE
             """
         ),
         {"pid": promise["id"]},
-    ).fetchone()
-    if exists:
-        return
-    conn.execute(
-        text(
-            """
-            INSERT INTO promise_reminders (
-              id, promise_id, channel, kind, scheduled_at, status
-            ) VALUES (
-              :id, :promise_id, :channel, 'due', :scheduled_at, 'scheduled'
+    ).mappings().all()
+    held = {row["due_on"]: row for row in rows}
+    for row in rows:
+        if row["due_on"] not in wanted and row["status"] in ("queued", "scheduled") and row["sending_at"] is None:
+            conn.execute(
+                text("UPDATE promise_reminders SET status = 'off', updated_at = now() WHERE id = :id"),
+                {"id": row["id"]},
             )
-            """
-        ),
-        {
-            "id": dbmod._id("PRM"),
-            "promise_id": promise["id"],
-            "channel": channel if channel in {"whatsapp", "sms"} else "whatsapp",
-            "scheduled_at": _due_reminder_at(promise["promised_at"]),
-        },
-    )
+    for day in sorted(wanted):
+        at = datetime(day.year, day.month, day.day, 8, 15, tzinfo=IST).astimezone(timezone.utc)
+        row = held.get(day)
+        if row is None:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO promise_reminders (
+                      id, promise_id, channel, kind, due_on, scheduled_at, status
+                    ) VALUES (
+                      :id, :promise_id, :channel, 'due', :due_on, :scheduled_at, 'scheduled'
+                    )
+                    """
+                ),
+                {
+                    "id": dbmod._id("PRM"),
+                    "promise_id": promise["id"],
+                    "channel": channel if channel in {"whatsapp", "sms"} else "whatsapp",
+                    "due_on": day,
+                    "scheduled_at": at,
+                },
+            )
+        elif row["status"] == "off":  # owed again (a revision moved back to this day)
+            conn.execute(
+                text(
+                    "UPDATE promise_reminders SET status = 'scheduled', scheduled_at = :at, "
+                    "attempts = 0, last_error = NULL, updated_at = now() WHERE id = :id"
+                ),
+                {"id": row["id"], "at": at},
+            )
 
 
 def enqueue_whatsapp_paylink(
@@ -596,6 +656,19 @@ def _enqueue_sms_reminder(
         ).fetchone()
         if existing:
             return
+    else:
+        # One confirmation of the current terms: an earlier one not yet sent
+        # would go out too, composed (at send time) from the same live terms.
+        conn.execute(
+            text(
+                """
+                UPDATE promise_reminders SET status = 'off', updated_at = now()
+                WHERE promise_id = :pid AND kind = 'confirm'
+                  AND status IN ('queued','scheduled') AND sending_at IS NULL
+                """
+            ),
+            {"pid": promise["id"]},
+        )
     conn.execute(
         text(
             """
@@ -650,6 +723,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
         promised_at=promise["promised_at"],
         pay_url=intent["pay_url"],
         expires_at=intent.get("expires_at"),
+        parts=_parts(conn, promise),
     )
 
     channel: str | None = None
@@ -679,7 +753,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             last4=result.phone_last4,
             suppressed=result.suppressed,
         )
-        _schedule_due_reminder(conn, promise, result.confirm_channel or "whatsapp")
+        _sync_due_reminders(conn, promise, result.confirm_channel or "whatsapp")
         return result
 
     import contact_policy
@@ -744,7 +818,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
             last4=last4,
             suppressed=True,
         )
-        _schedule_due_reminder(conn, promise, "whatsapp")
+        _sync_due_reminders(conn, promise, "whatsapp")
         return result
 
     sent = False
@@ -854,7 +928,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
         last4=result.phone_last4,
         suppressed=result.suppressed,
     )
-    _schedule_due_reminder(conn, promise, channel or "whatsapp")
+    _sync_due_reminders(conn, promise, channel or "whatsapp")
     return result
 
 
@@ -1135,12 +1209,24 @@ def _prepare_reminder(
     # Sending nothing is better than sending a link that cannot be paid.
     if intent["status"] not in OPEN_INTENT:
         return {"outcome": "failed", "reason": f"intent_{intent['status']}"}
-    body = _confirm_copy(
-        amount=intent["amount"],
-        promised_at=promise["promised_at"],
-        pay_url=intent["pay_url"],
-        expires_at=intent.get("expires_at"),
-    )
+    parts = _parts(conn, promise)
+    if reminder.get("kind") == "due":
+        # What is due today, not the confirmation again: the due reminder used
+        # to re-send the confirm copy, total and all, on the part's day.
+        index = next((i for i, p in enumerate(parts or [], 1) if p["date"] == str(reminder.get("due_on"))), None)
+        body = _due_copy(
+            amount=parts[index - 1]["amount"] if index else intent["amount"],
+            pay_url=intent["pay_url"],
+            part=(index, len(parts)) if index else None,
+        )
+    else:
+        body = _confirm_copy(
+            amount=intent["amount"],
+            promised_at=promise["promised_at"],
+            pay_url=intent["pay_url"],
+            expires_at=intent.get("expires_at"),
+            parts=parts,
+        )
     channel = reminder["channel"]
     phone = promise.get("phone_primary")
     purpose = "statutory" if reminder.get("kind") == "confirm" else "outreach"
@@ -1236,6 +1322,55 @@ def _record_reminder(
         )
 
 
+def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
+    """The carrier's later word that a reminder it accepted never arrived.
+
+    Run 88's confirmation SMS was accepted (201), then failed (Twilio 30044),
+    and the reminder, the pay intent and the next revision all went on saying
+    it was sent. Only a ``sent`` reminder moves, and only to ``failed``, so a
+    replayed or late callback changes nothing. A failed confirmation puts the
+    intent back to ``created``: still the open intent with the same link (ADR
+    0008), now reading as not delivered wherever ``payLinkSent`` is shown, and
+    the next change of terms sends it again. Nothing is re-sent from here.
+
+    ponytail: a receipt that beats the drain's own "sent" write (the carrier
+    answering within the ~100 ms between send and record) is not applied; the
+    receipt row in contact_delivery_events still holds it.
+    """
+    import db as dbmod
+
+    row = conn.execute(
+        text(
+            """
+            UPDATE promise_reminders
+            SET status = 'failed', last_error = :err, updated_at = now()
+            WHERE id = :id AND status = 'sent'
+            RETURNING promise_id, kind
+            """
+        ),
+        {"id": reminder_id, "err": error[:200]},
+    ).mappings().first()
+    if row is None:
+        return False
+    customer_id = conn.execute(
+        text("SELECT customer_id FROM promises WHERE id = :id"), {"id": row["promise_id"]}
+    ).scalar()
+    if row["kind"] == "confirm":
+        conn.execute(
+            text("UPDATE payment_intents SET status = 'created' WHERE promise_id = :pid AND status = 'sent'"),
+            {"pid": row["promise_id"]},
+        )
+        label = "Payment link not delivered"
+    else:
+        conn.execute(
+            text("UPDATE promises SET reminder_status = 'failed' WHERE id = :pid AND reminder_status = 'sent'"),
+            {"pid": row["promise_id"]},
+        )
+        label = "Due reminder not delivered"
+    dbmod.record_activity(conn, "promise", row["promise_id"], "promise_confirmed", label, error, customer_id)
+    return True
+
+
 def _reap_lost_reminders(conn: Any) -> int:
     """A lease older than the window is a send whose outcome never came back.
 
@@ -1275,7 +1410,7 @@ def process_one_reminder(engine: Engine | Any) -> bool:
         row = conn.execute(
             text(
                 """
-                SELECT id, promise_id, channel, kind, status
+                SELECT id, promise_id, channel, kind, status, due_on
                 FROM promise_reminders
                 WHERE kind IN ('confirm','due')
                   AND status IN ('queued','scheduled')

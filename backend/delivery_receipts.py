@@ -116,6 +116,18 @@ def record_twilio_sms_status(*, sid: str, state: str, reason: str | None) -> boo
             state=state,
             reason=reason,
         )
+        if state in ("failed", "undelivered") and origin["related_id"]:
+            # A promise reminder the carrier accepted and then failed stops
+            # reading "sent" (run 88). Under a savepoint: this module never raises.
+            try:
+                import promise_fulfillment
+
+                with conn.begin_nested():
+                    promise_fulfillment.delivery_failed(
+                        conn, str(origin["related_id"]), f"twilio:{reason or state}"
+                    )
+            except Exception:
+                logger.exception("promise reminder not marked failed for sid=%s", sid)
     return True
 
 

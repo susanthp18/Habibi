@@ -18,7 +18,6 @@ from agent_core.clock import utc_now
 from db_core import (
     _activity,
     _actor,
-    _actor_user_id,
     _assert_tenant_owns_customer,
     _consent_channel,
     _ensure_customer,
@@ -870,7 +869,7 @@ def _patch_consent_tx(conn: Any, customer_id: str, payload: dict[str, Any]) -> N
     change_log.record_consent_change(
         conn,
         tenant_id=current_tenant(),
-        actor_user_id=_actor_user_id(),
+        actor_user_id=_actor()[1],  # None for a bot or worker: no person acted
         customer_id=customer_id,
         change={"kind": kind, "fields": {k: v for k, v in payload.items() if k != "note"}},
     )
@@ -957,7 +956,7 @@ def _opt_out_tx(conn: Any, customer_id: str, payload: dict[str, Any]) -> None:
     change_log.record_consent_change(
         conn,
         tenant_id=current_tenant(),
-        actor_user_id=_actor_user_id(),
+        actor_user_id=_actor()[1],  # None for a bot or worker: no person acted
         customer_id=customer_id,
         change={"kind": "opt_out", "channel": channel_raw, "source": source},
     )

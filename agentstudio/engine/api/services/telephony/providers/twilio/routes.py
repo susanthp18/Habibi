@@ -4,8 +4,6 @@ Mounted under ``/api/v1/telephony`` by ``api.routes.telephony`` via the
 provider registry — see ProviderSpec.router.
 """
 
-import json
-
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
@@ -67,10 +65,6 @@ async def handle_twilio_status_callback(
     form_data = await request.form()
     callback_data = dict(form_data)
 
-    logger.info(
-        f"[run {workflow_run_id}] Received status callback: {json.dumps(callback_data)}"
-    )
-
     # Get workflow run to find organization
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
     if not workflow_run:
@@ -95,6 +89,14 @@ async def handle_twilio_status_callback(
     if not is_valid:
         logger.warning(f"Invalid webhook signature for workflow run {workflow_run_id}")
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    # After the signature, and only what a person needs: the whole form (both
+    # phone numbers in full) used to be logged before anything was verified.
+    logger.info(
+        f"[run {workflow_run_id}] Received status callback: "
+        f"call={callback_data.get('CallSid')} status={callback_data.get('CallStatus')} "
+        f"to=...{str(callback_data.get('To') or '')[-4:]}"
+    )
 
     # Parse the callback data into generic format
     parsed_data = provider.parse_status_callback(callback_data)

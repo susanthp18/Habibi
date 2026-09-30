@@ -19,6 +19,8 @@ from env_utils import is_prod
 import secrets
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -50,6 +52,25 @@ def bind_service_actor(kind: str = "system", *, bot_id: str | None = None) -> No
         raise ValueError(f"actor kind {kind!r} is not one of {sorted(ACTOR_KINDS)}")
     _actor_kind_var.set(kind)
     _actor_bot_var.set((bot_id or "").strip() or None)
+
+
+@contextmanager
+def acting_as(kind: str, *, bot_id: str | None = None) -> Iterator[None]:
+    """``bind_service_actor`` for one block: a request handler acting as a bot.
+
+    Scoped, unlike the startup bind: the actor is restored on exit, so a
+    handler called directly (a test, a worker loop) leaves no machine actor
+    behind for whatever runs next on that thread.
+    """
+    if kind not in ACTOR_KINDS:
+        raise ValueError(f"actor kind {kind!r} is not one of {sorted(ACTOR_KINDS)}")
+    kind_token = _actor_kind_var.set(kind)
+    bot_token = _actor_bot_var.set((bot_id or "").strip() or None)
+    try:
+        yield
+    finally:
+        _actor_bot_var.reset(bot_token)
+        _actor_kind_var.reset(kind_token)
 
 
 def get_actor_kind() -> str:

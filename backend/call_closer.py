@@ -508,15 +508,28 @@ def numbers_are_grounded(candidate: str, allowed: set[str]) -> bool:
 # LLM enrichment
 # ---------------------------------------------------------------------------
 
+#: What a borrower can object, as the closer may record it. The list used to be
+#: free-form with "amount_disputed" as the example, and run 88's "I can only do
+#: 2,000 this week" came back as amount_disputed.
+OBJECTIONS: dict[str, str] = {
+    "already_paid": "says they have already paid",
+    "amount_disputed": "says the amount or balance is wrong, or not theirs",
+    "cannot_pay_full": "can pay only part of what is due",
+    "needs_time": "needs more time or a later date than offered",
+    "financial_hardship": "job loss, illness, reduced income or similar difficulty",
+    "busy_now": "cannot talk now or asks to be called another time",
+    "distrust": "doubts the call is genuine",
+    "wrong_person": "is not the account holder",
+}
+
 _SYSTEM = """You are closing out one completed collections call for an Indian retail
 bank. You are given the transcript and the facts the system already recorded.
 
 Return a strict JSON object with exactly these keys:
   "business"   — one of the allowed outcome codes, or null if none applies
   "reason"     — one of the allowed non-payment reason codes, or null
-  "objections" — array of short lowercase snake_case objection codes the borrower
-                 raised (e.g. "amount_disputed", "needs_time", "already_paid").
-                 Empty array if none.
+  "objections" — array of the allowed objection codes the borrower raised, each
+                 only when they said it. Empty array if none.
   "unanswered" — array of questions the borrower asked that the agent did not
                  answer. Verbatim, short, no account numbers. Empty if none.
   "summary"    — two sentences, plain English, describing what happened and what
@@ -553,6 +566,8 @@ def _enrich(
         f"Mission: {objective}\n"
         f"Allowed outcome codes: {', '.join(sorted(BUSINESS_OUTCOMES))}\n"
         f"Allowed reason codes: {', '.join(sorted(NONPAYMENT_REASONS))}\n"
+        "Allowed objection codes:\n"
+        + "".join(f"  {code}: {meaning}\n" for code, meaning in OBJECTIONS.items()) +
         f"Already proved by system records (do not contradict): {known}"
     )
     try:
@@ -597,6 +612,42 @@ def _clean_list(value: Any, *, limit: int = 6, max_len: int = 120) -> list[str]:
         if isinstance(item, str) and item.strip():
             out.append(item.strip()[:max_len])
     return out
+
+
+def _words(value: str) -> str:
+    return " ".join(re.findall(r"\w+", value.lower()))
+
+
+def _topic(value: str) -> set[str]:
+    return {w for w in re.findall(r"\w+", value.lower()) if len(w) >= 5}
+
+
+def _still_unanswered(conn: Any, interaction_id: str | None, questions: list[str]) -> list[str]:
+    """Drop the questions the transcript shows the agent answering.
+
+    Run 88 listed "Does your travel insurance cover adventure sports?" as
+    unanswered; the agent's very next turn answered it from the policy. A
+    question is taken as answered only when it is found in a customer turn and
+    the agent's reply straight after it shares two of its words ("travel",
+    "cover", "adventure", "sports"); a paraphrase, a reply about something
+    else, or a question that ended the call stays unanswered.
+    """
+    if not questions or not interaction_id:
+        return questions
+    turns = conn.execute(
+        text("SELECT speaker, text FROM interaction_transcript WHERE interaction_id = :ix ORDER BY turn_index"),
+        {"ix": interaction_id},
+    ).all()
+    answered: set[str] = set()
+    for turn, reply in zip(turns, turns[1:]):
+        if turn.speaker != "customer" or reply.speaker == "customer":
+            continue
+        said = _words(turn.text or "")
+        answered.update(
+            q for q in questions
+            if _words(q) and _words(q) in said and len(_topic(q) & _topic(reply.text or "")) >= 2
+        )
+    return [q for q in questions if q not in answered]
 
 
 # ---------------------------------------------------------------------------
@@ -975,8 +1026,11 @@ def close_one(
         model_reason = str(enrichment.get("reason") or "")
         if reason is None and model_reason in NONPAYMENT_REASONS:
             reason = model_reason
-        objections = _clean_list(enrichment.get("objections"), limit=6, max_len=64)
-        unanswered = _clean_list(enrichment.get("unanswered"), limit=5, max_len=200)
+        objections = [o for o in _clean_list(enrichment.get("objections"), limit=6, max_len=64)
+                      if o in OBJECTIONS]
+        unanswered = _still_unanswered(
+            conn, interaction_id, _clean_list(enrichment.get("unanswered"), limit=5, max_len=200)
+        )
         proposed = str(enrichment.get("summary") or "").strip()
         # The fence: the summary was told to contain no digits at all, so the
         # allowed set is empty and any number in it fails.
