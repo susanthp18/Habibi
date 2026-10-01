@@ -319,7 +319,7 @@ parse_allowed_hours = _parse_hours
 parse_allowed_days = _parse_days
 
 
-def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
+def _preferred_minutes(customer: dict[str, Any]) -> tuple[int, int] | None:
     """The borrower's own window: consent hours intersected with their preference.
 
     Two columns describe the same thing and only one of them was ever consulted
@@ -338,8 +338,8 @@ def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
     contains an ``18:00-21:00 IST`` preference, and intersecting it with the
     statutory 19:00 cut-off is what stops that row buying a nine o'clock call.
     """
-    consent = _parse_hours(customer.get("allowed_hours"))
-    stated = _parse_hours(customer.get("preferred_window"))
+    consent = contact_window.parse_window(customer.get("allowed_hours"))
+    stated = contact_window.parse_window(customer.get("preferred_window"))
     if consent is None:
         return stated
     if stated is None:
@@ -348,9 +348,20 @@ def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
     end = min(consent[1], stated[1])
     # Two windows that do not overlap describe a borrower nobody may ever call,
     # which is almost certainly a data-entry error rather than a wish. Fall back
-    # to the recorded consent — the column an operator captured deliberately —
+    # to the recorded consent -- the column an operator captured deliberately --
     # and leave the statutory window doing the outer bounding it always did.
+    # In minutes: whole hours turned a 10:30-11:30 preference into an empty
+    # 11-11 and this fallback then widened it to the whole consent window.
     return (start, end) if start < end else consent
+
+
+def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
+    """:func:`_preferred_minutes` in whole hours, rounded inward, for the
+    hour-granular planner and :func:`narrow_window`."""
+    window = _preferred_minutes(customer)
+    if window is None:
+        return None
+    return -(-window[0] // 60), window[1] // 60
 
 
 #: The borrower's effective window — consent hours intersected with the CRM's
@@ -728,9 +739,9 @@ def _statutory_window(rules: Any | None, channel: str) -> tuple[int, int]:
 
 
 def _consent_window(customer: dict[str, Any]) -> tuple[tuple[int, int], list[int] | None]:
-    """The borrower's own preferred hours and days."""
+    """The borrower's own window, in minutes of the day, and days."""
     return (
-        _preferred_hours(customer) or contact_window.window_hours(None),
+        _preferred_minutes(customer) or contact_window.window_minutes(None),
         _parse_days(customer.get("allowed_days")),
     )
 
@@ -741,8 +752,8 @@ def _next_window_open(
     rules: Any | None,
     channel: str,
     customer: dict[str, Any],
-) -> datetime:
-    """The next instant both windows are open, in UTC.
+) -> datetime | None:
+    """The next instant both windows are open, in UTC; None if they never are.
 
     Shares :func:`_statutory_window` and :func:`_consent_window` with the veto
     that produced the refusal, so the answer to "why not now" and the answer to
@@ -755,19 +766,18 @@ def _next_window_open(
     """
     s_start, s_end = _statutory_window(rules, channel)
     (c_start, c_end), days = _consent_window(customer)
-    start_h = max(s_start, c_start)
-    end_h = min(s_end, c_end)
-    if start_h >= end_h:
-        # The published window and the borrower's preference do not overlap.
-        # Nothing to schedule; the caller treats None-ish deadlines as "ask
-        # again tomorrow" rather than inventing a slot neither rule allows.
-        start_h, end_h = s_start, s_end
+    start = max(s_start * 60, c_start)
+    end = min(s_end * 60, c_end)
+    if start >= end:
+        # The published window and the borrower's do not overlap: no slot
+        # ever opens, so the refusal is not deferrable.
+        return None
 
     candidate = now_local
-    if now_local.hour >= start_h:
+    if contact_window.minute_of_day(now_local) >= start:
         candidate = now_local + timedelta(days=1)
     for _ in range(8):
-        opens = candidate.replace(hour=start_h, minute=0, second=0, microsecond=0)
+        opens = candidate.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
         if opens > now_local and (days is None or (opens.isoweekday() % 7) in days):
             return opens.astimezone(timezone.utc)
         candidate = candidate + timedelta(days=1)
@@ -867,15 +877,15 @@ def _veto(
 
     # Published window, else the conservative 08:00–19:00 platform bound.
     # Messages use that bound until counsel cites a distinct instrument.
+    minute = contact_window.minute_of_day(now_local)
     start_h, end_h = _statutory_window(rules, channel)
-    if now_local.hour < start_h or now_local.hour >= end_h:
+    if minute < start_h * 60 or minute >= end_h * 60:
         if purpose == "statutory":
             return REASON_WINDOW_DEFERRED_STATUTORY
         return REASON_HOURS
 
-    hours, days = _consent_window(customer)
-    start_h, end_h = hours
-    if now_local.hour < start_h or now_local.hour >= end_h:
+    (start, end), days = _consent_window(customer)
+    if minute < start or minute >= end:
         if purpose == "statutory":
             return REASON_WINDOW_DEFERRED_STATUTORY
         return REASON_WINDOW

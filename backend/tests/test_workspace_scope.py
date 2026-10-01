@@ -281,3 +281,23 @@ def test_reading_presence_does_not_set_anyone_available(db_tx, as_actor) -> None
     assert not db_tx.execute(
         text("SELECT 1 FROM agent_presence WHERE user_id = :u"), {"u": AGENT}
     ).first()
+
+
+def test_the_attention_filter_is_overdue_and_due_soon_together(db_tx, as_actor) -> None:
+    """"View all" lists everything the attention count counted, not only the overdue half."""
+    customer = _customer_of(db_tx, ADMIN)
+    soon = _callback(db_tx, customer, at=_now() + timedelta(minutes=30), assignee=ADMIN)
+    as_actor(ADMIN)
+    rows = db.list_work_items(assignee="all", due="attention", limit=1000)
+    counts = db.workspace_summary(assignee="all")["queueCounts"]
+    assert soon in {r["id"] for r in rows}
+    assert len(rows) == counts["overdue"] + counts["dueSoon"]
+
+
+def test_a_contact_warning_past_its_check_limit_says_it_is_partial(db_tx, as_actor, monkeypatch) -> None:
+    import db_workspace
+
+    _callback(db_tx, _customer_of(db_tx, ADMIN), at=_now() + timedelta(days=1), assignee=ADMIN)
+    monkeypatch.setattr(db_workspace, "BLOCKED_CHECK_LIMIT", 0)
+    as_actor(ADMIN)
+    assert db.workspace_summary(assignee="me")["callbacksBlockedPartial"] is True

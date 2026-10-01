@@ -225,6 +225,15 @@ export async function apiGet<T>(path: string, init?: ApiInit<T>): Promise<T> {
   return init?.schema ? init.schema.parse(payload) : parseWire<T>("GET", path, payload);
 }
 
+let afterWrite: (() => void) | undefined;
+
+/** Run after every successful write. Projections built from many domains (My
+ *  Workspace's queue and summary) refresh here, the one place every write
+ *  passes -- a mutation hook or a direct call from a screen. */
+export function setAfterWrite(fn: () => void): void {
+  afterWrite = fn;
+}
+
 async function apiSend<T>(
   method: "POST" | "PATCH" | "DELETE" | "PUT",
   path: string,
@@ -253,6 +262,7 @@ async function apiSend<T>(
       res.headers.get("X-Request-Id"),
     );
   }
+  afterWrite?.();
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   if (!text) return undefined as T;
@@ -368,6 +378,7 @@ export async function apiUpload<T>(
   if (!res.ok) {
     throw new ApiError("POST", path, res.status, await errorDetail(res));
   }
+  afterWrite?.();
   return (await res.json()) as T;
 }
 

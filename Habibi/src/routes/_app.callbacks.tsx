@@ -60,7 +60,7 @@ function CallbacksPage() {
     isPending: callbacksPending,
     isError: callbacksError,
     error: callbacksErr,
-  } = useCallbacks();
+  } = useCallbacks(search.id);
   const { data: liveCustomers } = useCustomers();
   const { data: staff = [] } = useStaff();
   const { data: teams = [] } = useTeams();

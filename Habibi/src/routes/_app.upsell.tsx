@@ -20,6 +20,7 @@ import {
   leadOwnerOptions,
   patchLead,
   useLeadMetrics,
+  useLead,
   useLeads,
   type LeadQuery,
 } from "@/api/upsell";
@@ -88,7 +89,9 @@ function UpsellPage() {
     error: leadsErr,
   } = useLeads(query);
   const { data: metrics } = useLeadMetrics(query);
-  const openLead = openId ? (filtered.find((l) => l.id === openId) ?? null) : null;
+  const listed = openId ? filtered.find((l) => l.id === openId) : undefined;
+  const { data: linked } = useLead(openId, !leadsPending && !listed);
+  const openLead = listed ?? linked ?? null;
   // Filter rosters come from the DB in live mode. The hardcoded six names only
   // ever matched the seed, so filtering by owner silently matched nothing
   // against real data.

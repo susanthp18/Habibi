@@ -52,7 +52,7 @@ def list_work_items(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
     entityType: WorkItemEntityType | None = Query(default=None),
-    due: Literal["overdue", "due_soon", "later"] | None = Query(default=None),
+    due: Literal["attention", "overdue", "due_soon", "later"] | None = Query(default=None),
     q: str | None = Query(default=None, max_length=100),
 ):
     """One page of the queue. ``assignee``: me (mine, including unassigned work

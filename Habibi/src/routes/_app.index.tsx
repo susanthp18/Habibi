@@ -57,7 +57,12 @@ function WorkspacePage() {
   const [tab, setTab] = useState<QueueTab>("all");
   const [due, setDue] = useState<DueFilter | undefined>();
   const summary = useWorkspaceSummary(scope);
+  const mine = useWorkspaceSummary("me");
   const blocked = summary.data?.callbacksBlockedCount ?? 0;
+  const blockedPartial = summary.data?.callbacksBlockedPartial ?? false;
+  // A refresh that failed over cached data: the cards still show the last good
+  // read, so say when that was instead of passing it off as current.
+  const stale = [summary, mine].find((q) => q.isError && q.data);
   const name = firstName(me?.name) || firstName(entraDisplayName());
   const { greeting, date } = istGreeting(now);
 
@@ -95,16 +100,36 @@ function WorkspacePage() {
           </div>
         </div>
 
+        {stale && (
+          <div
+            role="status"
+            className="mt-250 flex items-center gap-150 rounded-xlarge border border-border-warning/25 bg-background-warning px-200 py-100 text-body-small text-text-warning"
+          >
+            Couldn’t refresh the workspace — showing data from{" "}
+            {new Date(stale.dataUpdatedAt).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            .
+            <button type="button" onClick={refresh} className="font-semibold underline">
+              Retry
+            </button>
+          </div>
+        )}
+
         {blocked > 0 && (
           <div className="mt-250 flex items-start gap-150 rounded-xlarge border border-border-warning/25 bg-background-warning px-200 py-150">
             <ShieldAlert className="mt-025 h-4 w-4 shrink-0 text-text-warning" />
             <div className="min-w-0 text-body">
               <span className="font-semibold text-text-warning">
+                {blockedPartial ? "At least " : ""}
                 {blocked} upcoming callback{blocked === 1 ? " is" : "s are"} booked for a time the
                 contact rules would refuse.
               </span>{" "}
               <span className="text-text-subtle">
-                Consent, DND, calling hours or caps block the slot — reschedule before it comes up.
+                An opt-out, DND, the calling hours, the borrower’s window or days, or a hold blocks
+                the slot — reschedule before it comes up.
+                {blockedPartial ? " Only the soonest 200 upcoming callbacks were checked." : ""}
               </span>
             </div>
             <button

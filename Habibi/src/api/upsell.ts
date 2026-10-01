@@ -276,6 +276,15 @@ export function useLeads(query: LeadQuery = {}) {
   });
 }
 
+/** One lead by id, for a deep link to a lead the board's filters leave out. */
+export function useLead(id: string | null | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["leads", "id", id],
+    queryFn: async () => (await fetchLeads({ q: id ?? "" })).find((l) => l.id === id) ?? null,
+    enabled: Boolean(id) && enabled,
+  });
+}
+
 // ---------- mutations ----------
 
 /** The board, its metrics, and -- when the lead belongs to a customer -- their 360. */

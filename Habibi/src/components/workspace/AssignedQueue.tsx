@@ -3,11 +3,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  WORK_PAGE,
   dueLabel,
   enactedByLabel,
   spanLabel,
-  useWorkItems,
+  liveLevel,
+  useWorkItemPages,
   useWorkspaceSummary,
   type DueFilter,
   type WorkItem,
@@ -42,6 +42,7 @@ const TABS: { key: QueueTab; label: string }[] = [
 ];
 
 const DUE_OPTIONS: { key: DueFilter; label: string }[] = [
+  { key: "attention", label: "Needs attention" },
   { key: "overdue", label: "Overdue" },
   { key: "due_soon", label: "Due within 2h" },
   { key: "later", label: "Later" },
@@ -82,7 +83,6 @@ export function AssignedQueue({
   const now = useNow();
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
-  const [limit, setLimit] = useState(WORK_PAGE);
   const summary = useWorkspaceSummary(scope);
   const counts = summary.data?.queueCounts;
   const totals = summary.data?.scopeTotals;
@@ -92,16 +92,14 @@ export function AssignedQueue({
     const t = window.setTimeout(() => setQ(search), 300);
     return () => window.clearTimeout(t);
   }, [search]);
-  useEffect(() => setLimit(WORK_PAGE), [scope, tab, due, q]);
 
-  const items = useWorkItems({
+  const items = useWorkItemPages({
     scope,
     entityType: tab === "all" ? undefined : tab,
     due,
     q,
-    limit,
   });
-  const rows = items.data ?? [];
+  const rows = useMemo(() => items.data?.pages.flat() ?? [], [items.data]);
   const filtered = Boolean(due || q.trim());
   const tabLabel = TABS.find((t) => t.key === tab)?.label ?? "All";
 
@@ -202,7 +200,10 @@ export function AssignedQueue({
         className: "min-w-[9rem] whitespace-nowrap",
         cell: (row) => (
           <span title={row.dueAt ? `Due ${fmtDateTime(row.dueAt)} IST` : undefined}>
-            <SlaPill level={row.sla} label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel} />
+            <SlaPill
+              level={liveLevel(row, now)}
+              label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel}
+            />
           </span>
         ),
         footer: (visible) => (
@@ -373,7 +374,9 @@ export function AssignedQueue({
       </div>
 
       <div className="min-h-[16rem] bg-surface-sunken/25 p-100">
-        {items.isError && !items.data ? (
+        {/* A failed read with nothing to show is an error, even when the last
+            good read was empty: "Nothing here" would be a claim. */}
+        {items.isError && rows.length === 0 ? (
           <QueryErrorBanner label="the queue" error={items.error} />
         ) : !items.isPending && rows.length === 0 ? (
           <div className="flex h-full min-h-[14rem] flex-col items-center justify-center gap-150 text-center">
@@ -407,21 +410,22 @@ export function AssignedQueue({
               isError={items.isError}
               error={items.error}
               updatedAt={items.dataUpdatedAt}
+              defaultSort={{ id: "due", dir: 1 }}
               errorLabel="the queue"
               emptyMessage="Nothing matches these filters."
               ariaLabel={`${scope === "me" ? "My queue" : "Team pool"} — ${tabLabel}`}
               className="border-0 shadow-none"
               tableClassName="min-w-[56rem]"
             />
-            {rows.length >= limit && (
+            {items.hasNextPage && (
               <div className="flex justify-center py-100">
                 <button
                   type="button"
-                  disabled={items.isFetching}
-                  onClick={() => setLimit((n) => n + WORK_PAGE)}
+                  disabled={items.isFetchingNextPage}
+                  onClick={() => void items.fetchNextPage()}
                   className="rounded-medium border border-border bg-surface px-150 py-075 text-body-small font-medium text-text hover:bg-surface-sunken disabled:opacity-60"
                 >
-                  {items.isFetching ? "Loading…" : "Load more"}
+                  {items.isFetchingNextPage ? "Loading…" : "Load more"}
                 </button>
               </div>
             )}

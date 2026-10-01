@@ -1,11 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
+import { setAfterWrite } from "@/api/config";
 import { createMutationCache } from "@/lib/mutation-errors";
 import { routeTree } from "./routeTree.gen";
 
 export const getRouter = () => {
-  const queryClient: QueryClient = new QueryClient({
-    mutationCache: createMutationCache(() => queryClient),
+  const queryClient = new QueryClient({
+    mutationCache: createMutationCache(),
     defaultOptions: {
       queries: {
         retry: 1,
@@ -16,6 +17,14 @@ export const getRouter = () => {
         retry: 0,
       },
     },
+  });
+
+  // My Workspace's queue and summary are built from callbacks, disputes,
+  // promises, documents and leads, and stay mounted in the shell: any write
+  // may move them.
+  setAfterWrite(() => {
+    void queryClient.invalidateQueries({ queryKey: ["work-items"] });
+    void queryClient.invalidateQueries({ queryKey: ["workspace-summary"] });
   });
 
   const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || "/";

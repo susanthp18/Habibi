@@ -2658,49 +2658,55 @@
   "body": [
    {
     "accountId": "HDFC-PL-2216",
-    "ageHours": 628,
     "amount": null,
     "assigneeUserId": "priya-nair",
+    "createdAt": "2026-08-17T13:18:13.046159+00:00",
     "customer": "Sameer Khan",
     "customerId": "sameer-khan",
     "detail": "General query",
+    "dueAt": "2026-07-22T07:30:00+00:00",
     "enactedBy": null,
     "entityType": "callback",
     "id": "CB-0001",
+    "relatedId": null,
     "sla": "breach",
-    "slaLabel": "Overdue 1258h",
+    "slaLabel": "Overdue 1709h 50m",
     "status": "missed",
-    "type": "Callback \u00b7 7:30 AM IST"
+    "type": "Callback \u00b7 1:00 PM IST"
    },
    {
     "accountId": "HDFC-RL-5540",
-    "ageHours": 628,
     "amount": null,
     "assigneeUserId": "priya-nair",
+    "createdAt": "2026-08-17T13:18:13.046159+00:00",
     "customer": "Arjun Nair",
     "customerId": "arjun-nair",
     "detail": "General query",
+    "dueAt": "2026-07-22T09:30:00+00:00",
     "enactedBy": null,
     "entityType": "callback",
     "id": "CB-0002",
+    "relatedId": null,
     "sla": "breach",
-    "slaLabel": "Overdue 1256h",
+    "slaLabel": "Overdue 1707h 50m",
     "status": "missed",
-    "type": "Callback \u00b7 9:30 AM IST"
+    "type": "Callback \u00b7 3:00 PM IST"
    },
    {
     "accountId": "AC-88214",
-    "ageHours": 876,
     "amount": 550000.0,
     "assigneeUserId": "priya-nair",
+    "createdAt": "2026-08-07T05:04:18.379714+00:00",
     "customer": "Anita Desai",
     "customerId": "anita-desai",
     "detail": "Debt Consolidation",
+    "dueAt": "2026-07-23T04:30:00+00:00",
     "enactedBy": null,
     "entityType": "lead",
     "id": "LD-1012",
+    "relatedId": null,
     "sla": "breach",
-    "slaLabel": "Overdue 1237h",
+    "slaLabel": "Overdue 1688h 50m",
     "status": "qualified",
     "type": "Lead \u00b7 Qualified"
    }
@@ -2710,51 +2716,106 @@
  },
  {
   "body": {
+   "attention": [
+    {
+     "accountId": "HDFC-PL-2216",
+     "amount": null,
+     "assigneeUserId": "priya-nair",
+     "createdAt": "2026-08-17T13:18:13.046159+00:00",
+     "customer": "Sameer Khan",
+     "customerId": "sameer-khan",
+     "detail": "General query",
+     "dueAt": "2026-07-22T07:30:00+00:00",
+     "enactedBy": null,
+     "entityType": "callback",
+     "id": "CB-0001",
+     "relatedId": null,
+     "sla": "breach",
+     "slaLabel": "Overdue 1709h 50m",
+     "status": "missed",
+     "type": "Callback \u00b7 1:00 PM IST"
+    },
+    {
+     "accountId": "HDFC-RL-5540",
+     "amount": null,
+     "assigneeUserId": "priya-nair",
+     "createdAt": "2026-08-17T13:18:13.046159+00:00",
+     "customer": "Arjun Nair",
+     "customerId": "arjun-nair",
+     "detail": "General query",
+     "dueAt": "2026-07-22T09:30:00+00:00",
+     "enactedBy": null,
+     "entityType": "callback",
+     "id": "CB-0002",
+     "relatedId": null,
+     "sla": "breach",
+     "slaLabel": "Overdue 1707h 50m",
+     "status": "missed",
+     "type": "Callback \u00b7 3:00 PM IST"
+    },
+    {
+     "accountId": "AC-77410",
+     "amount": 150000.0,
+     "assigneeUserId": null,
+     "createdAt": "2026-08-14T05:04:18.379714+00:00",
+     "customer": "Vikram Rao",
+     "customerId": "vikram-rao",
+     "detail": "Top-up Loan",
+     "dueAt": "2026-07-23T04:30:00+00:00",
+     "enactedBy": null,
+     "entityType": "lead",
+     "id": "LD-1001",
+     "relatedId": null,
+     "sla": "breach",
+     "slaLabel": "Overdue 1688h 50m",
+     "status": "interested",
+     "type": "Lead \u00b7 Interested"
+    }
+   ],
+   "callbacksBlockedCount": 0,
+   "callbacksBlockedPartial": false,
    "nextCallback": null,
    "nextLead": {
     "accountId": "AC-33417",
     "amount": 600000.0,
     "customer": "Deepa Iyer",
+    "customerId": "deepa-iyer",
     "id": "LD-1008",
+    "nextFollowupAt": "2026-07-23T04:30:00+00:00",
+    "priority": "high",
     "productName": "Debt Consolidation",
-    "reason": "I have three cards outstanding \u2014 can we combine into one lower EMI? That would really help. \u00b7 10:00-19:00 IST",
+    "reason": "I have three cards outstanding \u2014 can we combine into one lower EMI? That would really help.",
     "stage": "contacted",
     "window": "10:00-19:00 IST"
    },
-   "outsideWindowCount": 0,
-   "slaCountdowns": [
-    {
-     "enactedBy": null,
-     "id": "CB-0001",
-     "label": "Callback \u00b7 Sameer Khan",
-     "level": "breach",
-     "remaining": "Overdue 1258h"
+   "queueCounts": {
+    "byType": {
+     "bounce": 0,
+     "callback": 8,
+     "dispute": 3,
+     "document_request": 1,
+     "followup": 7,
+     "lead": 4,
+     "promise": 9
     },
-    {
-     "enactedBy": null,
-     "id": "CB-0002",
-     "label": "Callback \u00b7 Arjun Nair",
-     "level": "breach",
-     "remaining": "Overdue 1256h"
-    },
-    {
-     "enactedBy": null,
-     "id": "LD-1008",
-     "label": "lead \u00b7 Deepa Iyer",
-     "level": "breach",
-     "remaining": "Overdue 1237h"
-    }
-   ],
+    "dueSoon": 0,
+    "overdue": 31,
+    "total": 32
+   },
+   "scopeTotals": {
+    "me": 32,
+    "pool": 2
+   },
    "stats": {
-    "aht": "0m 00s",
-    "ahtDelta": "+0s vs team",
-    "callsHandled": 0,
-    "callsHandledDelta": "+0 vs prior 7d",
+    "ahtSec": 34,
+    "callsHandled": 1,
+    "callsHandledPrior": 0,
     "promisesAmount": 0.0,
     "promisesCount": 0,
-    "resolutionRate": "0%",
     "resolutions": 0,
-    "windowLabel": "Rolling 7 days"
+    "teamAhtSec": 34,
+    "windowEnd": "2026-10-01T13:20:34.185879+00:00",
+    "windowStart": "2026-09-24T13:20:34.185879+00:00"
    }
   },
   "key": "GET /workspace/summary",
@@ -5042,7 +5103,7 @@
  },
  {
   "body": {
-   "sinceAt": "2026-07-21T03:30:00+00:00",
+   "sinceAt": "2026-09-15T06:35:39.549151+00:00",
    "status": "available"
   },
   "key": "GET /me/presence",

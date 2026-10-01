@@ -1411,6 +1411,7 @@ export const WorkspaceSummaryResponse = z.object({
   "queueCounts": WorkspaceQueueCountsResponse,
   "scopeTotals": WorkspaceScopeTotalsResponse,
   "callbacksBlockedCount": z.number(),
+  "callbacksBlockedPartial": z.boolean(),
 }).passthrough();
 export const StaffResponse = z.object({
   "id": z.string(),

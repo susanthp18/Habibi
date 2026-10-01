@@ -32,27 +32,34 @@ DEFAULT_WINDOW = "09:00-20:00 IST"
 _WINDOW_RE = re.compile(r"(\d{1,2}):(\d{2}).*?(\d{1,2}):(\d{2})")
 
 
-def parse_hours(raw: str | None) -> tuple[int, int] | None:
-    """The two hours in a window string, or ``None`` when nothing parses.
+def parse_window(raw: str | None) -> tuple[int, int] | None:
+    """Start and end of a window string in minutes of the day, or ``None``.
 
     The raw read: "nothing on file" and "unreadable" both come back ``None``
     so the gate can intersect a stated window with the statutory one and
-    treat an absent one as absent. Screens that need a default use
-    :func:`window_hours`.
+    treat an absent one as absent. Minutes are kept: reading ``10:30`` as
+    10:00 admitted calls the borrower had not consented to.
     """
     if not raw or not str(raw).strip():
         return None
     match = _WINDOW_RE.search(str(raw))
     if not match:
         return None
-    # Windows are whole hours everywhere downstream, so minutes round towards
-    # the borrower: a 10:30 start opens at 11:00 -- reading it as 10:00 admitted
-    # calls they had not consented to. The end needs nothing: the gate refuses
-    # from the end hour itself, at or before a 19:30 end.
-    # ponytail: hour-granular windows give up to 59 minutes at each edge; carry
-    # minutes of the day through contact_policy if those half hours matter.
-    start = int(match.group(1)) + (1 if int(match.group(2)) else 0)
-    return start, int(match.group(3))
+    h1, m1, h2, m2 = (int(g) for g in match.groups())
+    return h1 * 60 + m1, h2 * 60 + m2
+
+
+def parse_hours(raw: str | None) -> tuple[int, int] | None:
+    """The window in whole hours, for the screens and planners that work in hours.
+
+    Rounded inward -- the start up, the end down -- so an hour-granular reader
+    never plans a contact the minute window refuses. The gate itself reads
+    :func:`parse_window`.
+    """
+    window = parse_window(raw)
+    if window is None:
+        return None
+    return -(-window[0] // 60), window[1] // 60
 
 
 def window_hours(preferred_window: str | None) -> tuple[int, int]:
@@ -64,8 +71,17 @@ def window_hours(preferred_window: str | None) -> tuple[int, int]:
     return parse_hours(preferred_window) or (DEFAULT_START_HOUR, DEFAULT_END_HOUR)
 
 
+def window_minutes(preferred_window: str | None) -> tuple[int, int]:
+    """:func:`window_hours` in minutes of the day."""
+    return parse_window(preferred_window) or (DEFAULT_START_HOUR * 60, DEFAULT_END_HOUR * 60)
+
+
+def minute_of_day(moment: datetime) -> int:
+    return moment.hour * 60 + moment.minute
+
+
 def outside_preferred_window(scheduled_at: str, preferred_window: str | None) -> bool:
-    """True when the scheduled IST hour falls outside the HH:MM–HH:MM window.
+    """True when the scheduled IST time falls outside the HH:MM–HH:MM window.
 
     A timestamp that does not parse is not treated as a violation — the caller
     has a malformed input problem, not a contact-policy one.
@@ -76,9 +92,9 @@ def outside_preferred_window(scheduled_at: str, preferred_window: str | None) ->
         return False
     if at.tzinfo is None:
         at = at.replace(tzinfo=timezone.utc)
-    hour = at.astimezone(IST).hour
-    start_h, end_h = window_hours(preferred_window)
-    return hour < start_h or hour >= end_h
+    minute = minute_of_day(at.astimezone(IST))
+    start, end = window_minutes(preferred_window)
+    return minute < start or minute >= end
 
 
 # --- allowed days ------------------------------------------------------------

@@ -4,12 +4,14 @@ import { CalendarClock, ChevronRight, Phone, Sparkles } from "lucide-react";
 import {
   dueLabel,
   enactedByLabel,
+  liveLevel,
   useWorkspaceSummary,
   type DueFilter,
   type WorkItem,
   type WorkspaceScope,
 } from "@/api/workspace";
 import { useStartCallback } from "@/api/callbacks";
+import { can, useMe } from "@/api/me";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { SlaPill } from "@/components/ui/SlaPill";
 import { fmtDateTime } from "@/lib/format";
@@ -54,6 +56,8 @@ export function NeedsAttention({
   const now = useNow();
   const { data, isPending, isError, refetch } = useWorkspaceSummary(scope);
   const startCallback = useStartCallback();
+  const { data: me } = useMe();
+  const canWrite = can(me, "perm-collections-write");
   const failed = isError && !data;
   const nextCallback = data?.nextCallback;
   const nextLead = data?.nextLead;
@@ -90,20 +94,22 @@ export function NeedsAttention({
                     {nextCallback.status}
                   </span>
                 )}
-                <button
-                  type="button"
-                  disabled={startCallback.isPending}
-                  onClick={() =>
-                    startCallback.mutate(
-                      { id: nextCallback.id },
-                      { onSettled: () => openCallback(nextCallback.id) },
-                    )
-                  }
-                  className={btnPrimary}
-                >
-                  <Phone className="h-3.5 w-3.5" />
-                  {startCallback.isPending ? "Updating…" : "Begin callback"}
-                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    disabled={startCallback.isPending}
+                    onClick={() =>
+                      startCallback.mutate(
+                        { id: nextCallback.id },
+                        { onSettled: () => openCallback(nextCallback.id) },
+                      )
+                    }
+                    className={btnPrimary}
+                  >
+                    <Phone className="h-3.5 w-3.5" />
+                    {startCallback.isPending ? "Updating…" : "Begin callback"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openCallback(nextCallback.id)}
@@ -180,7 +186,7 @@ export function NeedsAttention({
           {counts && attentionTotal > rows.length && (
             <button
               type="button"
-              onClick={() => onViewAll(counts.overdue ? "overdue" : "due_soon")}
+              onClick={() => onViewAll("attention")}
               className="inline-flex items-center gap-050 text-body-small font-medium text-text-brand hover:underline"
             >
               Showing {rows.length} of {attentionTotal} · View all
@@ -215,7 +221,10 @@ function AttentionRow({ row, now }: { row: WorkItem; now: number }) {
   const by = enactedByLabel(row.enactedBy);
   return (
     <li className="flex items-center gap-150 px-250 py-100">
-      <SlaPill level={row.sla} label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel} />
+      <SlaPill
+        level={liveLevel(row, now)}
+        label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel}
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate text-body text-text">
           <span className="font-medium">{row.type}</span>

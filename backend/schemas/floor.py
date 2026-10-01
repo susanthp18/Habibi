@@ -162,6 +162,8 @@ class WorkspaceSummaryResponse(BaseModel):
     scopeTotals: WorkspaceScopeTotalsResponse
     #: Upcoming callbacks the contact Gate would refuse at their booked time.
     callbacksBlockedCount: int
+    #: True when only the soonest upcoming callbacks were checked: the count is a floor.
+    callbacksBlockedPartial: bool
 
 
 # ── Floor / Webhooks / Integrations (ops screens) ─────────────────────────────

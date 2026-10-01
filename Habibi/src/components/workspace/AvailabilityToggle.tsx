@@ -72,6 +72,16 @@ export function AvailabilityToggle() {
           <>
             <span className={cn("h-100 w-100 rounded-full", active.dot)} />
             <span className={cn("text-body-small font-medium", active.text)}>{active.label}</span>
+            {presence.isError ? (
+              <button
+                type="button"
+                onClick={() => void presence.refetch()}
+                className="text-body-small text-text-subtlest underline"
+                title="The last refresh failed; this is the status it last read"
+              >
+                not refreshed
+              </button>
+            ) : null}
           </>
         ) : presence.isError ? (
           <button

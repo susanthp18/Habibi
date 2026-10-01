@@ -198,8 +198,14 @@ def _callback_reminders(conn: Any, callback_ids: list[str]) -> dict[str, list[di
         )
     return grouped
 
-def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Callback & Scheduling Manager feed (richer than the Phase 3A write contract)."""
+def list_callbacks(
+    *, limit: int | None = None, offset: int | None = None, callback_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Callback & Scheduling Manager feed (richer than the Phase 3A write contract).
+
+    ``callback_id`` reads one callback the same way, for a deep link to a
+    callback outside the first page.
+    """
     engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
@@ -224,11 +230,18 @@ def list_callbacks(*, limit: int | None = None, offset: int | None = None) -> li
                     LEFT JOIN users u ON u.id = cb.assignee_user_id
                     LEFT JOIN teams t ON t.id = cb.team_id
                     LEFT JOIN interactions i ON i.id = cb.interaction_id
+                    WHERE (CAST(:cb_id AS text) IS NULL OR cb.id = CAST(:cb_id AS text))
                     ORDER BY cb.scheduled_at, cb.id
                     LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
+                {
+                    "limit": page,
+                    "offset": skip,
+                    "cb_id": callback_id,
+                    "tenant_id": _tenant(),
+                    **_vis_params(),
+                },
             )
         )
         ids = [r["id"] for r in rows]

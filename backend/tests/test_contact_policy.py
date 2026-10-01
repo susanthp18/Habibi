@@ -780,25 +780,40 @@ def test_the_ledger_counts_the_week_the_gate_counts(db_tx, monkeypatch: pytest.M
     assert usage["byChannel"].get("whatsapp", 0) == gate_n
 
 
-def test_a_half_hour_consent_window_is_not_opened_early(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The window parser read hours and dropped minutes, so a 10:30 consent
-    admitted a 10:05 call. The start rounds up: never earlier than consented."""
+@pytest.mark.parametrize(
+    "consent, preference, hour, minute, allowed",
+    [
+        # Minutes are honoured at both edges.
+        ("10:30-19:30 IST", None, 10, 15, False),
+        ("10:30-19:30 IST", None, 10, 45, True),
+        ("10:30-19:30 IST", None, 18, 55, True),
+        # A short preference inside a wide consent: only its own half hours.
+        ("09:00-19:00 IST", "10:30-11:30 IST", 10, 15, False),
+        ("09:00-19:00 IST", "10:30-11:30 IST", 10, 45, True),
+        ("09:00-19:00 IST", "10:30-11:30 IST", 12, 0, False),
+        # A consent window the statutory one never opens inside.
+        ("20:00-22:00 IST", None, 12, 0, False),
+    ],
+)
+def test_the_consent_window_is_read_to_the_minute(
+    db_tx, monkeypatch: pytest.MonkeyPatch, consent, preference, hour, minute, allowed
+) -> None:
     import contact_policy
 
     cid = _prep(db_tx, monkeypatch)
     db_tx.execute(
-        text("UPDATE consent_records SET allowed_hours = '10:30-19:30 IST' WHERE customer_id = :id"),
-        {"id": cid},
+        text("UPDATE consent_records SET allowed_hours = :h WHERE customer_id = :id"),
+        {"h": consent, "id": cid},
+    )
+    db_tx.execute(
+        text("UPDATE customers SET preferred_window = :w WHERE id = :id"),
+        {"w": preference, "id": cid},
     )
     d = _today_ist()
-
-    def at(hour: int, minute: int):
-        return contact_policy.evaluate(
-            db_tx, customer_id=cid, channel="voice", purpose="outreach",
-            now=datetime(d.year, d.month, d.day, hour, minute, tzinfo=IST),
-        )
-
-    early = at(10, 15)
-    assert not early.allowed
-    assert early.reason == contact_policy.REASON_WINDOW
-    assert at(12, 0).allowed
+    decision = contact_policy.evaluate(
+        db_tx, customer_id=cid, channel="voice", purpose="outreach",
+        now=datetime(d.year, d.month, d.day, hour, minute, tzinfo=IST),
+    )
+    assert decision.allowed is allowed
+    if consent == "20:00-22:00 IST":
+        assert not decision.deferrable, "a window that never opens is not 'later'"

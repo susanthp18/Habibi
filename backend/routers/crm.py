@@ -349,8 +349,9 @@ def list_disputes(
 def list_callbacks(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    id: str | None = Query(default=None, description="One callback, for a deep link"),
 ):
-    return db.list_callbacks(limit=limit, offset=offset)
+    return db.list_callbacks(limit=limit, offset=offset, callback_id=id)
 
 @router.post("/interactions", response_model=CallResponse)
 def create_interaction(payload: InteractionCreateRequest, idempotency_key: str | None = Header(default=None)):

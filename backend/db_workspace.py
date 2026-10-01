@@ -440,6 +440,7 @@ def _scope_sql(scope: str | None, item_assignee: str) -> tuple[str, dict[str, An
 
 #: Deadline filters, on the due time the Due column shows.
 _DUE_SQL = {
+    "attention": "AND w.sla_due_at < now() + interval '2 hours'",
     "overdue": "AND w.sla_due_at < now()",
     "due_soon": "AND w.sla_due_at >= now() AND w.sla_due_at < now() + interval '2 hours'",
     "later": "AND (w.sla_due_at IS NULL OR w.sla_due_at >= now() + interval '2 hours')",
@@ -752,7 +753,11 @@ def _attention(conn: Any, scope: str | None) -> list[dict[str, Any]]:
     return _shape_items(conn, rows)
 
 
-def _callbacks_blocked(conn: Any, scope: str | None) -> int:
+#: Upcoming callbacks the contact warning evaluates; past it the count is a floor.
+BLOCKED_CHECK_LIMIT = 200
+
+
+def _callbacks_blocked(conn: Any, scope: str | None) -> tuple[int, bool]:
     """Upcoming callbacks booked for a time the contact Gate would refuse.
 
     The Gate's own verdict (consent, DND, statutory and preferred hours,
@@ -773,27 +778,29 @@ def _callbacks_blocked(conn: Any, scope: str | None) -> int:
                  /*VISIBILITY*/
                 WHERE {_UPCOMING_CALLBACK} {clause}
                 ORDER BY cb.scheduled_at
-                LIMIT 200
+                LIMIT :limit
                 """
             ),
-            {**params, "tenant_id": _tenant(), **_vis_params()},
+            {**params, "tenant_id": _tenant(), **_vis_params(), "limit": BLOCKED_CHECK_LIMIT + 1},
         )
     )
-    # ponytail: one Gate evaluation per upcoming callback, capped at 200 rows;
-    # batch the evaluation if an operator's diary ever outgrows that.
-    return sum(
+    # ponytail: one Gate evaluation per upcoming callback, the soonest 200; past
+    # that the count is reported as partial. Batch the evaluation if diaries grow.
+    blocked = sum(
         1
-        for r in rows
+        for r in rows[:BLOCKED_CHECK_LIMIT]
         if contact_policy.blocks_scheduling(
             conn, customer_id=r["customer_id"], channel="voice", at=_as_utc(r["scheduled_at"])
         )
     )
+    return blocked, len(rows) > BLOCKED_CHECK_LIMIT
 
 
 def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
     """Everything on My Workspace beside the queue table, for one scope."""
     with _db().engine.connect() as conn:
         counts = _queue_counts(conn, assignee)
+        blocked, partial = _callbacks_blocked(conn, assignee)
         totals = {
             scope: counts["total"] if assignee == scope else _queue_counts(conn, scope)["total"]
             for scope in ("me", "pool")
@@ -805,5 +812,6 @@ def workspace_summary(*, assignee: str | None = "me") -> dict[str, Any]:
             "attention": _attention(conn, assignee),
             "queueCounts": counts,
             "scopeTotals": totals,
-            "callbacksBlockedCount": _callbacks_blocked(conn, assignee),
+            "callbacksBlockedCount": blocked,
+            "callbacksBlockedPartial": partial,
         }
