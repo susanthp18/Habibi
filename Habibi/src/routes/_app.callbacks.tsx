@@ -15,7 +15,6 @@ import { NewCallbackSheet } from "@/components/callbacks/NewCallbackSheet";
 import type { CallbackFilters } from "@/api/types/callbacks";
 import { computeMetrics, defaultFilters, filterCallbacks } from "@/lib/callbacks";
 import {
-  autoMarkMissed,
   callbackAssigneeOptions,
   callbackQueueOptions,
   callbackSheetCustomers,
@@ -72,7 +71,6 @@ function CallbacksPage() {
   const [newCustomerId, setNewCustomerId] = useState<string | undefined>();
   const [view, setView] = useState<CbView>("week");
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date());
-  const autoMarked = useRef(false);
   const deepLinkKey = useRef<string | null>(null);
 
   const invalidate = () => {
@@ -97,19 +95,6 @@ function CallbacksPage() {
     () => callbackSheetCustomers(liveCustomers ?? []),
     [liveCustomers],
   );
-
-  // Auto-mark missed once data has loaded (window elapsed). Live writes real PATCHes.
-  useEffect(() => {
-    if (autoMarked.current || callbacksData.length === 0) return;
-    autoMarked.current = true;
-    autoMarkMissed(callbacksData)
-      .then((n) => {
-        if (n > 0) invalidate();
-      })
-      .catch((e: unknown) =>
-        toast.error(e instanceof Error ? e.message : "Could not mark missed callbacks"),
-      );
-  }, [callbacksData]);
 
   const filtered = useMemo(
     () => filterCallbacks(callbacksData, filters, myQueue),

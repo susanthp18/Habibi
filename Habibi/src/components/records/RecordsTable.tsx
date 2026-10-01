@@ -40,6 +40,10 @@ export type RecordsTableProps<T> = {
   error?: unknown;
   /** Names the failed read for QueryErrorBanner — "consent records". */
   errorLabel?: string;
+  /** When the rows were last loaded (a query's ``dataUpdatedAt``). A refresh
+   *  that fails over cached rows names that time instead of passing the old
+   *  rows off as current. */
+  updatedAt?: number;
   emptyMessage?: string;
   ariaLabel?: string;
   defaultSort?: { id: string; dir: RecordsSortDir };
@@ -70,6 +74,7 @@ export function RecordsTable<T>({
   isError = false,
   error,
   errorLabel = "records",
+  updatedAt,
   emptyMessage = "No records match.",
   ariaLabel = "Records table",
   defaultSort,
@@ -133,6 +138,7 @@ export function RecordsTable<T>({
   const stickyPad = selectable ? "left-500" : "left-0";
   const colSpan = columns.length + (selectable ? 1 : 0);
   const showError = isError && !isLoading && visibleRows.length === 0;
+  const staleRows = isError && !isLoading && visibleRows.length > 0;
 
   /** Sticky cells must stay fully opaque — translucent hover/selected paints let
    *  scrolled columns bleed through the frozen identity column. CSS in styles.css
@@ -154,6 +160,18 @@ export function RecordsTable<T>({
         className,
       )}
     >
+      {staleRows && (
+        <div
+          role="status"
+          className="shrink-0 border-b border-border-warning/30 bg-background-warning px-150 py-075 text-body-small text-text-warning"
+        >
+          Couldn’t refresh {errorLabel}
+          {updatedAt
+            ? ` — showing data from ${new Date(updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : " — showing the last data loaded"}
+          .
+        </div>
+      )}
       <div
         role="region"
         className="records-scroll min-h-0 flex-1 overflow-auto focus-visible:outline-none"

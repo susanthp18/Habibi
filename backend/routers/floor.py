@@ -26,11 +26,12 @@ from schemas import (
     SupervisorActionRequest,
     SupervisorActionResponse,
     TeamResponse,
+    WorkItemEntityType,
     WorkItemResponse,
     WorkRuntimeJobResponse,
     WorkspaceSummaryResponse,
 )
-from typing import Any
+from typing import Any, Literal
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -50,13 +51,19 @@ def list_work_items(
     assignee: str | None = Query("me"),
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    entityType: WorkItemEntityType | None = Query(default=None),
+    due: Literal["overdue", "due_soon", "later"] | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=100),
 ):
-    """Assigned queue from the work_items view. Default assignee=me is viewer-relative."""
-    return db.list_work_items(assignee=assignee, limit=limit, offset=offset)
+    """One page of the queue. ``assignee``: me (mine, including unassigned work
+    on my customers), pool (unassigned), all, or a user id."""
+    return db.list_work_items(
+        assignee=assignee, limit=limit, offset=offset, entity_type=entityType, due=due, q=q
+    )
 
 @router.get("/workspace/summary", response_model=WorkspaceSummaryResponse)
 def get_workspace_summary(assignee: str | None = Query("me")):
-    """Rolling-window StatsStrip + RightRail (next callback / SLA / outside-window)."""
+    """My stats, next callback and lead, attention rows and queue counts for a scope."""
     return db.workspace_summary(assignee=assignee)
 
 @router.get("/staff", response_model=list[StaffResponse])

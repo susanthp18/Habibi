@@ -1,13 +1,14 @@
 import type { ReactNode, MouseEvent } from "react";
 
 /**
- * Leaves the console for the public site at `/`.
+ * Leaves the console for the public marketing site at `/`, and says so: a
+ * "Home" link on an operator console reads as the workspace.
  * A plain `<a href="/">` is swallowed by the router when the app is mounted
  * at `/app`, so this always does a real navigation.
  */
 export function HomeLink({
   className,
-  children = "Home",
+  children = "Public site ↗",
 }: {
   className?: string;
   children?: ReactNode;

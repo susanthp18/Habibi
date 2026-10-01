@@ -40,6 +40,7 @@ import callback_reminders
 import written_followup
 import campaigns
 import db
+import db_callbacks
 import observability
 import outbound
 import outbound_pools
@@ -93,6 +94,9 @@ def process_one_any() -> bool:
 
     if _iteration % SETTLE_EVERY == 1:
         _run_stage("promise_settle", lambda: promise_fulfillment.settle_promises(db.engine))
+        # Callbacks whose window ended with nobody on them. The Callbacks screen
+        # used to do this from the browser, whenever someone opened it.
+        _run_stage("callback_lifecycle", lambda: db_callbacks.mark_lapsed_missed(db.engine))
         # Attempts whose carrier callback never arrived. They hold a slot in the
         # outbound fleet gate and would never reach the Closer, so a dropped
         # tunnel would quietly throttle dialling to zero over a day.

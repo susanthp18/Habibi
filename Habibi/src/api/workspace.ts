@@ -1,158 +1,69 @@
 // -----------------------------------------------------------------------------
-// My Workspace — Assigned queue seam.
-//   fetchWorkItems() → GET /work-items?assignee=me
-//   Client buckets the flat list into tabs by entityType.
-//
-// StatsStrip / NeedsAttention read GET /workspace/summary (rolling 7d window).
+// My Workspace.
+//   GET /work-items        one page of the queue; scope, tab, deadline and search
+//                          filters run on the server, so they cover the whole queue
+//   GET /workspace/summary my stats, next callback / lead, attention rows, counts
+// Shapes are the API's own response models (wire/generated.ts).
 // -----------------------------------------------------------------------------
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import type { z } from "zod";
 
-import type { QueueRow, SlaLevel } from "@/api/types/workspace";
 import { apiGet } from "./config";
+import type { WorkItemResponse, WorkspaceSummaryResponse } from "./wire/generated";
 
-export type WorkItemEntityType =
-  "dispute" | "callback" | "document_request" | "promise" | "followup" | "lead" | "bounce";
+export type WorkItem = z.infer<typeof WorkItemResponse>;
+export type WorkItemEntityType = WorkItem["entityType"];
+export type SlaLevel = WorkItem["sla"];
+export type WorkspaceSummary = z.infer<typeof WorkspaceSummaryResponse>;
+export type WorkspaceNextCallback = NonNullable<WorkspaceSummary["nextCallback"]>;
 
-export interface WorkItem extends QueueRow {
-  entityType: WorkItemEntityType;
-  status?: string | null;
-  assigneeUserId?: string | null;
-  customerId?: string | null;
-  enactedBy?: string | null;
+/** ``me``: assigned to me, or unassigned work on customers I own. ``pool``:
+ *  unassigned work on unassigned customers. Never switches on its own. */
+export type WorkspaceScope = "me" | "pool";
+export type DueFilter = "overdue" | "due_soon" | "later";
+
+export const WORK_PAGE = 50;
+
+/** Operational state goes stale by the minute: refetch on a clock and on focus. */
+const LIVE = { staleTime: 15_000, refetchInterval: 60_000, refetchOnWindowFocus: true } as const;
+
+export interface WorkItemQuery {
+  scope: WorkspaceScope;
+  entityType?: WorkItemEntityType;
+  due?: DueFilter;
+  q?: string;
+  limit?: number;
 }
 
-interface WorkItemApi {
-  id: string;
-  customer: string;
-  accountId: string;
-  type: string;
-  detail: string;
-  amount?: number | null;
-  ageHours: number;
-  sla: SlaLevel;
-  slaLabel: string;
-  entityType: WorkItemEntityType;
-  status?: string | null;
-  assigneeUserId?: string | null;
-  customerId?: string | null;
-  enactedBy?: string | null;
+export async function fetchWorkItems(query: WorkItemQuery): Promise<WorkItem[]> {
+  const params = new URLSearchParams({
+    assignee: query.scope,
+    limit: String(query.limit ?? WORK_PAGE),
+  });
+  if (query.entityType) params.set("entityType", query.entityType);
+  if (query.due) params.set("due", query.due);
+  if (query.q?.trim()) params.set("q", query.q.trim());
+  return apiGet<WorkItem[]>(`/work-items?${params}`);
 }
 
-function mapWorkItem(row: WorkItemApi): WorkItem {
-  const amount = row.amount === null || row.amount === undefined ? undefined : Number(row.amount);
-  return {
-    id: row.id,
-    customer: row.customer ?? "Unknown",
-    accountId: row.accountId ?? "",
-    type: row.type ?? "",
-    detail: row.detail ?? "",
-    amount: amount !== undefined && Number.isFinite(amount) ? amount : undefined,
-    ageHours: Number(row.ageHours) || 0,
-    sla: row.sla,
-    slaLabel: row.slaLabel ?? "",
-    entityType: row.entityType,
-    status: row.status ?? null,
-    assigneeUserId: row.assigneeUserId ?? null,
-    customerId: row.customerId ?? null,
-    enactedBy: row.enactedBy ?? null,
-  };
-}
-
-export async function fetchWorkItems(assignee: "me" | "all" = "me"): Promise<WorkItem[]> {
-  const q = assignee === "all" ? "all" : "me";
-  const rows = await apiGet<WorkItemApi[]>(`/work-items?assignee=${q}`);
-  return rows.map(mapWorkItem);
-}
-
-export function useWorkItems(assignee: "me" | "all" = "me") {
+export function useWorkItems(query: WorkItemQuery, opts: { enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: ["work-items", assignee],
-    queryFn: () => fetchWorkItems(assignee),
+    queryKey: ["work-items", query],
+    queryFn: () => fetchWorkItems(query),
+    placeholderData: keepPreviousData,
+    ...LIVE,
+    ...opts,
   });
 }
 
-/** Tab buckets used by AssignedQueue. Leads are intentionally omitted (Upsell). */
-export function bucketWorkItems(items: WorkItem[]) {
-  const disputesRows = items.filter((i) => i.entityType === "dispute");
-  const callbacksRows = items.filter((i) => i.entityType === "callback");
-  const docsRows = items.filter((i) => i.entityType === "document_request");
-  // View already excludes pending; broken/partial (+ due_today if present).
-  const ptpsRows = items.filter((i) => {
-    if (i.entityType !== "promise") return false;
-    const status = (i.status ?? "").toLowerCase();
-    // Prefer broken/partial; include due_today as chase-worthy; never pending.
-    if (!status) return true;
-    return status === "broken" || status === "partial" || status === "due_today";
+export function useWorkspaceSummary(scope: WorkspaceScope = "me") {
+  return useQuery({
+    queryKey: ["workspace-summary", scope],
+    queryFn: () => apiGet<WorkspaceSummary>(`/workspace/summary?assignee=${scope}`),
+    placeholderData: keepPreviousData,
+    ...LIVE,
   });
-  const followupsRows = items.filter((i) => i.entityType === "followup");
-  const leadsRows = items.filter((i) => i.entityType === "lead");
-  const bouncesRows = items.filter((i) => i.entityType === "bounce");
-  return {
-    disputes: disputesRows,
-    callbacks: callbacksRows,
-    docs: docsRows,
-    ptps: ptpsRows,
-    followups: followupsRows,
-    leads: leadsRows,
-    bounces: bouncesRows,
-  };
-}
-
-export interface WorkspaceStats {
-  callsHandled: number;
-  callsHandledDelta: string;
-  aht: string;
-  ahtDelta: string;
-  resolutions: number;
-  resolutionRate: string;
-  promisesCount: number;
-  promisesAmount: number;
-  windowLabel: string;
-}
-
-export interface WorkspaceNextCallback {
-  id: string;
-  customer: string;
-  accountId: string;
-  reason: string;
-  time: string;
-  timezone: string;
-  inMinutes: number;
-}
-
-export interface WorkspaceNextLead {
-  id: string;
-  customer: string;
-  accountId: string;
-  productName: string;
-  amount: number | null;
-  stage: string;
-  window: string | null;
-  reason: string;
-}
-
-export interface WorkspaceSlaCountdown {
-  id: string;
-  label: string;
-  remaining: string;
-  level: SlaLevel;
-  enactedBy?: string | null;
-}
-
-export interface WorkspaceSummary {
-  stats: WorkspaceStats;
-  nextCallback: WorkspaceNextCallback | null;
-  nextLead: WorkspaceNextLead | null;
-  slaCountdowns: WorkspaceSlaCountdown[];
-  outsideWindowCount: number;
-}
-
-export async function fetchWorkspaceSummary(
-  assignee: "me" | "all" = "me",
-): Promise<WorkspaceSummary> {
-  const q = assignee === "all" ? "all" : "me";
-  return apiGet<WorkspaceSummary>(`/workspace/summary?assignee=${q}`);
 }
 
 export function enactedByLabel(value?: string | null): string | null {
@@ -164,10 +75,19 @@ export function enactedByLabel(value?: string | null): string | null {
   return value.replace(/_/g, " ");
 }
 
-export function useWorkspaceSummary(assignee: "me" | "all" = "me") {
-  return useQuery({
-    queryKey: ["workspace-summary", assignee],
-    queryFn: () => fetchWorkspaceSummary(assignee),
-    staleTime: 30_000,
-  });
+/** "Overdue 3d 4h" / "In 45m" from a due time, against ``now``. */
+export function dueLabel(dueAt: string, now: number): string {
+  const mins = Math.round((new Date(dueAt).getTime() - now) / 60_000);
+  const span = spanLabel(Math.abs(mins));
+  return mins < 0 ? `Overdue ${span}` : `In ${span}`;
+}
+
+/** 3d 4h · 5h 10m · 25m */
+export function spanLabel(totalMins: number): string {
+  const d = Math.floor(totalMins / 1440);
+  const h = Math.floor((totalMins % 1440) / 60);
+  const m = totalMins % 60;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
 }

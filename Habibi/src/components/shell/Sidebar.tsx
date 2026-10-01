@@ -589,7 +589,7 @@ export function Sidebar() {
         ) : (
           <div className="mt-100 flex items-center gap-100 px-150 pt-100 text-body-tiny text-text-subtlest">
             <BigtappMark size={18} />
-            <HomeLink className="hover:underline">Home</HomeLink>
+            <HomeLink className="hover:underline" />
             <span aria-hidden="true">·</span>
             <span>{BRAND.shortName}</span>
           </div>

@@ -1,4 +1,4 @@
-import { MutationCache } from "@tanstack/react-query";
+import { MutationCache, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/config";
@@ -30,8 +30,19 @@ export function mutationErrorMessage(error: unknown): string {
   return "The request failed.";
 }
 
-export function createMutationCache(): MutationCache {
+/** Projections of every domain: My Workspace's queue and summary are built
+ *  from callbacks, disputes, promises, documents and leads, and stay mounted
+ *  in the shell. A write anywhere may move them, so any successful write
+ *  refreshes them -- one place, instead of a list in every domain hook. */
+const WORKSPACE_PROJECTIONS = [["work-items"], ["workspace-summary"]] as const;
+
+export function createMutationCache(getClient: () => QueryClient): MutationCache {
   return new MutationCache({
+    onSuccess: () => {
+      for (const queryKey of WORKSPACE_PROJECTIONS) {
+        void getClient().invalidateQueries({ queryKey });
+      }
+    },
     onError: (error, _variables, _context, mutation) => {
       if (mutation.meta?.errors === "toast") {
         toast.error(mutationErrorMessage(error), { id: `mutation:${mutationErrorMessage(error)}` });

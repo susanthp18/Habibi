@@ -2,25 +2,31 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Bell, CheckCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useWorkspaceSummary, useWorkItems } from "@/api/workspace";
-import { entityTypeFromSlaLabel, navigateWorkItem } from "@/lib/workspace-nav";
+import { useMe } from "@/api/me";
+import { dueLabel, useWorkspaceSummary, type WorkItem } from "@/api/workspace";
+import { navigateWorkItem } from "@/lib/workspace-nav";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
-
-const READ_KEY = "habibi.workspaceNotifRead";
+import { useNow } from "@/lib/use-now";
 
 type Notif = {
   id: string;
   title: string;
   body: string;
   level: "breach" | "warn" | "info";
-  href?:
-    { entityType: string; id: string } | { to: string; search?: Record<string, string | boolean> };
+  item?: WorkItem;
+  href?: { to: string; search?: Record<string, string | boolean> };
 };
 
-function readSet(): Set<string> {
+/** Read state is per operator and tenant: one browser shared by two logins
+ *  used to mark one person's alerts read for the other. */
+function readKey(userId: string | undefined, tenantId: string | undefined) {
+  return `habibi.workspaceNotifRead:${tenantId ?? "-"}:${userId ?? "-"}`;
+}
+
+function readSet(key: string): Set<string> {
   try {
-    const raw = localStorage.getItem(READ_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return new Set();
     const arr = JSON.parse(raw) as string[];
     return new Set(Array.isArray(arr) ? arr : []);
@@ -29,9 +35,9 @@ function readSet(): Set<string> {
   }
 }
 
-function writeSet(ids: Set<string>) {
+function writeSet(key: string, ids: Set<string>) {
   try {
-    localStorage.setItem(READ_KEY, JSON.stringify([...ids]));
+    localStorage.setItem(key, JSON.stringify([...ids]));
   } catch {
     /* ignore */
   }
@@ -39,87 +45,78 @@ function writeSet(ids: Set<string>) {
 
 export function NotificationsPopover() {
   const navigate = useNavigate();
-  const { data: summary } = useWorkspaceSummary("me");
-  const { data: items = [] } = useWorkItems("me");
+  const now = useNow();
+  const { data: me } = useMe();
+  const key = readKey(me?.id, me?.tenantId);
+  const { data: summary, isError, isPending } = useWorkspaceSummary("me");
   const [open, setOpen] = useState(false);
-  const [read, setRead] = useState<Set<string>>(() => readSet());
+  const [readState, setRead] = useState<{ key: string; ids: Set<string> }>(() => ({
+    key,
+    ids: readSet(key),
+  }));
+  const read = readState.key === key ? readState.ids : readSet(key);
 
   const notifications = useMemo(() => {
     const list: Notif[] = [];
 
-    for (const s of summary?.slaCountdowns ?? []) {
-      if (s.level !== "breach" && s.level !== "warn") continue;
-      const entityType = entityTypeFromSlaLabel(s.label);
+    // The level is part of the id: a warning that becomes a breach is a new
+    // alert, and must not stay marked read.
+    for (const w of summary?.attention ?? []) {
       list.push({
-        id: `sla:${s.id}`,
-        title: s.level === "breach" ? "SLA breach" : "SLA warning",
-        body: `${s.label} · ${s.remaining}`,
-        level: s.level,
-        href: entityType ? { entityType, id: s.id } : undefined,
+        id: `wi:${w.entityType}:${w.id}:${w.sla}`,
+        title: w.sla === "breach" ? "Overdue" : "Due soon",
+        body: `${w.type} · ${w.customer} · ${w.dueAt ? dueLabel(w.dueAt, now) : w.slaLabel}`,
+        level: w.sla === "ok" ? "info" : w.sla,
+        item: w,
       });
     }
 
     const next = summary?.nextCallback;
-    if (next && next.inMinutes <= 120) {
+    const mins = next ? Math.round((new Date(next.scheduledAt).getTime() - now) / 60_000) : null;
+    if (next && mins !== null && mins <= 120) {
       list.push({
-        id: `cb:${next.id}`,
-        title: next.inMinutes <= 0 ? "Callback due now" : "Upcoming callback",
-        body: `${next.customer} · ${next.time} ${next.timezone} (${next.inMinutes}m)`,
-        level: next.inMinutes <= 15 ? "warn" : "info",
+        id: `cb:${next.id}:${mins <= 15 ? "warn" : "info"}`,
+        title: mins <= 0 ? "Callback due now" : "Upcoming callback",
+        body: `${next.customer} · ${next.time} ${next.timezone} (${dueLabel(next.scheduledAt, now)})`,
+        level: mins <= 15 ? "warn" : "info",
         href: { to: "/callbacks", search: { id: next.id } },
       });
     }
 
-    const outside = summary?.outsideWindowCount ?? 0;
-    if (outside > 0) {
+    const blocked = summary?.callbacksBlockedCount ?? 0;
+    if (blocked > 0) {
       list.push({
-        id: `outside:${outside}`,
-        title: "Outside contact window",
-        body: `${outside} scheduled item${outside === 1 ? "" : "s"} outside permitted hours`,
+        id: `blocked:${blocked}`,
+        title: "Callback the contact rules would refuse",
+        body: `${blocked} upcoming callback${blocked === 1 ? "" : "s"} booked for a blocked time`,
         level: "warn",
-        href: { to: "/consent" },
+        href: { to: "/callbacks" },
       });
     }
+    return list;
+  }, [summary, now]);
 
-    // Breach/warn work items not already covered by SLA strip
-    for (const w of items) {
-      if (w.sla !== "breach" && w.sla !== "warn") continue;
-      const id = `wi:${w.entityType}:${w.id}`;
-      if (list.some((n) => n.id === `sla:${w.id}`)) continue;
-      list.push({
-        id,
-        title: w.sla === "breach" ? "Queue breach" : "Queue warning",
-        body: `${w.customer} · ${w.type} · ${w.slaLabel}`,
-        level: w.sla,
-        href: { entityType: w.entityType, id: w.id },
-      });
-    }
-
-    return list.slice(0, 12);
-  }, [summary, items]);
-
+  const counts = summary?.queueCounts;
+  const more = counts
+    ? Math.max(0, counts.overdue + counts.dueSoon - (summary?.attention.length ?? 0))
+    : 0;
   const unread = notifications.filter((n) => !read.has(n.id));
   const badge = unread.length;
 
-  const markAllRead = () => {
+  const markRead = (ids: string[]) => {
     const next = new Set(read);
-    for (const n of notifications) next.add(n.id);
-    setRead(next);
-    writeSet(next);
+    for (const id of ids) next.add(id);
+    setRead({ key, ids: next });
+    writeSet(key, next);
   };
 
+  const markAllRead = () => markRead(notifications.map((n) => n.id));
+
   const onClick = (n: Notif) => {
-    const next = new Set(read);
-    next.add(n.id);
-    setRead(next);
-    writeSet(next);
+    markRead([n.id]);
     setOpen(false);
-    if (!n.href) return;
-    if ("to" in n.href) {
-      void navigate(n.href);
-      return;
-    }
-    navigateWorkItem(navigate, { id: n.href.id, entityType: n.href.entityType });
+    if (n.item) navigateWorkItem(navigate, n.item);
+    else if (n.href) void navigate(n.href);
   };
 
   return (
@@ -141,7 +138,13 @@ export function NotificationsPopover() {
           <div>
             <div className="text-body font-semibold text-text">Notifications</div>
             <div className="text-body-small text-text-subtlest">
-              {badge > 0 ? `${badge} unread from your queue` : "Caught up"}
+              {isError && !summary
+                ? "Couldn’t load your alerts"
+                : isPending
+                  ? "Loading…"
+                  : badge > 0
+                    ? `${badge} unread from your queue`
+                    : "Caught up"}
             </div>
           </div>
           {notifications.length > 0 && (
@@ -156,9 +159,9 @@ export function NotificationsPopover() {
           )}
         </div>
         <ul className="max-h-[22.5rem] overflow-y-auto">
-          {notifications.length === 0 && (
+          {notifications.length === 0 && summary && (
             <li className="px-150 py-400 text-center text-body-small text-text-subtlest">
-              No SLA alerts or upcoming callbacks right now.
+              Nothing overdue, due soon or blocked right now.
             </li>
           )}
           {notifications.map((n) => {
@@ -197,6 +200,18 @@ export function NotificationsPopover() {
             );
           })}
         </ul>
+        {more > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              void navigate({ to: "/" });
+            }}
+            className="w-full border-t border-border px-150 py-100 text-left text-body-small font-medium text-text-brand hover:bg-surface-sunken"
+          >
+            +{more} more overdue or due soon — open My workspace
+          </button>
+        )}
       </PopoverContent>
     </Popover>
   );

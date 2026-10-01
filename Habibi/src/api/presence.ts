@@ -8,7 +8,8 @@ export type PresenceStatus = "available" | "on_break" | "wrap_up" | "offline";
 
 export type AgentPresence = {
   status: PresenceStatus;
-  sinceAt: string;
+  /** Null until the operator first chooses a status. */
+  sinceAt?: string | null;
 };
 
 export async function fetchPresence(): Promise<AgentPresence> {
@@ -48,7 +49,7 @@ export function uiToPresence(ui: AvailabilityUi): PresenceStatus {
   return "available";
 }
 
-export function presenceToUi(status: PresenceStatus | undefined | null): AvailabilityUi {
+export function presenceToUi(status: PresenceStatus): AvailabilityUi {
   if (status === "on_break") return "break";
   if (status === "wrap_up") return "wrap";
   if (status === "offline") return "offline";

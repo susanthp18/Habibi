@@ -1347,58 +1347,70 @@ export const WorkItemResponse = z.object({
   "type": z.string(),
   "detail": z.string(),
   "amount": z.number().nullable().optional(),
-  "ageHours": z.number(),
+  "createdAt": z.string().nullable().optional(),
+  "dueAt": z.string().nullable().optional(),
   "sla": z.enum(["ok", "warn", "breach"]),
   "slaLabel": z.string(),
   "entityType": z.enum(["dispute", "callback", "document_request", "promise", "followup", "lead", "bounce"]),
   "status": z.string().nullable().optional(),
   "assigneeUserId": z.string().nullable().optional(),
   "customerId": z.string().nullable().optional(),
+  "relatedId": z.string().nullable().optional(),
   "enactedBy": z.string().nullable().optional(),
 }).passthrough();
 export const WorkspaceStatsResponse = z.object({
+  "windowStart": z.string(),
+  "windowEnd": z.string(),
   "callsHandled": z.number(),
-  "callsHandledDelta": z.string(),
-  "aht": z.string(),
-  "ahtDelta": z.string(),
+  "callsHandledPrior": z.number(),
   "resolutions": z.number(),
-  "resolutionRate": z.string(),
+  "ahtSec": z.number(),
+  "teamAhtSec": z.number(),
   "promisesCount": z.number(),
   "promisesAmount": z.number(),
-  "windowLabel": z.string(),
 }).passthrough();
 export const WorkspaceNextCallbackResponse = z.object({
   "id": z.string(),
   "customer": z.string(),
+  "customerId": z.string(),
   "accountId": z.string(),
   "reason": z.string(),
+  "status": z.string(),
+  "scheduledAt": z.string(),
   "time": z.string(),
   "timezone": z.string(),
-  "inMinutes": z.number(),
 }).passthrough();
 export const WorkspaceNextLeadResponse = z.object({
   "id": z.string(),
   "customer": z.string(),
+  "customerId": z.string(),
   "accountId": z.string(),
   "productName": z.string(),
   "amount": z.number().nullable().optional(),
   "stage": z.string(),
+  "priority": z.string(),
   "window": z.string().nullable().optional(),
+  "nextFollowupAt": z.string().nullable().optional(),
   "reason": z.string(),
 }).passthrough();
-export const WorkspaceSlaCountdownResponse = z.object({
-  "id": z.string(),
-  "label": z.string(),
-  "remaining": z.string(),
-  "level": z.enum(["ok", "warn", "breach"]),
-  "enactedBy": z.string().nullable().optional(),
+export const WorkspaceQueueCountsResponse = z.object({
+  "total": z.number(),
+  "overdue": z.number(),
+  "dueSoon": z.number(),
+  "byType": z.record(z.string(), z.number()),
+}).passthrough();
+export const WorkspaceScopeTotalsResponse = z.object({
+  "me": z.number(),
+  "pool": z.number(),
 }).passthrough();
 export const WorkspaceSummaryResponse = z.object({
   "stats": WorkspaceStatsResponse,
   "nextCallback": WorkspaceNextCallbackResponse.nullable().optional(),
   "nextLead": WorkspaceNextLeadResponse.nullable().optional(),
-  "slaCountdowns": z.array(WorkspaceSlaCountdownResponse),
-  "outsideWindowCount": z.number(),
+  "attention": z.array(WorkItemResponse),
+  "queueCounts": WorkspaceQueueCountsResponse,
+  "scopeTotals": WorkspaceScopeTotalsResponse,
+  "callbacksBlockedCount": z.number(),
 }).passthrough();
 export const StaffResponse = z.object({
   "id": z.string(),
@@ -2969,7 +2981,7 @@ export const MeResponse = z.object({
 }).passthrough();
 export const PresenceResponse = z.object({
   "status": z.enum(["available", "on_break", "wrap_up", "offline"]),
-  "sinceAt": z.string(),
+  "sinceAt": z.string().nullable().optional(),
 }).passthrough();
 export const DirectoryUserResponse = z.object({
   "id": z.string(),

@@ -1,80 +1,96 @@
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  PhoneCall,
-  Clock,
-  CheckCircle2,
-  HandCoins,
-} from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Clock, HandCoins, PhoneCall } from "lucide-react";
 import { useWorkspaceSummary } from "@/api/workspace";
 import { MetricsStrip } from "@/components/records/MetricsStrip";
-import { inr } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { fmtDate, inr } from "@/lib/format";
 
-function delta(text: string, good: boolean, invertArrow = false) {
-  const Arrow = (invertArrow ? !good : good) ? ArrowUpRight : ArrowDownRight;
+function duration(sec: number) {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** A comparison, not a verdict: more calls or a longer handle time is not
+ *  good or bad on its own, so the chip is neutral and only the arrow moves. */
+function comparison(diff: number, text: string) {
+  const Arrow = diff > 0 ? ArrowUpRight : diff < 0 ? ArrowDownRight : null;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-050 rounded-medium px-075 py-025 text-body-small font-medium",
-        good ? "bg-background-success text-text-success" : "bg-background-danger text-text-danger",
-      )}
-    >
-      <Arrow className="h-3.5 w-3.5" />
-      <span>{text}</span>
+    <span className="inline-flex items-center gap-050 text-body-small text-text-subtle">
+      {Arrow ? <Arrow className="h-3.5 w-3.5" aria-hidden /> : null}
+      {text}
     </span>
   );
 }
 
-/**
- * Rolling 7-day aggregates from GET /workspace/summary (anchored to latest
- * interaction date so historical seed isn't all-zero).
- */
+/** The operator's own completed voice calls over the last seven days, ending
+ *  now. Personal whatever the queue scope; team analytics live on Dashboard. */
 export function StatsStrip() {
-  const { data } = useWorkspaceSummary("me");
+  const { data, isPending, isError, refetch } = useWorkspaceSummary("me");
   const stats = data?.stats;
 
-  const ahtDelta = stats?.ahtDelta ?? "—";
-  const ahtImproved = /^-/.test(ahtDelta.trim());
-  const callsDelta = stats?.callsHandledDelta ?? "—";
+  if (isError && !stats) {
+    return (
+      <div className="rounded-large border border-border bg-surface px-200 py-150 text-body-small text-text-danger">
+        Couldn’t load your stats.{" "}
+        <button type="button" onClick={() => void refetch()} className="font-medium underline">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const callsDiff = stats ? stats.callsHandled - stats.callsHandledPrior : 0;
+  const ahtDiff = stats ? stats.ahtSec - stats.teamAhtSec : 0;
+  const rate = stats?.callsHandled
+    ? `${Math.round((100 * stats.resolutions) / stats.callsHandled)}% resolved`
+    : "No calls to resolve";
 
   return (
     <div>
-      {stats?.windowLabel && (
-        <div className="mb-100 inline-flex items-center rounded-medium bg-surface-sunken px-100 py-025 text-body-small font-medium text-text-subtlest">
-          {stats.windowLabel}
-        </div>
-      )}
+      <div className="mb-100 text-body-small text-text-subtlest">
+        {stats
+          ? `Your calls · ${fmtDate(stats.windowStart, { day: "numeric", month: "short" })} – ${fmtDate(stats.windowEnd, { day: "numeric", month: "short" })}`
+          : isPending
+            ? "Loading your stats…"
+            : null}
+      </div>
       <MetricsStrip
-        className="gap-150 md:grid-cols-4"
+        className="gap-150 md:grid-cols-3 xl:grid-cols-3"
         tiles={[
           {
             variant: "card",
-            label: "Calls handled",
-            value: stats?.callsHandled ?? 0,
+            label: "Calls you handled",
+            value: stats ? stats.callsHandled : "—",
             icon: PhoneCall,
-            footer: delta(callsDelta, !/^-/.test(callsDelta.trim())),
+            sub: stats ? rate : undefined,
+            footer: stats
+              ? comparison(
+                  callsDiff,
+                  callsDiff === 0
+                    ? "Same as the week before"
+                    : `${Math.abs(callsDiff)} ${callsDiff > 0 ? "more" : "fewer"} than the week before`,
+                )
+              : undefined,
           },
           {
             variant: "card",
             label: "Avg handle time",
-            value: stats?.aht ?? "—",
+            value: stats?.callsHandled ? duration(stats.ahtSec) : "—",
             icon: Clock,
-            footer: delta(ahtDelta, ahtImproved, true),
+            footer:
+              stats?.callsHandled && stats.teamAhtSec
+                ? comparison(
+                    ahtDiff,
+                    ahtDiff === 0
+                      ? `Same as the team (${duration(stats.teamAhtSec)})`
+                      : `${Math.abs(ahtDiff)}s ${ahtDiff > 0 ? "longer" : "shorter"} than the team (${duration(stats.teamAhtSec)})`,
+                  )
+                : undefined,
           },
           {
             variant: "card",
-            label: "Resolutions",
-            value: stats?.resolutions ?? 0,
-            icon: CheckCircle2,
-            footer: delta(`${stats?.resolutionRate ?? "0%"} rate`, true),
-          },
-          {
-            variant: "card",
-            label: "Promises captured",
-            value: stats?.promisesCount ?? 0,
+            label: "Promises you captured",
+            value: stats ? stats.promisesCount : "—",
             icon: HandCoins,
-            footer: delta(inr(Math.round(stats?.promisesAmount ?? 0)), true),
+            sub: stats?.promisesCount ? `${inr(stats.promisesAmount)} promised` : undefined,
           },
         ]}
       />

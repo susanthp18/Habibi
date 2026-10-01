@@ -459,6 +459,40 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         _activity(conn, "callback", callback_id, "callback_updated", label, note, row["customer_id"])
         return {"id": callback_id, "status": payload.get("status")}
 
+def mark_lapsed_missed(engine: Any) -> int:
+    """Mark callbacks whose window ended with nobody on them ``missed``.
+
+    The Callbacks screen used to do this from the browser when it loaded, so the
+    lifecycle advanced only when someone happened to open that page -- and
+    opening one callback from My Workspace rewrote others. A ``bot_worker``
+    stage now owns it. Contacts nobody; each lapse leaves a timeline event.
+    """
+    with engine.begin() as conn:
+        lapsed = conn.execute(
+            text(
+                """
+                WITH lapsed AS (
+                  UPDATE callbacks cb
+                  SET status = 'missed', updated_at = now()
+                  FROM customers c
+                  WHERE c.id = cb.customer_id
+                    AND cb.status IN ('scheduled', 'reminded', 'rescheduled')
+                    AND cb.scheduled_at + make_interval(mins => COALESCE(cb.window_mins, 30)) < now()
+                  RETURNING cb.id, cb.customer_id, c.tenant_id
+                )
+                INSERT INTO activity_events
+                  (id, tenant_id, entity_type, entity_id, actor_kind, kind, label, note, payload)
+                SELECT 'ACT-' || upper(substr(md5(random()::text || l.id), 1, 10)), l.tenant_id,
+                       'callback', l.id, 'system', 'callback_updated', 'Callback missed',
+                       'The callback window ended with no outcome recorded',
+                       jsonb_build_object('customerId', l.customer_id)
+                FROM lapsed l
+                """
+            )
+        ).rowcount
+    return int(lapsed or 0)
+
+
 def add_callback_reminder(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Queue a reminder; ``callback_reminders.py`` sends it.
 

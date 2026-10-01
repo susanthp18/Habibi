@@ -9,6 +9,7 @@ import {
   Settings,
   Sun,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { EqualizerMark } from "@/components/brand/EqualizerMark";
@@ -127,9 +128,20 @@ function AccountMenu() {
   );
 }
 
+/** ⌘K on a Mac, Ctrl K elsewhere. Read after mount: the server render has no
+ *  navigator, and both keys open the palette anyway. */
+function useShortcutLabel() {
+  const [label, setLabel] = useState("Ctrl K");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad/.test(navigator.platform)) setLabel("⌘K");
+  }, []);
+  return label;
+}
+
 export function TopBar() {
   const { open, setOpen } = useCommandPalette();
   const { collapsed, toggle } = useSidebarUi();
+  const shortcut = useShortcutLabel();
 
   return (
     <header className="z-20 flex h-14 shrink-0 items-center gap-150 border-b border-border bg-surface px-200">
@@ -158,18 +170,16 @@ export function TopBar() {
         className="focus-ring flex h-9 max-w-md flex-1 items-center gap-100 rounded-medium border border-border bg-surface-sunken px-150 text-left text-body-small text-text-subtle transition-colors hover:bg-surface"
       >
         <Search className="h-4 w-4" />
-        <span>Search customers, calls, disputes…</span>
+        <span>Search pages, customers, your queue…</span>
         <span className="ml-auto rounded-small border border-border bg-surface px-075 py-025 text-body-small font-medium text-text-subtlest">
-          ⌘K
+          {shortcut}
         </span>
       </button>
 
       <div className="ml-auto flex items-center gap-100">
         <div className="flex items-center gap-150 pr-050">
           <BigtappMark size={32} />
-          <HomeLink className="hidden text-body font-medium text-text hover:underline sm:inline">
-            Home
-          </HomeLink>
+          <HomeLink className="hidden text-body font-medium text-text hover:underline sm:inline" />
         </div>
         <NotificationsPopover />
         <HelpPopover />

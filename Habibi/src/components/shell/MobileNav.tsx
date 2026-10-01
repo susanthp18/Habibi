@@ -46,7 +46,7 @@ export function MobileNav() {
         </nav>
         <div className="flex items-center gap-100 border-t border-border px-150 py-150 text-body-tiny text-text-subtlest">
           <BigtappMark size={18} />
-          <HomeLink className="hover:underline">Home</HomeLink>
+          <HomeLink className="hover:underline" />
         </div>
       </SheetContent>
     </Sheet>

@@ -55,43 +55,53 @@ WorkItemSla = Literal["ok", "warn", "breach"]
 
 
 class WorkItemResponse(BaseModel):
-    """Assigned-queue row — mirrors Habibi QueueRow + entityType for tab bucketing."""
+    """One queue row: a work item in its owning domain, shaped for My Workspace."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     customer: str
+    #: The record's own account; empty when it is customer-level work.
     accountId: str
     type: str
     detail: str
     amount: float | None = None
-    ageHours: int
+    createdAt: str | None = None
+    #: The deadline the Due column counts down to; None when there is none.
+    dueAt: str | None = None
     sla: WorkItemSla
     slaLabel: str
     entityType: WorkItemEntityType
     status: str | None = None
     assigneeUserId: str | None = None
     customerId: str | None = None
+    #: The promise a promise follow-up chases.
+    relatedId: str | None = None
     enactedBy: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Workspace summary (StatsStrip + RightRail)
+# Workspace summary
 # ---------------------------------------------------------------------------
 
 
 class WorkspaceStatsResponse(BaseModel):
+    """The actor's own completed human voice calls over [windowStart, windowEnd]."""
+
     model_config = ConfigDict(extra="forbid")
 
+    windowStart: str
+    windowEnd: str
     callsHandled: int
-    callsHandledDelta: str
-    aht: str
-    ahtDelta: str
+    #: The seven days before the window.
+    callsHandledPrior: int
     resolutions: int
-    resolutionRate: str
+    ahtSec: int
+    #: Every person's completed voice calls in the window; bot calls excluded.
+    teamAhtSec: int
+    #: Promises captured on calls the actor handled.
     promisesCount: int
     promisesAmount: float
-    windowLabel: str
 
 
 class WorkspaceNextCallbackResponse(BaseModel):
@@ -99,21 +109,13 @@ class WorkspaceNextCallbackResponse(BaseModel):
 
     id: str
     customer: str
+    customerId: str
     accountId: str
     reason: str
+    status: str
+    scheduledAt: str
     time: str
     timezone: str
-    inMinutes: int
-
-
-class WorkspaceSlaCountdownResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    label: str
-    remaining: str
-    level: WorkItemSla
-    enactedBy: str | None = None
 
 
 class WorkspaceNextLeadResponse(BaseModel):
@@ -121,12 +123,31 @@ class WorkspaceNextLeadResponse(BaseModel):
 
     id: str
     customer: str
+    customerId: str
     accountId: str
     productName: str
     amount: float | None = None
     stage: str
+    priority: str
     window: str | None = None
+    nextFollowupAt: str | None = None
     reason: str
+
+
+class WorkspaceQueueCountsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total: int
+    overdue: int
+    dueSoon: int
+    byType: dict[WorkItemEntityType, int]
+
+
+class WorkspaceScopeTotalsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    me: int
+    pool: int
 
 
 class WorkspaceSummaryResponse(BaseModel):
@@ -135,8 +156,12 @@ class WorkspaceSummaryResponse(BaseModel):
     stats: WorkspaceStatsResponse
     nextCallback: WorkspaceNextCallbackResponse | None = None
     nextLead: WorkspaceNextLeadResponse | None = None
-    slaCountdowns: list[WorkspaceSlaCountdownResponse]
-    outsideWindowCount: int
+    #: Overdue and due-within-two-hours rows, at most eight; counts in queueCounts.
+    attention: list[WorkItemResponse]
+    queueCounts: WorkspaceQueueCountsResponse
+    scopeTotals: WorkspaceScopeTotalsResponse
+    #: Upcoming callbacks the contact Gate would refuse at their booked time.
+    callbacksBlockedCount: int
 
 
 # ── Floor / Webhooks / Integrations (ops screens) ─────────────────────────────

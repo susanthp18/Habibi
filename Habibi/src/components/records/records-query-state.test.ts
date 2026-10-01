@@ -92,7 +92,7 @@ describe("compliance surfaces thread the error", () => {
 
   it("assigned queue routes a failed read through QueryErrorBanner", () => {
     const queue = read("components/workspace/AssignedQueue.tsx");
-    expect(queue).toContain('<QueryErrorBanner label="your queue" error={error} />');
+    expect(queue).toContain('<QueryErrorBanner label="the queue" error={items.error} />');
     expect(queue).not.toContain("Couldn&rsquo;t load your queue.");
   });
 

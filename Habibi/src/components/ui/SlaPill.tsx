@@ -38,17 +38,3 @@ export function SlaPill({ level, label, className, size = "sm" }: Props) {
     </Lozenge>
   );
 }
-
-/** Humanize callback “in N minutes” for badges (avoid “in 733m”). */
-export function formatInMinutes(mins: number): string {
-  if (mins <= 0) return "Due now";
-  if (mins < 60) return `in ${mins}m`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h >= 48) {
-    const d = Math.floor(h / 24);
-    const rh = h % 24;
-    return rh ? `in ${d}d ${rh}h` : `in ${d}d`;
-  }
-  return m ? `in ${h}h ${m}m` : `in ${h}h`;
-}

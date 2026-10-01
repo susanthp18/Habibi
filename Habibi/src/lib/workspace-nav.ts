@@ -1,13 +1,16 @@
 import type { UseNavigateResult } from "@tanstack/react-router";
-import type { WorkItem, WorkItemEntityType } from "@/api/workspace";
+import type { WorkItem } from "@/api/workspace";
 
-/** Route + search for opening a work-item entity in its domain page. */
-export function workItemDestination(
-  entityType: WorkItemEntityType | (string & {}),
-  id: string,
-  customerId?: string | null,
-) {
-  switch (entityType) {
+type WorkItemTarget = Pick<WorkItem, "id" | "entityType"> &
+  Partial<Pick<WorkItem, "customerId" | "relatedId">>;
+
+/** Route + search for opening a work item in its domain page. */
+export function workItemDestination(item: WorkItemTarget) {
+  const { id, customerId, relatedId } = item;
+  const customer360 = customerId
+    ? ({ to: "/customers/$customerId", params: { customerId } } as const)
+    : ({ to: "/customers" } as const);
+  switch (item.entityType) {
     case "dispute":
       return { to: "/disputes", search: { id } } as const;
     case "callback":
@@ -19,39 +22,16 @@ export function workItemDestination(
     case "lead":
       return { to: "/upsell", search: { id } } as const;
     case "followup":
-      // Follow-ups are promise/lead chase items — land on Promises (broken PTP home).
-      return { to: "/promises" } as const;
+      // A promise follow-up opens the promise it chases; any other is the
+      // customer's (lead follow-ups are folded into their lead row).
+      return relatedId ? ({ to: "/promises", search: { id: relatedId } } as const) : customer360;
     case "bounce":
-      if (customerId) {
-        return { to: "/customers/$customerId", params: { customerId } } as const;
-      }
-      return { to: "/customers" } as const;
-    default:
-      return { to: "/" } as const;
+      return customer360;
   }
 }
 
-export function navigateWorkItem(
-  navigate: UseNavigateResult<string>,
-  item:
-    | Pick<WorkItem, "id" | "entityType" | "customerId">
-    | { id: string; entityType: string; customerId?: string | null },
-): void {
-  void navigate(workItemDestination(item.entityType, item.id, item.customerId));
-}
-
-/** Infer entity type from SLA countdown label prefixes produced by workspace_summary. */
-export function entityTypeFromSlaLabel(label: string): WorkItemEntityType | null {
-  const head = label.split("·")[0]?.trim().toLowerCase() ?? "";
-  if (head.startsWith("dispute")) return "dispute";
-  if (head.startsWith("broken ptp") || head.startsWith("promise") || head.startsWith("ptp"))
-    return "promise";
-  if (head.startsWith("doc")) return "document_request";
-  if (head.startsWith("callback")) return "callback";
-  if (head.startsWith("follow")) return "followup";
-  if (head.startsWith("bounce") || head.startsWith("emi bounce")) return "bounce";
-  if (head.startsWith("lead")) return "lead";
-  return null;
+export function navigateWorkItem(navigate: UseNavigateResult<string>, item: WorkItemTarget): void {
+  void navigate(workItemDestination(item));
 }
 
 export type DeepLinkSearch = { id?: string; new?: boolean; customerId?: string; plan?: boolean };

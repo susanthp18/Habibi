@@ -271,7 +271,8 @@ from schemas.floor import (
     WorkRuntimeJobResponse as WorkRuntimeJobResponse,
     WorkspaceNextCallbackResponse as WorkspaceNextCallbackResponse,
     WorkspaceNextLeadResponse as WorkspaceNextLeadResponse,
-    WorkspaceSlaCountdownResponse as WorkspaceSlaCountdownResponse,
+    WorkspaceQueueCountsResponse as WorkspaceQueueCountsResponse,
+    WorkspaceScopeTotalsResponse as WorkspaceScopeTotalsResponse,
     WorkspaceStatsResponse as WorkspaceStatsResponse,
     WorkspaceSummaryResponse as WorkspaceSummaryResponse,
 )

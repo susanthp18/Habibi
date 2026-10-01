@@ -147,7 +147,7 @@ export async function markMissed(cb: Callback): Promise<void> {
  * call it say "Begin callback" for that reason -- "Start call" promised a dial
  * the product never made.
  */
-export async function startCall(cb: Callback): Promise<void> {
+export async function startCall(cb: Pick<Callback, "id">): Promise<void> {
   await apiPatch(`/callbacks/${cb.id}`, { status: "in_progress" });
 }
 
@@ -173,20 +173,6 @@ export async function sendReminder(cb: Callback, channel: CbChannel): Promise<vo
   });
 }
 
-/** Bump past-window scheduled/reminded callbacks to missed. Live: real PATCHes. */
-export async function autoMarkMissed(list: Callback[]): Promise<number> {
-  const now = Date.now();
-  const overdue = list.filter((c) => {
-    if (c.status !== "scheduled" && c.status !== "reminded") return false;
-    const end = new Date(c.scheduledAt).getTime() + c.windowMins * 60_000;
-    return end < now;
-  });
-  for (const c of overdue) {
-    await markMissed(c);
-  }
-  return overdue.length;
-}
-
 // ---------- mutations ----------
 //
 // Each takes the row rather than an id: the screen has it, and the write
@@ -208,7 +194,7 @@ export function useStartCallback() {
   const qc = useQueryClient();
   return useMutation({
     meta: { errors: "toast" },
-    mutationFn: (cb: Callback) => startCall(cb),
+    mutationFn: (cb: Pick<Callback, "id">) => startCall(cb),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["callbacks"] });
       toast("Callback in progress — dial from your phone");

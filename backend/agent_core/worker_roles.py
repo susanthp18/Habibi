@@ -16,6 +16,7 @@ ROLES: dict[str, frozenset[str]] = {
             "promise_reminders",
             "promise_settle",
             "callback_reminders",
+            "callback_lifecycle",
         }
     ),
     "dialer": frozenset(

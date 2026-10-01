@@ -281,9 +281,13 @@ def _map_presence_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_agent_presence() -> dict[str, Any]:
-    """Current actor's agent_presence row — upsert available if missing."""
+    """The acting user's presence, or ``offline`` if they never set one.
+
+    A read used to insert an ``available`` row, so merely opening My Workspace
+    put a new operator on the Floor as available without their choosing it.
+    """
     uid = _actor_user_id()
-    with engine.begin() as conn:
+    with engine.connect() as conn:
         row = _one(
             conn.execute(
                 text(
@@ -298,29 +302,9 @@ def get_agent_presence() -> dict[str, Any]:
                 {"uid": uid},
             )
         )
-        if row is None:
-            pid = f"presence-{uid}"
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO agent_presence (id, user_id, status, since_at)
-                    VALUES (:id, :uid, 'available', now())
-                    ON CONFLICT (id) DO UPDATE
-                      SET status = EXCLUDED.status,
-                          since_at = EXCLUDED.since_at,
-                          updated_at = now()
-                    """
-                ),
-                {"id": pid, "uid": uid},
-            )
-            row = _one(
-                conn.execute(
-                    text("SELECT status, since_at FROM agent_presence WHERE id = :id"),
-                    {"id": pid},
-                )
-            )
-        assert row is not None
-        return _map_presence_row(row)
+    if row is None:
+        return {"status": "offline", "sinceAt": None}
+    return _map_presence_row(row)
 
 
 def patch_agent_presence(status: str) -> dict[str, Any]:

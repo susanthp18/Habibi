@@ -104,16 +104,28 @@ type Props = {
 export function CommandPalette({ open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { data: me } = useMe();
+  const [search, setSearch] = useState("");
   const { data: customers = [] } = useCustomers();
-  const { data: workItems = [] } = useWorkItems("me");
+  // Matched on the server across the whole queue, not within a first page.
+  const { data: workItems = [] } = useWorkItems(
+    { scope: "me", q: search, limit: 30 },
+    { enabled: open },
+  );
   const pages = useMemo(
     () => (can(me, "perm-admin-write") ? PAGES : PAGES.filter((page) => page.to !== "/roles")),
     [me],
   );
 
   const { data: agents = [] } = useStudioAgents({ enabled: open && can(me, "perm-bot-read") });
-  const customerHits = useMemo(() => customers.slice(0, 40), [customers]);
-  const queueHits = useMemo(() => workItems.slice(0, 30), [workItems]);
+  // Match first, then cap: capping first hid any customer past the 40th.
+  const customerHits = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const hits = needle
+      ? customers.filter((c) => `${c.name} ${c.accountId} ${c.id}`.toLowerCase().includes(needle))
+      : customers;
+    return hits.slice(0, 40);
+  }, [customers, search]);
+  const queueHits = workItems;
 
   const go = (to: string) => {
     onOpenChange(false);
@@ -122,7 +134,11 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Jump to page, customer, or queue item…" />
+      <CommandInput
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Jump to page, customer, or queue item…"
+      />
       <CommandList>
         <CommandEmpty>No matches.</CommandEmpty>
         <CommandGroup heading="Appearance">

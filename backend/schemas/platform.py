@@ -32,7 +32,8 @@ class PresenceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["available", "on_break", "wrap_up", "offline"]
-    sinceAt: str
+    #: None until the operator first sets a status.
+    sinceAt: str | None = None
 
 
 class PresencePatchRequest(BaseModel):

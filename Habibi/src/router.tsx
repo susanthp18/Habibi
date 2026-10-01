@@ -4,8 +4,8 @@ import { createMutationCache } from "@/lib/mutation-errors";
 import { routeTree } from "./routeTree.gen";
 
 export const getRouter = () => {
-  const queryClient = new QueryClient({
-    mutationCache: createMutationCache(),
+  const queryClient: QueryClient = new QueryClient({
+    mutationCache: createMutationCache(() => queryClient),
     defaultOptions: {
       queries: {
         retry: 1,
