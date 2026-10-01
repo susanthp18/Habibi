@@ -12,7 +12,7 @@ gliner==0.2.29
 onnxruntime==1.30.0
 faster-whisper==1.2.1
 tokenizers==0.23.2
-huggingface_hub==1.33.0
+huggingface_hub==2.0.0
 # Time-boxed matching for tenants' custom redaction patterns.
 regex==2026.9.10
 # Evidence exports (call_intel/exports.py): watermarked PDF transcripts,
