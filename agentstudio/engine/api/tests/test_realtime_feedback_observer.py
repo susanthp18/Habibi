@@ -1,4 +1,6 @@
+import asyncio
 import re
+from collections import defaultdict
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +10,11 @@ from pipecat.frames.frames import (
     TTSTextFrame,
 )
 from pipecat.observers.base_observer import FramePushed
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    AssistantTurnStoppedMessage,
+    LLMAssistantAggregator,
+)
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import TransportParams
@@ -23,6 +30,7 @@ from api.services.pipecat.transcript_log_coordinator import TranscriptLogCoordin
 class _FakeAggregator:
     def __init__(self):
         self.handlers = {}
+        self._event_handlers = defaultdict(lambda: SimpleNamespace(is_sync=False))
 
     def event_handler(self, event_name):
         def decorator(handler):
@@ -195,6 +203,20 @@ async def test_observer_treats_unusable_processor_error_as_terminal(monkeypatch)
     assert messages[0]["payload"]["fatal"] is True
 
 
+async def _started(assistant_aggregator):
+    """The aggregator's generation start (absent before it was handled)."""
+    handler = assistant_aggregator.handlers.get("on_assistant_turn_started")
+    if handler is not None:
+        await handler(assistant_aggregator)
+
+
+async def _assistant_text(assistant_aggregator, content, generation_started):
+    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
+        assistant_aggregator,
+        SimpleNamespace(content=content, timestamp=generation_started),
+    )
+
+
 @pytest.mark.asyncio
 async def test_turn_log_handlers_persist_user_message_added_events():
     logs_buffer = InMemoryLogsBuffer(workflow_run_id=123)
@@ -251,25 +273,19 @@ async def test_coordinator_attaches_speaking_intervals_to_logged_transcript_even
         ),
     )
 
-    await coordinator.record_bot_started_speaking(1)
-    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
-        assistant_aggregator,
-        SimpleNamespace(
-            content="Thank you",
-            timestamp="aggregator-bot-start",
-        ),
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-01-01T00:00:01.000+00:00")
+    await _assistant_text(assistant_aggregator, "Thank you", "2026-01-01T00:00:00.000+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-01-01T00:00:02.000+00:00")
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-01-01T00:00:03.000+00:00")
+    await _assistant_text(
+        assistant_aggregator, "You're welcome", "2026-01-01T00:00:02.500+00:00"
     )
-    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
-        assistant_aggregator,
-        SimpleNamespace(
-            content="You're welcome",
-            timestamp="second-aggregator-bot-start",
-        ),
-    )
-    await coordinator.record_bot_stopped_speaking(1)
+    await coordinator.record_bot_stopped_speaking(1, "2026-01-01T00:00:04.000+00:00")
     await coordinator.record_turn_ended(1, interrupted=False)
 
-    user_event, bot_event = [
+    user_event, bot_event, second_bot_event = [
         event
         for event in logs_buffer.get_events()
         if event["type"] in {"rtf-user-transcription", "rtf-bot-text"}
@@ -283,13 +299,16 @@ async def test_coordinator_attaches_speaking_intervals_to_logged_transcript_even
         user_event["payload"]["timestamp"],
     )
     assert user_event["payload"]["end_timestamp"]
-    assert bot_event["payload"]["timestamp"] != "aggregator-bot-start"
-    assert bot_event["payload"]["text"] == "Thank you\nYou're welcome"
+    assert bot_event["payload"]["timestamp"] != "2026-01-01T00:00:00.000+00:00"
+    assert bot_event["payload"]["text"] == "Thank you"
+    assert second_bot_event["payload"]["text"] == "You're welcome"
+    assert (bot_event["turn"], second_bot_event["turn"]) == (1, 1)
     assert re.match(
         r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00$",
         bot_event["payload"]["timestamp"],
     )
     assert bot_event["payload"]["end_timestamp"]
+    assert second_bot_event["payload"]["timestamp"] >= bot_event["payload"]["end_timestamp"]
 
 
 @pytest.mark.asyncio
@@ -424,6 +443,7 @@ async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
     coordinator = TranscriptLogCoordinator(logs_buffer)
 
     await coordinator.record_turn_started(2)
+    coordinator.record_generation_started()
     await coordinator.record_bot_started_speaking(2, "2026-07-14T13:33:02.254+00:00")
 
     # The user interrupts: logical Turn 2 ends and Turn 3 starts before the
@@ -433,9 +453,9 @@ async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
     await coordinator.record_bot_stopped_speaking(2, "2026-07-14T13:33:03.817+00:00")
     await coordinator.record_assistant_transcript(
         text="A minivan, too easy,",
-        timestamp="2026-07-14T13:33:06.654+00:00",
+        # The aggregator's stamp: when the generation started.
+        timestamp="2026-07-14T13:33:02.000+00:00",
         event_timestamp="2026-07-14T13:33:03.819+00:00",
-        generation_started="2026-07-14T13:33:02.000+00:00",
     )
 
     [event] = logs_buffer.get_events()
@@ -452,8 +472,9 @@ async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
     assert event["payload"]["timestamp"] == "2026-07-14T13:33:02.254+00:00"
 
 
-async def _interrupted_empty_turn_12_then_turn_13(coordinator):
+async def _interrupted_empty_turn_12_then_turn_13(coordinator, assistant_aggregator):
     await coordinator.record_turn_started(12)
+    await _started(assistant_aggregator)
     await coordinator.record_bot_started_speaking(12, "2026-09-30T10:00:01.000+00:00")
     await coordinator.record_turn_ended(12, interrupted=True)
     await coordinator.record_bot_stopped_speaking(12, "2026-09-30T10:00:01.500+00:00")
@@ -471,7 +492,8 @@ async def test_later_reply_is_not_filed_under_an_earlier_empty_interrupted_turn(
     assistant_aggregator = _FakeAggregator()
     register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
 
-    await _interrupted_empty_turn_12_then_turn_13(coordinator)
+    await _interrupted_empty_turn_12_then_turn_13(coordinator, assistant_aggregator)
+    await _started(assistant_aggregator)
     await assistant_aggregator.handlers["on_assistant_turn_stopped"](
         assistant_aggregator,
         SimpleNamespace(
@@ -496,7 +518,7 @@ async def test_late_reply_still_reaches_its_own_interrupted_turn():
     assistant_aggregator = _FakeAggregator()
     register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
 
-    await _interrupted_empty_turn_12_then_turn_13(coordinator)
+    await _interrupted_empty_turn_12_then_turn_13(coordinator, assistant_aggregator)
     await assistant_aggregator.handlers["on_assistant_turn_stopped"](
         assistant_aggregator,
         SimpleNamespace(
@@ -511,13 +533,6 @@ async def test_late_reply_still_reaches_its_own_interrupted_turn():
     assert event["payload"]["timestamp"] == "2026-09-30T10:00:01.000+00:00"
 
 
-async def _assistant_text(assistant_aggregator, content, generation_started):
-    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
-        assistant_aggregator,
-        SimpleNamespace(content=content, timestamp=generation_started),
-    )
-
-
 @pytest.mark.asyncio
 async def test_late_reply_keeps_the_node_that_spoke_it():
     """Run 90 / Codex review: turn 12's late text was filed under the node
@@ -530,16 +545,18 @@ async def test_late_reply_keeps_the_node_that_spoke_it():
 
     logs_buffer.set_current_node("node-a", "Node A")
     await coordinator.record_turn_started(12)
+    await _started(assistant_aggregator)
     await coordinator.record_bot_started_speaking(12, "2026-09-30T10:00:01.000+00:00")
     await coordinator.record_turn_ended(12, interrupted=True)
     await coordinator.record_bot_stopped_speaking(12, "2026-09-30T10:00:01.500+00:00")
     logs_buffer.set_current_node("node-b", "Node B")
     await coordinator.record_turn_started(13)
-    await coordinator.record_bot_started_speaking(13, "2026-09-30T10:00:05.000+00:00")
-
     await _assistant_text(
         assistant_aggregator, "Turn twelve reply", "2026-09-30T10:00:00.500+00:00"
     )
+
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(13, "2026-09-30T10:00:05.000+00:00")
     await _assistant_text(
         assistant_aggregator, "Turn thirteen reply", "2026-09-30T10:00:04.000+00:00"
     )
@@ -566,12 +583,14 @@ async def test_second_generation_of_an_interrupted_turn_stays_with_that_turn():
     register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
 
     await coordinator.record_turn_started(20)
+    await _started(assistant_aggregator)
     await coordinator.record_bot_started_speaking(20, "2026-09-30T10:00:10.000+00:00")
     await _assistant_text(
         assistant_aggregator, "Let me check that.", "2026-09-30T10:00:09.500+00:00"
     )
     # The tool runs in the pause; the second generation then speaks.
     await coordinator.record_bot_stopped_speaking(20, "2026-09-30T10:00:11.000+00:00")
+    await _started(assistant_aggregator)
     await coordinator.record_bot_started_speaking(20, "2026-09-30T10:00:12.500+00:00")
     await coordinator.record_turn_ended(20, interrupted=True)
     await coordinator.record_turn_started(21)
@@ -580,6 +599,7 @@ async def test_second_generation_of_an_interrupted_turn_stays_with_that_turn():
         assistant_aggregator, "Your payment is due.", "2026-09-30T10:00:12.000+00:00"
     )
 
+    await _started(assistant_aggregator)
     await coordinator.record_bot_started_speaking(21, "2026-09-30T10:00:16.000+00:00")
     await _assistant_text(
         assistant_aggregator, "Turn twenty-one reply", "2026-09-30T10:00:15.500+00:00"
@@ -592,6 +612,134 @@ async def test_second_generation_of_an_interrupted_turn_stays_with_that_turn():
         for event in logs_buffer.get_events()
     ] == [
         (20, "Let me check that.", "2026-09-30T10:00:10.000+00:00"),
-        (20, "Your payment is due.", "2026-09-30T10:00:10.000+00:00"),
+        (20, "Your payment is due.", "2026-09-30T10:00:12.500+00:00"),
         (21, "Turn twenty-one reply", "2026-09-30T10:00:16.000+00:00"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_generation_started_after_an_interruption_belongs_to_the_new_turn():
+    """Codex review: a generation that started before the interrupted turn's
+    audio had physically stopped was filed under turn 1 instead of turn 2."""
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=91)
+    coordinator = TranscriptLogCoordinator(logs_buffer)
+    user_aggregator = _FakeAggregator()
+    assistant_aggregator = _FakeAggregator()
+    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
+
+    await coordinator.record_turn_started(1)
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:01.000+00:00")
+    await coordinator.record_turn_ended(1, interrupted=True)
+    await _assistant_text(assistant_aggregator, "Turn one, cut off", "2026-10-01T10:00:00.500+00:00")
+    await coordinator.record_turn_started(2)
+    await _started(assistant_aggregator)
+    # Turn 1's audio stops only after turn 2's reply has started generating.
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:01.500+00:00")
+    await coordinator.record_bot_started_speaking(2, "2026-10-01T10:00:02.000+00:00")
+    await _assistant_text(assistant_aggregator, "Turn two reply", "2026-10-01T10:00:01.200+00:00")
+    await coordinator.record_bot_stopped_speaking(2, "2026-10-01T10:00:03.000+00:00")
+    await coordinator.record_turn_ended(2, interrupted=False)
+
+    assert [
+        (event["turn"], event["payload"]["text"], event["payload"]["timestamp"])
+        for event in logs_buffer.get_events()
+    ] == [
+        (1, "Turn one, cut off", "2026-10-01T10:00:01.000+00:00"),
+        (2, "Turn two reply", "2026-10-01T10:00:02.000+00:00"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_generation_after_a_node_transition_keeps_the_new_node():
+    """Codex review: a second generation in the same turn, after a tool moved
+    the call to node B, was logged under node A."""
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=91)
+    coordinator = TranscriptLogCoordinator(logs_buffer)
+    user_aggregator = _FakeAggregator()
+    assistant_aggregator = _FakeAggregator()
+    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
+
+    logs_buffer.set_current_node("node-a", "Node A")
+    await coordinator.record_turn_started(1)
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:01.000+00:00")
+    await _assistant_text(assistant_aggregator, "One moment.", "2026-10-01T10:00:00.500+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:01.500+00:00")
+    logs_buffer.set_current_node("node-b", "Node B")  # the tool's transition
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:02.500+00:00")
+    await _assistant_text(assistant_aggregator, "Here are your options.", "2026-10-01T10:00:02.000+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:04.000+00:00")
+    await coordinator.record_turn_ended(1, interrupted=False)
+
+    assert [
+        (event["turn"], event["node_id"], event["payload"]["text"])
+        for event in logs_buffer.get_events()
+    ] == [
+        (1, "node-a", "One moment."),
+        (1, "node-b", "Here are your options."),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generation_owner_is_read_when_the_real_aggregator_starts_it():
+    """Codex review: pipecat dispatched on_assistant_turn_started as a task, so
+    a generation begun in turn 1 / node A was owned by turn 2 / node B, which
+    took over before the task ran."""
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=92)
+    coordinator = TranscriptLogCoordinator(logs_buffer)
+    assistant_aggregator = LLMAssistantAggregator(LLMContext())
+    register_turn_log_handlers(coordinator, _FakeAggregator(), assistant_aggregator)
+
+    logs_buffer.set_current_node("node-a", "Node A")
+    await coordinator.record_turn_started(1)
+    await assistant_aggregator._trigger_assistant_turn_started()
+    # The user barges in and a tool moves the call on before the loop yields.
+    await coordinator.record_turn_started(2)
+    logs_buffer.set_current_node("node-b", "Node B")
+    await asyncio.sleep(0)
+
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:01.000+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:01.500+00:00")
+    await assistant_aggregator._call_event_handler(
+        "on_assistant_turn_stopped",
+        AssistantTurnStoppedMessage(
+            content="Turn one reply",
+            interrupted=True,
+            timestamp="2026-10-01T10:00:00.500+00:00",
+        ),
+    )
+    await coordinator.record_turn_ended(1, interrupted=True)
+    await asyncio.sleep(0)
+    await coordinator.flush()
+
+    assert [
+        (event["turn"], event["node_id"], event["payload"]["text"])
+        for event in logs_buffer.get_events()
+    ] == [(1, "node-a", "Turn one reply")]
+
+
+@pytest.mark.asyncio
+async def test_a_reply_that_pauses_keeps_all_of_its_speech():
+    """Codex review: one generation spoken in two intervals was logged as
+    ending with the first (2.0 s) instead of the second (3.5 s)."""
+    logs_buffer = InMemoryLogsBuffer(workflow_run_id=92)
+    coordinator = TranscriptLogCoordinator(logs_buffer)
+    assistant_aggregator = _FakeAggregator()
+    register_turn_log_handlers(coordinator, _FakeAggregator(), assistant_aggregator)
+
+    await coordinator.record_turn_started(1)
+    await _started(assistant_aggregator)
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:01.000+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:02.000+00:00")
+    await coordinator.record_bot_started_speaking(1, "2026-10-01T10:00:02.500+00:00")
+    await coordinator.record_bot_stopped_speaking(1, "2026-10-01T10:00:03.500+00:00")
+    await _assistant_text(
+        assistant_aggregator, "First part. Second part.", "2026-10-01T10:00:00.500+00:00"
+    )
+    await coordinator.record_turn_ended(1, interrupted=False)
+
+    [event] = logs_buffer.get_events()
+    assert event["payload"]["timestamp"] == "2026-10-01T10:00:01.000+00:00"
+    assert event["payload"]["end_timestamp"] == "2026-10-01T10:00:03.500+00:00"

@@ -225,7 +225,8 @@ def test_a_confirmation_sent_now_replaces_an_older_one_still_pending(db_tx, monk
     monkeypatch.setattr(contact_policy, "admit", _admit())
     monkeypatch.setattr(pf, "_inside_service_window", lambda *a, **k: True)
     pf.fulfill(db_tx, pid, resend=True)
-    rows = _confirms(db_tx, pid)
+    # Sorted: db_tx freezes now(), so both rows share created_at.
+    rows = sorted(_confirms(db_tx, pid), key=lambda r: r["status"])
     assert [(r["channel"], r["status"]) for r in rows] == [("whatsapp", "off"), ("whatsapp", "queued")]
     assert rows[1]["sending_at"] is not None  # handed to WhatsApp, awaiting Meta
 
@@ -368,3 +369,106 @@ def test_a_callback_outside_the_window_uses_its_template_on_the_customers_clock(
     brand, when, officer = job["template_params"]
     assert "4:30 PM" in when  # 11:00 UTC is 16:30 in India
     assert officer == "A Officer, 1800 000 000"
+
+
+def _sms_copy(db_tx, monkeypatch, send) -> str:
+    """A dispute copy owed by SMS (WhatsApp opted out), sent through ``send``."""
+    import compliance_copy
+    import twilio_sms
+    import written_followup
+
+    monkeypatch.setattr(contact_policy, "admit", _admit())
+    monkeypatch.setattr(written_followup, "_channel_blocked", lambda conn, c, ch: ch == "whatsapp")
+    monkeypatch.setattr(compliance_copy, "written_footer", lambda *a, **k: "Grievance officer: A Officer, 1800 000 000.")
+    monkeypatch.setattr(twilio_sms, "configured", lambda: True)
+    monkeypatch.setattr(twilio_sms, "send", send)
+    customer_id, _ = _customer(db_tx)
+    ref = f"DSP-T-{uuid.uuid4().hex[:8]}"
+    assert written_followup.queue(db_tx, customer_id=customer_id, kind="dispute_ref", related_id=ref,
+                                  context={"reference": ref})
+    return ref
+
+
+def _carrier_failed(sid: str, *, customer_id: str, related_id: str) -> None:
+    import delivery_receipts
+
+    assert delivery_receipts.record_twilio_sms_status(
+        sid=sid, state="failed", reason="30044", customer_id=customer_id, related_id=related_id)
+
+
+def test_an_sms_copy_the_carrier_fails_after_accepting_reads_failed(db_tx, monkeypatch) -> None:
+    """Codex: accepted, then a failed receipt, and the copy still read 'sent'."""
+    import written_followup
+
+    sid = f"SM{uuid.uuid4().hex}"
+    ref = _sms_copy(db_tx, monkeypatch, lambda **k: {"sid": sid, "status": "queued"})
+    assert written_followup.process_one(db.engine) is True
+    row = db_tx.execute(text("SELECT id, customer_id, status, channel FROM written_followups WHERE related_id = :r"),
+                        {"r": ref}).mappings().one()
+    assert (row["status"], row["channel"]) == ("sent", "sms")
+
+    _carrier_failed(sid, customer_id=row["customer_id"], related_id=row["id"])
+    failed = db_tx.execute(text("SELECT status, failure_reason FROM written_followups WHERE id = :i"),
+                           {"i": row["id"]}).mappings().one()
+    assert (failed["status"], failed["failure_reason"]) == ("failed", "twilio:30044")
+
+
+def test_a_failure_receipt_that_beats_the_send_record_is_not_overwritten(db_tx, monkeypatch) -> None:
+    import written_followup
+
+    sid = f"SM{uuid.uuid4().hex}"
+
+    def send_then_fail(**k):
+        # The carrier's failure lands before the sender records acceptance.
+        row = db_tx.execute(text("SELECT customer_id FROM written_followups WHERE id = :i"),
+                            {"i": k["related_id"]}).mappings().one()
+        _carrier_failed(sid, customer_id=row["customer_id"], related_id=k["related_id"])
+        return {"sid": sid, "status": "queued"}
+
+    ref = _sms_copy(db_tx, monkeypatch, send_then_fail)
+    assert written_followup.process_one(db.engine) is True
+    assert _queued(db_tx, ref)[0]["status"] == "failed"
+
+
+def _booked_callback(db_tx, monkeypatch) -> tuple[str, str]:
+    import compliance_copy
+    import written_followup
+
+    monkeypatch.setattr(contact_policy, "admit", _admit())
+    monkeypatch.setattr(written_followup, "_channel_blocked", lambda *a: False)
+    monkeypatch.setattr(pf, "_inside_service_window", lambda *a, **k: False)
+    monkeypatch.setattr(pf, "resolve_template", lambda name, lang: (
+        ("payint_callback_booked", "en") if name == "WHATSAPP_CALLBACK_TEMPLATE_NAME" else ("", "")))
+    monkeypatch.setattr(compliance_copy, "written_footer", lambda *a, **k: "Grievance officer: A Officer, 1800 000 000.")
+    customer_id, account_id = _customer(db_tx)
+    db_tx.execute(text("UPDATE customers_pii SET timezone = 'Asia/Kolkata' WHERE id = :c"), {"c": customer_id})
+    out = voice_studio.run_tool("request_callback", {**_call_ctx(customer_id, account_id),
+                                                     "when": f"{_day(2)}T16:30:00+05:30"})
+    assert out["ok"] is True and out["writtenConfirmation"] is True, out
+    return customer_id, out["callbackId"]
+
+
+def test_a_callback_cancelled_while_its_copy_waits_is_not_confirmed(db_tx, monkeypatch) -> None:
+    """Codex: the copy was composed from the time stored at booking."""
+    import written_followup
+
+    _, callback_id = _booked_callback(db_tx, monkeypatch)
+    db_tx.execute(text("UPDATE callbacks SET status = 'cancelled' WHERE id = :i"), {"i": callback_id})
+    assert written_followup.process_one(db.engine) is True
+    row = db_tx.execute(text("SELECT status, failure_reason, message_id FROM written_followups "
+                             "WHERE related_id = :r"), {"r": callback_id}).mappings().one()
+    assert (row["status"], row["failure_reason"], row["message_id"]) == ("failed", "callback_cancelled", None)
+
+
+def test_a_callback_moved_while_its_copy_waits_confirms_the_new_time(db_tx, monkeypatch) -> None:
+    import written_followup
+
+    _, callback_id = _booked_callback(db_tx, monkeypatch)
+    db_tx.execute(text("UPDATE callbacks SET status = 'rescheduled', scheduled_at = :at WHERE id = :i"),
+                  {"i": callback_id, "at": f"{_day(3)}T05:30:00+00:00"})
+    assert written_followup.process_one(db.engine) is True
+    mid = db_tx.execute(text("SELECT message_id FROM written_followups WHERE related_id = :r"),
+                        {"r": callback_id}).scalar()
+    params = db_tx.execute(text("SELECT template_params FROM whatsapp_outbound_jobs WHERE message_id = :m"),
+                           {"m": mid}).scalar()
+    assert "11:00 AM" in params[1] and "4:30 PM" not in params[1]  # 05:30 UTC is 11:00 in India

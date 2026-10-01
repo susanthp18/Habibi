@@ -145,6 +145,15 @@ def record_twilio_sms_status(
                     )
             except Exception:
                 logger.exception("promise reminder not marked failed for sid=%s", sid)
+            try:
+                import written_followup
+
+                with conn.begin_nested():
+                    written_followup.delivery_failed(
+                        conn, str(origin["related_id"]), f"twilio:{reason or state}"
+                    )
+            except Exception:
+                logger.exception("written follow-up not marked failed for sid=%s", sid)
     return True
 
 

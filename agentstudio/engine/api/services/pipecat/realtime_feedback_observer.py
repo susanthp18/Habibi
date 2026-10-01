@@ -333,8 +333,9 @@ def register_turn_log_handlers(
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
-    Hooks into on_user_turn_message_added and on_assistant_turn_stopped to store
-    complete turn text through the turn-aware coordinator. Works for both
+    Hooks into on_user_turn_message_added, on_assistant_turn_started and
+    on_assistant_turn_stopped to store complete turn text through the
+    turn-aware coordinator. Works for both
     WebRTC and telephony calls — independent of WebSocket availability.
     """
 
@@ -350,16 +351,29 @@ def register_turn_log_handlers(
         except Exception as e:
             logger.error(f"Failed to coordinate user turn transcript: {e}")
 
+    # pipecat runs these two events' handlers as tasks, which start after the
+    # aggregator has moved on: a new turn or node may own the call by then,
+    # and one generation's stop can trail the next one's start (Codex review).
+    # Run them inline so the generation boundary is read where it happens.
+    for event in ("on_assistant_turn_started", "on_assistant_turn_stopped"):
+        assistant_aggregator._event_handlers[event].is_sync = True
+
+    @assistant_aggregator.event_handler("on_assistant_turn_started")
+    async def on_assistant_turn_started(aggregator):
+        try:
+            transcript_coordinator.record_generation_started()
+        except Exception as e:
+            logger.error(f"Failed to record assistant generation start: {e}")
+
     @assistant_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(aggregator, message):
-        if message.content:
-            try:
-                await transcript_coordinator.record_assistant_transcript(
-                    text=message.content,
-                    timestamp=message.timestamp,
-                    end_timestamp=getattr(message, "end_timestamp", None),
-                    # The aggregator stamps the generation's start time.
-                    generation_started=message.timestamp,
-                )
-            except Exception as e:
-                logger.error(f"Failed to coordinate assistant turn transcript: {e}")
+        try:
+            # Empty text still closes the generation; the aggregator stamps
+            # its start time.
+            await transcript_coordinator.record_assistant_transcript(
+                text=message.content or "",
+                timestamp=message.timestamp,
+                end_timestamp=getattr(message, "end_timestamp", None),
+            )
+        except Exception as e:
+            logger.error(f"Failed to coordinate assistant turn transcript: {e}")

@@ -420,6 +420,8 @@ LEASE_MINUTES = 15
 #: anything the customer remembers agreeing to.
 GIVE_UP_AFTER = timedelta(days=3)
 _SETTLE_BATCH = 20
+#: Callback states that still promise the customer a call at ``scheduled_at``.
+_BOOKED = frozenset({"scheduled", "reminded", "rescheduled"})
 
 
 def queue(
@@ -503,18 +505,23 @@ def _finish(conn: Any, row: Mapping[str, Any], *, sent: bool, reason: str | None
     from db_core import _activity
 
     reason = None if sent else (reason or "unknown")[:200]
-    conn.execute(
+    # 'failed' is final: a carrier failure applied by :func:`delivery_failed`
+    # while the SMS send was still being recorded is not overwritten by it.
+    moved = conn.execute(
         text(
             """
             UPDATE written_followups
                SET status = :status,
                    sent_at = CASE WHEN :sent THEN now() ELSE sent_at END,
                    failure_reason = :reason
-             WHERE id = :id
+             WHERE id = :id AND status <> 'failed'
+            RETURNING id
             """
         ),
         {"id": row["id"], "status": "sent" if sent else "failed", "sent": sent, "reason": reason},
-    )
+    ).first()
+    if moved is None:
+        return
     entity = "callback" if row["kind"] == "callback_confirm" else "dispute"
     if sent:
         _activity(conn, entity, row["related_id"], "written_confirmation_sent",
@@ -522,6 +529,36 @@ def _finish(conn: Any, row: Mapping[str, Any], *, sent: bool, reason: str | None
     else:
         _activity(conn, entity, row["related_id"], "written_confirmation_failed",
                   "Written confirmation not sent", reason, row["customer_id"])
+
+
+def delivery_failed(conn: Any, followup_id: str, error: str) -> bool:
+    """The carrier's word that an SMS copy it accepted never arrived.
+
+    Also applies to a copy whose send is still being recorded (``queued``,
+    SMS): row locks order the two writes, and :func:`_finish` leaves a failed
+    row alone, so the receipt wins whichever lands first. WhatsApp copies
+    settle from their job and Meta receipt instead (:data:`_SETTLE`).
+    """
+    row = conn.execute(
+        text(
+            """
+            UPDATE written_followups
+               SET status = 'failed', failure_reason = :err
+             WHERE id = :id
+               AND (status = 'sent' OR (status = 'queued' AND channel = 'sms'))
+            RETURNING id, kind, related_id, customer_id, channel
+            """
+        ),
+        {"id": followup_id, "err": error[:200]},
+    ).mappings().first()
+    if row is None:
+        return False
+    from db_core import _activity
+
+    entity = "callback" if row["kind"] == "callback_confirm" else "dispute"
+    _activity(conn, entity, row["related_id"], "written_confirmation_failed",
+              "Written confirmation not delivered", error[:200], row["customer_id"])
+    return True
 
 
 def _settle(conn: Any) -> int:
@@ -538,14 +575,25 @@ def _prepare(conn: Any, row: Mapping[str, Any]) -> dict[str, Any]:
     now = utc_now()
     if row["created_at"] < now - GIVE_UP_AFTER:
         return {"outcome": "failed", "reason": "too_late"}
-    at = context.get("callbackAt")
-    if row["kind"] == "callback_confirm" and at and datetime.fromisoformat(str(at)) <= now:
-        return {"outcome": "failed", "reason": "callback_passed"}
     import tenant_context
 
     # The row's tenant: the drain spans tenants, and the gate and the copy
     # (brand, grievance officer) are the customer's.
     with tenant_context.bind(row["tenant_id"]):
+        if row["kind"] == "callback_confirm":
+            # The booking as it stands now, not as it was queued: an operator
+            # can cancel or move it while its copy waits for messaging hours.
+            booking = conn.execute(
+                text("SELECT status, scheduled_at FROM callbacks WHERE id = :id"),
+                {"id": row["related_id"]},
+            ).mappings().first()
+            if booking is None:
+                return {"outcome": "failed", "reason": "callback_not_found"}
+            if booking["status"] not in _BOOKED:
+                return {"outcome": "failed", "reason": f"callback_{booking['status']}"}
+            if booking["scheduled_at"] <= now:
+                return {"outcome": "failed", "reason": "callback_passed"}
+            context["callbackAt"] = booking["scheduled_at"]
         return _route(conn, customer_id=row["customer_id"], kind=row["kind"], context=context,
                       account_id=row["account_id"], related_id=row["related_id"],
                       source=QUEUE_SOURCE, purpose="statutory", actor_kind="system")

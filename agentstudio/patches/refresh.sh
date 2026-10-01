@@ -20,8 +20,11 @@ rmdir "$WORK/dograh/pipecat" 2>/dev/null || true
 
 # Line endings differ between checkouts (autocrlf); only content counts.
 common=(--strip-trailing-cr --exclude=__pycache__ --exclude=node_modules --exclude=.pytest_cache --exclude=.next --exclude=*.tsbuildinfo --exclude=next-env.d.ts)
-( cd "$WORK" && diff -ruN "${common[@]}" --exclude=pipecat dograh "$ENGINE" ) \
-  | sed "s#$ENGINE#engine#g" > "$HERE/engine.diff" || true
+# --exclude matches a name at any depth (it dropped api/services/pipecat), so
+# the vendored pipecat tree is left out by path; pipecat.diff covers it.
+( cd "$WORK" && diff -ruN "${common[@]}" dograh "$ENGINE" ) \
+  | sed "s#$ENGINE#engine#g" \
+  | awk '/^diff -ruN /{skip = / engine\/pipecat\//} !skip' > "$HERE/engine.diff" || true
 ( cd "$WORK" && diff -ruN "${common[@]}" pipecat "$ENGINE/pipecat" ) \
   | sed "s#$ENGINE/pipecat#engine/pipecat#g" > "$HERE/pipecat.diff" || true
 
