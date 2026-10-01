@@ -56,7 +56,7 @@ jobs:
             type=raw,value=${{ github.sha }}
 
       - name: Build and push collections-api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         id: api-build
         with:
           context: backend
