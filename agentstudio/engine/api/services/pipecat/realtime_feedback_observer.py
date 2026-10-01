@@ -358,6 +358,8 @@ def register_turn_log_handlers(
                     text=message.content,
                     timestamp=message.timestamp,
                     end_timestamp=getattr(message, "end_timestamp", None),
+                    # The aggregator stamps the generation's start time.
+                    generation_started=message.timestamp,
                 )
             except Exception as e:
                 logger.error(f"Failed to coordinate assistant turn transcript: {e}")

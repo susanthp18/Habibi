@@ -10,6 +10,7 @@ Drains:
   2) bot_turn_jobs (bot replies — gated by BOT_RUNTIME_ENABLED)
   3) promise_reminders (PTP due/confirm) + settle_promises (due_today / auto-break)
      + callback_reminders (the reminders the callback screen queues)
+     + written_followups (a call's written copy of a callback or dispute)
   4) bounce last-resort voice (payment_events.next_voice_at)
   5) due treatment plans (TREATMENT_MODE=live only)
   6) treatment follow-through: outcome attribution + ladder re-decision
@@ -36,6 +37,7 @@ import work_loop
 import cadence
 import call_closer
 import callback_reminders
+import written_followup
 import campaigns
 import db
 import observability
@@ -111,6 +113,8 @@ def process_one_any() -> bool:
     if _run_stage("promise_reminders", lambda: promise_fulfillment.process_one_reminder(db.engine)):
         return True
     if _run_stage("callback_reminders", lambda: callback_reminders.process_one(db.engine)):
+        return True
+    if _run_stage("written_followups", lambda: written_followup.process_one(db.engine)):
         return True
     if _run_stage("bounce_voice", lambda: payment_events.process_one_voice(db.engine)):
         return True

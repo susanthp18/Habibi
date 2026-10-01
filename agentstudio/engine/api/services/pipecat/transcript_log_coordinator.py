@@ -151,6 +151,9 @@ class TranscriptLogCoordinator:
             side = self._state(turn_id).assistant
             if side.speech_start_timestamp is None:
                 side.speech_start_timestamp = timestamp or _now_iso()
+                # The node that spoke owns the text, which can arrive after a
+                # later node has taken over (run 90 / Codex review).
+                self._capture_node(side)
             side.speaking = True
 
     async def record_bot_stopped_speaking(
@@ -194,15 +197,23 @@ class TranscriptLogCoordinator:
         timestamp: str | None,
         end_timestamp: str | None = None,
         event_timestamp: str | None = None,
+        generation_started: str,
     ) -> None:
         async with self._lock:
-            state = self._select_assistant_turn()
+            state = self._select_assistant_turn(generation_started)
             side = state.assistant
+            if side.emitted:
+                # A later generation of an already logged turn (a tool round
+                # cut off by an interruption). Logged events are immutable, so
+                # its text becomes the turn's next event.
+                side.text = None
+                side.emitted = False
             first_text = side.text is None
             side.text = text if first_text else f"{side.text}\n{text}"
             if first_text:
                 side.transcript_timestamp = timestamp
-                self._capture_node(side)
+                if side.node_id is None:
+                    self._capture_node(side)
             side.event_timestamp = event_timestamp or _now_iso()
             if end_timestamp and not side.speech_end_timestamp:
                 side.speech_end_timestamp = end_timestamp
@@ -225,23 +236,27 @@ class TranscriptLogCoordinator:
             return max(self._states.values(), key=lambda state: state.turn_id)
         return self._state(1)
 
-    def _select_assistant_turn(self) -> _TurnTranscriptState:
-        candidates = [
+    def _select_assistant_turn(self, generation_started: str) -> _TurnTranscriptState:
+        # A generation belongs to the first turn whose bot speech had not yet
+        # finished when it started: the turn speaking then, or else the next
+        # to speak. A turn whose speech ended earlier cannot own it (run 90:
+        # turn 13's reply went to an empty interrupted turn 12), and a turn
+        # already speaking can (Codex review: a tool round's second generation
+        # went to the next turn). Both are same-clock, same-format ISO strings
+        # (_now_iso / pipecat time_now_iso8601), so they compare as text.
+        owners = [
             state
             for state in self._states.values()
-            if state.assistant.speech_start_timestamp and state.assistant.text is None
+            if state.assistant.speech_start_timestamp
+            and (
+                state.assistant.speaking
+                or (state.assistant.speech_end_timestamp or "") > generation_started
+            )
         ]
-        interrupted = [
-            state for state in candidates if state.ended and state.interrupted
-        ]
-        if interrupted:
-            return min(interrupted, key=lambda state: state.turn_id)
+        if owners:
+            return min(owners, key=lambda state: state.turn_id)
         if self._active_turn_id is not None:
-            active = self._state(self._active_turn_id)
-            if active.assistant.text is None:
-                return active
-        if candidates:
-            return min(candidates, key=lambda state: state.turn_id)
+            return self._state(self._active_turn_id)
         if self._states:
             return max(self._states.values(), key=lambda state: state.turn_id)
         return self._state(1)

@@ -13,6 +13,7 @@ The invariants worth protecting are the ones a unit test cannot see:
 """
 
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -23,6 +24,8 @@ from pipecat.frames.frames import (
     OutputAudioRawFrame,
     TTSAudioRawFrame,
     TTSSpeakFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -1042,6 +1045,115 @@ async def test_agent_generations_are_traced_into_the_calls_turns():
             assert service._tracing_enabled, (
                 f"{type(service).__name__} would skip tracing entirely"
             )
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_the_calls_latency_breakdown_names_each_agents_services():
+    """An agent's LLM and TTS time is attributed to them, not to the bridge.
+
+    The call pipeline only sees an agent's frames re-pushed by its bridge,
+    which names the bridge as their source, so a breakdown built from those
+    copies attributes no LLM or TTS time and files it under pipeline.
+    """
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Hello, how can I help?")],
+            chunk_delay=0.001,
+        ),
+        destination_llm=MockLLMService(mock_steps=[], chunk_delay=0.001),
+        source_workflow=build_agent_workflow(name="Reception", greeting=None),
+        destination_workflow=build_agent_workflow(name="Billing", greeting="Hi."),
+    )
+    latency_observer = harness.call_worker.user_bot_latency_observer
+    breakdowns = []
+
+    @latency_observer.event_handler("on_latency_breakdown")
+    async def _on_breakdown(_observer, breakdown):
+        breakdowns.append(breakdown)
+
+    await harness.start()
+    engine = harness.engine
+    agent = engine.active_agent
+    try:
+        assert latency_observer in agent.worker._observer._observers
+        # A user turn the agent's reply is measured from.
+        await harness.call_worker.queue_frames(
+            [
+                VADUserStartedSpeakingFrame(),
+                VADUserStoppedSpeakingFrame(stop_secs=0.0, timestamp=time.time()),
+            ]
+        )
+        async with asyncio.timeout(5):
+            while latency_observer._user_stopped_time is None:
+                await asyncio.sleep(0.01)
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.db_client.get_tools_by_uuids",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            engine._custom_tool_manager = CustomToolManager(engine)
+            engine._get_organization_id = AsyncMock(return_value=1)
+            await engine.set_node("start")
+            await engine.queue_node_opening(
+                node_id="start", previous_node_id=None, generate_if_no_greeting=True
+            )
+            async with asyncio.timeout(10):
+                while not breakdowns:
+                    await asyncio.sleep(0.01)
+
+        owners = {c.label: c.owner for c in breakdowns[-1].contributions}
+        assert owners.get("LLM inference") == agent.llm.name, owners
+        assert owners.get("speech synthesis") == agent.tts.name, owners
+        assert f"{harness.call_worker.name}::AgentBridge" not in owners.values(), owners
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_handed_over_agent_has_finished_when_the_handoff_completes():
+    """Nothing a previous agent produces reaches the call's latency breakdown.
+
+    The breakdown watches each agent's worker directly, where the bridge's
+    gate on the selected visit does not apply, so a retired agent's late
+    output is kept out by its worker having finished, not by the bridge.
+    """
+    harness = TransferHarness()
+    await harness.build(
+        source_llm=MockLLMService(
+            mock_steps=[
+                MockLLMService.create_function_call_chunks(
+                    "transfer_to_billing", {}, tool_call_id="call_transfer_1"
+                )
+            ],
+            chunk_delay=0.001,
+        ),
+        destination_llm=MockLLMService(
+            mock_steps=[MockLLMService.create_text_chunks("Anything else?")],
+            chunk_delay=0.001,
+        ),
+        source_workflow=build_agent_workflow(
+            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
+        ),
+        destination_workflow=build_agent_workflow(
+            name="Billing", greeting="Billing here."
+        ),
+    )
+    latency_observer = harness.call_worker.user_bot_latency_observer
+    await harness.start()
+    source = harness.engine.active_agent
+    try:
+        await run_transfer(harness, tool=TransferAgentTool())
+        outcome = harness.engine.transfer_coordinator.completed[-1]
+        assert outcome["outcome"] == "completed", outcome
+
+        assert source.worker.has_finished()
+        destination = harness.engine.active_agent
+        assert destination is not source
+        assert latency_observer in destination.worker._observer._observers
     finally:
         await harness.stop()
 

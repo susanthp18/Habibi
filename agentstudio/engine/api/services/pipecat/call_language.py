@@ -152,6 +152,8 @@ class CallLanguageTracker(FrameProcessor):
         self._on_change = on_change
         # (text, detected, current) -> is it really the detected language?
         self._confirm = confirm
+        # Bumped per phrase: a check answers only if no phrase came after it.
+        self._decision = 0
 
     def _listed(self, detected: str) -> str | None:
         """``detected`` as one of the agent's languages, or None."""
@@ -169,6 +171,7 @@ class CallLanguageTracker(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _observe(self, language: str, words: int, text: str = "") -> None:
+        self._decision += 1
         if language == self.current:
             self._pending = None
             await self._settle(changed=not self.spoken)  # the first phrase sets it
@@ -182,13 +185,18 @@ class CallLanguageTracker(FrameProcessor):
                 # The model reads the words as they are, and the voice picks
                 # its language from each sentence's script, so only a real
                 # switch changes anything.
-                self.create_task(self._check_then_switch(text, language))
+                self.create_task(self._check_then_switch(text, language, self._decision))
         else:
             self._pending = language
 
-    async def _check_then_switch(self, text: str, language: str) -> None:
+    async def _check_then_switch(self, text: str, language: str, seq: int) -> None:
         current = self.current
-        if await self._confirm(text, language, current):
+        confirmed = await self._confirm(text, language, current)
+        # The checks run side by side, up to 3 s each: an older phrase's answer
+        # arriving late would undo the newer phrase's decision.
+        if seq != self._decision:
+            return
+        if confirmed:
             await self._switch(language)
         else:
             await self.push_frame(LLMMessagesAppendFrame(

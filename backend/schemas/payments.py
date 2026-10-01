@@ -143,6 +143,7 @@ class PromiseFulfillmentResponse(BaseModel):
     payLinkSent: bool
     suppressed: bool
     suppressionReason: str | None = None
+    afterCall: bool = False
 
 
 class PromiseResendConfirmResponse(PromiseResponse):

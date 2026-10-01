@@ -821,18 +821,23 @@ def _tool_request_callback(ctx: dict[str, Any], args: dict[str, Any], interactio
 
     with db.engine.connect() as conn:
         existing = conn.execute(text("""
-            SELECT scheduled_at FROM callbacks
+            SELECT id, scheduled_at FROM callbacks
             WHERE interaction_id = :interaction_id AND customer_id = :customer_id
               AND status IN ('scheduled', 'reminded')
             ORDER BY created_at DESC LIMIT 1
         """), {"interaction_id": interaction_id,
-                "customer_id": str(ctx.get("customer_id") or "")}).scalar_one_or_none()
+                "customer_id": str(ctx.get("customer_id") or "")}).mappings().first()
     if existing is not None:
         # A success: a callback is booked. The agents' "Callback booked" path
         # needs a successful request_callback in the step (run 72 took it with
         # no call at all and said the callback was noted); this one counts.
+        # Its written copy is owed once per booking, so asking again recovers
+        # one the first request did not get queued (and adds none).
         return {"ok": True, "alreadyBooked": True,
-                "existingTime": existing.isoformat(),
+                "existingTime": existing["scheduled_at"].isoformat(),
+                "writtenConfirmation": _written(ctx, "callback_confirm",
+                                                {"callbackAt": existing["scheduled_at"].isoformat()},
+                                                existing["id"]),
                 "say": "A callback is already booked at existingTime. Tell them that time; do not book or promise another."}
     result = domain.request_callback(
         customer_id=str(ctx.get("customer_id") or ""),
@@ -842,7 +847,33 @@ def _tool_request_callback(ctx: dict[str, Any], args: dict[str, Any], interactio
         reason=args.get("reason"),
         idempotency_key=f"vs-{ctx.get('workflow_run_id')}-cb-{args.get('when')}",
     )
-    return result.to_llm()
+    out = result.to_llm()
+    if result.ok:
+        out["writtenConfirmation"] = _written(
+            ctx, "callback_confirm", {"callbackAt": result.data.get("scheduledAt")}, result.data.get("callbackId"))
+    return out
+
+
+def _written(ctx: dict[str, Any], kind: str, context: dict[str, Any], related_id: str | None) -> bool:
+    """Owe the customer a written copy of what the call just booked; True when
+    one is (or already was) owed. Once per booking or reference, atomically
+    (``written_followup.queue``); the worker sends it, after the contact policy
+    admits it, so nothing here waits on a carrier.
+    """
+    import db
+    import written_followup
+
+    if not related_id:
+        return False
+    try:
+        with db.engine.begin() as conn:
+            written_followup.queue(conn, customer_id=str(ctx.get("customer_id") or ""), kind=kind,
+                                   related_id=str(related_id), context=context,
+                                   account_id=ctx.get("account_id"))
+    except Exception:
+        logger.exception("voice studio: written %s not queued", kind)
+        return False
+    return True
 
 
 def _tool_flag_dispute(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
@@ -861,7 +892,11 @@ def _tool_flag_dispute(ctx: dict[str, Any], args: dict[str, Any], interaction_id
         source="bot",
         idempotency_key=f"vs-{ctx.get('workflow_run_id')}-dispute",
     )
-    return result.to_llm()
+    out = result.to_llm()
+    if result.ok:
+        out["writtenConfirmation"] = _written(
+            ctx, "dispute_ref", {"reference": result.data.get("disputeId")}, result.data.get("disputeId"))
+    return out
 
 
 def _tool_record_opt_out(ctx: dict[str, Any], args: dict[str, Any], interaction_id: str) -> dict[str, Any]:
@@ -1979,6 +2014,16 @@ def _complete_run(body: dict[str, Any]) -> dict[str, Any]:
                 session_id=_session_id(run_id), interaction_id=interaction_id,
                 status="abandoned", duration_sec=duration,
             )
+
+    if interaction_id:
+        try:
+            import promise_fulfillment
+
+            # Terms changed during the call were held for its end; they go now.
+            with db.engine.begin() as conn:
+                promise_fulfillment.release_after_call(conn, interaction_id)
+        except Exception:
+            logger.exception("voice studio: held confirmations not released for %s", interaction_id)
 
     if ctx.get("attempt_id"):
         carrier_status = status if status in _UNCONNECTED else "completed"

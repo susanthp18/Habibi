@@ -272,12 +272,18 @@ class AgentRuntimeFactory:
                 f"[transfer] visit {runtime.visit_id} attached without the call's "
                 "tracing context; this agent's LLM and TTS will emit no spans"
             )
+        # The call's latency breakdown times the LLM and TTS where they run, so
+        # it ignores the copies the bridge re-pushes in the call pipeline.
+        latency_observer = getattr(self._call_worker, "user_bot_latency_observer", None)
+        if latency_observer:
+            latency_observer.observe_bridged_workers()
         runtime.worker = create_agent_worker(
             pipeline,
             name=runtime.visit_id,
             audio_config=self._audio_config,
             call_tracing_context=call_tracing_context,
             call_worker_name=self._call_worker.name,
+            observers=[latency_observer] if latency_observer else None,
         )
 
         if self._on_agent_error is not None:

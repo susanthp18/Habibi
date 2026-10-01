@@ -6792,8 +6792,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      await session.start()
      try:
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/services/workflow/pipecat_engine.py engine/api/services/workflow/pipecat_engine.py
---- dograh/api/services/workflow/pipecat_engine.py	2026-09-30 22:41:23.116823900 +0530
-+++ engine/api/services/workflow/pipecat_engine.py	2026-09-30 22:02:12.443612400 +0530
+--- dograh/api/services/workflow/pipecat_engine.py	2026-10-01 11:35:01.710855100 +0530
++++ engine/api/services/workflow/pipecat_engine.py	2026-10-01 08:29:39.118305700 +0530
 @@ -1,5 +1,6 @@
  from typing import (
      TYPE_CHECKING,
@@ -7341,17 +7341,29 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  # Perform variable extraction before transitioning to new node
                  await self._perform_variable_extraction_if_needed(
                      self.active_agent.current_node,
-@@ -450,6 +919,9 @@
+@@ -450,10 +919,21 @@
                  elif transition_speech:
                      await self.queue_text_message(transition_speech, mute_user=True)
  
 +                # This message's one correction is used (see the bounce check).
 +                if returning:
 +                    self._returned_on_user_message = left[(agent.visit_id, transition_to_node)]
++                entry_key = (agent.visit_id, transition_to_node)
++                entered_on = self._node_entry_user_message.get(entry_key)
                  # Set context for the new node, so that when the function call result
                  # frame is received by LLMContextAggregator and an LLM generation
                  # is done, we have updated context and functions
-@@ -496,6 +968,49 @@
+                 await self.set_node(transition_to_node, origin_visit_id=agent.visit_id)
++                if returning:
++                    # The same visit goes on and the customer has said nothing
++                    # since leaving it: their message still answers this step.
++                    # Re-entered on it, run 90's "Actually, yes, go ahead" counted
++                    # as said before the step and its write was refused.
++                    self._node_entry_user_message[entry_key] = entered_on
+ 
+                 is_end_node = agent.workflow.nodes[transition_to_node].is_end
+                 if is_end_node:
+@@ -496,6 +976,49 @@
  
          return agent.bind_tool(self, transition_func)
  
@@ -7401,7 +7413,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      async def _register_transition_function_with_llm(
          self,
          name: str,
-@@ -504,6 +1019,9 @@
+@@ -504,6 +1027,9 @@
          transition_speech_type: Optional[str] = None,
          transition_speech_recording_id: Optional[str] = None,
          *,
@@ -7411,7 +7423,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          agent: AgentRuntime | None = None,
      ):
          agent = agent or self.active_agent
-@@ -518,6 +1036,9 @@
+@@ -518,6 +1044,9 @@
              transition_speech,
              transition_speech_type,
              transition_speech_recording_id,
@@ -7421,7 +7433,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              agent=agent,
          )
  
-@@ -559,7 +1080,11 @@
+@@ -559,7 +1088,11 @@
                      query=query,
                      organization_id=organization_id,
                      document_uuids=document_uuids,
@@ -7434,7 +7446,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      embeddings_api_key=self._embeddings_api_key,
                      embeddings_model=self._embeddings_model,
                      embeddings_base_url=self._embeddings_base_url,
-@@ -570,6 +1095,7 @@
+@@ -570,6 +1103,7 @@
                          MPS_CORRELATION_ID_CONTEXT_KEY
                      ),
                      tracing_context=self._get_otel_context(),
@@ -7442,7 +7454,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                  )
  
                  await function_call_params.result_callback(result)
-@@ -785,6 +1311,9 @@
+@@ -785,6 +1319,9 @@
                      edge.transition_speech,
                      edge.data.transition_speech_type,
                      edge.data.transition_speech_recording_id,
@@ -7452,7 +7464,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      agent=agent,
                  )
          if node.tool_uuids and manager:
-@@ -802,11 +1331,18 @@
+@@ -802,11 +1339,18 @@
              format_prompt=self._format_prompt,
              has_recordings=self._has_recordings,
          )
@@ -7471,7 +7483,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          if apply_settings:
              await agent.llm._update_settings(LLMSettings(system_instruction=prompt))
  
-@@ -863,8 +1399,12 @@
+@@ -863,8 +1407,12 @@
              else None
          )
  
@@ -7484,7 +7496,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  
          # Track visited nodes in gathered context for call tags
          nodes_visited = self._gathered_context.setdefault("nodes_visited", [])
-@@ -1095,6 +1635,13 @@
+@@ -1095,6 +1643,13 @@
  
      async def _handle_end_node(self, node: Node) -> None:
          """Handle end node execution."""
@@ -7498,7 +7510,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Setup LLM context with prompts and functions.
          await self._setup_llm_context(node)
  
-@@ -1444,6 +1991,11 @@
+@@ -1444,6 +1999,11 @@
          if self._mute_pipeline:
              return True
  
@@ -7510,7 +7522,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
          # Mute while queued speech (transition/tool message) is pending or playing
          if self._queued_speech_mute_state != "idle":
              return True
-@@ -1531,6 +2083,41 @@
+@@ -1531,6 +2091,41 @@
          return self.__dict__.get("_agent_factory") is not None
  
      @property
@@ -7552,7 +7564,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      def transfer_coordinator(self):
          """The call's handoff coordinator, created on first use."""
          if self._transfer_coordinator is None:
-@@ -1545,6 +2132,20 @@
+@@ -1545,6 +2140,20 @@
          coordinator = self.__dict__.get("_transfer_coordinator")
          return coordinator is not None and coordinator.in_progress
  
@@ -7573,7 +7585,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
      @property
      def agent_visits(self) -> list[dict]:
          """One record per agent visit, oldest first, including the live one."""
-@@ -1853,21 +2454,33 @@
+@@ -1853,21 +2462,33 @@
  
          agent = agent or self.active_agent
          try:
@@ -7617,7 +7629,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              for tool in tools:
                  if tool.category != ToolCategory.MCP.value:
                      continue
-@@ -1891,13 +2504,24 @@
+@@ -1891,13 +2512,24 @@
                              f"MCP tool '{tool.name}': credential fetch failed: {e}"
                          )
                          continue
@@ -7643,7 +7655,7 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
                      timeout_secs=cfg["timeout_secs"],
                      sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
                  )
-@@ -1928,6 +2552,12 @@
+@@ -1928,6 +2560,12 @@
          ):
              self._user_response_timeout_task.cancel()
  
@@ -9514,6 +9526,142 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    turns = [("assistant", "A callback on Friday at 5 pm?"), ("user", "Yes.")]
 +    terms = {"reason": "busy"} if when is None else {"when": when, "reason": "busy"}
 +    assert await service.confirm("request_callback", terms, turns, zone=zone) == expected
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_agent_transfer.py engine/api/tests/test_agent_transfer.py
+--- dograh/api/tests/test_agent_transfer.py	2026-10-01 11:35:02.175649200 +0530
++++ engine/api/tests/test_agent_transfer.py	2026-10-01 10:49:34.360342700 +0530
+@@ -13,6 +13,7 @@
+ """
+ 
+ import asyncio
++import time
+ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, patch
+ 
+@@ -23,6 +24,8 @@
+     OutputAudioRawFrame,
+     TTSAudioRawFrame,
+     TTSSpeakFrame,
++    VADUserStartedSpeakingFrame,
++    VADUserStoppedSpeakingFrame,
+ )
+ from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+ from pipecat.processors.aggregators.llm_context import LLMContext
+@@ -1045,6 +1048,115 @@
+     finally:
+         await harness.stop()
+ 
++
++@pytest.mark.asyncio
++async def test_the_calls_latency_breakdown_names_each_agents_services():
++    """An agent's LLM and TTS time is attributed to them, not to the bridge.
++
++    The call pipeline only sees an agent's frames re-pushed by its bridge,
++    which names the bridge as their source, so a breakdown built from those
++    copies attributes no LLM or TTS time and files it under pipeline.
++    """
++    harness = TransferHarness()
++    await harness.build(
++        source_llm=MockLLMService(
++            mock_steps=[MockLLMService.create_text_chunks("Hello, how can I help?")],
++            chunk_delay=0.001,
++        ),
++        destination_llm=MockLLMService(mock_steps=[], chunk_delay=0.001),
++        source_workflow=build_agent_workflow(name="Reception", greeting=None),
++        destination_workflow=build_agent_workflow(name="Billing", greeting="Hi."),
++    )
++    latency_observer = harness.call_worker.user_bot_latency_observer
++    breakdowns = []
++
++    @latency_observer.event_handler("on_latency_breakdown")
++    async def _on_breakdown(_observer, breakdown):
++        breakdowns.append(breakdown)
++
++    await harness.start()
++    engine = harness.engine
++    agent = engine.active_agent
++    try:
++        assert latency_observer in agent.worker._observer._observers
++        # A user turn the agent's reply is measured from.
++        await harness.call_worker.queue_frames(
++            [
++                VADUserStartedSpeakingFrame(),
++                VADUserStoppedSpeakingFrame(stop_secs=0.0, timestamp=time.time()),
++            ]
++        )
++        async with asyncio.timeout(5):
++            while latency_observer._user_stopped_time is None:
++                await asyncio.sleep(0.01)
++
++        with patch(
++            "api.services.workflow.pipecat_engine_custom_tools.db_client.get_tools_by_uuids",
++            new_callable=AsyncMock,
++            return_value=[],
++        ):
++            engine._custom_tool_manager = CustomToolManager(engine)
++            engine._get_organization_id = AsyncMock(return_value=1)
++            await engine.set_node("start")
++            await engine.queue_node_opening(
++                node_id="start", previous_node_id=None, generate_if_no_greeting=True
++            )
++            async with asyncio.timeout(10):
++                while not breakdowns:
++                    await asyncio.sleep(0.01)
++
++        owners = {c.label: c.owner for c in breakdowns[-1].contributions}
++        assert owners.get("LLM inference") == agent.llm.name, owners
++        assert owners.get("speech synthesis") == agent.tts.name, owners
++        assert f"{harness.call_worker.name}::AgentBridge" not in owners.values(), owners
++    finally:
++        await harness.stop()
++
++
++@pytest.mark.asyncio
++async def test_a_handed_over_agent_has_finished_when_the_handoff_completes():
++    """Nothing a previous agent produces reaches the call's latency breakdown.
++
++    The breakdown watches each agent's worker directly, where the bridge's
++    gate on the selected visit does not apply, so a retired agent's late
++    output is kept out by its worker having finished, not by the bridge.
++    """
++    harness = TransferHarness()
++    await harness.build(
++        source_llm=MockLLMService(
++            mock_steps=[
++                MockLLMService.create_function_call_chunks(
++                    "transfer_to_billing", {}, tool_call_id="call_transfer_1"
++                )
++            ],
++            chunk_delay=0.001,
++        ),
++        destination_llm=MockLLMService(
++            mock_steps=[MockLLMService.create_text_chunks("Anything else?")],
++            chunk_delay=0.001,
++        ),
++        source_workflow=build_agent_workflow(
++            name="Reception", greeting=None, tool_uuids=[TRANSFER_TOOL_UUID]
++        ),
++        destination_workflow=build_agent_workflow(
++            name="Billing", greeting="Billing here."
++        ),
++    )
++    latency_observer = harness.call_worker.user_bot_latency_observer
++    await harness.start()
++    source = harness.engine.active_agent
++    try:
++        await run_transfer(harness, tool=TransferAgentTool())
++        outcome = harness.engine.transfer_coordinator.completed[-1]
++        assert outcome["outcome"] == "completed", outcome
++
++        assert source.worker.has_finished()
++        destination = harness.engine.active_agent
++        assert destination is not source
++        assert latency_observer in destination.worker._observer._observers
++    finally:
++        await harness.stop()
++
+ 
+ def _definition(definition_id: int, status: str, version: int):
+     return SimpleNamespace(
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_agentstudio_internal_auth.py engine/api/tests/test_agentstudio_internal_auth.py
 --- dograh/api/tests/test_agentstudio_internal_auth.py	1970-01-01 05:30:00.000000000 +0530
 +++ engine/api/tests/test_agentstudio_internal_auth.py	2026-09-26 08:10:21.964508200 +0530
@@ -9927,8 +10075,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  def test_create_azure_speech_tts_service_with_speed():
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_call_language.py engine/api/tests/test_call_language.py
 --- dograh/api/tests/test_call_language.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_call_language.py	2026-09-30 11:53:47.809056000 +0530
-@@ -0,0 +1,201 @@
++++ engine/api/tests/test_call_language.py	2026-10-01 08:28:39.562209900 +0530
+@@ -0,0 +1,224 @@
 +"""The call's language follows the caller, but not on a stray word."""
 +
 +import asyncio
@@ -10102,6 +10250,29 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    assert tracker.current == "ta-IN"
 +
 +
++@pytest.mark.asyncio
++async def test_a_late_check_cannot_undo_a_newer_decision():
++    """Each check takes up to 3 s: an older phrase's answer arriving after a
++    newer one's must not switch the call back or add a note."""
++    gates = {"hi-IN": asyncio.Event(), "ta-IN": asyncio.Event()}
++
++    async def confirm(text, locale, current):
++        await gates[locale].wait()
++        return True
++
++    tracker, changes, pushed = _tracker()
++    tracker._confirm = confirm
++    await tracker._observe("en-IN", 6)
++    await tracker._observe("hi-IN", 7, "मुझे इस महीने की तनख्वाह अभी तक नहीं मिली")
++    await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
++    gates["ta-IN"].set()  # the newer check answers first
++    await tracker.checks[1]
++    gates["hi-IN"].set()
++    await _checks_done(tracker)
++    assert tracker.current == "ta-IN"
++    assert len(pushed) == 1 and "Tamil" in pushed[0].messages[0]["content"]
++
++
 +class _LLM:
 +    def __init__(self, reply=None, error=None):
 +        self.reply, self.error = reply, error
@@ -10233,8 +10404,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
              await manager.register_handlers([tool.tool_uuid])
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_customer_action_transition.py engine/api/tests/test_customer_action_transition.py
 --- dograh/api/tests/test_customer_action_transition.py	1970-01-01 05:30:00.000000000 +0530
-+++ engine/api/tests/test_customer_action_transition.py	2026-09-30 21:58:03.400925900 +0530
-@@ -0,0 +1,933 @@
++++ engine/api/tests/test_customer_action_transition.py	2026-10-01 08:30:25.977776300 +0530
+@@ -0,0 +1,979 @@
 +"""A rejected business write cannot enter an ordinary success closing node."""
 +
 +from types import SimpleNamespace
@@ -10911,6 +11082,52 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    engine.context.messages.append({"role": "user", "content": "The amount is wrong, actually."})
 +    await again(SimpleNamespace(arguments={}, result_callback=callback))
 +    engine.set_node.assert_awaited_with("dispute", origin_visit_id="visit")
++
++
++@pytest.mark.asyncio
++async def test_a_corrected_misroute_keeps_the_customers_yes(monkeypatch):
++    """Run 90: the return to Agree re-entered the step on "Actually, yes, go ahead",
++    so the write guard saw nothing said in it and refused the confirmed change."""
++    agree = SimpleNamespace(id="agree", name="Agree", allow_interrupt=True, is_start=False, is_end=False)
++    dispute = SimpleNamespace(id="dispute", name="Dispute", allow_interrupt=True, is_start=False, is_end=False)
++    engines = []
++
++    def setup(engine):
++        # The write tool's own agent, now in Agree.
++        agent = engine._active_agent
++        agent.current_node = agree
++        agent.workflow = SimpleNamespace(nodes={"agree": agree, "dispute": dispute})
++        agent.bind_tool = lambda _engine, handler: handler
++        engine._node_entry_user_message = {("visit", "agree"): engine.context.messages[0]}
++        engine._verification_required = set()
++        engine._perform_variable_extraction_if_needed = AsyncMock()
++        engine._run_transition_variable_extraction_in_background = False
++        # The real set_node, with only its prompt and UI work stubbed.
++        engine._handle_agent_node = AsyncMock()
++        engine._node_transition_callback = None
++        engine._context_summarization_manager = None
++        engine._node_left_user_message = {}
++        engines.append(engine)
++
++    # Agree was entered on "I can pay 4000 on Friday" and read the terms back.
++    write, execute = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"), setup=setup)
++    engine = engines[0]
++    agent = engine._active_agent
++    engine.context.messages[-1] = {"role": "user", "content": "Actually, yes, go ahead"}
++    callback = AsyncMock()
++
++    misroute = await engine._create_transition_func("Dispute or already paid", "dispute", agent=agent)
++    await misroute(SimpleNamespace(arguments={}, result_callback=callback))
++    assert agent.current_node is dispute
++    back = await engine._create_transition_func("Discuss payment", "agree", agent=agent)
++    await back(SimpleNamespace(arguments={}, result_callback=callback))
++    assert agent.current_node is agree and callback.await_args.args[0] == {"status": "done"}
++
++    # The same visit of Agree, and the customer's yes was said in it.
++    assert engine.caller_spoke_in_node(agent)
++    await write(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
++    assert callback.await_args.args[0].get("error") != "customer_not_confirmed"
++    execute.assert_awaited_once()
 +
 +
 +@pytest.mark.asyncio
@@ -12828,8 +13045,8 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    refused = summarize_realtime_feedback_tool_result({"status": "error", "error": "user_turn_required"})
 +    assert refused["ok"] is False and refused["error_code"] == "user_turn_required"
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_realtime_feedback_observer.py engine/api/tests/test_realtime_feedback_observer.py
---- dograh/api/tests/test_realtime_feedback_observer.py	2026-09-30 22:41:23.278591800 +0530
-+++ engine/api/tests/test_realtime_feedback_observer.py	2026-09-28 22:02:38.660173200 +0530
+--- dograh/api/tests/test_realtime_feedback_observer.py	2026-10-01 11:35:02.646813900 +0530
++++ engine/api/tests/test_realtime_feedback_observer.py	2026-10-01 09:53:11.798255900 +0530
 @@ -396,6 +396,29 @@
  
  
@@ -12860,6 +13077,163 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
  async def test_interrupted_bot_transcript_keeps_the_interrupted_turn_interval():
      logs_buffer = InMemoryLogsBuffer(workflow_run_id=2122)
      coordinator = TranscriptLogCoordinator(logs_buffer)
+@@ -412,6 +435,7 @@
+         text="A minivan, too easy,",
+         timestamp="2026-07-14T13:33:06.654+00:00",
+         event_timestamp="2026-07-14T13:33:03.819+00:00",
++        generation_started="2026-07-14T13:33:02.000+00:00",
+     )
+ 
+     [event] = logs_buffer.get_events()
+@@ -426,3 +450,148 @@
+ 
+     await coordinator.record_bot_started_speaking(3, "2026-07-14T13:33:06.654+00:00")
+     assert event["payload"]["timestamp"] == "2026-07-14T13:33:02.254+00:00"
++
++
++async def _interrupted_empty_turn_12_then_turn_13(coordinator):
++    await coordinator.record_turn_started(12)
++    await coordinator.record_bot_started_speaking(12, "2026-09-30T10:00:01.000+00:00")
++    await coordinator.record_turn_ended(12, interrupted=True)
++    await coordinator.record_bot_stopped_speaking(12, "2026-09-30T10:00:01.500+00:00")
++    await coordinator.record_turn_started(13)
++    await coordinator.record_bot_started_speaking(13, "2026-09-30T10:00:05.000+00:00")
++
++
++@pytest.mark.asyncio
++async def test_later_reply_is_not_filed_under_an_earlier_empty_interrupted_turn():
++    """Run 90: turn 12 was interrupted before its text arrived; turn 13's reply
++    was then logged with turn 12's number and speech timing."""
++    logs_buffer = InMemoryLogsBuffer(workflow_run_id=90)
++    coordinator = TranscriptLogCoordinator(logs_buffer)
++    user_aggregator = _FakeAggregator()
++    assistant_aggregator = _FakeAggregator()
++    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
++
++    await _interrupted_empty_turn_12_then_turn_13(coordinator)
++    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
++        assistant_aggregator,
++        SimpleNamespace(
++            content="Turn thirteen reply",
++            interrupted=False,
++            timestamp="2026-09-30T10:00:04.000+00:00",
++        ),
++    )
++    await coordinator.record_bot_stopped_speaking(13, "2026-09-30T10:00:07.000+00:00")
++    await coordinator.record_turn_ended(13, interrupted=False)
++
++    [event] = logs_buffer.get_events()
++    assert event["turn"] == 13
++    assert event["payload"]["timestamp"] == "2026-09-30T10:00:05.000+00:00"
++
++
++@pytest.mark.asyncio
++async def test_late_reply_still_reaches_its_own_interrupted_turn():
++    logs_buffer = InMemoryLogsBuffer(workflow_run_id=90)
++    coordinator = TranscriptLogCoordinator(logs_buffer)
++    user_aggregator = _FakeAggregator()
++    assistant_aggregator = _FakeAggregator()
++    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
++
++    await _interrupted_empty_turn_12_then_turn_13(coordinator)
++    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
++        assistant_aggregator,
++        SimpleNamespace(
++            content="Turn twelve reply",
++            interrupted=True,
++            timestamp="2026-09-30T10:00:00.500+00:00",
++        ),
++    )
++
++    [event] = logs_buffer.get_events()
++    assert event["turn"] == 12
++    assert event["payload"]["timestamp"] == "2026-09-30T10:00:01.000+00:00"
++
++
++async def _assistant_text(assistant_aggregator, content, generation_started):
++    await assistant_aggregator.handlers["on_assistant_turn_stopped"](
++        assistant_aggregator,
++        SimpleNamespace(content=content, timestamp=generation_started),
++    )
++
++
++@pytest.mark.asyncio
++async def test_late_reply_keeps_the_node_that_spoke_it():
++    """Run 90 / Codex review: turn 12's late text was filed under the node
++    current when the text arrived (turn 13's), not the node that spoke it."""
++    logs_buffer = InMemoryLogsBuffer(workflow_run_id=90)
++    coordinator = TranscriptLogCoordinator(logs_buffer)
++    user_aggregator = _FakeAggregator()
++    assistant_aggregator = _FakeAggregator()
++    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
++
++    logs_buffer.set_current_node("node-a", "Node A")
++    await coordinator.record_turn_started(12)
++    await coordinator.record_bot_started_speaking(12, "2026-09-30T10:00:01.000+00:00")
++    await coordinator.record_turn_ended(12, interrupted=True)
++    await coordinator.record_bot_stopped_speaking(12, "2026-09-30T10:00:01.500+00:00")
++    logs_buffer.set_current_node("node-b", "Node B")
++    await coordinator.record_turn_started(13)
++    await coordinator.record_bot_started_speaking(13, "2026-09-30T10:00:05.000+00:00")
++
++    await _assistant_text(
++        assistant_aggregator, "Turn twelve reply", "2026-09-30T10:00:00.500+00:00"
++    )
++    await _assistant_text(
++        assistant_aggregator, "Turn thirteen reply", "2026-09-30T10:00:04.000+00:00"
++    )
++    await coordinator.record_bot_stopped_speaking(13, "2026-09-30T10:00:07.000+00:00")
++    await coordinator.record_turn_ended(13, interrupted=False)
++
++    assert [
++        (event["turn"], event["node_id"], event["payload"]["text"])
++        for event in logs_buffer.get_events()
++    ] == [
++        (12, "node-a", "Turn twelve reply"),
++        (13, "node-b", "Turn thirteen reply"),
++    ]
++
++
++@pytest.mark.asyncio
++async def test_second_generation_of_an_interrupted_turn_stays_with_that_turn():
++    """Codex review: a tool-call round's second generation started after turn
++    20's speech had begun, so its text was filed under turn 21."""
++    logs_buffer = InMemoryLogsBuffer(workflow_run_id=90)
++    coordinator = TranscriptLogCoordinator(logs_buffer)
++    user_aggregator = _FakeAggregator()
++    assistant_aggregator = _FakeAggregator()
++    register_turn_log_handlers(coordinator, user_aggregator, assistant_aggregator)
++
++    await coordinator.record_turn_started(20)
++    await coordinator.record_bot_started_speaking(20, "2026-09-30T10:00:10.000+00:00")
++    await _assistant_text(
++        assistant_aggregator, "Let me check that.", "2026-09-30T10:00:09.500+00:00"
++    )
++    # The tool runs in the pause; the second generation then speaks.
++    await coordinator.record_bot_stopped_speaking(20, "2026-09-30T10:00:11.000+00:00")
++    await coordinator.record_bot_started_speaking(20, "2026-09-30T10:00:12.500+00:00")
++    await coordinator.record_turn_ended(20, interrupted=True)
++    await coordinator.record_turn_started(21)
++    await coordinator.record_bot_stopped_speaking(20, "2026-09-30T10:00:13.000+00:00")
++    await _assistant_text(
++        assistant_aggregator, "Your payment is due.", "2026-09-30T10:00:12.000+00:00"
++    )
++
++    await coordinator.record_bot_started_speaking(21, "2026-09-30T10:00:16.000+00:00")
++    await _assistant_text(
++        assistant_aggregator, "Turn twenty-one reply", "2026-09-30T10:00:15.500+00:00"
++    )
++    await coordinator.record_bot_stopped_speaking(21, "2026-09-30T10:00:17.000+00:00")
++    await coordinator.record_turn_ended(21, interrupted=False)
++
++    assert [
++        (event["turn"], event["payload"]["text"], event["payload"]["timestamp"])
++        for event in logs_buffer.get_events()
++    ] == [
++        (20, "Let me check that.", "2026-09-30T10:00:10.000+00:00"),
++        (20, "Your payment is due.", "2026-09-30T10:00:10.000+00:00"),
++        (21, "Turn twenty-one reply", "2026-09-30T10:00:16.000+00:00"),
++    ]
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' '--exclude=pipecat' dograh/api/tests/test_service_factory_failure_reporting.py engine/api/tests/test_service_factory_failure_reporting.py
 --- dograh/api/tests/test_service_factory_failure_reporting.py	2026-09-30 22:41:23.283915300 +0530
 +++ engine/api/tests/test_service_factory_failure_reporting.py	2026-09-29 22:13:57.746610300 +0530

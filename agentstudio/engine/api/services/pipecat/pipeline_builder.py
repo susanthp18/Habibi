@@ -125,6 +125,7 @@ def create_agent_worker(
     *,
     call_tracing_context=None,
     call_worker_name: str,
+    observers=None,
 ) -> PipelineWorker:
     """Create the child worker that runs one agent visit's generation stage.
 
@@ -145,6 +146,11 @@ def create_agent_worker(
             LLM and TTS resolve their parent span through it, so without it
             they produce no spans at all and the call's turns come out empty.
             See the note below on why it is injected rather than built here.
+        observers: The call worker's observers that also have to watch this
+            worker. Its LLM and TTS frames reach the call pipeline only
+            re-pushed by the bridge, under the bridge's name, so an observer
+            that attributes time to the service that produced a frame has to
+            see them here.
     """
     params = PipelineParams(
         enable_metrics=True,
@@ -163,6 +169,7 @@ def create_agent_worker(
         call_worker_name=call_worker_name,
         name=name,
         params=params,
+        observers=observers,
         active=False,
         bridged=(),
         exclude_frames=AGENT_EDGE_EXCLUDED_FRAMES,

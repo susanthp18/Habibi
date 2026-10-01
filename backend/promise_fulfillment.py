@@ -49,7 +49,10 @@ FALLBACK_TEMPLATE_LANG_ENV = "WHATSAPP_FALLBACK_TEMPLATE_LANG"
 
 
 #: Purpose vars that must not inherit the grocery-order sample fallback.
-_NO_FALLBACK_TEMPLATE_ENVS = frozenset({"WHATSAPP_PTP_TEMPLATE_NAME"})
+_NO_FALLBACK_TEMPLATE_ENVS = frozenset({
+    "WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_DUE_TEMPLATE_NAME",
+    "WHATSAPP_CALLBACK_TEMPLATE_NAME", "WHATSAPP_DISPUTE_TEMPLATE_NAME",
+})
 
 
 def resolve_template(name_env: str, lang_env: str) -> tuple[str, str]:
@@ -119,6 +122,8 @@ class FulfillmentResult:
     suppressed: bool = False
     suppression_reason: str | None = None
     spoken_summary: str = ""
+    #: Changed terms held for the end of the live call they were changed on.
+    after_call: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -130,6 +135,7 @@ class FulfillmentResult:
             "payLinkSent": self.pay_link_sent,
             "suppressed": self.suppressed,
             "suppressionReason": self.suppression_reason,
+            "afterCall": self.after_call,
         }
 
 
@@ -293,16 +299,28 @@ def _confirm_copy(
     refused by the carrier (Twilio 30044). Kept to two segments with a real pay
     URL; see tests/test_promise_sms_copy.py.
     """
-    terms = f"Rs {money_inr.template_amount(amount)} by {_day_s(promised_at)}"
-    if parts:
-        terms += " (" + ", ".join(
-            f"Rs {money_inr.template_amount(p['amount'])} by {_day_s(p['date'])}" for p in parts
-        ) + ")"
+    terms = _terms(amount=amount, promised_at=promised_at, parts=parts)
     expiry = ""
     if expires_at is not None:
         exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
         expiry = f", valid till {exp.astimezone(IST).strftime('%d %b %I:%M %p')}"
     return f"Your promise to pay {terms} is recorded. Pay: {pay_url}{expiry}. Do not share this link."
+
+
+def _terms(*, amount: Any, promised_at: datetime, parts: list[dict[str, Any]] | None = None) -> str:
+    """"Rs 5,000 by 06 Oct (Rs 2,500 by 02 Oct, Rs 2,500 by 06 Oct)": the terms
+    as both the composed copy and the approved template state them."""
+    terms = f"Rs {money_inr.template_amount(amount)} by {_day_s(promised_at)}"
+    if parts:
+        terms += " (" + ", ".join(
+            f"Rs {money_inr.template_amount(p['amount'])} by {_day_s(p['date'])}" for p in parts
+        ) + ")"
+    return terms
+
+
+def _terms_said(body: str | None, terms: str) -> bool:
+    """The copy states exactly these terms (not a prefix of longer ones)."""
+    return bool(body) and f"to pay {terms} is recorded" in body
 
 
 def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None) -> str:
@@ -315,9 +333,16 @@ def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None)
 
 
 def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: str | None, suppressed: bool,
-            deferred: bool = False) -> str:
+            deferred: bool = False, after_call: bool = False) -> str:
     date_s = _promised_date_ist(promised_at).strftime("%d %B")
     rupees = money_inr.template_amount(amount)
+    if after_call:
+        dest = f"WhatsApp ending {last4}" if channel == "whatsapp" and last4 else (
+            f"the number ending {last4}" if last4 else "your number on file")
+        return (
+            f"I've updated it to {rupees} rupees by {date_s}. The same payment link stays valid, "
+            f"and the updated terms will be sent to {dest} after our call."
+        )
     if deferred:
         return (
             f"I've recorded a promise of {rupees} rupees by {date_s}. "
@@ -569,8 +594,12 @@ def enqueue_whatsapp_paylink(
     template_env_lang: str = "WHATSAPP_PTP_TEMPLATE_LANG",
     template_params: list[str] | None = None,
     decision_id: str | None = None,
-) -> None:
-    """Queue a pay-link WhatsApp (PTP confirm or bounce notice)."""
+) -> str | None:
+    """Queue a pay-link WhatsApp (PTP confirm or bounce notice).
+
+    The message id when it is queued; None when nothing was, so a caller can
+    tell a durable enqueue from a skipped one.
+    """
     import db as dbmod
     import whatsapp_outbound as wa_out
 
@@ -584,7 +613,7 @@ def enqueue_whatsapp_paylink(
             "whatsapp send skipped: no template resolved for %s — the promise is still persisted",
             template_env_name,
         )
-        return
+        return None
     conn.execute(
         text(
             """
@@ -612,6 +641,26 @@ def enqueue_whatsapp_paylink(
         source=source,
         decision_id=decision_id,
     )
+    return message_id
+
+
+#: The approved template for each kind of promise message sent outside Meta's
+#: 24-hour window. A due reminder is not the confirmation: it was sent with the
+#: confirmation's template ("your promise ... is recorded") on the day it fell due.
+_TEMPLATES = {
+    "confirm": ("WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG"),
+    "due": ("WHATSAPP_DUE_TEMPLATE_NAME", "WHATSAPP_DUE_TEMPLATE_LANG"),
+}
+
+#: The approved templates' bodies, as submitted in WhatsApp Manager (1 Oct
+#: 2026). A template send transmits only its values; the copy recorded for it
+#: is this text with them filled in, so the record says what the customer got.
+_TEMPLATE_BODIES = {
+    "confirm": ("Your promise to pay Rs {} by {} is recorded. Pay securely here: {} . "
+                "Please do not share this link with anyone."),
+    "due": ("Reminder: Rs {} is due today on your promise. Pay securely here: {} . "
+            "Please do not share this link with anyone."),
+}
 
 
 def _enqueue_whatsapp(
@@ -624,10 +673,25 @@ def _enqueue_whatsapp(
     use_template: bool,
     purpose: str = "statutory",
     source: str = "ptp_confirm",
-) -> None:
-    date_s = _promised_date_ist(promise["promised_at"]).isoformat()
-    params = [money_inr.template_amount(intent["amount"]), date_s, intent["pay_url"]] if use_template else None
-    enqueue_whatsapp_paylink(
+    kind: str = "confirm",
+    amount: Any = None,
+    parts: list[dict[str, Any]] | None = None,
+) -> tuple[str | None, str]:
+    """(message id, or None when nothing was queued; the copy as transmitted).
+
+    The confirmation template has one value for the date; a promise in parts
+    puts its schedule there ("06 Oct (Rs 2,500 by 02 Oct, Rs 2,500 by 06 Oct)"),
+    so the template states the whole agreement as the composed copy does.
+    """
+    if kind == "due":
+        params = [money_inr.template_amount(amount if amount is not None else intent["amount"]), intent["pay_url"]]
+    else:
+        terms = _terms(amount=intent["amount"], promised_at=promise["promised_at"], parts=parts)
+        params = [money_inr.template_amount(intent["amount"]), terms.split(" by ", 1)[1], intent["pay_url"]]
+    if use_template:
+        body = _TEMPLATE_BODIES[kind].format(*params)
+    name_env, lang_env = _TEMPLATES[kind]
+    message_id = enqueue_whatsapp_paylink(
         conn,
         customer_id=promise["customer_id"],
         intent=intent,
@@ -636,19 +700,107 @@ def _enqueue_whatsapp(
         use_template=use_template,
         purpose=purpose,
         source=source,
-        template_params=params,
+        template_env_name=name_env,
+        template_env_lang=lang_env,
+        template_params=params if use_template else None,
+    )
+    return message_id, body
+
+
+#: How long a change of terms made during a call waits if the call is never
+#: filed: past the longest call an agent may hold (1200 s), so it normally
+#: goes when the call is filed (`release_after_call`), and at worst this late.
+AFTER_CALL_HOLD = timedelta(minutes=25)
+
+#: A confirmation handed to a provider: sent, or queued on WhatsApp awaiting
+#: Meta's word (`sending_at` is its hand-off time).
+_HANDED = "(status = 'sent' OR (status = 'queued' AND sending_at IS NOT NULL))"
+
+
+def _confirm_went_out(conn: Any, promise_id: str) -> bool:
+    """A confirmation of this promise was sent, or is being sent right now."""
+    return conn.execute(
+        text(
+            """
+            SELECT 1 FROM promise_reminders
+            WHERE promise_id = :pid AND kind = 'confirm'
+              AND (status = 'sent' OR sending_at IS NOT NULL)
+            LIMIT 1
+            """
+        ),
+        {"pid": promise_id},
+    ).first() is not None
+
+
+def _live_call(conn: Any, promise: dict[str, Any]) -> str | None:
+    """The call still on that made the latest change of terms (or the promise)."""
+    return conn.execute(
+        text(
+            """
+            SELECT interaction_id FROM voice_sessions
+            WHERE status IN ('starting', 'live')
+              AND interaction_id = COALESCE(
+                (SELECT interaction_id FROM promise_revisions
+                  WHERE promise_id = :pid ORDER BY seq DESC LIMIT 1),
+                :ix)
+            LIMIT 1
+            """
+        ),
+        {"pid": promise["id"], "ix": promise.get("interaction_id")},
+    ).scalar()
+
+
+def release_after_call(conn: Any, interaction_id: str) -> int:
+    """The call is filed: the confirmations it holds go now.
+
+    Only the rows this call holds. A promise made on one call and changed on
+    the next is touched by both; filing the first must not release the second's
+    hold. A row deferred to messaging hours keeps its morning slot.
+    """
+    return int(
+        conn.execute(
+            text(
+                """
+                UPDATE promise_reminders SET scheduled_at = now(), updated_at = now()
+                WHERE kind = 'confirm' AND after_call_interaction_id = :ix
+                  AND status = 'scheduled' AND sending_at IS NULL AND scheduled_at > now()
+                """
+            ),
+            {"ix": interaction_id},
+        ).rowcount
+        or 0
     )
 
 
-def _enqueue_sms_reminder(
+def _supersede_unsent(conn: Any, promise_id: str) -> None:
+    """A confirmation going now replaces any not yet handed to a provider:
+    an older one (deferred to the morning, held for a call) would go too."""
+    conn.execute(
+        text(
+            """
+            UPDATE promise_reminders SET status = 'off', updated_at = now()
+            WHERE promise_id = :pid AND kind = 'confirm'
+              AND status IN ('queued','scheduled') AND sending_at IS NULL
+            """
+        ),
+        {"pid": promise_id},
+    )
+
+
+def _queue_confirm(
     conn: Any,
     *,
     promise: dict[str, Any],
-    body: str,
     resend: bool,
     channel: str = "sms",
     scheduled_at: datetime | None = None,
+    after_call: str | None = None,
 ) -> None:
+    """The one confirmation owed for the promise's current terms, for the drain.
+
+    Its copy is composed when it is sent, from the live terms, so a change made
+    before then is in it. ``after_call``: the live call it waits for.
+    """
     import db as dbmod
 
     if not resend:
@@ -666,34 +818,40 @@ def _enqueue_sms_reminder(
         if existing:
             return
     else:
-        # One confirmation of the current terms: an earlier one not yet sent
-        # would go out too, composed (at send time) from the same live terms.
-        conn.execute(
-            text(
-                """
-                UPDATE promise_reminders SET status = 'off', updated_at = now()
-                WHERE promise_id = :pid AND kind = 'confirm'
-                  AND status IN ('queued','scheduled') AND sending_at IS NULL
-                """
-            ),
-            {"pid": promise["id"]},
-        )
+        _supersede_unsent(conn, promise["id"])
     conn.execute(
         text(
             """
             INSERT INTO promise_reminders (
-              id, promise_id, channel, kind, scheduled_at, status
+              id, promise_id, channel, kind, scheduled_at, status, after_call_interaction_id
             ) VALUES (
               :id, :promise_id, :channel, 'confirm', COALESCE(:scheduled_at, now()),
-              CASE WHEN :scheduled_at IS NULL THEN 'queued' ELSE 'scheduled' END
+              CASE WHEN :scheduled_at IS NULL THEN 'queued' ELSE 'scheduled' END, :after_call
             )
             """
         ),
         {"id": dbmod._id("PRM"), "promise_id": promise["id"], "channel": channel,
-         "scheduled_at": scheduled_at},
+         "scheduled_at": scheduled_at, "after_call": after_call},
     )
-    # Body lives on the intent pay_url path; drain reads the open intent.
-    _ = body
+
+
+def _record_whatsapp_confirm(conn: Any, *, promise_id: str, message_id: str, body: str) -> None:
+    """A confirmation fulfil handed to WhatsApp itself: queued until Meta
+    accepts or refuses it (`_settle_whatsapp`). What it said, and that one went
+    out, are what a later change of terms is held and compared against."""
+    import db as dbmod
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO promise_reminders (
+              id, promise_id, channel, kind, scheduled_at, sending_at, status,
+              provider_delivery_id, body
+            ) VALUES (:id, :pid, 'whatsapp', 'confirm', now(), now(), 'queued', :mid, :body)
+            """
+        ),
+        {"id": dbmod._id("PRM"), "pid": promise_id, "mid": message_id, "body": body},
+    )
 
 
 def _next_messaging_slot(now: datetime) -> datetime:
@@ -820,11 +978,10 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
     deferred = (channel is None and wanted_channel is not None
                 and reason == contact_policy.REASON_WINDOW_DEFERRED_STATUTORY)
     if deferred:
-        # SMS unless it is blocked: a WhatsApp send outside its service window
-        # needs a template, and live sends fall back to SMS without one too.
-        _enqueue_sms_reminder(conn, promise=promise, body=body, resend=resend,
-                              channel="sms" if not sms_blocked else wanted_channel,
-                              scheduled_at=_next_messaging_slot(utc_now()))
+        # On the channel it would have gone on now; the drain falls back to SMS
+        # when WhatsApp has no approved template to send it with.
+        _queue_confirm(conn, promise=promise, resend=resend, channel=wanted_channel,
+                       scheduled_at=_next_messaging_slot(utc_now()))
     if channel is None:
         result.suppressed = True
         result.suppression_reason = reason or "channel_opted_out"
@@ -859,36 +1016,50 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
         _sync_due_reminders(conn, promise, "whatsapp")
         return result
 
+    # A change of terms while the caller is still on the line, after the first
+    # confirmation went: sending each one is how a caller who moves the date
+    # back and forth gets four messages. It waits for the end of the call and
+    # goes once, with the final terms -- or not at all if they are the ones
+    # already sent (`_prepare_reminder`).
+    live_call = _live_call(conn, promise) if resend and _confirm_went_out(conn, promise_id) else None
+    if live_call:
+        _queue_confirm(conn, promise=promise, resend=True, channel=channel,
+                       scheduled_at=utc_now() + AFTER_CALL_HOLD, after_call=live_call)
+        dbmod.record_activity(
+            conn, "promise", promise_id, "promise_confirmed",
+            "Updated terms to be confirmed after the call", channel, promise["customer_id"],
+        )
+        result.confirm_channel = channel
+        result.phone_last4 = last4
+        result.pay_link_sent = intent["status"] in {"sent", "opened"}
+        result.after_call = True
+        result.spoken_summary = _spoken(
+            amount=promise["amount"], promised_at=promise["promised_at"],
+            channel=channel, last4=last4, suppressed=False, after_call=True,
+        )
+        _sync_due_reminders(conn, promise, channel)
+        return result
+
     sent = False
     try:
+        # Whichever channel it goes on, one confirmation of the current terms:
+        # the WhatsApp path used to leave an older deferred one pending.
+        _supersede_unsent(conn, promise_id)
         if channel == "whatsapp" and phone:
             conversation_id = dbmod._open_whatsapp_conversation(conn, promise["customer_id"])
             inside = _inside_service_window(conn, conversation_id)
-            # Only the name matters here: this decides whether a template
-            # send is possible at all, and it must agree with what
-            # enqueue_whatsapp_paylink will resolve a moment later.
-            template_name = resolve_template(
-                "WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG"
-            )[0]
-            if inside:
-                _enqueue_whatsapp(
-                    conn,
-                    promise=promise,
-                    intent=intent,
-                    to_phone=phone,
-                    body=body,
-                    use_template=False,
-                )
-                sent = True
-            elif template_name:
-                _enqueue_whatsapp(
-                    conn,
-                    promise=promise,
-                    intent=intent,
-                    to_phone=phone,
-                    body=body,
-                    use_template=True,
-                )
+            # None when no template resolves outside the window: then SMS.
+            message_id, sent_body = _enqueue_whatsapp(
+                conn,
+                promise=promise,
+                intent=intent,
+                to_phone=phone,
+                body=body,
+                use_template=not inside,
+                parts=_parts(conn, promise),
+            )
+            if message_id:
+                _record_whatsapp_confirm(conn, promise_id=promise_id, message_id=message_id, body=sent_body)
                 sent = True
             elif not sms_blocked:
                 channel = "sms"
@@ -901,7 +1072,7 @@ def fulfill(conn: Any, promise_id: str, *, resend: bool = False) -> FulfillmentR
                 # Still queue the reminder so ops can see the miss; drain will
                 # mark it failed if Twilio stays unconfigured.
                 pass
-            _enqueue_sms_reminder(conn, promise=promise, body=body, resend=resend)
+            _queue_confirm(conn, promise=promise, resend=resend)
             sent = True
     except Exception:
         logger.exception("ptp fulfill enqueue failed promise=%s", promise_id)
@@ -1008,6 +1179,18 @@ def snapshot(conn: Any, promise_id: str) -> FulfillmentResult:
         pay_link_sent=row["status"] in {"sent", "opened", "paid"},
         suppressed=suppressed,
         suppression_reason=row.get("suppression_reason"),
+        # Changed terms still held for the end of the call they were changed on.
+        after_call=conn.execute(
+            text(
+                """
+                SELECT 1 FROM promise_reminders
+                WHERE promise_id = :pid AND kind = 'confirm' AND after_call_interaction_id IS NOT NULL
+                  AND status = 'scheduled' AND sending_at IS NULL
+                LIMIT 1
+                """
+            ),
+            {"pid": promise_id},
+        ).first() is not None,
     )
     result.spoken_summary = _spoken(
         amount=promise["amount"],
@@ -1015,6 +1198,7 @@ def snapshot(conn: Any, promise_id: str) -> FulfillmentResult:
         channel=result.confirm_channel,
         last4=result.phone_last4,
         suppressed=result.suppressed,
+        after_call=result.after_call,
     )
     return result
 
@@ -1214,10 +1398,15 @@ def _prepare_reminder(
 
     Returns one of::
 
-        {"outcome": "sent"}                           # queued durably (WhatsApp), or nothing owed
+        {"outcome": "handed", "provider_delivery_id": ...}  # queued on WhatsApp; settled later
+        {"outcome": "sent"}                           # nothing owed (paid)
+        {"outcome": "unchanged"}                      # an after-call update saying what was already sent
         {"outcome": "send", "to": ..., "body": ...}   # an SMS for the caller to send after commit
         {"outcome": "refused", "reason": ...}         # the gate said not now
         {"outcome": "failed", "reason": ...}          # nothing to send, ever
+
+    A WhatsApp row with no template to send it outside the window goes by SMS
+    when SMS is allowed (``"channel": "sms"``), as a live confirmation does.
 
     No carrier I/O here. The row is locked by the caller, and a carrier call
     under that lock was how one reminder became two.
@@ -1248,6 +1437,7 @@ def _prepare_reminder(
     if intent["status"] not in OPEN_INTENT:
         return {"outcome": "failed", "reason": f"intent_{intent['status']}"}
     parts = _parts(conn, promise)
+    index = None
     if reminder.get("kind") == "due":
         # What is due today, not the confirmation again: the due reminder used
         # to re-send the confirm copy, total and all, on the part's day.
@@ -1265,19 +1455,41 @@ def _prepare_reminder(
             expires_at=intent.get("expires_at"),
             parts=parts,
         )
+    if reminder.get("after_call_interaction_id"):
+        last = conn.execute(
+            text(
+                f"""
+                SELECT body FROM promise_reminders
+                WHERE promise_id = :pid AND kind = 'confirm' AND {_HANDED} AND body IS NOT NULL
+                ORDER BY COALESCE(sent_at, sending_at) DESC LIMIT 1
+                """
+            ),
+            {"pid": promise["id"]},
+        ).scalar()
+        # Back to the terms the customer already has, in whichever copy (the
+        # composed text or the template) they were sent.
+        if _terms_said(last, _terms(amount=intent["amount"], promised_at=promise["promised_at"], parts=parts)):
+            return {"outcome": "unchanged"}
     channel = reminder["channel"]
     phone = promise.get("phone_primary")
-    purpose = "statutory" if reminder.get("kind") == "confirm" else "outreach"
+    if not phone:
+        return {"outcome": "failed", "reason": "no_phone_on_file"}
+    kind = "confirm" if reminder.get("kind") == "confirm" else "due"
+    purpose = "statutory" if kind == "confirm" else "outreach"
     source = "ptp_confirm" if purpose == "statutory" else "due_reminder"
-    if channel == "sms":
-        import contact_policy
+    if channel not in ("sms", "whatsapp"):
+        return {"outcome": "failed", "reason": "unsupported_channel"}
+    import capture
+    import contact_policy
+    import db as dbmod
 
+    def _refusal(ch: str, session_key: str) -> str | None:
         decision = contact_policy.admit(
             conn,
             customer_id=promise["customer_id"],
-            channel="sms",
+            channel=ch,
             purpose=purpose,
-            session_key=promise["id"],
+            session_key=session_key,
             source=source,
             related_id=reminder.get("id"),
             actor_kind="system",
@@ -1285,35 +1497,47 @@ def _prepare_reminder(
             endpoint=phone,
             now=now,
         )
-        if not decision.allowed:
-            return {"outcome": "refused", "reason": decision.reason or "contact_policy"}
-        return {
-            "outcome": "send",
-            "to": phone or "",
-            "body": body,
-            "customer_id": promise["customer_id"],
-        }
-    if channel == "whatsapp":
-        inside = False
-        try:
-            import db as dbmod
+        return None if decision.allowed else (decision.reason or "contact_policy")
 
-            cid = dbmod._open_whatsapp_conversation(conn, promise["customer_id"])
-            inside = _inside_service_window(conn, cid)
-        except Exception:
-            inside = False
-        _enqueue_whatsapp(
-            conn,
-            promise=promise,
-            intent=dict(intent),
-            to_phone=phone or "",
-            body=body,
-            use_template=not inside,
-            purpose=purpose,
-            source=source,
-        )
-        return {"outcome": "sent"}
-    return {"outcome": "failed", "reason": "unsupported_channel"}
+    if channel == "whatsapp":
+        cid = dbmod._open_whatsapp_conversation(conn, promise["customer_id"])
+        inside = _inside_service_window(conn, cid, now=now)
+        if inside or resolve_template(*_TEMPLATES[kind])[0]:
+            if (reason := _refusal("whatsapp", cid)) is not None:
+                return {"outcome": "refused", "reason": reason}
+            message_id, sent_body = _enqueue_whatsapp(
+                conn,
+                promise=promise,
+                intent=dict(intent),
+                to_phone=phone,
+                body=body,
+                use_template=not inside,
+                purpose=purpose,
+                source=source,
+                kind=kind,
+                amount=parts[index - 1]["amount"] if kind == "due" and index else None,
+                parts=parts,
+            )
+            if not message_id:  # never queued: it used to be recorded "sent" all the same
+                return {"outcome": "failed", "reason": "whatsapp_not_queued"}
+            # Handed to WhatsApp, not yet accepted: `_settle_whatsapp` records
+            # what Meta says.
+            return {"outcome": "handed", "channel": "whatsapp", "body": sent_body,
+                    "provider_delivery_id": message_id}
+        # Outside the 24-hour window with no approved template: SMS, if allowed.
+        consent = capture.latest_consent_by_channel(conn, promise["customer_id"])
+        if _channel_blocked(consent, "sms"):
+            return {"outcome": "failed", "reason": "whatsapp_template_missing"}
+        channel = "sms"
+    if (reason := _refusal("sms", promise["id"])) is not None:
+        return {"outcome": "refused", "reason": reason}
+    return {
+        "outcome": "send",
+        "channel": "sms",
+        "to": phone,
+        "body": body,
+        "customer_id": promise["customer_id"],
+    }
 
 
 def _record_reminder(
@@ -1323,10 +1547,15 @@ def _record_reminder(
     ok: bool,
     err: str | None,
     provider_delivery_id: str | None = None,
+    channel: str | None = None,
+    body: str | None = None,
 ) -> None:
     """The outcome on the row. The carrier's id and the failure used to share
     ``provider_delivery_id``, so a retried reminder overwrote its SID with an
-    exception name and the desk could not ask the carrier about it."""
+    exception name and the desk could not ask the carrier about it.
+
+    ``channel`` is the one it went on (a WhatsApp row sent by SMS says so);
+    ``body`` what it said."""
     conn.execute(
         text(
             """
@@ -1336,6 +1565,8 @@ def _record_reminder(
                 sent_at = CASE WHEN :ok THEN now() ELSE sent_at END,
                 provider_delivery_id = COALESCE(:sid, provider_delivery_id),
                 last_error = CASE WHEN :ok THEN NULL ELSE COALESCE(:err, last_error) END,
+                channel = COALESCE(:channel, channel),
+                body = CASE WHEN :ok THEN COALESCE(:body, body) ELSE body END,
                 updated_at = now()
             WHERE id = :id
             """
@@ -1346,8 +1577,34 @@ def _record_reminder(
             "ok": ok,
             "sid": provider_delivery_id,
             "err": (err or "")[:200] or None,
+            "channel": channel,
+            "body": body,
         },
     )
+    if ok and channel and reminder["kind"] == "confirm":
+        # A confirmation sent from the queue (deferred to the morning, or held
+        # for the end of a call) is the one the intent now stands on. The
+        # intent kept the deferral's suppression reason after it went, so the
+        # agents and the CRM went on calling the link withheld.
+        conn.execute(
+            text(
+                """
+                UPDATE payment_intents
+                SET status = CASE WHEN status IN ('created','failed') THEN 'sent' ELSE status END,
+                    confirm_channel = :channel,
+                    suppression_reason = NULL
+                WHERE promise_id = :pid AND status = ANY(:open)
+                """
+            ),
+            {"pid": reminder["promise_id"], "channel": channel, "open": list(OPEN_INTENT)},
+        )
+        import db as dbmod
+
+        customer_id = conn.execute(
+            text("SELECT customer_id FROM promises WHERE id = :id"), {"id": reminder["promise_id"]}
+        ).scalar()
+        dbmod.record_activity(conn, "promise", reminder["promise_id"], "promise_confirmed",
+                              f"Payment link sent on {channel}", None, customer_id)
     if ok and reminder["kind"] == "due":
         # 'failed' too: an earlier part's failure is not this part's.
         conn.execute(
@@ -1391,6 +1648,9 @@ def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
     been queued or sent since: the intent's state is that one's. Likewise a
     failed due reminder marks the promise only if no later one has gone out.
     Nothing is re-sent from here.
+
+    A WhatsApp reminder still queued (handed to Meta, not yet accepted) fails
+    the same way when its job dies or Meta refuses it (`_settle_whatsapp`).
     """
     import db as dbmod
 
@@ -1398,8 +1658,10 @@ def delivery_failed(conn: Any, reminder_id: str, error: str) -> bool:
         text(
             """
             UPDATE promise_reminders
-            SET status = 'failed', last_error = :err, updated_at = now()
-            WHERE id = :id AND status = 'sent'
+            SET status = 'failed', last_error = :err, sending_at = NULL, updated_at = now()
+            WHERE id = :id
+              AND (status = 'sent'
+                   OR (status = 'queued' AND channel = 'whatsapp' AND sending_at IS NOT NULL))
             RETURNING promise_id, kind, created_at, sent_at
             """
         ),
@@ -1462,12 +1724,52 @@ def _reap_lost_reminders(conn: Any) -> int:
                 WHERE status IN ('queued','scheduled')
                   AND sending_at IS NOT NULL
                   AND sending_at < now() - make_interval(mins => :lease)
+                  -- A WhatsApp hand-off is settled by what its job and Meta
+                  -- say, which can be hours (a deferred job), not by a lease.
+                  AND channel <> 'whatsapp'
                 """
             ),
             {"lease": _SENDING_LEASE_MINUTES},
         ).rowcount
         or 0
     )
+
+
+#: A WhatsApp reminder handed to whatsapp_outbound, and what has become of it:
+#: accepted (the job succeeded, or Meta reported it sent/delivered/read), or
+#: refused (the job died, or Meta's receipt says failed -- before or after the
+#: hand-off was first settled).
+_SETTLE_WHATSAPP = text(
+    """
+    SELECT r.id, r.promise_id, r.kind, r.channel, r.body, r.status,
+           (m.delivery_status IN ('sent','delivered','read') OR j.status = 'succeeded') AS accepted,
+           (m.delivery_status = 'failed' OR j.status IN ('failed','dead')) AS refused,
+           COALESCE(j.error, 'whatsapp_' || COALESCE(m.delivery_status, j.status)) AS reason
+      FROM promise_reminders r
+      JOIN messages m ON m.id = r.provider_delivery_id
+      LEFT JOIN whatsapp_outbound_jobs j ON j.message_id = r.provider_delivery_id
+     WHERE r.channel = 'whatsapp' AND r.kind IN ('confirm','due')
+       AND ((r.status = 'queued' AND r.sending_at IS NOT NULL
+             AND (m.delivery_status IN ('sent','delivered','read','failed')
+                  OR j.status IN ('succeeded','failed','dead')))
+            OR (r.status = 'sent' AND m.delivery_status = 'failed'))
+     ORDER BY r.id
+       FOR UPDATE OF r SKIP LOCKED
+     LIMIT 20
+    """
+)
+
+
+def _settle_whatsapp(conn: Any) -> int:
+    """Close WhatsApp hand-offs on what the provider said. Run 90's review: a
+    confirmation queued on WhatsApp read "sent" whatever Meta did with it."""
+    rows = conn.execute(_SETTLE_WHATSAPP).mappings().all()
+    for row in rows:
+        if row["refused"]:
+            delivery_failed(conn, row["id"], str(row["reason"] or "whatsapp_failed"))
+        elif row["status"] == "queued" and row["accepted"]:
+            _record_reminder(conn, dict(row), ok=True, err=None, channel="whatsapp", body=row["body"])
+    return len(rows)
 
 
 def process_one_reminder(engine: Engine | Any) -> bool:
@@ -1480,10 +1782,11 @@ def process_one_reminder(engine: Engine | Any) -> bool:
     """
     with engine.begin() as conn:
         _reap_lost_reminders(conn)
+        settled = _settle_whatsapp(conn)
         row = conn.execute(
             text(
                 """
-                SELECT id, promise_id, channel, kind, status, due_on
+                SELECT id, promise_id, channel, kind, status, due_on, after_call_interaction_id
                 FROM promise_reminders
                 WHERE kind IN ('confirm','due')
                   AND status IN ('queued','scheduled')
@@ -1496,7 +1799,7 @@ def process_one_reminder(engine: Engine | Any) -> bool:
             )
         ).mappings().first()
         if row is None:
-            return False
+            return settled > 0
         reminder = dict(row)
         try:
             prepared = _prepare_reminder(conn, reminder)
@@ -1519,9 +1822,34 @@ def process_one_reminder(engine: Engine | Any) -> bool:
                 {"id": row["id"], "reason": str(prepared.get("reason") or "")[:200]},
             )
             return True
+        if outcome == "unchanged":
+            conn.execute(
+                text(
+                    "UPDATE promise_reminders SET status = 'off', last_error = 'unchanged', "
+                    "updated_at = now() WHERE id = :id"
+                ),
+                {"id": row["id"]},
+            )
+            return True
+        if outcome == "handed":
+            conn.execute(
+                text(
+                    """
+                    UPDATE promise_reminders
+                    SET status = 'queued', sending_at = now(), attempts = attempts + 1,
+                        channel = 'whatsapp', provider_delivery_id = :mid, body = :body,
+                        updated_at = now()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": row["id"], "mid": prepared["provider_delivery_id"], "body": prepared["body"]},
+            )
+            return True
         if outcome in {"sent", "failed"}:
             _record_reminder(
-                conn, reminder, ok=outcome == "sent", err=prepared.get("reason")
+                conn, reminder, ok=outcome == "sent", err=prepared.get("reason"),
+                provider_delivery_id=prepared.get("provider_delivery_id"),
+                channel=prepared.get("channel"), body=prepared.get("body"),
             )
             return True
         conn.execute(
@@ -1550,5 +1878,6 @@ def process_one_reminder(engine: Engine | Any) -> bool:
         logger.warning("reminder %s send failed: %s", reminder["id"], exc, exc_info=True)
         ok, err = False, type(exc).__name__
     with engine.begin() as conn:
-        _record_reminder(conn, reminder, ok=ok, err=err, provider_delivery_id=sid)
+        _record_reminder(conn, reminder, ok=ok, err=err, provider_delivery_id=sid,
+                         channel="sms", body=prepared["body"])
     return True

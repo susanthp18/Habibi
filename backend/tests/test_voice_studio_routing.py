@@ -134,18 +134,25 @@ def test_repeat_callback_returns_existing_booking(monkeypatch):
         def execute(self, _query, _params):
             return self
 
-        def scalar_one_or_none(self):
-            return booked
+        def mappings(self):
+            return self
+
+        def first(self):
+            return {"id": "CB-1", "scheduled_at": booked}
 
     class _Engine:
         def connect(self):
             return _Connection()
 
+    owed: list[tuple] = []
     monkeypatch.setattr(db, "engine", _Engine())
     monkeypatch.setattr(domain, "request_callback", lambda **_kw: (_ for _ in ()).throw(AssertionError("duplicate write")))
+    monkeypatch.setattr(voice_studio, "_written", lambda _ctx, kind, _c, ref: owed.append((kind, ref)) or True)
     result = voice_studio._tool_request_callback({"customer_id": "customer"}, {"when": "2026-09-27T06:00:00Z"}, "interaction")
     assert result["ok"] is True and result["alreadyBooked"] is True  # booked, so "Callback booked" may follow
     assert result["existingTime"] == booked.isoformat()
+    # Its written copy is owed for that booking (once: written_followup.queue).
+    assert owed == [("callback_confirm", "CB-1")]
 
 
 @pytest.mark.parametrize("channel", ["inbound", "outbound", "whatsapp"])

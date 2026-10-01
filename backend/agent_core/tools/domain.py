@@ -1032,7 +1032,11 @@ def revise_promise_to_pay(
     fulfillment = (row or {}).get("_fulfillment") or {}
     summary = _open_promise_summary(pid)
     spoken = _revision_spoken(before, summary) + (
-        "; the confirmation could not be re-sent, say so" if fulfillment.get("error") else ""
+        "; the confirmation could not be re-sent, say so" if fulfillment.get("error")
+        # Held for the end of the call (promise_fulfillment.fulfill): say it
+        # comes after the call, never that it was sent.
+        else "; the updated terms will be sent to them in writing after our call, on the same payment link"
+        if fulfillment.get("afterCall") else ""
     )
     return ToolResult(
         ok=True,

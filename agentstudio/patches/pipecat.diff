@@ -1,3 +1,101 @@
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/observers/user_bot_latency_observer.py engine/pipecat/src/pipecat/observers/user_bot_latency_observer.py
+--- pipecat/src/pipecat/observers/user_bot_latency_observer.py	2026-10-01 11:35:19.558334100 +0530
++++ engine/pipecat/src/pipecat/observers/user_bot_latency_observer.py	2026-10-01 09:58:22.314216700 +0530
+@@ -21,6 +21,7 @@
+ 
+ from pydantic import BaseModel, Field
+ 
++from pipecat.bus.bridge_processor import BusBridgeProcessor
+ from pipecat.frames.frames import (
+     BotStartedSpeakingFrame,
+     ClientConnectedFrame,
+@@ -122,6 +123,11 @@
+     BOT_SPEAKING = "bot speaking"
+ 
+ 
++# What the user's side of a turn produced, which an interruption of the bot's
++# response does not discard.
++_USER_TURN_MOMENTS = frozenset({_MomentKind.VAD_STOP, _MomentKind.TRANSCRIPT})
++
++
+ @dataclass(frozen=True)
+ class _Moment:
+     """One moment in a cycle.
+@@ -585,6 +591,7 @@
+         # Frame deduplication (bounded deque + set pattern)
+         self._processed_frames: set = set()
+         self._frame_history: deque = deque(maxlen=max_frames)
++        self._bridged_workers_observed = False
+ 
+         # The moments of the cycle, in the order they were observed.
+         self._moments: list[_Moment] = []
+@@ -603,6 +610,19 @@
+         self._register_event_handler("on_latency_breakdown")
+         self._register_event_handler("on_first_bot_speech_latency")
+ 
++    def observe_bridged_workers(self):
++        """Take frames that cross a bus bridge only from the worker producing them.
++
++        A :class:`~pipecat.bus.bridge_processor.BusBridgeProcessor` re-pushes
++        the frames it receives under its own name, so the service a span is
++        attributed to cannot be read from its copy. Call this when the observer
++        is also attached to every worker on the far side of the bridges it
++        sees: their copies are then ignored, which keeps attribution, and the
++        order of a worker's own frames, independent of which worker's observer
++        queue delivers a frame first.
++        """
++        self._bridged_workers_observed = True
++
+     async def on_pipeline_started(self):
+         """Record that the pipeline finished starting.
+ 
+@@ -628,6 +648,11 @@
+         if data.direction != FrameDirection.DOWNSTREAM:
+             return
+ 
++        # Not marked as processed: the producer's own push, wherever it falls
++        # in the order, is the one that counts.
++        if self._bridged_workers_observed and isinstance(data.source, BusBridgeProcessor):
++            return
++
+         # Skip already processed frames (bounded deque + set)
+         if data.frame.id in self._processed_frames:
+             return
+@@ -694,8 +719,11 @@
+         elif isinstance(data.frame, TTSAudioRawFrame):
+             self._mark(_MomentKind.FIRST_AUDIO, source=data.source.name, once=True)
+         elif isinstance(data.frame, InterruptionFrame):
+-            # Discard stale metrics from cancelled LLM/TTS cycles
+-            self._reset_accumulators()
++            # Discard stale metrics from cancelled LLM/TTS cycles. The user turn
++            # in progress stays: a turn started by its transcript broadcasts this
++            # after the VAD stop, and the breakdown must keep the anchor the
++            # response latency is measured from.
++            self._reset_generation()
+         elif isinstance(data.frame, FunctionCallInProgressFrame):
+             self._function_call_starts[data.frame.tool_call_id] = (
+                 data.frame.function_name,
+@@ -1052,12 +1080,17 @@
+                     )
+ 
+     def _reset_accumulators(self):
+-        """Clear per-cycle metric accumulators."""
++        """Clear per-cycle metric accumulators, the user turn included."""
++        self._reset_generation()
+         self._moments = []
++        self._user_turn_start_time = None
++        self._user_turn = None
++
++    def _reset_generation(self):
++        """Clear what the bot's response produced, keeping the user turn."""
++        self._moments = [m for m in self._moments if m.kind in _USER_TURN_MOMENTS]
+         self._llm_request = None
+         self._ttfb = []
+         self._text_aggregation = None
+-        self._user_turn_start_time = None
+-        self._user_turn = None
+         self._function_call_starts = {}
+         self._function_call_metrics = []
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/src/pipecat/services/azure/stt.py engine/pipecat/src/pipecat/services/azure/stt.py
 --- pipecat/src/pipecat/services/azure/stt.py	2026-09-30 16:05:34.089548200 +0530
 +++ engine/pipecat/src/pipecat/services/azure/stt.py	2026-09-27 12:47:31.649337400 +0530
@@ -806,6 +904,156 @@ diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '
 +    # Pinned to a locale outside its set a multilingual voice is silent, so it
 +    # is left to detect the language from the text.
 +    assert "<lang" not in ssml and "en-US-AvaMultilingualNeural" in ssml
+diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_user_bot_latency_observer.py engine/pipecat/tests/test_user_bot_latency_observer.py
+--- pipecat/tests/test_user_bot_latency_observer.py	2026-10-01 11:35:22.820597700 +0530
++++ engine/pipecat/tests/test_user_bot_latency_observer.py	2026-10-01 10:50:36.010760800 +0530
+@@ -2,6 +2,7 @@
+ import unittest
+ from unittest.mock import AsyncMock
+ 
++from pipecat.bus import AsyncQueueBus, BusBridgeProcessor
+ from pipecat.frames.frames import (
+     BotStartedSpeakingFrame,
+     ClientConnectedFrame,
+@@ -685,7 +686,9 @@
+         """Feed one frame to the observer, as a pipeline push would."""
+         await self.observer.on_push_frame(
+             FramePushed(
+-                source=IdentityFilter(name=source),
++                source=(
++                    source if isinstance(source, FrameProcessor) else IdentityFilter(name=source)
++                ),
+                 destination=IdentityFilter(name="destination"),
+                 frame=frame,
+                 direction=FrameDirection.DOWNSTREAM,
+@@ -1249,6 +1252,78 @@
+                             self._assert_invariants(breakdown)
+ 
+ 
++class TestBridgedWorkers(_CycleDriver, unittest.IsolatedAsyncioTestCase):
++    """An observer that also watches the workers on the far side of a bus bridge.
++
++    Each frame such a worker produces reaches the observer twice, from two
++    workers' observer queues in no fixed order: once where it is produced, and
++    once re-pushed by the bridge under its own name.
++    """
++
++    async def _bridged_cycle(self, *, bridge_first: bool) -> LatencyBreakdown:
++        await self._observe()
++        self.observer.observe_bridged_workers()
++        bridge = BusBridgeProcessor(
++            bus=AsyncQueueBus(), worker_name="call", name="call::AgentBridge"
++        )
++
++        async def produced(frame, producer="source"):
++            copies = [producer, bridge]
++            for source in reversed(copies) if bridge_first else copies:
++                await self._push(frame, source=source)
++
++        await self._push(VADUserStoppedSpeakingFrame(stop_secs=0.2, timestamp=self.clock))
++        self._wait(0.3)
++        await self._push(TranscriptionFrame(user_id="u", text="hi", timestamp=""), source="STT#0")
++        await produced(LLMFullResponseStartFrame(), "LLM#0")
++        self._wait(1.1)
++        await produced(MetricsFrame(data=[TTFBMetricsData(processor="LLM#0", value=1.1)]))
++        await produced(LLMTextFrame("Hi."), "LLM#0")
++        self._wait(0.3)
++        await produced(MetricsFrame(data=[TTFBMetricsData(processor="TTS#0", value=0.3)]))
++        await produced(TTSAudioRawFrame(audio=b"", sample_rate=24000, num_channels=1), "TTS#0")
++        self._wait(0.05)
++        await self._push(BotStartedSpeakingFrame(), source="Transport#0")
++        await self._settle()
++        return self.breakdowns[-1]
++
++    async def test_attribution_does_not_depend_on_which_copy_arrives_first(self):
++        """The bridge's copy never takes a frame's attribution from its producer."""
++        child_first = await self._bridged_cycle(bridge_first=False)
++        bridge_first = await self._bridged_cycle(bridge_first=True)
++
++        def timeline(breakdown):
++            return [(c.label, c.owner, round(c.duration_secs, 6)) for c in breakdown.contributions]
++
++        self.assertEqual(timeline(bridge_first), timeline(child_first))
++        for breakdown in (child_first, bridge_first):
++            spans = {c.label: c for c in breakdown.contributions}
++            self.assertEqual(spans["LLM inference"].owner, "LLM#0")
++            self.assertAlmostEqual(spans["LLM inference"].duration_secs, 1.1, places=6)
++            self.assertEqual(spans["speech synthesis"].owner, "TTS#0")
++            self.assertAlmostEqual(spans["speech synthesis"].duration_secs, 0.3, places=6)
++            self.assertNotIn("pipeline", spans)
++            self.assertNotIn("call::AgentBridge", [c.owner for c in breakdown.contributions])
++            # Each metric counted once, though both copies carried it.
++            self.assertEqual([t.processor for t in breakdown.ttfb], ["LLM#0", "TTS#0"])
++            self.assertAlmostEqual(breakdown.total_secs, 1.95, places=6)
++
++    async def test_without_its_far_side_observed_a_bridge_still_relays_metrics(self):
++        """An observer of the near side alone keeps what the relayed frames carry."""
++        bridge = BusBridgeProcessor(bus=AsyncQueueBus(), worker_name="call")
++        await self._push(VADUserStoppedSpeakingFrame(stop_secs=0.2, timestamp=self.clock))
++        self._wait(0.3)
++        await self._push(LLMFullResponseStartFrame(), source=bridge)
++        self._wait(1.0)
++        await self._push(
++            MetricsFrame(data=[TTFBMetricsData(processor="LLM#0", value=1.0)]), source=bridge
++        )
++        await self._push(BotStartedSpeakingFrame(), source="Transport#0")
++        await self._settle()
++
++        self.assertEqual([t.processor for t in self.breakdowns[-1].ttfb], ["LLM#0"])
++
++
+ class TestObserverEdges(_CycleDriver, unittest.IsolatedAsyncioTestCase):
+     """Cycles that are interrupted, absent, or follow one another."""
+ 
+@@ -1406,6 +1481,48 @@
+         # The abandoned inference is not in the timeline it preceded.
+         self.assertEqual(len([c for c in contributions if c.label == "LLM inference"]), 1)
+ 
++    async def test_an_interruption_at_turn_start_keeps_the_user_turn(self):
++        """A turn started by its transcript is still measured from the silence.
++
++        The user aggregator broadcasts an interruption when the user turn
++        starts, which with transcription-based turn start arrives after the VAD
++        stop. The breakdown has to describe the same interval as the latency.
++        """
++        latencies = []
++
++        @self.observer.event_handler("on_latency_measured")
++        async def on_latency(obs, latency):
++            latencies.append(latency)
++
++        await self._push(ClientConnectedFrame())
++        await self.observer.on_pipeline_started()
++        self._wait(50.0)
++        await self._push(VADUserStartedSpeakingFrame())
++        self._wait(1.0)
++        silence_at = self.clock - 0.2
++        await self._push(VADUserStoppedSpeakingFrame(stop_secs=0.2, timestamp=self.clock))
++        self._wait(0.3)
++        await self._push(TranscriptionFrame(user_id="u", text="hi", timestamp=""), source="STT#0")
++        await self._push(InterruptionFrame())
++        await self._push(LLMFullResponseStartFrame(), source="LLM#0")
++        self._wait(1.0)
++        await self._push(MetricsFrame(data=[TTFBMetricsData(processor="LLM#0", value=1.0)]))
++        await self._push(LLMTextFrame("Hi."), source="LLM#0")
++        self._wait(0.5)
++        await self._push(
++            TTSAudioRawFrame(audio=b"", sample_rate=24000, num_channels=1), source="TTS#0"
++        )
++        await self._push(BotStartedSpeakingFrame(), source="Transport#0")
++        spoke_at = self.clock
++        await self._settle()
++
++        breakdown = self.breakdowns[-1]
++        self.assertEqual(breakdown.measured_from, MeasuredFrom.USER_SILENCE)
++        self.assertEqual(breakdown.user_turn_start_time, silence_at)
++        self.assertAlmostEqual(breakdown.total_secs, spoke_at - silence_at, places=6)
++        self.assertAlmostEqual(breakdown.total_secs, latencies[-1], places=6)
++        self.assertIn("LLM inference", [c.label for c in breakdown.contributions])
++
+     async def test_one_cycle_does_not_reach_the_next(self):
+         """Back to back turns are measured independently."""
+         driver = TestLatencyContributionInvariants._cycle
 diff -ruN --strip-trailing-cr '--exclude=__pycache__' '--exclude=node_modules' '--exclude=.pytest_cache' '--exclude=.next' '--exclude=*.tsbuildinfo' '--exclude=next-env.d.ts' pipecat/tests/test_user_idle_controller.py engine/pipecat/tests/test_user_idle_controller.py
 --- pipecat/tests/test_user_idle_controller.py	2026-09-30 16:05:34.628505900 +0530
 +++ engine/pipecat/tests/test_user_idle_controller.py	2026-09-29 09:58:06.797134600 +0530

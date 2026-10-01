@@ -922,10 +922,18 @@ class PipecatEngine:
                 # This message's one correction is used (see the bounce check).
                 if returning:
                     self._returned_on_user_message = left[(agent.visit_id, transition_to_node)]
+                entry_key = (agent.visit_id, transition_to_node)
+                entered_on = self._node_entry_user_message.get(entry_key)
                 # Set context for the new node, so that when the function call result
                 # frame is received by LLMContextAggregator and an LLM generation
                 # is done, we have updated context and functions
                 await self.set_node(transition_to_node, origin_visit_id=agent.visit_id)
+                if returning:
+                    # The same visit goes on and the customer has said nothing
+                    # since leaving it: their message still answers this step.
+                    # Re-entered on it, run 90's "Actually, yes, go ahead" counted
+                    # as said before the step and its write was refused.
+                    self._node_entry_user_message[entry_key] = entered_on
 
                 is_end_node = agent.workflow.nodes[transition_to_node].is_end
                 if is_end_node:

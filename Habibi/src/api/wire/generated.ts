@@ -2805,6 +2805,7 @@ export const PromiseFulfillmentResponse = z.object({
   "payLinkSent": z.boolean(),
   "suppressed": z.boolean(),
   "suppressionReason": z.string().nullable().optional(),
+  "afterCall": z.boolean().optional(),
 }).passthrough();
 export const PromiseResendConfirmResponse = z.object({
   "id": z.string(),

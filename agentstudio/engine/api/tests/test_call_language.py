@@ -171,6 +171,29 @@ async def test_a_checked_real_switch_goes_ahead():
     assert tracker.current == "ta-IN"
 
 
+@pytest.mark.asyncio
+async def test_a_late_check_cannot_undo_a_newer_decision():
+    """Each check takes up to 3 s: an older phrase's answer arriving after a
+    newer one's must not switch the call back or add a note."""
+    gates = {"hi-IN": asyncio.Event(), "ta-IN": asyncio.Event()}
+
+    async def confirm(text, locale, current):
+        await gates[locale].wait()
+        return True
+
+    tracker, changes, pushed = _tracker()
+    tracker._confirm = confirm
+    await tracker._observe("en-IN", 6)
+    await tracker._observe("hi-IN", 7, "मुझे इस महीने की तनख्वाह अभी तक नहीं मिली")
+    await tracker._observe("ta-IN", 7, "எனக்கு இந்த மாதம் சம்பளம் இன்னும் வரவில்லை")
+    gates["ta-IN"].set()  # the newer check answers first
+    await tracker.checks[1]
+    gates["hi-IN"].set()
+    await _checks_done(tracker)
+    assert tracker.current == "ta-IN"
+    assert len(pushed) == 1 and "Tamil" in pushed[0].messages[0]["content"]
+
+
 class _LLM:
     def __init__(self, reply=None, error=None):
         self.reply, self.error = reply, error

@@ -30,6 +30,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
     import promise_fulfillment
     import webhooks_dispatch
     import whatsapp_outbound
+    import written_followup
     from agent_core.treatment import enact as treatment_enact
     from agent_core.treatment import followthrough as treatment_followthrough
     from agent_core.treatment import sweep as treatment_sweep
@@ -57,6 +58,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
     monkeypatch.setattr(whatsapp_outbound, "process_one", _poison)
     monkeypatch.setattr(promise_fulfillment, "process_one_reminder", _idle("promise_reminders"))
     monkeypatch.setattr(callback_reminders, "process_one", _idle("callback_reminders"))
+    monkeypatch.setattr(written_followup, "process_one", _idle("written_followups"))
     monkeypatch.setattr(payment_events, "process_one_voice", _idle("bounce_voice"))
     monkeypatch.setattr(call_closer, "process_one", _idle("call_closer"))
     monkeypatch.setattr(cadence, "process_one", _idle("cadence"))
@@ -70,7 +72,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
 
     previous = bot_worker._iteration
     # After increment: 2. Not a bot-first tick, not a settle tick, so the
-    # thirteen drains run in order and stage 1 is whatsapp_outbound.
+    # fourteen drains run in order and stage 1 is whatsapp_outbound.
     bot_worker._iteration = 1
     try:
         with caplog.at_level(logging.ERROR, logger="bot_worker"):
@@ -83,6 +85,7 @@ def test_a_poison_row_in_stage_1_does_not_prevent_stage_12(
         "whatsapp_outbound",
         "promise_reminders",
         "callback_reminders",
+        "written_followups",
         "bounce_voice",
         "call_closer",
         "cadence",

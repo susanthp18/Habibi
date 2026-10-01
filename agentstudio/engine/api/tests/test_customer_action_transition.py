@@ -677,6 +677,52 @@ async def test_one_return_per_message_corrects_a_misroute_but_a_second_is_ping_p
 
 
 @pytest.mark.asyncio
+async def test_a_corrected_misroute_keeps_the_customers_yes(monkeypatch):
+    """Run 90: the return to Agree re-entered the step on "Actually, yes, go ahead",
+    so the write guard saw nothing said in it and refused the confirmed change."""
+    agree = SimpleNamespace(id="agree", name="Agree", allow_interrupt=True, is_start=False, is_end=False)
+    dispute = SimpleNamespace(id="dispute", name="Dispute", allow_interrupt=True, is_start=False, is_end=False)
+    engines = []
+
+    def setup(engine):
+        # The write tool's own agent, now in Agree.
+        agent = engine._active_agent
+        agent.current_node = agree
+        agent.workflow = SimpleNamespace(nodes={"agree": agree, "dispute": dispute})
+        agent.bind_tool = lambda _engine, handler: handler
+        engine._node_entry_user_message = {("visit", "agree"): engine.context.messages[0]}
+        engine._verification_required = set()
+        engine._perform_variable_extraction_if_needed = AsyncMock()
+        engine._run_transition_variable_extraction_in_background = False
+        # The real set_node, with only its prompt and UI work stubbed.
+        engine._handle_agent_node = AsyncMock()
+        engine._node_transition_callback = None
+        engine._context_summarization_manager = None
+        engine._node_left_user_message = {}
+        engines.append(engine)
+
+    # Agree was entered on "I can pay 4000 on Friday" and read the terms back.
+    write, execute = _writer(monkeypatch, Verdict(Confirmation.CONFIRMED, "agreed"), setup=setup)
+    engine = engines[0]
+    agent = engine._active_agent
+    engine.context.messages[-1] = {"role": "user", "content": "Actually, yes, go ahead"}
+    callback = AsyncMock()
+
+    misroute = await engine._create_transition_func("Dispute or already paid", "dispute", agent=agent)
+    await misroute(SimpleNamespace(arguments={}, result_callback=callback))
+    assert agent.current_node is dispute
+    back = await engine._create_transition_func("Discuss payment", "agree", agent=agent)
+    await back(SimpleNamespace(arguments={}, result_callback=callback))
+    assert agent.current_node is agree and callback.await_args.args[0] == {"status": "done"}
+
+    # The same visit of Agree, and the customer's yes was said in it.
+    assert engine.caller_spoke_in_node(agent)
+    await write(SimpleNamespace(arguments={"amount": 4000, "date": "2026-10-02"}, result_callback=callback))
+    assert callback.await_args.args[0].get("error") != "customer_not_confirmed"
+    execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_a_guess_after_an_unrelated_answer_is_not_checked(monkeypatch):
     """Codex F15: any new message in the step let model-supplied digits through."""
     from api.services.workflow import pipecat_engine_custom_tools as tools

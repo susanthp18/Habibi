@@ -21,6 +21,7 @@ from enum import Enum, StrEnum, auto
 
 from pydantic import BaseModel, Field
 
+from pipecat.bus.bridge_processor import BusBridgeProcessor
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     ClientConnectedFrame,
@@ -120,6 +121,11 @@ class _MomentKind(StrEnum):
     SENTENCE = "sentence"
     FIRST_AUDIO = "first audio"
     BOT_SPEAKING = "bot speaking"
+
+
+# What the user's side of a turn produced, which an interruption of the bot's
+# response does not discard.
+_USER_TURN_MOMENTS = frozenset({_MomentKind.VAD_STOP, _MomentKind.TRANSCRIPT})
 
 
 @dataclass(frozen=True)
@@ -585,6 +591,7 @@ class UserBotLatencyObserver(BaseObserver):
         # Frame deduplication (bounded deque + set pattern)
         self._processed_frames: set = set()
         self._frame_history: deque = deque(maxlen=max_frames)
+        self._bridged_workers_observed = False
 
         # The moments of the cycle, in the order they were observed.
         self._moments: list[_Moment] = []
@@ -602,6 +609,19 @@ class UserBotLatencyObserver(BaseObserver):
         self._register_event_handler("on_latency_measured")
         self._register_event_handler("on_latency_breakdown")
         self._register_event_handler("on_first_bot_speech_latency")
+
+    def observe_bridged_workers(self):
+        """Take frames that cross a bus bridge only from the worker producing them.
+
+        A :class:`~pipecat.bus.bridge_processor.BusBridgeProcessor` re-pushes
+        the frames it receives under its own name, so the service a span is
+        attributed to cannot be read from its copy. Call this when the observer
+        is also attached to every worker on the far side of the bridges it
+        sees: their copies are then ignored, which keeps attribution, and the
+        order of a worker's own frames, independent of which worker's observer
+        queue delivers a frame first.
+        """
+        self._bridged_workers_observed = True
 
     async def on_pipeline_started(self):
         """Record that the pipeline finished starting.
@@ -626,6 +646,11 @@ class UserBotLatencyObserver(BaseObserver):
         """
         # Only process downstream frames
         if data.direction != FrameDirection.DOWNSTREAM:
+            return
+
+        # Not marked as processed: the producer's own push, wherever it falls
+        # in the order, is the one that counts.
+        if self._bridged_workers_observed and isinstance(data.source, BusBridgeProcessor):
             return
 
         # Skip already processed frames (bounded deque + set)
@@ -694,8 +719,11 @@ class UserBotLatencyObserver(BaseObserver):
         elif isinstance(data.frame, TTSAudioRawFrame):
             self._mark(_MomentKind.FIRST_AUDIO, source=data.source.name, once=True)
         elif isinstance(data.frame, InterruptionFrame):
-            # Discard stale metrics from cancelled LLM/TTS cycles
-            self._reset_accumulators()
+            # Discard stale metrics from cancelled LLM/TTS cycles. The user turn
+            # in progress stays: a turn started by its transcript broadcasts this
+            # after the VAD stop, and the breakdown must keep the anchor the
+            # response latency is measured from.
+            self._reset_generation()
         elif isinstance(data.frame, FunctionCallInProgressFrame):
             self._function_call_starts[data.frame.tool_call_id] = (
                 data.frame.function_name,
@@ -1052,12 +1080,17 @@ class UserBotLatencyObserver(BaseObserver):
                     )
 
     def _reset_accumulators(self):
-        """Clear per-cycle metric accumulators."""
+        """Clear per-cycle metric accumulators, the user turn included."""
+        self._reset_generation()
         self._moments = []
+        self._user_turn_start_time = None
+        self._user_turn = None
+
+    def _reset_generation(self):
+        """Clear what the bot's response produced, keeping the user turn."""
+        self._moments = [m for m in self._moments if m.kind in _USER_TURN_MOMENTS]
         self._llm_request = None
         self._ttfb = []
         self._text_aggregation = None
-        self._user_turn_start_time = None
-        self._user_turn = None
         self._function_call_starts = {}
         self._function_call_metrics = []
