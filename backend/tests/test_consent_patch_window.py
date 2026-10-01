@@ -199,14 +199,14 @@ def test_an_hours_edit_leaves_an_en_dash_days_string_byte_identical(db_tx) -> No
 
 
 def test_a_days_edit_leaves_stored_hours_byte_identical(db_tx) -> None:
-    """Changing days must not reformat hours. The GET parser keeps only the
-    hour numbers, so writing that parse would turn ``08:30-17:45 IST`` into
-    ``08:00-17:00 IST``.
+    """Changing days must not reformat hours. The GET parser keeps only whole
+    hours (the start rounded up), so writing that parse would turn
+    ``08:30-17:45 IST`` into ``09:00-17:00 IST``.
     """
     hours = "08:30-17:45 IST"
     cid = _fresh(db_tx, days="Mon-Fri", hours=hours, preferred=hours)
     echo = _get_echo("Mon-Fri", hours)
-    assert echo["startHour"] == 8 and echo["endHour"] == 17
+    assert echo["startHour"] == 9 and echo["endHour"] == 17
 
     db.patch_consent(
         cid,

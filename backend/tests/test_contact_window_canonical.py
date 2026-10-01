@@ -225,3 +225,12 @@ def test_a_recorded_window_cannot_widen_the_statutory_bound() -> None:
     at = datetime(2026, 9, 7, 21, 0, tzinfo=IST)
     stated = _customer(preferred_window="18:00-22:00 IST")
     assert _veto_at(stated, at) == contact_policy.REASON_HOURS
+
+
+def test_a_window_with_minutes_never_starts_before_it() -> None:
+    """Minutes were dropped: 10:30 read as 10:00 and admitted calls the
+    borrower had not consented to. The start rounds up to the next hour; the
+    end needs nothing, because the gate refuses from the end hour itself."""
+    assert contact_window.parse_hours("10:30-19:30 IST") == (11, 19)
+    assert contact_window.parse_hours("10:00-19:00 IST") == (10, 19)
+    assert contact_window.outside_preferred_window("2026-10-01T04:45:00+00:00", "10:30-19:30 IST")

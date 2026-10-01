@@ -778,3 +778,27 @@ def test_the_ledger_counts_the_week_the_gate_counts(db_tx, monkeypatch: pytest.M
         db_tx, cid, "whatsapp", now=_noon(), tz=contact_policy._zone("Asia/Kolkata")
     )
     assert usage["byChannel"].get("whatsapp", 0) == gate_n
+
+
+def test_a_half_hour_consent_window_is_not_opened_early(db_tx, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The window parser read hours and dropped minutes, so a 10:30 consent
+    admitted a 10:05 call. The start rounds up: never earlier than consented."""
+    import contact_policy
+
+    cid = _prep(db_tx, monkeypatch)
+    db_tx.execute(
+        text("UPDATE consent_records SET allowed_hours = '10:30-19:30 IST' WHERE customer_id = :id"),
+        {"id": cid},
+    )
+    d = _today_ist()
+
+    def at(hour: int, minute: int):
+        return contact_policy.evaluate(
+            db_tx, customer_id=cid, channel="voice", purpose="outreach",
+            now=datetime(d.year, d.month, d.day, hour, minute, tzinfo=IST),
+        )
+
+    early = at(10, 15)
+    assert not early.allowed
+    assert early.reason == contact_policy.REASON_WINDOW
+    assert at(12, 0).allowed

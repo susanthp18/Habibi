@@ -45,7 +45,14 @@ def parse_hours(raw: str | None) -> tuple[int, int] | None:
     match = _WINDOW_RE.search(str(raw))
     if not match:
         return None
-    return int(match.group(1)), int(match.group(3))
+    # Windows are whole hours everywhere downstream, so minutes round towards
+    # the borrower: a 10:30 start opens at 11:00 -- reading it as 10:00 admitted
+    # calls they had not consented to. The end needs nothing: the gate refuses
+    # from the end hour itself, at or before a 19:30 end.
+    # ponytail: hour-granular windows give up to 59 minutes at each edge; carry
+    # minutes of the day through contact_policy if those half hours matter.
+    start = int(match.group(1)) + (1 if int(match.group(2)) else 0)
+    return start, int(match.group(3))
 
 
 def window_hours(preferred_window: str | None) -> tuple[int, int]:
