@@ -20,7 +20,7 @@ psycopg-binary==3.3.4
 alembic==1.18.5
 # W6 offline PIT builder. 1.3+ carries the rewritten ASOF planner.
 duckdb==1.3.2
-openai==2.46.0
+openai==3.19.2
 tiktoken==0.13.0
 httpx==0.28.1
 minio==7.2.20
