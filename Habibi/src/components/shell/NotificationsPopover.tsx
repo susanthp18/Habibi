@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Bell, CheckCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMe } from "@/api/me";
-import { dueLabel, useWorkspaceSummary, type WorkItem } from "@/api/workspace";
+import { dueLabel, liveLevel, useWorkspaceSummary, type WorkItem } from "@/api/workspace";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -48,7 +48,7 @@ export function NotificationsPopover() {
   const now = useNow();
   const { data: me } = useMe();
   const key = readKey(me?.id, me?.tenantId);
-  const { data: summary, isError, isPending } = useWorkspaceSummary("me");
+  const { data: summary, isError, isPending, dataUpdatedAt } = useWorkspaceSummary("me");
   const [open, setOpen] = useState(false);
   const [readState, setRead] = useState<{ key: string; ids: Set<string> }>(() => ({
     key,
@@ -60,13 +60,15 @@ export function NotificationsPopover() {
     const list: Notif[] = [];
 
     // The level is part of the id: a warning that becomes a breach is a new
-    // alert, and must not stay marked read.
+    // alert, and must not stay marked read. It is the live level, so the
+    // title, colour and identity follow the clock between refreshes.
     for (const w of summary?.attention ?? []) {
+      const level = liveLevel(w, now);
       list.push({
-        id: `wi:${w.entityType}:${w.id}:${w.sla}`,
-        title: w.sla === "breach" ? "Overdue" : "Due soon",
+        id: `wi:${w.entityType}:${w.id}:${level}`,
+        title: level === "breach" ? "Overdue" : "Due soon",
         body: `${w.type} · ${w.customer} · ${w.dueAt ? dueLabel(w.dueAt, now) : w.slaLabel}`,
-        level: w.sla === "ok" ? "info" : w.sla,
+        level: level === "ok" ? "info" : level,
         item: w,
       });
     }
@@ -85,10 +87,11 @@ export function NotificationsPopover() {
 
     const blocked = summary?.callbacksBlockedCount ?? 0;
     if (blocked > 0) {
+      const atLeast = summary?.callbacksBlockedPartial ? "At least " : "";
       list.push({
-        id: `blocked:${blocked}`,
+        id: `blocked:${atLeast}${blocked}`,
         title: "Callback the contact rules would refuse",
-        body: `${blocked} upcoming callback${blocked === 1 ? "" : "s"} booked for a blocked time`,
+        body: `${atLeast}${blocked} upcoming callback${blocked === 1 ? "" : "s"} booked for a blocked time`,
         level: "warn",
         href: { to: "/callbacks" },
       });
@@ -140,11 +143,13 @@ export function NotificationsPopover() {
             <div className="text-body-small text-text-subtlest">
               {isError && !summary
                 ? "Couldn’t load your alerts"
-                : isPending
-                  ? "Loading…"
-                  : badge > 0
-                    ? `${badge} unread from your queue`
-                    : "Caught up"}
+                : isError
+                  ? `Couldn’t refresh — alerts as of ${new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                  : isPending
+                    ? "Loading…"
+                    : badge > 0
+                      ? `${badge} unread from your queue`
+                      : "Caught up"}
             </div>
           </div>
           {notifications.length > 0 && (
@@ -159,7 +164,7 @@ export function NotificationsPopover() {
           )}
         </div>
         <ul className="max-h-[22.5rem] overflow-y-auto">
-          {notifications.length === 0 && summary && (
+          {notifications.length === 0 && summary && !isError && (
             <li className="px-150 py-400 text-center text-body-small text-text-subtlest">
               Nothing overdue, due soon or blocked right now.
             </li>

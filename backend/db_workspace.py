@@ -324,7 +324,7 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
             conn.execute(
                 text(
                     """
-                    SELECT l.id, l.stage, l.offer_amount, l.estimated_value, l.account_id,
+                    SELECT l.id, l.stage, l.offer_amount, l.account_id,
                            l.transcript_snippet, p.name AS product_name
                     FROM leads l
                     LEFT JOIN products p ON p.id = l.product_id
@@ -336,7 +336,9 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
         ):
             stage = (r["stage"] or "interested").replace("_", " ").title()
             product = r["product_name"] or _snippet(r["transcript_snippet"]) or "Offer"
-            amount = r["offer_amount"] if r["offer_amount"] is not None else r["estimated_value"]
+            # The offer only: the column labels it "Offer", and the estimated
+            # value is a different number (the next-lead card shows that one).
+            amount = r["offer_amount"]
             amount_f = float(amount) if amount is not None else None
             out[f"lead:{r['id']}"] = {
                 "type": f"Lead · {stage}",
@@ -529,9 +531,9 @@ def list_work_items(
                 _sql(
                     _ITEMS_SQL.format(where=" ".join(where))
                     + """
-                    ORDER BY
-                      CASE WHEN w.sla_due_at IS NULL THEN 1 WHEN w.sla_due_at < now() THEN 0 ELSE 2 END,
-                      w.sla_due_at ASC NULLS LAST, w.created_at ASC, w.entity_id
+                    -- The table's own deadline order: a page boundary must not
+                    -- push work due in minutes behind work with no deadline.
+                    ORDER BY w.sla_due_at ASC NULLS LAST, w.created_at ASC, w.entity_id
                     LIMIT :limit OFFSET :offset
                     """
                 ),
@@ -695,7 +697,7 @@ def _next_lead(conn: Any, scope: str | None) -> dict[str, Any] | None:
                   l.id, l.customer_id, l.account_id, l.stage, l.priority,
                   c.name AS customer_name,
                   COALESCE(p.name, l.product_id, 'Offer') AS product_name,
-                  COALESCE(l.estimated_value, l.offer_amount) AS amount,
+                  l.estimated_value AS amount,
                   c.preferred_window,
                   l.transcript_snippet,
                   (SELECT min(f.due_at) FROM followups f
@@ -712,7 +714,7 @@ def _next_lead(conn: Any, scope: str | None) -> dict[str, Any] | None:
                     WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
                     WHEN 'normal' THEN 2 ELSE 3
                   END,
-                  COALESCE(l.estimated_value, l.offer_amount, 0) DESC,
+                  COALESCE(l.estimated_value, 0) DESC,
                   l.captured_at ASC NULLS LAST
                 LIMIT 1
                 """

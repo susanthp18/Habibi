@@ -40,10 +40,11 @@ export type CreateDisputeInput = {
   notes?: string;
 };
 
-export async function fetchDisputes(): Promise<Dispute[]> {
+/** ``id`` reads that one record whatever page it is on (a deep link). */
+export async function fetchDisputes(id?: string): Promise<Dispute[]> {
   // The SLA fields are the server's to compute; mock recomputes them on every
   // fetch (as the server would) rather than freezing them into the seed row.
-  return apiGet<Dispute[]>("/disputes");
+  return apiGet<Dispute[]>(id ? `/disputes?id=${encodeURIComponent(id)}` : "/disputes");
 }
 
 /** The one dispute writer: the desk and the 360 both post through here. */
@@ -66,7 +67,7 @@ export async function createDispute(
 }
 
 export function useDisputes() {
-  return useQuery({ queryKey: ["disputes"], queryFn: fetchDisputes });
+  return useQuery({ queryKey: ["disputes"], queryFn: () => fetchDisputes() });
 }
 
 export async function moveDispute(d: Dispute, status: DisputeStatus): Promise<void> {

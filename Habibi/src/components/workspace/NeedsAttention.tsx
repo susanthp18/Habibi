@@ -139,7 +139,9 @@ export function NeedsAttention({
                 <span>
                   {" "}
                   · {nextLead.productName}
-                  {nextLead.amount != null ? ` · ${fmtOfferAmount(nextLead.amount)}` : ""}
+                  {nextLead.amount != null
+                    ? ` · est. value ${fmtOfferAmount(nextLead.amount)}`
+                    : ""}
                 </span>
               </p>
               <p className="mt-025 text-body-small text-text-subtlest">

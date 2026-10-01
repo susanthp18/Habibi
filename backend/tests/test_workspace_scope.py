@@ -301,3 +301,52 @@ def test_a_contact_warning_past_its_check_limit_says_it_is_partial(db_tx, as_act
     monkeypatch.setattr(db_workspace, "BLOCKED_CHECK_LIMIT", 0)
     as_actor(ADMIN)
     assert db.workspace_summary(assignee="me")["callbacksBlockedPartial"] is True
+
+
+def test_undated_work_never_pages_ahead_of_a_deadline(db_tx, as_actor) -> None:
+    customer = _customer_of(db_tx, ADMIN)
+    _callback(db_tx, customer, at=_now() + timedelta(minutes=30), assignee=ADMIN)
+    db_tx.execute(
+        text(
+            "INSERT INTO disputes (id, customer_id, account_id, type, disputed_amount, source, "
+            "status, priority, transcript_snippet, sla_due_at, created_at) VALUES "
+            "(:id, :c, (SELECT id FROM accounts WHERE customer_id = :c LIMIT 1), 'wrong_amount', 1, "
+            "'agent', 'new', 'normal', 'fixture', NULL, now())"
+        ),
+        {"id": _uid("DSP"), "c": customer},
+    )
+    as_actor(ADMIN)
+    dues = [r["dueAt"] for r in db.list_work_items(assignee="all", limit=1000)]
+    assert None in dues
+    assert all(d is None for d in dues[dues.index(None):]), "an undated row sorted ahead of a dated one"
+
+
+@pytest.mark.parametrize(
+    ("fn", "key"),
+    [
+        ("list_callbacks", "callback_id"),
+        ("list_disputes", "dispute_id"),
+        ("list_documents", "document_id"),
+        ("list_promises", "promise_id"),
+        ("list_leads", "lead_id"),
+    ],
+)
+def test_a_deep_link_reads_its_record_whatever_page_it_is_on(db_tx, as_actor, fn, key) -> None:
+    as_actor(ADMIN)
+    rows = getattr(db, fn)(limit=db.MAX_LIST_LIMIT)
+    if len(rows) < 2:
+        pytest.skip(f"{fn}: needs two rows")
+    last = rows[-1]["id"]
+    assert [r["id"] for r in getattr(db, fn)(limit=1, **{key: last})] == [last]
+    assert getattr(db, fn)(**{key: "NO-SUCH-ID"}) == []
+
+
+def test_customer_search_reaches_past_the_first_page(db_tx, as_actor) -> None:
+    as_actor(ADMIN)
+    everyone = db.list_customers(limit=db.MAX_LIST_LIMIT)
+    if len(everyone) < 2:
+        pytest.skip("needs two customers")
+    last = everyone[-1]
+    assert last["id"] not in {c["id"] for c in db.list_customers(limit=1)}
+    assert last["id"] in {c["id"] for c in db.list_customers(limit=1, q=last["id"])}
+    assert db.list_customers(q="NO-SUCH-CUSTOMER-WS") == []

@@ -6,7 +6,7 @@
 // route consumes fetchCustomers via the useCustomers() hook.
 // -----------------------------------------------------------------------------
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { PROMISE_STATUSES, REMINDER_STATUSES } from "@/api/types/promises";
 
@@ -376,6 +376,22 @@ export async function logInteraction(
   };
 }
 
+/** Customers matching ``q`` (name, customer id or account id) across the whole
+ *  book -- the list endpoint returns one page, so filtering it found only that. */
+export function useCustomerSearch(q: string, enabled: boolean) {
+  const needle = q.trim();
+  return useQuery({
+    queryKey: ["customers", "search", needle],
+    queryFn: () =>
+      apiGet<Customer[]>(`/customers?limit=40${needle ? `&q=${encodeURIComponent(needle)}` : ""}`, {
+        schema: z.array(customerSchema),
+      }),
+    enabled,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useCustomers() {
   return useQuery({
     queryKey: ["customers"],
@@ -441,10 +457,14 @@ export async function sendCustomerOutreach(
   customerId: string,
   payload: { channel: OutreachChannel; text: string; idempotencyKey: string },
 ) {
-  return apiPost(`/customers/${encodeURIComponent(customerId)}/outreach`, {
-    channel: payload.channel,
-    text: payload.text,
-  }, { headers: { "Idempotency-Key": payload.idempotencyKey } });
+  return apiPost(
+    `/customers/${encodeURIComponent(customerId)}/outreach`,
+    {
+      channel: payload.channel,
+      text: payload.text,
+    },
+    { headers: { "Idempotency-Key": payload.idempotencyKey } },
+  );
 }
 
 export function useSendCustomerOutreach() {

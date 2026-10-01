@@ -25,6 +25,7 @@ import { computeMetrics, defaultFilters, filterPromises } from "@/lib/promises";
 import {
   promiseOwnerOptions,
   promiseSheetCustomers,
+  fetchPromises,
   usePaymentPlans,
   usePromises,
   useMovePromise,
@@ -37,6 +38,7 @@ import {
 import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
+import { useOpenRecord } from "@/lib/use-open-record";
 
 export const Route = createFileRoute("/_app/promises")({
   validateSearch: parseDeepLinkSearch,
@@ -62,7 +64,7 @@ export const Route = createFileRoute("/_app/promises")({
 function PromisesPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { data: promisesData = [] } = usePromises();
+  const { data: promisesData = [], isPending: promisesPending } = usePromises();
   const {
     data: plansData = [],
     isPending: plansPending,
@@ -156,7 +158,14 @@ function PromisesPage() {
     });
   const handleCreatePlan = (input: PlanInput) => planMutation.mutate(input);
 
-  const detail = detailId ? (promisesData.find((p) => p.id === detailId) ?? null) : null;
+  const detail = useOpenRecord({
+    queryKey: "promises",
+    label: "promise",
+    id: detailId,
+    list: promisesPending ? undefined : promisesData,
+    fetchOne: fetchPromises,
+    setOpenId: setDetailId,
+  });
 
   useEffect(() => {
     if (!search.id && !search.new && !search.plan) return;

@@ -114,8 +114,11 @@ const promiseResendConfirmSchema = ptpPromiseSchema.extend({
 /** PaymentPlanCreateResponse — POST /payment-plans. */
 const paymentPlanCreateSchema = z.object({ id: z.string(), promise: ptpPromiseSchema });
 
-export async function fetchPromises(): Promise<Ptp[]> {
-  return apiGet<Ptp[]>("/promises", { schema: z.array(promiseListSchema) });
+/** ``id`` reads that one record whatever page it is on (a deep link). */
+export async function fetchPromises(id?: string): Promise<Ptp[]> {
+  return apiGet<Ptp[]>(id ? `/promises?id=${encodeURIComponent(id)}` : "/promises", {
+    schema: z.array(promiseListSchema),
+  });
 }
 
 export async function fetchPaymentPlans(): Promise<PaymentPlan[]> {
@@ -123,7 +126,7 @@ export async function fetchPaymentPlans(): Promise<PaymentPlan[]> {
 }
 
 export function usePromises() {
-  return useQuery({ queryKey: ["promises"], queryFn: fetchPromises });
+  return useQuery({ queryKey: ["promises"], queryFn: () => fetchPromises() });
 }
 
 export function usePaymentPlans() {

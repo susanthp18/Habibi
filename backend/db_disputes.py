@@ -239,8 +239,14 @@ def _dispute_evidence(conn: Any, dispute_ids: list[str]) -> dict[str, list[dict[
     return grouped
 
 
-def list_disputes(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Disputes & Exceptions queue feed (richer than the Customer 360 contract)."""
+def list_disputes(
+    *, limit: int | None = None, offset: int | None = None, dispute_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Disputes & Exceptions queue feed (richer than the Customer 360 contract).
+
+    ``dispute_id`` reads one record the same way, for a deep link to one outside the
+    first page.
+    """
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with _db().engine.connect() as conn:
         rows = _rows(
@@ -258,11 +264,18 @@ def list_disputes(*, limit: int | None = None, offset: int | None = None) -> lis
                      /*VISIBILITY*/
                     LEFT JOIN users u ON u.id = d.assignee_user_id
                     LEFT JOIN interactions i ON i.id = d.interaction_id
+                    WHERE (CAST(:one_id AS text) IS NULL OR d.id = CAST(:one_id AS text))
                     ORDER BY d.created_at DESC, d.id
                     LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
+                {
+                    "limit": page,
+                    "offset": skip,
+                    "one_id": dispute_id,
+                    "tenant_id": _tenant(),
+                    **_vis_params(),
+                },
             )
         )
         ids = [r["id"] for r in rows]

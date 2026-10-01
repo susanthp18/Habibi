@@ -13,6 +13,7 @@ import type { Dispute, DisputeFilters } from "@/api/types/disputes";
 import { computeMetrics, defaultFilters, filterDisputes, STATUS_LABELS } from "@/lib/disputes";
 import {
   disputeAssigneeOptions,
+  fetchDisputes,
   useDisputes,
   useMoveDispute,
   useAssignDispute,
@@ -21,6 +22,7 @@ import { useStaff } from "@/api/staff";
 import { useMe } from "@/api/me";
 import { useCustomers } from "@/api/customers";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
+import { useOpenRecord } from "@/lib/use-open-record";
 
 export const Route = createFileRoute("/_app/disputes")({
   validateSearch: parseDeepLinkSearch,
@@ -47,7 +49,7 @@ function DisputesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
-  const { data: disputesData = [] } = useDisputes();
+  const { data: disputesData = [], isPending: disputesPending } = useDisputes();
   const { data: liveCustomers = [] } = useCustomers();
   const [filters, setFilters] = useState<DisputeFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -77,7 +79,14 @@ function DisputesPage() {
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
 
   // Derive the open sheet from fetched data so it stays fresh after invalidation.
-  const openDispute = openId ? (disputesData.find((d) => d.id === openId) ?? null) : null;
+  const openDispute = useOpenRecord({
+    queryKey: "disputes",
+    label: "dispute",
+    id: openId,
+    list: disputesPending ? undefined : disputesData,
+    fetchOne: fetchDisputes,
+    setOpenId,
+  });
 
   const patchFilters = (p: Partial<DisputeFilters>) => setFilters((f) => ({ ...f, ...p }));
 

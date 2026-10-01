@@ -126,6 +126,7 @@ class WorkspaceNextLeadResponse(BaseModel):
     customerId: str
     accountId: str
     productName: str
+    #: The lead's estimated value -- what it is ranked by. Queue rows show the offer.
     amount: float | None = None
     stage: str
     priority: str

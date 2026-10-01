@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { setAfterWrite } from "@/api/config";
+import { movesWorkspace } from "@/api/workspace";
 import { createMutationCache } from "@/lib/mutation-errors";
 import { routeTree } from "./routeTree.gen";
 
@@ -19,10 +20,10 @@ export const getRouter = () => {
     },
   });
 
-  // My Workspace's queue and summary are built from callbacks, disputes,
-  // promises, documents and leads, and stay mounted in the shell: any write
-  // may move them.
-  setAfterWrite(() => {
+  // My Workspace's queue and summary stay mounted in the shell (notifications,
+  // palette): refresh them after any write to a domain they are built from.
+  setAfterWrite((path) => {
+    if (!movesWorkspace(path)) return;
     void queryClient.invalidateQueries({ queryKey: ["work-items"] });
     void queryClient.invalidateQueries({ queryKey: ["workspace-summary"] });
   });

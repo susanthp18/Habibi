@@ -82,6 +82,15 @@ export function useWorkspaceSummary(scope: WorkspaceScope = "me") {
   });
 }
 
+/** Whether a write to ``path`` can change the queue or summary: the domains
+ *  behind the work_items view, the calls behind the stats, and the consent and
+ *  holds behind the contact warning. A prompt lint or a settings save cannot. */
+export function movesWorkspace(path: string): boolean {
+  return /^\/(callbacks|disputes|document-requests|promises|payment-plans|leads|followups|interactions|handoff|consent|treatment\/holds)(\/|\?|$)/.test(
+    path,
+  );
+}
+
 export function enactedByLabel(value?: string | null): string | null {
   if (!value) return null;
   if (value === "clerk_agent") return "Clerk";
@@ -99,10 +108,23 @@ export function dueLabel(dueAt: string, now: number): string {
   return ms < 0 ? `Overdue ${span}` : `In ${span}`;
 }
 
-/** The server's level, except that a deadline the clock has passed is overdue
- *  now -- the text counts down locally and the colour must not lag it. */
-export function liveLevel(item: Pick<WorkItem, "sla" | "dueAt">, now: number): SlaLevel {
-  return item.dueAt && new Date(item.dueAt).getTime() < now ? "breach" : item.sla;
+const RANK: Record<SlaLevel, number> = { ok: 0, warn: 1, breach: 2 };
+
+/** The server's level, raised by the clock between refreshes: the deadline text
+ *  counts down locally and its colour must not lag it. Same thresholds as
+ *  ``db_workspace._work_item_sla`` (overdue; due within two hours). It only
+ *  ever raises, so the server's status-driven levels stand -- except a bounce
+ *  awaiting payment, which the server keeps calm whatever its deadline. */
+export function liveLevel(
+  item: Pick<WorkItem, "sla" | "dueAt" | "entityType" | "status">,
+  now: number,
+): SlaLevel {
+  if (!item.dueAt || (item.entityType === "bounce" && item.status === "in_progress")) {
+    return item.sla;
+  }
+  const left = new Date(item.dueAt).getTime() - now;
+  const byClock: SlaLevel = left < 0 ? "breach" : left < 2 * 3_600_000 ? "warn" : "ok";
+  return RANK[byClock] > RANK[item.sla] ? byClock : item.sla;
 }
 
 /** 3d 4h · 5h 10m · 25m */

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
+import { useDebounced } from "@/lib/use-debounced";
 import {
   RecordsAvatarMark,
   RecordsTable,
@@ -82,16 +83,12 @@ export function AssignedQueue({
   const navigate = useNavigate();
   const now = useNow();
   const [search, setSearch] = useState("");
-  const [q, setQ] = useState("");
   const summary = useWorkspaceSummary(scope);
   const counts = summary.data?.queueCounts;
   const totals = summary.data?.scopeTotals;
 
   // Search on the server, after the operator pauses typing.
-  useEffect(() => {
-    const t = window.setTimeout(() => setQ(search), 300);
-    return () => window.clearTimeout(t);
-  }, [search]);
+  const q = useDebounced(search);
 
   const items = useWorkItemPages({
     scope,
@@ -103,13 +100,17 @@ export function AssignedQueue({
   const filtered = Boolean(due || q.trim());
   const tabLabel = TABS.find((t) => t.key === tab)?.label ?? "All";
 
+  // Sorting by another column reorders only the rows loaded so far, so it is
+  // offered once the whole queue is loaded; until then the server's deadline
+  // order is the only honest one.
+  const allLoaded = !items.hasNextPage;
   const columns = useMemo<RecordsColumn<WorkItem>[]>(
     () => [
       {
         id: "customer",
         header: "Customer",
         sticky: true,
-        sortable: true,
+        sortable: allLoaded,
         sortValue: (row) => row.customer,
         className: "min-w-[12rem]",
         cell: (row) => (
@@ -145,7 +146,7 @@ export function AssignedQueue({
       {
         id: "task",
         header: "Task",
-        sortable: true,
+        sortable: allLoaded,
         sortValue: (row) => row.type,
         className: "min-w-[18rem]",
         cell: (row) => (
@@ -173,7 +174,7 @@ export function AssignedQueue({
       {
         id: "amount",
         header: "Amount",
-        sortable: true,
+        sortable: allLoaded,
         sortValue: (row) => row.amount ?? -1,
         align: "right",
         className: "min-w-[7rem] whitespace-nowrap",
@@ -215,7 +216,7 @@ export function AssignedQueue({
       {
         id: "created",
         header: "Created",
-        sortable: true,
+        sortable: allLoaded,
         sortValue: (row) => (row.createdAt ? new Date(row.createdAt).getTime() : 0),
         className: "min-w-[6rem] whitespace-nowrap",
         cell: (row) =>
@@ -251,7 +252,7 @@ export function AssignedQueue({
         ),
       },
     ],
-    [navigate, now],
+    [navigate, now, allLoaded],
   );
 
   const scopeEmpty = scope === "me" && totals?.me === 0;
@@ -364,7 +365,6 @@ export function AssignedQueue({
             className="ml-auto inline-flex items-center gap-025 text-body-small font-medium text-text-brand hover:underline"
             onClick={() => {
               setSearch("");
-              setQ("");
               onDue(undefined);
             }}
           >

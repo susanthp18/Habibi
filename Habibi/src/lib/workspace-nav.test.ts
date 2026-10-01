@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dueLabel } from "@/api/workspace";
+import { dueLabel, liveLevel, movesWorkspace } from "@/api/workspace";
 
 import { parseDeepLinkSearch, workItemDestination } from "./workspace-nav";
 
@@ -52,5 +52,39 @@ describe("dueLabel", () => {
   it("counts down and up in days, hours and minutes", () => {
     expect(dueLabel("2026-10-01T10:45:00Z", now)).toBe("In 45m");
     expect(dueLabel("2026-09-28T06:00:00Z", now)).toBe("Overdue 3d 4h");
+  });
+});
+
+describe("liveLevel", () => {
+  const now = Date.parse("2026-10-01T10:00:00Z");
+  const row = (dueAt: string, sla: "ok" | "warn" | "breach" = "ok") =>
+    ({ dueAt, sla, entityType: "callback", status: "scheduled" }) as const;
+
+  it("raises the colour as the clock crosses the server's thresholds", () => {
+    expect(liveLevel(row("2026-10-01T13:00:00Z"), now)).toBe("ok");
+    expect(liveLevel(row("2026-10-01T11:30:00Z"), now)).toBe("warn");
+    expect(liveLevel(row("2026-10-01T09:59:00Z", "warn"), now)).toBe("breach");
+  });
+
+  it("never lowers a status-driven level, and keeps a bounce awaiting payment calm", () => {
+    expect(liveLevel(row("2026-10-03T10:00:00Z", "breach"), now)).toBe("breach");
+    const awaiting = {
+      dueAt: "2026-09-30T10:00:00Z",
+      sla: "ok",
+      entityType: "bounce",
+      status: "in_progress",
+    } as const;
+    expect(liveLevel(awaiting, now)).toBe("ok");
+  });
+});
+
+describe("movesWorkspace", () => {
+  it("refreshes the workspace only for writes to the domains it is built from", () => {
+    expect(movesWorkspace("/callbacks/CB-1")).toBe(true);
+    expect(movesWorkspace("/document-requests/D-1/delivery-attempts")).toBe(true);
+    expect(movesWorkspace("/treatment/holds")).toBe(true);
+    expect(movesWorkspace("/voice-studio/prompt-lint")).toBe(false);
+    expect(movesWorkspace("/treatment/decide")).toBe(false);
+    expect(movesWorkspace("/leadsx")).toBe(false);
   });
 });

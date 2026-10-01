@@ -78,9 +78,10 @@ logger = logging.getLogger(__name__)
 def list_customers(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, description="Name, customer id or account id"),
 ):
     """Bounded list. Omitting ``limit`` yields the default page, not everything."""
-    return db.list_customers(limit=limit, offset=offset)
+    return db.list_customers(limit=limit, offset=offset, q=q)
 
 @router.get("/customers/{customer_id}", response_model=CustomerResponse)
 def get_customer(customer_id: str):
@@ -310,11 +311,13 @@ def list_leads(
     priority: str | None = Query(default=None),
     sentiment: str | None = Query(default=None),
     q: str | None = Query(default=None, description="Free text over id, customer, account, product, snippet"),
+    id: str | None = Query(default=None, description="One record, for a deep link"),
 ):
     return db.list_leads(
         limit=limit,
         offset=offset,
         filters=_lead_filters(stage, owner, team, productId, source, priority, sentiment, q),
+        lead_id=id,
     )
 
 @router.get("/leads/metrics", response_model=LeadMetricsResponse)
@@ -342,8 +345,9 @@ def get_lead_metrics(
 def list_disputes(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    id: str | None = Query(default=None, description="One record, for a deep link"),
 ):
-    return db.list_disputes(limit=limit, offset=offset)
+    return db.list_disputes(limit=limit, offset=offset, dispute_id=id)
 
 @router.get("/callbacks", response_model=list[CallbackListResponse])
 def list_callbacks(
@@ -475,8 +479,9 @@ async def ingest_document_request(
 def list_document_requests(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    id: str | None = Query(default=None, description="One record, for a deep link"),
 ):
-    return db.list_documents(limit=limit, offset=offset)
+    return db.list_documents(limit=limit, offset=offset, document_id=id)
 
 @router.patch("/document-requests/{document_id}", response_model=DocumentRequestResponse)
 def patch_document_request(document_id: str, payload: DocumentPatchRequest):

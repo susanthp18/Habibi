@@ -22,6 +22,7 @@ import {
 import {
   documentAssigneeOptions,
   recordManualSend,
+  fetchDocuments,
   useDocuments,
   useReassignDocumentChannel,
   useRetryDocument,
@@ -31,6 +32,7 @@ import { useConfirm } from "@/components/ui/use-confirm";
 import { useStaff } from "@/api/staff";
 import { useCustomers } from "@/api/customers";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
+import { useOpenRecord } from "@/lib/use-open-record";
 
 export const Route = createFileRoute("/_app/documents")({
   validateSearch: parseDeepLinkSearch,
@@ -89,7 +91,14 @@ function DocumentsPage() {
 
   const filtered = useMemo(() => filterDocs(items, filters), [filters, items]);
   const metrics = useMemo(() => computeMetrics(filtered), [filtered]);
-  const openDoc = useMemo(() => items.find((d) => d.id === openId) ?? null, [items, openId]);
+  const openDoc = useOpenRecord({
+    queryKey: "documents",
+    label: "document request",
+    id: openId,
+    list: docsPending ? undefined : items,
+    fetchOne: fetchDocuments,
+    setOpenId,
+  });
 
   const patchFilters = (p: Partial<DocumentFilters>) => setFilters((f) => ({ ...f, ...p }));
 

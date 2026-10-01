@@ -354,6 +354,7 @@ def _base_customer_row(
     *,
     limit: int | None = None,
     offset: int | None = None,
+    q: str | None = None,
 ) -> list[dict[str, Any]]:
     # Always tenant-scoped, like every other customer-facing read in this
     # module: this feeds both list_customers() and get_customer(), so an
@@ -369,6 +370,12 @@ def _base_customer_row(
     if customer_id:
         where += " AND c.id = :customer_id"
         params["customer_id"] = customer_id
+    if q and q.strip():
+        where += (
+            " AND (c.name ILIKE :q OR c.id ILIKE :q OR EXISTS ("
+            "SELECT 1 FROM accounts qa WHERE qa.customer_id = c.id AND qa.id ILIKE :q))"
+        )
+        params["q"] = f"%{q.strip()}%"
     # A single-customer lookup needs no page; a full list must have one.
     page_sql = ""
     if not customer_id:
@@ -551,14 +558,17 @@ def _customer_contract(conn: Any, row: dict[str, Any], include_detail: bool) -> 
     return CustomerResponse(**customer)
 
 
-def list_customers(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
+def list_customers(
+    *, limit: int | None = None, offset: int | None = None, q: str | None = None
+) -> list[dict[str, Any]]:
     """Customer list, bounded. ``include_detail=False`` issues no per-row query,
     so this is one indexed read plus serialization — the cost was the row count,
-    not a fan-out."""
+    not a fan-out. ``q`` matches name, customer id or account id across the
+    whole book, so search is not limited to one page."""
     with engine.connect() as conn:
         return [
             _dump(_customer_contract(conn, row, include_detail=False))
-            for row in _base_customer_row(conn, limit=limit, offset=offset)
+            for row in _base_customer_row(conn, limit=limit, offset=offset, q=q)
         ]
 
 

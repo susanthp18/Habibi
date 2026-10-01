@@ -20,7 +20,7 @@ import {
   leadOwnerOptions,
   patchLead,
   useLeadMetrics,
-  useLead,
+  fetchLeads,
   useLeads,
   type LeadQuery,
 } from "@/api/upsell";
@@ -28,6 +28,7 @@ import { useMe } from "@/api/me";
 import { useProducts } from "@/api/products";
 import { useStaff } from "@/api/staff";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
+import { useOpenRecord } from "@/lib/use-open-record";
 
 export const Route = createFileRoute("/_app/upsell")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -89,9 +90,14 @@ function UpsellPage() {
     error: leadsErr,
   } = useLeads(query);
   const { data: metrics } = useLeadMetrics(query);
-  const listed = openId ? filtered.find((l) => l.id === openId) : undefined;
-  const { data: linked } = useLead(openId, !leadsPending && !listed);
-  const openLead = listed ?? linked ?? null;
+  const openLead = useOpenRecord({
+    queryKey: "leads",
+    label: "lead",
+    id: openId,
+    list: leadsPending ? undefined : filtered,
+    fetchOne: (id) => fetchLeads({ id }),
+    setOpenId,
+  });
   // Filter rosters come from the DB in live mode. The hardcoded six names only
   // ever matched the seed, so filtering by owner silently matched nothing
   // against real data.

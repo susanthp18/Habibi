@@ -38,11 +38,12 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useCustomers } from "@/api/customers";
+import { useCustomerSearch } from "@/api/customers";
 import { useWorkItems } from "@/api/workspace";
 import { can, useMe } from "@/api/me";
 import { useStudioAgents } from "@/api/voice-studio";
 import { navigateWorkItem } from "@/lib/workspace-nav";
+import { useDebounced } from "@/lib/use-debounced";
 import { toggleTheme } from "@/lib/theme";
 
 const PAGES: {
@@ -105,26 +106,17 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const navigate = useNavigate();
   const { data: me } = useMe();
   const [search, setSearch] = useState("");
-  const { data: customers = [] } = useCustomers();
-  // Matched on the server across the whole queue, not within a first page.
-  const { data: workItems = [] } = useWorkItems(
-    { scope: "me", q: search, limit: 30 },
-    { enabled: open },
-  );
+  // Customers and queue items are matched on the server across everything,
+  // not within a first page, once the operator pauses typing.
+  const q = useDebounced(search);
+  const { data: customerHits = [] } = useCustomerSearch(q, open);
+  const { data: workItems = [] } = useWorkItems({ scope: "me", q, limit: 30 }, { enabled: open });
   const pages = useMemo(
     () => (can(me, "perm-admin-write") ? PAGES : PAGES.filter((page) => page.to !== "/roles")),
     [me],
   );
 
   const { data: agents = [] } = useStudioAgents({ enabled: open && can(me, "perm-bot-read") });
-  // Match first, then cap: capping first hid any customer past the 40th.
-  const customerHits = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const hits = needle
-      ? customers.filter((c) => `${c.name} ${c.accountId} ${c.id}`.toLowerCase().includes(needle))
-      : customers;
-    return hits.slice(0, 40);
-  }, [customers, search]);
   const queueHits = workItems;
 
   const go = (to: string) => {

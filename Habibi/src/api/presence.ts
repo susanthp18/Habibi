@@ -25,6 +25,8 @@ export function usePresence() {
     queryKey: ["me-presence"],
     queryFn: fetchPresence,
     staleTime: 30_000,
+    // Another tab or device may have changed it.
+    refetchOnWindowFocus: true,
   });
 }
 

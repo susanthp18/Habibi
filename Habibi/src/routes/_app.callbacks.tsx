@@ -19,6 +19,7 @@ import {
   callbackQueueOptions,
   callbackSheetCustomers,
   defaultCallbackQueue,
+  fetchCallbacks,
   useCallbacks,
   useRescheduleCallback,
   useStartCallback,
@@ -29,6 +30,7 @@ import { useCustomers } from "@/api/customers";
 import { useStaff } from "@/api/staff";
 import { useTeams } from "@/api/teams";
 import { parseDeepLinkSearch } from "@/lib/workspace-nav";
+import { useOpenRecord } from "@/lib/use-open-record";
 
 export const Route = createFileRoute("/_app/callbacks")({
   validateSearch: parseDeepLinkSearch,
@@ -60,7 +62,7 @@ function CallbacksPage() {
     isPending: callbacksPending,
     isError: callbacksError,
     error: callbacksErr,
-  } = useCallbacks(search.id);
+  } = useCallbacks();
   const { data: liveCustomers } = useCustomers();
   const { data: staff = [] } = useStaff();
   const { data: teams = [] } = useTeams();
@@ -116,7 +118,14 @@ function CallbacksPage() {
     [filtered],
   );
 
-  const openCb = openId ? (callbacksData.find((c) => c.id === openId) ?? null) : null;
+  const openCb = useOpenRecord({
+    queryKey: "callbacks",
+    label: "callback",
+    id: openId,
+    list: callbacksPending ? undefined : callbacksData,
+    fetchOne: fetchCallbacks,
+    setOpenId,
+  });
 
   const patchFilters = (p: Partial<CallbackFilters>) => setFilters((f) => ({ ...f, ...p }));
 

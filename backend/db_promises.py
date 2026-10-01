@@ -117,8 +117,14 @@ def _promise_events(conn: Any, promise_ids: list[str]) -> dict[str, list[dict[st
     return grouped
 
 
-def list_promises(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Promise-to-Pay screen feed (richer than the Customer 360 contract)."""
+def list_promises(
+    *, limit: int | None = None, offset: int | None = None, promise_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Promise-to-Pay screen feed (richer than the Customer 360 contract).
+
+    ``promise_id`` reads one record the same way, for a deep link to one outside the
+    first page.
+    """
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with _db().engine.connect() as conn:
         rows = _rows(
@@ -148,11 +154,18 @@ def list_promises(*, limit: int | None = None, offset: int | None = None) -> lis
                         ORDER BY created_at DESC
                         LIMIT 1
                     ) pi ON true
+                    WHERE (CAST(:one_id AS text) IS NULL OR p.id = CAST(:one_id AS text))
                     ORDER BY p.promised_at DESC
                     LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
+                {
+                    "limit": page,
+                    "offset": skip,
+                    "one_id": promise_id,
+                    "tenant_id": _tenant(),
+                    **_vis_params(),
+                },
             )
         )
         events = _promise_events(conn, [r["id"] for r in rows])

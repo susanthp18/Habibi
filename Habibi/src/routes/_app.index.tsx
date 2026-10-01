@@ -117,6 +117,17 @@ function WorkspacePage() {
           </div>
         )}
 
+        {blocked === 0 && blockedPartial && (
+          <div
+            role="status"
+            className="mt-250 flex items-center gap-150 rounded-xlarge border border-border px-200 py-100 text-body-small text-text-subtle"
+          >
+            <ShieldAlert className="h-4 w-4 shrink-0 text-text-subtlest" />
+            None of your soonest 200 upcoming callbacks is booked for a time the contact rules would
+            refuse. Later callbacks weren’t checked.
+          </div>
+        )}
+
         {blocked > 0 && (
           <div className="mt-250 flex items-start gap-150 rounded-xlarge border border-border-warning/25 bg-background-warning px-200 py-150">
             <ShieldAlert className="mt-025 h-4 w-4 shrink-0 text-text-warning" />

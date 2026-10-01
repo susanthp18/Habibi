@@ -27,12 +27,15 @@ export function documentAssigneeOptions(staff: Staff[]): string[] {
   return humanNames(staff);
 }
 
-export async function fetchDocuments(): Promise<DocRequest[]> {
-  return apiGet<DocRequest[]>("/document-requests");
+/** ``id`` reads that one record whatever page it is on (a deep link). */
+export async function fetchDocuments(id?: string): Promise<DocRequest[]> {
+  return apiGet<DocRequest[]>(
+    id ? `/document-requests?id=${encodeURIComponent(id)}` : "/document-requests",
+  );
 }
 
 export function useDocuments() {
-  return useQuery({ queryKey: ["documents"], queryFn: fetchDocuments });
+  return useQuery({ queryKey: ["documents"], queryFn: () => fetchDocuments() });
 }
 
 export async function createRequest(input: NewRequestInput): Promise<{ id: string }> {

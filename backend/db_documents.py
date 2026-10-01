@@ -273,8 +273,14 @@ def _document_events(conn: Any, document_ids: list[str]) -> dict[str, list[dict[
         )
     return grouped
 
-def list_documents(*, limit: int | None = None, offset: int | None = None) -> list[dict[str, Any]]:
-    """Document Fulfilment Desk feed (richer than the Customer 360 contract)."""
+def list_documents(
+    *, limit: int | None = None, offset: int | None = None, document_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Document Fulfilment Desk feed (richer than the Customer 360 contract).
+
+    ``document_id`` reads one record the same way, for a deep link to one outside the
+    first page.
+    """
     engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
@@ -313,11 +319,18 @@ def list_documents(*, limit: int | None = None, offset: int | None = None) -> li
                       ORDER BY sent_at DESC NULLS LAST, created_at DESC
                       LIMIT 1
                     ) da ON true
+                    WHERE (CAST(:one_id AS text) IS NULL OR dr.id = CAST(:one_id AS text))
                     ORDER BY dr.created_at DESC
                     LIMIT :limit OFFSET :offset
                     """
                 ),
-                {"limit": page, "offset": skip, "tenant_id": _tenant(), **_vis_params()},
+                {
+                    "limit": page,
+                    "offset": skip,
+                    "one_id": document_id,
+                    "tenant_id": _tenant(),
+                    **_vis_params(),
+                },
             )
         )
         ids = [r["id"] for r in rows]

@@ -106,7 +106,9 @@ def list_leads(
     limit: int | None = None,
     offset: int | None = None,
     filters: dict[str, Any] | None = None,
+    lead_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    """``lead_id`` reads one lead exactly, for a deep link; ``q`` is a substring search."""
     engine = _db().engine
     page, skip = clamp_list_limit(limit), clamp_offset(offset)
     with engine.connect() as conn:
@@ -144,7 +146,7 @@ def list_leads(
                     LEFT JOIN products p ON p.id = l.product_id
                     LEFT JOIN users u ON u.id = l.owner_user_id
                     LEFT JOIN teams t ON t.id = l.team_id
-                    WHERE TRUE
+                    WHERE (CAST(:one_id AS text) IS NULL OR l.id = CAST(:one_id AS text))
                     """
                     + _LEAD_FILTER_SQL
                     + """
@@ -155,6 +157,7 @@ def list_leads(
                 {
                     "limit": page,
                     "offset": skip,
+                    "one_id": lead_id,
                     "tenant_id": _tenant(),
                     **_vis_params(),
                     **_lead_filter_params(filters),

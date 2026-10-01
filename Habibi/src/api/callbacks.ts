@@ -9,7 +9,6 @@
 // /teams (never hardcoded maps).
 // -----------------------------------------------------------------------------
 
-import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -66,25 +65,13 @@ export function callbackSheetCustomers(customers: Customer[]): CallbackSheetCust
   }));
 }
 
-export async function fetchCallbacks(): Promise<Callback[]> {
-  return apiGet<Callback[]>("/callbacks");
+/** ``id`` reads that one record whatever page it is on (a deep link). */
+export async function fetchCallbacks(id?: string): Promise<Callback[]> {
+  return apiGet<Callback[]>(id ? `/callbacks?id=${encodeURIComponent(id)}` : "/callbacks");
 }
 
-/** The callback list, plus ``deepLinkId`` read on its own when it is not on the
- *  list's first page -- a link must open its record, not "not found". */
-export function useCallbacks(deepLinkId?: string) {
-  const list = useQuery({ queryKey: ["callbacks"], queryFn: fetchCallbacks });
-  const missing = Boolean(deepLinkId && list.data && !list.data.some((c) => c.id === deepLinkId));
-  const linked = useQuery({
-    queryKey: ["callbacks", "id", deepLinkId],
-    queryFn: () => apiGet<Callback[]>(`/callbacks?id=${encodeURIComponent(deepLinkId ?? "")}`),
-    enabled: missing,
-  });
-  const data = useMemo(
-    () => (missing && linked.data?.length ? [...(list.data ?? []), ...linked.data] : list.data),
-    [missing, list.data, linked.data],
-  );
-  return { ...list, data };
+export function useCallbacks() {
+  return useQuery({ queryKey: ["callbacks"], queryFn: () => fetchCallbacks() });
 }
 
 export async function createCallback(input: CreateInput): Promise<{ id: string }> {

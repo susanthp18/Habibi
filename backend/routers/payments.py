@@ -76,8 +76,9 @@ def hosted_pay_complete(token: str, request: Request):
 def list_promises(
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIST_LIMIT),
     offset: int = Query(default=0, ge=0),
+    id: str | None = Query(default=None, description="One record, for a deep link"),
 ):
-    return db.list_promises(limit=limit, offset=offset)
+    return db.list_promises(limit=limit, offset=offset, promise_id=id)
 
 @router.get("/payment-plans", response_model=list[PaymentPlanResponse])
 def list_payment_plans(

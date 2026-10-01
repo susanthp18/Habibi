@@ -88,6 +88,8 @@ async function teamId(team: Team | undefined): Promise<string | undefined> {
  * whole book fits in one page.
  */
 export interface LeadQuery {
+  /** Exactly this lead, whatever the filters (a deep link). */
+  id?: string;
   q?: string;
   stage?: LeadStage;
   owner?: string;
@@ -108,6 +110,7 @@ function leadQueryString(query: LeadQuery = {}): string {
     // leaving it out keeps the query key — and so the cache entry — stable.
     if (v && v !== "all") params.set(key, v);
   };
+  put("id", query.id);
   put("q", query.q);
   put("stage", query.stage);
   put("owner", query.owner);
@@ -273,15 +276,6 @@ export function useLeads(query: LeadQuery = {}) {
   return useQuery({
     queryKey: ["leads", leadQueryString(query)],
     queryFn: () => fetchLeads(query),
-  });
-}
-
-/** One lead by id, for a deep link to a lead the board's filters leave out. */
-export function useLead(id: string | null | undefined, enabled: boolean) {
-  return useQuery({
-    queryKey: ["leads", "id", id],
-    queryFn: async () => (await fetchLeads({ q: id ?? "" })).find((l) => l.id === id) ?? null,
-    enabled: Boolean(id) && enabled,
   });
 }
 
