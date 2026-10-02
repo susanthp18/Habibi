@@ -42,6 +42,8 @@ interface CreateProps {
   onSubmit: (input: CreateInput) => void;
   owners: string[];
   customers: CustomerOption[];
+  /** Opened from a customer's screen: that customer, or nobody -- never another one. */
+  initialCustomerId?: string;
 }
 
 const todayISO = () => {
@@ -56,6 +58,7 @@ export function CreatePromiseSheet({
   onSubmit,
   owners,
   customers,
+  initialCustomerId,
 }: CreateProps) {
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [amount, setAmount] = useState("5000");
@@ -69,7 +72,11 @@ export function CreatePromiseSheet({
 
   useEffect(() => {
     if (open) {
-      setCustomerId(customers[0]?.id ?? "");
+      setCustomerId(
+        initialCustomerId
+          ? (customers.find((c) => c.id === initialCustomerId)?.id ?? "")
+          : (customers[0]?.id ?? ""),
+      );
       setAmount("5000");
       setDate(todayISO());
       setChannel("whatsapp");
@@ -77,7 +84,7 @@ export function CreatePromiseSheet({
       setReminder("queued");
       setNotes("");
     }
-  }, [open, owners, customers]);
+  }, [open, owners, customers, initialCustomerId]);
 
   const submit = () => {
     const cust = customers.find((c) => c.id === customerId);

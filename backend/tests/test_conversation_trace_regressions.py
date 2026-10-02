@@ -198,12 +198,44 @@ def test_a_promise_for_today_is_still_allowed() -> None:
     assert domain._promise_date_is_past((clock.today_local() - timedelta(days=1)).isoformat()) is True
 
 
-def test_a_retrieval_outage_still_falls_back_to_persisted_chips(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
+    db_tx, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A knowledge-base outage degrades to the last persisted chips, never an error."""
+    """A knowledge-base outage degrades to the last persisted passages, never an
+    error -- and says they are last time's, not answers to this turn."""
+    import uuid
+
+    from sqlalchemy import text
+
     import voice_studio
 
+    tag = uuid.uuid4().hex[:8].upper()
+    cid, cv = f"CUST-RAG-{tag}", f"CV-RAG-{tag}"
+    db_tx.execute(
+        text("INSERT INTO customers (id, tenant_id, name, risk) VALUES (:id, :t, 'RAG Fixture', 'low')"),
+        {"id": cid, "t": db.current_tenant()},
+    )
+    db_tx.execute(
+        text(
+            "INSERT INTO interactions (id, tenant_id, customer_id, handler_kind, handler_bot_id, channel, status) "
+            "VALUES (:id, :t, :c, 'bot', (SELECT id FROM bots ORDER BY id LIMIT 1), 'whatsapp', 'active')"
+        ),
+        {"id": f"IX-RAG-{tag}", "t": db.current_tenant(), "c": cid},
+    )
+    db_tx.execute(
+        text(
+            "INSERT INTO conversations (id, interaction_id, customer_id, status, channel) "
+            "VALUES (:id, :ix, :c, 'bot', 'whatsapp')"
+        ),
+        {"id": cv, "ix": f"IX-RAG-{tag}", "c": cid},
+    )
+    db_tx.execute(
+        text(
+            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted) "
+            "VALUES (:id, :cv, 'Payments — How to pay', 'kb', false)"
+        ),
+        {"id": f"SUG-{tag}", "cv": cv},
+    )
     monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
 
     def _down(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
@@ -211,5 +243,6 @@ def test_a_retrieval_outage_still_falls_back_to_persisted_chips(
 
     monkeypatch.setattr(voice_studio, "kb_search", _down)
 
-    out = db.refresh_conversation_suggestions("CV-SUSANTH-WA1")
-    assert isinstance(out["ragSuggestions"], list)
+    out = db.refresh_conversation_suggestions(cv)
+    assert out["ragSuggestions"] == ["Payments — How to pay"]
+    assert out["stale"] is True

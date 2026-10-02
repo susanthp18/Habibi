@@ -10,7 +10,7 @@ had to go wrong at once for that to be invisible, and each is pinned here.
    byte-identically to a delivered one.
 2. The thread showed "Bot is typing…" the whole time — the bot was doing
    nothing; the flag was reading the *agent's* own stuck send, with no upper
-   age bound.
+   age bound. (An unreadable gate on the rail: test_inbox_thread_contract.)
 3. Suggestions refresh raised on a conversation with no messages, so a voice
    call escalated into the inbox 400'd on every poll.
 """
@@ -20,7 +20,6 @@ from __future__ import annotations
 import pytest
 
 import db
-import db_inbox
 import db_inbox_rag
 
 
@@ -77,22 +76,71 @@ def test_the_response_schema_admits_pending() -> None:
 # --- 2. "Bot is typing…" must mean the bot ----------------------------------
 
 
-def test_typing_query_ignores_agent_sends() -> None:
+def _typing_case(conn, *, bot_job_age: str | None = None, agent_send: bool = False) -> bool:
+    """Whether a thread with the given in-flight work reads as the bot typing."""
+    import uuid
+
+    from sqlalchemy import text
+
+    tag = uuid.uuid4().hex[:8].upper()
+    cid, cv = f"CUST-TY-{tag}", f"CV-TY-{tag}"
+    conn.execute(
+        text("INSERT INTO customers (id, tenant_id, name, risk) VALUES (:id, :t, 'Typing Fixture', 'low')"),
+        {"id": cid, "t": db.current_tenant()},
+    )
+    conn.execute(
+        text(
+            "INSERT INTO interactions (id, tenant_id, customer_id, handler_kind, handler_bot_id, channel, status) "
+            "VALUES (:id, :t, :c, 'bot', (SELECT id FROM bots ORDER BY id LIMIT 1), 'whatsapp', 'active')"
+        ),
+        {"id": f"IX-TY-{tag}", "t": db.current_tenant(), "c": cid},
+    )
+    conn.execute(
+        text(
+            "INSERT INTO conversations (id, interaction_id, customer_id, status, channel) "
+            "VALUES (:id, :ix, :c, 'bot', 'whatsapp')"
+        ),
+        {"id": cv, "ix": f"IX-TY-{tag}", "c": cid},
+    )
+    if bot_job_age is not None:
+        conn.execute(
+            text(
+                "INSERT INTO bot_turn_jobs (id, conversation_id, customer_id, status, updated_at) "
+                "VALUES (:id, :cv, :c, 'queued', now() - CAST(:age AS interval))"
+            ),
+            {"id": f"BTJ-{tag}", "cv": cv, "c": cid, "age": bot_job_age},
+        )
+    if agent_send:
+        conn.execute(
+            text(
+                "INSERT INTO messages (id, conversation_id, sender, body, delivery_status) "
+                "VALUES (:id, :cv, 'agent', 'x', 'sending')"
+            ),
+            {"id": f"MSG-{tag}", "cv": cv},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO whatsapp_outbound_jobs (id, message_id, conversation_id, customer_id, to_phone, "
+                "body, purpose, source, status) "
+                "VALUES (:id, :m, :cv, :c, 'x', 'x', 'in_session', 'inbox_reply', 'queued')"
+            ),
+            {"id": f"WAO-{tag}", "m": f"MSG-{tag}", "cv": cv, "c": cid},
+        )
+    return bool(db._bot_typing_by_conversation(conn, [cv]).get(cv))
+
+
+def test_the_bot_composing_reads_as_typing(db_tx) -> None:
+    assert _typing_case(db_tx, bot_job_age="5 seconds")
+
+
+def test_an_agents_own_send_is_not_the_bot_typing(db_tx) -> None:
     """An agent's own outbound is not the bot composing a reply."""
-    import inspect
-
-    src = inspect.getsource(db._bot_typing_by_conversation)
-    assert "'inbox_reply'" in src, "agent inbox replies must be excluded"
-    assert "sender = 'bot'" in src, "only bot drafts count as the bot typing"
+    assert not _typing_case(db_tx, agent_send=True)
 
 
-def test_typing_query_is_age_bounded() -> None:
+def test_a_stuck_queue_is_not_typing(db_tx) -> None:
     """Unbounded, the indicator ran for as long as the worker stayed down."""
-    import inspect
-
-    src = inspect.getsource(db._bot_typing_by_conversation)
-    assert src.count("interval") >= 3, "every branch needs a staleness bound"
-    assert db._TYPING_STALE_AFTER
+    assert not _typing_case(db_tx, bot_job_age="5 minutes")
 
 
 # --- 3. no messages is a normal state, not a bad request --------------------
@@ -164,19 +212,3 @@ def test_the_staleness_check_never_breaks_a_send() -> None:
             raise RuntimeError("database on fire")
 
     whatsapp_outbound._warn_if_queue_is_not_draining(_Boom())  # must not raise
-
-
-def test_an_unreadable_contact_policy_reads_as_not_contactable(db_tx, monkeypatch) -> None:
-    """The context rail's tick used to fall back to the DND flag and a window
-    check when `contact_policy.evaluate` raised -- a second, weaker gate that
-    said "contactable" for a borrower the real gate would have refused. An
-    unreadable gate is a refusal now, with its reason on the wire."""
-    import contact_policy
-
-    def _boom(*_a, **_k):
-        raise RuntimeError("policy store unreachable")
-
-    monkeypatch.setattr(contact_policy, "evaluate", _boom)
-    contactable, reason = db_inbox._inbox_contactable(db_tx, "CL-100023")
-    assert contactable is False
-    assert reason == "policy_unavailable"

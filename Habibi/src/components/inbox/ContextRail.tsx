@@ -9,11 +9,12 @@ import {
   X,
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { toast } from "sonner";
 import type { Thread, ThreadContext } from "@/api/types/inbox";
 import { Avatar } from "./meta";
+import { replyBlockedWords } from "./inbox-words";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";
+import { ContactabilityPill } from "@/components/customer360/ContactabilityPill";
 import { fmtMoney } from "@/lib/format";
 import {
   Accordion,
@@ -29,6 +30,14 @@ const promiseTone = {
   Partial: "warning",
 } as const;
 
+function windowCloses(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
 export function ContextRail({
   thread,
   context: c,
@@ -40,25 +49,9 @@ export function ContextRail({
 }) {
   const navigate = useNavigate();
   const customerId = thread.customerId;
-  const openDisputes = c.openDisputes.length > 0;
-
-  const openCustomer360 = () => {
-    if (!customerId) {
-      toast.error("Customer id missing for this thread");
-      return;
-    }
-    void navigate({ to: "/customers/$customerId", params: { customerId } });
-  };
-
-  const openCreatePtp = () => {
-    void navigate({ to: "/promises", search: { new: true } });
-    toast.message("Create PTP — select this customer if prompted");
-  };
-
-  const openRaiseDispute = () => {
-    void navigate({ to: "/disputes", search: { new: true } });
-    toast.message("Raise dispute — select this customer if prompted");
-  };
+  const disputes = c.openDisputes ?? [];
+  const interactions = c.recentInteractions ?? [];
+  const disputeTotal = c.openDisputesTotal ?? disputes.length;
 
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-surface">
@@ -80,52 +73,75 @@ export function ContextRail({
         <div className="flex items-start gap-150 px-200 py-150">
           <Avatar name={thread.customer} size={40} />
           <div className="min-w-0 flex-1">
-            {customerId ? (
-              <Link
-                to="/customers/$customerId"
-                params={{ customerId }}
-                className="truncate text-body font-semibold text-text hover:underline"
-              >
-                {thread.customer}
-              </Link>
-            ) : (
-              <div className="truncate text-body font-semibold text-text">{thread.customer}</div>
-            )}
-            <div className="font-mono text-body-small text-text-subtlest">{thread.accountId}</div>
-            <div className="mt-075 flex items-center gap-075 text-body-small text-text-subtle">
-              {c.contactableNow ? (
-                <ShieldCheck className="h-3.5 w-3.5 text-text-success" />
+            <Link
+              to="/customers/$customerId"
+              params={{ customerId }}
+              className="truncate text-body font-semibold text-text hover:underline"
+            >
+              {thread.customer}
+            </Link>
+            <div className="font-mono text-body-small text-text-subtlest">
+              {thread.accountId || "No account on this thread"}
+            </div>
+            {/* The reply this thread's composer would send: its own channel,
+                in-session inside WhatsApp's window. Not general outreach. */}
+            <div className="mt-075 flex items-start gap-075 text-body-small text-text-subtle">
+              {c.canReply ? (
+                <ShieldCheck className="mt-025 h-3.5 w-3.5 shrink-0 text-text-success" />
               ) : (
-                <ShieldAlert className="h-3.5 w-3.5 text-text-danger" />
+                <ShieldAlert className="mt-025 h-3.5 w-3.5 shrink-0 text-text-danger" />
               )}
               <span>
-                {c.contactableNow ? "Contactable" : "Not contactable"}
-                <span className="text-text-subtlest"> · {c.contactWindow}</span>
+                {c.canReply
+                  ? c.replyWindowEndsAt
+                    ? `Can reply until ${windowCloses(c.replyWindowEndsAt)} IST`
+                    : "Can reply now"
+                  : replyBlockedWords(c.replyBlockedReason, thread.channel)}
               </span>
             </div>
-            <div className="mt-050 text-body-small text-text-subtle">{c.riskLevel} risk</div>
+            <div className="mt-075 flex flex-wrap items-center gap-075">
+              <span className="text-body-small text-text-subtlest">Calling</span>
+              <ContactabilityPill customerId={customerId} compact />
+            </div>
+            <div className="mt-050 text-body-small text-text-subtle">
+              {c.riskLevel} risk · window {c.contactWindow}
+            </div>
           </div>
         </div>
 
         <div className="border-t border-border px-200 py-200">
-          <div className="text-body-small font-semibold text-text-subtlest">Outstanding</div>
+          <div className="text-body-small font-semibold text-text-subtlest">
+            Outstanding · this loan
+          </div>
           <div className="mt-050 font-mono metric-medium text-text tabular">
-            {fmtMoney(c.outstanding)}
+            {c.outstanding == null ? "—" : fmtMoney(c.outstanding)}
           </div>
           <div className="text-body-small text-text-subtle">{c.outstandingAging}</div>
 
           <dl className="mt-150 space-y-100">
             <div className="flex items-baseline justify-between gap-100">
-              <dt className="text-body-small text-text-subtlest">Next EMI</dt>
-              <dd className="text-right text-body-small text-text">
-                {c.nextEmiAmount ? fmtMoney(c.nextEmiAmount) : "—"}
-                {c.nextEmiDate ? (
-                  <span className="text-text-subtlest"> · {c.nextEmiDate}</span>
-                ) : null}
+              <dt className="text-body-small text-text-subtlest">
+                {c.nextEmiOverdue ? "Overdue EMI" : "Next EMI"}
+              </dt>
+              <dd
+                className={
+                  c.nextEmiOverdue
+                    ? "text-right text-body-small text-text-danger"
+                    : "text-right text-body-small text-text"
+                }
+              >
+                {c.nextEmiAmount != null && c.nextEmiDate ? (
+                  <>
+                    {fmtMoney(c.nextEmiAmount)}
+                    <span className="text-text-subtlest"> · {c.nextEmiDate}</span>
+                  </>
+                ) : (
+                  <span className="text-text-subtlest">None due</span>
+                )}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-100">
-              <dt className="text-body-small text-text-subtlest">Last promise</dt>
+              <dt className="text-body-small text-text-subtlest">Last promise · any loan</dt>
               <dd className="flex min-w-0 items-center justify-end gap-075 text-body-small text-text">
                 {c.lastPromise ? (
                   <>
@@ -147,44 +163,62 @@ export function ContextRail({
 
         <Accordion
           type="multiple"
-          defaultValue={openDisputes ? ["disputes"] : []}
+          defaultValue={disputeTotal > 0 ? ["disputes"] : []}
           className="border-t border-border"
         >
           <AccordionItem value="disputes" className="border-b border-border px-200">
             <AccordionTrigger className="py-150 text-body-small font-semibold text-text hover:no-underline [&_svg]:h-3.5 [&_svg]:w-3.5">
               <span className="flex items-center gap-075">
-                Open disputes
-                <Badge>{c.openDisputes.length}</Badge>
+                Open disputes · any loan
+                <Badge>{disputeTotal}</Badge>
               </span>
             </AccordionTrigger>
             <AccordionContent className="pb-150">
-              {c.openDisputes.length === 0 ? (
+              {disputes.length === 0 ? (
                 <div className="text-body-small text-text-subtle">No open disputes.</div>
               ) : (
                 <ul className="space-y-075">
-                  {c.openDisputes.map((d) => (
+                  {disputes.map((d) => (
                     <li key={d.id} className="flex items-start gap-100">
                       <AlertOctagon className="mt-025 h-3.5 w-3.5 shrink-0 text-text-warning" />
                       <div className="min-w-0">
-                        <div className="font-mono text-body-small text-text-subtlest">{d.id}</div>
+                        <Link
+                          to="/disputes"
+                          search={{ id: d.id }}
+                          className="font-mono text-body-small text-text-brand hover:underline"
+                        >
+                          {d.id}
+                        </Link>
                         <div className="text-body-small text-text">{d.summary}</div>
                       </div>
                     </li>
                   ))}
+                  {disputeTotal > disputes.length && (
+                    <li className="text-body-small text-text-subtle">
+                      Newest {disputes.length} of {disputeTotal} —{" "}
+                      <Link
+                        to="/customers/$customerId"
+                        params={{ customerId }}
+                        className="text-text-brand hover:underline"
+                      >
+                        see all in Customer 360
+                      </Link>
+                    </li>
+                  )}
                 </ul>
               )}
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value="interactions" className="border-b-0 px-200">
             <AccordionTrigger className="py-150 text-body-small font-semibold text-text hover:no-underline [&_svg]:h-3.5 [&_svg]:w-3.5">
-              Recent interactions
+              Recent interactions · any loan
             </AccordionTrigger>
             <AccordionContent className="pb-150">
-              {c.recentInteractions.length === 0 ? (
+              {interactions.length === 0 ? (
                 <div className="text-body-small text-text-subtle">No recent interactions.</div>
               ) : (
                 <ul className="space-y-100">
-                  {c.recentInteractions.map((r) => {
+                  {interactions.map((r) => {
                     const Icon = r.kind === "call" ? Phone : MessageCircle;
                     return (
                       <li key={r.id} className="flex items-start gap-100">
@@ -196,6 +230,15 @@ export function ContextRail({
                       </li>
                     );
                   })}
+                  <li>
+                    <Link
+                      to="/customers/$customerId"
+                      params={{ customerId }}
+                      className="text-body-small text-text-brand hover:underline"
+                    >
+                      Full history in Customer 360
+                    </Link>
+                  </li>
                 </ul>
               )}
             </AccordionContent>
@@ -207,7 +250,7 @@ export function ContextRail({
         <div className="grid grid-cols-2 gap-100">
           <button
             type="button"
-            onClick={openCustomer360}
+            onClick={() => void navigate({ to: "/customers/$customerId", params: { customerId } })}
             className="focus-ring col-span-2 inline-flex items-center justify-center gap-075 rounded-medium bg-background-brand-bold px-150 py-100 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered active:scale-[0.98]"
           >
             Open Customer 360
@@ -215,7 +258,7 @@ export function ContextRail({
           </button>
           <button
             type="button"
-            onClick={openCreatePtp}
+            onClick={() => void navigate({ to: "/promises", search: { new: true, customerId } })}
             className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
             <HandCoins className="h-3.5 w-3.5 text-text-brand" />
@@ -223,7 +266,7 @@ export function ContextRail({
           </button>
           <button
             type="button"
-            onClick={openRaiseDispute}
+            onClick={() => void navigate({ to: "/disputes", search: { new: true, customerId } })}
             className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
             <AlertOctagon className="h-3.5 w-3.5 text-text-brand" />

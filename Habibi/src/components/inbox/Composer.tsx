@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  FileImage,
+  FileText,
   Paperclip,
   SendHorizontal,
   Smile,
@@ -14,8 +16,15 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/api/types/inbox";
-import { getThreadHandoffState } from "@/components/inbox/meta";
+import { channelMeta, getThreadHandoffState, type InboxRights } from "@/components/inbox/meta";
+import { inboxErrorWords, replyBlockedWords } from "@/components/inbox/inbox-words";
 import { ingestInboxDocument, useCannedResponses } from "@/api/inbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const EMOJIS = [
   "👍",
@@ -35,18 +44,35 @@ const EMOJIS = [
   "⚠️",
 ];
 
-function SuggestionCard({
+/** Reply states that no wait will clear on this thread: the composer is closed, not just Send. */
+const CLOSED_FOR_GOOD = new Set(["channel_not_supported", "whatsapp_window_closed"]);
+
+function append(current: string, addition: string) {
+  return current.trim() ? `${current.trim()}\n\n${addition}` : addition;
+}
+
+function clock(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+function SourceCard({
   text,
-  onUse,
+  onInsert,
   index,
   expanded,
   onToggle,
+  disabled,
 }: {
   text: string;
-  onUse: (value: string) => void;
+  onInsert: (value: string) => void;
   index: number;
   expanded: boolean;
   onToggle: () => void;
+  disabled: boolean;
 }) {
   const trimmed = text.trim();
   const long = trimmed.length > 160;
@@ -56,12 +82,6 @@ function SuggestionCard({
   if (splitAt > 0 && splitAt < 160) {
     title = trimmed.slice(0, splitAt).trim();
     body = trimmed.slice(splitAt + 2).trim();
-  } else {
-    const colon = trimmed.indexOf(": ");
-    if (colon > 0 && colon < 80) {
-      title = trimmed.slice(0, colon).trim();
-      body = trimmed.slice(colon + 2).trim();
-    }
   }
 
   return (
@@ -97,21 +117,22 @@ function SuggestionCard({
             </p>
           )}
           <div className="mt-075 flex flex-wrap items-center gap-100">
+            {/* Evidence, not an answer: this is the knowledge base's own text,
+                written for staff. Inserting it is a deliberate act. */}
             <button
               type="button"
-              onClick={() => onUse(trimmed)}
-              className="focus-ring rounded border border-border-brand/40 bg-surface px-100 py-025 text-body-small font-semibold text-text-brand hover:bg-background-brand-subtlest"
+              disabled={disabled}
+              onClick={() => onInsert(body)}
+              title="Insert this passage, as written, into your reply"
+              className="focus-ring rounded border border-border-brand/40 bg-surface px-100 py-025 text-body-small font-semibold text-text-brand hover:bg-background-brand-subtlest disabled:opacity-50"
             >
-              Use in reply
+              Insert passage
             </button>
             {long && (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onToggle();
-                }}
+                onClick={onToggle}
+                aria-expanded={expanded}
                 className="focus-ring inline-flex items-center gap-025 text-body-small font-medium text-text-subtle hover:text-text-brand"
               >
                 {expanded ? (
@@ -125,7 +146,7 @@ function SuggestionCard({
                 )}
               </button>
             )}
-            <span className="ml-auto text-body-small text-text-subtlest">KB {index + 1}</span>
+            <span className="ml-auto text-body-small text-text-subtlest">Source {index + 1}</span>
           </div>
         </div>
       </div>
@@ -135,167 +156,176 @@ function SuggestionCard({
 
 export function Composer({
   thread,
+  rights,
+  draft,
+  onDraftChange,
   onSend,
   onRefreshRag,
   onSuggestReply,
-  busy = false,
-  errorMessage = null,
-  ragLoading = false,
-  ragError = null,
+  ragSuggestions,
+  ragDraft,
+  ragLoading,
+  ragError,
+  ragStale,
+  ragSearched,
+  busy,
+  errorMessage,
 }: {
   thread: Thread;
-  onSend: (text: string) => void | Promise<void>;
-  onRefreshRag?: (withDraft?: boolean) => void;
-  onSuggestReply?: () => void;
-  busy?: boolean;
-  errorMessage?: string | null;
-  ragLoading?: boolean;
-  ragError?: string | null;
+  rights: InboxRights;
+  /** This thread's unsent reply, kept by the page while the operator is elsewhere. */
+  draft: string;
+  onDraftChange: (text: string) => void;
+  /** Resolves true once the server has queued it. */
+  onSend: (text: string, idempotencyKey: string) => Promise<boolean>;
+  onRefreshRag: () => void;
+  /** Resolves to a reply drafted for the customer's latest message, or null. */
+  onSuggestReply: () => Promise<string | null>;
+  ragSuggestions: string[];
+  ragDraft: string | null;
+  ragLoading: boolean;
+  ragError: string | null;
+  ragStale: boolean;
+  ragSearched: boolean;
+  busy: boolean;
+  errorMessage: string | null;
 }) {
-  const [text, setText] = useState("");
-  const [cannedOpen, setCannedOpen] = useState(false);
-  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [text, setTextState] = useState(draft);
+  const [panel, setPanel] = useState<"canned" | "emoji" | null>(null);
+  const [cannedFilter, setCannedFilter] = useState("");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const [sending, setSending] = useState(false);
-  const [awaitingDraft, setAwaitingDraft] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [drafting, setDrafting] = useState(false);
+  const textFileRef = useRef<HTMLInputElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const seenSuggestLoading = useRef(false);
-  // `data = []` on failure is the graceful-degradation lie this codebase keeps
-  // catching: an API outage rendered as "No canned responses configured", which
-  // is a statement about the tenant's setup, not about the network.
+  // One key per attempt at one reply: resending the same text after a lost
+  // response reuses it, so the server answers with the message it queued.
+  const attempt = useRef<{ text: string; key: string } | null>(null);
+  // `data = []` on failure is the graceful-degradation lie: an outage rendered
+  // as "No canned responses configured", a claim about the tenant's setup.
   const {
     data: cannedResponses = [],
     isPending: cannedPending,
     isError: cannedFailed,
   } = useCannedResponses();
 
-  const { needsClaim } = getThreadHandoffState(thread, false);
-  const disabled = needsClaim || busy || sending;
-  const draft = (thread.ragDraftAnswer || "").trim();
-  const sourceCount = thread.ragSuggestions.length;
+  const channel = channelMeta[thread.channel].label;
+  const { needsClaim } = getThreadHandoffState(thread, rights);
+  const ctx = thread.context;
+  const blockedReason = ctx.canReply ? null : (ctx.replyBlockedReason ?? "refused");
+  const closed = Boolean(blockedReason && CLOSED_FOR_GOOD.has(blockedReason));
+  const inputDisabled = needsClaim || !rights.canWrite || closed;
+  const canSend = !inputDisabled && !blockedReason && !busy && Boolean(text.trim());
+  const hasCustomerMessage = (thread.messages ?? []).some(
+    (m) => "sender" in m && m.sender === "customer",
+  );
 
+  const setText = (next: string | ((t: string) => string)) =>
+    setTextState((prev) => {
+      const value = typeof next === "function" ? next(prev) : next;
+      onDraftChange(value);
+      return value;
+    });
+
+  // Escape closes an open panel.
   useEffect(() => {
-    setText("");
-    setCannedOpen(false);
-    setEmojiOpen(false);
-    setSourcesOpen(false);
-    setExpandedIdx(null);
-    setAwaitingDraft(false);
-    seenSuggestLoading.current = false;
-  }, [thread.id]);
+    if (!panel) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setPanel(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [panel]);
 
-  const ragFingerprint = thread.ragSuggestions.map((s) => s.slice(0, 64)).join("|");
+  const ragFingerprint = ragSuggestions.map((s) => s.slice(0, 64)).join("|");
   useEffect(() => {
     setExpandedIdx(null);
   }, [ragFingerprint]);
 
-  useEffect(() => {
-    if (!awaitingDraft) return;
-    if (ragLoading) {
-      seenSuggestLoading.current = true;
+  const insert = (value: string, what: string) => {
+    setText((t) => append(t, value));
+    toast.success(needsClaim ? `${what} inserted — take over to send` : `${what} inserted`);
+  };
+
+  const handleSuggestReply = async () => {
+    // A stored draft answers the customer's latest message -- the server drops
+    // one written for an earlier turn -- so it is used as it is.
+    if (ragDraft) {
+      insert(ragDraft, "Drafted reply");
       return;
     }
-    if (!seenSuggestLoading.current) return;
-    seenSuggestLoading.current = false;
-    setAwaitingDraft(false);
-    if (draft) {
-      setText((t) => (t ? `${t.trim()}\n\n${draft}` : draft));
-      toast.success(needsClaim ? "Draft inserted — take over to send" : "Draft inserted");
+    setDrafting(true);
+    try {
+      const drafted = await onSuggestReply();
+      if (drafted) insert(drafted, "Drafted reply");
+      else if (!ragError) toast.message("The knowledge base has nothing to answer this with.");
+    } finally {
+      setDrafting(false);
     }
-  }, [awaitingDraft, ragLoading, draft, needsClaim]);
-
-  const insertSuggestion = (value: string) => {
-    setText((t) => (t ? `${t.trim()}\n\n${value}` : value));
-    toast.success(needsClaim ? "Inserted — take over to send" : "Suggestion inserted");
   };
 
-  const insertEmoji = (emoji: string) => {
-    setText((t) => `${t}${emoji}`);
-  };
-
-  const handleSuggestReply = () => {
-    if (draft && !ragLoading) {
-      insertSuggestion(draft);
-      return;
-    }
-    setAwaitingDraft(true);
-    seenSuggestLoading.current = ragLoading;
-    onSuggestReply?.();
-  };
-
-  const onPickFile = async (file: File | null) => {
+  const pasteFileText = async (file: File | null) => {
     if (!file) return;
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".csv")) {
-      if (file.size > 200_000) {
-        toast.error(
-          "File too large for inline paste (max ~200KB). Summarize or paste text instead.",
-        );
-        return;
-      }
-      try {
-        const body = await file.text();
-        const snippet = body.trim().slice(0, 1500);
-        setText((t) =>
-          t ? `${t.trim()}\n\n📎 ${file.name}\n${snippet}` : `📎 ${file.name}\n${snippet}`,
-        );
-        toast.success(`Attached text from ${file.name}`);
-      } catch {
-        toast.error("Could not read that file");
-      }
+    if (file.size > 200_000) {
+      toast.error("That file is too large to paste (max 200 KB).");
       return;
     }
-    setText((t) => (t ? `${t.trim()} 📎 ${file.name}` : `📎 ${file.name}`));
-    if (file.type.startsWith("image/") && thread.customerId) {
-      try {
-        const row = await ingestInboxDocument(thread.customerId, file, thread.id);
-        toast.success(
-          row.documentRequestId
-            ? `Receipt filed as ${row.documentRequestId}`
-            : `Receipt filed (${file.name})`,
-        );
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Could not file that image");
-      }
-      return;
+    try {
+      const body = (await file.text()).trim().slice(0, 1500);
+      setText((t) => append(t, body));
+    } catch {
+      toast.error("Could not read that file.");
     }
-    toast.message("Filename noted in reply — binary WhatsApp attachments aren’t enabled yet");
+  };
+
+  const fileDocument = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const row = await ingestInboxDocument(thread.customerId, file, thread.id);
+      // Filed, not sent: nothing in the reply claims an attachment.
+      toast.success(
+        `Filed to ${thread.customer}'s documents${row.documentRequestId ? ` as ${row.documentRequestId}` : ""}. It was not sent to the customer.`,
+      );
+    } catch (err) {
+      toast.error(inboxErrorWords(err, thread.channel));
+    }
   };
 
   const submit = async () => {
-    if (!text.trim() || disabled) return;
-    setSending(true);
-    try {
-      const payload = text.trim();
-      await onSend(payload);
+    const payload = text.trim();
+    if (!canSend || !payload) return;
+    if (attempt.current?.text !== payload) {
+      attempt.current = { text: payload, key: crypto.randomUUID() };
+    }
+    // A failure is shown once, in the banner below; the text stays for a retry.
+    if (await onSend(payload, attempt.current.key)) {
+      attempt.current = null;
       setText("");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not send the message");
-    } finally {
-      setSending(false);
     }
   };
 
   const anyExpanded = expandedIdx != null;
-  const suggestBusy = ragLoading && awaitingDraft;
+  const sourceCount = ragSuggestions.length;
+  const visibleCanned = cannedResponses.filter((c) =>
+    `${c.label} ${c.text}`.toLowerCase().includes(cannedFilter.trim().toLowerCase()),
+  );
 
   return (
     <div className="shrink-0 border-t border-border bg-surface">
       <div className="flex items-center gap-100 px-200 py-100">
         <button
           type="button"
-          onClick={handleSuggestReply}
-          disabled={suggestBusy || (!onSuggestReply && !draft)}
+          onClick={() => void handleSuggestReply()}
+          disabled={drafting || inputDisabled || !hasCustomerMessage}
           className="focus-ring inline-flex h-300 items-center gap-075 rounded-medium bg-background-brand-subtlest px-150 text-body-small font-semibold text-text-brand hover:bg-background-brand-subtlest/80 disabled:opacity-60"
         >
-          {suggestBusy ? (
+          {drafting ? (
             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
           ) : (
             <Sparkles className="h-3.5 w-3.5" />
           )}
-          {suggestBusy ? "Drafting…" : "Suggest reply"}
+          {drafting ? "Drafting…" : "Suggest reply"}
         </button>
         <button
           type="button"
@@ -307,33 +337,31 @@ export function Composer({
               : "text-text-subtle hover:bg-surface-sunken hover:text-text-brand",
           )}
           aria-expanded={sourcesOpen}
+          aria-controls="inbox-sources"
         >
           <BookOpen className="h-3.5 w-3.5" />
           Sources{sourceCount > 0 ? ` (${sourceCount})` : ""}
         </button>
         <div className="ml-auto flex items-center gap-100">
-          {ragLoading && sourcesOpen && !awaitingDraft && (
-            <span className="inline-flex items-center gap-075 text-body-small text-text-subtlest">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              Refreshing…
-            </span>
-          )}
-          {onRefreshRag && (
-            <button
-              type="button"
-              onClick={() => onRefreshRag(false)}
-              disabled={ragLoading}
-              className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand disabled:opacity-50"
-            >
-              <RefreshCw className={cn("h-3 w-3", ragLoading && "animate-spin")} />
-              Refresh
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onRefreshRag}
+            disabled={ragLoading || !hasCustomerMessage}
+            className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3 w-3", ragLoading && "animate-spin")} />
+            {ragLoading ? "Searching…" : "Refresh"}
+          </button>
         </div>
       </div>
 
       {sourcesOpen && (
-        <div className="space-y-100 border-t border-border px-200 py-150">
+        <div id="inbox-sources" className="space-y-100 border-t border-border px-200 py-150">
+          {ragStale && (
+            <p className="text-body-small text-text-warning">
+              Couldn’t search the knowledge base just now — these are from the last search.
+            </p>
+          )}
           <div
             ref={listRef}
             className={cn(
@@ -341,18 +369,23 @@ export function Composer({
               anyExpanded ? "max-h-[min(32vh,16rem)]" : "max-h-[min(22vh,11rem)]",
             )}
           >
-            {sourceCount === 0 && !ragLoading && !ragError && (
+            {sourceCount === 0 && !ragError && (
               <span className="text-body-small text-text-subtlest">
-                No KB hits yet for this thread.
+                {!hasCustomerMessage
+                  ? "Sources appear once the customer has written."
+                  : ragLoading || !ragSearched
+                    ? "Searching the knowledge base…"
+                    : "No knowledge-base passage matches the customer’s latest message."}
               </span>
             )}
-            {thread.ragSuggestions.map((s, i) => (
-              <SuggestionCard
+            {ragSuggestions.map((s, i) => (
+              <SourceCard
                 key={`${thread.id}-kb-${i}`}
                 text={s}
                 index={i}
+                disabled={inputDisabled}
                 expanded={expandedIdx === i}
-                onUse={insertSuggestion}
+                onInsert={(v) => insert(v, "Passage")}
                 onToggle={() => {
                   setExpandedIdx((cur) => (cur === i ? null : i));
                   requestAnimationFrame(() => {
@@ -374,12 +407,30 @@ export function Composer({
         </div>
       )}
 
-      {cannedOpen && (
-        <div className="border-t border-border bg-surface-sunken px-200 py-150">
-          <div className="mb-075 text-body-small font-semibold text-text-subtlest">
-            Canned responses
+      {panel === "canned" && (
+        <div id="inbox-canned" className="border-t border-border bg-surface-sunken px-200 py-150">
+          <div className="mb-075 flex items-center justify-between gap-100">
+            <span className="text-body-small font-semibold text-text-subtlest">
+              Canned responses
+            </span>
+            {cannedResponses.length > 6 && (
+              <input
+                value={cannedFilter}
+                onChange={(e) => setCannedFilter(e.target.value)}
+                aria-label="Filter canned responses"
+                placeholder="Filter…"
+                className="focus-ring h-300 w-40 rounded-medium border border-border-input bg-surface px-100 text-body-small"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setPanel(null)}
+              className="ml-auto text-body-small font-medium text-text-subtle hover:text-text-brand"
+            >
+              Close
+            </button>
           </div>
-          <div className="flex flex-wrap gap-075">
+          <div className="flex max-h-40 flex-wrap gap-075 overflow-y-auto">
             {cannedFailed ? (
               <span className="text-body-small text-text-danger">
                 Could not load canned responses. They may still be configured — retry in a moment.
@@ -391,15 +442,18 @@ export function Composer({
                 No canned responses configured.
               </span>
             ) : null}
-            {cannedResponses.map((c) => (
+            {visibleCanned.map((c) => (
               <button
                 key={c.id}
                 type="button"
+                disabled={inputDisabled}
+                title={c.text}
                 onClick={() => {
-                  setText(c.text);
-                  setCannedOpen(false);
+                  // Added to what is written, never replacing it.
+                  setText((t) => append(t, c.text));
+                  setPanel(null);
                 }}
-                className="rounded-medium border border-border bg-surface px-150 py-050 text-body-small text-text hover:border-border-brand hover:text-text-brand"
+                className="rounded-medium border border-border bg-surface px-150 py-050 text-body-small text-text hover:border-border-brand hover:text-text-brand disabled:opacity-50"
               >
                 {c.label}
               </button>
@@ -408,13 +462,13 @@ export function Composer({
         </div>
       )}
 
-      {emojiOpen && (
-        <div className="border-t border-border bg-surface-sunken px-200 py-150">
+      {panel === "emoji" && (
+        <div id="inbox-emoji" className="border-t border-border bg-surface-sunken px-200 py-150">
           <div className="mb-075 flex items-center justify-between">
             <span className="text-body-small font-semibold text-text-subtlest">Insert emoji</span>
             <button
               type="button"
-              onClick={() => setEmojiOpen(false)}
+              onClick={() => setPanel(null)}
               className="text-body-small font-medium text-text-subtle hover:text-text-brand"
             >
               Close
@@ -425,8 +479,8 @@ export function Composer({
               <button
                 key={e}
                 type="button"
-                onClick={() => insertEmoji(e)}
-                disabled={disabled}
+                onClick={() => setText((t) => `${t}${e}`)}
+                disabled={inputDisabled}
                 className="focus-ring grid h-400 w-400 place-items-center rounded-medium bg-surface text-lg hover:bg-background-brand-subtlest disabled:opacity-50"
                 aria-label={`Insert ${e}`}
               >
@@ -437,39 +491,79 @@ export function Composer({
         </div>
       )}
 
+      {blockedReason && !needsClaim && (
+        <div
+          role="status"
+          className="border-t border-border-warning-subtle bg-background-warning-subtler px-200 py-075 text-body-small text-text-warning-bolder"
+        >
+          {replyBlockedWords(blockedReason, thread.channel)}
+        </div>
+      )}
+      {!blockedReason && ctx.replyWindowEndsAt && !needsClaim && (
+        <div className="border-t border-border px-200 py-050 text-body-small text-text-subtlest">
+          WhatsApp reply window open until {clock(ctx.replyWindowEndsAt)} IST.
+        </div>
+      )}
+
       <div className="flex items-end gap-100 border-t border-border px-200 py-150">
         <input
-          ref={fileRef}
+          ref={textFileRef}
           type="file"
           className="hidden"
-          accept=".txt,.md,.csv,image/*,.pdf"
+          accept=".txt,.md,.csv,text/plain"
           onChange={(e) => {
-            void onPickFile(e.target.files?.[0] ?? null);
+            void pasteFileText(e.target.files?.[0] ?? null);
             e.target.value = "";
           }}
         />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={disabled}
-          className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
-          aria-label="Attach file"
-          title="Attach text/image note"
-        >
-          <Paperclip className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setEmojiOpen(false);
-            setCannedOpen((o) => !o);
+        <input
+          ref={imageFileRef}
+          type="file"
+          className="hidden"
+          accept="image/*"
+          onChange={(e) => {
+            void fileDocument(e.target.files?.[0] ?? null);
+            e.target.value = "";
           }}
-          disabled={disabled}
+        />
+        {/* Two different acts, named for what they do. Nothing here sends a
+            file to the customer: the reply API carries text only. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              disabled={inputDisabled}
+              className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
+              aria-label="Add from a file"
+              title="Add from a file"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onSelect={() => textFileRef.current?.click()}>
+              <FileText className="h-3.5 w-3.5" />
+              Paste text from a file…
+            </DropdownMenuItem>
+            {rights.canFileDocuments && (
+              <DropdownMenuItem onSelect={() => imageFileRef.current?.click()}>
+                <FileImage className="h-3.5 w-3.5" />
+                File a document image to the customer…
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          type="button"
+          onClick={() => setPanel((p) => (p === "canned" ? null : "canned"))}
+          disabled={inputDisabled}
           className={cn(
             "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50",
-            cannedOpen && "bg-surface-sunken text-text-brand",
+            panel === "canned" && "bg-surface-sunken text-text-brand",
           )}
           aria-label="Canned responses"
+          aria-expanded={panel === "canned"}
+          aria-controls="inbox-canned"
           title="Canned responses"
         >
           <MessageSquareText className="h-4 w-4" />
@@ -478,29 +572,30 @@ export function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            // An input method's Enter commits the composed word -- routine for
+            // Hindi, Marathi or Tamil -- and must not send the half-typed reply.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void submit();
             }
           }}
-          placeholder={needsClaim ? "Take over to reply on WhatsApp…" : "Reply on WhatsApp…"}
+          aria-label={`Reply on ${channel}`}
+          placeholder={needsClaim ? `Take over to reply on ${channel}…` : `Reply on ${channel}…`}
           rows={1}
-          disabled={disabled}
-          className="min-h-500 max-h-40 flex-1 resize-none rounded-medium border border-border bg-surface-sunken px-150 py-100 text-body placeholder:text-text-subtlest focus:border-border-brand focus:bg-surface focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={inputDisabled}
+          className="min-h-500 max-h-40 flex-1 resize-none rounded-medium border border-border bg-surface-sunken px-150 py-100 text-body [field-sizing:content] placeholder:text-text-subtlest focus:border-border-brand focus:bg-surface focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="button"
-          onClick={() => {
-            setCannedOpen(false);
-            setEmojiOpen((o) => !o);
-          }}
-          disabled={disabled}
+          onClick={() => setPanel((p) => (p === "emoji" ? null : "emoji"))}
+          disabled={inputDisabled}
           className={cn(
             "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50",
-            emojiOpen && "bg-surface-sunken text-text-brand",
+            panel === "emoji" && "bg-surface-sunken text-text-brand",
           )}
           aria-label="Emoji"
-          aria-expanded={emojiOpen}
+          aria-expanded={panel === "emoji"}
+          aria-controls="inbox-emoji"
           title="Insert emoji"
         >
           <Smile className="h-4 w-4" />
@@ -508,15 +603,18 @@ export function Composer({
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={!text.trim() || disabled}
+          disabled={!canSend}
           className="focus-ring inline-flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
         >
-          Send
+          {busy ? "Sending…" : "Send"}
           <SendHorizontal className="h-4 w-4" />
         </button>
       </div>
       {errorMessage && (
-        <div className="border-t border-border-danger/20 bg-background-danger px-200 py-100 text-body-small text-text-danger-bolder">
+        <div
+          role="alert"
+          className="border-t border-border-danger/20 bg-background-danger px-200 py-100 text-body-small text-text-danger-bolder"
+        >
           {errorMessage}
         </div>
       )}

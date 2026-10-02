@@ -44,7 +44,7 @@ export interface ContactabilityView {
 function describeReason(
   reason: string | null,
   contact: ContactWords,
-  policy: ContactPolicy,
+  policy?: ContactPolicy,
 ): { tone: ChipTone; label: string; sub: string } {
   switch (reason) {
     case "channel_opted_out":
@@ -83,7 +83,9 @@ function describeReason(
       return {
         tone: "warning",
         label: "Daily cap reached",
-        sub: `${policy.outreachToday} of ${policy.dailyCap} touches used today`,
+        sub: policy
+          ? `${policy.outreachToday} of ${policy.dailyCap} touches used today`
+          : "Daily contact limit hit",
       };
     case "weekly_cap":
       return { tone: "warning", label: "Weekly cap reached", sub: "Weekly contact limit hit" };
@@ -104,6 +106,11 @@ function describeReason(
         sub: reason ? `Policy reason · ${reason}` : "Blocked by contact policy",
       };
   }
+}
+
+/** The gate's refusal in a few words ("DND active", "Cooling-off period"), for any channel. */
+export function contactRefusalLabel(reason: string | null): string {
+  return describeReason(reason, undefined).label;
 }
 
 /**

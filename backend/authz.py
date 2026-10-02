@@ -586,8 +586,11 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/conversations/{conversation_id}"): INTERACTIONS_READ,
     ("POST", "/conversations/{conversation_id}/messages"): INTERACTIONS_WRITE,
     ("POST", "/conversations/{conversation_id}/suggestions/refresh"): INTERACTIONS_WRITE,
-    ("POST", "/conversations/{conversation_id}/return-to-bot"): SUPERVISOR_WRITE,
-    ("POST", "/conversations/{conversation_id}/takeover"): SUPERVISOR_WRITE,
+    # Claiming an unheld thread, and handing back your own, are an agent's
+    # ordinary work. Taking a colleague's thread needs SUPERVISOR_WRITE, which
+    # db_inbox.takeover_conversation checks against who holds it.
+    ("POST", "/conversations/{conversation_id}/return-to-bot"): INTERACTIONS_WRITE,
+    ("POST", "/conversations/{conversation_id}/takeover"): INTERACTIONS_WRITE,
     ("POST", "/interactions"): INTERACTIONS_WRITE,
     ("POST", "/interactions/{interaction_id}/wrap-up"): INTERACTIONS_WRITE,
     ("GET", "/interactions/{interaction_id}/cost"): BILLING_READ,

@@ -54,6 +54,7 @@ function DisputesPage() {
   const [filters, setFilters] = useState<DisputeFilters>(defaultFilters);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [newForCustomer, setNewForCustomer] = useState<string | undefined>();
   const deepLinkApplied = useRef(false);
 
   const invalidate = () => {
@@ -124,9 +125,12 @@ function DisputesPage() {
     if (!search.id && !search.new) return;
     deepLinkApplied.current = true;
     if (search.id) setOpenId(search.id);
-    if (search.new) setShowNew(true);
+    if (search.new) {
+      setNewForCustomer(search.customerId);
+      setShowNew(true);
+    }
     void navigate({ search: {}, replace: true });
-  }, [search.id, search.new, navigate]);
+  }, [search.id, search.new, search.customerId, navigate]);
 
   return (
     <>
@@ -180,9 +184,13 @@ function DisputesPage() {
         )}
         {showNew && (
           <NewDisputeSheet
-            onClose={() => setShowNew(false)}
+            onClose={() => {
+              setShowNew(false);
+              setNewForCustomer(undefined);
+            }}
             onCreated={invalidate}
             customers={customerOptions}
+            initialCustomerId={newForCustomer}
           />
         )}
       </div>

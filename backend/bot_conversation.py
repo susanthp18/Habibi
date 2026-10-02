@@ -32,6 +32,7 @@ def load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | 
                        c.dnd, c.preferred_window, c.language,
                        a.id AS account_id, a.outstanding, a.dpd, a.minimum_due,
                        p.name AS product,
+                       i.source_payload->>'endpoint_slot' AS endpoint_slot,
                        (
                          SELECT MAX(COALESCE(m.sent_at, m.created_at))
                          FROM messages m
@@ -41,12 +42,9 @@ def load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | 
                        ) AS last_customer_at
                 FROM conversations cv
                 JOIN customers c ON c.id = cv.customer_id
-                LEFT JOIN LATERAL (
-                  SELECT * FROM accounts a
-                  WHERE a.customer_id = c.id
-                  ORDER BY CASE WHEN a.id LIKE 'AC-%' THEN 0 ELSE 1 END, a.created_at, a.id
-                  LIMIT 1
-                ) a ON true
+                -- The thread's own loan: the one its interaction was opened on.
+                LEFT JOIN interactions i ON i.id = cv.interaction_id
+                LEFT JOIN accounts a ON a.id = i.account_id
                 LEFT JOIN products p ON p.id = a.product_id
                 WHERE cv.id = :id
                 """
@@ -88,8 +86,18 @@ def within_24h(last_customer_at: Any) -> bool:
     return age <= timedelta(hours=24)
 
 
+def reply_phone(conv: dict[str, Any]) -> str | None:
+    """The number this thread's replies go to: the one the customer wrote from."""
+    import contact_policy
+
+    return contact_policy.chosen_phone(conv, slot=conv.get("endpoint_slot"))
+
+
 def policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
-    """Return abort reason or None if send is allowed."""
+    """Return abort reason or None if send is allowed.
+
+    Fails closed: when admission cannot be established the turn does not send.
+    """
     if not bot_jobs.bot_runtime_enabled():
         return "bot_runtime_disabled"
     if conv.get("status") != "bot" or conv.get("assigned_user_id"):
@@ -116,12 +124,13 @@ def policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
                 source="bot_reply",
                 related_id=conv.get("id"),
                 actor_kind="bot",
-                endpoint=conv.get("phone_primary"),
+                endpoint=reply_phone(conv),
             )
         if not decision.allowed:
             return decision.reason or "contact_policy"
     except Exception:
         logger.exception("contact_policy bot gate failed conversation=%s", conv.get("id"))
+        return "policy_unavailable"
     return None
 
 

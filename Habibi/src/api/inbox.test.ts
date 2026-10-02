@@ -10,21 +10,16 @@
 import { describe, expect, it } from "vitest";
 
 import { compareThreads, mergeThreads } from "./inbox";
-import type { Thread } from "@/api/types/inbox";
+import type { ThreadSummary } from "@/api/types/inbox";
 
-function thread(id: string, updatedAt: string, lastTime: string): Thread {
-  return {
-    id,
-    updatedAt,
-    lastTime,
-    customer: id,
-    messages: [],
-    ragSuggestions: [],
-  } as unknown as Thread;
+type Thread = ThreadSummary;
+
+function thread(id: string, lastAt: string, lastTime: string): Thread {
+  return { id, lastAt, updatedAt: lastAt, lastTime, customer: id } as unknown as Thread;
 }
 
 describe("compareThreads", () => {
-  it("orders by updatedAt, newest first", () => {
+  it("orders by the last message, newest first", () => {
     const older = thread("CV-1", "2026-08-23T05:00:00.000000+00:00", "10:30 AM");
     const newer = thread("CV-2", "2026-08-23T06:00:00.000000+00:00", "11:30 AM");
     expect([older, newer].sort(compareThreads).map((t) => t.id)).toEqual(["CV-2", "CV-1"]);
@@ -44,7 +39,7 @@ describe("compareThreads", () => {
   });
 
   it("breaks ties by id, ascending — the server's own tiebreak", () => {
-    // Server: ORDER BY COALESCE(updated_at, created_at) DESC, cv.id
+    // Server: ORDER BY COALESCE(last message, created_at) DESC, cv.id
     const at = "2026-08-23T05:04:18.379714+00:00";
     const rows = [
       thread("CV-C", at, "1:00 PM"),
@@ -69,11 +64,21 @@ describe("compareThreads", () => {
     expect(twice).toEqual(once);
   });
 
-  it("treats a missing updatedAt as oldest rather than throwing", () => {
+  it("does not move a thread for a change nobody said anything in", () => {
+    // `updatedAt` is the delta watermark: a takeover or a receipt moves it.
+    const talked = thread("CV-1", "2026-08-23T06:00:00.000000+00:00", "11:30 AM");
+    const touched = {
+      ...thread("CV-2", "2026-08-23T05:00:00.000000+00:00", "10:30 AM"),
+      updatedAt: "2026-08-23T07:00:00.000000+00:00",
+    } as Thread;
+    expect([touched, talked].sort(compareThreads).map((t) => t.id)).toEqual(["CV-1", "CV-2"]);
+  });
+
+  it("treats a missing lastAt as oldest rather than throwing", () => {
     const dated = thread("CV-1", "2026-08-23T05:00:00.000000+00:00", "10:30 AM");
     const undated = {
       ...thread("CV-2", "", "11:30 AM"),
-      updatedAt: undefined,
+      lastAt: undefined,
     } as unknown as Thread;
     expect([undated, dated].sort(compareThreads).map((t) => t.id)).toEqual(["CV-1", "CV-2"]);
   });
@@ -96,17 +101,14 @@ describe("mergeThreads", () => {
     expect(merged.map((t) => t.id)).toEqual(["CV-2", "CV-1"]);
   });
 
-  it("never wipes a cached transcript with a delta that omits it", () => {
+  it("replaces a row with its delta", () => {
     const prev = [
-      {
-        ...thread("CV-1", "2026-08-23T05:00:00.000000+00:00", "10:30 AM"),
-        messages: [{ id: "MSG-1", sender: "customer", text: "hi", time: "10:30 AM" }],
-      } as unknown as Thread,
+      { ...thread("CV-1", "2026-08-23T05:00:00.000000+00:00", "10:30 AM"), awaitingReply: 2 },
     ];
     const delta = {
-      id: "CV-1",
-      updatedAt: "2026-08-23T06:00:00.000000+00:00",
-    } as unknown as Thread;
-    expect(mergeThreads(prev, [delta])[0]?.messages).toHaveLength(1);
+      ...thread("CV-1", "2026-08-23T06:00:00.000000+00:00", "11:30 AM"),
+      awaitingReply: 0,
+    };
+    expect(mergeThreads(prev as Thread[], [delta as Thread])[0]?.awaitingReply).toBe(0);
   });
 });

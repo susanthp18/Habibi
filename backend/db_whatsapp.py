@@ -76,52 +76,56 @@ def _tail10_predicate(column: str) -> str:
     """
 
 
-def _find_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
+class AmbiguousSender(Exception):
+    """More than one customer is on file at this number."""
+
+
+def _match_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
+    """The one customer at this number, with ``endpoint_slot`` naming which of
+    their numbers it is; None for nobody; :class:`AmbiguousSender` for several.
+
+    Several is a refusal, never a pick. The exact branch used to log a warning
+    and take the most recently updated row, which filed the conversation -- and
+    the endpoint assurance that lets the bot act on it -- against a borrower
+    the sender may not be.
+    """
     # Digits only: the tail fallback embeds :phone in a LIKE pattern, so a `%`
     # or `_` surviving from a caller that skipped normalisation would turn the
     # suffix match back into a wildcard scan.
     phone = re.sub(r"\D+", "", phone or "")
     if len(phone) < 10:
         return None
-    exact = _rows(
-        conn.execute(
-            text(
-                f"""
-                SELECT id, name, phone_primary, phone_alt
-                FROM customers c
-                WHERE {_digits_phone_exact_sql()}
-                ORDER BY c.updated_at DESC NULLS LAST, c.id
-                LIMIT 3
-                """
-            ),
-            {"phone": phone},
+    for predicate, slot in (
+        (_digits_phone_exact_sql(), "CASE WHEN c.phone_primary_hmac = pii_phone_hmac(:phone) THEN 'primary' ELSE 'alt' END"),
+        (_digits_phone_tail10_sql(), f"CASE WHEN {_tail10_predicate('c.phone_primary')} THEN 'primary' ELSE 'alt' END"),
+    ):
+        rows = _rows(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT id, name, phone_primary, phone_alt, {slot} AS endpoint_slot
+                    FROM customers c
+                    WHERE {predicate}
+                    ORDER BY c.id
+                    LIMIT 2
+                    """
+                ),
+                {"phone": phone},
+            )
         )
-    )
-    if exact:
-        if len(exact) > 1:
-            logger.warning("exact phone match returned %s customers for …%s", len(exact), phone[-4:])
-        return exact[0]
-    # Demoted last-10 fallback — fail closed on ambiguous distinct customers.
-    tails = _rows(
-        conn.execute(
-            text(
-                f"""
-                SELECT id, name, phone_primary, phone_alt
-                FROM customers c
-                WHERE {_digits_phone_tail10_sql()}
-                ORDER BY c.updated_at DESC NULLS LAST, c.id
-                LIMIT 3
-                """
-            ),
-            {"phone": phone},
-        )
-    )
-    if not tails:
+        if len(rows) > 1:
+            logger.warning("phone …%s matches more than one customer — failing closed", phone[-4:])
+            raise AmbiguousSender()
+        if rows:
+            return rows[0]
+    return None
+
+
+def _find_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
+    try:
+        return _match_customer_by_phone(conn, phone)
+    except AmbiguousSender:
         return None
-    if len({r["id"] for r in tails}) > 1:
-        logger.warning("ambiguous last-10 phone match for …%s — failing closed", phone[-4:])
-        return None
-    return tails[0]
 
 
 def find_customer_by_phone(phone: str) -> dict[str, Any] | None:
@@ -145,9 +149,13 @@ def _ensure_whatsapp_customer(
     to recite a number we are already messaging them on.
 
     Inventing a ``cust-wa-`` stub for an unknown number proves nothing, and must
-    not be confused with it.
+    not be confused with it. A number several borrowers share is filed on that
+    unrecognised stub too: a person resolves who wrote, the bot does not guess.
     """
-    existing = _find_customer_by_phone(conn, phone)
+    try:
+        existing = _match_customer_by_phone(conn, phone)
+    except AmbiguousSender:
+        existing = None
     if existing:
         return existing, True
     # Derive the ids from the FULL normalized number. Keying on the last 10 (or
@@ -191,7 +199,17 @@ def _ensure_whatsapp_customer(
         ),
         {"id": account_id, "customer_id": customer_id, "product_id": product["id"]},
     )
-    found = _find_customer_by_phone(conn, phone)
+    # By id: once a stub exists for a shared number, a phone lookup is
+    # ambiguous by construction.
+    found = _one(
+        conn.execute(
+            text(
+                "SELECT id, name, phone_primary, phone_alt, 'primary' AS endpoint_slot "
+                "FROM customers WHERE id = :id"
+            ),
+            {"id": customer_id},
+        )
+    )
     if found is None:
         raise ValueError("customer_create_failed")
     return found, False
@@ -245,6 +263,16 @@ def _record_endpoint_assurance(conn: Any, conversation_id: str, customer_id: str
     )
 
 
+def whatsapp_bot_id(conn: Any) -> str:
+    """The bot a WhatsApp thread is filed under: the Voice Studio agent bound to
+    WhatsApp -- the one that answers it (whatsapp_studio) -- or the unnamed
+    Voice Studio agent when none is bound yet, in which case a person answers."""
+    import voice_studio
+
+    agent = voice_studio.agent_for(conn, "whatsapp", allow_default=False)
+    return voice_studio.ensure_bot(conn, agent["engine_workflow_id"] if agent else None)
+
+
 def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
     """Return an existing WhatsApp conversation for the customer, or create one (status=bot).
 
@@ -289,13 +317,7 @@ def _open_whatsapp_conversation(conn: Any, customer_id: str) -> str:
             {"customer_id": customer_id},
         )
     )
-    # Filed under the Voice Studio agent bound to WhatsApp -- the one that
-    # answers the thread (whatsapp_studio) -- or the unnamed Voice Studio agent
-    # when none is bound yet, in which case a person answers.
-    import voice_studio
-
-    agent = voice_studio.agent_for(conn, "whatsapp", allow_default=False)
-    bot = {"id": voice_studio.ensure_bot(conn, agent["engine_workflow_id"] if agent else None)}
+    bot = {"id": whatsapp_bot_id(conn)}
 
     interaction_id = _id("IX")
     conversation_id = _id("CV")
@@ -414,6 +436,22 @@ def _ingest_inbound_whatsapp_message(
     conversation_id = _open_whatsapp_conversation(conn, customer["id"])
     if recognised:
         _record_endpoint_assurance(conn, conversation_id, customer["id"])
+    # Which of the borrower's numbers wrote. Replies -- the agent's and the
+    # bot's -- go back to that one: the service window Meta opened is that
+    # number's, and a reply to the primary when the customer wrote from the
+    # alternate is a message to a number that never wrote. Kept as the slot,
+    # not the number, so no phone leaves the encrypted customer record.
+    conn.execute(
+        text(
+            """
+            UPDATE interactions
+               SET source_payload = COALESCE(source_payload, '{}'::jsonb)
+                                    || jsonb_build_object('endpoint_slot', CAST(:slot AS text))
+             WHERE id = (SELECT interaction_id FROM conversations WHERE id = :cv)
+            """
+        ),
+        {"slot": customer.get("endpoint_slot") or "primary", "cv": conversation_id},
+    )
     msg_id = _id("MSG")
     try:
         with conn.begin_nested():
@@ -658,6 +696,52 @@ def _apply_whatsapp_status(
     return {"status": "ok", "messageId": row["id"], "delivery": delivery}
 
 
+_MEDIA_LABELS = {
+    "image": "Image",
+    "video": "Video",
+    "document": "Document",
+    "audio": "Audio",
+    "sticker": "Sticker",
+}
+
+
+def _inbound_body(msg: dict[str, Any]) -> str:
+    """The text a customer's message carries, as the transcript records it.
+
+    Media used to become ``[image message]``, dropping the caption -- often the
+    only words the borrower wrote ("paid today, receipt attached") -- and the
+    file's name. Both are the customer's words and stay on the record. The
+    media itself is fetched from Meta by id, which this ingest does not do.
+    """
+    kind = msg.get("type") or "text"
+    if kind == "text":
+        return ((msg.get("text") or {}).get("body")) or ""
+    if kind == "button":
+        return ((msg.get("button") or {}).get("text")) or ""
+    if kind == "interactive":
+        interactive = msg.get("interactive") or {}
+        return (
+            ((interactive.get("button_reply") or {}).get("title"))
+            or ((interactive.get("list_reply") or {}).get("title"))
+            or ""
+        )
+    if kind in _MEDIA_LABELS:
+        media = msg.get(kind) or {}
+        label = "Voice note" if kind == "audio" and media.get("voice") else _MEDIA_LABELS[kind]
+        filename = (media.get("filename") or "").strip()
+        tag = f"[{label}: {filename}]" if filename else f"[{label}]"
+        caption = (media.get("caption") or "").strip()
+        return f"{tag} {caption}" if caption else tag
+    if kind == "reaction":
+        emoji = ((msg.get("reaction") or {}).get("emoji")) or ""
+        return f"[Reacted {emoji}]" if emoji else "[Removed a reaction]"
+    if kind == "location":
+        return "[Location]"
+    if kind == "contacts":
+        return "[Contact card]"
+    return f"[Unsupported {kind} message]"
+
+
 def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
     """Handle Meta WhatsApp Cloud API webhook POST body (messages + statuses)."""
     import whatsapp as wa
@@ -675,21 +759,7 @@ def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                     if not wa_id or not from_phone:
                         results.append({"status": "skipped", "reason": "missing_id_or_from"})
                         continue
-                    msg_type = msg.get("type") or "text"
-                    body = ""
-                    if msg_type == "text":
-                        body = ((msg.get("text") or {}).get("body")) or ""
-                    elif msg_type == "button":
-                        body = ((msg.get("button") or {}).get("text")) or ""
-                    elif msg_type == "interactive":
-                        interactive = msg.get("interactive") or {}
-                        body = (
-                            ((interactive.get("button_reply") or {}).get("title"))
-                            or ((interactive.get("list_reply") or {}).get("title"))
-                            or ""
-                        )
-                    else:
-                        body = f"[{msg_type} message]"
+                    body = _inbound_body(msg)
                     ts_raw = msg.get("timestamp")
                     try:
                         sent_at = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else utc_now()
@@ -746,4 +816,4 @@ def process_whatsapp_webhook(payload: dict[str, Any]) -> dict[str, Any]:
                         result = {"status": "error", "waMessageId": wa_id}
                     results.append(result)
 
-    return {"ok": True, "results": results}
+    return {"ok": all(r.get("status") != "error" for r in results), "results": results}

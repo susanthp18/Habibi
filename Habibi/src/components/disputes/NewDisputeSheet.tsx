@@ -23,11 +23,13 @@ interface Props {
   onClose: () => void;
   onCreated: () => void;
   customers: DisputeCustomerOption[];
+  /** Opened from a customer's screen: that customer, or nobody -- never another one. */
+  initialCustomerId?: string;
 }
 
-export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
+export function NewDisputeSheet({ onClose, onCreated, customers, initialCustomerId }: Props) {
   const pool = customers;
-  const [customerId, setCustomerId] = useState(pool[0]?.id ?? "");
+  const [customerId, setCustomerId] = useState(initialCustomerId ?? pool[0]?.id ?? "");
   const [type, setType] = useState<DisputeType>("paid_already");
   const [amount, setAmount] = useState("0");
   const [notes, setNotes] = useState("");
@@ -38,9 +40,10 @@ export function NewDisputeSheet({ onClose, onCreated, customers }: Props) {
   useEffect(() => {
     setCustomerId((cur) => {
       if (pool.length === 0) return "";
-      return pool.some((c) => c.id === cur) ? cur : pool[0]!.id;
+      if (pool.some((c) => c.id === cur)) return cur;
+      return initialCustomerId ? "" : pool[0]!.id;
     });
-  }, [pool]);
+  }, [pool, initialCustomerId]);
 
   const selected = useMemo(() => pool.find((c) => c.id === customerId), [pool, customerId]);
 

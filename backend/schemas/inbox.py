@@ -31,9 +31,14 @@ class InboxMessageResponse(BaseModel):
     sender: Literal["customer", "bot", "agent"]
     text: str
     time: str
+    #: When it was sent, ISO 8601: the date a clock-only ``time`` cannot carry.
+    at: str | None = None
     # "pending" = accepted by the API and queued, not yet handed to the
     # provider. Its own state on purpose — see db._inbox_delivery.
     delivery: Literal["pending", "sent", "delivered", "read", "failed"] | None = None
+    #: Why a failed or held message did not go out, in words; never the
+    #: provider's raw text.
+    deliveryNote: str | None = None
 
 
 class InboxSystemEventResponse(BaseModel):
@@ -43,6 +48,7 @@ class InboxSystemEventResponse(BaseModel):
     kind: Literal["system"] = "system"
     text: str
     time: str
+    at: str | None = None
 
 
 class InboxPromiseResponse(BaseModel):
@@ -71,25 +77,38 @@ class InboxInteractionSummaryResponse(BaseModel):
 
 
 class InboxThreadContextResponse(BaseModel):
+    """The borrower beside a thread. ``outstanding``, aging and the next EMI
+    are the thread's own loan; promises, disputes and interactions span all of
+    the customer's loans."""
+
     model_config = ConfigDict(extra="forbid")
 
     riskLevel: Literal["High", "Medium", "Low"]  # `critical` on the book reads High here
-    contactableNow: bool
-    #: Why not, when not: the gate's refusal reason, or `policy_unavailable`
-    #: when the gate could not be read (never a guess from the DND flag).
-    contactableReason: str | None = None
+    #: Whether an agent's reply on this thread would be admitted now: its own
+    #: channel, under the purpose the send uses (in-session inside WhatsApp's
+    #: service window). Not general outreach eligibility.
+    canReply: bool
+    #: Why not, when not: a gate reason, ``whatsapp_window_closed``,
+    #: ``channel_not_supported``, or ``policy_unavailable`` when the gate could
+    #: not be read.
+    replyBlockedReason: str | None = None
+    #: When WhatsApp's 24-hour service window closes, ISO 8601.
+    replyWindowEndsAt: str | None = None
     contactWindow: str
-    outstanding: float
+    outstanding: float | None = None
     outstandingAging: str
-    nextEmiDate: str
-    nextEmiAmount: float
+    nextEmiDate: str | None = None
+    nextEmiAmount: float | None = None
+    nextEmiOverdue: bool = False
     lastPromise: InboxPromiseResponse | None = None
     openDisputes: list[InboxDisputeSummaryResponse] = []
+    #: All open disputes; ``openDisputes`` lists the newest five.
+    openDisputesTotal: int = 0
     recentInteractions: list[InboxInteractionSummaryResponse] = []
 
 
-class ConversationListResponse(BaseModel):
-    """Conversation Inbox screen Thread shape."""
+class ConversationSummaryResponse(BaseModel):
+    """One row of the inbox list. No transcript: the open thread reads it."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -109,20 +128,30 @@ class ConversationListResponse(BaseModel):
     assignedUserId: str | None = None
     isMine: bool
     botTyping: bool = False
-    pendingOutbound: bool = False
+    #: Change watermark for delta polls (`?updatedAfter=`).
     updatedAt: str | None = None
+    #: The last message, ISO 8601: what the list is ordered by.
+    lastAt: str | None = None
+    #: The customer's messages since the last reply that reached them. Not a
+    #: read receipt -- nothing records what an agent has read.
+    awaitingReply: int
+    #: How long the oldest of those has waited.
     sla: Literal["ok", "warn", "breach"]
-    unread: int
     lastTime: str
     lastPreview: str
     lastFrom: Sender
     sentiment: Literal["positive", "neutral", "negative"]
-    ragSuggestions: list[str] = []
-    ragDraftAnswer: str | None = None
     handlerBotId: str | None = None
+
+
+class ConversationResponse(ConversationSummaryResponse):
+    """The open thread, and every write's answer."""
+
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
-    #: On the thread detail and every write's response; the list omits it.
-    context: InboxThreadContextResponse | None = None
+    ragSuggestions: list[str] = []
+    #: A drafted reply to the customer's latest message; absent once they write again.
+    ragDraftAnswer: str | None = None
+    context: InboxThreadContextResponse
 
 
 class CannedResponseItem(BaseModel):
@@ -135,6 +164,14 @@ class CannedResponseItem(BaseModel):
 
 class ConversationMessageCreateRequest(BaseModel):
     text: str = Field(min_length=1)
+
+
+class ConversationTakeoverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Who the caller saw holding the thread (null: nobody). When set and the
+    #: holder has changed since, the takeover is refused, not applied.
+    expectedAssigneeId: str | None = None
 
 
 class ConversationSuggestionsRefreshRequest(BaseModel):
@@ -153,4 +190,6 @@ class ConversationSuggestionsRefreshResponse(BaseModel):
     chatModel: str | None = None
     latencyMs: int | None = None
     logId: str | None = None
-    thread: ConversationListResponse | None = None
+    #: True when the knowledge base could not be searched and these are the
+    #: passages found last time.
+    stale: bool = False

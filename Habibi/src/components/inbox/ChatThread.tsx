@@ -1,23 +1,39 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
+import { ArrowDown, Copy, Bot, Info, MoreHorizontal, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread, ThreadItem } from "@/api/types/inbox";
-import { getThreadHandoffState } from "./meta";
+import { getThreadHandoffState, resolveChannelMeta, type InboxRights } from "./meta";
 import { MessageBubble } from "./MessageBubble";
 import { Lozenge } from "@/components/ui/lozenge";
+import { Tag } from "@/components/ui/tag";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 function isMessage(item: ThreadItem): item is Extract<ThreadItem, { sender: unknown }> {
-  return (item as { kind?: string }).kind !== "system";
+  return "sender" in item;
+}
+
+const DAY = new Intl.DateTimeFormat("en-IN", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "Asia/Kolkata",
+});
+
+/** The IST calendar day an item belongs to, for the divider between days. */
+function dayOf(item: ThreadItem): string | null {
+  return item.at ? DAY.format(new Date(item.at)) : null;
 }
 
 function BotTypingBubble() {
   return (
-    <div
-      className="animate-fade-up flex flex-col items-start"
-      aria-live="polite"
-      aria-label="Bot is typing"
-    >
+    <div className="animate-fade-up flex flex-col items-start" aria-label="Bot is typing">
       <span className="mb-025 px-050 text-body-small font-semibold text-text-brand">Bot</span>
       <div className="inline-flex items-center gap-050 rounded-xxlarge rounded-bl-md border border-border bg-background-brand-subtlest px-200 py-150">
         <span
@@ -40,6 +56,7 @@ function BotTypingBubble() {
 
 export function ChatThread({
   thread,
+  rights,
   onToggleRail,
   railOpen = false,
   onTakeOver,
@@ -47,57 +64,60 @@ export function ChatThread({
   busy = false,
 }: {
   thread: Thread;
+  rights: InboxRights;
   onToggleRail: () => void;
   railOpen?: boolean;
-  onTakeOver?: () => void;
-  onReturnToBot?: () => void;
+  onTakeOver: () => void;
+  onReturnToBot: () => void;
   busy?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const { needsClaim, canReturnToBot, botHandling, heldByTeammate } = getThreadHandoffState(
+  const { canClaim, canReturnToBot, botHandling, heldByTeammate } = getThreadHandoffState(
     thread,
-    Boolean(onReturnToBot),
+    rights,
   );
   const botTyping = Boolean(thread.botTyping) && thread.status === "bot" && !thread.isMine;
+  const channel = resolveChannelMeta(thread.channel);
+  const ChannelIcon = channel.icon;
+  const messages = thread.messages ?? [];
 
-  // Opening a thread always lands at the newest message; after that, follow
-  // only if the reader is already at the bottom. The list re-renders on every
-  // poll — 1.5s while the bot is typing — and each one used to yank the view
-  // back down, so scrolling up to read what the customer said earlier was
-  // impossible while a turn was in flight.
+  // Opening a thread lands at the newest message; after that, follow only if
+  // the reader is already at the bottom -- polls re-render every few seconds,
+  // and yanking the view down made reading earlier history impossible. What
+  // arrives while they read above is announced instead.
   const atBottomRef = useRef(true);
+  const [unseen, setUnseen] = useState(0);
+  const seenCount = useRef(messages.length);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+    if (atBottomRef.current) {
+      seenCount.current = messages.length;
+      setUnseen(0);
+    }
+  };
+  const toBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   };
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
     atBottomRef.current = true;
-    el.scrollTop = el.scrollHeight;
+    seenCount.current = messages.length;
+    setUnseen(0);
+    toBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on opening a thread only
   }, [thread.id]);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [thread.messages.length, botTyping]);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [thread.id]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [menuOpen]);
+    if (atBottomRef.current) {
+      seenCount.current = messages.length;
+      toBottom();
+    } else {
+      setUnseen(Math.max(0, messages.length - seenCount.current));
+    }
+  }, [messages.length, botTyping]);
 
   const copyAccount = async () => {
     try {
@@ -106,13 +126,23 @@ export function ChatThread({
     } catch {
       toast.error("Could not copy account ID");
     }
-    setMenuOpen(false);
   };
+
+  let previousDay: string | null = null;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface">
       <div className="flex shrink-0 items-center gap-150 border-b border-border bg-surface px-250 py-100">
         <h2 className="min-w-0 truncate heading-xsmall text-text">{thread.customer}</h2>
+        <Tag hue={channel.hue}>
+          <ChannelIcon className="h-3 w-3" aria-hidden />
+          {channel.label}
+        </Tag>
+        {thread.sentiment === "negative" && (
+          <Lozenge tone="danger" title="The customer's recent messages read as negative">
+            Negative sentiment
+          </Lozenge>
+        )}
 
         <div className="ml-auto flex shrink-0 items-center gap-100">
           {botTyping ? (
@@ -128,13 +158,11 @@ export function ChatThread({
           ) : thread.isMine ? (
             <Lozenge tone="selected">You&apos;ve taken over</Lozenge>
           ) : heldByTeammate ? (
-            // "Awaiting agent" was shown here too, about a thread an agent is
-            // already holding.
             <Lozenge tone="neutral">Another agent has this</Lozenge>
           ) : (
             <Lozenge tone="warning">Awaiting agent</Lozenge>
           )}
-          {needsClaim && onTakeOver && (
+          {canClaim && (
             <button
               type="button"
               disabled={busy}
@@ -158,74 +186,89 @@ export function ChatThread({
           >
             <Info className="h-4 w-4" />
           </button>
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((o) => !o)}
-              className={cn(
-                "focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken",
-                menuOpen && "bg-surface-sunken text-text-brand",
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="focus-ring grid h-400 w-400 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken"
+                aria-label="More actions"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canReturnToBot && (
+                <DropdownMenuItem disabled={busy} onSelect={onReturnToBot}>
+                  <Bot className="h-3.5 w-3.5 text-text-brand" />
+                  Return to bot
+                </DropdownMenuItem>
               )}
-              aria-label="More actions"
-              aria-expanded={menuOpen}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 z-20 mt-050 w-52 overflow-hidden rounded-medium border border-border bg-surface py-050 shadow-overlay">
-                {canReturnToBot && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onReturnToBot?.();
-                    }}
-                    className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest disabled:opacity-50"
-                  >
-                    <Bot className="h-3.5 w-3.5 text-text-brand" />
-                    Return to bot
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void copyAccount()}
-                  className="focus-ring flex w-full items-center gap-100 px-150 py-100 text-left text-body-small text-text hover:bg-background-brand-subtlest"
-                >
-                  <Copy className="h-3.5 w-3.5 text-text-subtlest" />
-                  Copy account ID
-                </button>
-              </div>
-            )}
-          </div>
+              <DropdownMenuItem onSelect={() => void copyAccount()}>
+                <Copy className="h-3.5 w-3.5 text-text-subtlest" />
+                Copy account ID
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-300 py-250"
-      >
-        <div className="mx-auto flex max-w-[50rem] flex-col gap-100">
-          {thread.messages.map((item, idx) => {
-            if (!isMessage(item)) {
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="h-full overflow-y-auto px-300 py-250"
+          role="log"
+          aria-label={`Conversation with ${thread.customer}`}
+        >
+          <div className="mx-auto flex max-w-[50rem] flex-col gap-100">
+            {messages.length === 0 && (
+              <p className="py-400 text-center text-body-small text-text-subtle">
+                No messages in this conversation yet.
+              </p>
+            )}
+            {messages.map((item, idx) => {
+              const day = dayOf(item);
+              const divider = day && day !== previousDay ? day : null;
+              if (day) previousDay = day;
+              const prev = messages[idx - 1];
+              const prevSender = prev && isMessage(prev) ? prev.sender : null;
               return (
-                <div key={item.id} className="my-100 flex items-center gap-100">
-                  <div className="h-px flex-1 bg-border" />
-                  <Lozenge tone="neutral">
-                    {item.text} · {item.time}
-                  </Lozenge>
-                  <div className="h-px flex-1 bg-border" />
+                <div key={item.id} className="flex flex-col gap-100">
+                  {divider && (
+                    <div className="my-100 text-center text-body-small font-medium text-text-subtlest">
+                      {divider}
+                    </div>
+                  )}
+                  {isMessage(item) ? (
+                    <MessageBubble
+                      message={item}
+                      showTag={Boolean(divider) || prevSender !== item.sender}
+                    />
+                  ) : (
+                    <div className="my-100 flex items-center gap-100">
+                      <div className="h-px flex-1 bg-border" />
+                      <Lozenge tone="neutral">
+                        {item.text} · {item.time}
+                      </Lozenge>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
                 </div>
               );
-            }
-            const prev = thread.messages[idx - 1];
-            const prevSender = prev && isMessage(prev) ? prev.sender : null;
-            const showTag = prevSender !== item.sender;
-            return <MessageBubble key={item.id} message={item} showTag={showTag} />;
-          })}
-          {botTyping && <BotTypingBubble />}
+            })}
+            {botTyping && <BotTypingBubble />}
+          </div>
         </div>
+        {unseen > 0 && (
+          <button
+            type="button"
+            onClick={toBottom}
+            className="focus-ring absolute bottom-150 left-1/2 inline-flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-050 text-body-small font-medium text-text-inverse shadow-overlay"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+            {unseen === 1 ? "1 new message" : `${unseen} new messages`}
+          </button>
+        )}
       </div>
     </div>
   );

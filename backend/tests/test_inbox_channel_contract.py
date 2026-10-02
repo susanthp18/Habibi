@@ -1,6 +1,6 @@
 """A response model must not be narrower than the column it serialises.
 
-``ConversationListResponse.channel`` allowed ``whatsapp | sms | email`` while
+``ConversationSummaryResponse.channel`` allowed ``whatsapp | sms | email`` while
 the ``conversations.channel`` CHECK constraint allowed those plus ``chat`` and
 ``voice``. The gap was invisible until something wrote a row on one of the
 missing channels — and because ``response_model=list[...]`` validates the whole
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from schemas import ConversationListResponse
+from schemas import ConversationSummaryResponse
 
 _SQL = Path(__file__).resolve().parents[1] / "sql" / "04_interactions.sql"
 
@@ -47,7 +47,7 @@ def _check_values(table: str, column: str) -> set[str]:
 
 
 def _literal_values(field: str) -> set[str]:
-    annotation = ConversationListResponse.model_fields[field].annotation
+    annotation = ConversationSummaryResponse.model_fields[field].annotation
     args = typing.get_args(annotation)
     assert args, f"{field} is not a Literal"
     return set(args)
@@ -60,7 +60,7 @@ def test_response_literal_matches_the_database_constraint(field: str) -> None:
     missing = allowed - declared
     assert not missing, (
         f"conversations.{field} permits {sorted(missing)}, which "
-        f"ConversationListResponse.{field} rejects. A single row with one of "
+        f"ConversationSummaryResponse.{field} rejects. A single row with one of "
         f"those values 500s GET /conversations and blanks the whole inbox."
     )
 

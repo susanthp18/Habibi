@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ChatThread } from "@/components/inbox/ChatThread";
 import { Composer } from "@/components/inbox/Composer";
 import { ContextRail } from "@/components/inbox/ContextRail";
+import { inboxErrorWords } from "@/components/inbox/inbox-words";
 import { QueryState, QueryErrorBanner } from "@/components/ui/query-state";
 import { SplitPanes } from "@/components/shared/SplitPanes";
 import {
+  applyThread,
   refreshConversationSuggestions,
   returnConversationToBot,
   sendConversationMessage,
@@ -15,9 +18,13 @@ import {
   useConversation,
   useConversations,
 } from "@/api/inbox";
+import { can, useMe } from "@/api/me";
+import { isNotFound } from "@/api/config";
 import type { Thread } from "@/api/types/inbox";
+import type { InboxRights } from "@/components/inbox/meta";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useConfirm } from "@/components/ui/use-confirm";
+import { useDebounced } from "@/lib/use-debounced";
 
 export type InboxSearch = {
   conversationId?: string;
@@ -33,312 +40,356 @@ export const Route = createFileRoute("/_app/inbox")({
       {
         name: "description",
         content:
-          "Omnichannel text inbox — monitor bot conversations, take over on WhatsApp/SMS/email, and resolve with RAG-suggested replies.",
+          "Omnichannel text inbox — monitor bot conversations, take over on WhatsApp/SMS, and resolve with knowledge-base suggested replies.",
       },
     ],
   }),
   component: InboxPage,
 });
 
-function friendlyInboxError(raw: string): string {
-  if (raw.includes("whatsapp_window_closed")) {
-    return "WhatsApp 24h window is closed. Open WhatsApp on the customer's phone and send any message to the business number first — then reply here within 24 hours.";
-  }
-  if (raw.includes("take_over_required") || raw.includes("bot_still_handling")) {
-    return "Take over this conversation before sending on WhatsApp.";
-  }
-  if (raw.includes("whatsapp_missing_recipient")) {
-    return "No WhatsApp phone number on this customer.";
-  }
-  if (raw.includes("whatsapp_not_configured")) {
-    return "WhatsApp is not configured on the server.";
-  }
-  if (raw.includes("whatsapp_token_expired")) {
-    return "WhatsApp access token expired. Paste a fresh WHATSAPP_TOKEN into backend/.env and restart the API.";
-  }
-  if (raw.includes("whatsapp_token_invalid")) {
-    return "WhatsApp access token is invalid. Check WHATSAPP_TOKEN in backend/.env.";
-  }
-  if (raw.includes("whatsapp_send_failed")) {
-    return `WhatsApp send failed: ${raw.replace(/^whatsapp_send_failed:/, "")}`;
-  }
-  if (raw.includes("rate_limited")) {
-    return "RAG suggestions rate-limited — try again in a moment.";
-  }
-  if (raw.includes("inbox_rag_failed") || raw.includes("kb_retrieve_failed")) {
-    return `Could not refresh RAG suggestions: ${raw}`;
-  }
-  return raw;
-}
-
-function lastCustomerFingerprint(
-  thread: {
-    messages: Array<{ id?: string; sender?: string; text?: string; kind?: string }>;
-  } | null,
-) {
+function lastCustomerFingerprint(thread: Thread | undefined): string {
   if (!thread) return "";
-  for (let i = thread.messages.length - 1; i >= 0; i--) {
-    const m = thread.messages[i];
-    if (!m || m.kind === "system") continue;
-    if (m.sender === "customer") return `${m.id ?? i}:${m.text ?? ""}`;
+  for (let i = (thread.messages?.length ?? 0) - 1; i >= 0; i--) {
+    const m = thread.messages?.[i];
+    if (m && "sender" in m && m.sender === "customer") return `${m.id}`;
   }
-  return `len:${thread.messages.length}`;
+  return "";
 }
 
-function useWideLayout(minPx = 1440) {
-  const [wide, setWide] = useState(true);
+/** The query's answer on first render, so a laptop never mounts in the wrong layout and then jumps. */
+function useMedia(query: string) {
+  const [matches, setMatches] = useState(() =>
+    typeof window === "undefined" ? true : window.matchMedia(query).matches,
+  );
   useEffect(() => {
-    const mq = window.matchMedia(`(min-width: ${minPx}px)`);
-    const apply = () => setWide(mq.matches);
+    const mq = window.matchMedia(query);
+    const apply = () => setMatches(mq.matches);
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, [minPx]);
-  return wide;
+  }, [query]);
+  return matches;
 }
+
+type Rag = {
+  threadId: string | null;
+  loading: boolean;
+  error: string | null;
+  stale: boolean;
+  suggestions: string[] | null;
+};
+
+const NO_RAG: Rag = {
+  threadId: null,
+  loading: false,
+  error: null,
+  stale: false,
+  suggestions: null,
+};
 
 function InboxPage() {
   const queryClient = useQueryClient();
   const { confirm, confirmDialog } = useConfirm();
   const navigate = useNavigate({ from: "/inbox" });
-  const { conversationId } = Route.useSearch();
-  // `isPending`, not `isLoading`. They differ exactly when the fetch is paused
-  // — the tab is in the background, or the browser reports itself offline —
-  // and in that state `isLoading` is false while no response has ever arrived.
-  // The empty branch then rendered "No conversations yet." about an inbox
-  // nobody had managed to read: the same graceful-degradation lie as a failed
-  // canned-response load claiming none are configured.
-  const { data: threads = [], isPending, isError, error, fetchStatus } = useConversations();
-  const [activeId, setActiveId] = useState<string | null>(conversationId ?? null);
-  const wideLayout = useWideLayout(1440);
+  const { conversationId: activeId } = Route.useSearch();
+  const { data: me } = useMe();
+  const rights: InboxRights = {
+    canWrite: can(me, "perm-interactions-write"),
+    canReassign: can(me, "perm-supervisor-write"),
+    canFileDocuments: can(me, "perm-collections-write"),
+  };
+
+  const [search, setSearch] = useState("");
+  const q = useDebounced(search);
+  // `isPending`, not `isLoading`: they differ exactly when the fetch is paused
+  // (tab hidden, browser offline), and then "No conversations yet." would be
+  // a claim about an inbox nobody had managed to read.
+  const list = useConversations(q);
+  const threads = useMemo(() => list.data ?? [], [list.data]);
+  const detail = useConversation(activeId);
+  const thread = detail.data;
+
+  const wideLayout = useMedia("(min-width: 1440px)");
+  const narrow = !useMedia("(min-width: 768px)");
   const railUserToggled = useRef(false);
-  const [railOpen, setRailOpen] = useState(true);
-  const [pending, setPending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [ragLoading, setRagLoading] = useState(false);
-  const [ragError, setRagError] = useState<string | null>(null);
-  const [localSuggestions, setLocalSuggestions] = useState<string[] | null>(null);
-  const [localDraft, setLocalDraft] = useState<string | null | undefined>(undefined);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastFp = useRef<string>("");
+  const [railOpen, setRailOpen] = useState(wideLayout);
+  // Per thread, so a send still in flight on one conversation neither blocks
+  // nor reports its failure on the next one the operator opens.
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const drafts = useRef(new Map<string, string>());
+  const [rag, setRag] = useState<Rag>(NO_RAG);
+  const ragToken = useRef(0);
 
   useEffect(() => {
     if (!railUserToggled.current) setRailOpen(wideLayout);
   }, [wideLayout]);
 
-  useEffect(() => {
-    if (conversationId) setActiveId(conversationId);
-  }, [conversationId]);
-
+  // Landing on the inbox opens the newest thread, and the URL says which, so
+  // the address can be copied. Replace, not push: it is not a step the
+  // operator took.
   useEffect(() => {
     const first = threads[0];
-    if (!activeId && first) {
-      setActiveId(first.id);
+    if (!activeId && first && !q && !narrow) {
+      void navigate({ search: { conversationId: first.id }, replace: true });
     }
-  }, [threads, activeId]);
+  }, [threads, activeId, q, narrow, navigate]);
 
-  useEffect(() => {
-    setSendError(null);
-    setRagError(null);
-    setLocalSuggestions(null);
-    setLocalDraft(undefined);
-    // A refresh issued for the previous thread can no longer clear this flag
-    // (it is not "current" any more), so without resetting it here the spinner
-    // stayed up from the moment you switched until the next request settled.
-    setRagLoading(false);
-    lastFp.current = "";
-  }, [activeId]);
-
-  // No `?? threads[0]` fallback. A ?conversationId that matches nothing used to
-  // render the first thread in the list instead — same URL, different customer,
-  // no indication anything had been substituted.
-  const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
-  const deadLink = Boolean(activeId) && active === null && threads.length > 0;
-  // The list carries no customer context (it polls); the open thread's detail does.
-  const detailQuery = useConversation(active?.id);
-  const context = detailQuery.data?.context ?? null;
-
-  const displayThread = useMemo(() => {
-    if (!active) return null;
-    const next = { ...active };
-    if (localSuggestions != null) next.ragSuggestions = localSuggestions;
-    if (localDraft !== undefined) next.ragDraftAnswer = localDraft;
-    return next;
-  }, [active, localSuggestions, localDraft]);
-
-  // Monotonic token + the conversation the newest request was issued for.
-  const ragRequestToken = useRef(0);
-  const activeIdRef = useRef<string | null>(null);
-  activeIdRef.current = active?.id ?? null;
-
-  const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+  const select = (id: string) => {
+    // A step the operator took: Back returns to the previous thread.
+    if (id !== activeId) void navigate({ search: { conversationId: id } });
   };
 
-  /**
-   * Merge one server-authoritative thread into the cached list.
-   *
-   * takeover / return-to-bot / send all return the updated Thread, and all
-   * three used to throw it away and `await invalidate()` instead — a full
-   * refetch of every thread, with messages, suggestions and typing state. That
-   * request measures ~1.2s against a warm local API, and the button stayed
-   * disabled for the whole of it, so an action the server completed in 0.2s
-   * felt like a second and a half of nothing happening.
-   *
-   * The response is the newest state of the thread that changed. Apply it,
-   * release the UI, and let the background refetch reconcile the rest.
-   */
-  const mergeThread = (updated: Thread | null | undefined) => {
-    if (!updated?.id) return;
-    queryClient.setQueryData(["conversations"], (prev: unknown) => {
-      if (!Array.isArray(prev)) return prev;
-      return prev.map((t: { id?: string }) => (t?.id === updated.id ? { ...t, ...updated } : t));
+  const setThreadBusy = (id: string, on: boolean) =>
+    setBusy((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
     });
+  const setThreadError = (id: string, message: string | null) =>
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (message) next[id] = message;
+      else delete next[id];
+      return next;
+    });
+
+  /** One write on one thread: busy while it runs, its answer into both caches, its failure on that thread. */
+  const write = async (target: Thread, run: () => Promise<Thread>): Promise<boolean> => {
+    if (busy.has(target.id)) return false;
+    setThreadBusy(target.id, true);
+    setThreadError(target.id, null);
+    try {
+      applyThread(queryClient, await run());
+      return true;
+    } catch (err) {
+      setThreadError(target.id, inboxErrorWords(err, target.channel));
+      // The refusal may be because the thread moved on: read it again.
+      void queryClient.invalidateQueries({ queryKey: ["conversation", target.id] });
+      return false;
+    } finally {
+      setThreadBusy(target.id, false);
+    }
   };
 
-  const runRagRefresh = (conversationId: string, withDraft: boolean) => {
-    // Retrieval is slow enough that switching threads mid-flight was routine,
-    // and the older response then overwrote the newer one — one customer's KB
-    // draft rendered in another customer's thread. Only the newest request for
-    // the still-selected conversation may touch state.
-    const token = ++ragRequestToken.current;
-    const isCurrent = () =>
-      token === ragRequestToken.current && activeIdRef.current === conversationId;
+  const ragFor = rag.threadId === thread?.id ? rag : NO_RAG;
 
-    setRagLoading(true);
-    setRagError(null);
-    void refreshConversationSuggestions(conversationId, {
-      topK: 4,
-      includeDraftAnswer: withDraft,
-    })
-      .then((res) => {
-        // The thread cache patch is keyed by conversation id, so it is safe
-        // (and useful) to apply even if the user has moved on.
-        if (res.thread) {
-          queryClient.setQueryData(["conversations"], (prev: unknown) => {
-            if (!Array.isArray(prev)) return prev;
-            return prev.map((t: { id?: string }) =>
-              t?.id === res.conversationId ? { ...t, ...res.thread } : t,
-            );
-          });
-        }
-        if (!isCurrent()) return;
-        setLocalSuggestions(res.ragSuggestions ?? []);
-        if (withDraft) setLocalDraft(res.draftAnswer ?? null);
-        void invalidate();
-      })
-      .catch((err) => {
-        if (!isCurrent()) return;
-        setRagError(friendlyInboxError((err as Error)?.message ?? "rag_refresh_failed"));
-      })
-      .finally(() => {
-        if (isCurrent()) setRagLoading(false);
+  /** Search the knowledge base for this thread. Resolves to the drafted reply, when one was asked for. */
+  const refreshRag = async (threadId: string, withDraft: boolean): Promise<string | null> => {
+    // Only the newest request for the still-open thread may touch the panel:
+    // retrieval is slow enough that switching mid-flight was routine.
+    const token = ++ragToken.current;
+    const current = () => token === ragToken.current;
+    setRag((r) => ({
+      ...(r.threadId === threadId ? r : NO_RAG),
+      threadId,
+      loading: true,
+      error: null,
+    }));
+    try {
+      const res = await refreshConversationSuggestions(threadId, {
+        topK: 4,
+        includeDraftAnswer: withDraft,
       });
+      if (current()) {
+        setRag({
+          threadId,
+          loading: false,
+          error: null,
+          stale: Boolean(res.stale),
+          suggestions: res.ragSuggestions ?? [],
+        });
+      }
+      return withDraft && !res.stale ? (res.draftAnswer ?? null) : null;
+    } catch (err) {
+      if (current()) {
+        setRag((r) => ({
+          ...r,
+          loading: false,
+          error: inboxErrorWords(err, thread?.channel ?? "whatsapp"),
+        }));
+      }
+      return null;
+    }
   };
 
+  // A new customer message asks for new passages. Debounced, keyed on that message.
+  const fingerprint = lastCustomerFingerprint(thread);
   useEffect(() => {
-    if (!active) return;
-    const fp = `${active.id}|${lastCustomerFingerprint(active)}`;
-    if (fp === lastFp.current) return;
-    lastFp.current = fp;
+    if (!thread?.id || !fingerprint) return;
+    const timer = setTimeout(() => void refreshRag(thread.id, false), 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the thread and its last customer turn
+  }, [thread?.id, fingerprint]);
 
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => {
-      runRagRefresh(active.id, false);
-    }, 500);
+  const handleTakeOver = async () => {
+    if (!thread) return;
+    if (!thread.isMine && thread.status === "assigned") {
+      const ok = await confirm({
+        title: "Take over from another agent?",
+        description: `${thread.customer}'s conversation is assigned to a colleague. Taking over reassigns it to you, and they will not be able to reply until you hand it back.`,
+        confirmLabel: "Take over anyway",
+        cancelLabel: "Leave it with them",
+      });
+      if (!ok) return;
+    }
+    // Conditional on the holder this screen showed: if someone else got there
+    // first, the server refuses rather than silently overwriting them.
+    await write(thread, () => takeoverConversation(thread.id, thread.assignedUserId ?? null));
+  };
 
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce keyed on conversation + last customer turn
-  }, [active?.id, active ? lastCustomerFingerprint(active) : ""]);
+  const handleReturnToBot = async () => {
+    if (thread) await write(thread, () => returnConversationToBot(thread.id));
+  };
 
-  const handleSuggestReply = () => {
-    if (!active) return;
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    runRagRefresh(active.id, true);
+  const handleSend = async (text: string, idempotencyKey: string) => {
+    if (!thread) return false;
+    return write(thread, () => sendConversationMessage(thread.id, text, idempotencyKey));
   };
 
   const toggleRail = () => {
     railUserToggled.current = true;
     setRailOpen((o) => !o);
   };
-
   const closeRail = () => {
     railUserToggled.current = true;
     setRailOpen(false);
   };
 
-  const handleTakeOver = async () => {
-    if (!active || pending) return;
-    // The backend puts no ownership check on takeover, so claiming a thread a
-    // colleague is holding silently reassigns it to you and they find out by
-    // being rejected. Offering the button is the fix for the dead-end; asking
-    // first is what keeps it from being a silent steal.
-    if (!active.isMine && active.status === "assigned") {
-      const ok = await confirm({
-        title: "Take over from another agent?",
-        description: `${active.customer}'s conversation is assigned to a colleague. Taking over reassigns it to you, and they will not be able to reply until you hand it back.`,
-        confirmLabel: "Take over anyway",
-        cancelLabel: "Leave it with them",
-      });
-      if (!ok) return;
-    }
-    setPending(true);
-    setSendError(null);
-    try {
-      mergeThread(await takeoverConversation(active.id));
-      // Not awaited: the authoritative thread is already in the cache, so
-      // holding the button for a full-list refetch buys the operator nothing.
-      void invalidate();
-    } catch (err) {
-      setSendError(friendlyInboxError((err as Error)?.message ?? "takeover_failed"));
-    } finally {
-      setPending(false);
-    }
-  };
+  const dockedRail = railOpen && wideLayout && !narrow;
+  const overlayRail = railOpen && !dockedRail;
 
-  const handleReturnToBot = async () => {
-    if (!active || pending) return;
-    setPending(true);
-    setSendError(null);
-    try {
-      mergeThread(await returnConversationToBot(active.id));
-      // Not awaited: the authoritative thread is already in the cache, so
-      // holding the button for a full-list refetch buys the operator nothing.
-      void invalidate();
-    } catch (err) {
-      setSendError(friendlyInboxError((err as Error)?.message ?? "return_to_bot_failed"));
-    } finally {
-      setPending(false);
-    }
-  };
+  // The overlay covers the thread, so Escape closes it.
+  useEffect(() => {
+    if (!overlayRail) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRail();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [overlayRail]);
 
-  const handleSend = async (text: string) => {
-    if (!active || pending) return;
-    setPending(true);
-    setSendError(null);
-    try {
-      mergeThread(await sendConversationMessage(active.id, text));
-      void invalidate();
-    } catch (err) {
-      setSendError(friendlyInboxError((err as Error)?.message ?? "send_failed"));
-      throw err;
-    } finally {
-      setPending(false);
-    }
-  };
+  // An error with nothing behind it is fatal; an error with cached rows is a
+  // stale-data warning -- one failed poll must not replace a working inbox.
+  const fatalError = list.isError && threads.length === 0 && !q;
+  const staleWarning = list.isError && threads.length > 0;
+  const deadLink = Boolean(activeId) && isNotFound(detail.error);
 
-  const dockedRail = railOpen && wideLayout;
-  const overlayRail = railOpen && !wideLayout;
+  const rail = thread ? (
+    <QueryState query={detail} label="customer context">
+      <ContextRail thread={thread} context={thread.context} onClose={closeRail} />
+    </QueryState>
+  ) : null;
 
-  // The inbox polls every 1.5–4s. Gating the whole screen on `isError` meant a
-  // single failed poll replaced a working inbox — cached threads, open thread,
-  // half-typed reply — with one line of red text, and the next successful poll
-  // put it back. An error with nothing behind it is fatal; an error with
-  // cached data is a stale-data warning.
-  const fatalError = isError && threads.length === 0;
-  const staleWarning = isError && threads.length > 0;
+  const listPane = (
+    <ConversationList
+      key="list"
+      threads={threads}
+      activeId={activeId ?? null}
+      onSelect={select}
+      search={search}
+      onSearchChange={setSearch}
+      searching={search.trim() !== q.trim() || (Boolean(q) && list.isFetching)}
+      searchFailed={Boolean(q) && list.isError}
+    />
+  );
+
+  const threadPane = (
+    <div key="chat" className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      {narrow && (
+        <button
+          type="button"
+          onClick={() => void navigate({ search: {} })}
+          className="focus-ring flex shrink-0 items-center gap-075 border-b border-border px-200 py-100 text-body-small font-medium text-text-subtle"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> All conversations
+        </button>
+      )}
+      {deadLink ? (
+        <div className="grid flex-1 place-items-center px-300 text-center">
+          <div className="max-w-[28rem]">
+            <p className="text-body font-semibold text-text">No conversation with this id</p>
+            <p className="mt-075 text-body-small text-text-subtle">
+              Nothing in this inbox is registered as “{activeId}”. It may have been deleted, or
+              belong to another tenant.
+            </p>
+            {threads[0] && (
+              <button
+                type="button"
+                onClick={() => select(threads[0]!.id)}
+                className="focus-ring mt-150 inline-flex h-400 items-center rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered"
+              >
+                Open the most recent conversation
+              </button>
+            )}
+          </div>
+        </div>
+      ) : thread ? (
+        <>
+          <ChatThread
+            thread={thread}
+            rights={rights}
+            onToggleRail={toggleRail}
+            railOpen={railOpen}
+            onTakeOver={() => void handleTakeOver()}
+            onReturnToBot={() => void handleReturnToBot()}
+            busy={busy.has(thread.id)}
+          />
+          <Composer
+            key={thread.id}
+            thread={thread}
+            rights={rights}
+            draft={drafts.current.get(thread.id) ?? ""}
+            onDraftChange={(text) => {
+              if (text) drafts.current.set(thread.id, text);
+              else drafts.current.delete(thread.id);
+            }}
+            onSend={handleSend}
+            onRefreshRag={() => void refreshRag(thread.id, false)}
+            onSuggestReply={() => refreshRag(thread.id, true)}
+            ragSuggestions={ragFor.suggestions ?? thread.ragSuggestions ?? []}
+            ragDraft={thread.ragDraftAnswer ?? null}
+            ragLoading={ragFor.loading}
+            ragError={ragFor.error}
+            ragStale={ragFor.stale}
+            ragSearched={ragFor.suggestions !== null}
+            busy={busy.has(thread.id)}
+            errorMessage={errors[thread.id] ?? null}
+          />
+          {overlayRail && (
+            <>
+              <button
+                type="button"
+                aria-label="Close customer context"
+                onClick={closeRail}
+                className="absolute inset-0 z-10 bg-background-neutral-bold/20"
+              />
+              <div
+                role="dialog"
+                aria-label="Customer context"
+                className="absolute inset-y-0 right-0 z-20 flex w-[20rem] max-w-[85%] flex-col border-l border-border bg-surface shadow-overlay"
+              >
+                {rail}
+              </div>
+            </>
+          )}
+        </>
+      ) : detail.isError ? (
+        <div className="grid flex-1 place-items-center p-400">
+          <QueryErrorBanner label="this conversation" error={detail.error} />
+        </div>
+      ) : activeId ? (
+        <div className="grid flex-1 place-items-center">
+          <LoadingState label="Loading conversation" />
+        </div>
+      ) : (
+        <div className="grid flex-1 place-items-center text-body text-text-subtle">
+          Select a conversation.
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -348,117 +399,49 @@ function InboxPage() {
             role="status"
             className="shrink-0 border-b border-border-warning-subtle bg-background-warning-subtler px-250 py-075 text-body-small text-text-warning-bolder"
           >
-            Live updates interrupted ({(error as Error)?.message ?? "unknown error"}). Showing the
-            last state received — new messages may be missing.
+            Live updates interrupted. Showing the last state received — new messages may be missing.
           </div>
         )}
         <div className="flex min-h-0 w-full flex-1 overflow-hidden">
-          {isPending && !isError && (
+          {list.isPending && !list.isError && !q ? (
             <div className="grid flex-1 place-items-center">
               <LoadingState
-                label={fetchStatus === "paused" ? "Waiting to reconnect" : "Loading conversations"}
+                label={
+                  list.fetchStatus === "paused" ? "Waiting to reconnect" : "Loading conversations"
+                }
               />
             </div>
-          )}
-          {fatalError && (
+          ) : fatalError ? (
             <div className="grid flex-1 place-items-center p-400">
-              <QueryErrorBanner label="the inbox" error={error} />
+              <QueryErrorBanner label="the inbox" error={list.error} />
             </div>
-          )}
-          {!isPending && !fatalError && deadLink && (
-            <div className="grid flex-1 place-items-center px-300 text-center">
-              <div className="max-w-[28rem]">
-                <p className="text-body font-semibold text-text">No conversation with this id</p>
-                <p className="mt-075 text-body-small text-text-subtle">
-                  Nothing in this inbox is registered as “{activeId}”. It may have been deleted, or
-                  belong to another tenant.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const first = threads[0];
-                    if (!first) return;
-                    setActiveId(first.id);
-                    void navigate({ search: { conversationId: first.id }, replace: true });
-                  }}
-                  className="focus-ring mt-150 inline-flex h-400 items-center rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered"
-                >
-                  Open the most recent conversation
-                </button>
-              </div>
+          ) : !threads.length && !q && !activeId ? (
+            <div className="grid flex-1 place-items-center text-body text-text-subtle">
+              No conversations yet.
             </div>
-          )}
-          {!isPending && !fatalError && !deadLink && displayThread && (
+          ) : narrow ? (
+            activeId ? (
+              threadPane
+            ) : (
+              listPane
+            )
+          ) : (
             <SplitPanes
               storageKey={dockedRail ? "bigbound.inbox.split.3" : "bigbound.inbox.split.2"}
               defaultWidths={dockedRail ? [20, 58, 22] : [24, 76]}
               minWidthsPx={dockedRail ? [240, 420, 280] : [240, 420]}
+              paneLabels={["conversation list", "conversation", "customer context"]}
             >
               {[
-                <ConversationList
-                  key="list"
-                  threads={threads}
-                  activeId={displayThread.id}
-                  onSelect={(id) => {
-                    setActiveId(id);
-                    void navigate({ search: { conversationId: id }, replace: true });
-                  }}
-                />,
-                <div
-                  key="chat"
-                  className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
-                >
-                  <ChatThread
-                    thread={displayThread}
-                    onToggleRail={toggleRail}
-                    railOpen={railOpen}
-                    onTakeOver={handleTakeOver}
-                    onReturnToBot={handleReturnToBot}
-                    busy={pending}
-                  />
-                  <Composer
-                    key={displayThread.id}
-                    thread={displayThread}
-                    onSend={handleSend}
-                    onRefreshRag={(withDraft) =>
-                      runRagRefresh(displayThread.id, Boolean(withDraft))
-                    }
-                    onSuggestReply={handleSuggestReply}
-                    busy={pending}
-                    errorMessage={sendError}
-                    ragLoading={ragLoading}
-                    ragError={ragError}
-                  />
-                  {overlayRail && (
-                    <div className="absolute inset-y-0 right-0 z-20 flex w-[20rem] max-w-[85%] flex-col border-l border-border bg-surface shadow-overlay">
-                      <QueryState query={detailQuery} label="customer context">
-                        {context && (
-                          <ContextRail
-                            thread={displayThread}
-                            context={context}
-                            onClose={closeRail}
-                          />
-                        )}
-                      </QueryState>
-                    </div>
-                  )}
-                </div>,
+                listPane,
+                threadPane,
                 dockedRail ? (
                   <div key="rail" className="h-full min-h-0 border-l border-border">
-                    <QueryState query={detailQuery} label="customer context">
-                      {context && (
-                        <ContextRail thread={displayThread} context={context} onClose={closeRail} />
-                      )}
-                    </QueryState>
+                    {rail}
                   </div>
                 ) : null,
               ]}
             </SplitPanes>
-          )}
-          {!isPending && !fatalError && !deadLink && !displayThread && (
-            <div className="grid flex-1 place-items-center text-body text-text-subtle">
-              No conversations yet.
-            </div>
           )}
         </div>
       </div>

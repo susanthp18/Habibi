@@ -1,4 +1,4 @@
-import type { InboxChannel, Sentiment, SlaLevel, Thread, ThreadStatus } from "@/api/types/inbox";
+import type { InboxChannel, SlaLevel, ThreadStatus, ThreadSummary } from "@/api/types/inbox";
 import { MessageCircle, Mail, MessageSquare, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LozengeProps } from "@/components/ui/lozenge";
@@ -41,12 +41,6 @@ export const slaColor: Record<SlaLevel, string> = {
   breach: "bg-background-danger",
 };
 
-export const sentimentColor: Record<Sentiment, string> = {
-  positive: "bg-sentiment-positive",
-  neutral: "bg-sentiment-neutral",
-  negative: "bg-sentiment-negative",
-};
-
 export const statusMeta: Record<ThreadStatus | "mine", { label: string; tone: Tone }> = {
   bot: { label: "Bot", tone: "selected" },
   needs_human: { label: "Needs human", tone: "warning" },
@@ -55,39 +49,42 @@ export const statusMeta: Record<ThreadStatus | "mine", { label: string; tone: To
   mine: { label: "Mine", tone: "success" },
 };
 
-/** Chip key for a row — Mine is derived, never stored. */
-export function chipStatus(thread: {
-  status: ThreadStatus;
-  isMine: boolean;
-}): ThreadStatus | "mine" {
-  return thread.isMine ? "mine" : thread.status;
-}
+/** What the signed-in operator may do to a thread (from `useMe` / `can`). */
+export type InboxRights = {
+  /** perm-interactions-write: reply, claim an unheld thread, hand your own back. */
+  canWrite: boolean;
+  /** perm-supervisor-write: take a thread a colleague holds. */
+  canReassign: boolean;
+  /** perm-collections-write: file a document to the customer's record. */
+  canFileDocuments?: boolean;
+};
 
 /**
  * Shared handoff / claim state for inbox thread chrome.
  *
- * `needsClaim` gates two things at once: it disables the composer and it is
- * the render condition for the Take-over button. They have to agree, and they
- * did not for a thread another agent already holds (`assigned` + `!isMine`).
- * That combination was excluded here, so the composer invited a reply while
- * the only button that could make the reply legal was not rendered — and the
- * send came back `take_over_required`, telling the operator to press it. The
- * thread was unusable until the other agent released it.
- *
- * Claiming is what unblocks every one of these states, so every one of them
- * needs the claim affordance.
+ * `needsClaim` disables the composer; `canClaim` is the render condition for
+ * the Take-over button. Claiming is what unblocks every state that is not
+ * mine -- but only an operator allowed to claim is offered the button: an
+ * agent shown "Take over" on a colleague's thread pressed it into a 403 that
+ * named an internal permission. Return to bot is for WhatsApp only, the one
+ * channel a bot answers.
  */
-export function getThreadHandoffState(thread: Thread, hasReturnToBot = false) {
+export function getThreadHandoffState(
+  thread: Pick<ThreadSummary, "isMine" | "status" | "channel">,
+  rights: InboxRights = { canWrite: false, canReassign: false },
+) {
   const needsClaim = !thread.isMine;
   const heldByTeammate = !thread.isMine && thread.status === "assigned";
+  const canClaim = needsClaim && rights.canWrite && (!heldByTeammate || rights.canReassign);
   const canReturnToBot =
-    hasReturnToBot &&
+    rights.canWrite &&
     thread.isMine &&
+    thread.channel === "whatsapp" &&
     (thread.status === "assigned" ||
       thread.status === "needs_human" ||
       thread.status === "escalated");
   const botHandling = thread.status === "bot" && !thread.isMine;
-  return { needsClaim, canReturnToBot, botHandling, heldByTeammate };
+  return { needsClaim, canClaim, canReturnToBot, botHandling, heldByTeammate };
 }
 
 export function initials(name: string) {

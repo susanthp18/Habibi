@@ -10,11 +10,15 @@
 import { describe, expect, it } from "vitest";
 
 import { getThreadHandoffState } from "./meta";
-import type { Thread, ThreadStatus } from "@/api/types/inbox";
+import type { InboxChannel, ThreadStatus } from "@/api/types/inbox";
 
-function thread(status: ThreadStatus, isMine: boolean): Thread {
-  return { id: "CV-1", status, isMine, channel: "whatsapp" } as unknown as Thread;
+function thread(status: ThreadStatus, isMine: boolean, channel: InboxChannel = "whatsapp") {
+  return { status, isMine, channel };
 }
+
+const agent = { canWrite: true, canReassign: false };
+const supervisor = { canWrite: true, canReassign: true };
+const viewer = { canWrite: false, canReassign: false };
 
 describe("getThreadHandoffState", () => {
   it("offers the claim on a thread another agent is holding", () => {
@@ -51,10 +55,24 @@ describe("getThreadHandoffState", () => {
     expect(getThreadHandoffState(thread("bot", true)).botHandling).toBe(false);
   });
 
-  it("offers return-to-bot only on my own claimed thread, and only when wired", () => {
-    expect(getThreadHandoffState(thread("assigned", true), true).canReturnToBot).toBe(true);
-    expect(getThreadHandoffState(thread("assigned", true), false).canReturnToBot).toBe(false);
-    expect(getThreadHandoffState(thread("assigned", false), true).canReturnToBot).toBe(false);
-    expect(getThreadHandoffState(thread("bot", true), true).canReturnToBot).toBe(false);
+  it("offers return-to-bot only on my own WhatsApp thread", () => {
+    expect(getThreadHandoffState(thread("assigned", true), agent).canReturnToBot).toBe(true);
+    expect(getThreadHandoffState(thread("assigned", true), viewer).canReturnToBot).toBe(false);
+    expect(getThreadHandoffState(thread("assigned", false), agent).canReturnToBot).toBe(false);
+    expect(getThreadHandoffState(thread("bot", true), agent).canReturnToBot).toBe(false);
+    // No bot answers SMS: a thread "returned" to one would wait forever.
+    expect(getThreadHandoffState(thread("assigned", true, "sms"), agent).canReturnToBot).toBe(
+      false,
+    );
+  });
+
+  it("offers the takeover only to someone allowed to make it", () => {
+    // An agent pressing "Take over" on a colleague's thread got a 403 that
+    // named an internal permission. Reassigning a held thread is a supervisor's.
+    expect(getThreadHandoffState(thread("needs_human", false), agent).canClaim).toBe(true);
+    expect(getThreadHandoffState(thread("bot", false), agent).canClaim).toBe(true);
+    expect(getThreadHandoffState(thread("assigned", false), agent).canClaim).toBe(false);
+    expect(getThreadHandoffState(thread("assigned", false), supervisor).canClaim).toBe(true);
+    expect(getThreadHandoffState(thread("needs_human", false), viewer).canClaim).toBe(false);
   });
 });

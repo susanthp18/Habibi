@@ -278,10 +278,12 @@ from schemas.floor import (
 )
 from schemas.inbox import (
     CannedResponseItem as CannedResponseItem,
-    ConversationListResponse as ConversationListResponse,
     ConversationMessageCreateRequest as ConversationMessageCreateRequest,
+    ConversationResponse as ConversationResponse,
     ConversationSuggestionsRefreshRequest as ConversationSuggestionsRefreshRequest,
     ConversationSuggestionsRefreshResponse as ConversationSuggestionsRefreshResponse,
+    ConversationSummaryResponse as ConversationSummaryResponse,
+    ConversationTakeoverRequest as ConversationTakeoverRequest,
     HandoffDisclosureRequest as HandoffDisclosureRequest,
     InboxDisputeSummaryResponse as InboxDisputeSummaryResponse,
     InboxInteractionSummaryResponse as InboxInteractionSummaryResponse,

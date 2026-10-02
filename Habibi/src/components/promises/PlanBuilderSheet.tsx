@@ -55,8 +55,11 @@ export function PlanBuilderSheet({
 
   useEffect(() => {
     if (open) {
-      const c =
-        customers.find((row) => row.id === initialCustomerId) ?? customers[0];
+      // A named customer who is not in the list is nobody, never the first row.
+      const c = initialCustomerId
+        ? customers.find((row) => row.id === initialCustomerId)
+        : customers[0];
+      setCustomerId(c?.id ?? "");
       if (c) {
         setCustomerId(c.id);
         setTotal(String(Math.max(20000, Math.round((c.outstanding || 30000) / 100) * 100)));

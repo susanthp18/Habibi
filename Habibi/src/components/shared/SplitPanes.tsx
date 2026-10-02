@@ -34,12 +34,15 @@ export function SplitPanes({
   storageKey,
   defaultWidths,
   minWidthsPx,
+  paneLabels,
   children,
   className,
 }: {
   storageKey: string;
   defaultWidths: number[];
   minWidthsPx: number[];
+  /** Names each separator after the panes it divides, for screen readers. */
+  paneLabels?: string[];
   children: ReactNode[];
   className?: string;
 }) {
@@ -145,9 +148,17 @@ export function SplitPanes({
     <div ref={rootRef} className={cn("flex h-full min-h-0 w-full overflow-hidden", className)}>
       {panes.map((child, i) => (
         <Fragment key={i}>
+          {/* Shrinkable, with its minimum in CSS: percentages that cannot
+              shrink plus fixed-width separators overflowed the container, and
+              the minimums only applied once someone dragged. */}
           <div
-            className="min-h-0 min-w-0 overflow-hidden"
-            style={{ flexBasis: `${widths[i] ?? defaults[i]}%`, flexGrow: 0, flexShrink: 0 }}
+            className="min-h-0 overflow-hidden"
+            style={{
+              flexBasis: `${widths[i] ?? defaults[i]}%`,
+              flexGrow: 0,
+              flexShrink: 1,
+              minWidth: minWidthsPx[i] ?? 0,
+            }}
           >
             {child}
           </div>
@@ -155,7 +166,11 @@ export function SplitPanes({
             <div
               role="separator"
               aria-orientation="vertical"
-              aria-label="Resize panels"
+              aria-label={
+                paneLabels?.[i] && paneLabels[i + 1]
+                  ? `Resize ${paneLabels[i]} and ${paneLabels[i + 1]}`
+                  : "Resize panels"
+              }
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(widths[i] ?? defaults[i] ?? 50)}

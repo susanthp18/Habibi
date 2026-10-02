@@ -250,4 +250,12 @@ async def whatsapp_webhook_receive(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid_json") from exc
     # Sync DB + enqueue off the event loop (this route is async def).
-    return await asyncio.to_thread(db.process_whatsapp_webhook, payload)
+    result = await asyncio.to_thread(db.process_whatsapp_webhook, payload)
+    # The good items are committed; a failed one rolled back to its savepoint
+    # and exists nowhere. A 2xx here would tell Meta it was delivered and it
+    # would never come again. A 5xx makes Meta redeliver the whole batch, and
+    # that is safe: an ingested message dedupes on its wamid and a status
+    # receipt only ever advances.
+    if any(item.get("status") == "error" for item in result.get("results") or []):
+        raise HTTPException(status_code=503, detail="whatsapp_webhook_item_failed")
+    return result

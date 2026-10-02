@@ -3244,101 +3244,64 @@
  {
   "body": [
    {
-    "accountId": "AC-SUSANTH",
-    "assignedUserId": null,
+    "accountId": "AC-88214",
+    "assignedUserId": "arjun-mehta",
+    "awaitingReply": 0,
     "botTyping": false,
     "channel": "whatsapp",
-    "context": null,
+    "customer": "Anita Desai",
+    "customerId": "anita-desai",
+    "handlerBotId": null,
+    "id": "CV-CL-100001",
+    "isMine": false,
+    "lastAt": "2026-09-16T03:05:07.519769+00:00",
+    "lastFrom": "bot",
+    "lastPreview": "We've recorded your promise to pay \u20b9700 by 25 Sep 2026. Pay securely here: https://example.test/link This link is valid until 26 Sep 2026, 11:59 PM IST. Do not share this link.",
+    "lastTime": "8:35 AM",
+    "sentiment": "positive",
+    "sla": "ok",
+    "status": "assigned",
+    "updatedAt": "2026-09-16T05:30:01.471144+00:00"
+   },
+   {
+    "accountId": "AC-SUSANTH",
+    "assignedUserId": null,
+    "awaitingReply": 0,
+    "botTyping": false,
+    "channel": "whatsapp",
     "customer": "Susanth",
     "customerId": "cust-susanth",
     "handlerBotId": "collectionsbot-v2-4",
     "id": "CV-SUSANTH-WA1",
     "isMine": false,
+    "lastAt": "2026-09-15T04:51:46.324124+00:00",
     "lastFrom": "bot",
-    "lastPreview": "I checked the available details here, and I\u2019m only seeing the product name \u201cTravel Protect360\u201d without the actual benefit/coverage points. If you\u2019d like, I can arrange a callback to share the exact benefits and inclusions for your international dates (Sep 23\u201328, 2026).",
-    "lastTime": "10:34 PM",
-    "messages": [
-     {
-      "delivery": null,
-      "id": "MSG-2E6FB9FACD",
-      "sender": "customer",
-      "text": "Hey",
-      "time": "12:26 AM"
-     },
-     {
-      "delivery": "read",
-      "id": "MSG-8ADB5D4EDB",
-      "sender": "agent",
-      "text": "yes us",
-      "time": "12:27 AM"
-     },
-     {
-      "id": "ACT-0A2F986C63",
-      "kind": "system",
-      "text": "You took over from bot",
-      "time": "12:27 AM"
-     }
-    ],
-    "pendingOutbound": false,
-    "ragDraftAnswer": null,
-    "ragSuggestions": [
-     "Hospital Protect360 \u2014 Policy \u2014 YOUR HOSPITAL PROTECT360 POLICY\n\nHere is Your Hospital Protect360 Policy. Please examine this insurance Policy, to ensure that You understand the terms and conditions and that the cover You require is being provided. It is important that the documents are read together and any amendments to avoid misunderstanding.\n\nWe recommend that You keep this Policy in a safe place.\n\nIf You have any questions after reading these documents, please contact Your insurance agent, broker or Us.\n\nIf You need to change anything, please contact Us immediately.",
-     "Maid Protect360 \u2014 Benefits \u2014 Maid Protect360 \u2014 Benefits\n\nMAID PROTECT360 PRO - BENEFITS AND COVERAGE EXTRACTED FROM TABLE\n\nSection 1 - Personal Accident Coverage:\nPersonal Accident Accidental Death benefit provides sixty thousand dollars for Basic plan, seventy thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and one hundred thousand dollars for Exclusive plan.\n\nPersonal Accident Permanent Disablement benefit provides sixty thousand dollars for Basic plan, seventy thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and one hundred thousand dollars for Exclusive plan.\n\nAccidental Medical Reimbursement covers when your helper sustains an injury and requires outpatient medical treatment with benefits of one thousand dollars for Basic plan, two thousand dollars for Enhanced plan, three thousand dollars for Premier plan, and five thousand dollars for Exclusive plan.\n\nClinical Visit coverage provides fifty dollars per visit for Basic plan, seventy five dollars per visit for Enhanced plan, one hundred dollars per visit for Premier plan, and two hundred dollars per visit for Exclusive plan.\n\nDental treatment coverage provides no coverage for Basic plan, 100$ benefit coverage for Enhanced plan, $250 per accident for Premier plan, and four hundred dollars per accident for Exclusive plan.\n\nAmbulance Fee coverage provides no coverage for Basic plan, one hundred dollars per year for Enhanced plan, one hundred dollars per year for Premier plan, and one hundred dollars per year for Exclusive plan.\n\nTreatment by a Chinese Physician provides no coverage for Basic plan, no coverage for Enhanced plan, one hundred dollars per accident for Premier plan, and two hundred dollars per accident for Exclusive plan.\n\nPhysiotherapy coverage provides no coverage for Basic plan, no coverage for Enhanced plan, two hundred fifty dollars per year for Premier plan, and three hundred dollars per year for Exclusive plan.\n\nSection 2 - Hospital and Surgical Expenses:\nHospital and Surgical Expenses Annual Limit covers when your helper is hospitalized due to an injury or illness and extends to cover Infectious Diseases with up to ninety days Pre and Post hospitalization or Day Surgery, providing sixty thousand dollars annual limit for Basic plan, sixty thousand dollars for Enhanced plan, eighty thousand dollars for Premier plan, and eighty thousand dollars for Exclusive plan.\n\nHospital Cash benefi\u2026",
-     "Car Protect360 \u2014 Benefits \u2014 Car Protect360 \u2014 Benefits\n\nTABLE 1 FROM CAR INSURANCE:\nUnder the Loss or Damage to Your Car coverage, loss or damage by fire or theft is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, loss or damage by other insured causes including Act Of God, fallen objects, riot, strike, or flood is covered up to the market value at the time of loss or damage.\nUnder the Loss or Damage to Your Car coverage, car accessories, including all audio, video, and other standard equipment fitted by the manufacturer or distributor at the time the car was originally purchased, are covered up to $1,000.\nUnder the Loss or Damage to Your Car coverage, the excess for car accident repairs is halved if repairs are carried out at a BigTapp Assurance Approved Workshop.\nUnder the Loss or Damage to Your Car coverage, windscreen cover is unlimited, with a windscreen excess of $100 unless the windscreen is repaired at a BigTapp Assurance Appointed Windscreen Repairer.\nUnder the Your Liability to Third Parties coverage, damage to third party property is covered up to S$5,000,000.\nUnder the Your Liability to Third Parties coverage, death or injury to a third party is covered for an unlimited amount.\nUnder the You or Your Passenger\u2019s Medical Expenses coverage, medical expenses for the Policyholder, Authorised Driver, and Passengers up to the car's legal seating capacity are covered up to S$1,000 each.\nUnder the Personal Accident Cover for Injuries in the Car, personal accident benefits are provided up to S$20,000 for the Policyholder, up to S$10,000 for the Authorised Driver, and up to S$10,000 for Passengers.\nUnder Other Car Insurance Benefits, a daily transport allowance of S$50 a day is provided for up to ten days if repairs exceed three days, up to a total of S$1,000.\nUnder Other Car Insurance Benefits, towing after an accident is covered up to S$500.\nUnder Other Car Insurance Benefits, authority to repair for minor repairs is provided up to S$300, with the limit applied after the Policy Excess.\nUnder Other Car Insurance Benefits, 24-hour Automobile and Medical Assistance Services are available."
-    ],
+    "lastPreview": "We've recorded your promise to pay \u20b94,800 by 15 Sep 2026. Pay securely here: https://example.test/link This link is valid until 16 Sep 2026, 11:59 PM IST. Do not share this link.",
+    "lastTime": "10:21 AM",
     "sentiment": "neutral",
     "sla": "ok",
     "status": "bot",
-    "unread": 0,
-    "updatedAt": "2026-09-12T04:57:59.494428+00:00"
+    "updatedAt": "2026-09-15T06:36:48.576782+00:00"
    },
    {
-    "accountId": "AC-78033",
-    "assignedUserId": null,
+    "accountId": "AC-SUSANTH",
+    "assignedUserId": "david-chen",
+    "awaitingReply": 0,
     "botTyping": false,
-    "channel": "whatsapp",
-    "context": null,
-    "customer": "Manish Agarwal",
-    "customerId": "manish-agarwal",
-    "handlerBotId": "collectionsbot-v2-4",
-    "id": "CV-B9346E07AD",
+    "channel": "voice",
+    "customer": "Susanth",
+    "customerId": "cust-susanth",
+    "handlerBotId": "kaia-v2-4",
+    "id": "CV-9B75D41396",
     "isMine": false,
+    "lastAt": "2026-09-14T13:14:33.980826+00:00",
     "lastFrom": "bot",
-    "lastPreview": "",
-    "lastTime": "10:00 AM",
-    "messages": [],
-    "pendingOutbound": false,
-    "ragDraftAnswer": null,
-    "ragSuggestions": [],
+    "lastPreview": "Voice call",
+    "lastTime": "6:44 PM",
     "sentiment": "neutral",
     "sla": "ok",
-    "status": "bot",
-    "unread": 0,
-    "updatedAt": "2026-09-08T04:30:35.923199+00:00"
-   },
-   {
-    "accountId": "AC-66803",
-    "assignedUserId": null,
-    "botTyping": false,
-    "channel": "whatsapp",
-    "context": null,
-    "customer": "James Patel",
-    "customerId": "james-patel",
-    "handlerBotId": "collectionsbot-v2-4",
-    "id": "CV-C2B16BF2E4",
-    "isMine": false,
-    "lastFrom": "bot",
-    "lastPreview": "",
-    "lastTime": "9:42 AM",
-    "messages": [],
-    "pendingOutbound": false,
-    "ragDraftAnswer": null,
-    "ragSuggestions": [],
-    "sentiment": "neutral",
-    "sla": "ok",
-    "status": "bot",
-    "unread": 0,
-    "updatedAt": "2026-09-08T04:12:21.845401+00:00"
+    "status": "needs_human",
+    "updatedAt": "2026-09-14T13:14:33.955702+00:00"
    }
   ],
   "key": "GET /conversations",
@@ -3346,67 +3309,105 @@
  },
  {
   "body": {
-   "accountId": "AC-66803",
-   "assignedUserId": null,
+   "accountId": "AC-SUSANTH",
+   "assignedUserId": "david-chen",
+   "awaitingReply": 0,
    "botTyping": false,
-   "channel": "whatsapp",
+   "channel": "voice",
    "context": {
-    "contactWindow": "09:00\u201313:00 IST",
-    "contactableNow": false,
-    "contactableReason": "outside_calling_hours",
+    "canReply": false,
+    "contactWindow": "10:00-19:00 IST",
     "lastPromise": {
-     "amount": 10000.0,
-     "date": "2026-08-02",
+     "amount": 4800.0,
+     "date": "2026-09-14",
      "status": "Broken"
     },
-    "nextEmiAmount": 8500.0,
-    "nextEmiDate": "2026-01-22",
+    "nextEmiAmount": 4800.0,
+    "nextEmiDate": "2026-08-23",
+    "nextEmiOverdue": true,
     "openDisputes": [
      {
-      "id": "D-4805",
-      "summary": "\"\u2026the EMI got debited twice in October \u2014 please refund the extra one.\""
+      "id": "D-SUSANTH-1",
+      "summary": "Can you waive the late fee from last month?"
      }
     ],
-    "outstanding": 22100.0,
-    "outstandingAging": "58 days overdue",
+    "openDisputesTotal": 1,
+    "outstanding": 62400.0,
+    "outstandingAging": "32 days overdue",
     "recentInteractions": [
      {
-      "id": "IX-2EC1EF7FA0",
-      "kind": "chat",
-      "sentiment": "neutral",
-      "summary": "whatsapp",
-      "when": "5d ago"
-     },
-     {
-      "id": "james-patel-ji1",
+      "id": "CL-727F2C26F8",
       "kind": "call",
       "sentiment": "neutral",
-      "summary": "Customer travelling this week. Will confirm 2-installment plan on return.",
-      "when": "56d ago"
+      "summary": "voice session | primary=balance_query | customer_turns=5 | ptp=no | upsell=no",
+      "when": "13d ago"
+     },
+     {
+      "id": "CL-61C9D7C149",
+      "kind": "call",
+      "sentiment": "neutral",
+      "summary": "voice session | primary=unclassified | customer_turns=0 | ptp=no | upsell=no",
+      "when": "13d ago"
+     },
+     {
+      "id": "CL-E458D7E911",
+      "kind": "call",
+      "sentiment": "positive",
+      "summary": "voice session | primary=greeting | customer_turns=1 | ptp=no | upsell=no",
+      "when": "16d ago"
      }
     ],
-    "riskLevel": "High"
+    "replyBlockedReason": "channel_not_supported",
+    "replyWindowEndsAt": null,
+    "riskLevel": "Medium"
    },
-   "customer": "James Patel",
-   "customerId": "james-patel",
-   "handlerBotId": "collectionsbot-v2-4",
-   "id": "CV-C2B16BF2E4",
+   "customer": "Susanth",
+   "customerId": "cust-susanth",
+   "handlerBotId": "kaia-v2-4",
+   "id": "CV-9B75D41396",
    "isMine": false,
+   "lastAt": "2026-09-14T13:14:33.980826+00:00",
    "lastFrom": "bot",
-   "lastPreview": "",
-   "lastTime": "9:42 AM",
-   "messages": [],
-   "pendingOutbound": false,
+   "lastPreview": "Voice call",
+   "lastTime": "6:44 PM",
+   "messages": [
+    {
+     "at": "2026-09-14T13:11:50.264384+00:00",
+     "delivery": null,
+     "deliveryNote": null,
+     "id": "CL-CAF293FDE9-T1",
+     "sender": "bot",
+     "text": "Good evening, this is Priya from HDFC Bank. I\u2019m calling to discuss a personal matter related to your account\u2014can you please confirm I\u2019m speaking with you, Susanth?  \n\n(For quality and compliance, please note the call is recorded.)",
+     "time": "6:41 PM"
+    },
+    {
+     "at": "2026-09-14T13:12:08.264384+00:00",
+     "delivery": null,
+     "deliveryNote": null,
+     "id": "CL-CAF293FDE9-T2",
+     "sender": "customer",
+     "text": "Yes, Sushant here.",
+     "time": "6:42 PM"
+    },
+    {
+     "at": "2026-09-14T13:12:14.264384+00:00",
+     "delivery": null,
+     "deliveryNote": null,
+     "id": "CL-CAF293FDE9-T3",
+     "sender": "bot",
+     "text": "Thanks for confirming, Susanth. I can see you\u2019re overdue on your HDFC Bank account, and your earlier Promise to Pay of \u20b94,800 by 3rd September wasn\u2019t kept, so I wanted to understand what happened and help you plan. What\u2019s your reason for missing it?",
+     "time": "6:42 PM"
+    }
+   ],
    "ragDraftAnswer": null,
    "ragSuggestions": [],
    "sentiment": "neutral",
    "sla": "ok",
-   "status": "bot",
-   "unread": 0,
-   "updatedAt": "2026-09-08T04:12:21.845401+00:00"
+   "status": "needs_human",
+   "updatedAt": "2026-09-14T13:14:33.955702+00:00"
   },
   "key": "GET /conversations/{conversation_id}",
-  "path": "/conversations/CV-C2B16BF2E4"
+  "path": "/conversations/CV-9B75D41396"
  },
  {
   "body": [

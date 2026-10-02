@@ -452,6 +452,11 @@ async def ingest_document_request(
     from agent_core.tools.gates import interaction_identity_verified
 
     raw = await _read_upload_capped(file, max_bytes=8 * 1024 * 1024)
+    if conversation_id and not interaction_id:
+        # The Inbox files from a thread. Identity was established on the
+        # thread's interaction, so that is what the gate below must read; a
+        # conversation of another customer resolves to nothing and fails it.
+        interaction_id = db.conversation_interaction_id(conversation_id, customer_id)
     # A vision call and a DB write, off the loop like kb_upload_document.
     result = await asyncio.to_thread(
         ingest_customer_document,

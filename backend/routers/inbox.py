@@ -11,13 +11,15 @@ import logging
 import db
 
 from fastapi import APIRouter
-from fastapi import HTTPException, Query, Response
+from fastapi import Header, HTTPException, Query, Response
 from schemas import (
     CannedResponseItem,
-    ConversationListResponse,
     ConversationMessageCreateRequest,
+    ConversationResponse,
     ConversationSuggestionsRefreshRequest,
     ConversationSuggestionsRefreshResponse,
+    ConversationSummaryResponse,
+    ConversationTakeoverRequest,
     HandoffDisclosureRequest,
     HandoffQueueResponse,
     HandoffSessionResponse,
@@ -60,34 +62,47 @@ def post_handoff_disclosure(interaction_id: str, payload: HandoffDisclosureReque
 def accept_handoff_suggestion(interaction_id: str, suggestion_id: str):
     return _handle_write(db.accept_handoff_suggestion, interaction_id, suggestion_id)
 
-@router.get("/conversations", response_model=list[ConversationListResponse])
-def list_conversations(updatedAfter: str | None = None):
+@router.get("/conversations", response_model=list[ConversationSummaryResponse])
+def list_conversations(
+    updatedAfter: str | None = None,
+    customerId: str | None = None,
+    q: str | None = Query(default=None, max_length=200),
+):
     try:
-        return db.list_conversations(updated_after=updatedAfter)
+        return db.list_conversations(updated_after=updatedAfter, customer_id=customerId, q=q)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationListResponse)
+@router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 def get_conversation(conversation_id: str):
     conversation = db.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="conversation_not_found")
     return conversation
 
-@router.post("/conversations/{conversation_id}/takeover", response_model=ConversationListResponse)
-def takeover_conversation(conversation_id: str):
-    return _handle_write(db.takeover_conversation, conversation_id)
+@router.post("/conversations/{conversation_id}/takeover", response_model=ConversationResponse)
+def takeover_conversation(conversation_id: str, payload: ConversationTakeoverRequest | None = None):
+    return _handle_write(
+        db.takeover_conversation,
+        conversation_id,
+        payload.model_dump(exclude_unset=True) if payload else None,
+    )
 
-@router.post("/conversations/{conversation_id}/return-to-bot", response_model=ConversationListResponse)
+@router.post("/conversations/{conversation_id}/return-to-bot", response_model=ConversationResponse)
 def return_conversation_to_bot(conversation_id: str):
     return _handle_write(db.return_conversation_to_bot, conversation_id)
 
-@router.post("/conversations/{conversation_id}/messages", response_model=ConversationListResponse)
-def send_conversation_message(conversation_id: str, payload: ConversationMessageCreateRequest):
+@router.post("/conversations/{conversation_id}/messages", response_model=ConversationResponse)
+def send_conversation_message(
+    conversation_id: str,
+    payload: ConversationMessageCreateRequest,
+    idempotency_key: str | None = Header(default=None),
+):
     return _handle_write(
         db.send_conversation_message,
         conversation_id,
         payload.model_dump(),
+        idempotency_key,
     )
 
 @router.get("/canned-responses", response_model=list[CannedResponseItem])

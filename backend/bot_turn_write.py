@@ -64,7 +64,7 @@ def send_reply(engine: Engine, t: Turn) -> bool:
             body=final_text,
         )
 
-    to_phone = wa.normalize_phone(fresh.get("phone_primary"))
+    to_phone = wa.normalize_phone(bot_conversation.reply_phone(fresh))
     if not to_phone:
         # No deliverable number on the customer record. This is not a transport
         # failure — retrying and escalating would both be noise.
@@ -157,7 +157,7 @@ def send_notice(
         job_id=job_id,
         body=body,
     )
-    to_phone = wa.normalize_phone(fresh.get("phone_primary"))
+    to_phone = wa.normalize_phone(bot_conversation.reply_phone(fresh))
     if not to_phone:
         bot_conversation.finalize_outbound(
             engine,

@@ -159,8 +159,10 @@ function CustomerDetail() {
         search: { tab: dest.tab, customerId: dest.customerId },
       });
     } else if (dest.kind === "inbox_or_sheet") {
-      void fetchConversations().then((threads) => {
-        const thread = threads.find((t) => t.customerId === dest.customerId);
+      // Asked of the server, by customer: the whole inbox was fetched here
+      // only to find one thread, and missed any older than its first page.
+      void fetchConversations({ customerId: dest.customerId }).then((threads) => {
+        const thread = threads[0];
         if (thread) {
           void navigate({ to: "/inbox", search: { conversationId: thread.id } });
           return;

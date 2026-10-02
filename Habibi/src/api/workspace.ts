@@ -81,10 +81,11 @@ export function useWorkspaceSummary(scope: WorkspaceScope = "me") {
   });
 }
 
-/** POSTs that compute and change no record: a prompt lint, a routing or check
- *  dry run, a socket ticket, a treatment decision that is recorded, never enacted. */
+/** POSTs that compute and change no record the queue reads: a prompt lint, a
+ *  routing or check dry run, a socket ticket, a treatment decision that is
+ *  recorded, never enacted, an Inbox thread's knowledge-base passages. */
 const PURE_POSTS =
-  /^\/(voice-studio\/(prompt\/lint|routing\/check|checks\/simulate)|studio-api\/_ws-ticket|treatment\/decide)(\/|\?|$)/;
+  /^\/(voice-studio\/(prompt\/lint|routing\/check|checks\/simulate)|studio-api\/_ws-ticket|treatment\/decide|conversations\/[^/]+\/suggestions\/refresh)(\/|\?|$)/;
 
 /** Whether a write to ``path`` can change the queue or summary. Every write can,
  *  except the pure computations above: the work_items view draws on many

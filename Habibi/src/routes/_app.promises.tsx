@@ -173,7 +173,10 @@ function PromisesPage() {
     if (deepLinkKey.current === key) return;
     deepLinkKey.current = key;
     if (search.id) setDetailId(search.id);
-    if (search.new) setCreateOpen(true);
+    if (search.new) {
+      setPlanCustomerId(search.customerId);
+      setCreateOpen(true);
+    }
     if (search.plan) {
       setPlanOpen(true);
       setPlanCustomerId(search.customerId);
@@ -244,6 +247,7 @@ function PromisesPage() {
         onSubmit={handleCreate}
         owners={owners}
         customers={sheetCustomers}
+        initialCustomerId={planCustomerId}
       />
       <PlanBuilderSheet
         open={planOpen}

@@ -15,6 +15,7 @@ from sqlalchemy import text
 from db_core import (
     _one,
     _rows,
+    _tenant,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,93 +33,10 @@ def _engine():
     return _db().engine
 
 
-_INBOX_RAG_NOISE = frozenset(
-    {
-        "hi",
-        "hello",
-        "hey",
-        "hola",
-        "thanks",
-        "thank you",
-        "thankyou",
-        "ok",
-        "okay",
-        "k",
-        "yes",
-        "no",
-        "yep",
-        "nope",
-        "bye",
-        "good morning",
-        "good afternoon",
-        "good evening",
-        "gm",
-        "status probe",
-    }
-)
 # Cosine floor for Inbox chips. Empirically on-domain insurance hits land ~0.45–0.60
 # when the query is clean; mixed history used to sit just under 0.50 and look "empty".
 INBOX_RAG_MIN_SCORE = 0.38
-_INBOX_RAG_MAX_TURN_CHARS = 220
-_INBOX_RAG_TEST_MARKERS = (
-    "inbound test",
-    "status probe",
-    "test message",
-    "webhook test",
-    "from phone",
-)
-_INBOX_RAG_COLLECTIONS_HINTS = (
-    "emi",
-    "payment",
-    "loan",
-    "outstanding",
-    "overdue",
-    "due date",
-    "promise",
-    "ptp",
-    "dpd",
-    "installment",
-    "instalment",
-    "settlement",
-    "waiver",
-    "late fee",
-    "npa",
-)
-
-
-def _is_inbox_rag_noise(text_value: str) -> bool:
-    t = " ".join((text_value or "").lower().split()).strip(".,!? ")
-    if not t:
-        return True
-    if t in _INBOX_RAG_NOISE:
-        return True
-    # Very short acknowledgements / phatic noise.
-    if len(t) <= 16 and t.rstrip(".!") in _INBOX_RAG_NOISE:
-        return True
-    # Dev / webhook probe lines that dilute embedding queries.
-    if any(m in t for m in _INBOX_RAG_TEST_MARKERS):
-        return True
-    return False
-
-
-def _looks_like_pasted_draft(text_value: str) -> bool:
-    """Skip agent pastes of prior RAG/LLM output — they poison the next retrieve."""
-    raw = text_value or ""
-    t = raw.lower()
-    markers = (
-        "from the context",
-        "provided context",
-        "i don't have any information",
-        "i can only confirm",
-        "source: **faq",
-        "source: faq",
-    )
-    if any(m in t for m in markers):
-        return True
-    # Long markdown-ish blobs are almost never a live chat turn.
-    if len(raw) > 280 and ("**" in raw or raw.count("\n") >= 3):
-        return True
-    return False
+_INBOX_RAG_MAX_TURN_CHARS = 400
 
 
 def _clip_inbox_rag_turn(text_value: str) -> str:
@@ -128,139 +46,46 @@ def _clip_inbox_rag_turn(text_value: str) -> str:
     return t[: _INBOX_RAG_MAX_TURN_CHARS - 1] + "…"
 
 
-def _is_questionish(text_value: str) -> bool:
-    t = (text_value or "").strip().lower()
-    if not t:
-        return False
-    if "?" in t:
-        return True
-    return t.startswith(
-        ("how ", "what ", "when ", "where ", "why ", "can ", "could ", "should ", "do ", "does ", "is ", "are ")
-    )
-
-
-def _looks_collections_topic(text_value: str) -> bool:
-    t = (text_value or "").lower()
-    return any(h in t for h in _INBOX_RAG_COLLECTIONS_HINTS)
-
-
 def _conversation_rag_query(conn: Any, conversation_id: str) -> str:
-    """Build retrieve query focused on the latest customer question.
+    """The retrieval query: the customer's latest message, then the one before
+    it for context.
 
-    Keeps the embedding tight: prefer customer turns, at most one short
-    supporting turn, skip bot/greetings/test probes/pasted drafts. Account
-    product is appended only when the primary turn is collections-related —
-    otherwise "Personal Loan" pulls insurance queries off-domain.
+    The customer's own words only -- bot and agent turns are our text, not the
+    question. And the latest, whatever it is: this used to prefer an older
+    *question* over a newer request ("send my statement" lost to last week's
+    "how do I pay?"), and to classify turns with English word lists -- greetings,
+    question prefixes, collections keywords, test-probe phrases -- that misread
+    any other language and dropped real messages ("…from phone…") as noise. A
+    short acknowledgement next to the turn before it embeds fine.
     """
-    row = _one(
+    owned = _one(
         conn.execute(
             text(
-                """
-                SELECT c.name AS customer_name, p.name AS product
-                FROM conversations cv
-                JOIN customers c ON c.id = cv.customer_id
-                LEFT JOIN LATERAL (
-                  SELECT pr.name
-                  FROM accounts a
-                  JOIN products pr ON pr.id = a.product_id
-                  WHERE a.customer_id = cv.customer_id
-                  ORDER BY a.updated_at DESC NULLS LAST, a.created_at DESC NULLS LAST
-                  LIMIT 1
-                ) p ON true
-                WHERE cv.id = :id
-                """
+                "SELECT 1 FROM conversations cv JOIN customers c ON c.id = cv.customer_id "
+                "WHERE cv.id = :id AND c.tenant_id = :tenant_id"
             ),
-            {"id": conversation_id},
+            {"id": conversation_id, "tenant_id": _tenant()},
         )
     )
-    if not row:
+    if owned is None:
         raise KeyError("conversation_not_found")
-
-    msgs = _rows(
+    turns = _rows(
         conn.execute(
             text(
                 """
-                SELECT body, sender
+                SELECT body
                 FROM messages
-                WHERE conversation_id = :id
-                ORDER BY created_at DESC NULLS LAST, id DESC
-                LIMIT 20
+                WHERE conversation_id = :id AND sender = 'customer' AND btrim(body) <> ''
+                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                LIMIT 2
                 """
             ),
             {"id": conversation_id},
         )
     )
-    chronological = list(reversed(msgs))
-    # Bot turns are long templates and pollute agent-assist retrieval.
-    label_map = {"customer": "Customer", "agent": "Agent"}
-    substantive: list[tuple[str, str]] = []  # (label, body)
-    for m in chronological:
-        body = (m.get("body") or "").strip()
-        sender = (m.get("sender") or "").lower()
-        if sender not in label_map or not body:
-            continue
-        if _is_inbox_rag_noise(body) or _looks_like_pasted_draft(body):
-            continue
-        substantive.append((label_map[sender], body))
-
-    recent = substantive[-6:]
-    if not recent:
-        fallback: list[tuple[str, str]] = []
-        for m in chronological:
-            body = (m.get("body") or "").strip()
-            sender = (m.get("sender") or "").lower()
-            if sender not in label_map or not body:
-                continue
-            if _looks_like_pasted_draft(body):
-                continue
-            fallback.append((label_map[sender], body))
-        recent = fallback[-3:]
-    if not recent:
+    if not turns:
         raise ValueError("conversation_has_no_messages")
-
-    # Primary: latest customer question → latest customer turn → latest agent
-    # question → latest turn. Customer intent beats agent typing for retrieval.
-    primary_idx = len(recent) - 1
-    for i in range(len(recent) - 1, -1, -1):
-        if recent[i][0] == "Customer" and _is_questionish(recent[i][1]):
-            primary_idx = i
-            break
-    else:
-        for i in range(len(recent) - 1, -1, -1):
-            if recent[i][0] == "Customer":
-                primary_idx = i
-                break
-        else:
-            for i in range(len(recent) - 1, -1, -1):
-                if _is_questionish(recent[i][1]):
-                    primary_idx = i
-                    break
-
-    primary = recent[primary_idx]
-    # At most one supporting turn — prefer another nearby customer line.
-    support: tuple[str, str] | None = None
-    for i in range(len(recent) - 1, -1, -1):
-        if i == primary_idx:
-            continue
-        label, body = recent[i]
-        if label == "Customer":
-            support = (label, body)
-            break
-    if support is None:
-        for i in range(len(recent) - 1, -1, -1):
-            if i == primary_idx:
-                continue
-            support = recent[i]
-            break
-
-    parts = [f"{primary[0]}: {_clip_inbox_rag_turn(primary[1])}"]
-    if support is not None:
-        parts.append(f"{support[0]}: {_clip_inbox_rag_turn(support[1])}")
-
-    product = (row.get("product") or "").strip()
-    if product and _looks_collections_topic(primary[1]):
-        parts.append(f"Account product: {product}.")
-    return "\n".join(parts)
+    return "\n".join(f"Customer: {_clip_inbox_rag_turn(t['body'])}" for t in turns)
 
 
 def _chip_from_result(item: dict[str, Any]) -> str:
@@ -348,6 +173,7 @@ def refresh_conversation_suggestions(
                 "chatModel": None,
                 "latencyMs": 0,
                 "logId": None,
+                "stale": False,
             }
 
     # Over-fetch then score-gate so we can fill top_k after filtering.
@@ -462,17 +288,15 @@ def refresh_conversation_suggestions(
 
     meta: dict[str, Any] = retrieval or {}
     logger.info(
-        "inbox_rag_refreshed conversation=%s chips=%s passed=%s draft=%s min_score=%s latency_ms=%s",
+        "inbox_rag_refreshed conversation=%s chips=%s passed=%s draft=%s min_score=%s latency_ms=%s stale=%s",
         conversation_id,
         len(chips),
         len(passed),
         bool(draft),
         INBOX_RAG_MIN_SCORE,
         meta.get("latencyMs"),
+        retrieval is None,
     )
-    thread = _db().get_conversation(conversation_id)
-    if thread is None:
-        raise KeyError(f"conversation {conversation_id} not found")
     return {
         "conversationId": conversation_id,
         "ragSuggestions": chips[:5],
@@ -480,5 +304,7 @@ def refresh_conversation_suggestions(
         "chatModel": meta.get("chatModel"),
         "latencyMs": meta.get("latencyMs"),
         "logId": meta.get("logId"),
-        "thread": thread,
+        # A failed search answered with last time's passages says so: they are
+        # not this turn's.
+        "stale": retrieval is None,
     }
