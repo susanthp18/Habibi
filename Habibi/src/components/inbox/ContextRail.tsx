@@ -34,10 +34,13 @@ export function ContextRail({
   thread,
   context: c,
   onClose,
+  canFileRecords = false,
 }: {
   thread: Thread;
   context: ThreadContext;
   onClose?: () => void;
+  /** perm-collections-write: what creating a promise or a dispute needs. */
+  canFileRecords?: boolean;
 }) {
   const navigate = useNavigate();
   const customerId = thread.customerId;
@@ -91,6 +94,12 @@ export function ContextRail({
                     ? `Can reply until ${closesAtWords(c.replyWindowEndsAt)}`
                     : "Can reply now"
                   : replyBlockedWords(c.replyBlockedReason, thread.channel)}
+                {c.replyToLast4 && (
+                  <span className="block text-text-subtlest">
+                    To the {c.replyToSlot === "alt" ? "alternate" : "primary"} number ending{" "}
+                    {c.replyToLast4}
+                  </span>
+                )}
               </span>
             </div>
             <div className="mt-075 flex flex-wrap items-center gap-075">
@@ -250,26 +259,32 @@ export function ContextRail({
             Open Customer 360
             <ExternalLink className="h-3.5 w-3.5" />
           </button>
-          <button
-            type="button"
-            onClick={() =>
-              void navigate({ to: "/promises", search: { new: true, customerId, accountId } })
-            }
-            className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
-          >
-            <HandCoins className="h-3.5 w-3.5 text-text-brand" />
-            Create PTP
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              void navigate({ to: "/disputes", search: { new: true, customerId, accountId } })
-            }
-            className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
-          >
-            <AlertOctagon className="h-3.5 w-3.5 text-text-brand" />
-            Raise dispute
-          </button>
+          {/* Offered only to someone who can file them: the form opened for
+              anyone, and refused at the very end. */}
+          {canFileRecords && (
+            <button
+              type="button"
+              onClick={() =>
+                void navigate({ to: "/promises", search: { new: true, customerId, accountId } })
+              }
+              className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
+            >
+              <HandCoins className="h-3.5 w-3.5 text-text-brand" />
+              Create PTP
+            </button>
+          )}
+          {canFileRecords && (
+            <button
+              type="button"
+              onClick={() =>
+                void navigate({ to: "/disputes", search: { new: true, customerId, accountId } })
+              }
+              className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
+            >
+              <AlertOctagon className="h-3.5 w-3.5 text-text-brand" />
+              Raise dispute
+            </button>
+          )}
         </div>
       </div>
     </aside>

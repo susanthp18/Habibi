@@ -93,8 +93,9 @@ class AmbiguousSender(Exception):
 
 
 def _match_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
-    """The one customer at this number, with ``endpoint_slot`` naming which of
-    their numbers it is; None for nobody; :class:`AmbiguousSender` for several.
+    """The one customer at this number, with ``endpoint_hmac`` -- the keyed
+    digest of whichever of their numbers it is, read in the same statement
+    that matched it; None for nobody; :class:`AmbiguousSender` for several.
 
     Several is a refusal, never a pick. The exact branch used to log a warning
     and take the most recently updated row, which filed the conversation -- and
@@ -115,7 +116,9 @@ def _match_customer_by_phone(conn: Any, phone: str) -> dict[str, Any] | None:
             conn.execute(
                 text(
                     f"""
-                    SELECT id, name, phone_primary, phone_alt, {slot} AS endpoint_slot
+                    SELECT id, name, phone_primary, phone_alt,
+                           encode(CASE {slot} WHEN 'primary' THEN c.phone_primary_hmac
+                                  ELSE c.phone_alt_hmac END, 'hex') AS endpoint_hmac
                     FROM customers c
                     WHERE {predicate}
                     ORDER BY c.id
@@ -216,7 +219,8 @@ def _ensure_whatsapp_customer(
     found = _one(
         conn.execute(
             text(
-                "SELECT id, name, phone_primary, phone_alt, 'primary' AS endpoint_slot "
+                "SELECT id, name, phone_primary, phone_alt, "
+                "encode(phone_primary_hmac, 'hex') AS endpoint_hmac "
                 "FROM customers WHERE id = :id"
             ),
             {"id": customer_id},
@@ -489,29 +493,33 @@ def _ingest_inbound_whatsapp_message(
 
     # Which number wrote. Replies -- the agent's and the bot's -- go back to
     # it: the service window Meta opened is that number's. Kept as the keyed
-    # digest the customer record already holds, never the number, and only
-    # after the dedupe above: a redelivered older message must not move it.
-    # Only the newest inbound sets it -- the window runs from the newest, so
-    # the number has to be the newest's too.
+    # digest the customer record held when the number was matched, never the
+    # number: read again here, an edit in between would have given the old
+    # message the replacement number. REPLY_SLOT_SQL checks it against the
+    # record at every reply, so a number that has since left the record
+    # refuses rather than resolves. Written only after the dedupe above (a
+    # redelivered older message must not move it) and only by the newest
+    # inbound -- the window runs from the newest, so the number has to be the
+    # newest's too. Newest in the thread's own order: a tie on the clock goes
+    # to the higher id, bytewise.
     conn.execute(
         text(
             """
             UPDATE interactions i
                SET source_payload = COALESCE(i.source_payload, '{}'::jsonb)
-                   || jsonb_build_object('endpoint_hmac', encode(
-                        CASE WHEN CAST(:slot AS text) = 'alt' THEN c.phone_alt_hmac
-                             ELSE c.phone_primary_hmac END, 'hex'))
+                   || jsonb_build_object('endpoint_hmac', CAST(:endpoint AS text))
               FROM conversations cv
-              JOIN customers c ON c.id = cv.customer_id
              WHERE cv.id = :cv AND i.id = cv.interaction_id
                AND NOT EXISTS (
                  SELECT 1 FROM messages m
                  WHERE m.conversation_id = cv.id AND m.sender = 'customer'
-                   AND m.provider_ref IS NOT NULL AND m.sent_at > :sent_at
+                   AND m.provider_ref IS NOT NULL
+                   AND (m.sent_at > :sent_at
+                        OR (m.sent_at = :sent_at AND m.id COLLATE "C" > CAST(:msg AS text)))
                )
             """
         ),
-        {"slot": customer.get("endpoint_slot") or "primary", "cv": conversation_id, "sent_at": sent_at},
+        {"endpoint": customer["endpoint_hmac"], "cv": conversation_id, "sent_at": sent_at, "msg": msg_id},
     )
 
     # Pref: inbound stays bot until take-over / escalate (do not flip to needs_human).
@@ -666,16 +674,6 @@ def _apply_whatsapp_status(
     conn.execute(
         text("UPDATE messages SET delivery_status = :delivery WHERE id = :id"),
         {"delivery": delivery, "id": row["id"]},
-    )
-    # The thread changed: whether the customer is still awaiting an answer
-    # turns on this status. The list's delta poll reads `updated_at`, so
-    # without this the row kept its old count and SLA until a full refresh.
-    conn.execute(
-        text(
-            "UPDATE conversations SET updated_at = now() "
-            "WHERE id = (SELECT conversation_id FROM messages WHERE id = :id)"
-        ),
-        {"id": row["id"]},
     )
     if delivery == "failed" and errors:
         # Persist Meta's reason on the outbound job so operators see 131047

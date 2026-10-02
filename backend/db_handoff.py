@@ -710,10 +710,13 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
     return items
 
 def claim_handoff(interaction_id: str) -> dict[str, Any]:
+    import db_inbox
+
     engine = _db().engine
     actor = _actor_user_id()
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
+        thread = db_inbox.lock_interaction_thread(conn, interaction_id)
         ho = _one(
             conn.execute(
                 text(
@@ -770,9 +773,7 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
             ),
             {"id": interaction_id, "uid": actor},
         )
-        import db_inbox
-
-        db_inbox.claim_interaction_thread(conn, interaction_id, actor)
+        db_inbox.claim_interaction_thread(conn, thread, actor)
         existing = _one(
             conn.execute(
                 text(

@@ -17,7 +17,6 @@ import pytest
 from sqlalchemy import text
 
 import db
-import db_inbox_rag
 
 
 # --- F16: a throttled refresh must say so, not serve stale chips -------------
@@ -236,8 +235,12 @@ def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
         ),
         {"id": f"SUG-{tag}", "cv": cv},
     )
-    monkeypatch.setattr(
-        db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: ("how do I pay", f"MSG-{tag}")
+    db_tx.execute(
+        text(
+            "INSERT INTO messages (id, conversation_id, sender, body, delivery_status, sent_at) "
+            "VALUES (:id, :cv, 'customer', 'how do I pay', 'delivered', now())"
+        ),
+        {"id": f"MSG-{tag}", "cv": cv},
     )
 
     def _down(*_args: object, **_kwargs: object) -> list[dict[str, object]]:

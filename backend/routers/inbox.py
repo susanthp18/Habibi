@@ -70,10 +70,17 @@ def list_conversations(
     customerId: str | None = None,
     q: str | None = Query(default=None, max_length=200),
     view: InboxView | None = None,
+    beforeAt: str | None = None,
+    beforeId: str | None = Query(default=None, max_length=200),
 ):
     try:
         return db.list_conversations(
-            updated_after=updatedAfter, customer_id=customerId, q=q, view=view
+            updated_after=updatedAfter,
+            customer_id=customerId,
+            q=q,
+            view=view,
+            before_at=beforeAt,
+            before_id=beforeId,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

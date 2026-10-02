@@ -332,10 +332,6 @@ def persist_outbound_sending(
             ),
             {"mid": msg_id, "job_id": job_id},
         )
-        conn.execute(
-            text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-            {"id": conversation_id},
-        )
     return msg_id
 
 

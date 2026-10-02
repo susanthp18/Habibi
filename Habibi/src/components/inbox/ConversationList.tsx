@@ -1,7 +1,6 @@
 import { Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InboxView, ThreadSummary } from "@/api/types/inbox";
-import { INBOX_LIST_LIMIT } from "@/api/inbox";
 import { Avatar } from "./Avatar";
 import { resolveChannelMeta, slaColor, statusMeta } from "./meta";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +64,11 @@ export function ConversationList({
   filter,
   onFilterChange,
   counts,
+  more = false,
+  onLoadOlder,
+  loadingOlder = false,
+  olderFailed = false,
+  empty = "No conversations match.",
 }: {
   /** The server's answer for the search and the filter: nothing is filtered here. */
   threads: ThreadSummary[];
@@ -79,12 +83,20 @@ export function ConversationList({
   onFilterChange: (filter: Filter) => void;
   /** Threads per filter across the whole inbox; absent until read. */
   counts?: Record<Filter, number>;
+  /** Older threads exist past the last one loaded. */
+  more?: boolean;
+  onLoadOlder?: () => void;
+  loadingOlder?: boolean;
+  olderFailed?: boolean;
+  /** What an empty list says: an empty inbox, or nothing matching. */
+  empty?: string;
 }) {
   const setFilter = onFilterChange;
   const moreActive = moreFilters.some((f) => f.key === filter);
   const moreLabel = moreFilters.find((f) => f.key === filter)?.label ?? "More";
-  const full = threads.length >= INBOX_LIST_LIMIT;
   const count = (f: Filter) => (counts ? counts[f] : null);
+  // A search has no count of its own; a filter does, across the whole inbox.
+  const total = search.trim() ? null : count(filter);
 
   // Up/Down move between rows: this is a keyboard-first triage list.
   const onRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -179,16 +191,15 @@ export function ConversationList({
               ? "Search failed — try again."
               : searching
                 ? "Searching…"
-                : `${threads.length} matching conversation${threads.length === 1 ? "" : "s"}`}
+                : // Loaded, not total: more may match past the last page.
+                  `${threads.length}${more ? "+" : ""} matching conversation${threads.length === 1 && !more ? "" : "s"}`}
           </p>
         )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {threads.length === 0 && !searching && (
-          <div className="p-300 text-center text-body text-text-subtle">
-            No conversations match.
-          </div>
+          <div className="p-300 text-center text-body text-text-subtle">{empty}</div>
         )}
         <ul aria-label="Conversations">
           {threads.map((t, i) => {
@@ -265,12 +276,25 @@ export function ConversationList({
             );
           })}
         </ul>
-        {full && (
-          <p className="px-150 py-200 text-center text-body-small text-text-subtle">
-            Showing the {INBOX_LIST_LIMIT} most recently active
-            {!search.trim() && count(filter) !== null ? ` of ${count(filter)}` : ""}. Search to find
-            older ones.
-          </p>
+        {more && (
+          <div className="px-150 py-200 text-center">
+            <p className="text-body-small text-text-subtle">
+              Showing the {threads.length} most recently active
+              {total !== null ? ` of ${total}` : ""}.
+            </p>
+            <button
+              type="button"
+              onClick={onLoadOlder}
+              disabled={loadingOlder}
+              className="focus-ring mt-075 inline-flex h-400 items-center rounded-medium border border-border px-150 text-body-small font-medium text-text hover:bg-surface-sunken disabled:opacity-60"
+            >
+              {loadingOlder
+                ? "Loading…"
+                : olderFailed
+                  ? "Couldn’t load older conversations — try again"
+                  : "Load older conversations"}
+            </button>
+          </div>
         )}
       </div>
     </aside>

@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
 // Conversation Inbox — data access.
-//   GET  /conversations               the list: summaries, no transcripts.
+//   GET  /conversations               the list: summaries, no transcripts, a page
+//                                     at a time (?beforeAt=&beforeId= the next).
 //                                     ?updatedAfter= deltas; ?q= / ?customerId= /
 //                                     ?view= search the whole inbox on the server
 //   GET  /conversations/counts        threads per view, across the whole inbox
@@ -13,18 +14,22 @@
 // -----------------------------------------------------------------------------
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { InboxView, Thread, ThreadSummary } from "@/api/types/inbox";
 import { apiGet, apiPost, apiUpload, retryUnlessClientError } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
 
-/** The newest threads the list carries (db_inbox.INBOX_LIST_LIMIT). */
+/** Threads per page of the list (db_inbox.INBOX_LIST_LIMIT). */
 export const INBOX_LIST_LIMIT = 500;
 
-/** Shared across hook instances so Strict Mode remounts don't reset full-refresh cadence. */
-let conversationPollCount = 0;
+/**
+ * The list as held: the server's rows in its order, whether older ones exist
+ * past them, and how many times it has been polled -- per list, so two lists
+ * never share a refresh cadence.
+ */
+export type ConversationPage = { rows: ThreadSummary[]; more: boolean; polls: number };
 
 /** Poll every 4s; 1.5s while the bot is composing or a reply is in flight; never while hidden. */
 function pollEvery(busy: boolean): number | false {
@@ -43,18 +48,19 @@ function maxUpdatedAt(rows: ThreadSummary[]): string | null {
 
 /**
  * The server's list order, reproduced exactly:
- *   ORDER BY COALESCE(last message, created_at) DESC, cv.id
+ *   ORDER BY COALESCE(last message, created_at) DESC, cv.id COLLATE "C"
  *
  * By the last message, not by `updatedAt`: that is the change watermark, and a
  * takeover or a delivery receipt moves it -- sorting on it made threads jump
- * to the top for something nobody said. Ties break on id, as the server's do,
- * so a delta poll and a full poll agree and rows never swap on their own.
+ * to the top for something nobody said. Ties break on id bytewise, as the
+ * server's do -- not by locale, which put CV-10 and CV-9 the other way round
+ * -- so a delta poll, a full poll and the next page agree.
  */
 export function compareThreads(a: ThreadSummary, b: ThreadSummary): number {
-  const au = a.lastAt || "";
-  const bu = b.lastAt || "";
-  if (au !== bu) return bu.localeCompare(au);
-  return (a.id || "").localeCompare(b.id || "");
+  const at = Date.parse(a.lastAt ?? "") || 0;
+  const bt = Date.parse(b.lastAt ?? "") || 0;
+  if (at !== bt) return bt - at;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 export function mergeThreads(prev: ThreadSummary[], deltas: ThreadSummary[]): ThreadSummary[] {
@@ -64,14 +70,42 @@ export function mergeThreads(prev: ThreadSummary[], deltas: ThreadSummary[]): Th
   return Array.from(byId.values()).sort(compareThreads);
 }
 
+/**
+ * A fresh first page, and the older rows the operator had loaded past it --
+ * a refresh of the first page must not take away the ones they paged to.
+ */
+export function withOlder(
+  page: ThreadSummary[],
+  prev: ConversationPage | undefined,
+): Pick<ConversationPage, "rows" | "more"> {
+  const last = page[page.length - 1];
+  if (!prev || !last || page.length < INBOX_LIST_LIMIT) {
+    return { rows: page, more: page.length >= INBOX_LIST_LIMIT };
+  }
+  const fresh = new Set(page.map((t) => t.id));
+  const older = prev.rows.filter((t) => !fresh.has(t.id) && compareThreads(last, t) < 0);
+  return { rows: [...page, ...older], more: older.length ? prev.more : true };
+}
+
 export async function fetchConversations(
-  opts: { updatedAfter?: string | null; q?: string; customerId?: string; view?: InboxView } = {},
+  opts: {
+    updatedAfter?: string | null;
+    q?: string;
+    customerId?: string;
+    view?: InboxView;
+    /** The last row held: the page after it. */
+    before?: Pick<ThreadSummary, "id" | "lastAt">;
+  } = {},
 ): Promise<ThreadSummary[]> {
   const params = new URLSearchParams();
   if (opts.updatedAfter) params.set("updatedAfter", opts.updatedAfter);
   if (opts.q?.trim()) params.set("q", opts.q.trim());
   if (opts.customerId) params.set("customerId", opts.customerId);
   if (opts.view) params.set("view", opts.view);
+  if (opts.before?.lastAt) {
+    params.set("beforeAt", opts.before.lastAt);
+    params.set("beforeId", opts.before.id);
+  }
   const qs = params.toString();
   return apiGet<ThreadSummary[]>(`/conversations${qs ? `?${qs}` : ""}`);
 }
@@ -102,30 +136,42 @@ export function useConversation(threadId: string | null | undefined) {
   });
 }
 
+const listKey = (q: string, view?: InboxView) => ["conversations", q, view ?? null] as const;
+
 /**
  * The list. With a search term or a view, the server's matches across the
  * whole inbox -- a view filtered on the loaded page missed every older thread
  * it should have held. Unfiltered, the newest page kept fresh by deltas.
+ * Either way a page at a time: `useOlderConversations` reads the next.
+ *
+ * A search is not polled: it scans every message, and an operator reading
+ * results needs them to hold still. It is read again on focus and after any
+ * write.
  */
 export function useConversations(search = "", view?: InboxView) {
   const queryClient = useQueryClient();
   const q = search.trim();
+  const key = listKey(q, view);
 
   const query = useQuery({
-    queryKey: ["conversations", q, view ?? null],
-    queryFn: async () => {
-      if (q || view) return fetchConversations({ q, view });
-      conversationPollCount += 1;
-      const prev = queryClient.getQueryData<ThreadSummary[]>(["conversations", "", null]);
-      // Full list on first fetch and every ~15th poll (~60s at 4s interval).
-      const after = prev ? maxUpdatedAt(prev) : null;
-      if (!prev || !after || conversationPollCount % 15 === 0) return fetchConversations();
-      return mergeThreads(prev, await fetchConversations({ updatedAfter: after }));
+    queryKey: key,
+    queryFn: async (): Promise<ConversationPage> => {
+      const prev = queryClient.getQueryData<ConversationPage>(key);
+      const polls = (prev?.polls ?? 0) + 1;
+      // Unfiltered: only what changed since the newest watermark, and the
+      // whole first page every ~15th poll (~60s at 4s).
+      const after = prev && !q && !view ? maxUpdatedAt(prev.rows) : null;
+      if (prev && after && polls % 15 !== 0) {
+        const deltas = await fetchConversations({ updatedAfter: after });
+        return { ...prev, rows: mergeThreads(prev.rows, deltas), polls };
+      }
+      return { ...withOlder(await fetchConversations({ q, view }), prev), polls };
     },
     staleTime: 2_000,
     // A malformed `updatedAfter` is a client bug, not a blip.
     retry: retryUnlessClientError,
-    refetchInterval: (query) => pollEvery(Boolean(query.state.data?.some((t) => t.botTyping))),
+    refetchInterval: (query) =>
+      q ? false : pollEvery(Boolean(query.state.data?.rows.some((t) => t.botTyping))),
     refetchOnWindowFocus: true,
   });
 
@@ -141,6 +187,39 @@ export function useConversations(search = "", view?: InboxView) {
   }, [queryClient]);
 
   return query;
+}
+
+/** The page after the last row the list holds, appended to it. */
+export function useOlderConversations(search = "", view?: InboxView) {
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<{ loading: boolean; failed: boolean }>({
+    loading: false,
+    failed: false,
+  });
+  const load = async () => {
+    const key = listKey(search.trim(), view);
+    const last = queryClient.getQueryData<ConversationPage>(key)?.rows.at(-1);
+    if (!last || state.loading) return;
+    setState({ loading: true, failed: false });
+    try {
+      const page = await fetchConversations({ q: search.trim(), view, before: last });
+      // A poll in flight read the list before this page: it would drop it.
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData<ConversationPage>(
+        key,
+        (cur) =>
+          cur && {
+            ...cur,
+            rows: mergeThreads(cur.rows, page),
+            more: page.length >= INBOX_LIST_LIMIT,
+          },
+      );
+      setState({ loading: false, failed: false });
+    } catch {
+      setState({ loading: false, failed: true });
+    }
+  };
+  return { load, ...state };
 }
 
 /** Threads in each view, across the whole inbox. */
@@ -215,6 +294,8 @@ export interface ConversationSuggestionsRefreshResult {
   draftFailed?: boolean;
   /** The knowledge base could not be searched; these are last time's passages. */
   stale?: boolean;
+  /** The customer wrote again while this searched: nothing to show, nothing kept. */
+  superseded?: boolean;
 }
 
 /** Voice Studio knowledge base → passages for the thread (+ optional drafted reply). */

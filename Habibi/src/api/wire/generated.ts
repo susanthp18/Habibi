@@ -1657,6 +1657,8 @@ export const InboxThreadContextResponse = z.object({
   "canReply": z.boolean(),
   "replyBlockedReason": z.string().nullable().optional(),
   "replyWindowEndsAt": z.string().nullable().optional(),
+  "replyToLast4": z.string().nullable().optional(),
+  "replyToSlot": z.enum(["primary", "alt"]).nullable().optional(),
   "contactWindow": z.string(),
   "outstanding": z.number().nullable().optional(),
   "outstandingAging": z.string(),
@@ -1703,6 +1705,7 @@ export const ConversationSuggestionsRefreshResponse = z.object({
   "draftAnswer": z.string().nullable().optional(),
   "draftFailed": z.boolean().optional(),
   "stale": z.boolean().optional(),
+  "superseded": z.boolean().optional(),
 }).passthrough();
 export const ProviderFieldResponse = z.object({
   "key": z.string(),

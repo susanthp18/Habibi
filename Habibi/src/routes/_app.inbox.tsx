@@ -12,6 +12,7 @@ import { SplitPanes } from "@/components/shared/SplitPanes";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   applyThread,
+  fetchConversation,
   refreshConversationSuggestions,
   returnConversationToBot,
   sendConversationMessage,
@@ -19,11 +20,12 @@ import {
   useConversation,
   useConversationCounts,
   useConversations,
+  useOlderConversations,
 } from "@/api/inbox";
 import { can, useMe } from "@/api/me";
-import { ApiError, isNotFound } from "@/api/config";
+import { isNotFound } from "@/api/config";
 import type { Thread } from "@/api/types/inbox";
-import type { InboxRights } from "@/components/inbox/meta";
+import { getThreadHandoffState, type InboxRights } from "@/components/inbox/meta";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useConfirm } from "@/components/ui/use-confirm";
 import { useDebounced } from "@/lib/use-debounced";
@@ -126,8 +128,9 @@ function InboxPage() {
   // (tab hidden, browser offline), and then "No conversations yet." would be
   // a claim about an inbox nobody had managed to read.
   const list = useConversations(q, view);
+  const older = useOlderConversations(q, view);
   const counts = useConversationCounts();
-  const threads = useMemo(() => list.data ?? [], [list.data]);
+  const threads = useMemo(() => list.data?.rows ?? [], [list.data]);
   const detail = useConversation(activeId);
   const thread = detail.data;
 
@@ -147,6 +150,8 @@ function InboxPage() {
   const attempts = useRef(new Map<string, Attempt>());
   const [rag, setRag] = useState<Rag>(NO_RAG);
   const ragToken = useRef(0);
+  // What had focus when the overlay rail opened: it gets it back on close.
+  const railOpener = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!railUserToggled.current) setRailOpen(canDock);
@@ -219,6 +224,12 @@ function InboxPage() {
         topK: 4,
         includeDraftAnswer: withDraft,
       });
+      // The customer wrote again while it searched: these answer an older
+      // message, and the newer one's own search replaces them.
+      if (res.superseded) {
+        if (current()) setRag((r) => ({ ...r, loading: false }));
+        return withDraft ? { kind: "superseded" } : { kind: "none" };
+      }
       if (current()) {
         setRag({
           threadId,
@@ -234,8 +245,14 @@ function InboxPage() {
       if (!res.draftAnswer) return { kind: "none" };
       // Drafting takes seconds; the customer may have written again. Read
       // the thread now and offer the draft only if it still answers them.
-      await queryClient.refetchQueries({ queryKey: ["conversation", threadId], exact: true });
-      const now = queryClient.getQueryData<Thread>(["conversation", threadId]);
+      // A read that fails is no answer: the cache it would have fallen back
+      // on is exactly the old thread this check exists to doubt.
+      const now = await queryClient.fetchQuery({
+        queryKey: ["conversation", threadId],
+        queryFn: () => fetchConversation(threadId),
+        staleTime: 0,
+        retry: false,
+      });
       if (res.answersMessageId !== latestCustomerMessageId(now)) return { kind: "superseded" };
       return { kind: "draft", text: res.draftAnswer };
     } catch (err) {
@@ -263,7 +280,7 @@ function InboxPage() {
 
   const handleTakeOver = async () => {
     if (!thread) return;
-    if (!thread.isMine && thread.status === "assigned") {
+    if (getThreadHandoffState(thread, rights).heldByTeammate) {
       const ok = await confirm({
         title: "Take over from another agent?",
         description: `${thread.customer}'s conversation is assigned to a colleague. Taking over reassigns it to you, and they will not be able to reply until you hand it back.`,
@@ -291,10 +308,12 @@ function InboxPage() {
     }
     const key = attempt.key;
     const err = await write(thread, () => sendConversationMessage(id, text, key));
-    // Over once the server answered either way: queued, or refused (a 4xx is
-    // conclusive -- nothing was queued). A lost response or a 5xx is not: the
-    // key is kept, so resending the same text cannot queue it twice.
-    if (!err || (err instanceof ApiError && err.status < 500)) attempts.current.delete(id);
+    // The key goes only with a success. A failure -- even a 4xx -- does not
+    // settle an earlier attempt whose answer was lost: a 429 on the retry
+    // says nothing of whether the first one queued, and a new key would let
+    // it queue twice. Keeping it costs nothing: the server replays only a
+    // key that succeeded.
+    if (!err) attempts.current.delete(id);
     if (err) return false;
     // Only the text that went: anything typed while it was sending stays.
     setDrafts((d) => {
@@ -307,6 +326,7 @@ function InboxPage() {
 
   const toggleRail = () => {
     railUserToggled.current = true;
+    if (!railOpen) railOpener.current = document.activeElement as HTMLElement | null;
     setRailOpen((o) => !o);
   };
   const closeRail = () => {
@@ -329,7 +349,12 @@ function InboxPage() {
 
   const rail = thread ? (
     <QueryState query={detail} label="customer context">
-      <ContextRail thread={thread} context={thread.context} onClose={closeRail} />
+      <ContextRail
+        thread={thread}
+        context={thread.context}
+        onClose={closeRail}
+        canFileRecords={rights.canFileDocuments}
+      />
     </QueryState>
   ) : null;
 
@@ -346,6 +371,11 @@ function InboxPage() {
       filter={filter}
       onFilterChange={setFilter}
       counts={counts.data}
+      more={Boolean(list.data?.more)}
+      onLoadOlder={() => void older.load()}
+      loadingOlder={older.loading}
+      olderFailed={older.failed}
+      empty={!filtered ? "No conversations yet." : "No conversations match."}
     />
   );
 
@@ -368,15 +398,24 @@ function InboxPage() {
               Nothing in this inbox is registered as “{activeId}”. It may have been deleted, or
               belong to another tenant.
             </p>
-            {threads[0] && (
+            <div className="mt-150 flex flex-wrap justify-center gap-100">
+              {threads[0] && (
+                <button
+                  type="button"
+                  onClick={() => select(threads[0]!.id)}
+                  className="focus-ring inline-flex h-400 items-center rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered"
+                >
+                  Open the most recent conversation
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => select(threads[0]!.id)}
-                className="focus-ring mt-150 inline-flex h-400 items-center rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse hover:bg-background-brand-bold-hovered"
+                onClick={() => void navigate({ search: {} })}
+                className="focus-ring inline-flex h-400 items-center rounded-medium border border-border px-150 text-body font-medium text-text hover:bg-surface-sunken"
               >
-                Open the most recent conversation
+                View all conversations
               </button>
-            )}
+            </div>
           </div>
         </div>
       ) : thread ? (
@@ -462,10 +501,6 @@ function InboxPage() {
             <div className="grid flex-1 place-items-center p-400">
               <QueryErrorBanner label="the inbox" error={list.error} />
             </div>
-          ) : !threads.length && !filtered && !activeId ? (
-            <div className="grid flex-1 place-items-center text-body text-text-subtle">
-              No conversations yet.
-            </div>
           ) : narrow ? (
             activeId ? (
               threadPane
@@ -492,13 +527,19 @@ function InboxPage() {
           )}
         </div>
       </div>
-      {/* A dialog when it covers the thread: focus moves into it, stays in
-          it, and returns to the button that opened it. */}
+      {/* A dialog when it covers the thread: focus moves into it and stays in
+          it. Radix returns focus to its own trigger, and the button that opens
+          this lives in the thread header, outside the Sheet -- so it is given
+          back here. */}
       <Sheet open={overlayRail && Boolean(thread)} onOpenChange={(open) => !open && closeRail()}>
         <SheetContent
           side="right"
           hideClose
           aria-describedby={undefined}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            railOpener.current?.focus();
+          }}
           className="flex w-[20rem] max-w-[85%] flex-col p-0"
         >
           <SheetTitle className="sr-only">Customer context</SheetTitle>

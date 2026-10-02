@@ -46,6 +46,25 @@ def _clip_inbox_rag_turn(text_value: str) -> str:
     return t[: _INBOX_RAG_MAX_TURN_CHARS - 1] + "…"
 
 
+def _latest_customer_turns(conn: Any, conversation_id: str, n: int) -> list[dict[str, Any]]:
+    """The customer's latest messages, newest first, in the thread's order:
+    ties on the clock break on the id, bytewise, as the transcript's do."""
+    return _rows(
+        conn.execute(
+            text(
+                """
+                SELECT id, body
+                FROM messages
+                WHERE conversation_id = :id AND sender = 'customer' AND btrim(body) <> ''
+                ORDER BY COALESCE(sent_at, created_at) DESC, id COLLATE "C" DESC
+                LIMIT :n
+                """
+            ),
+            {"id": conversation_id, "n": n},
+        )
+    )
+
+
 def _conversation_rag_query(conn: Any, conversation_id: str) -> tuple[str, str]:
     """The retrieval query -- the customer's latest message, then the one before
     it for context -- and the id of that latest message, which is what the
@@ -70,20 +89,7 @@ def _conversation_rag_query(conn: Any, conversation_id: str) -> tuple[str, str]:
     )
     if owned is None:
         raise KeyError("conversation_not_found")
-    turns = _rows(
-        conn.execute(
-            text(
-                """
-                SELECT id, body
-                FROM messages
-                WHERE conversation_id = :id AND sender = 'customer' AND btrim(body) <> ''
-                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
-                LIMIT 2
-                """
-            ),
-            {"id": conversation_id},
-        )
-    )
+    turns = _latest_customer_turns(conn, conversation_id, 2)
     if not turns:
         raise ValueError("conversation_has_no_messages")
     query = "\n".join(f"Customer: {_clip_inbox_rag_turn(t['body'])}" for t in turns)
@@ -170,6 +176,12 @@ def refresh_conversation_suggestions(
     and none means none. Only a search that could not run returns the last
     passages, and says so (``stale``). Weak matches below INBOX_RAG_MIN_SCORE
     are dropped (empty chips > junk).
+
+    Retrieval takes seconds, and two can overlap. The replace happens under
+    the thread's lock and only while the message searched for is still the
+    customer's latest: a slower search for an older message must not
+    overwrite the passages for the newer one. One that lost is returned
+    ``superseded`` and stored nowhere.
     """
     with _engine().connect() as conn:
         try:
@@ -201,8 +213,13 @@ def refresh_conversation_suggestions(
 
     chips: list[str] = []
     draft: str | None = None
+    superseded = False
     with _engine().begin() as conn:
-        if retrieval is None:
+        conn.execute(text("SELECT 1 FROM conversations WHERE id = :id FOR UPDATE"), {"id": conversation_id})
+        latest = _latest_customer_turns(conn, conversation_id, 1)
+        if not latest or latest[0]["id"] != answers:
+            superseded = True
+        elif retrieval is None:
             chips = [
                 str(r["suggestion_text"]).strip()
                 for r in _rows(
@@ -261,12 +278,23 @@ def refresh_conversation_suggestions(
                 )
 
     logger.info(
-        "inbox_rag_refreshed conversation=%s chips=%s draft=%s stale=%s",
+        "inbox_rag_refreshed conversation=%s chips=%s draft=%s stale=%s superseded=%s",
         conversation_id,
         len(chips),
         bool(draft),
         retrieval is None,
+        superseded,
     )
+    if superseded:
+        return {
+            "conversationId": conversation_id,
+            "answersMessageId": answers,
+            "ragSuggestions": [],
+            "draftAnswer": None,
+            "draftFailed": False,
+            "stale": False,
+            "superseded": True,
+        }
     return {
         "conversationId": conversation_id,
         "answersMessageId": answers,
@@ -276,4 +304,5 @@ def refresh_conversation_suggestions(
         # A failed search answered with last time's passages says so: they are
         # not this turn's.
         "stale": retrieval is None,
+        "superseded": False,
     }

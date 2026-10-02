@@ -16,6 +16,7 @@ const q = vi.hoisted(() => ({
   details: {} as Record<string, unknown>,
   send: vi.fn(),
   refresh: vi.fn(),
+  fetchThread: vi.fn(),
   rights: new Set(["perm-interactions-write"]),
 }));
 
@@ -37,8 +38,14 @@ vi.mock("@/api/contact-policy", () => ({
 vi.mock("@/lib/use-debounced", () => ({ useDebounced: (v: string) => v }));
 vi.mock("@/api/inbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/inbox")>()),
-  useConversations: () => ({ data: q.threads, isPending: false, isError: false }),
+  useConversations: () => ({
+    data: { rows: q.threads, more: false, polls: 1 },
+    isPending: false,
+    isError: false,
+  }),
+  useOlderConversations: () => ({ load: vi.fn(), loading: false, failed: false }),
   useConversationCounts: () => ({ data: undefined }),
+  fetchConversation: (...args: unknown[]) => q.fetchThread(...args),
   useConversation: (id: string | undefined) => ({
     data: id ? q.details[id] : undefined,
     isPending: false,
@@ -57,6 +64,7 @@ vi.mock("@/api/inbox", async (importOriginal) => ({
 const { Composer } = await import("./Composer");
 const { ChatThread } = await import("./ChatThread");
 const { ConversationList } = await import("./ConversationList");
+const { ContextRail } = await import("./ContextRail");
 const { closesAtWords, inboxErrorWords } = await import("./inbox-words");
 const { Route } = await import("@/routes/_app.inbox");
 
@@ -150,6 +158,8 @@ beforeEach(() => {
   q.send.mockReset();
   q.refresh.mockReset();
   q.refresh.mockReturnValue(new Promise(() => {}));
+  q.fetchThread.mockReset();
+  q.fetchThread.mockImplementation(async (id: string) => q.details[id]);
   q.navigate.mockReset();
   q.rights = new Set(["perm-interactions-write"]);
 });
@@ -220,6 +230,23 @@ describe("ChatThread", () => {
   });
 });
 
+describe("ContextRail", () => {
+  it("offers a promise or a dispute only to someone who can file one", () => {
+    const t = thread();
+    const { rerender } = render(<ContextRail thread={t} context={t.context} />);
+    expect(screen.queryByRole("button", { name: /create ptp/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /raise dispute/i })).toBeNull();
+    rerender(<ContextRail thread={t} context={t.context} canFileRecords />);
+    expect(screen.getByRole("button", { name: /create ptp/i })).toBeInTheDocument();
+  });
+
+  it("names the number a reply goes to by its last four digits", () => {
+    const t = thread({}, { replyToLast4: "3210", replyToSlot: "alt" });
+    render(<ContextRail thread={t} context={t.context} />);
+    expect(screen.getByText(/alternate number ending 3210/)).toBeInTheDocument();
+  });
+});
+
 describe("ConversationList", () => {
   it("names the dot after what its colour shows", () => {
     render(
@@ -239,6 +266,29 @@ describe("ConversationList", () => {
     );
     expect(screen.getByRole("img", { name: /waiting over 24 hours/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { current: true })).toBeInTheDocument();
+  });
+
+  it("pages on past the last row, and counts a search by what it loaded", () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <ConversationList
+        threads={[summary()]}
+        activeId={null}
+        onSelect={() => {}}
+        search="borrower"
+        onSearchChange={() => {}}
+        searching={false}
+        searchFailed={false}
+        filter="all"
+        onFilterChange={() => {}}
+        more
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+    // More may match past the page: "1 matching" claimed a total it never read.
+    expect(screen.getByRole("status")).toHaveTextContent("1+ matching conversations");
+    fireEvent.click(screen.getByRole("button", { name: /load older conversations/i }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -348,7 +398,6 @@ describe("Inbox page", () => {
   });
 
   it("offers a drafted reply only while it answers the latest message", async () => {
-    client.setQueryData(["conversation", "CV-A"], q.details["CV-A"]);
     q.refresh.mockResolvedValue({
       conversationId: "CV-A",
       answersMessageId: "M-1",
@@ -365,7 +414,7 @@ describe("Inbox page", () => {
       ...(later.messages ?? []),
       { id: "M-2", sender: "customer", text: "and the fee?", time: "3:42 PM", at: null },
     ];
-    client.setQueryData(["conversation", "CV-A"], later);
+    q.fetchThread.mockResolvedValueOnce(later);
     fireEvent.change(box(), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /suggest reply/i }));
     await waitFor(() => expect(q.refresh).toHaveBeenCalledTimes(3));
@@ -373,6 +422,76 @@ describe("Inbox page", () => {
       expect(screen.getByRole("button", { name: /suggest reply/i })).toBeEnabled(),
     );
     expect(box()).toHaveValue("");
+  });
+
+  it("offers no draft when the thread could not be read again", async () => {
+    // The check fell back on the cached thread -- the old one it exists to
+    // doubt -- and a failed read approved a draft for a superseded message.
+    q.refresh.mockResolvedValue({
+      conversationId: "CV-A",
+      answersMessageId: "M-1",
+      ragSuggestions: [],
+      draftAnswer: "It is due on the 5th.",
+    });
+    q.fetchThread.mockRejectedValue(new TypeError("Failed to fetch"));
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: /suggest reply/i }));
+    await waitFor(() => expect(q.fetchThread).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /suggest reply/i })).toBeEnabled(),
+    );
+    expect(box()).toHaveValue("");
+  });
+
+  it("keeps the newer message's passages when an older search finishes last", async () => {
+    q.refresh
+      .mockResolvedValueOnce({
+        conversationId: "CV-A",
+        answersMessageId: "M-1",
+        ragSuggestions: ["Fees are waived on the first late payment."],
+      })
+      .mockResolvedValueOnce({
+        conversationId: "CV-A",
+        answersMessageId: "M-0",
+        ragSuggestions: [],
+        superseded: true,
+      });
+    open("CV-A");
+    await screen.findByRole("button", { name: "Sources (1)" });
+    fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
+    await waitFor(() => expect(q.refresh).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: /refresh/i })).toBeEnabled());
+    // The older search's empty answer used to replace them.
+    fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/Fees are waived/)).toBeInTheDocument();
+  });
+
+  it("keeps a reply's key through a refused retry, until one succeeds", async () => {
+    // Lost answer, then a 429 on the retry: the 429 says nothing of whether the
+    // first one queued. A new key there let a third try queue it twice.
+    q.send
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new ApiError("POST", "/x", 429, "rate_limited"))
+      .mockResolvedValueOnce(q.details["CV-A"]);
+    open("CV-A");
+    fireEvent.change(box(), { target: { value: "on its way" } });
+    await act(async () => send());
+    await act(async () => send());
+    await act(async () => send());
+    const keys = q.send.mock.calls.map((c) => c[2]);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it("gives focus back to the button that opened the customer context", async () => {
+    open("CV-A");
+    const toggle = screen.getByRole("button", { name: /toggle customer context/i });
+    toggle.focus();
+    fireEvent.click(toggle);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toggle).toHaveFocus();
   });
 
   it("does not search the knowledge base for someone who cannot reply", async () => {

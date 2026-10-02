@@ -54,7 +54,7 @@ export type InboxRights = {
   canWrite: boolean;
   /** perm-supervisor-write: take a thread a colleague holds. */
   canReassign: boolean;
-  /** perm-collections-write: file a document to the customer's record. */
+  /** perm-collections-write: file a document, a promise or a dispute to the customer's record. */
   canFileDocuments?: boolean;
 };
 
@@ -69,11 +69,13 @@ export type InboxRights = {
  * channel a bot answers.
  */
 export function getThreadHandoffState(
-  thread: Pick<ThreadSummary, "isMine" | "status" | "channel">,
+  thread: Pick<ThreadSummary, "isMine" | "status" | "channel" | "assignedUserId">,
   rights: InboxRights = { canWrite: false, canReassign: false },
 ) {
   const needsClaim = !thread.isMine;
-  const heldByTeammate = !thread.isMine && thread.status === "assigned";
+  // Held is who has it, not the status: an escalation keeps its assignee, and
+  // an agent offered "Take over" on a colleague's escalation got a 403.
+  const heldByTeammate = !thread.isMine && Boolean(thread.assignedUserId);
   const canClaim = needsClaim && rights.canWrite && (!heldByTeammate || rights.canReassign);
   const canReturnToBot =
     rights.canWrite &&

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compareThreads, mergeThreads } from "./inbox";
+import { compareThreads, INBOX_LIST_LIMIT, mergeThreads, withOlder } from "./inbox";
 import type { ThreadSummary } from "@/api/types/inbox";
 
 type Thread = ThreadSummary;
@@ -47,6 +47,14 @@ describe("compareThreads", () => {
       thread("CV-B", at, "3:00 PM"),
     ];
     expect(rows.sort(compareThreads).map((t) => t.id)).toEqual(["CV-A", "CV-B", "CV-C"]);
+  });
+
+  it('breaks ties bytewise, as the server\'s COLLATE "C" does — not by locale', () => {
+    // A locale folds case: "cv-a" before "CV-B". Postgres orders the id
+    // bytewise ("CV-B" first), and the next page starts from that order.
+    const at = "2026-08-23T05:04:18.379714+00:00";
+    const rows = [thread("cv-a", at, "1:00 PM"), thread("CV-B", at, "1:00 PM")];
+    expect(rows.sort(compareThreads).map((t) => t.id)).toEqual(["CV-B", "cv-a"]);
   });
 
   it("is a total order — sorting twice does not reshuffle", () => {
@@ -110,5 +118,26 @@ describe("mergeThreads", () => {
       awaitingReply: 0,
     };
     expect(mergeThreads(prev as Thread[], [delta as Thread])[0]?.awaitingReply).toBe(0);
+  });
+});
+
+describe("withOlder", () => {
+  const page = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) =>
+      thread(`CV-${String(from + i).padStart(4, "0")}`, "2026-08-23T05:00:00.000000+00:00", "x"),
+    );
+
+  it("keeps the older rows the operator paged to when the first page refreshes", () => {
+    const first = page(INBOX_LIST_LIMIT);
+    const loaded = page(3, INBOX_LIST_LIMIT);
+    const held = { rows: [...first, ...loaded], more: false, polls: 4 };
+    const next = withOlder(first, held);
+    expect(next.rows).toHaveLength(INBOX_LIST_LIMIT + 3);
+    expect(next.more).toBe(false);
+  });
+
+  it("is the whole list when the first page is not full", () => {
+    const held = { rows: page(7), more: true, polls: 2 };
+    expect(withOlder(page(5), held)).toEqual({ rows: page(5), more: false });
   });
 });

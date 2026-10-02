@@ -707,10 +707,6 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
                 ),
                 {"id": message_id},
             )
-            conn.execute(
-                text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-                {"id": job["conversation_id"]},
-            )
             logger.info(
                 "whatsapp_outbound blocked job=%s reason=%s",
                 job["id"],
@@ -787,11 +783,6 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
                     ),
                     {"id": message_id},
                 )
-                # Touch conversation so inbox deltas pick up the failure.
-                conn.execute(
-                    text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-                    {"id": job["conversation_id"]},
-                )
         return
 
     with engine.begin() as conn:
@@ -805,10 +796,6 @@ def handle_job(engine: Engine, job: dict[str, Any]) -> None:
                 """
             ),
             {"id": message_id, "ref": provider_ref},
-        )
-        conn.execute(
-            text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-            {"id": job["conversation_id"]},
         )
         mark_succeeded(conn, job["id"], provider_ref=provider_ref)
         _finalize_treatment_send(conn, job, provider_ref=provider_ref)
@@ -843,9 +830,5 @@ def process_one(engine: Engine) -> bool:
                         """
                     ),
                     {"id": job["message_id"]},
-                )
-                conn.execute(
-                    text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-                    {"id": job["conversation_id"]},
                 )
     return True

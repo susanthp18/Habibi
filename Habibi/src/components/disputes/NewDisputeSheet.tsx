@@ -46,11 +46,15 @@ export function NewDisputeSheet({
   // One key for the life of the sheet: it closes on success.
   const submitKey = useRef(idempotencyKey("dispute"));
 
+  // The customers arrive after the sheet opens on a cold load: an empty list
+  // is "not loaded yet", and the linked customer is chosen once it arrives.
+  // It used to be cleared then, and never restored.
   useEffect(() => {
     setCustomerId((cur) => {
-      if (pool.length === 0) return "";
       if (pool.some((c) => c.id === cur)) return cur;
-      return initialCustomerId ? "" : pool[0]!.id;
+      if (initialCustomerId)
+        return pool.some((c) => c.id === initialCustomerId) ? initialCustomerId : "";
+      return pool[0]?.id ?? "";
     });
   }, [pool, initialCustomerId]);
 

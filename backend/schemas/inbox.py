@@ -95,6 +95,11 @@ class InboxThreadContextResponse(BaseModel):
     replyBlockedReason: str | None = None
     #: When WhatsApp's 24-hour service window closes, ISO 8601.
     replyWindowEndsAt: str | None = None
+    #: The last four digits of the number a reply goes to -- the one the
+    #: customer wrote from -- and which of theirs it is. Null when no reply
+    #: can go.
+    replyToLast4: str | None = None
+    replyToSlot: Literal["primary", "alt"] | None = None
     contactWindow: str
     outstanding: float | None = None
     outstandingAging: str
@@ -215,3 +220,6 @@ class ConversationSuggestionsRefreshResponse(BaseModel):
     #: True when the knowledge base could not be searched and these are the
     #: passages found last time.
     stale: bool = False
+    #: The customer wrote again while this searched: nothing was kept, and
+    #: there is nothing to show -- the newer message gets its own search.
+    superseded: bool = False

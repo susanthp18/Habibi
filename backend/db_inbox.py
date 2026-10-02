@@ -232,8 +232,12 @@ def _reply_purpose(row: dict[str, Any]) -> tuple[str | None, datetime | None, st
 
 
 def _reply_verdict(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
-    """Whether an agent's reply on this thread would be admitted right now."""
+    """Whether an agent's reply on this thread would be admitted right now,
+    and to which of the customer's numbers it would go -- its last four
+    digits only: enough to confirm with the borrower, not to copy."""
     purpose, closes, reason = _reply_purpose(row)
+    endpoint = _reply_endpoint(conn, row) if purpose is not None else None
+    digits = re.sub(r"\D+", "", endpoint or "")
     if purpose is not None:
         try:
             import contact_policy
@@ -244,7 +248,7 @@ def _reply_verdict(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
                 channel=row["channel"],
                 purpose=purpose,
                 session_key=row["id"],
-                endpoint=_reply_endpoint(conn, row),
+                endpoint=endpoint,
             )
             reason = None if decision.allowed else str(decision.reason or "refused")
         except Exception:
@@ -255,6 +259,8 @@ def _reply_verdict(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
         "canReply": reason is None,
         "replyBlockedReason": reason,
         "replyWindowEndsAt": closes.isoformat() if closes else None,
+        "replyToLast4": digits[-4:] if len(digits) >= 4 else None,
+        "replyToSlot": (row.get("endpoint_slot") or "primary") if digits else None,
     }
 
 
@@ -293,11 +299,17 @@ def _delivery_note(error: str | None, delivery: str | None) -> str | None:
         "131047": "Outside WhatsApp's 24-hour window",
         "131026": "This number can't receive WhatsApp messages",
         "131051": "WhatsApp doesn't support this message type",
-        "130429": "WhatsApp rate limit — retrying",
-        "131056": "WhatsApp rate limit for this customer — retrying",
+    }
+    # Retrying only while it is still queued: failed, the retries ran out.
+    rate_limited = {
+        "130429": "WhatsApp rate limit",
+        "131056": "WhatsApp rate limit for this customer",
     }
     if code and code.group(1) in known:
         return known[code.group(1)]
+    if code and code.group(1) in rate_limited:
+        outcome = "retrying" if delivery == "pending" else "not sent"
+        return f"{rate_limited[code.group(1)]} — {outcome}"
     reason = error.split(":", 1)[0].strip()
     if reason in contact_policy.CLOCK_REFUSALS:
         # Still queued, it waits for the hour the policy allows; failed, the
@@ -667,9 +679,7 @@ def _serialize_thread(conn: Any, row: dict[str, Any], me_id: str) -> dict[str, A
     }
 
 
-#: The newest threads the list carries; the UI says when it is full. ponytail:
-#: one bounded page plus server search -- cursor paging when an active book
-#: outgrows it.
+#: Threads per page of the list; ``before_at``/``before_id`` read the next.
 INBOX_LIST_LIMIT = 500
 
 
@@ -678,7 +688,8 @@ INBOX_LIST_LIMIT = 500
 #: ``conversation_counts`` counts each over the whole inbox.
 _VIEW_SQL: dict[str, str] = {
     "mine": "cv.assigned_user_id = :me",
-    "others": "cv.status = 'assigned' AND cv.assigned_user_id IS DISTINCT FROM :me",
+    # Held by someone else, whatever the status: an escalation keeps its holder.
+    "others": "cv.assigned_user_id IS NOT NULL AND cv.assigned_user_id IS DISTINCT FROM :me",
     "needs_human": "cv.status = 'needs_human'",
     "escalated": "cv.status = 'escalated'",
     "bot": "cv.status = 'bot'",
@@ -705,6 +716,7 @@ def _conversation_base_rows(
     customer_id: str | None = None,
     q: str | None = None,
     view: str | None = None,
+    before: tuple[datetime, str] | None = None,
 ) -> list[dict[str, Any]]:
     clauses, params = _inbox_scope()
     if view:
@@ -719,17 +731,42 @@ def _conversation_base_rows(
         clauses.append("COALESCE(cv.updated_at, cv.created_at) > :updated_after")
         params["updated_after"] = updated_after
     if q and q.strip():
-        # Every message of the thread, not only the last, and threads older
-        # than the list's page.
+        # Every message of the thread, not only the last -- a voice call's
+        # spoken turns included -- and threads older than the list's page. A
+        # number finds its customer the way an inbound WhatsApp does
+        # (db_whatsapp's matcher): on the keyed digest, never a scan of the
+        # numbers themselves; the bare national number of a legacy row aside.
+        phone = re.sub(r"\D+", "", q)
+        by_phone = ""
+        if len(phone) >= 10:
+            import db_whatsapp
+
+            by_phone = (
+                f"OR {db_whatsapp._digits_phone_exact_sql()} "
+                f"OR {db_whatsapp._digits_phone_tail10_sql()}"
+            )
+            params["phone"] = phone
         clauses.append(
-            """(
+            f"""(
               c.name ILIKE :q ESCAPE '!' OR a.id ILIKE :q ESCAPE '!' OR cv.id ILIKE :q ESCAPE '!'
               OR EXISTS (SELECT 1 FROM messages sm
                          WHERE sm.conversation_id = cv.id AND sm.body ILIKE :q ESCAPE '!')
+              OR (cv.channel = 'voice' AND EXISTS (
+                    SELECT 1 FROM interaction_transcript st
+                    WHERE st.interaction_id = cv.interaction_id AND st.text ILIKE :q ESCAPE '!'))
+              {by_phone}
             )"""
         )
         needle = q.strip().replace("!", "!!").replace("%", "!%").replace("_", "!_")
         params["q"] = f"%{needle}%"
+    if before is not None:
+        # The next page: threads after this one in the list's order.
+        clauses.append(
+            """(COALESCE(lm.at, cv.created_at) < :before_at
+                OR (COALESCE(lm.at, cv.created_at) = :before_at
+                    AND cv.id COLLATE "C" > CAST(:before_id AS text)))"""
+        )
+        params["before_at"], params["before_id"] = before
     params["limit"] = INBOX_LIST_LIMIT
     return _rows(
         conn.execute(
@@ -762,7 +799,7 @@ def _conversation_base_rows(
                   FROM messages m
                   WHERE m.conversation_id = cv.id AND m.sender <> 'system'
                     AND m.delivery_status IS DISTINCT FROM 'cancelled'
-                  ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+                  ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id COLLATE "C" DESC
                   LIMIT 1
                 ) lm ON true
                 LEFT JOIN LATERAL (
@@ -780,7 +817,10 @@ def _conversation_base_rows(
                     ), '-infinity'::timestamptz)
                 ) aw ON true
                 WHERE {' AND '.join(clauses)}
-                ORDER BY COALESCE(lm.at, cv.created_at) DESC, cv.id
+                -- Ties break on the id bytewise: the browser merges deltas
+                -- and pages in this order, and a locale's collation is not
+                -- one it can reproduce.
+                ORDER BY COALESCE(lm.at, cv.created_at) DESC, cv.id COLLATE "C"
                 LIMIT :limit
                 """
             ),
@@ -795,15 +835,28 @@ def list_conversations(
     customer_id: str | None = None,
     q: str | None = None,
     view: str | None = None,
+    before_at: str | None = None,
+    before_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """The inbox list, newest activity first: summaries, no transcripts.
+    """The inbox list, newest activity first: summaries, no transcripts, a
+    page of INBOX_LIST_LIMIT at a time.
 
     ``updated_after`` returns only threads touched after that watermark (the
     delta poll); ``customer_id``, ``q`` and ``view`` search the whole inbox,
-    not the page.
+    not the page. ``before_at``/``before_id`` -- the ``lastAt`` and ``id`` of
+    the last row held -- read the page after it.
     """
     if view and view not in _VIEW_SQL:
         raise ValueError("invalid_view")
+    before: tuple[datetime, str] | None = None
+    if before_at or before_id:
+        try:
+            at = datetime.fromisoformat(str(before_at).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("invalid_before") from exc
+        if not before_id or at.tzinfo is None:
+            raise ValueError("invalid_before")
+        before = (at, before_id)
     after: datetime | None = None
     if updated_after is not None:
         if isinstance(updated_after, datetime):
@@ -827,7 +880,7 @@ def list_conversations(
     me_id = _actor_user_id()
     with _engine().connect() as conn:
         rows = _conversation_base_rows(
-            conn, updated_after=after, customer_id=customer_id, q=q, view=view
+            conn, updated_after=after, customer_id=customer_id, q=q, view=view, before=before
         )
         typing_by = _bot_typing_by_conversation(conn, [r["id"] for r in rows])
         return [
@@ -1013,12 +1066,16 @@ def _assign_conversation(conn: Any, row: dict[str, Any], user_id: str, label: st
     _activity(conn, "conversation", row["id"], "conversation_takeover", label, None, row["customer_id"])
 
 
-def claim_interaction_thread(conn: Any, interaction_id: str, user_id: str) -> None:
-    """The Handoff Hub claimed this interaction: its text thread, if it has
-    one, is the claimant's too. The Hub used to move only the interaction, so
-    the Inbox went on showing the thread unheld -- or someone else's -- and
-    refused the claimant's reply."""
-    row = _one(
+def lock_interaction_thread(conn: Any, interaction_id: str) -> dict[str, Any] | None:
+    """Lock the text thread of an interaction, if it has one.
+
+    Every path that moves a thread between hands locks in one order --
+    conversation, then interaction, then handoff -- so the Hub must take this
+    before its handoff row. It took the handoff first while the Inbox took the
+    conversation first, and a claim and a takeover of the same thread at once
+    each held what the other waited for, until Postgres aborted one.
+    """
+    return _one(
         conn.execute(
             text(
                 """
@@ -1030,6 +1087,13 @@ def claim_interaction_thread(conn: Any, interaction_id: str, user_id: str) -> No
             {"iid": interaction_id},
         )
     )
+
+
+def claim_interaction_thread(conn: Any, row: dict[str, Any] | None, user_id: str) -> None:
+    """The Handoff Hub claimed this interaction: its text thread (``row``, from
+    :func:`lock_interaction_thread`), if it has one, is the claimant's too. The
+    Hub used to move only the interaction, so the Inbox went on showing the
+    thread unheld -- or someone else's -- and refused the claimant's reply."""
     if row is None or row["assigned_user_id"] == user_id:
         return
     if row["assigned_user_id"] is not None:
@@ -1081,8 +1145,10 @@ def return_conversation_to_bot(conversation_id: str) -> dict[str, Any]:
         assignee = row["assigned_user_id"]
         if row["channel"] != "whatsapp":
             raise ValueError("bot_does_not_answer_channel")
-        # Owner can always release; any agent may release needs_human/escalated.
-        if status == "assigned" and assignee not in (None, me_id):
+        # The holder can always release; anyone may release a thread nobody
+        # holds. A colleague's is theirs in any status -- an escalation keeps
+        # its assignee -- and handing it to the bot would take it from them.
+        if assignee not in (None, me_id):
             raise ValueError("return_to_bot_not_allowed")
         if status not in {"assigned", "needs_human", "escalated"}:
             raise ValueError("return_to_bot_not_allowed")
@@ -1531,10 +1597,6 @@ def send_conversation_message(
                 body=text_value,
                 purpose=purpose,
                 source="inbox_reply",
-            )
-            conn.execute(
-                text("UPDATE conversations SET updated_at = now() WHERE id = :id"),
-                {"id": conversation_id},
             )
             _activity(
                 conn,

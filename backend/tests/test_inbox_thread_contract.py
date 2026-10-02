@@ -26,6 +26,17 @@ And what a review of the fixes found still wrong:
 * a promise or dispute could name another borrower's loan;
 * the list's views stopped at its first 500 rows.
 
+And a third pass:
+
+* a slower search for an older message overwrote the newer one's passages;
+* the Hub and the Inbox locked a thread in opposite orders;
+* a phone edited mid-ingest gave the old message the new number, and a tie
+  on the clock picked the number by arrival, not by the thread's order;
+* SMS receipts and the bot's own sends never moved the list's watermark;
+* any agent could hand a colleague's escalation to the bot;
+* a message out of retries said "retrying";
+* the list ended at 500 with no next page, and no number found anyone.
+
 Every row is created here -- staff, product and bot included; nothing depends
 on the seed.
 """
@@ -33,7 +44,7 @@ on the seed.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import event, text
@@ -291,6 +302,40 @@ def test_search_reaches_an_earlier_message_and_a_customer(db_tx, as_actor) -> No
     assert [r["id"] for r in db.list_conversations(customer_id=customer["id"])] == [cv]
 
 
+def test_the_list_pages_on_past_its_first_page_in_its_own_order(db_tx, as_actor, monkeypatch) -> None:
+    customer = _customer(db_tx)
+    # No messages: all three sort on the same instant, so the page boundary
+    # falls inside a tie and only the id orders them.
+    threads = [_thread(db_tx, customer) for _ in range(3)]
+    monkeypatch.setattr(db_inbox, "INBOX_LIST_LIMIT", 2)
+    as_actor(AGENT)
+    first = db.list_conversations(customer_id=customer["id"])
+    last = first[-1]
+    rest = db.list_conversations(customer_id=customer["id"], before_at=last["lastAt"], before_id=last["id"])
+    assert [r["id"] for r in first + rest] == sorted(threads)
+    with pytest.raises(ValueError, match="invalid_before"):
+        db.list_conversations(before_at="yesterday", before_id=last["id"])
+
+
+def test_search_finds_a_customer_by_number_and_a_call_by_what_was_said(db_tx, as_actor) -> None:
+    phone = _phone()
+    customer = _customer(db_tx, phone=phone)
+    cv = _thread(db_tx, customer)
+    call = _thread(db_tx, customer, channel="voice")
+    ix = db_tx.execute(text("SELECT interaction_id FROM conversations WHERE id = :cv"), {"cv": call}).scalar()
+    needle = f"spoken-{uuid.uuid4().hex[:6]}"
+    db_tx.execute(
+        text("INSERT INTO interaction_transcript (id, interaction_id, turn_index, speaker, text, at_sec) "
+             "VALUES (:id, :ix, 1, 'customer', :t, 3)"),
+        {"id": _uid("TR"), "ix": ix, "t": f"I said {needle} on the call"},
+    )
+    as_actor(AGENT)
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    assert {r["id"] for r in db.list_conversations(q=digits)} == {cv, call}
+    assert {r["id"] for r in db.list_conversations(q=phone)} == {cv, call}
+    assert [r["id"] for r in db.list_conversations(q=needle)] == [call]
+
+
 # --- the transcript is the record ------------------------------------------
 
 
@@ -467,6 +512,53 @@ def test_a_takeover_that_lost_a_race_is_refused_not_applied(db_tx, as_actor) -> 
         db.takeover_conversation(cv, {"expectedAssigneeId": None})
 
 
+def test_a_colleagues_escalation_is_theirs(db_tx, as_actor) -> None:
+    """An escalation keeps its assignee. Any agent could hand it to the bot,
+    taking it from the colleague on it; it was missing from "held by others"."""
+    customer = _customer(db_tx)
+    cv = _thread(db_tx, customer, status="needs_human", assignee=COLLEAGUE)
+    as_actor(AGENT)
+    with pytest.raises(ValueError, match="return_to_bot_not_allowed"):
+        db.return_conversation_to_bot(cv)
+    assert {r["id"] for r in db.list_conversations(view="others", customer_id=customer["id"])} == {cv}
+
+
+def test_the_hub_and_the_inbox_lock_a_thread_in_the_same_order(db_tx, as_actor) -> None:
+    """Conversation first, on both. The Hub took its handoff row first while
+    the Inbox took the conversation first: a claim and a takeover of the same
+    thread at once each held what the other waited for. One transaction
+    cannot race itself, so this pins the order each path locks in."""
+    cv = _thread(db_tx, _customer(db_tx), status="needs_human")
+    ix = db_tx.execute(text("SELECT interaction_id FROM conversations WHERE id = :cv"), {"cv": cv}).scalar()
+    db_tx.execute(
+        text(
+            "INSERT INTO interaction_handoffs (id, interaction_id, from_kind, to_kind, reason, requested_at) "
+            "VALUES (:id, :ix, 'bot', 'human', 'customer_requested', now())"
+        ),
+        {"id": _uid("HO"), "ix": ix},
+    )
+    as_actor(AGENT)
+
+    def first_lock(call) -> str:
+        seen: list[str] = []
+        listener = lambda *a: seen.append(a[2])  # noqa: E731
+        event.listen(db_core.engine, "before_cursor_execute", listener)
+        try:
+            call()
+        finally:
+            event.remove(db_core.engine, "before_cursor_execute", listener)
+        return next(" ".join(s.split()) for s in seen if "FOR UPDATE" in s)
+
+    assert "FROM conversations" in first_lock(lambda: db.claim_handoff(ix))
+    db_tx.execute(
+        text("UPDATE conversations SET assigned_user_id = NULL, status = 'needs_human' WHERE id = :cv"),
+        {"cv": cv},
+    )
+    assert "FROM conversations" in first_lock(
+        lambda: db.takeover_conversation(cv, {"expectedAssigneeId": None})
+    )
+
+
 def test_only_whatsapp_goes_back_to_a_bot(db_tx, as_actor) -> None:
     cv = _thread(db_tx, _customer(db_tx), channel="sms", status="assigned", assignee=AGENT)
     as_actor(AGENT)
@@ -527,6 +619,9 @@ def test_a_reply_goes_to_the_number_the_customer_wrote_from_once(db_tx, as_actor
     assert jobs[0]["to_phone"].endswith(alternate[-10:].replace(" ", ""))
     assert jobs[0]["purpose"] == "in_session"
     assert gate_open[-1]["endpoint"] == alternate
+    ctx = db.get_conversation(cv)["context"]
+    assert ctx["replyToSlot"] == "alt"
+    assert ctx["replyToLast4"] == "".join(ch for ch in alternate if ch.isdigit())[-4:]
 
 
 def test_an_edited_phone_does_not_inherit_the_window_another_number_opened(
@@ -551,13 +646,14 @@ def test_an_edited_phone_does_not_inherit_the_window_another_number_opened(
 # --- WhatsApp ingest -------------------------------------------------------
 
 
-def _webhook(from_phone: str, msg: dict, *, ago: timedelta = timedelta(0), wamid: str | None = None) -> dict:
+def _webhook(from_phone: str, msg: dict, *, ago: timedelta = timedelta(0), wamid: str | None = None,
+             at: datetime | None = None) -> dict:
     digits = "".join(ch for ch in from_phone if ch.isdigit())
     return {
         "entry": [{"changes": [{"value": {
             "contacts": [{"wa_id": digits, "profile": {"name": "Fixture"}}],
             "messages": [{"id": wamid or f"wamid.{uuid.uuid4().hex}", "from": digits,
-                          "timestamp": str(int((utc_now() - ago).timestamp())), **msg}],
+                          "timestamp": str(int((at or utc_now() - ago).timestamp())), **msg}],
         }}]}]
     }
 
@@ -580,6 +676,84 @@ def test_a_redelivered_or_late_message_does_not_move_the_reply_number(db_tx, no_
 
     conv = bot_conversation.load_conversation(db.engine, cv)
     assert bot_conversation.reply_phone(conv) == primary
+
+
+def test_a_phone_edited_mid_ingest_does_not_give_the_message_the_new_number(
+    db_tx, no_bot, monkeypatch
+) -> None:
+    primary, alternate = _phone(), _phone()
+    customer = _customer(db_tx, phone=primary, alt=alternate)
+    matched = db_whatsapp._match_customer_by_phone
+
+    def match_then_edit(conn, phone):
+        found = matched(conn, phone)
+        # Someone edits the number between the match and the endpoint write.
+        conn.execute(text("UPDATE customers SET phone_alt = :p WHERE id = :c"),
+                     {"p": _phone(), "c": customer["id"]})
+        return found
+
+    monkeypatch.setattr(db_whatsapp, "_match_customer_by_phone", match_then_edit)
+    (result,) = db_whatsapp.process_whatsapp_webhook(
+        _webhook(alternate, {"type": "text", "text": {"body": "hi"}})
+    )["results"]
+    conv = bot_conversation.load_conversation(db.engine, result["conversationId"])
+    # Read again at the write, the digest was the replacement's: the old
+    # message's window went to a number that never wrote.
+    assert conv["endpoint_slot"] is None
+
+
+def test_a_tie_on_the_clock_goes_to_the_threads_own_latest(db_tx, no_bot, monkeypatch) -> None:
+    primary, alternate = _phone(), _phone()
+    _customer(db_tx, phone=primary, alt=alternate)
+    # Message ids that fall as they arrive: the first is the thread's latest.
+    run, ids = uuid.uuid4().hex[:6].upper(), iter(range(9, 0, -1))
+    make_id = db_whatsapp._id
+    monkeypatch.setattr(
+        db_whatsapp, "_id", lambda prefix: f"MSG-{run}-{next(ids)}" if prefix == "MSG" else make_id(prefix)
+    )
+    at = utc_now() - timedelta(minutes=1)
+    hello = {"type": "text", "text": {"body": "hi"}}
+    (first,) = db_whatsapp.process_whatsapp_webhook(_webhook(primary, hello, at=at))["results"]
+    db_whatsapp.process_whatsapp_webhook(_webhook(alternate, hello, at=at))
+    cv = first["conversationId"]
+    latest = [m for m in db.get_conversation(cv)["messages"] if m.get("sender") == "customer"][-1]
+    assert latest["id"] == first["messageId"]
+    conv = bot_conversation.load_conversation(db.engine, cv)
+    assert bot_conversation.reply_phone(conv) == primary
+
+
+def test_an_sms_receipt_and_the_bots_own_send_move_the_watermark(db_tx) -> None:
+    """The list's delta poll reads updated_at. The WhatsApp receipt moved it;
+    the SMS callback and the bot's send did not, and those threads kept their
+    old awaiting count and SLA until a full refresh."""
+    import delivery_receipts
+
+    customer = _customer(db_tx)
+    version = "SELECT ctid::text FROM conversations WHERE id = :cv"
+    sms = _thread(db_tx, customer, channel="sms", status="assigned", assignee=AGENT)
+    reply = _message(db_tx, sms, "agent", ago=timedelta(minutes=5), status="sending")
+    sid = f"SM{uuid.uuid4().hex}"
+    db_tx.execute(text("UPDATE messages SET provider_ref = :sid WHERE id = :m"), {"sid": sid, "m": reply})
+    before = db_tx.execute(text(version), {"cv": sms}).scalar()
+    assert delivery_receipts.record_twilio_sms_status(
+        sid=sid, state="delivered", reason=None, customer_id=customer["id"]
+    )
+    assert db_tx.execute(text(version), {"cv": sms}).scalar() != before
+
+    wa = _thread(db_tx, customer)
+    bot = _message(db_tx, wa, "bot", ago=timedelta(minutes=1), status="sending")
+    before = db_tx.execute(text(version), {"cv": wa}).scalar()
+    bot_conversation.finalize_outbound(
+        db.engine, message_id=bot, provider_ref=f"wamid.{bot}", delivery_status="sent",
+        customer_id=customer["id"], conversation_id=wa, body="hello",
+    )
+    assert db_tx.execute(text(version), {"cv": wa}).scalar() != before
+
+
+def test_a_message_out_of_retries_does_not_say_retrying() -> None:
+    error = "code=130429 rate limited"
+    assert db_inbox._delivery_note(error, "pending") == "WhatsApp rate limit — retrying"
+    assert db_inbox._delivery_note(error, "failed") == "WhatsApp rate limit — not sent"
 
 
 def test_a_provider_rejection_moves_the_job_off_succeeded(db_tx) -> None:
@@ -736,6 +910,29 @@ def test_a_draft_names_the_message_it_answers_and_is_not_kept(db_tx, monkeypatch
         text("SELECT count(*) FROM ai_response_suggestions WHERE conversation_id = :cv AND source = 'kb_draft'"),
         {"cv": cv},
     ).scalar() == 0
+
+
+def test_a_slower_search_for_an_older_message_does_not_replace_the_newer_ones(db_tx, monkeypatch) -> None:
+    cv = _thread(db_tx, _customer(db_tx))
+    _message(db_tx, cv, "customer", ago=timedelta(minutes=5), body="first question")
+    db_tx.execute(
+        text(
+            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted) "
+            "VALUES (:id, :cv, 'the passage for the newer question', 'kb', false)"
+        ),
+        {"id": _uid("SUG"), "cv": cv},
+    )
+    hit = {"score": 0.9, "docTitle": "Old", "heading": "Old", "snippet": "A passage for the first question."}
+
+    def slow_retrieval(*_a):
+        # The customer writes again while this one searches.
+        _message(db_tx, cv, "customer", ago=timedelta(seconds=1), body="second question")
+        return {"results": [hit], "draftAnswer": "an answer to the first", "draftFailed": False}
+
+    monkeypatch.setattr(db_inbox_rag, "_studio_retrieval", slow_retrieval)
+    out = db.refresh_conversation_suggestions(cv, include_draft_answer=True)
+    assert out["superseded"] is True and out["ragSuggestions"] == [] and out["draftAnswer"] is None
+    assert db_inbox._conversation_suggestions(db_tx, cv, None) == ["the passage for the newer question"]
 
 
 # --- records filed from a thread -------------------------------------------

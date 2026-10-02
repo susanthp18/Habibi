@@ -12,8 +12,13 @@ import { describe, expect, it } from "vitest";
 import { getThreadHandoffState } from "./meta";
 import type { InboxChannel, ThreadStatus } from "@/api/types/inbox";
 
-function thread(status: ThreadStatus, isMine: boolean, channel: InboxChannel = "whatsapp") {
-  return { status, isMine, channel };
+function thread(
+  status: ThreadStatus,
+  isMine: boolean,
+  channel: InboxChannel = "whatsapp",
+  assignedUserId: string | null = isMine ? "me" : status === "assigned" ? "colleague" : null,
+) {
+  return { status, isMine, channel, assignedUserId };
 }
 
 const agent = { canWrite: true, canReassign: false };
@@ -74,5 +79,14 @@ describe("getThreadHandoffState", () => {
     expect(getThreadHandoffState(thread("assigned", false), agent).canClaim).toBe(false);
     expect(getThreadHandoffState(thread("assigned", false), supervisor).canClaim).toBe(true);
     expect(getThreadHandoffState(thread("needs_human", false), viewer).canClaim).toBe(false);
+  });
+
+  it("counts an escalation a colleague holds as theirs", () => {
+    // Held is who has it: an escalation keeps its assignee, and the agent
+    // offered "Take over" on it pressed into a 403.
+    const escalated = thread("needs_human", false, "whatsapp", "colleague");
+    expect(getThreadHandoffState(escalated, agent).heldByTeammate).toBe(true);
+    expect(getThreadHandoffState(escalated, agent).canClaim).toBe(false);
+    expect(getThreadHandoffState(escalated, supervisor).canClaim).toBe(true);
   });
 });
