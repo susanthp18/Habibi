@@ -143,7 +143,7 @@ function composer(props: Partial<ComposerProps> = {}) {
         ragSuggestions={[]}
         ragLoading={false}
         ragError={null}
-        ragStale={false}
+        ragStale={null}
         ragSearched
         busy={false}
         errorMessage={null}
@@ -464,6 +464,43 @@ describe("Inbox page", () => {
     // The older search's empty answer used to replace them.
     fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
     expect(screen.getByText(/Fees are waived/)).toBeInTheDocument();
+  });
+
+  const wroteAgain = () => {
+    const later = thread({ id: "CV-A" });
+    later.messages = [
+      ...(later.messages ?? []),
+      { id: "M-2", sender: "customer", text: "and the fee?", time: "3:42 PM", at: null },
+    ];
+    return later;
+  };
+
+  it("says the passages answer an earlier message once the customer writes again", async () => {
+    q.refresh.mockResolvedValueOnce({
+      conversationId: "CV-A",
+      answersMessageId: "M-1",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+    });
+    const { rerender } = open("CV-A");
+    fireEvent.click(await screen.findByRole("button", { name: "Sources (1)" }));
+    expect(screen.queryByText(/written since/)).toBeNull();
+    q.details["CV-A"] = wroteAgain();
+    reopen(rerender, "CV-A");
+    // At once -- not when the next search returns, which may be never.
+    expect(screen.getByText(/written since/)).toBeInTheDocument();
+  });
+
+  it("does not offer a slow search's passages as an answer to the newer message", async () => {
+    // The page already holds M-2; the search answering M-1 lands after it.
+    q.details["CV-A"] = wroteAgain();
+    q.refresh.mockResolvedValueOnce({
+      conversationId: "CV-A",
+      answersMessageId: "M-1",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+    });
+    open("CV-A");
+    fireEvent.click(await screen.findByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/written since/)).toBeInTheDocument();
   });
 
   it("keeps a reply's key through a refused retry, until one succeeds", async () => {

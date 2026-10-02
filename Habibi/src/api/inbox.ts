@@ -24,12 +24,22 @@ export type CannedResponse = { id: string; label: string; text: string };
 /** Threads per page of the list (db_inbox.INBOX_LIST_LIMIT). */
 export const INBOX_LIST_LIMIT = 500;
 
+/** Where the next page starts: the last row of the last page the server sent. */
+export type Cursor = Pick<ThreadSummary, "id" | "lastAt">;
+
 /**
  * The list as held: the server's rows in its order, whether older ones exist
- * past them, and how many times it has been polled -- per list, so two lists
- * never share a refresh cadence.
+ * past them, where the next page starts, how many pages it holds, and how many
+ * times it has been polled -- per list, so two lists never share a refresh
+ * cadence.
  */
-export type ConversationPage = { rows: ThreadSummary[]; more: boolean; polls: number };
+export type ConversationPage = {
+  rows: ThreadSummary[];
+  more: boolean;
+  cursor: Cursor | null;
+  pages: number;
+  polls: number;
+};
 
 /** Poll every 4s; 1.5s while the bot is composing or a reply is in flight; never while hidden. */
 function pollEvery(busy: boolean): number | false {
@@ -55,11 +65,16 @@ function maxUpdatedAt(rows: ThreadSummary[]): string | null {
  * to the top for something nobody said. Ties break on id bytewise, as the
  * server's do -- not by locale, which put CV-10 and CV-9 the other way round
  * -- so a delta poll, a full poll and the next page agree.
+ *
+ * Times compare as the server writes them: fixed-width UTC to the microsecond,
+ * so the strings sort as the instants do. `Date.parse` keeps milliseconds: two
+ * threads microseconds apart tied, and the id then ordered them against the
+ * server.
  */
-export function compareThreads(a: ThreadSummary, b: ThreadSummary): number {
-  const at = Date.parse(a.lastAt ?? "") || 0;
-  const bt = Date.parse(b.lastAt ?? "") || 0;
-  if (at !== bt) return bt - at;
+export function compareThreads(a: Cursor, b: Cursor): number {
+  const at = a.lastAt ?? "";
+  const bt = b.lastAt ?? "";
+  if (at !== bt) return at < bt ? 1 : -1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
@@ -71,20 +86,38 @@ export function mergeThreads(prev: ThreadSummary[], deltas: ThreadSummary[]): Th
 }
 
 /**
- * A fresh first page, and the older rows the operator had loaded past it --
- * a refresh of the first page must not take away the ones they paged to.
+ * The list read again, as many pages as the operator had loaded -- not the
+ * first alone, whose refresh kept every older row as it was: reassigned out of
+ * the view, or changed, until a reload. Each page starts where the server's
+ * last one ended.
  */
-export function withOlder(
-  page: ThreadSummary[],
-  prev: ConversationPage | undefined,
-): Pick<ConversationPage, "rows" | "more"> {
-  const last = page[page.length - 1];
-  if (!prev || !last || page.length < INBOX_LIST_LIMIT) {
-    return { rows: page, more: page.length >= INBOX_LIST_LIMIT };
-  }
-  const fresh = new Set(page.map((t) => t.id));
-  const older = prev.rows.filter((t) => !fresh.has(t.id) && compareThreads(last, t) < 0);
-  return { rows: [...page, ...older], more: older.length ? prev.more : true };
+export async function readPages(
+  fetchPage: (before?: Cursor) => Promise<ThreadSummary[]>,
+  pages: number,
+): Promise<Omit<ConversationPage, "polls">> {
+  const byId = new Map<string, ThreadSummary>();
+  let cursor: Cursor | null = null;
+  let more = false;
+  let read = 0;
+  do {
+    const page = await fetchPage(cursor ?? undefined);
+    for (const t of page) byId.set(t.id, t);
+    more = page.length >= INBOX_LIST_LIMIT;
+    cursor = page.at(-1) ?? cursor;
+    read += 1;
+  } while (more && read < pages);
+  return { rows: [...byId.values()].sort(compareThreads), more, cursor, pages: read };
+}
+
+/**
+ * A delta poll's changes, kept to the pages held: a thread whose last message
+ * sorts past the cursor arrives with its page, not alone at the foot.
+ */
+export function mergeDeltas(prev: ConversationPage, deltas: ThreadSummary[]): ThreadSummary[] {
+  const rows = mergeThreads(prev.rows, deltas);
+  const cursor = prev.cursor;
+  if (rows === prev.rows || !prev.more || !cursor) return rows;
+  return rows.filter((t) => compareThreads(t, cursor) <= 0);
 }
 
 export async function fetchConversations(
@@ -93,8 +126,8 @@ export async function fetchConversations(
     q?: string;
     customerId?: string;
     view?: InboxView;
-    /** The last row held: the page after it. */
-    before?: Pick<ThreadSummary, "id" | "lastAt">;
+    /** The page after this row. */
+    before?: Cursor;
   } = {},
 ): Promise<ThreadSummary[]> {
   const params = new URLSearchParams();
@@ -163,9 +196,10 @@ export function useConversations(search = "", view?: InboxView) {
       const after = prev && !q && !view ? maxUpdatedAt(prev.rows) : null;
       if (prev && after && polls % 15 !== 0) {
         const deltas = await fetchConversations({ updatedAfter: after });
-        return { ...prev, rows: mergeThreads(prev.rows, deltas), polls };
+        return { ...prev, rows: mergeDeltas(prev, deltas), polls };
       }
-      return { ...withOlder(await fetchConversations({ q, view }), prev), polls };
+      const fetchPage = (before?: Cursor) => fetchConversations({ q, view, before });
+      return { ...(await readPages(fetchPage, prev?.pages ?? 1)), polls };
     },
     staleTime: 2_000,
     // A malformed `updatedAfter` is a client bug, not a blip.
@@ -198,21 +232,25 @@ export function useOlderConversations(search = "", view?: InboxView) {
   });
   const load = async () => {
     const key = listKey(search.trim(), view);
-    const last = queryClient.getQueryData<ConversationPage>(key)?.rows.at(-1);
-    if (!last || state.loading) return;
+    const before = queryClient.getQueryData<ConversationPage>(key)?.cursor;
+    if (!before || state.loading) return;
     setState({ loading: true, failed: false });
     try {
-      const page = await fetchConversations({ q: search.trim(), view, before: last });
+      const page = await fetchConversations({ q: search.trim(), view, before });
       // A poll in flight read the list before this page: it would drop it.
       await queryClient.cancelQueries({ queryKey: key });
-      queryClient.setQueryData<ConversationPage>(
-        key,
-        (cur) =>
-          cur && {
-            ...cur,
-            rows: mergeThreads(cur.rows, page),
-            more: page.length >= INBOX_LIST_LIMIT,
-          },
+      queryClient.setQueryData<ConversationPage>(key, (cur) =>
+        // A refresh that landed meanwhile moved the cursor: this page no
+        // longer follows the list. The next click reads the right one.
+        cur && cur.cursor?.id === before.id && cur.cursor.lastAt === before.lastAt
+          ? {
+              ...cur,
+              rows: mergeThreads(cur.rows, page),
+              more: page.length >= INBOX_LIST_LIMIT,
+              cursor: page.at(-1) ?? cur.cursor,
+              pages: cur.pages + 1,
+            }
+          : cur,
       );
       setState({ loading: false, failed: false });
     } catch {

@@ -656,8 +656,8 @@ def _serialize_summary(row: dict[str, Any], me_id: str, *, bot_typing: bool) -> 
         "assignedUserId": row["assigned_user_id"],
         "isMine": row["assigned_user_id"] == me_id,
         "botTyping": bot_typing and status == "bot" and row.get("assigned_user_id") is None,
-        "updatedAt": updated.isoformat() if updated else None,
-        "lastAt": last_at.isoformat() if last_at else None,
+        "updatedAt": _wire_instant(updated),
+        "lastAt": _wire_instant(last_at),
         "awaitingReply": int(row.get("awaiting_n") or 0),
         "sla": _inbox_sla(row.get("awaiting_since")),
         "lastTime": _inbox_clock(last_at),
@@ -666,6 +666,13 @@ def _serialize_summary(row: dict[str, Any], me_id: str, *, bot_typing: bool) -> 
         "sentiment": _inbox_sentiment(row["sentiment_label"], row["avg_sentiment"]),
         "handlerBotId": row.get("handler_bot_id"),
     }
+
+
+def _wire_instant(at: datetime | None) -> str | None:
+    """UTC to the microsecond, fixed width. The browser orders the list and
+    picks its delta watermark by comparing these strings, so they must sort as
+    the instants do -- in one offset, and with the fraction always written."""
+    return at.astimezone(timezone.utc).isoformat(timespec="microseconds") if at else None
 
 
 def _serialize_thread(conn: Any, row: dict[str, Any], me_id: str) -> dict[str, Any]:

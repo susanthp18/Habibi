@@ -37,6 +37,9 @@ And a third pass:
 * a message out of retries said "retrying";
 * the list ended at 500 with no next page, and no number found anyone.
 
+The watermark, and the two lock orders raced for real, need transactions that
+commit: ``test_inbox_committed.py``.
+
 Every row is created here -- staff, product and bot included; nothing depends
 on the seed.
 """
@@ -44,7 +47,7 @@ on the seed.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import event, text
@@ -722,32 +725,18 @@ def test_a_tie_on_the_clock_goes_to_the_threads_own_latest(db_tx, no_bot, monkey
     assert bot_conversation.reply_phone(conv) == primary
 
 
-def test_an_sms_receipt_and_the_bots_own_send_move_the_watermark(db_tx) -> None:
-    """The list's delta poll reads updated_at. The WhatsApp receipt moved it;
-    the SMS callback and the bot's send did not, and those threads kept their
-    old awaiting count and SLA until a full refresh."""
-    import delivery_receipts
-
-    customer = _customer(db_tx)
-    version = "SELECT ctid::text FROM conversations WHERE id = :cv"
-    sms = _thread(db_tx, customer, channel="sms", status="assigned", assignee=AGENT)
-    reply = _message(db_tx, sms, "agent", ago=timedelta(minutes=5), status="sending")
-    sid = f"SM{uuid.uuid4().hex}"
-    db_tx.execute(text("UPDATE messages SET provider_ref = :sid WHERE id = :m"), {"sid": sid, "m": reply})
-    before = db_tx.execute(text(version), {"cv": sms}).scalar()
-    assert delivery_receipts.record_twilio_sms_status(
-        sid=sid, state="delivered", reason=None, customer_id=customer["id"]
-    )
-    assert db_tx.execute(text(version), {"cv": sms}).scalar() != before
-
-    wa = _thread(db_tx, customer)
-    bot = _message(db_tx, wa, "bot", ago=timedelta(minutes=1), status="sending")
-    before = db_tx.execute(text(version), {"cv": wa}).scalar()
-    bot_conversation.finalize_outbound(
-        db.engine, message_id=bot, provider_ref=f"wamid.{bot}", delivery_status="sent",
-        customer_id=customer["id"], conversation_id=wa, body="hello",
-    )
-    assert db_tx.execute(text(version), {"cv": wa}).scalar() != before
+def test_the_lists_times_sort_as_strings_the_way_they_sort_as_instants() -> None:
+    """The browser orders the list by comparing ``lastAt`` strings: Date.parse
+    drops microseconds, and threads microseconds apart came out in the wrong
+    order. So every time is UTC, and its fraction always written."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    assert db_inbox._wire_instant(datetime(2026, 10, 2, 10, 0, tzinfo=ist)) == "2026-10-02T04:30:00.000000+00:00"
+    times = [
+        datetime(2026, 10, 2, 4, 30, 0, 100, tzinfo=timezone.utc),
+        datetime(2026, 10, 2, 4, 30, tzinfo=timezone.utc),
+        datetime(2026, 10, 2, 10, 0, 0, 50, tzinfo=ist),
+    ]
+    assert sorted(times) == sorted(times, key=db_inbox._wire_instant)
 
 
 def test_a_message_out_of_retries_does_not_say_retrying() -> None:

@@ -185,7 +185,8 @@ export function Composer({
   ragSuggestions: string[];
   ragLoading: boolean;
   ragError: string | null;
-  ragStale: boolean;
+  /** Why the passages shown may not fit: the search failed, or the customer wrote since. */
+  ragStale: "search_failed" | "customer_wrote" | null;
   ragSearched: boolean;
   busy: boolean;
   errorMessage: string | null;
@@ -342,7 +343,9 @@ export function Composer({
         <div id="inbox-sources" className="space-y-100 border-t border-border px-200 py-150">
           {ragStale && (
             <p className="text-body-small text-text-warning">
-              Couldn’t search the knowledge base just now — these are from the last search.
+              {ragStale === "customer_wrote"
+                ? "The customer has written since — these answer their earlier message."
+                : "Couldn’t search the knowledge base just now — these are from the last search."}
             </p>
           )}
           <div

@@ -95,6 +95,8 @@ type Rag = {
   error: string | null;
   stale: boolean;
   suggestions: string[] | null;
+  /** The customer message the passages answer. */
+  answers: string | null;
 };
 
 const NO_RAG: Rag = {
@@ -103,6 +105,7 @@ const NO_RAG: Rag = {
   error: null,
   stale: false,
   suggestions: null,
+  answers: null,
 };
 
 /** One attempt at one reply: a resend of the same text reuses its key. */
@@ -237,6 +240,7 @@ function InboxPage() {
           error: null,
           stale: Boolean(res.stale),
           suggestions: res.ragSuggestions ?? [],
+          answers: res.answersMessageId ?? null,
         });
       }
       if (!withDraft) return { kind: "none" };
@@ -271,6 +275,17 @@ function InboxPage() {
   // message. Only for someone who could use them: the search is a write, and a
   // read-only viewer's every open thread drew a permission error.
   const answering = latestCustomerMessageId(thread);
+  // Judged against the thread on screen, not when they arrived: a search
+  // answering an earlier message can land after the next one has, and the
+  // passages a search left stop fitting the moment the customer writes again.
+  const ragStale =
+    ragFor.suggestions === null
+      ? null
+      : ragFor.answers !== answering
+        ? "customer_wrote"
+        : ragFor.stale
+          ? "search_failed"
+          : null;
   useEffect(() => {
     if (!thread?.id || !answering || !rights.canWrite) return;
     const timer = setTimeout(() => void refreshRag(thread.id, false), 500);
@@ -455,7 +470,7 @@ function InboxPage() {
             ragSuggestions={ragFor.suggestions ?? thread.ragSuggestions ?? []}
             ragLoading={ragFor.loading}
             ragError={ragFor.error}
-            ragStale={ragFor.stale}
+            ragStale={ragStale}
             ragSearched={ragFor.suggestions !== null || !rights.canWrite}
             busy={busy.has(thread.id)}
             errorMessage={errors[thread.id] ?? null}

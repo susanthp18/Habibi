@@ -9,7 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compareThreads, INBOX_LIST_LIMIT, mergeThreads, withOlder } from "./inbox";
+import {
+  compareThreads,
+  type Cursor,
+  INBOX_LIST_LIMIT,
+  mergeDeltas,
+  mergeThreads,
+  readPages,
+} from "./inbox";
 import type { ThreadSummary } from "@/api/types/inbox";
 
 type Thread = ThreadSummary;
@@ -82,6 +89,13 @@ describe("compareThreads", () => {
     expect([touched, talked].sort(compareThreads).map((t) => t.id)).toEqual(["CV-1", "CV-2"]);
   });
 
+  it("orders threads microseconds apart as the server does", () => {
+    // Date.parse keeps milliseconds: these tied, and the id put CV-1 first.
+    const later = thread("CV-9", "2026-08-23T05:00:00.000400+00:00", "x");
+    const earlier = thread("CV-1", "2026-08-23T05:00:00.000100+00:00", "x");
+    expect([earlier, later].sort(compareThreads).map((t) => t.id)).toEqual(["CV-9", "CV-1"]);
+  });
+
   it("treats a missing lastAt as oldest rather than throwing", () => {
     const dated = thread("CV-1", "2026-08-23T05:00:00.000000+00:00", "10:30 AM");
     const undated = {
@@ -121,23 +135,84 @@ describe("mergeThreads", () => {
   });
 });
 
-describe("withOlder", () => {
-  const page = (n: number, from = 0) =>
-    Array.from({ length: n }, (_, i) =>
-      thread(`CV-${String(from + i).padStart(4, "0")}`, "2026-08-23T05:00:00.000000+00:00", "x"),
-    );
+/**
+ * The server's list, a page at a time: ORDER BY last message DESC, id
+ * COLLATE "C", keyset on (lastAt, id) -- at its full precision.
+ */
+function server(rows: Thread[]) {
+  const reads: Array<Cursor | undefined> = [];
+  const fetchPage = async (before?: Cursor) => {
+    reads.push(before);
+    const ordered = rows
+      .slice()
+      .sort((a, b) =>
+        a.lastAt !== b.lastAt ? (a.lastAt! < b.lastAt! ? 1 : -1) : a.id < b.id ? -1 : 1,
+      );
+    const from = before ? ordered.findIndex((t) => t.id === before.id) + 1 : 0;
+    return ordered.slice(from, from + INBOX_LIST_LIMIT);
+  };
+  return { rows, reads, fetchPage };
+}
 
-  it("keeps the older rows the operator paged to when the first page refreshes", () => {
-    const first = page(INBOX_LIST_LIMIT);
-    const loaded = page(3, INBOX_LIST_LIMIT);
-    const held = { rows: [...first, ...loaded], more: false, polls: 4 };
-    const next = withOlder(first, held);
-    expect(next.rows).toHaveLength(INBOX_LIST_LIMIT + 3);
-    expect(next.more).toBe(false);
+/** n threads a second apart, newest first; ids run against time. */
+const book = (n: number) =>
+  Array.from({ length: n }, (_, i) =>
+    thread(
+      `CV-${String(n - i).padStart(4, "0")}`,
+      new Date(Date.UTC(2026, 7, 23, 5) - i * 1_000).toISOString().replace("Z", "000+00:00"),
+      "x",
+    ),
+  );
+
+describe("paging", () => {
+  it("pages on past a page boundary microseconds apart, to the last row and no further", async () => {
+    const rows = book(INBOX_LIST_LIMIT + 1);
+    // The last row of page one and the first of page two: 300µs apart.
+    rows[INBOX_LIST_LIMIT - 1]!.lastAt = "2026-08-23T04:00:00.000400+00:00";
+    rows[INBOX_LIST_LIMIT]!.lastAt = "2026-08-23T04:00:00.000100+00:00";
+    const s = server(rows);
+    const held = await readPages(s.fetchPage, 1);
+    expect(held.more).toBe(true);
+    // The next page starts from the server's last row.
+    expect(held.cursor).toBe(rows[INBOX_LIST_LIMIT - 1]);
+    const next = await s.fetchPage(held.cursor!);
+    expect(next.map((t) => t.id)).toEqual([rows[INBOX_LIST_LIMIT]!.id]);
+    const all = mergeThreads(held.rows, next);
+    expect(all.map((t) => t.id)).toEqual(rows.map((t) => t.id));
+    expect(await s.fetchPage(next.at(-1))).toEqual([]);
   });
 
-  it("is the whole list when the first page is not full", () => {
-    const held = { rows: page(7), more: true, polls: 2 };
-    expect(withOlder(page(5), held)).toEqual({ rows: page(5), more: false });
+  it("reads every page the operator loaded again, so an older row can leave", async () => {
+    const rows = book(INBOX_LIST_LIMIT + 3);
+    const s = server(rows);
+    const held = await readPages(s.fetchPage, 2);
+    expect(held.rows).toHaveLength(INBOX_LIST_LIMIT + 3);
+    // Reassigned out of the view: past the first page, so only a read of the
+    // second page can see it go.
+    const gone = rows.splice(INBOX_LIST_LIMIT + 1, 1)[0]!;
+    rows[INBOX_LIST_LIMIT] = { ...rows[INBOX_LIST_LIMIT]!, assignedUserId: "someone-else" };
+    const again = await readPages(s.fetchPage, held.pages);
+    expect(again.rows.map((t) => t.id)).not.toContain(gone.id);
+    expect(again.rows).toHaveLength(INBOX_LIST_LIMIT + 2);
+    expect(again.rows[INBOX_LIST_LIMIT]!.assignedUserId).toBe("someone-else");
+    expect(again.pages).toBe(2);
+    expect(again.more).toBe(false);
+  });
+
+  it("reads one page when the first is the whole list", async () => {
+    const s = server(book(7));
+    const held = await readPages(s.fetchPage, 3);
+    expect(held).toMatchObject({ more: false, pages: 1 });
+    expect(s.reads).toEqual([undefined]);
+  });
+
+  it("keeps a delta for a thread past the pages held for its own page", () => {
+    const rows = book(3);
+    const held = { rows: rows.slice(0, 2), more: true, cursor: rows[1]!, pages: 1, polls: 3 };
+    // A receipt moved the watermark of a thread whose last message is older.
+    expect(mergeDeltas(held, [rows[2]!]).map((t) => t.id)).toEqual(
+      rows.slice(0, 2).map((t) => t.id),
+    );
+    expect(mergeDeltas({ ...held, more: false }, [rows[2]!])).toHaveLength(3);
   });
 });
