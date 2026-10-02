@@ -3,56 +3,6 @@
 /* eslint-disable */
 import { z } from "zod";
 
-export const A2aCapabilitiesResponse = z.object({
-  "streaming": z.boolean(),
-  "pushNotifications": z.boolean(),
-}).passthrough();
-export const A2aSkillResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "description": z.string(),
-}).passthrough();
-export const A2aAuthenticationResponse = z.object({
-  "schemes": z.array(z.string()),
-}).passthrough();
-export const A2aProviderResponse = z.object({
-  "organization": z.string(),
-}).passthrough();
-export const A2aAgentCardResponse = z.object({
-  "name": z.string().nullable().optional(),
-  "description": z.string(),
-  "url": z.string(),
-  "version": z.string(),
-  "protocolVersion": z.string(),
-  "capabilities": A2aCapabilitiesResponse,
-  "defaultInputModes": z.array(z.string()),
-  "defaultOutputModes": z.array(z.string()),
-  "skills": z.array(A2aSkillResponse),
-  "authentication": A2aAuthenticationResponse,
-  "provider": A2aProviderResponse,
-}).passthrough();
-export const A2aTaskResponse = z.object({
-  "id": z.string(),
-  "status": z.string().nullable().optional(),
-  "partnerId": z.string().nullable().optional(),
-  "botId": z.string().nullable().optional(),
-  "skillId": z.string().nullable().optional(),
-  "input": z.record(z.string(), z.unknown()).optional(),
-  "output": z.record(z.string(), z.unknown()).optional(),
-  "certDn": z.string().nullable().optional(),
-  "error": z.string().nullable().optional(),
-  "createdAt": z.string().nullable().optional(),
-}).passthrough();
-export const A2aPartnerResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "cardUrl": z.string().nullable().optional(),
-  "certFingerprint": z.string().nullable().optional(),
-  "certDn": z.string().nullable().optional(),
-  "botId": z.string().nullable().optional(),
-  "allowedSkills": z.array(z.string()),
-  "status": z.string().nullable().optional(),
-}).passthrough();
 export const BillingServiceResponse = z.object({
   "id": z.string(),
   "name": z.string(),
@@ -563,12 +513,6 @@ export const PolicyExportWindowResponse = z.object({
   "startHour": z.number(),
   "endHour": z.number(),
 }).passthrough();
-export const PolicyExportCardResponse = z.object({
-  "botId": z.string(),
-  "versionId": z.string(),
-  "humanGates": z.array(z.record(z.string(), z.unknown())),
-  "guardrails": z.record(z.string(), z.unknown()),
-}).passthrough();
 export const PolicyExportBundleFactsResponse = z.object({
   "callingHours": PolicyExportCallingHoursResponse,
   "authority": PolicyExportAuthorityResponse,
@@ -576,7 +520,6 @@ export const PolicyExportBundleFactsResponse = z.object({
   "source": z.string(),
   "note": z.string(),
   "callingWindows": z.record(z.string(), PolicyExportWindowResponse),
-  "card": PolicyExportCardResponse.nullable(),
 }).passthrough();
 export const PolicyExportBundleResponse = z.object({
   "format": z.enum(["opa", "cedar"]),
@@ -1707,94 +1650,6 @@ export const ConversationSuggestionsRefreshResponse = z.object({
   "stale": z.boolean().optional(),
   "superseded": z.boolean().optional(),
 }).passthrough();
-export const ProviderFieldResponse = z.object({
-  "key": z.string(),
-  "label": z.string(),
-  "secret": z.boolean().optional(),
-}).passthrough();
-export const ProviderUsageStatResponse = z.object({
-  "label": z.string(),
-  "value": z.string(),
-}).passthrough();
-export const ProviderEnvStatusResponse = z.object({
-  "values": z.record(z.string(), z.string()),
-  "region": z.string().nullable(),
-  "health": z.string(),
-  "latencyMs": z.number(),
-  "enabled": z.boolean(),
-  "usageStats": z.array(ProviderUsageStatResponse),
-  "costMonth": z.string(),
-  "unitLabel": z.string(),
-  "credentialsLocked": z.boolean(),
-}).passthrough();
-export const ProviderResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "vendor": z.string(),
-  "category": z.string(),
-  "capability": z.string(),
-  "description": z.string(),
-  "docsUrl": z.string(),
-  "brandInitial": z.string(),
-  "brandColor": z.string(),
-  "capabilities": z.array(z.string()),
-  "fields": z.array(ProviderFieldResponse),
-  "perEnv": z.record(z.string(), ProviderEnvStatusResponse),
-}).passthrough();
-export const ProviderTestLogResponse = z.object({
-  "id": z.string(),
-  "at": z.string(),
-  "providerId": z.string(),
-  "env": z.string(),
-  "ok": z.boolean(),
-  "latencyMs": z.number(),
-  "message": z.string(),
-  "payload": z.string().nullable().optional(),
-}).passthrough();
-export const ConnectorResponse = z.object({
-  "id": z.string(),
-  "slug": z.string(),
-  "displayName": z.string(),
-  "kind": z.string(),
-  "url": z.string().nullable().optional(),
-  "authRef": z.string().nullable().optional(),
-  "allowPrefixes": z.array(z.string()),
-  "dataClass": z.array(z.string()),
-  "ttlMs": z.number().nullable().optional(),
-  "timeoutMs": z.number().nullable().optional(),
-  "allowedEnv": z.string().nullable().optional(),
-  "status": z.string(),
-  "health": z.string(),
-  "lastToolsListAt": z.string().nullable().optional(),
-  "toolsCache": z.array(z.record(z.string(), z.unknown())),
-  "cimdIssuer": z.string().nullable().optional(),
-  "cimdClientId": z.string().nullable().optional(),
-  "circuitOpenedAt": z.string().nullable().optional(),
-  "circuitFails": z.number(),
-}).passthrough();
-export const ConnectorHealthTestResponse = z.object({
-  "ok": z.boolean(),
-  "tool": z.string().nullable().optional(),
-  "kind": z.string().nullable().optional(),
-  "tools": z.number().nullable().optional(),
-  "error": z.string().nullable().optional(),
-}).passthrough();
-export const ConnectorCimdResponse = z.object({
-  "ok": z.boolean(),
-  "clientId": z.string(),
-  "issuer": z.string(),
-}).passthrough();
-export const VaultRefResponse = z.object({
-  "id": z.string(),
-  "name": z.string(),
-  "purpose": z.string(),
-  "backend": z.string(),
-  "azureSecretName": z.string().nullable().optional(),
-  "lastRotatedAt": z.string().nullable().optional(),
-  "lastUsedAt": z.string().nullable().optional(),
-  "createdAt": z.string().nullable().optional(),
-  "hasSecret": z.boolean(),
-}).passthrough();
 export const McpKeyResponse = z.object({
   "id": z.string(),
   "name": z.string(),
@@ -1839,42 +1694,11 @@ export const GatewayProfileResponse = z.object({
   "spentTodayInr": z.number().optional(),
   "model": z.string().nullable().optional(),
   "envModel": z.string().nullable().optional(),
-  "canaryModel": z.string().nullable().optional(),
-}).passthrough();
-export const GatewayEnvVarResponse = z.object({
-  "name": z.string(),
-  "value": z.string(),
-}).passthrough();
-export const GatewayCanaryGatesResponse = z.object({
-  "regression": z.boolean(),
-  "redteam": z.boolean(),
-  "twin": z.boolean(),
-  "injectionClosed": z.boolean(),
-  "voiceSloOk": z.boolean(),
-  "voiceSloMs": z.number().nullable().optional(),
-  "budgetMs": z.number(),
-}).passthrough();
-export const GatewayCanaryResponse = z.object({
-  "id": z.string(),
-  "candidateModel": z.string(),
-  "stage": z.string(),
-  "status": z.string(),
-  "regressionReportId": z.string().nullable().optional(),
-  "redteamReportId": z.string().nullable().optional(),
-  "twinReportId": z.string().nullable().optional(),
-  "voiceSloMs": z.number().nullable().optional(),
-  "injectionClosed": z.boolean(),
-  "copyToEnv": z.array(GatewayEnvVarResponse),
-  "appliedEnv": z.boolean(),
-  "createdAt": z.string().nullable().optional(),
-  "updatedAt": z.string().nullable().optional(),
-  "gates": GatewayCanaryGatesResponse.nullable().optional(),
 }).passthrough();
 export const GatewayStatusResponse = z.object({
   "enabled": z.boolean(),
   "baseUrl": z.string().nullable().optional(),
   "profiles": z.record(z.string(), GatewayProfileResponse),
-  "canary": GatewayCanaryResponse.nullable().optional(),
   "killSwitch": z.string().nullable().optional(),
   "voiceSloMs": z.number(),
 }).passthrough();
@@ -1952,65 +1776,6 @@ export const BankComplaintEventResponse = z.object({
 export const BankComplaintFiledResponse = z.object({
   "id": z.string(),
   "state": z.string(),
-}).passthrough();
-export const GatewayCanaryStateResponse = z.object({
-  "current": GatewayCanaryResponse.nullable().optional(),
-  "history": z.array(GatewayCanaryResponse),
-}).passthrough();
-export const ProviderModelItem = z.object({
-  "id": z.string(),
-  "providerId": z.string(),
-  "providerName": z.string(),
-  "kind": z.string(),
-  "modelId": z.string(),
-  "displayName": z.string(),
-  "serviceClass": z.string(),
-  "locales": z.array(z.string()).optional(),
-  "streaming": z.boolean().optional(),
-  "codeSwitch": z.boolean().optional(),
-  "onPrem": z.boolean().optional(),
-  "diarization": z.boolean().optional(),
-  "styles": z.array(z.string()).optional(),
-  "costPerUnit": z.number().nullable().optional(),
-  "costUnit": z.string().nullable().optional(),
-  "measuredLatencyP50Ms": z.number().nullable().optional(),
-  "measuredLatencyP95Ms": z.number().nullable().optional(),
-  "notes": z.string().optional(),
-  "paramsSchema": z.array(z.record(z.string(), z.unknown())).optional(),
-  "enabled": z.boolean().optional(),
-  "configured": z.boolean().optional(),
-  "runtime": z.string().optional(),
-  "runtimeDetail": z.string().optional(),
-  "sampling": z.boolean().optional(),
-}).passthrough();
-export const ProviderBindingItem = z.object({
-  "id": z.string(),
-  "botId": z.string().nullable().optional(),
-  "slot": z.string(),
-  "locale": z.string().nullable().optional(),
-  "providerModelId": z.string(),
-  "providerId": z.string(),
-  "providerName": z.string(),
-  "modelId": z.string(),
-  "displayName": z.string(),
-  "voiceRef": z.string().nullable().optional(),
-  "priority": z.number(),
-  "settings": z.record(z.string(), z.unknown()).optional(),
-  "enabled": z.boolean().optional(),
-}).passthrough();
-export const ProviderPoolKey = z.object({
-  "tail": z.string(),
-  "uses": z.number(),
-  "retired": z.boolean(),
-  "lastError": z.string().optional(),
-}).passthrough();
-export const ProviderPoolStatus = z.object({
-  "provider": z.string(),
-  "total": z.number(),
-  "available": z.number(),
-  "retired": z.number(),
-  "sessionsBound": z.number(),
-  "keys": z.array(ProviderPoolKey).optional(),
 }).passthrough();
 export const OfferHealthResponse = z.object({
   "window": z.string(),
@@ -2720,27 +2485,6 @@ export const OutboundCardVocabularyResponse = z.object({
   "numberPools": z.array(OutboundEnabledPoolResponse),
   "dailyCap": z.number(),
 }).passthrough();
-export const MissionObjectiveResponse = z.object({
-  "key": z.string(),
-  "entryNode": z.string(),
-  "graphEntryNode": z.string().nullable().optional(),
-  "agrees": z.boolean(),
-  "maxDurationSec": z.number(),
-  "allowedOffers": z.array(z.string()),
-  "authorityProfile": z.string().nullable().optional(),
-  "cadence": z.string(),
-  "success": z.array(z.string()),
-  "brief": z.string(),
-}).passthrough();
-export const MissionsResponse = z.object({
-  "botId": z.string(),
-  "direction": z.string(),
-  "poolKind": z.string(),
-  "numberPool": z.string().nullable().optional(),
-  "objectives": z.array(MissionObjectiveResponse),
-  "graphEntries": z.record(z.string(), z.string()),
-  "available": z.array(z.string()),
-}).passthrough();
 export const AuthorityPacketResponse = z.object({
   "feeType": z.string(),
   "askedAmount": z.number().nullable().optional(),
@@ -3124,19 +2868,6 @@ export const TwilioOutboundCallResponse = z.object({
   "status": z.string().nullable().optional(),
   "from": z.string().nullable().optional(),
 }).passthrough();
-export const TwilioVoiceStatusResponse = z.object({
-  "configured": z.boolean(),
-  "phoneNumber": z.string().nullable().optional(),
-  "handoffMode": z.string(),
-  "wsViaApi": z.boolean(),
-  "wsUpstream": z.string().nullable().optional(),
-  "streamUrl": z.string().nullable().optional(),
-  "fallbackUrl": z.string().nullable().optional(),
-  "callStatusCallbackUrl": z.string().nullable().optional(),
-  "streamStatusCallbackUrl": z.string().nullable().optional(),
-  "supervisorPhone": z.string().nullable().optional(),
-  "hint": z.string(),
-}).passthrough();
 export const PaymentEventWebhookResponse = z.object({
   "ok": z.boolean(),
   "eventId": z.string().nullable().optional(),
@@ -3218,12 +2949,6 @@ export const WhatsAppWebhookResponse = z.object({
 
 /** `METHOD /path/{param}` -> the schema of its 200 body, in the API's registration order. */
 export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
-  ["GET /.well-known/agent-card.json", A2aAgentCardResponse],
-  ["POST /a2a", A2aTaskResponse],
-  ["GET /a2a/partners", z.array(A2aPartnerResponse)],
-  ["POST /a2a/partners", A2aPartnerResponse],
-  ["GET /a2a/tasks", z.array(A2aTaskResponse)],
-  ["POST /a2a/tasks/{task_id}/signal", A2aTaskResponse],
   ["POST /studio-api/_ws-ticket", z.record(z.string(), z.unknown())],
   ["GET /billing", BillingOverviewResponse],
   ["GET /billing/invoices/{invoice_id}", BillingInvoiceDetailResponse],
@@ -3339,19 +3064,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /conversations/{conversation_id}/messages", ConversationResponse],
   ["GET /canned-responses", z.array(CannedResponseItem)],
   ["POST /conversations/{conversation_id}/suggestions/refresh", ConversationSuggestionsRefreshResponse],
-  ["GET /providers", z.array(ProviderResponse)],
-  ["PATCH /providers/{provider_id}/configs/{environment}", ProviderResponse],
-  ["POST /providers/{provider_id}/test", ProviderTestLogResponse],
-  ["GET /providers/{provider_id}/test-logs", z.array(ProviderTestLogResponse)],
-  ["GET /connectors", z.array(ConnectorResponse)],
-  ["POST /connectors", ConnectorResponse],
-  ["GET /connectors/{connector_id}", ConnectorResponse],
-  ["POST /connectors/{connector_id}/approve", ConnectorResponse],
-  ["POST /connectors/{connector_id}/test", ConnectorHealthTestResponse],
-  ["POST /connectors/{connector_id}/cimd", ConnectorCimdResponse],
-  ["GET /vault/refs", z.array(VaultRefResponse)],
-  ["POST /vault/refs", VaultRefResponse],
-  ["POST /vault/refs/{ref_id}/rotate", VaultRefResponse],
   ["GET /mcp/keys", z.array(McpKeyResponse)],
   ["POST /mcp/keys", McpKeyMintedResponse],
   ["POST /mcp/keys/{key_id}/rotate", McpKeyMintedResponse],
@@ -3370,14 +3082,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /integrations/bank/fairness", BankFairnessResponse],
   ["GET /integrations/bank/complaints", z.array(BankComplaintEventResponse)],
   ["POST /integrations/bank/complaints", BankComplaintFiledResponse],
-  ["GET /gateway/canary", GatewayCanaryStateResponse],
-  ["POST /gateway/canary", GatewayCanaryResponse],
-  ["POST /gateway/canary/{canary_id}/promote", GatewayCanaryResponse],
-  ["GET /providers/models", z.array(ProviderModelItem)],
-  ["GET /providers/bindings", z.array(ProviderBindingItem)],
-  ["POST /providers/bindings", ProviderBindingItem],
-  ["DELETE /providers/bindings/{binding_id}", OkResponse],
-  ["GET /providers/pools", z.array(ProviderPoolStatus)],
   ["GET /offers/health", OfferHealthResponse],
   ["POST /offers/{decisionId}/response", OfferResponseResponse],
   ["GET /treatment/next", TreatmentNextResponse],
@@ -3422,7 +3126,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /outbound/number-pools", z.array(NumberPoolResponse)],
   ["GET /outbound/obligations", z.array(AgentObligationResponse)],
   ["GET /outbound/card-vocabulary", OutboundCardVocabularyResponse],
-  ["GET /outbound/missions", MissionsResponse],
   ["GET /authority/next", AuthorityNextResponse],
   ["POST /authority/apply", AuthorityApplyResponse],
   ["POST /pay/{token}/complete", PaymentWebhookResponse],
@@ -3459,7 +3162,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["GET /calls", z.array(CallResponse)],
   ["GET /calls/{interaction_id}", CallResponse],
   ["POST /twilio/voice/outbound", TwilioOutboundCallResponse],
-  ["GET /twilio/voice/status", TwilioVoiceStatusResponse],
   ["GET /voice-studio/routing", z.record(z.string(), z.unknown())],
   ["PUT /voice-studio/routing", z.record(z.string(), z.unknown())],
   ["POST /voice-studio/routing/check", z.record(z.string(), z.unknown())],
