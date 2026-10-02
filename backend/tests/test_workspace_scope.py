@@ -48,14 +48,34 @@ def _uid(prefix: str) -> str:
     return f"{prefix}-WS-{uuid.uuid4().hex[:8].upper()}"
 
 
-def _customer_of(conn, user_id: str | None) -> str:
-    clause = "assigned_user_id = :u" if user_id else "assigned_user_id IS NULL"
-    row = conn.execute(
-        text(f"SELECT id FROM customers WHERE {clause} ORDER BY id LIMIT 1"), {"u": user_id}
-    ).scalar()
-    if row is None:
-        pytest.skip(f"seed has no customer for {user_id!r}")
-    return row
+def _customer_of(conn, user_id: str | None, *, accounts: int = 1) -> str:
+    """A synthetic customer owned by ``user_id`` (None: unowned), with its own accounts."""
+    cid = _uid("CUST")
+    conn.execute(
+        text(
+            "INSERT INTO customers (id, tenant_id, name, risk, assigned_user_id) "
+            "VALUES (:id, :t, 'Workspace Fixture', 'low', :u)"
+        ),
+        {"id": cid, "t": db.current_tenant(), "u": user_id},
+    )
+    for _ in range(accounts):
+        conn.execute(
+            text(
+                # A balance: the Gate refuses outreach to a settled account first.
+                "INSERT INTO accounts (id, customer_id, product_id, outstanding) "
+                "VALUES (:id, :c, (SELECT id FROM products ORDER BY id LIMIT 1), 1000)"
+            ),
+            {"id": _uid("ACC"), "c": cid},
+        )
+    return cid
+
+
+def _accounts(conn, customer_id: str) -> list[str]:
+    return list(
+        conn.execute(
+            text("SELECT id FROM accounts WHERE customer_id = :c ORDER BY id"), {"c": customer_id}
+        ).scalars()
+    )
 
 
 def _callback(conn, customer_id: str, *, at: datetime, assignee: str | None = None,
@@ -136,22 +156,15 @@ def test_queue_callback_time_is_converted_to_ist(db_tx, as_actor) -> None:
 
 
 def test_next_callback_names_the_callbacks_own_account(db_tx, as_actor) -> None:
-    row = db_tx.execute(
-        text(
-            "SELECT customer_id, max(id) AS account_id FROM accounts GROUP BY customer_id "
-            "HAVING count(*) > 1 ORDER BY customer_id LIMIT 1"
-        )
-    ).mappings().first()
-    if row is None:
-        pytest.skip("seed has no customer with two accounts")
+    customer = _customer_of(db_tx, ADMIN, accounts=2)
+    second = _accounts(db_tx, customer)[-1]
     cb = _callback(
-        db_tx, row["customer_id"], at=_now() + timedelta(seconds=30), assignee=ADMIN,
-        account_id=row["account_id"],
+        db_tx, customer, at=_now() + timedelta(seconds=30), assignee=ADMIN, account_id=second
     )
     as_actor(ADMIN)
     nxt = db.workspace_summary(assignee="me")["nextCallback"]
     assert nxt["id"] == cb
-    assert nxt["accountId"] == row["account_id"]
+    assert nxt["accountId"] == second
 
 
 def test_next_callback_is_upcoming_not_missed_or_in_progress(db_tx, as_actor) -> None:
@@ -203,9 +216,10 @@ def test_contact_warning_is_the_gates_verdict(db_tx, as_actor, monkeypatch) -> N
 
 
 def test_attention_rows_carry_their_entity_not_a_label_to_parse(db_tx, as_actor) -> None:
+    _callback(db_tx, _customer_of(db_tx, ADMIN), at=_now() + timedelta(minutes=30), assignee=ADMIN)
     as_actor(ADMIN)
     rows = db.workspace_summary(assignee="all")["attention"]
-    assert rows, "seed has no overdue work"
+    assert rows
     for row in rows:
         assert row["entityType"]
         assert row["customerId"]
@@ -321,6 +335,24 @@ def test_undated_work_never_pages_ahead_of_a_deadline(db_tx, as_actor) -> None:
     assert all(d is None for d in dues[dues.index(None):]), "an undated row sorted ahead of a dated one"
 
 
+#: One synthetic row of each deep-linkable record, on ``:c`` / ``:a``.
+_RECORD_INSERT = {
+    "list_callbacks": "INSERT INTO callbacks (id, customer_id, account_id, assignee_user_id, "
+    "reason, scheduled_at, status) VALUES (:id, :c, :a, :u, 'general', now() + interval '1 day', "
+    "'scheduled')",
+    "list_disputes": "INSERT INTO disputes (id, customer_id, account_id, type, disputed_amount, "
+    "source, status, priority, transcript_snippet) VALUES (:id, :c, :a, 'wrong_amount', 1, "
+    "'agent', 'new', 'normal', 'fixture')",
+    "list_documents": "INSERT INTO document_requests (id, customer_id, account_id, doc_type, "
+    "delivery_channel, status) VALUES (:id, :c, :a, 'statement', 'email', 'requested')",
+    "list_promises": "INSERT INTO promises (id, customer_id, account_id, owner_kind, "
+    "owner_user_id, amount, promised_at, status, reminder_status) VALUES (:id, :c, :a, 'human', "
+    ":u, 1, now() + interval '1 day', 'upcoming', 'off')",
+    "list_leads": "INSERT INTO leads (id, customer_id, account_id, stage) "
+    "VALUES (:id, :c, :a, 'interested')",
+}
+
+
 @pytest.mark.parametrize(
     ("fn", "key"),
     [
@@ -332,21 +364,24 @@ def test_undated_work_never_pages_ahead_of_a_deadline(db_tx, as_actor) -> None:
     ],
 )
 def test_a_deep_link_reads_its_record_whatever_page_it_is_on(db_tx, as_actor, fn, key) -> None:
+    """Two of them: a page of one can hold at most one, so an ignored id fails here.
+    On two accounts: an account holds one open promise."""
+    customer = _customer_of(db_tx, ADMIN, accounts=2)
+    ids = [_uid("REC"), _uid("REC")]
+    for rid, account in zip(ids, _accounts(db_tx, customer), strict=True):
+        db_tx.execute(
+            text(_RECORD_INSERT[fn]), {"id": rid, "c": customer, "a": account, "u": ADMIN}
+        )
     as_actor(ADMIN)
-    rows = getattr(db, fn)(limit=db.MAX_LIST_LIMIT)
-    if len(rows) < 2:
-        pytest.skip(f"{fn}: needs two rows")
-    last = rows[-1]["id"]
-    assert [r["id"] for r in getattr(db, fn)(limit=1, **{key: last})] == [last]
+    for rid in ids:
+        assert [r["id"] for r in getattr(db, fn)(limit=1, **{key: rid})] == [rid]
     assert getattr(db, fn)(**{key: "NO-SUCH-ID"}) == []
 
 
-def test_customer_search_reaches_past_the_first_page(db_tx, as_actor) -> None:
+def test_customer_search_reaches_every_account_past_the_first_page(db_tx, as_actor) -> None:
+    customer = _customer_of(db_tx, ADMIN, accounts=2)
+    second = _accounts(db_tx, customer)[-1]
     as_actor(ADMIN)
-    everyone = db.list_customers(limit=db.MAX_LIST_LIMIT)
-    if len(everyone) < 2:
-        pytest.skip("needs two customers")
-    last = everyone[-1]
-    assert last["id"] not in {c["id"] for c in db.list_customers(limit=1)}
-    assert last["id"] in {c["id"] for c in db.list_customers(limit=1, q=last["id"])}
+    assert [c["id"] for c in db.list_customers(limit=5, q=second)] == [customer]
+    assert [c["id"] for c in db.list_customers(limit=5, q=customer)] == [customer]
     assert db.list_customers(q="NO-SUCH-CUSTOMER-WS") == []

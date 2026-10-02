@@ -4,15 +4,16 @@ import "@/test/jsdom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 import { useOpenRecord } from "./use-open-record";
 
-const wrapper = ({ children }: { children: ReactNode }) => (
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    {children}
-  </QueryClientProvider>
-);
+let client = new QueryClient();
+const wrapper = ({ children }: { children: ReactNode }) => {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+};
 
 const firstPage = [{ id: "A" }, { id: "B" }];
 
@@ -45,5 +46,24 @@ describe("useOpenRecord", () => {
     await waitFor(() => expect(missing.setOpenId).toHaveBeenCalledWith(null));
     const failed = open("Z", vi.fn().mockRejectedValue(new Error("boom")));
     await waitFor(() => expect(failed.setOpenId).toHaveBeenCalledWith(null));
+  });
+
+  it("keeps a record whose refresh failed, says so, and offers a retry", async () => {
+    const error = vi.spyOn(toast, "error");
+    const fetchOne = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: "Z" }])
+      .mockRejectedValue(new Error("502"));
+    const { result, setOpenId } = open("Z", fetchOne);
+    await waitFor(() => expect(result.current).toEqual({ id: "Z" }));
+    await client.refetchQueries();
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Couldn't refresh thing Z"),
+        expect.objectContaining({ action: expect.objectContaining({ label: "Retry" }) }),
+      ),
+    );
+    expect(result.current).toEqual({ id: "Z" });
+    expect(setOpenId).not.toHaveBeenCalled();
   });
 });

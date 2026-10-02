@@ -166,6 +166,9 @@ export function friendlyOutboundError(raw: string): string {
   if (raw.includes("outside_calling_hours")) {
     return "Blocked by the statutory calling hours. Outbound voice is only permitted inside the regulated window — try again during business hours. This is the compliance gate working, not a fault.";
   }
+  if (raw.includes("contact_windows_conflict")) {
+    return "Blocked: this borrower's consent hours and preferred window never overlap, so there is no time they may be called. Correct whichever one is wrong on their consent record; waiting will not clear this.";
+  }
   if (raw.includes("outside_allowed_window")) {
     return "Blocked by this borrower's contact window — they have a narrower preferred window than the statutory one. Try again inside their stated hours. This is the compliance gate working, not a fault.";
   }

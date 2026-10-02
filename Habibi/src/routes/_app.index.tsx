@@ -56,6 +56,7 @@ function WorkspacePage() {
   const [scope, setScope] = useState<WorkspaceScope>("me");
   const [tab, setTab] = useState<QueueTab>("all");
   const [due, setDue] = useState<DueFilter | undefined>();
+  const [search, setSearch] = useState("");
   const summary = useWorkspaceSummary(scope);
   const mine = useWorkspaceSummary("me");
   const blocked = summary.data?.callbacksBlockedCount ?? 0;
@@ -161,8 +162,10 @@ function WorkspacePage() {
           <NeedsAttention
             scope={scope}
             onViewAll={(next) => {
+              // The whole attention set: no leftover tab or search narrowing it.
               setTab("all");
               setDue(next);
+              setSearch("");
               document.getElementById("workspace-queue")?.scrollIntoView({ behavior: "smooth" });
             }}
           />
@@ -174,6 +177,8 @@ function WorkspacePage() {
               onTab={setTab}
               due={due}
               onDue={setDue}
+              search={search}
+              onSearch={setSearch}
             />
           </div>
         </div>

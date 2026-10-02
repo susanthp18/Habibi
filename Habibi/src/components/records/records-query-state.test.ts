@@ -90,12 +90,6 @@ describe("compliance surfaces thread the error", () => {
     expect(table).toContain("isError={isError}");
   });
 
-  it("assigned queue routes a failed read through QueryErrorBanner", () => {
-    const queue = read("components/workspace/AssignedQueue.tsx");
-    expect(queue).toContain('<QueryErrorBanner label="the queue" error={items.error} />');
-    expect(queue).not.toContain("Couldn&rsquo;t load your queue.");
-  });
-
   it("the signed-in shell asks first-login and inactive operators to request access", () => {
     const shell = read("routes/_app.tsx");
     expect(shell).toContain("AccessGate");

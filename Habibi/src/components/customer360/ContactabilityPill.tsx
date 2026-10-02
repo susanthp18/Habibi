@@ -60,6 +60,12 @@ function describeReason(
         label: "Outside calling hours",
         sub: `Statutory 08:00–19:00 · ${contact.timezone}`,
       };
+    case "contact_windows_conflict":
+      return {
+        tone: "danger",
+        label: "No contact window",
+        sub: "Consent hours and preferred window don't overlap — correct one of them",
+      };
     case "outside_allowed_window":
       return {
         tone: "warning",

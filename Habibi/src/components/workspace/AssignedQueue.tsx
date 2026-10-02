@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -72,6 +72,8 @@ export function AssignedQueue({
   onTab,
   due,
   onDue,
+  search,
+  onSearch,
 }: {
   scope: WorkspaceScope;
   onScope: (scope: WorkspaceScope) => void;
@@ -79,10 +81,11 @@ export function AssignedQueue({
   onTab: (tab: QueueTab) => void;
   due: DueFilter | undefined;
   onDue: (due: DueFilter | undefined) => void;
+  search: string;
+  onSearch: (search: string) => void;
 }) {
   const navigate = useNavigate();
   const now = useNow();
-  const [search, setSearch] = useState("");
   const summary = useWorkspaceSummary(scope);
   const counts = summary.data?.queueCounts;
   const totals = summary.data?.scopeTotals;
@@ -100,9 +103,9 @@ export function AssignedQueue({
   const filtered = Boolean(due || q.trim());
   const tabLabel = TABS.find((t) => t.key === tab)?.label ?? "All";
 
-  // Sorting by another column reorders only the rows loaded so far, so it is
-  // offered once the whole queue is loaded; until then the server's deadline
-  // order is the only honest one.
+  // A client sort reorders only the rows loaded so far -- even on Due, where
+  // "latest first" would reverse the earliest page. Sorting is offered once the
+  // whole queue is loaded; until then the server's deadline order stands.
   const allLoaded = !items.hasNextPage;
   const columns = useMemo<RecordsColumn<WorkItem>[]>(
     () => [
@@ -195,7 +198,7 @@ export function AssignedQueue({
       {
         id: "due",
         header: "Due",
-        sortable: true,
+        sortable: allLoaded,
         // The deadline itself, not a severity rank; undated work sorts last.
         sortValue: (row) => (row.dueAt ? new Date(row.dueAt).getTime() : Number.MAX_SAFE_INTEGER),
         className: "min-w-[9rem] whitespace-nowrap",
@@ -334,7 +337,7 @@ export function AssignedQueue({
           <Search className="absolute left-100 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-subtlest" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => onSearch(e.target.value)}
             placeholder="Customer, account or item id"
             aria-label={`Search ${tabLabel}`}
             size="compact"
@@ -364,7 +367,7 @@ export function AssignedQueue({
             type="button"
             className="ml-auto inline-flex items-center gap-025 text-body-small font-medium text-text-brand hover:underline"
             onClick={() => {
-              setSearch("");
+              onSearch("");
               onDue(undefined);
             }}
           >

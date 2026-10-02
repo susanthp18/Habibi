@@ -79,12 +79,15 @@ describe("liveLevel", () => {
 });
 
 describe("movesWorkspace", () => {
-  it("refreshes the workspace only for writes to the domains it is built from", () => {
+  it("refreshes the workspace after any write that is not a pure computation", () => {
     expect(movesWorkspace("/callbacks/CB-1")).toBe(true);
     expect(movesWorkspace("/document-requests/D-1/delivery-attempts")).toBe(true);
-    expect(movesWorkspace("/treatment/holds")).toBe(true);
-    expect(movesWorkspace("/voice-studio/prompt-lint")).toBe(false);
+    // The executor can file a follow-up: a path the old allowlist missed.
+    expect(movesWorkspace("/treatment/decisions/TD-1/enact")).toBe(true);
+    expect(movesWorkspace("/conversations/C-1/assign")).toBe(true);
+    expect(movesWorkspace("/voice-studio/prompt/lint")).toBe(false);
+    expect(movesWorkspace("/voice-studio/routing/check")).toBe(false);
+    expect(movesWorkspace("/studio-api/_ws-ticket")).toBe(false);
     expect(movesWorkspace("/treatment/decide")).toBe(false);
-    expect(movesWorkspace("/leadsx")).toBe(false);
   });
 });

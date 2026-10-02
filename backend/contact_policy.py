@@ -73,6 +73,10 @@ REASON_CONSENT_OVERLAY = "consent_withdrawn"
 REASON_EXPIRED_CONSENT = "consent_expired"
 REASON_NO_ENDPOINT = "endpoint_missing"
 REASON_WINDOW_DEFERRED_STATUTORY = "window_deferred_statutory"
+#: The borrower's windows on file admit no minute of the day: consent hours and
+#: stated preference never overlap (or a window runs backwards). Not a clock
+#: refusal -- no wait clears it, a corrected record does.
+REASON_WINDOW_CONFLICT = "contact_windows_conflict"
 
 #: The DPDP purposes a contact can be made for. Deliberately a different axis
 #: from :data:`PURPOSES` — that one is *why we may contact now* (outreach vs a
@@ -344,15 +348,12 @@ def _preferred_minutes(customer: dict[str, Any]) -> tuple[int, int] | None:
         return stated
     if stated is None:
         return consent
-    start = max(consent[0], stated[0])
-    end = min(consent[1], stated[1])
-    # Two windows that do not overlap describe a borrower nobody may ever call,
-    # which is almost certainly a data-entry error rather than a wish. Fall back
-    # to the recorded consent -- the column an operator captured deliberately --
-    # and leave the statutory window doing the outer bounding it always did.
-    # In minutes: whole hours turned a 10:30-11:30 preference into an empty
-    # 11-11 and this fallback then widened it to the whole consent window.
-    return (start, end) if start < end else consent
+    # Two windows that do not overlap come back empty (start >= end), and the
+    # veto refuses every minute of them as REASON_WINDOW_CONFLICT. It is most
+    # likely a data-entry error, but guessing which column is wrong would let
+    # one restriction widen the other -- falling back to consent admitted an
+    # 11:00 call to a borrower who had asked for evenings only.
+    return max(consent[0], stated[0]), min(consent[1], stated[1])
 
 
 def _preferred_hours(customer: dict[str, Any]) -> tuple[int, int] | None:
@@ -875,6 +876,10 @@ def _veto(
     if customer.get("dnd") or customer.get("dnd_registry"):
         return REASON_CUSTOMER_DND
 
+    (start, end), days = _consent_window(customer)
+    if start >= end:
+        return REASON_WINDOW_CONFLICT
+
     # Published window, else the conservative 08:00–19:00 platform bound.
     # Messages use that bound until counsel cites a distinct instrument.
     minute = contact_window.minute_of_day(now_local)
@@ -884,7 +889,6 @@ def _veto(
             return REASON_WINDOW_DEFERRED_STATUTORY
         return REASON_HOURS
 
-    (start, end), days = _consent_window(customer)
     if minute < start or minute >= end:
         if purpose == "statutory":
             return REASON_WINDOW_DEFERRED_STATUTORY
@@ -1049,6 +1053,7 @@ SCHEDULING_VETOES = frozenset(
         REASON_HOURS,
         REASON_WINDOW,
         REASON_WINDOW_DEFERRED_STATUTORY,
+        REASON_WINDOW_CONFLICT,
         REASON_SUPPRESSED,
         REASON_ENDPOINT,
         REASON_CONSENT_OVERLAY,

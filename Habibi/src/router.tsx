@@ -21,7 +21,7 @@ export const getRouter = () => {
   });
 
   // My Workspace's queue and summary stay mounted in the shell (notifications,
-  // palette): refresh them after any write to a domain they are built from.
+  // palette): refresh them after any write that can change them.
   setAfterWrite((path) => {
     if (!movesWorkspace(path)) return;
     void queryClient.invalidateQueries({ queryKey: ["work-items"] });

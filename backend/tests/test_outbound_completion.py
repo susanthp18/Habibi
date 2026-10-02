@@ -169,11 +169,21 @@ def test_a_preference_alone_is_honoured() -> None:
     ) == (11, 16)
 
 
-def test_windows_that_do_not_overlap_fall_back_to_consent() -> None:
-    """Almost certainly a data-entry error rather than a borrower nobody may call."""
-    assert contact_policy.preferred_hours(
-        {"allowed_hours": "10:00-12:00 IST", "preferred_window": "18:00-21:00 IST"}
-    ) == (10, 12)
+def test_windows_that_do_not_overlap_admit_no_contact() -> None:
+    """Neither restriction may widen the other, so two windows that never meet
+    admit nothing -- under their own reason, which nothing will clear by
+    waiting, so the record reaches someone who can correct it."""
+    customer = {"id": "x", "allowed_hours": "10:00-12:00 IST", "preferred_window": "18:00-21:00 IST"}
+    eleven = datetime(2026, 8, 24, 11, 0)
+    reason = contact_policy._veto(
+        purpose="outreach", channel="voice", customer=customer, status=None, now_local=eleven
+    )
+    assert reason == "contact_windows_conflict"
+    assert reason not in contact_policy.CLOCK_REFUSALS
+    assert reason in contact_policy.SCHEDULING_VETOES
+    assert contact_policy._next_window_open(
+        eleven, rules=None, channel="voice", customer=customer
+    ) is None
 
 
 def test_an_evening_preference_cannot_buy_a_nine_oclock_call(db_tx) -> None:

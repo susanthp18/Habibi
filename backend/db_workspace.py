@@ -79,13 +79,6 @@ def _fmt_hm(total_seconds: float) -> str:
     return f"{mins}m"
 
 
-def _work_item_age_hours(created_at: Any) -> int:
-    created = _as_utc(created_at)
-    if created is None:
-        return 0
-    return max(0, int((utc_now() - created).total_seconds() // 3600))
-
-
 def _work_item_sla(
     sla_due_at: Any,
     *,

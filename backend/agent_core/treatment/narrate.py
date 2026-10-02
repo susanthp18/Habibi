@@ -49,6 +49,7 @@ _SUPPRESSION_PHRASE = {
 _CONTACT_PHRASE = {
     "outside_calling_hours": "outside RBI calling hours",
     "outside_allowed_window": "outside the consented contact window",
+    "contact_windows_conflict": "never contactable: the consent and preferred windows do not overlap",
     "daily_cap": "at the daily contact cap",
     "weekly_cap": "at the weekly contact cap",
     "cooling_off": "inside the cooling-off window",

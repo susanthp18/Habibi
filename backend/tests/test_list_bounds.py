@@ -177,9 +177,9 @@ def test_interaction_contracts_has_no_unbounded_branch(db_tx) -> None:
 # The accessors that grow with traffic all take a page
 # ---------------------------------------------------------------------------
 
-#: Accessors whose row count grows with customers, calls or knowledge-base size.
+#: Accessors whose row count grows with customers or calls.
 #: Deliberately not every list function in the module: `list_staff`,
-#: `list_teams`, `list_products` and the TTS/persona catalogs are bounded by
+#: `list_teams`, `list_products` and the authored catalogs are bounded by
 #: headcount or by configuration, and paging them would add a control nobody
 #: uses. The rule being enforced is "bounded by *traffic* must be paged", not
 #: "everything must be paged".
@@ -191,14 +191,9 @@ PAGED_ACCESSORS = [
     "list_payment_plans",
     "list_disputes",
     "list_callbacks",
-    "list_kb_documents",
     "list_export_jobs",
     "list_coaching_actions",
     "list_calibration_sessions",
-    "list_kb_faqs",
-    "list_kb_snapshots",
-    "list_prompt_versions",
-    "list_bot_deployments",
     "list_violations",
     "list_scorecards",
 ]
@@ -213,17 +208,12 @@ UNPAGED_BY_DESIGN = {
     "list_products": "bounded by product catalog",
     "list_canned_responses": "authored templates",
     "list_redaction_rules": "one row per PII type",
-    "list_persona_presets": "authored presets",
-    "list_tts_voices": "configured voice shortlist",
-    "list_tts_price_tiers": "pricing bands",
-    "list_sandbox_scenarios": "authored scenarios",
 }
 
 
 #: Routes that must honour ``?limit=``. Bounding the accessor is only half the
-#: job — ``/kb/faqs`` and ``/prompt-versions`` both had a bounded accessor and a
-#: route that never passed the parameter through, so they still returned every
-#: row. That is invisible to a unit test of the accessor, which is why this one
+#: job — routes have had a bounded accessor and never passed the parameter
+#: through, so they still returned every row. That is invisible to a unit test of the accessor, which is why this one
 #: goes through the real app.
 PAGED_ROUTES = [
     "/customers",
@@ -233,10 +223,6 @@ PAGED_ROUTES = [
     "/payment-plans",
     "/disputes",
     "/callbacks",
-    "/kb/documents",
-    "/kb/faqs",
-    "/prompt-versions",
-    "/bot-deployments",
     "/export-jobs",
     "/coaching-actions",
     "/violations",
@@ -291,9 +277,8 @@ def test_unpaged_accessors_are_still_small() -> None:
     here rather than in production.
     """
     for name in UNPAGED_BY_DESIGN:
-        fn = getattr(db, name, None)
-        if fn is None:
-            continue
+        # Strict: a removed accessor must leave this list, not be skipped.
+        fn = getattr(db, name)
         assert len(fn()) <= db.MAX_LIST_LIMIT, (
             f"{name} is not paged because it was assumed "
             f"{UNPAGED_BY_DESIGN[name]}, but it now returns more than "
@@ -321,18 +306,6 @@ def test_traffic_growing_accessor_is_bounded_by_default(name: str) -> None:
 @pytest.mark.parametrize("name", PAGED_ACCESSORS)
 def test_traffic_growing_accessor_honours_limit(name: str) -> None:
     assert len(getattr(db, name)(limit=1)) <= 1
-
-
-def test_kb_chunks_are_paged() -> None:
-    """The largest response the API could produce: every chunk's full text."""
-    import inspect
-
-    params = inspect.signature(db.list_kb_chunks).parameters
-    assert "limit" in params and "offset" in params
-    docs = db.list_kb_documents(limit=1)
-    if not docs:
-        pytest.skip("no kb documents seeded")
-    assert len(db.list_kb_chunks(docs[0]["id"], limit=1)) <= 1
 
 
 def test_customer_detail_children_are_bounded(db_tx) -> None:

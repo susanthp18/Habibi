@@ -16,7 +16,6 @@ export type WorkItem = z.infer<typeof WorkItemResponse>;
 export type WorkItemEntityType = WorkItem["entityType"];
 export type SlaLevel = WorkItem["sla"];
 export type WorkspaceSummary = z.infer<typeof WorkspaceSummaryResponse>;
-export type WorkspaceNextCallback = NonNullable<WorkspaceSummary["nextCallback"]>;
 
 /** ``me``: assigned to me, or unassigned work on customers I own. ``pool``:
  *  unassigned work on unassigned customers. Never switches on its own. */
@@ -82,13 +81,18 @@ export function useWorkspaceSummary(scope: WorkspaceScope = "me") {
   });
 }
 
-/** Whether a write to ``path`` can change the queue or summary: the domains
- *  behind the work_items view, the calls behind the stats, and the consent and
- *  holds behind the contact warning. A prompt lint or a settings save cannot. */
+/** POSTs that compute and change no record: a prompt lint, a routing or check
+ *  dry run, a socket ticket, a treatment decision that is recorded, never enacted. */
+const PURE_POSTS =
+  /^\/(voice-studio\/(prompt\/lint|routing\/check|checks\/simulate)|studio-api\/_ws-ticket|treatment\/decide)(\/|\?|$)/;
+
+/** Whether a write to ``path`` can change the queue or summary. Every write can,
+ *  except the pure computations above: the work_items view draws on many
+ *  domains, and an allowlist of them missed the ones that write as a side
+ *  effect (an enacted treatment files a follow-up). A wrong guess here costs
+ *  one refetch; the other way it cost a stale queue until the next poll. */
 export function movesWorkspace(path: string): boolean {
-  return /^\/(callbacks|disputes|document-requests|promises|payment-plans|leads|followups|interactions|handoff|consent|treatment\/holds)(\/|\?|$)/.test(
-    path,
-  );
+  return !PURE_POSTS.test(path);
 }
 
 export function enactedByLabel(value?: string | null): string | null {

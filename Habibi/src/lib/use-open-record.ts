@@ -14,6 +14,9 @@ import { mutationErrorMessage } from "@/lib/mutation-errors";
  * it. While it loads the operator sees "Opening…"; a failed read, or one that
  * finds nothing (absent and not visible to you look the same, on purpose),
  * says so and closes the drawer through ``setOpenId`` (the page's state setter).
+ * A read-by-id record whose refresh fails stays open, under a standing notice
+ * that it is as of its last good read, with Retry. A listed record's failed
+ * refresh is the list's to show (RecordsTable says so).
  */
 export function useOpenRecord<T extends { id: string }>(opts: {
   queryKey: string;
@@ -34,6 +37,13 @@ export function useOpenRecord<T extends { id: string }>(opts: {
   const state =
     !id || record ? "open" : one.isError ? "failed" : one.isSuccess ? "missing" : "loading";
   const toastId = `open-record:${queryKey}`;
+  const staleId = `open-record-stale:${queryKey}`;
+  const stale = Boolean(id && !listed && one.data?.length && one.isError);
+  const asOf = new Date(one.dataUpdatedAt).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const retry = one.refetch;
 
   useEffect(() => {
     if (!id) return; // closing after a failure must leave its message up
@@ -51,7 +61,24 @@ export function useOpenRecord<T extends { id: string }>(opts: {
       setOpenId(null);
     }
   }, [state, id, label, toastId, one.error, setOpenId]);
-  useEffect(() => () => void toast.dismiss(toastId), [toastId]);
+  useEffect(() => {
+    if (!stale) {
+      toast.dismiss(staleId);
+      return;
+    }
+    toast.error(`Couldn't refresh ${label} ${id}: showing it as of ${asOf}`, {
+      id: staleId,
+      duration: Infinity,
+      action: { label: "Retry", onClick: () => void retry() },
+    });
+  }, [stale, staleId, label, id, asOf, retry]);
+  useEffect(
+    () => () => {
+      toast.dismiss(toastId);
+      toast.dismiss(staleId);
+    },
+    [toastId, staleId],
+  );
 
   return record;
 }

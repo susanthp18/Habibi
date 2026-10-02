@@ -166,7 +166,9 @@ export function NotificationsPopover() {
         <ul className="max-h-[22.5rem] overflow-y-auto">
           {notifications.length === 0 && summary && !isError && (
             <li className="px-150 py-400 text-center text-body-small text-text-subtlest">
-              Nothing overdue, due soon or blocked right now.
+              {summary.callbacksBlockedPartial
+                ? "Nothing overdue or due soon. None of your soonest 200 upcoming callbacks is blocked; later ones weren’t checked."
+                : "Nothing overdue, due soon or blocked right now."}
             </li>
           )}
           {notifications.map((n) => {

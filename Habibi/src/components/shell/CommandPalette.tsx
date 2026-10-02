@@ -109,15 +109,18 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   // Customers and queue items are matched on the server across everything,
   // not within a first page, once the operator pauses typing.
   const q = useDebounced(search);
-  const { data: customerHits = [] } = useCustomerSearch(q, open);
-  const { data: workItems = [] } = useWorkItems({ scope: "me", q, limit: 30 }, { enabled: open });
+  const customers = useCustomerSearch(q, open);
+  const queue = useWorkItems({ scope: "me", q, limit: 30 }, { enabled: open });
+  const customerHits = customers.data ?? [];
+  const queueHits = queue.data ?? [];
+  // Typed but not yet asked, or asked and not yet answered.
+  const searching = search.trim() !== q.trim() || customers.isFetching || queue.isFetching;
   const pages = useMemo(
     () => (can(me, "perm-admin-write") ? PAGES : PAGES.filter((page) => page.to !== "/roles")),
     [me],
   );
 
   const { data: agents = [] } = useStudioAgents({ enabled: open && can(me, "perm-bot-read") });
-  const queueHits = workItems;
 
   const go = (to: string) => {
     onOpenChange(false);
@@ -132,7 +135,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         placeholder="Jump to page, customer, or queue item…"
       />
       <CommandList>
-        <CommandEmpty>No matches.</CommandEmpty>
+        {/* cmdk counts only what it matched itself, not the server's hits. */}
+        {!searching && !customerHits.length && !queueHits.length && (
+          <CommandEmpty>No matches.</CommandEmpty>
+        )}
         <CommandGroup heading="Appearance">
           <CommandItem
             value="toggle night mode dark theme light"
@@ -185,14 +191,19 @@ export function CommandPalette({ open, onOpenChange }: Props) {
           </>
         )}
         <CommandSeparator />
-        <CommandGroup heading="My queue">
-          {queueHits.length === 0 && (
-            <CommandItem disabled value="empty-queue">
-              No assigned items
-            </CommandItem>
-          )}
+        {/* Queue items and customers were matched on the server, across every
+            account of a customer; cmdk's filter sees only the text shown and
+            would drop a match on a secondary account. Force them visible. */}
+        <CommandGroup heading="My queue" forceMount>
+          <SearchStatus
+            query={queue}
+            hits={queueHits.length}
+            searching={searching}
+            what={q.trim() ? "matching queue items" : "assigned items"}
+          />
           {queueHits.map((w) => (
             <CommandItem
+              forceMount
               key={`${w.entityType}-${w.id}`}
               value={`${w.customer} ${w.accountId} ${w.id} ${w.type} ${w.detail}`}
               onSelect={() => {
@@ -208,9 +219,16 @@ export function CommandPalette({ open, onOpenChange }: Props) {
           ))}
         </CommandGroup>
         <CommandSeparator />
-        <CommandGroup heading="Customers">
+        <CommandGroup heading="Customers" forceMount>
+          <SearchStatus
+            query={customers}
+            hits={customerHits.length}
+            searching={searching}
+            what="matching customers"
+          />
           {customerHits.map((c) => (
             <CommandItem
+              forceMount
               key={c.id}
               value={`${c.name} ${c.accountId} ${c.id}`}
               onSelect={() => {
@@ -227,6 +245,33 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         </CommandGroup>
       </CommandList>
     </CommandDialog>
+  );
+}
+
+/** A server-search group's state: failed (select to retry), searching, or empty. */
+function SearchStatus({
+  query,
+  hits,
+  searching,
+  what,
+}: {
+  query: { isError: boolean; refetch: () => unknown };
+  hits: number;
+  searching: boolean;
+  what: string;
+}) {
+  if (query.isError) {
+    return (
+      <CommandItem forceMount value={`retry ${what}`} onSelect={() => void query.refetch()}>
+        Couldn’t search {what.replace(/^matching /, "")} — select to retry
+      </CommandItem>
+    );
+  }
+  if (hits > 0) return null;
+  return (
+    <CommandItem forceMount disabled value={`status ${what}`}>
+      {searching ? "Searching…" : `No ${what}`}
+    </CommandItem>
   );
 }
 
