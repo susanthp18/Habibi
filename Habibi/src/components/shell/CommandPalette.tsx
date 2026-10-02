@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Activity,
@@ -114,7 +114,12 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const customerHits = customers.data ?? [];
   const queueHits = queue.data ?? [];
   // Typed but not yet asked, or asked and not yet answered.
-  const searching = search.trim() !== q.trim() || customers.isFetching || queue.isFetching;
+  const typing = search.trim() !== q.trim();
+  const searching = typing || customers.isFetching || queue.isFetching;
+  // Rows answering an earlier query stay in view but can't be chosen: Enter on
+  // a new search must never open the previous search's customer.
+  const staleCustomers = typing || customers.isPlaceholderData;
+  const staleQueue = typing || queue.isPlaceholderData;
   const pages = useMemo(
     () => (can(me, "perm-admin-write") ? PAGES : PAGES.filter((page) => page.to !== "/roles")),
     [me],
@@ -198,12 +203,12 @@ export function CommandPalette({ open, onOpenChange }: Props) {
           <SearchStatus
             query={queue}
             hits={queueHits.length}
-            searching={searching}
+            searching={staleQueue}
             what={q.trim() ? "matching queue items" : "assigned items"}
           />
           {queueHits.map((w) => (
-            <CommandItem
-              forceMount
+            <Hit
+              stale={staleQueue}
               key={`${w.entityType}-${w.id}`}
               value={`${w.customer} ${w.accountId} ${w.id} ${w.type} ${w.detail}`}
               onSelect={() => {
@@ -215,7 +220,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
               <span className="truncate">
                 {w.customer} · {w.type}
               </span>
-            </CommandItem>
+            </Hit>
           ))}
         </CommandGroup>
         <CommandSeparator />
@@ -223,12 +228,12 @@ export function CommandPalette({ open, onOpenChange }: Props) {
           <SearchStatus
             query={customers}
             hits={customerHits.length}
-            searching={searching}
+            searching={staleCustomers}
             what="matching customers"
           />
           {customerHits.map((c) => (
-            <CommandItem
-              forceMount
+            <Hit
+              stale={staleCustomers}
               key={c.id}
               value={`${c.name} ${c.accountId} ${c.id}`}
               onSelect={() => {
@@ -240,11 +245,41 @@ export function CommandPalette({ open, onOpenChange }: Props) {
               <span className="truncate">
                 {c.name} · {c.accountId}
               </span>
-            </CommandItem>
+            </Hit>
           ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>
+  );
+}
+
+/**
+ * A server hit. While it answers an earlier query it stays in view, dimmed, but
+ * choosing it does nothing: Enter on a new search must not open the last one's.
+ */
+function Hit({
+  stale,
+  value,
+  onSelect,
+  children,
+}: {
+  stale: boolean;
+  value: string;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <CommandItem
+      forceMount
+      value={value}
+      aria-busy={stale}
+      className={stale ? "opacity-50" : undefined}
+      onSelect={() => {
+        if (!stale) onSelect();
+      }}
+    >
+      {children}
+    </CommandItem>
   );
 }
 
@@ -267,7 +302,7 @@ function SearchStatus({
       </CommandItem>
     );
   }
-  if (hits > 0) return null;
+  if (hits > 0 && !searching) return null;
   return (
     <CommandItem forceMount disabled value={`status ${what}`}>
       {searching ? "Searching…" : `No ${what}`}

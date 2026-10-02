@@ -114,21 +114,22 @@ export function dueLabel(dueAt: string, now: number): string {
 
 const RANK: Record<SlaLevel, number> = { ok: 0, warn: 1, breach: 2 };
 
-/** The server's level, raised by the clock between refreshes: the deadline text
- *  counts down locally and its colour must not lag it. Same thresholds as
+/** A row's deadline pill, kept live between refreshes: the countdown runs
+ *  locally and its colour is raised by the clock with the same thresholds as
  *  ``db_workspace._work_item_sla`` (overdue; due within two hours). It only
- *  ever raises, so the server's status-driven levels stand -- except a bounce
- *  awaiting payment, which the server keeps calm whatever its deadline. */
-export function liveLevel(
-  item: Pick<WorkItem, "sla" | "dueAt" | "entityType" | "status">,
+ *  ever raises, so the server's status-driven levels stand. Undated work -- a
+ *  bounce awaiting payment among it -- keeps the server's own words. */
+export function liveSla(
+  item: Pick<WorkItem, "sla" | "slaLabel" | "dueAt">,
   now: number,
-): SlaLevel {
-  if (!item.dueAt || (item.entityType === "bounce" && item.status === "in_progress")) {
-    return item.sla;
-  }
+): { level: SlaLevel; label: string } {
+  if (!item.dueAt) return { level: item.sla, label: item.slaLabel };
   const left = new Date(item.dueAt).getTime() - now;
   const byClock: SlaLevel = left < 0 ? "breach" : left < 2 * 3_600_000 ? "warn" : "ok";
-  return RANK[byClock] > RANK[item.sla] ? byClock : item.sla;
+  return {
+    level: RANK[byClock] > RANK[item.sla] ? byClock : item.sla,
+    label: dueLabel(item.dueAt, now),
+  };
 }
 
 /** 3d 4h · 5h 10m · 25m */

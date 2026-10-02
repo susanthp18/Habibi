@@ -400,7 +400,8 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             conn.execute(
                 text(
                     """
-                    SELECT cb.customer_id, cb.status, c.dnd AS customer_dnd, c.preferred_window,
+                    SELECT cb.customer_id, cb.account_id, cb.status, c.dnd AS customer_dnd,
+                           c.preferred_window, c.phone_primary,
                            COALESCE(cr.dnd_registry, false) AS dnd_registry
                     FROM callbacks cb
                     JOIN customers c ON c.id = cb.customer_id
@@ -414,6 +415,24 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if row is None:
             raise KeyError("callback_not_found")
         db_core.assert_transition("callback", row["status"], payload.get("status"), _CALLBACK_TRANSITIONS)
+        if payload.get("status") == "in_progress" and row["status"] != "in_progress":
+            # Starting a callback tells the operator to dial now, from their own
+            # phone: a human contact, so the Gate admits it and the ledger counts
+            # it like any other. A refusal is a 409 carrying the Gate's reason.
+            import actor_context
+            import contact_policy
+
+            contact_policy.require_admit(
+                conn,
+                customer_id=row["customer_id"],
+                channel="voice",
+                source="callback_start",
+                related_id=callback_id,
+                actor_kind="human",
+                actor_user_id=actor_context.get_actor_user_id(),
+                account_id=row["account_id"],
+                endpoint=contact_policy.chosen_phone(row),
+            )
 
         if payload.get("assigneeUserId") is not None:
             assignee = payload["assigneeUserId"]

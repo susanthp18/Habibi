@@ -3,10 +3,9 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Inbox, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  dueLabel,
   enactedByLabel,
   spanLabel,
-  liveLevel,
+  liveSla,
   useWorkItemPages,
   useWorkspaceSummary,
   type DueFilter,
@@ -199,15 +198,13 @@ export function AssignedQueue({
         id: "due",
         header: "Due",
         sortable: allLoaded,
-        // The deadline itself, not a severity rank; undated work sorts last.
-        sortValue: (row) => (row.dueAt ? new Date(row.dueAt).getTime() : Number.MAX_SAFE_INTEGER),
+        // The deadline itself, not a severity rank. Undated is null, which the
+        // table keeps last in both directions.
+        sortValue: (row) => (row.dueAt ? new Date(row.dueAt).getTime() : null),
         className: "min-w-[9rem] whitespace-nowrap",
         cell: (row) => (
           <span title={row.dueAt ? `Due ${fmtDateTime(row.dueAt)} IST` : undefined}>
-            <SlaPill
-              level={liveLevel(row, now)}
-              label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel}
-            />
+            <SlaPill {...liveSla(row, now)} />
           </span>
         ),
         footer: (visible) => (

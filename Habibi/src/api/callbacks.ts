@@ -20,7 +20,9 @@ import type {
 } from "@/api/types/callbacks";
 import { CURRENT_QUEUE } from "@/lib/callbacks";
 import type { Customer } from "@/api/types/customer360";
+import { mutationErrorMessage } from "@/lib/mutation-errors";
 import { apiGet, apiPatch, apiPost } from "./config";
+import { friendlyOutboundError } from "./platform";
 import { UNASSIGNED, humanNames, resolveActor, type Staff } from "./staff";
 import { resolveTeam, teamNames, type Team } from "./teams";
 import { toast } from "sonner";
@@ -194,12 +196,14 @@ export function useRescheduleCallback() {
 export function useStartCallback() {
   const qc = useQueryClient();
   return useMutation({
-    meta: { errors: "toast" },
+    meta: { errors: "caller" },
     mutationFn: (cb: Pick<Callback, "id">) => startCall(cb),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["callbacks"] });
       toast("Callback in progress — dial from your phone");
     },
+    // A 409 here is usually the contact gate refusing the call: say why.
+    onError: (err) => toast.error(friendlyOutboundError(mutationErrorMessage(err))),
   });
 }
 

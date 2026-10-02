@@ -92,6 +92,9 @@ FROM followups
 -- row in this view and still stand on their own.
 WHERE status IN ('open','in_progress','snoozed') AND lead_id IS NULL
 UNION ALL
+-- 48 hours is the first-touch deadline. Once touched (in_progress) a bounce
+-- waits on the borrower's payment and has no deadline of its own; keeping the
+-- lapsed one counted it overdue while its row read "Awaiting pay".
 SELECT
   'bounce',
   id,
@@ -99,7 +102,7 @@ SELECT
   assignee_user_id,
   status,
   'high',
-  occurred_at + interval '48 hours',
+  CASE WHEN status = 'open' THEN occurred_at + interval '48 hours' END,
   'payment_events',
   created_at
 FROM payment_events

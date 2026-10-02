@@ -156,7 +156,6 @@ def _snippet(text: str | None, limit: int = 72) -> str:
 
 def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per-entity_type grouped enrichment — 6 queries, no N+1."""
-    _mod = _db()
     by_type: dict[str, list[str]] = {}
     for r in rows:
         by_type.setdefault(r["entity_type"], []).append(r["entity_id"])
@@ -287,7 +286,7 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
             conn.execute(
                 text(
                     """
-                    SELECT f.id, f.note, f.promise_id, f.lead_id, p.account_id
+                    SELECT f.id, f.note, f.promise_id, p.account_id
                     FROM followups f
                     LEFT JOIN promises p ON p.id = f.promise_id
                     WHERE f.id = ANY(:ids)
@@ -296,12 +295,8 @@ def _work_item_enrichment(conn: Any, rows: list[dict[str, Any]]) -> dict[str, di
                 {"ids": followup_ids},
             )
         ):
-            if r["promise_id"]:
-                type_label = "Promise follow-up"
-            elif r["lead_id"]:
-                type_label = "Lead follow-up"
-            else:
-                type_label = "Follow-up"
+            # The view folds lead follow-ups into their lead's row, so none reaches here.
+            type_label = "Promise follow-up" if r["promise_id"] else "Follow-up"
             note = _snippet(r["note"]) or "Chase follow-up"
             out[f"followup:{r['id']}"] = {
                 "type": type_label,

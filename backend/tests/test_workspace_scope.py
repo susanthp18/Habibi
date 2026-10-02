@@ -95,6 +95,16 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _queue(scope: str, **filters) -> list[dict]:
+    """Every row of a scope, page by page: one capped read is not a count."""
+    rows: list[dict] = []
+    while True:
+        page = db.list_work_items(assignee=scope, limit=200, offset=len(rows), **filters)
+        rows += page
+        if len(page) < 200:
+            return rows
+
+
 # ---------------------------------------------------------------------------
 # Scope
 # ---------------------------------------------------------------------------
@@ -102,11 +112,12 @@ def _now() -> datetime:
 
 def test_an_operator_with_nothing_assigned_has_an_empty_queue(db_tx, as_actor) -> None:
     """No silent fallback to the tenant book: 'mine' is mine, the pool is separate."""
+    pooled = _callback(db_tx, _customer_of(db_tx, None), at=_now() + timedelta(days=1))
     as_actor("entra-demo-nobody")
     assert db.list_work_items(assignee="me") == []
-    pool = db.list_work_items(assignee="pool", limit=1000)
-    assert pool, "the seed has no unassigned work at all"
-    assert all(row["assigneeUserId"] is None for row in pool)
+    pool = db.list_work_items(assignee="pool", q=pooled)
+    assert [row["id"] for row in pool] == [pooled]
+    assert pool[0]["assigneeUserId"] is None
 
 
 def test_mine_includes_unassigned_ai_work_on_my_book(db_tx, as_actor) -> None:
@@ -115,11 +126,10 @@ def test_mine_includes_unassigned_ai_work_on_my_book(db_tx, as_actor) -> None:
     mine = _customer_of(db_tx, AGENT)
     assigned = _callback(db_tx, mine, at=_now() + timedelta(days=2), assignee=AGENT)
     ai_filed = _callback(db_tx, mine, at=_now() + timedelta(days=2))
+    account = _accounts(db_tx, mine)[0]
     as_actor(AGENT)
-    ids = {row["id"] for row in db.list_work_items(assignee="me", limit=1000)}
-    assert {assigned, ai_filed} <= ids
-    pool = {row["id"] for row in db.list_work_items(assignee="pool", limit=1000)}
-    assert ai_filed not in pool
+    assert {row["id"] for row in db.list_work_items(assignee="me", q=account)} == {assigned, ai_filed}
+    assert db.list_work_items(assignee="pool", q=account) == []
 
 
 def test_summary_never_shows_what_the_queue_hides(db_tx, as_actor, enforce) -> None:
@@ -130,12 +140,12 @@ def test_summary_never_shows_what_the_queue_hides(db_tx, as_actor, enforce) -> N
     summary = db.workspace_summary(assignee="all")
     assert (summary["nextCallback"] or {}).get("id") != hidden
     assert hidden not in {row["id"] for row in summary["attention"]}
-    assert hidden not in {row["id"] for row in db.list_work_items(assignee="all", limit=1000)}
+    assert db.list_work_items(assignee="all", q=hidden) == []
 
 
 def test_queue_counts_cover_the_whole_scope_not_one_page(db_tx, as_actor) -> None:
     as_actor(ADMIN)
-    rows = db.list_work_items(assignee="all", limit=1000)
+    rows = _queue("all")
     counts = db.workspace_summary(assignee="all")["queueCounts"]
     assert counts["total"] == len(rows)
     assert sum(counts["byType"].values()) == len(rows)
@@ -151,7 +161,7 @@ def test_queue_callback_time_is_converted_to_ist(db_tx, as_actor) -> None:
     at = (_now() + timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)
     cb = _callback(db_tx, _customer_of(db_tx, ADMIN), at=at, assignee=ADMIN)
     as_actor(ADMIN)
-    row = next(r for r in db.list_work_items(assignee="me", limit=1000) if r["id"] == cb)
+    [row] = db.list_work_items(assignee="me", q=cb)
     assert row["type"] == "Callback · 2:30 PM IST"
 
 
@@ -193,6 +203,33 @@ def test_lapsed_callbacks_are_marked_missed_by_the_backend(db_tx) -> None:
         ).all()
     )
     assert status == {lapsed: "missed", upcoming: "scheduled", live: "in_progress"}
+
+
+def test_beginning_a_callback_is_a_contact_the_gate_admits(db_tx, as_actor, monkeypatch) -> None:
+    """'Begin callback' tells the operator to dial. It used to say so for a
+    borrower the Gate refuses, and the call it started was on no ledger."""
+    import contact_policy
+    import db_callbacks
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    monkeypatch.setattr(contact_policy, "utc_now", lambda: datetime(2026, 10, 7, 11, 0, tzinfo=ist))
+    as_actor(ADMIN)
+
+    dnd = _customer_of(db_tx, ADMIN)
+    db_tx.execute(text("UPDATE customers SET dnd = true WHERE id = :c"), {"c": dnd})
+    refused = _callback(db_tx, dnd, at=_now(), assignee=ADMIN)
+    with pytest.raises(ValueError, match="customer_dnd"):
+        db_callbacks.patch_callback(refused, {"status": "in_progress"})
+    status = db_tx.execute(text("SELECT status FROM callbacks WHERE id = :id"), {"id": refused})
+    assert status.scalar() == "scheduled"
+
+    admitted = _callback(db_tx, _customer_of(db_tx, ADMIN), at=_now(), assignee=ADMIN)
+    db_callbacks.patch_callback(admitted, {"status": "in_progress"})
+    touch = db_tx.execute(
+        text("SELECT actor_kind, actor_user_id, outcome FROM contact_events WHERE related_id = :id"),
+        {"id": admitted},
+    ).mappings().one()
+    assert dict(touch) == {"actor_kind": "human", "actor_user_id": ADMIN, "outcome": "allowed"}
 
 
 def test_contact_warning_is_the_gates_verdict(db_tx, as_actor, monkeypatch) -> None:
@@ -302,7 +339,7 @@ def test_the_attention_filter_is_overdue_and_due_soon_together(db_tx, as_actor) 
     customer = _customer_of(db_tx, ADMIN)
     soon = _callback(db_tx, customer, at=_now() + timedelta(minutes=30), assignee=ADMIN)
     as_actor(ADMIN)
-    rows = db.list_work_items(assignee="all", due="attention", limit=1000)
+    rows = _queue("all", due="attention")
     counts = db.workspace_summary(assignee="all")["queueCounts"]
     assert soon in {r["id"] for r in rows}
     assert len(rows) == counts["overdue"] + counts["dueSoon"]
@@ -315,6 +352,27 @@ def test_a_contact_warning_past_its_check_limit_says_it_is_partial(db_tx, as_act
     monkeypatch.setattr(db_workspace, "BLOCKED_CHECK_LIMIT", 0)
     as_actor(ADMIN)
     assert db.workspace_summary(assignee="me")["callbacksBlockedPartial"] is True
+
+
+def test_a_bounce_awaiting_payment_is_not_overdue(db_tx, as_actor) -> None:
+    """Its 48-hour deadline is for the first touch. Once touched it waits on the
+    borrower: the pill said "Awaiting pay" while the counts called it overdue."""
+    customer = _customer_of(db_tx, ADMIN)
+    bounce = _uid("PE")
+    db_tx.execute(
+        text(
+            "INSERT INTO payment_events (id, tenant_id, customer_id, account_id, kind, reason, "
+            "amount, source, source_ref, status, assignee_user_id, occurred_at) VALUES "
+            "(:id, :t, :c, :a, 'bounce', 'insufficient_funds', 100, 'sandbox', :id, "
+            "'in_progress', :u, now() - interval '3 days')"
+        ),
+        {"id": bounce, "t": db.current_tenant(), "c": customer,
+         "a": _accounts(db_tx, customer)[0], "u": ADMIN},
+    )
+    as_actor(ADMIN)
+    [row] = db.list_work_items(assignee="me", q=bounce)
+    assert (row["dueAt"], row["sla"], row["slaLabel"]) == (None, "ok", "Awaiting pay")
+    assert db.list_work_items(assignee="me", q=bounce, due="overdue") == []
 
 
 def test_undated_work_never_pages_ahead_of_a_deadline(db_tx, as_actor) -> None:
@@ -330,7 +388,7 @@ def test_undated_work_never_pages_ahead_of_a_deadline(db_tx, as_actor) -> None:
         {"id": _uid("DSP"), "c": customer},
     )
     as_actor(ADMIN)
-    dues = [r["dueAt"] for r in db.list_work_items(assignee="all", limit=1000)]
+    dues = [r["dueAt"] for r in _queue("all")]
     assert None in dues
     assert all(d is None for d in dues[dues.index(None):]), "an undated row sorted ahead of a dated one"
 

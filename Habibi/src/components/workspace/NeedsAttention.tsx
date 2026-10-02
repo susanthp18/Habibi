@@ -4,16 +4,21 @@ import { CalendarClock, ChevronRight, Phone, Sparkles } from "lucide-react";
 import {
   dueLabel,
   enactedByLabel,
-  liveLevel,
+  liveSla,
   useWorkspaceSummary,
   type DueFilter,
   type WorkItem,
   type WorkspaceScope,
 } from "@/api/workspace";
 import { useStartCallback } from "@/api/callbacks";
+import { useContactPolicy } from "@/api/contact-policy";
 import { can, useMe } from "@/api/me";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { SlaPill } from "@/components/ui/SlaPill";
+import {
+  ContactabilityPill,
+  contactabilityState,
+} from "@/components/customer360/ContactabilityPill";
 import { fmtDateTime } from "@/lib/format";
 import { fmtOfferAmount } from "@/lib/offer-policy";
 import { useNow } from "@/lib/use-now";
@@ -61,6 +66,9 @@ export function NeedsAttention({
   const failed = isError && !data;
   const nextCallback = data?.nextCallback;
   const nextLead = data?.nextLead;
+  // Begin means "dial now", so it waits for this borrower's verdict, not the
+  // aggregate blocked count; the backend asks the Gate again when it starts.
+  const contact = contactabilityState(undefined, useContactPolicy(nextCallback?.customerId));
   const rows = data?.attention ?? [];
   const counts = data?.queueCounts;
   const attentionTotal = counts ? counts.overdue + counts.dueSoon : 0;
@@ -94,10 +102,12 @@ export function NeedsAttention({
                     {nextCallback.status}
                   </span>
                 )}
+                <ContactabilityPill customerId={nextCallback.customerId} compact />
                 {canWrite && (
                   <button
                     type="button"
-                    disabled={startCallback.isPending}
+                    disabled={startCallback.isPending || !contact.ok}
+                    title={contact.ok ? undefined : contact.sub}
                     onClick={() =>
                       startCallback.mutate(
                         { id: nextCallback.id },
@@ -223,10 +233,7 @@ function AttentionRow({ row, now }: { row: WorkItem; now: number }) {
   const by = enactedByLabel(row.enactedBy);
   return (
     <li className="flex items-center gap-150 px-250 py-100">
-      <SlaPill
-        level={liveLevel(row, now)}
-        label={row.dueAt ? dueLabel(row.dueAt, now) : row.slaLabel}
-      />
+      <SlaPill {...liveSla(row, now)} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-body text-text">
           <span className="font-medium">{row.type}</span>

@@ -4,7 +4,10 @@ import type { Contact } from "@/api/types/customer360";
 import { useContactPolicy, type ContactPolicy } from "@/api/contact-policy";
 import { StatusChip, type ChipTone } from "./StatusChip";
 
-type Props = { customerId: string; contact: Contact; className?: string; compact?: boolean };
+/** The borrower's zone and window only word the verdict; without them it still holds. */
+type ContactWords = Pick<Contact, "timezone" | "preferredWindow"> | undefined;
+
+type Props = { customerId: string; contact?: ContactWords; className?: string; compact?: boolean };
 
 /**
  * The pill answers a compliance question, so it renders the backend's verdict
@@ -40,7 +43,7 @@ export interface ContactabilityView {
  */
 function describeReason(
   reason: string | null,
-  contact: Contact,
+  contact: ContactWords,
   policy: ContactPolicy,
 ): { tone: ChipTone; label: string; sub: string } {
   switch (reason) {
@@ -58,7 +61,7 @@ function describeReason(
       return {
         tone: "warning",
         label: "Outside calling hours",
-        sub: `Statutory 08:00–19:00 · ${contact.timezone}`,
+        sub: `Statutory 08:00–19:00${contact ? ` · ${contact.timezone}` : ""}`,
       };
     case "contact_windows_conflict":
       return {
@@ -70,7 +73,9 @@ function describeReason(
       return {
         tone: "warning",
         label: "Outside contact window",
-        sub: `Next allowed · ${contact.preferredWindow}`,
+        sub: contact
+          ? `Next allowed · ${contact.preferredWindow}`
+          : "Outside their preferred window",
       };
     case "cooling_off":
       return { tone: "warning", label: "Cooling-off period", sub: "Too soon since last contact" };
@@ -110,7 +115,7 @@ function describeReason(
  * call fails it says so rather than defaulting to green.
  */
 export function contactabilityState(
-  contact: Contact,
+  contact: ContactWords,
   query: { data?: ContactPolicy; isPending: boolean; isError: boolean },
 ): ContactabilityView {
   if (query.isError || (!query.isPending && !query.data)) {
@@ -138,7 +143,7 @@ export function contactabilityState(
       status: "ok",
       tone: "success",
       label: "OK to contact",
-      sub: `Voice window · ${contact.preferredWindow}`,
+      sub: contact ? `Voice window · ${contact.preferredWindow}` : "Allowed by contact policy now",
       ok: true,
     };
   }

@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Bell, CheckCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMe } from "@/api/me";
-import { dueLabel, liveLevel, useWorkspaceSummary, type WorkItem } from "@/api/workspace";
+import { dueLabel, liveSla, useWorkspaceSummary, type WorkItem } from "@/api/workspace";
 import { navigateWorkItem } from "@/lib/workspace-nav";
 import { cn } from "@/lib/utils";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -63,11 +63,11 @@ export function NotificationsPopover() {
     // alert, and must not stay marked read. It is the live level, so the
     // title, colour and identity follow the clock between refreshes.
     for (const w of summary?.attention ?? []) {
-      const level = liveLevel(w, now);
+      const { level, label } = liveSla(w, now);
       list.push({
         id: `wi:${w.entityType}:${w.id}:${level}`,
         title: level === "breach" ? "Overdue" : "Due soon",
-        body: `${w.type} · ${w.customer} · ${w.dueAt ? dueLabel(w.dueAt, now) : w.slaLabel}`,
+        body: `${w.type} · ${w.customer} · ${label}`,
         level: level === "ok" ? "info" : level,
         item: w,
       });

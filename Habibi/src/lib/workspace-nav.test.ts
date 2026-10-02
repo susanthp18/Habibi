@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dueLabel, liveLevel, movesWorkspace } from "@/api/workspace";
+import { dueLabel, liveSla, movesWorkspace } from "@/api/workspace";
 
 import { parseDeepLinkSearch, workItemDestination } from "./workspace-nav";
 
@@ -55,26 +55,30 @@ describe("dueLabel", () => {
   });
 });
 
-describe("liveLevel", () => {
+describe("liveSla", () => {
   const now = Date.parse("2026-10-01T10:00:00Z");
-  const row = (dueAt: string, sla: "ok" | "warn" | "breach" = "ok") =>
-    ({ dueAt, sla, entityType: "callback", status: "scheduled" }) as const;
-
-  it("raises the colour as the clock crosses the server's thresholds", () => {
-    expect(liveLevel(row("2026-10-01T13:00:00Z"), now)).toBe("ok");
-    expect(liveLevel(row("2026-10-01T11:30:00Z"), now)).toBe("warn");
-    expect(liveLevel(row("2026-10-01T09:59:00Z", "warn"), now)).toBe("breach");
+  const row = (dueAt: string | null, sla: "ok" | "warn" | "breach" = "ok", slaLabel = "Open") => ({
+    dueAt,
+    sla,
+    slaLabel,
   });
 
-  it("never lowers a status-driven level, and keeps a bounce awaiting payment calm", () => {
-    expect(liveLevel(row("2026-10-03T10:00:00Z", "breach"), now)).toBe("breach");
-    const awaiting = {
-      dueAt: "2026-09-30T10:00:00Z",
-      sla: "ok",
-      entityType: "bounce",
-      status: "in_progress",
-    } as const;
-    expect(liveLevel(awaiting, now)).toBe("ok");
+  it("raises the colour as the clock crosses the server's thresholds", () => {
+    expect(liveSla(row("2026-10-01T13:00:00Z"), now)).toEqual({ level: "ok", label: "In 3h" });
+    expect(liveSla(row("2026-10-01T11:30:00Z"), now).level).toBe("warn");
+    expect(liveSla(row("2026-10-01T09:59:00Z", "warn"), now)).toEqual({
+      level: "breach",
+      label: "Overdue 1m",
+    });
+  });
+
+  it("never lowers a status-driven level, and keeps the server's words for undated work", () => {
+    expect(liveSla(row("2026-10-03T10:00:00Z", "breach"), now).level).toBe("breach");
+    // A bounce awaiting payment has no deadline: green "Awaiting pay", never "Overdue".
+    expect(liveSla(row(null, "ok", "Awaiting pay"), now)).toEqual({
+      level: "ok",
+      label: "Awaiting pay",
+    });
   });
 });
 
