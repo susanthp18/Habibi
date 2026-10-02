@@ -873,6 +873,7 @@ from db_inbox import (  # noqa: E402
     get_latest_context_summary as get_latest_context_summary,
     handoff_to_agent as handoff_to_agent,
     list_bot_ids as list_bot_ids,
+    conversation_counts as conversation_counts,
     conversation_interaction_id as conversation_interaction_id,
     list_canned_responses as list_canned_responses,
     list_conversations as list_conversations,

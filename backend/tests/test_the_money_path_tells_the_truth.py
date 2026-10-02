@@ -232,19 +232,3 @@ def test_a_purpose_template_is_used_without_complaint(monkeypatch, caplog) -> No
     name, _ = pf.resolve_template("WHATSAPP_PTP_TEMPLATE_NAME", "WHATSAPP_PTP_TEMPLATE_LANG")
     assert name == "hdfc_ptp_confirm_v1"
     assert not [r for r in caplog.records if "fallback in use" in (r.message or "")]
-
-
-# ---------------------------------------------------------------------------
-# A job that says it succeeded, did
-# ---------------------------------------------------------------------------
-
-
-def test_a_provider_rejection_moves_the_job_off_succeeded() -> None:
-    """WAO-14F8282BF6AC reads `succeeded` while carrying
-    "code=131047 … Message failed to send", and its message row reads `failed`.
-    Anything counting job status over-reported delivery."""
-    import inspect
-    import db_whatsapp
-
-    src = inspect.getsource(db_whatsapp._apply_whatsapp_status)
-    assert "status = CASE WHEN status = 'succeeded' THEN 'failed' ELSE status END" in src

@@ -24,7 +24,7 @@ from db_core import (
     _actor_user_id,
     _assert_tenant_owns,
     _ensure_customer,
-    _first_account_id,
+    _customer_account_id,
     _id,
     _idempotent_response,
     _one,
@@ -361,7 +361,7 @@ def _create_promise(
         return cached
     customer_id = payload["customerId"]
     _ensure_customer(conn, customer_id)
-    account_id = payload.get("accountId") or _first_account_id(conn, customer_id)
+    account_id = _customer_account_id(conn, customer_id, payload.get("accountId"))
     if account_id:
         open_id = _open_promise_id(conn, account_id)
         if open_id:
@@ -885,7 +885,7 @@ def create_payment_plan(payload: dict[str, Any]) -> dict[str, Any]:
     with _db().engine.begin() as conn:
         customer_id = payload["customerId"]
         _ensure_customer(conn, customer_id)
-        account_id = payload.get("accountId") or _first_account_id(conn, customer_id)
+        account_id = _customer_account_id(conn, customer_id, payload.get("accountId"))
         plan_id = _id("PLAN")
         conn.execute(
             text("INSERT INTO payment_plans (id, customer_id, account_id, total_amount) VALUES (:id, :customer_id, :account_id, :total_amount)"),

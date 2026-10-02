@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import "@/test/jsdom";
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/config";
@@ -15,6 +15,7 @@ const q = vi.hoisted(() => ({
   threads: [] as unknown[],
   details: {} as Record<string, unknown>,
   send: vi.fn(),
+  refresh: vi.fn(),
   rights: new Set(["perm-interactions-write"]),
 }));
 
@@ -37,6 +38,7 @@ vi.mock("@/lib/use-debounced", () => ({ useDebounced: (v: string) => v }));
 vi.mock("@/api/inbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/inbox")>()),
   useConversations: () => ({ data: q.threads, isPending: false, isError: false }),
+  useConversationCounts: () => ({ data: undefined }),
   useConversation: (id: string | undefined) => ({
     data: id ? q.details[id] : undefined,
     isPending: false,
@@ -49,13 +51,13 @@ vi.mock("@/api/inbox", async (importOriginal) => ({
     isError: false,
   }),
   sendConversationMessage: (...args: unknown[]) => q.send(...args),
-  refreshConversationSuggestions: () => new Promise(() => {}),
+  refreshConversationSuggestions: (...args: unknown[]) => q.refresh(...args),
 }));
 
 const { Composer } = await import("./Composer");
 const { ChatThread } = await import("./ChatThread");
 const { ConversationList } = await import("./ConversationList");
-const { inboxErrorWords } = await import("./inbox-words");
+const { closesAtWords, inboxErrorWords } = await import("./inbox-words");
 const { Route } = await import("@/routes/_app.inbox");
 
 const agent = { canWrite: true, canReassign: false, canFileDocuments: true };
@@ -87,7 +89,6 @@ function thread(over: Partial<Thread> = {}, context: Partial<Thread["context"]> 
       { id: "M-1", sender: "customer", text: "hello", time: "3:41 PM", at: "2026-10-02T10:11:00Z" },
     ],
     ragSuggestions: [],
-    ragDraftAnswer: null,
     context: {
       riskLevel: "Low",
       canReply: true,
@@ -109,20 +110,29 @@ function thread(over: Partial<Thread> = {}, context: Partial<Thread["context"]> 
   } as Thread;
 }
 
-function composer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
+type ComposerProps = Parameters<typeof Composer>[0];
+
+/** The page's part: it owns the draft. */
+function Harness({
+  initial,
+  ...props
+}: Omit<ComposerProps, "draft" | "onDraftChange"> & { initial: string }) {
+  const [draft, setDraft] = useState(initial);
+  return <Composer {...props} draft={draft} onDraftChange={setDraft} />;
+}
+
+function composer(props: Partial<ComposerProps> = {}) {
   const onSend = props.onSend ?? vi.fn(async () => true);
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <Composer
+      <Harness
         thread={thread()}
         rights={agent}
-        draft=""
-        onDraftChange={() => {}}
+        initial={props.draft ?? ""}
         onSend={onSend}
         onRefreshRag={() => {}}
-        onSuggestReply={async () => null}
+        onSuggestReply={props.onSuggestReply ?? (async () => ({ kind: "none" }))}
         ragSuggestions={[]}
-        ragDraft={null}
         ragLoading={false}
         ragError={null}
         ragStale={false}
@@ -138,6 +148,8 @@ function composer(props: Partial<Parameters<typeof Composer>[0]> = {}) {
 
 beforeEach(() => {
   q.send.mockReset();
+  q.refresh.mockReset();
+  q.refresh.mockReturnValue(new Promise(() => {}));
   q.navigate.mockReset();
   q.rights = new Set(["perm-interactions-write"]);
 });
@@ -149,7 +161,7 @@ describe("Composer", () => {
     fireEvent.keyDown(box, { key: "Enter", isComposing: true });
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.keyDown(box, { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("नमस्ते", expect.any(String));
+    expect(onSend).toHaveBeenCalledWith("नमस्ते");
   });
 
   it("says why a reply can't go before it is written, and offers no Send", () => {
@@ -161,15 +173,10 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
   });
 
-  it("keeps a failed reply and retries it under the same key", async () => {
-    const onSend = vi.fn(async () => false);
-    const { box } = composer({ onSend });
-    fireEvent.change(box, { target: { value: "on its way" } });
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: /send/i })));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: /send/i })));
-    expect(box).toHaveValue("on its way");
-    const [first, second] = onSend.mock.calls as unknown as [string, string][];
-    expect(first?.[1]).toBe(second?.[1]);
+  it("does not insert a draft written for a message the customer has since followed", async () => {
+    const { box } = composer({ onSuggestReply: async () => ({ kind: "superseded" }) });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /suggest reply/i })));
+    expect(box).toHaveValue("");
   });
 
   it("starts from the thread's unsent draft", () => {
@@ -226,6 +233,8 @@ describe("ConversationList", () => {
         onSearchChange={() => {}}
         searching={false}
         searchFailed={false}
+        filter="all"
+        onFilterChange={() => {}}
       />,
     );
     expect(screen.getByRole("img", { name: /waiting over 24 hours/i })).toBeInTheDocument();
@@ -244,6 +253,13 @@ describe("inboxErrorWords", () => {
     expect(inboxErrorWords(err, "whatsapp")).toBe("You don't have permission to do that.");
   });
 
+  it("dates a window that closes on another day", () => {
+    const now = new Date("2026-10-02T12:00:00Z"); // 5:30 pm IST
+    expect(closesAtWords("2026-10-02T13:00:00Z", now)).toBe("6:30 pm IST");
+    expect(closesAtWords("2026-10-03T10:00:00Z", now)).toBe("tomorrow, 3:30 pm IST");
+    expect(closesAtWords("2026-10-05T10:00:00Z", now)).toBe("5 Oct, 3:30 pm IST");
+  });
+
   it("words a gate refusal", () => {
     const err = new ApiError("POST", "/conversations/CV-1/messages", 409, "cooling_off");
     expect(inboxErrorWords(err, "whatsapp")).toMatch(/Cooling-off period/);
@@ -252,41 +268,125 @@ describe("inboxErrorWords", () => {
 
 describe("Inbox page", () => {
   const Page = (Route as unknown as { component: () => ReactNode }).component;
-  const page = () =>
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <Page />
-      </QueryClientProvider>,
-    );
+  let client: QueryClient;
+  const ui = () => (
+    <QueryClientProvider client={client}>
+      <Page />
+    </QueryClientProvider>
+  );
+  const open = (id: string) => {
+    q.search = { conversationId: id };
+    return render(ui());
+  };
+  const reopen = (rerender: (el: ReactNode) => void, id: string) => {
+    q.search = { conversationId: id };
+    rerender(ui());
+  };
+  const box = () => screen.getByRole("textbox", { name: /reply on/i });
+  const send = () => fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+  beforeEach(() => {
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    q.threads = [summary({ id: "CV-A" }), summary({ id: "CV-B", customer: "Second Borrower" })];
+    q.details = {
+      "CV-A": thread({ id: "CV-A" }),
+      "CV-B": thread({ id: "CV-B", customer: "Second Borrower" }),
+    };
+  });
 
   it("keeps one thread's send to that thread", async () => {
-    const a = thread({ id: "CV-A" });
-    const b = thread({ id: "CV-B", customer: "Second Borrower" });
-    q.threads = [summary({ id: "CV-A" }), summary({ id: "CV-B", customer: "Second Borrower" })];
-    q.details = { "CV-A": a, "CV-B": b };
     let fail: (e: unknown) => void = () => {};
     q.send.mockReturnValue(new Promise((_r, reject) => (fail = reject)));
 
-    q.search = { conversationId: "CV-A" };
-    const { rerender } = page();
-    fireEvent.change(screen.getByRole("textbox", { name: /reply on/i }), {
-      target: { value: "for A" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    const { rerender } = open("CV-A");
+    fireEvent.change(box(), { target: { value: "for A" } });
+    send();
 
-    q.search = { conversationId: "CV-B" };
-    rerender(
-      <QueryClientProvider client={new QueryClient()}>
-        <Page />
-      </QueryClientProvider>,
-    );
-    const boxB = screen.getByRole("textbox", { name: /reply on/i });
-    expect(boxB).toHaveValue("");
-    fireEvent.change(boxB, { target: { value: "for B" } });
+    reopen(rerender, "CV-B");
+    expect(box()).toHaveValue("");
+    fireEvent.change(box(), { target: { value: "for B" } });
     // A's send still in flight does not hold B's.
     expect(screen.getByRole("button", { name: /send/i })).toBeEnabled();
 
     await act(async () => fail(new ApiError("POST", "/x", 409, "cooling_off")));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("resends a reply whose answer was lost under the same key, after switching away", async () => {
+    q.send.mockRejectedValue(new TypeError("Failed to fetch"));
+    const { rerender } = open("CV-A");
+    fireEvent.change(box(), { target: { value: "on its way" } });
+    await act(async () => send());
+
+    reopen(rerender, "CV-B");
+    reopen(rerender, "CV-A");
+    expect(box()).toHaveValue("on its way");
+    await act(async () => send());
+
+    const keys = q.send.mock.calls.map((c) => c[2]);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("keeps what was typed while a reply was sending", async () => {
+    let done: (t: unknown) => void = () => {};
+    q.send.mockReturnValue(new Promise((resolve) => (done = resolve)));
+    open("CV-A");
+    fireEvent.change(box(), { target: { value: "first" } });
+    send();
+    fireEvent.change(box(), { target: { value: "first, and a second thought" } });
+    await act(async () => done(q.details["CV-A"]));
+    expect(box()).toHaveValue("first, and a second thought");
+  });
+
+  it("clears the reply it sent", async () => {
+    q.send.mockResolvedValue(q.details["CV-A"]);
+    open("CV-A");
+    fireEvent.change(box(), { target: { value: "sent" } });
+    await act(async () => send());
+    expect(box()).toHaveValue("");
+  });
+
+  it("offers a drafted reply only while it answers the latest message", async () => {
+    client.setQueryData(["conversation", "CV-A"], q.details["CV-A"]);
+    q.refresh.mockResolvedValue({
+      conversationId: "CV-A",
+      answersMessageId: "M-1",
+      ragSuggestions: [],
+      draftAnswer: "It is due on the 5th.",
+    });
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: /suggest reply/i }));
+    await waitFor(() => expect(box()).toHaveValue("It is due on the 5th."));
+
+    // The customer wrote again while it was drafted.
+    const later = thread({ id: "CV-A" });
+    later.messages = [
+      ...(later.messages ?? []),
+      { id: "M-2", sender: "customer", text: "and the fee?", time: "3:42 PM", at: null },
+    ];
+    client.setQueryData(["conversation", "CV-A"], later);
+    fireEvent.change(box(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /suggest reply/i }));
+    await waitFor(() => expect(q.refresh).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /suggest reply/i })).toBeEnabled(),
+    );
+    expect(box()).toHaveValue("");
+  });
+
+  it("does not search the knowledge base for someone who cannot reply", async () => {
+    vi.useFakeTimers();
+    try {
+      q.rights = new Set();
+      open("CV-A");
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(q.refresh).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: /refresh/i })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

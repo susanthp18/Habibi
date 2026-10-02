@@ -33,6 +33,7 @@ import {
 } from "@/api/types/promises";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { REVISION_REASON_LABELS } from "@/lib/promises";
+import { loanFor } from "@/lib/workspace-nav";
 
 // --- Create sheet ---
 
@@ -44,6 +45,8 @@ interface CreateProps {
   customers: CustomerOption[];
   /** Opened from a customer's screen: that customer, or nobody -- never another one. */
   initialCustomerId?: string;
+  /** With it, the loan the promise is for: a conversation's own, not the customer's first. */
+  initialAccountId?: string;
 }
 
 const todayISO = () => {
@@ -59,6 +62,7 @@ export function CreatePromiseSheet({
   owners,
   customers,
   initialCustomerId,
+  initialAccountId,
 }: CreateProps) {
   const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
   const [amount, setAmount] = useState("5000");
@@ -86,15 +90,17 @@ export function CreatePromiseSheet({
     }
   }, [open, owners, customers, initialCustomerId]);
 
+  const cust = customers.find((c) => c.id === customerId);
+  const accountId = loanFor(cust, initialCustomerId, initialAccountId);
+
   const submit = () => {
-    const cust = customers.find((c) => c.id === customerId);
     if (!cust) return;
     const amt = Number(amount);
     if (!amt || amt <= 0) return;
     const iso = new Date(`${date}T10:00:00`).toISOString();
     onSubmit({
       customerId: cust.id,
-      accountId: cust.accountId,
+      accountId,
       amount: amt,
       promisedDate: iso,
       channel,
@@ -123,12 +129,17 @@ export function CreatePromiseSheet({
               <SelectContent className="max-h-[17.5rem]">
                 {customers.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {c.name} · #{c.accountId.slice(-4)}
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
+          {cust && (
+            <Field label="Loan">
+              <p className="text-body text-text">{accountId || "No loan on file"}</p>
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-150">
             <Field label="Amount (₹)">
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />

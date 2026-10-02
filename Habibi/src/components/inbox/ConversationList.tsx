@@ -1,10 +1,11 @@
 import { Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ThreadStatus, ThreadSummary } from "@/api/types/inbox";
+import type { InboxView, ThreadSummary } from "@/api/types/inbox";
 import { INBOX_LIST_LIMIT } from "@/api/inbox";
-import { Avatar, resolveChannelMeta, slaColor, statusMeta } from "./meta";
+import { Avatar } from "./Avatar";
+import { resolveChannelMeta, slaColor, statusMeta } from "./meta";
 import { Badge } from "@/components/ui/badge";
-import { useMemo, useState, type KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type Filter = "all" | ThreadStatus | "mine" | "others";
+export type Filter = "all" | InboxView;
 
 const primaryFilters: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
@@ -40,13 +41,6 @@ const SLA_WORDS = {
   breach: "waiting over 24 hours",
 } as const;
 
-function matches(t: ThreadSummary, filter: Filter): boolean {
-  if (filter === "all") return true;
-  if (filter === "mine") return t.isMine;
-  if (filter === "others") return t.status === "assigned" && !t.isMine;
-  return t.status === filter;
-}
-
 /**
  * The row's dot: how long the customer has waited when they are waiting,
  * otherwise who holds the thread. Its colour and its name always come from
@@ -68,7 +62,11 @@ export function ConversationList({
   onSearchChange,
   searching,
   searchFailed,
+  filter,
+  onFilterChange,
+  counts,
 }: {
+  /** The server's answer for the search and the filter: nothing is filtered here. */
   threads: ThreadSummary[];
   activeId: string | null;
   onSelect: (id: string) => void;
@@ -77,21 +75,16 @@ export function ConversationList({
   onSearchChange: (value: string) => void;
   searching: boolean;
   searchFailed: boolean;
+  filter: Filter;
+  onFilterChange: (filter: Filter) => void;
+  /** Threads per filter across the whole inbox; absent until read. */
+  counts?: Record<Filter, number>;
 }) {
-  const [filter, setFilter] = useState<Filter>("all");
-
-  const counts = useMemo(() => {
-    const c = {} as Record<Filter, number>;
-    for (const f of [...primaryFilters, ...moreFilters]) {
-      c[f.key] = threads.filter((t) => matches(t, f.key)).length;
-    }
-    return c;
-  }, [threads]);
-
-  const filtered = useMemo(() => threads.filter((t) => matches(t, filter)), [threads, filter]);
+  const setFilter = onFilterChange;
   const moreActive = moreFilters.some((f) => f.key === filter);
   const moreLabel = moreFilters.find((f) => f.key === filter)?.label ?? "More";
-  const full = !search.trim() && threads.length >= INBOX_LIST_LIMIT;
+  const full = threads.length >= INBOX_LIST_LIMIT;
+  const count = (f: Filter) => (counts ? counts[f] : null);
 
   // Up/Down move between rows: this is a keyboard-first triage list.
   const onRowKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -138,15 +131,17 @@ export function ConversationList({
               )}
             >
               {f.label}
-              <Badge
-                className={cn(
-                  filter === f.key
-                    ? "bg-surface text-text-brand"
-                    : "bg-surface-sunken text-text-subtle",
-                )}
-              >
-                {counts[f.key]}
-              </Badge>
+              {count(f.key) !== null && (
+                <Badge
+                  className={cn(
+                    filter === f.key
+                      ? "bg-surface text-text-brand"
+                      : "bg-surface-sunken text-text-subtle",
+                  )}
+                >
+                  {count(f.key)}
+                </Badge>
+              )}
             </button>
           ))}
           <DropdownMenu>
@@ -162,8 +157,8 @@ export function ConversationList({
                 )}
               >
                 {moreLabel}
-                {moreActive && (
-                  <Badge className="bg-surface text-text-brand">{counts[filter]}</Badge>
+                {moreActive && count(filter) !== null && (
+                  <Badge className="bg-surface text-text-brand">{count(filter)}</Badge>
                 )}
                 <ChevronDown className="h-3 w-3" />
               </button>
@@ -172,7 +167,7 @@ export function ConversationList({
               {moreFilters.map((f) => (
                 <DropdownMenuItem key={f.key} onSelect={() => setFilter(f.key)}>
                   <span className="flex-1">{f.label}</span>
-                  <span className="text-body-small text-text-subtlest">{counts[f.key]}</span>
+                  <span className="text-body-small text-text-subtlest">{count(f.key)}</span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -190,13 +185,13 @@ export function ConversationList({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {filtered.length === 0 && !searching && (
+        {threads.length === 0 && !searching && (
           <div className="p-300 text-center text-body text-text-subtle">
             No conversations match.
           </div>
         )}
         <ul aria-label="Conversations">
-          {filtered.map((t, i) => {
+          {threads.map((t, i) => {
             const isActive = t.id === activeId;
             const dot = rowDot(t);
             const channel = resolveChannelMeta(t.channel);
@@ -272,8 +267,9 @@ export function ConversationList({
         </ul>
         {full && (
           <p className="px-150 py-200 text-center text-body-small text-text-subtle">
-            Showing the {INBOX_LIST_LIMIT} most recently active conversations. Search to find older
-            ones.
+            Showing the {INBOX_LIST_LIMIT} most recently active
+            {!search.trim() && count(filter) !== null ? ` of ${count(filter)}` : ""}. Search to find
+            older ones.
           </p>
         )}
       </div>

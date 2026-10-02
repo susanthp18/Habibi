@@ -121,6 +121,7 @@
  "POST /handoff/{interaction_id}/disclosures",
  "POST /handoff/{interaction_id}/suggestions/{suggestion_id}/accept",
  "GET /conversations",
+ "GET /conversations/counts",
  "GET /conversations/{conversation_id}",
  "POST /conversations/{conversation_id}/takeover",
  "POST /conversations/{conversation_id}/return-to-bot",

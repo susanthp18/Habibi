@@ -21,7 +21,7 @@ from db_core import (
     _assert_tenant_owns,
     _dump,
     _ensure_customer,
-    _first_account_id,
+    _customer_account_id,
     _id,
     _idempotent_response,
     _one,
@@ -702,7 +702,7 @@ def create_lead(
             {
                 "id": lead_id,
                 "customer_id": customer_id,
-                "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
+                "account_id": _customer_account_id(conn, customer_id, payload.get("accountId")),
                 "interaction_id": payload.get("interactionId"),
                 "product_id": product_id,
                 # A bot has no user identity; falling back to the API actor made

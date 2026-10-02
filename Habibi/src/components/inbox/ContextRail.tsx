@@ -10,8 +10,8 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { Thread, ThreadContext } from "@/api/types/inbox";
-import { Avatar } from "./meta";
-import { replyBlockedWords } from "./inbox-words";
+import { Avatar } from "./Avatar";
+import { closesAtWords, replyBlockedWords } from "./inbox-words";
 import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";
 import { ContactabilityPill } from "@/components/customer360/ContactabilityPill";
@@ -30,14 +30,6 @@ const promiseTone = {
   Partial: "warning",
 } as const;
 
-function windowCloses(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  });
-}
-
 export function ContextRail({
   thread,
   context: c,
@@ -49,6 +41,8 @@ export function ContextRail({
 }) {
   const navigate = useNavigate();
   const customerId = thread.customerId;
+  // Records filed from here are about this thread's loan, not the customer's first.
+  const accountId = thread.accountId || undefined;
   const disputes = c.openDisputes ?? [];
   const interactions = c.recentInteractions ?? [];
   const disputeTotal = c.openDisputesTotal ?? disputes.length;
@@ -94,7 +88,7 @@ export function ContextRail({
               <span>
                 {c.canReply
                   ? c.replyWindowEndsAt
-                    ? `Can reply until ${windowCloses(c.replyWindowEndsAt)} IST`
+                    ? `Can reply until ${closesAtWords(c.replyWindowEndsAt)}`
                     : "Can reply now"
                   : replyBlockedWords(c.replyBlockedReason, thread.channel)}
               </span>
@@ -258,7 +252,9 @@ export function ContextRail({
           </button>
           <button
             type="button"
-            onClick={() => void navigate({ to: "/promises", search: { new: true, customerId } })}
+            onClick={() =>
+              void navigate({ to: "/promises", search: { new: true, customerId, accountId } })
+            }
             className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
             <HandCoins className="h-3.5 w-3.5 text-text-brand" />
@@ -266,7 +262,9 @@ export function ContextRail({
           </button>
           <button
             type="button"
-            onClick={() => void navigate({ to: "/disputes", search: { new: true, customerId } })}
+            onClick={() =>
+              void navigate({ to: "/disputes", search: { new: true, customerId, accountId } })
+            }
             className="focus-ring inline-flex items-center justify-center gap-075 rounded-medium border border-border bg-surface px-150 py-100 text-body-small font-medium text-text hover:bg-background-brand-subtlest hover:text-text-brand"
           >
             <AlertOctagon className="h-3.5 w-3.5 text-text-brand" />

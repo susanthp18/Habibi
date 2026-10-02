@@ -15,7 +15,7 @@ from db_core import (
     _as_utc,
     _assert_tenant_owns,
     _ensure_customer,
-    _first_account_id,
+    _customer_account_id,
     _id,
     _idempotent_response,
     _one,
@@ -366,7 +366,7 @@ def _create_dispute(
         {
             "id": dispute_id,
             "customer_id": customer_id,
-            "account_id": payload.get("accountId") or _first_account_id(conn, customer_id),
+            "account_id": _customer_account_id(conn, customer_id, payload.get("accountId")),
             "interaction_id": payload.get("interactionId"),
             "assignee_user_id": payload.get("assigneeUserId") or _actor_user_id(),
             "type": payload["type"],

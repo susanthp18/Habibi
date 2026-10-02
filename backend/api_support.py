@@ -125,6 +125,7 @@ async def _read_upload_capped(file: UploadFile, *, max_bytes: int | None = None)
 # English sentences that are validation, not codes, are keys here too —
 # `detail=str(exc)` is the public contract and renaming them is a wire change.
 _VALUE_ERROR_STATUS: dict[str, int] = {
+    "account_not_customers": 422,
     "bot_id_required": 422,
     "empty_message": 422,
     "invalid_severity": 422,

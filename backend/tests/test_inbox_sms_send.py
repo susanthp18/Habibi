@@ -27,18 +27,24 @@ _REAL_SEND = twilio_sms.send
 @pytest.fixture
 def sms(db_tx, monkeypatch):
     """An SMS thread opened by outreach, with the gate open and Twilio faked."""
-    cid = db_tx.execute(
+    tenant = db.current_tenant()
+    tag = uuid.uuid4().hex[:8].upper()
+    cid, product = f"CUST-SMS-{tag}", f"PRD-SMS-{tag}"
+    db_tx.execute(
+        text("INSERT INTO products (id, tenant_id, name, type) VALUES (:id, :t, 'SMS fixture', 'loan')"),
+        {"id": product, "t": tenant},
+    )
+    db_tx.execute(
         text(
-            """
-            SELECT a.customer_id FROM accounts a
-            JOIN customers c ON c.id = a.customer_id
-            WHERE c.phone_primary IS NOT NULL
-            ORDER BY a.id LIMIT 1
-            """
-        )
-    ).scalar()
-    if cid is None:
-        pytest.skip("seed has no customer with a phone")
+            "INSERT INTO customers (id, tenant_id, name, risk, phone_primary) "
+            "VALUES (:id, :t, 'SMS Fixture', 'low', :p)"
+        ),
+        {"id": cid, "t": tenant, "p": "+91 7" + str(uuid.uuid4().int)[:9]},
+    )
+    db_tx.execute(
+        text("INSERT INTO accounts (id, customer_id, product_id, outstanding, dpd) VALUES (:id, :c, :p, 1000, 0)"),
+        {"id": f"ACC-SMS-{tag}", "c": cid, "p": product},
+    )
     state = {"customer_id": cid, "verdict": contact_policy.Decision(True), "admits": [], "sent": []}
 
     def _admit(conn, **kw):

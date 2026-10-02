@@ -55,6 +55,7 @@ function DisputesPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newForCustomer, setNewForCustomer] = useState<string | undefined>();
+  const [newForAccount, setNewForAccount] = useState<string | undefined>();
   const deepLinkApplied = useRef(false);
 
   const invalidate = () => {
@@ -127,10 +128,11 @@ function DisputesPage() {
     if (search.id) setOpenId(search.id);
     if (search.new) {
       setNewForCustomer(search.customerId);
+      setNewForAccount(search.accountId);
       setShowNew(true);
     }
     void navigate({ search: {}, replace: true });
-  }, [search.id, search.new, search.customerId, navigate]);
+  }, [search.id, search.new, search.customerId, search.accountId, navigate]);
 
   return (
     <>
@@ -187,10 +189,12 @@ function DisputesPage() {
             onClose={() => {
               setShowNew(false);
               setNewForCustomer(undefined);
+              setNewForAccount(undefined);
             }}
             onCreated={invalidate}
             customers={customerOptions}
             initialCustomerId={newForCustomer}
+            initialAccountId={newForAccount}
           />
         )}
       </div>

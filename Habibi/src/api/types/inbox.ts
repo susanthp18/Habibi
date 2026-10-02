@@ -30,6 +30,8 @@ export type ThreadStatus = ThreadSummary["status"];
 export type SlaLevel = ThreadSummary["sla"];
 export type Sentiment = ThreadSummary["sentiment"];
 export type MessageDeliveryStatus = NonNullable<Message["delivery"]>;
+/** The list's server-side views (`GET /conversations?view=`). */
+export type InboxView = "mine" | "others" | ThreadStatus;
 
 export const SENDERS = ["customer", "bot", "agent", "system"] as const;
 export type Sender = (typeof SENDERS)[number];

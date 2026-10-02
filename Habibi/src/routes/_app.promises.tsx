@@ -78,6 +78,7 @@ function PromisesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [planCustomerId, setPlanCustomerId] = useState<string | undefined>();
+  const [newAccountId, setNewAccountId] = useState<string | undefined>();
   const [detailId, setDetailId] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirm();
   const [planDetail, setPlanDetail] = useState<PaymentPlan | null>(null);
@@ -169,12 +170,13 @@ function PromisesPage() {
 
   useEffect(() => {
     if (!search.id && !search.new && !search.plan) return;
-    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}|${search.plan ? "1" : "0"}|${search.customerId ?? ""}`;
+    const key = `${search.id ?? ""}|${search.new ? "1" : "0"}|${search.plan ? "1" : "0"}|${search.customerId ?? ""}|${search.accountId ?? ""}`;
     if (deepLinkKey.current === key) return;
     deepLinkKey.current = key;
     if (search.id) setDetailId(search.id);
     if (search.new) {
       setPlanCustomerId(search.customerId);
+      setNewAccountId(search.accountId);
       setCreateOpen(true);
     }
     if (search.plan) {
@@ -182,7 +184,7 @@ function PromisesPage() {
       setPlanCustomerId(search.customerId);
     }
     void navigate({ search: {}, replace: true });
-  }, [search.id, search.new, search.plan, search.customerId, navigate]);
+  }, [search.id, search.new, search.plan, search.customerId, search.accountId, navigate]);
 
   return (
     <>
@@ -243,11 +245,15 @@ function PromisesPage() {
 
       <CreatePromiseSheet
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(v) => {
+          setCreateOpen(v);
+          if (!v) setNewAccountId(undefined);
+        }}
         onSubmit={handleCreate}
         owners={owners}
         customers={sheetCustomers}
         initialCustomerId={planCustomerId}
+        initialAccountId={newAccountId}
       />
       <PlanBuilderSheet
         open={planOpen}

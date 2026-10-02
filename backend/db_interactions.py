@@ -17,7 +17,7 @@ from db_core import (
     _duration,
     _ensure_customer,
     _ensure_interaction,
-    _first_account_id,
+    _customer_account_id,
     _id,
     _idempotent_response,
     _one,
@@ -380,7 +380,7 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
                    :channel, :direction, 'completed', :disposition, :summary, now(), '{}'::jsonb)
                 """
             ),
-            {"id": interaction_id, "tenant_id": _tenant(), "customer_id": customer_id, "account_id": payload.get("accountId") or _first_account_id(conn, customer_id), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
+            {"id": interaction_id, "tenant_id": _tenant(), "customer_id": customer_id, "account_id": _customer_account_id(conn, customer_id, payload.get("accountId")), "handler_kind": handler_kind, "handler_user_id": handler_user_id, "handler_bot_id": handler_bot_id, "channel": payload.get("channel") or "voice", "direction": payload.get("direction") or "outbound", "disposition": payload.get("disposition"), "summary": payload.get("summary")},
         )
         import capture_events
 
@@ -409,7 +409,7 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
                 handledBy={"kind": handler_kind, "agent" if handler_kind == "human" else "bot": handler_user_id or handler_bot_id or "unknown"},
                 customerId=customer_id,
                 customerName=customer.get("name") or customer_id,
-                accountId=payload.get("accountId") or _first_account_id(conn, customer_id),
+                accountId=_customer_account_id(conn, customer_id, payload.get("accountId")),
                 disposition=payload.get("disposition"),
                 summary=payload.get("summary"),
                 phoneMasked=customer.get("phone_primary") or "",

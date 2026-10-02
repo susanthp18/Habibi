@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { dueLabel, liveSla, movesWorkspace } from "@/api/workspace";
 
-import { parseDeepLinkSearch, workItemDestination } from "./workspace-nav";
+import { loanFor, parseDeepLinkSearch, workItemDestination } from "./workspace-nav";
 
 describe("parseDeepLinkSearch", () => {
   it("reads a new-callback deep link with the customer already chosen", () => {
@@ -16,6 +16,20 @@ describe("parseDeepLinkSearch", () => {
 
   it("drops empty customer ids", () => {
     expect(parseDeepLinkSearch({ customerId: "" }).customerId).toBeUndefined();
+  });
+
+  it("carries the loan a record is for, only with its customer", () => {
+    expect(
+      parseDeepLinkSearch({ new: true, customerId: "c-1", accountId: "acc-2" }).accountId,
+    ).toBe("acc-2");
+    expect(parseDeepLinkSearch({ new: true, accountId: "acc-2" }).accountId).toBeUndefined();
+  });
+
+  it("files against the linked loan, not the customer's first, and only for that customer", () => {
+    const linked = { id: "c-1", accountId: "acc-1" };
+    expect(loanFor(linked, "c-1", "acc-2")).toBe("acc-2");
+    expect(loanFor({ id: "c-9", accountId: "acc-9" }, "c-1", "acc-2")).toBe("acc-9");
+    expect(loanFor(linked, "c-1", undefined)).toBe("acc-1");
   });
 
   it("opens a payment plan without also opening PTP", () => {

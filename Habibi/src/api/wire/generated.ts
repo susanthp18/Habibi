@@ -1611,6 +1611,15 @@ export const ConversationSummaryResponse = z.object({
   "sentiment": z.enum(["positive", "neutral", "negative"]),
   "handlerBotId": z.string().nullable().optional(),
 }).passthrough();
+export const ConversationCountsResponse = z.object({
+  "all": z.number(),
+  "mine": z.number(),
+  "others": z.number(),
+  "needs_human": z.number(),
+  "escalated": z.number(),
+  "bot": z.number(),
+  "assigned": z.number(),
+}).passthrough();
 export const InboxMessageResponse = z.object({
   "id": z.string(),
   "sender": z.enum(["customer", "bot", "agent"]),
@@ -1680,7 +1689,6 @@ export const ConversationResponse = z.object({
   "handlerBotId": z.string().nullable().optional(),
   "messages": z.array(z.union([InboxMessageResponse, InboxSystemEventResponse])).optional(),
   "ragSuggestions": z.array(z.string()).optional(),
-  "ragDraftAnswer": z.string().nullable().optional(),
   "context": InboxThreadContextResponse,
 }).passthrough();
 export const CannedResponseItem = z.object({
@@ -1690,11 +1698,10 @@ export const CannedResponseItem = z.object({
 }).passthrough();
 export const ConversationSuggestionsRefreshResponse = z.object({
   "conversationId": z.string(),
+  "answersMessageId": z.string().nullable().optional(),
   "ragSuggestions": z.array(z.string()),
   "draftAnswer": z.string().nullable().optional(),
-  "chatModel": z.string().nullable().optional(),
-  "latencyMs": z.number().nullable().optional(),
-  "logId": z.string().nullable().optional(),
+  "draftFailed": z.boolean().optional(),
   "stale": z.boolean().optional(),
 }).passthrough();
 export const ProviderFieldResponse = z.object({
@@ -3322,6 +3329,7 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /handoff/{interaction_id}/disclosures", HandoffSessionResponse],
   ["POST /handoff/{interaction_id}/suggestions/{suggestion_id}/accept", HandoffSessionResponse],
   ["GET /conversations", z.array(ConversationSummaryResponse)],
+  ["GET /conversations/counts", ConversationCountsResponse],
   ["GET /conversations/{conversation_id}", ConversationResponse],
   ["POST /conversations/{conversation_id}/takeover", ConversationResponse],
   ["POST /conversations/{conversation_id}/return-to-bot", ConversationResponse],

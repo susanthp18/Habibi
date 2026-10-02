@@ -42,6 +42,7 @@ from db_core import (
     _vis_params,
 )
 from agent_core.clock import utc_now
+from db_whatsapp import REPLY_SLOT_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -194,19 +195,14 @@ def _inbox_delivery(status: str | None, sender: str) -> str | None:
     return None
 
 
-#: Channels an agent's reply can actually leave on. Email, web chat and voice
-#: threads have no outbound transport here: a reply on one used to be stored as
-#: ``sent`` and go nowhere.
-_REPLY_CHANNELS = frozenset({"whatsapp", "sms"})
-
 #: Meta's customer-service window: free-form replies only within 24 hours of
 #: the customer's last message, which opens and resets it.
 _WHATSAPP_SERVICE_WINDOW = timedelta(hours=24)
 
 
-def _reply_purpose(channel: str, last_inbound_at: Any) -> tuple[str | None, datetime | None]:
-    """The gate purpose a reply on this thread is admitted under, and when a
-    WhatsApp service window closes. ``(None, None)``: no reply can be sent.
+def _reply_purpose(row: dict[str, Any]) -> tuple[str | None, datetime | None, str | None]:
+    """``(gate purpose, when the WhatsApp service window closes, refusal)``
+    for a reply on this thread. A refusal means no reply can be sent.
 
     One reading for the send and for the rail. The rail used to ask the gate
     about WhatsApp *outreach* on every thread while the send asked about this
@@ -214,36 +210,38 @@ def _reply_purpose(channel: str, last_inbound_at: Any) -> tuple[str | None, date
     could refuse a reply the send would admit, and the reverse.
 
     ``last_inbound_at`` must be a message Meta delivered (it carries a wamid):
-    only a real inbound opens the window, and an imported or seeded row is not
-    one.
+    only a real inbound opens the window. And the window is the number's that
+    opened it: ``endpoint_slot`` is NULL once that number has left the
+    customer's record (``db_whatsapp.REPLY_SLOT_SQL``), and a reply to whatever
+    replaced it is outreach to a number that never wrote.
     """
+    channel = row["channel"]
     if channel == "sms":
-        return "outreach", None
+        return "outreach", None, None
     if channel != "whatsapp":
-        return None, None
-    at = _as_utc(last_inbound_at)
-    if at is None:
-        return None, None
-    closes = at + _WHATSAPP_SERVICE_WINDOW
-    return ("in_session", closes) if utc_now() < closes else (None, None)
+        # Email, web chat and voice have no outbound transport here: a reply
+        # on one used to be stored as ``sent`` and go nowhere.
+        return None, None, "channel_not_supported"
+    at = _as_utc(row.get("last_inbound_at"))
+    closes = at + _WHATSAPP_SERVICE_WINDOW if at else None
+    if closes is None or utc_now() >= closes:
+        return None, None, "whatsapp_window_closed"
+    if not row.get("endpoint_slot"):
+        return None, None, "whatsapp_endpoint_changed"
+    return "in_session", closes, None
 
 
 def _reply_verdict(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
     """Whether an agent's reply on this thread would be admitted right now."""
-    channel = row["channel"]
-    purpose, closes = _reply_purpose(channel, row.get("last_inbound_at"))
-    if channel not in _REPLY_CHANNELS:
-        reason: str | None = "channel_not_supported"
-    elif purpose is None:
-        reason = "whatsapp_window_closed"
-    else:
+    purpose, closes, reason = _reply_purpose(row)
+    if purpose is not None:
         try:
             import contact_policy
 
             decision = contact_policy.evaluate(
                 conn,
                 customer_id=row["customer_id"],
-                channel=channel,
+                channel=row["channel"],
                 purpose=purpose,
                 session_key=row["id"],
                 endpoint=_reply_endpoint(conn, row),
@@ -443,23 +441,17 @@ def _conversation_messages(
     return grouped
 
 
-def _conversation_suggestions(
-    conn: Any, conversation_id: str, interaction_id: str | None, answered_up_to: Any
-) -> tuple[list[str], str | None]:
-    """The thread's knowledge-base passages and its drafted reply.
-
-    A draft answers the customer turn it was drafted for. Once the customer
-    has written again it answers a question they are no longer asking, so it
-    is not returned: "Suggest reply" asks for a new one rather than inserting
-    an answer to the previous message.
-    """
+def _conversation_suggestions(conn: Any, conversation_id: str, interaction_id: str | None) -> list[str]:
+    """The thread's knowledge-base passages, from its last search; else the
+    passages linked to its interaction."""
     rows = _rows(
         conn.execute(
             text(
                 """
-                SELECT conversation_id, suggestion_text, source, created_at
+                SELECT conversation_id, suggestion_text
                 FROM ai_response_suggestions
-                WHERE conversation_id = :cid OR (:iid <> '' AND interaction_id = :iid)
+                WHERE (conversation_id = :cid OR (:iid <> '' AND interaction_id = :iid))
+                  AND COALESCE(source, '') <> 'kb_draft'
                 ORDER BY created_at DESC
                 """
             ),
@@ -468,19 +460,11 @@ def _conversation_suggestions(
     )
     mine: list[str] = []
     linked: list[str] = []
-    draft: str | None = None
-    latest_customer = _as_utc(answered_up_to)
     for r in rows:
         text_value = (r["suggestion_text"] or "").strip()
-        if not text_value:
-            continue
-        if r["conversation_id"] == conversation_id and (r.get("source") or "").lower() == "kb_draft":
-            made = _as_utc(r["created_at"])
-            if draft is None and (latest_customer is None or (made and made >= latest_customer)):
-                draft = text_value
-            continue
-        (mine if r["conversation_id"] == conversation_id else linked).append(text_value)
-    return (mine or linked)[:5], draft
+        if text_value:
+            (mine if r["conversation_id"] == conversation_id else linked).append(text_value)
+    return (mine or linked)[:5]
 
 
 def _next_emi(conn: Any, account_id: str | None) -> dict[str, Any]:
@@ -570,7 +554,9 @@ def _thread_context(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
         **_next_emi(conn, row["account_id"]),
         "lastPromise": {
             "amount": float(promise["amount"] or 0),
-            "date": (promise["promised_at"] or "")[:10],
+            # The calendar day it falls due in India: a timestamptz, and the
+            # UTC date of a midnight-IST promise is the day before.
+            "date": _as_utc(promise["promised_at"]).astimezone(_IST).date().isoformat(),
             "status": _inbox_promise_status(promise["status"]),
         }
         if promise
@@ -673,14 +659,10 @@ def _serialize_summary(row: dict[str, Any], me_id: str, *, bot_typing: bool) -> 
 def _serialize_thread(conn: Any, row: dict[str, Any], me_id: str) -> dict[str, Any]:
     """The open thread: its row, transcript, suggestions and customer context."""
     typing = _bot_typing_by_conversation(conn, [row["id"]])
-    chips, draft = _conversation_suggestions(
-        conn, row["id"], row.get("interaction_id"), row.get("last_customer_at")
-    )
     return {
         **_serialize_summary(row, me_id, bot_typing=bool(typing.get(row["id"]))),
         "messages": _conversation_messages(conn, [row["id"]], me_id).get(row["id"]) or [],
-        "ragSuggestions": chips,
-        "ragDraftAnswer": draft,
+        "ragSuggestions": _conversation_suggestions(conn, row["id"], row.get("interaction_id")),
         "context": _thread_context(conn, row),
     }
 
@@ -691,6 +673,30 @@ def _serialize_thread(conn: Any, row: dict[str, Any], me_id: str) -> dict[str, A
 INBOX_LIST_LIMIT = 500
 
 
+#: The list's views, each a predicate on the thread (``:me`` the caller).
+#: Run on the server, so a view reaches threads older than the list's page;
+#: ``conversation_counts`` counts each over the whole inbox.
+_VIEW_SQL: dict[str, str] = {
+    "mine": "cv.assigned_user_id = :me",
+    "others": "cv.status = 'assigned' AND cv.assigned_user_id IS DISTINCT FROM :me",
+    "needs_human": "cv.status = 'needs_human'",
+    "escalated": "cv.status = 'escalated'",
+    "bot": "cv.status = 'bot'",
+    "assigned": "cv.status = 'assigned'",
+}
+INBOX_VIEWS = tuple(_VIEW_SQL)
+
+
+def _inbox_scope() -> tuple[list[str], dict[str, Any]]:
+    """Tenant-scoped and visibility-scoped like every other customer-facing
+    read. `conversations` carries no tenant column of its own; the customer
+    it belongs to does, and every row here is joined to that customer."""
+    return (
+        ["c.tenant_id = :tenant_id", visibility.predicate("c")],
+        {"tenant_id": _tenant(), "me": _actor_user_id(), **_vis_params()},
+    )
+
+
 def _conversation_base_rows(
     conn: Any,
     conversation_id: str | None = None,
@@ -698,12 +704,11 @@ def _conversation_base_rows(
     updated_after: datetime | None = None,
     customer_id: str | None = None,
     q: str | None = None,
+    view: str | None = None,
 ) -> list[dict[str, Any]]:
-    # Tenant-scoped and visibility-scoped like every other customer-facing
-    # read. `conversations` carries no tenant column of its own; the customer
-    # it belongs to does, and every row here is joined to that customer.
-    clauses: list[str] = ["c.tenant_id = :tenant_id", visibility.predicate("c")]
-    params: dict[str, Any] = {"tenant_id": _tenant(), **_vis_params()}
+    clauses, params = _inbox_scope()
+    if view:
+        clauses.append(_VIEW_SQL[view])
     if conversation_id:
         clauses.append("cv.id = :conversation_id")
         params["conversation_id"] = conversation_id
@@ -736,13 +741,9 @@ def _conversation_base_rows(
                   c.name AS customer_name, c.risk, c.preferred_window,
                   a.id AS account_id, a.outstanding, a.dpd,
                   i.sentiment_label, i.avg_sentiment, i.handler_bot_id,
-                  i.source_payload->>'endpoint_slot' AS endpoint_slot,
+                  {REPLY_SLOT_SQL} AS endpoint_slot,
                   lm.sender AS last_from, lm.body AS last_body, lm.at AS last_at,
                   aw.n AS awaiting_n, aw.since AS awaiting_since,
-                  (
-                    SELECT MAX(COALESCE(m.sent_at, m.created_at)) FROM messages m
-                    WHERE m.conversation_id = cv.id AND m.sender = 'customer'
-                  ) AS last_customer_at,
                   (
                     -- Only a message Meta delivered opens WhatsApp's window.
                     SELECT MAX(COALESCE(m.sent_at, m.created_at)) FROM messages m
@@ -765,16 +766,17 @@ def _conversation_base_rows(
                   LIMIT 1
                 ) lm ON true
                 LEFT JOIN LATERAL (
-                  -- The customer's messages since anything that reached them.
-                  -- A failed reply answered nobody, so it does not count.
+                  -- The customer's messages since a reply that reached them.
+                  -- Only one the provider took counts: a failed reply answered
+                  -- nobody, and a queued one has not answered anyone yet -- with
+                  -- the worker stopped it would never.
                   SELECT count(*) AS n, min(COALESCE(m.sent_at, m.created_at)) AS since
                   FROM messages m
                   WHERE m.conversation_id = cv.id AND m.sender = 'customer'
                     AND COALESCE(m.sent_at, m.created_at) > COALESCE((
                       SELECT max(COALESCE(r.sent_at, r.created_at)) FROM messages r
                       WHERE r.conversation_id = cv.id AND r.sender IN ('bot', 'agent')
-                        AND r.delivery_status IS DISTINCT FROM 'failed'
-                        AND r.delivery_status IS DISTINCT FROM 'cancelled'
+                        AND r.delivery_status IN ('sent', 'delivered', 'read')
                     ), '-infinity'::timestamptz)
                 ) aw ON true
                 WHERE {' AND '.join(clauses)}
@@ -792,12 +794,16 @@ def list_conversations(
     updated_after: datetime | str | None = None,
     customer_id: str | None = None,
     q: str | None = None,
+    view: str | None = None,
 ) -> list[dict[str, Any]]:
     """The inbox list, newest activity first: summaries, no transcripts.
 
     ``updated_after`` returns only threads touched after that watermark (the
-    delta poll); ``customer_id`` and ``q`` search the whole inbox, not the page.
+    delta poll); ``customer_id``, ``q`` and ``view`` search the whole inbox,
+    not the page.
     """
+    if view and view not in _VIEW_SQL:
+        raise ValueError("invalid_view")
     after: datetime | None = None
     if updated_after is not None:
         if isinstance(updated_after, datetime):
@@ -820,11 +826,35 @@ def list_conversations(
                     after = after.replace(tzinfo=timezone.utc)
     me_id = _actor_user_id()
     with _engine().connect() as conn:
-        rows = _conversation_base_rows(conn, updated_after=after, customer_id=customer_id, q=q)
+        rows = _conversation_base_rows(
+            conn, updated_after=after, customer_id=customer_id, q=q, view=view
+        )
         typing_by = _bot_typing_by_conversation(conn, [r["id"] for r in rows])
         return [
             _serialize_summary(r, me_id, bot_typing=bool(typing_by.get(r["id"]))) for r in rows
         ]
+
+
+def conversation_counts() -> dict[str, int]:
+    """How many threads each view holds, across the whole inbox -- not the
+    list's page, whose counts stopped at its 500 rows."""
+    clauses, params = _inbox_scope()
+    counts = ",\n".join(f"count(*) FILTER (WHERE {sql}) AS {name}" for name, sql in _VIEW_SQL.items())
+    with _engine().connect() as conn:
+        row = _one(
+            conn.execute(
+                text(
+                    f"""
+                    SELECT count(*) AS total, {counts}
+                    FROM conversations cv
+                    JOIN customers c ON c.id = cv.customer_id
+                    WHERE {' AND '.join(clauses)}
+                    """
+                ),
+                params,
+            )
+        ) or {}
+    return {"all": int(row.get("total") or 0), **{v: int(row.get(v) or 0) for v in _VIEW_SQL}}
 
 
 def get_conversation(conversation_id: str) -> dict[str, Any] | None:
@@ -953,6 +983,61 @@ def _hand_interaction(conn: Any, row: dict[str, Any], user_id: str | None) -> No
     )
 
 
+def _assign_conversation(conn: Any, row: dict[str, Any], user_id: str, label: str) -> None:
+    """Give a locked thread to a person: the conversation, its interaction and
+    any open handoff, with the bot's pending turns cancelled so the person
+    wins the race. The one way a thread changes hands, from the Inbox or from
+    the Handoff Hub."""
+    conn.execute(
+        text(
+            """
+            UPDATE conversations
+            SET status = 'assigned', assigned_user_id = :user_id, updated_at = now()
+            WHERE id = :id
+            """
+        ),
+        {"id": row["id"], "user_id": user_id},
+    )
+    _hand_interaction(conn, row, user_id)
+    conn.execute(
+        text(
+            """
+            UPDATE bot_turn_jobs
+            SET status = 'cancelled', error = 'takeover', locked_at = NULL,
+                locked_by = NULL, updated_at = now()
+            WHERE conversation_id = :id AND status IN ('queued', 'running')
+            """
+        ),
+        {"id": row["id"]},
+    )
+    _activity(conn, "conversation", row["id"], "conversation_takeover", label, None, row["customer_id"])
+
+
+def claim_interaction_thread(conn: Any, interaction_id: str, user_id: str) -> None:
+    """The Handoff Hub claimed this interaction: its text thread, if it has
+    one, is the claimant's too. The Hub used to move only the interaction, so
+    the Inbox went on showing the thread unheld -- or someone else's -- and
+    refused the claimant's reply."""
+    row = _one(
+        conn.execute(
+            text(
+                """
+                SELECT id, customer_id, interaction_id, channel, status, assigned_user_id, bot_state
+                FROM conversations WHERE interaction_id = :iid
+                FOR UPDATE
+                """
+            ),
+            {"iid": interaction_id},
+        )
+    )
+    if row is None or row["assigned_user_id"] == user_id:
+        return
+    if row["assigned_user_id"] is not None:
+        # Held in the Inbox; the Hub's own claim check refuses before this.
+        raise ValueError("handoff_already_claimed")
+    _assign_conversation(conn, row, user_id, "Took over from the Handoff Hub")
+
+
 def takeover_conversation(conversation_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Make the thread the caller's, from the bot, the queue or a colleague.
 
@@ -974,37 +1059,8 @@ def takeover_conversation(conversation_id: str, payload: dict[str, Any] | None =
                 raise ValueError("conversation_owner_changed")
             if holder is not None and not authz.has_permission(me_id, authz.SUPERVISOR_WRITE):
                 raise PermissionError("reassign_requires_supervisor")
-            conn.execute(
-                text(
-                    """
-                    UPDATE conversations
-                    SET status = 'assigned', assigned_user_id = :user_id, updated_at = now()
-                    WHERE id = :id
-                    """
-                ),
-                {"id": conversation_id, "user_id": me_id},
-            )
-            _hand_interaction(conn, row, me_id)
-            # Cancel any queued/running bot turns so take-over wins the race.
-            conn.execute(
-                text(
-                    """
-                    UPDATE bot_turn_jobs
-                    SET status = 'cancelled', error = 'takeover', locked_at = NULL,
-                        locked_by = NULL, updated_at = now()
-                    WHERE conversation_id = :id AND status IN ('queued', 'running')
-                    """
-                ),
-                {"id": conversation_id},
-            )
-            _activity(
-                conn,
-                "conversation",
-                conversation_id,
-                "conversation_takeover",
-                "Took over from a colleague" if holder else "Took over",
-                None,
-                row["customer_id"],
+            _assign_conversation(
+                conn, row, me_id, "Took over from a colleague" if holder else "Took over"
             )
     result = get_conversation(conversation_id)
     if result is None:
@@ -1405,10 +1461,10 @@ def send_conversation_message(
             row = _one(
                 conn.execute(
                     text(
-                        """
+                        f"""
                         SELECT cv.id, cv.customer_id, cv.status, cv.assigned_user_id, cv.channel,
                                c.phone_primary, c.phone_alt,
-                               i.source_payload->>'endpoint_slot' AS endpoint_slot,
+                               {REPLY_SLOT_SQL} AS endpoint_slot,
                                (
                                  SELECT MAX(COALESCE(m.sent_at, m.created_at))
                                  FROM messages m
@@ -1431,11 +1487,9 @@ def send_conversation_message(
             if row["assigned_user_id"] != me_id:
                 raise ValueError("take_over_required")
             channel = row["channel"]
-            if channel not in _REPLY_CHANNELS:
-                raise ValueError("channel_not_supported")
-            purpose, _closes = _reply_purpose(channel, row["last_inbound_at"])
-            if purpose is None:
-                raise ValueError("whatsapp_window_closed")
+            purpose, _closes, refusal = _reply_purpose(row)
+            if refusal:
+                raise ValueError(refusal)
             endpoint = _reply_endpoint(conn, row)
             contact_policy.require_admit(
                 conn,

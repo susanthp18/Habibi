@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Thread } from "@/api/types/inbox";
 import { channelMeta, getThreadHandoffState, type InboxRights } from "@/components/inbox/meta";
-import { inboxErrorWords, replyBlockedWords } from "@/components/inbox/inbox-words";
+import { closesAtWords, inboxErrorWords, replyBlockedWords } from "@/components/inbox/inbox-words";
 import { ingestInboxDocument, useCannedResponses } from "@/api/inbox";
 import {
   DropdownMenu,
@@ -47,16 +47,18 @@ const EMOJIS = [
 /** Reply states that no wait will clear on this thread: the composer is closed, not just Send. */
 const CLOSED_FOR_GOOD = new Set(["channel_not_supported", "whatsapp_window_closed"]);
 
+/** What "Suggest reply" came back with. */
+export type SuggestedReply =
+  | { kind: "draft"; text: string }
+  /** The customer wrote again while it was drafted: it answers the earlier message. */
+  | { kind: "superseded" }
+  /** The knowledge base or the model could not be reached. */
+  | { kind: "failed" }
+  /** The knowledge base has nothing that answers them. */
+  | { kind: "none" };
+
 function append(current: string, addition: string) {
   return current.trim() ? `${current.trim()}\n\n${addition}` : addition;
-}
-
-function clock(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  });
 }
 
 function SourceCard({
@@ -163,7 +165,6 @@ export function Composer({
   onRefreshRag,
   onSuggestReply,
   ragSuggestions,
-  ragDraft,
   ragLoading,
   ragError,
   ragStale,
@@ -173,16 +174,15 @@ export function Composer({
 }: {
   thread: Thread;
   rights: InboxRights;
-  /** This thread's unsent reply, kept by the page while the operator is elsewhere. */
+  /** This thread's unsent reply. The page owns it, and clears what was sent. */
   draft: string;
-  onDraftChange: (text: string) => void;
-  /** Resolves true once the server has queued it. */
-  onSend: (text: string, idempotencyKey: string) => Promise<boolean>;
+  onDraftChange: (next: string | ((current: string) => string)) => void;
+  /** Resolves true once the server has queued it. The page keys the attempt. */
+  onSend: (text: string) => Promise<boolean>;
   onRefreshRag: () => void;
-  /** Resolves to a reply drafted for the customer's latest message, or null. */
-  onSuggestReply: () => Promise<string | null>;
+  /** A reply drafted for the customer's latest message, checked still to be the latest. */
+  onSuggestReply: () => Promise<SuggestedReply>;
   ragSuggestions: string[];
-  ragDraft: string | null;
   ragLoading: boolean;
   ragError: string | null;
   ragStale: boolean;
@@ -190,7 +190,8 @@ export function Composer({
   busy: boolean;
   errorMessage: string | null;
 }) {
-  const [text, setTextState] = useState(draft);
+  const text = draft;
+  const setText = onDraftChange;
   const [panel, setPanel] = useState<"canned" | "emoji" | null>(null);
   const [cannedFilter, setCannedFilter] = useState("");
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -199,9 +200,6 @@ export function Composer({
   const textFileRef = useRef<HTMLInputElement>(null);
   const imageFileRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  // One key per attempt at one reply: resending the same text after a lost
-  // response reuses it, so the server answers with the message it queued.
-  const attempt = useRef<{ text: string; key: string } | null>(null);
   // `data = []` on failure is the graceful-degradation lie: an outage rendered
   // as "No canned responses configured", a claim about the tenant's setup.
   const {
@@ -220,13 +218,6 @@ export function Composer({
   const hasCustomerMessage = (thread.messages ?? []).some(
     (m) => "sender" in m && m.sender === "customer",
   );
-
-  const setText = (next: string | ((t: string) => string)) =>
-    setTextState((prev) => {
-      const value = typeof next === "function" ? next(prev) : next;
-      onDraftChange(value);
-      return value;
-    });
 
   // Escape closes an open panel.
   useEffect(() => {
@@ -249,17 +240,15 @@ export function Composer({
   };
 
   const handleSuggestReply = async () => {
-    // A stored draft answers the customer's latest message -- the server drops
-    // one written for an earlier turn -- so it is used as it is.
-    if (ragDraft) {
-      insert(ragDraft, "Drafted reply");
-      return;
-    }
     setDrafting(true);
     try {
-      const drafted = await onSuggestReply();
-      if (drafted) insert(drafted, "Drafted reply");
-      else if (!ragError) toast.message("The knowledge base has nothing to answer this with.");
+      const reply = await onSuggestReply();
+      if (reply.kind === "draft") insert(reply.text, "Drafted reply");
+      else if (reply.kind === "superseded")
+        toast.message("The customer wrote again while it was drafted — ask for a new one.");
+      else if (reply.kind === "failed")
+        toast.error("Couldn’t draft a reply just now. Try again in a moment.");
+      else toast.message("The knowledge base has nothing to answer this with.");
     } finally {
       setDrafting(false);
     }
@@ -292,17 +281,10 @@ export function Composer({
     }
   };
 
-  const submit = async () => {
+  const submit = () => {
     const payload = text.trim();
-    if (!canSend || !payload) return;
-    if (attempt.current?.text !== payload) {
-      attempt.current = { text: payload, key: crypto.randomUUID() };
-    }
     // A failure is shown once, in the banner below; the text stays for a retry.
-    if (await onSend(payload, attempt.current.key)) {
-      attempt.current = null;
-      setText("");
-    }
+    if (canSend && payload) void onSend(payload);
   };
 
   const anyExpanded = expandedIdx != null;
@@ -346,6 +328,7 @@ export function Composer({
           <button
             type="button"
             onClick={onRefreshRag}
+            hidden={!rights.canWrite}
             disabled={ragLoading || !hasCustomerMessage}
             className="focus-ring inline-flex items-center gap-050 rounded px-075 py-025 text-body-small font-medium text-text-subtle hover:bg-surface-sunken hover:text-text-brand disabled:opacity-50"
           >
@@ -501,7 +484,7 @@ export function Composer({
       )}
       {!blockedReason && ctx.replyWindowEndsAt && !needsClaim && (
         <div className="border-t border-border px-200 py-050 text-body-small text-text-subtlest">
-          WhatsApp reply window open until {clock(ctx.replyWindowEndsAt)} IST.
+          WhatsApp reply window open until {closesAtWords(ctx.replyWindowEndsAt)}.
         </div>
       )}
 
@@ -576,7 +559,7 @@ export function Composer({
             // Hindi, Marathi or Tamil -- and must not send the half-typed reply.
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              void submit();
+              submit();
             }
           }}
           aria-label={`Reply on ${channel}`}
@@ -602,7 +585,7 @@ export function Composer({
         </button>
         <button
           type="button"
-          onClick={() => void submit()}
+          onClick={submit}
           disabled={!canSend}
           className="focus-ring inline-flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body font-medium text-text-inverse transition-colors hover:bg-background-brand-bold-hovered disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
         >

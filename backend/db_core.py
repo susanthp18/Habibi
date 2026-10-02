@@ -72,6 +72,7 @@ __all__ = [
     "_duration",
     "_ensure_customer",
     "_ensure_interaction",
+    "_customer_account_id",
     "_first_account_id",
     "_id",
     "_idempotent_response",
@@ -693,6 +694,26 @@ def _first_account_id(conn: Any, customer_id: str) -> str | None:
         {"customer_id": customer_id},
     ).fetchone()
     return row[0] if row else None
+
+
+def _customer_account_id(conn: Any, customer_id: str, account_id: str | None) -> str | None:
+    """The loan a record is filed against: the one named, which must be this
+    customer's, else their first.
+
+    Named and not theirs is a refusal. Every create used to take the
+    caller's ``accountId`` on trust, so a promise or dispute could land on a
+    loan of a different borrower -- or another tenant's -- under this one's
+    name.
+    """
+    if not account_id:
+        return _first_account_id(conn, customer_id)
+    owned = conn.execute(
+        text("SELECT 1 FROM accounts WHERE id = :id AND customer_id = :customer_id"),
+        {"id": account_id, "customer_id": customer_id},
+    ).fetchone()
+    if owned is None:
+        raise ValueError("account_not_customers")
+    return account_id
 
 
 def _ensure_customer(conn: Any, customer_id: str) -> None:

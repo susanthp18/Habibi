@@ -18,6 +18,8 @@ export function replyBlockedWords(
   switch (reason) {
     case "whatsapp_window_closed":
       return "WhatsApp's 24-hour reply window is closed. A free-form reply is only allowed within 24 hours of the customer's last message — reach them on another channel.";
+    case "whatsapp_endpoint_changed":
+      return "The number the customer wrote from is no longer on their record, so its reply window can't be used. Reach them on another channel.";
     case "channel_not_supported":
       return `Replies can't be sent on ${on} from the inbox.`;
     case "policy_unavailable":
@@ -31,6 +33,26 @@ export function replyBlockedWords(
     default:
       return `Contact policy blocks a reply now: ${contactRefusalLabel(reason ?? null)}.`;
   }
+}
+
+const IST = "Asia/Kolkata";
+const dayOf = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: IST });
+
+/** When a window closes, in IST: "3:41 PM", "tomorrow, 3:41 PM" or "4 Oct, 3:41 PM". */
+export function closesAtWords(iso: string, now = new Date()): string {
+  const at = new Date(iso);
+  const clock = at.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: IST,
+  });
+  if (dayOf(at) === dayOf(now)) return `${clock} IST`;
+  const tomorrow = new Date(now.getTime() + 24 * 3_600_000);
+  const day =
+    dayOf(at) === dayOf(tomorrow)
+      ? "tomorrow"
+      : at.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: IST });
+  return `${day}, ${clock} IST`;
 }
 
 const SERVER_WORDS: Record<string, string> = {

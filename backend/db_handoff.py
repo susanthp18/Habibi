@@ -770,6 +770,9 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
             ),
             {"id": interaction_id, "uid": actor},
         )
+        import db_inbox
+
+        db_inbox.claim_interaction_thread(conn, interaction_id, actor)
         existing = _one(
             conn.execute(
                 text(

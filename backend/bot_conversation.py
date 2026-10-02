@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 import bot_jobs
 import db
 from agent_core.clock import utc_now
+from db_whatsapp import REPLY_SLOT_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +26,14 @@ def load_conversation(engine: Engine, conversation_id: str) -> dict[str, Any] | 
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                """
+                f"""
                 SELECT cv.id, cv.customer_id, cv.interaction_id, cv.status,
                        cv.assigned_user_id, cv.channel, cv.bot_state,
                        c.name AS customer_name, c.phone_primary, c.phone_alt,
                        c.dnd, c.preferred_window, c.language,
                        a.id AS account_id, a.outstanding, a.dpd, a.minimum_due,
                        p.name AS product,
-                       i.source_payload->>'endpoint_slot' AS endpoint_slot,
+                       {REPLY_SLOT_SQL} AS endpoint_slot,
                        (
                          SELECT MAX(COALESCE(m.sent_at, m.created_at))
                          FROM messages m
@@ -111,6 +112,9 @@ def policy_gate(engine: Engine, conv: dict[str, Any]) -> str | None:
         return "whatsapp_opted_out"
     if not within_24h(conv.get("last_customer_at")):
         return "whatsapp_window_closed"
+    if not conv.get("endpoint_slot"):
+        # The number that opened the window has left the customer's record.
+        return "whatsapp_endpoint_changed"
     try:
         import contact_policy
 

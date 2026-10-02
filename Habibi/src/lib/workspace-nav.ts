@@ -34,7 +34,29 @@ export function navigateWorkItem(navigate: UseNavigateResult<string>, item: Work
   void navigate(workItemDestination(item));
 }
 
-export type DeepLinkSearch = { id?: string; new?: boolean; customerId?: string; plan?: boolean };
+export type DeepLinkSearch = {
+  id?: string;
+  new?: boolean;
+  customerId?: string;
+  /** With `customerId`: the loan the new record is for (a conversation's own loan). */
+  accountId?: string;
+  plan?: boolean;
+};
+
+/**
+ * The loan a record opened from a deep link is filed against: the link's own
+ * when it names the selected customer -- a conversation's loan, which for a
+ * customer with several is not their first -- else that customer's. The
+ * server refuses a loan that is not the customer's.
+ */
+export function loanFor(
+  customer: { id: string; accountId: string } | undefined,
+  linkCustomerId?: string,
+  linkAccountId?: string,
+): string {
+  if (!customer) return "";
+  return customer.id === linkCustomerId && linkAccountId ? linkAccountId : customer.accountId;
+}
 
 export function parseDeepLinkSearch(search: Record<string, unknown>): DeepLinkSearch {
   const id = typeof search.id === "string" && search.id.length > 0 ? search.id : undefined;
@@ -45,8 +67,12 @@ export function parseDeepLinkSearch(search: Record<string, unknown>): DeepLinkSe
     typeof search.customerId === "string" && search.customerId.length > 0
       ? search.customerId
       : undefined;
+  const accountId =
+    customerId && typeof search.accountId === "string" && search.accountId.length > 0
+      ? search.accountId
+      : undefined;
   const rawPlan = search.plan;
   const isPlan =
     rawPlan === true || rawPlan === "1" || rawPlan === "true" || rawPlan === 1 ? true : undefined;
-  return { id, new: isNew, customerId, plan: isPlan };
+  return { id, new: isNew, customerId, accountId, plan: isPlan };
 }

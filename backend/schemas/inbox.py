@@ -89,8 +89,9 @@ class InboxThreadContextResponse(BaseModel):
     #: service window). Not general outreach eligibility.
     canReply: bool
     #: Why not, when not: a gate reason, ``whatsapp_window_closed``,
-    #: ``channel_not_supported``, or ``policy_unavailable`` when the gate could
-    #: not be read.
+    #: ``whatsapp_endpoint_changed`` (the number that opened the window is no
+    #: longer on the customer's record), ``channel_not_supported``, or
+    #: ``policy_unavailable`` when the gate could not be read.
     replyBlockedReason: str | None = None
     #: When WhatsApp's 24-hour service window closes, ISO 8601.
     replyWindowEndsAt: str | None = None
@@ -144,13 +145,30 @@ class ConversationSummaryResponse(BaseModel):
     handlerBotId: str | None = None
 
 
+#: The list's views (``GET /conversations?view=``): who holds a thread, or
+#: where it stands. ``others`` is assigned to someone other than the caller.
+InboxView = Literal["mine", "others", "needs_human", "escalated", "bot", "assigned"]
+
+
+class ConversationCountsResponse(BaseModel):
+    """Threads in each view, across the whole inbox."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    all: int
+    mine: int
+    others: int
+    needs_human: int
+    escalated: int
+    bot: int
+    assigned: int
+
+
 class ConversationResponse(ConversationSummaryResponse):
     """The open thread, and every write's answer."""
 
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
     ragSuggestions: list[str] = []
-    #: A drafted reply to the customer's latest message; absent once they write again.
-    ragDraftAnswer: str | None = None
     context: InboxThreadContextResponse
 
 
@@ -185,11 +203,15 @@ class ConversationSuggestionsRefreshResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conversationId: str
+    #: The customer message these answer. Once they have written again, the
+    #: passages and the draft answer a question they are no longer asking.
+    answersMessageId: str | None = None
     ragSuggestions: list[str]
+    #: A reply to the customer, in their language; null when the passages do
+    #: not answer them or none was asked for.
     draftAnswer: str | None = None
-    chatModel: str | None = None
-    latencyMs: int | None = None
-    logId: str | None = None
+    #: A draft was asked for and the model could not be reached.
+    draftFailed: bool = False
     #: True when the knowledge base could not be searched and these are the
     #: passages found last time.
     stale: bool = False

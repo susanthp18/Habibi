@@ -583,6 +583,7 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/calls"): INTERACTIONS_READ,
     ("GET", "/calls/{interaction_id}"): INTERACTIONS_READ,
     ("GET", "/conversations"): INTERACTIONS_READ,
+    ("GET", "/conversations/counts"): INTERACTIONS_READ,
     ("GET", "/conversations/{conversation_id}"): INTERACTIONS_READ,
     ("POST", "/conversations/{conversation_id}/messages"): INTERACTIONS_WRITE,
     ("POST", "/conversations/{conversation_id}/suggestions/refresh"): INTERACTIONS_WRITE,

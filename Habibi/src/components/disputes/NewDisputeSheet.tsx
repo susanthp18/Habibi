@@ -10,6 +10,7 @@ import type { DisputeType } from "@/api/types/disputes";
 import { TYPE_LABELS } from "@/lib/disputes";
 import { createDispute } from "@/api/disputes";
 import { idempotencyKey } from "@/lib/utils";
+import { loanFor } from "@/lib/workspace-nav";
 
 export interface DisputeCustomerOption {
   id: string;
@@ -25,9 +26,17 @@ interface Props {
   customers: DisputeCustomerOption[];
   /** Opened from a customer's screen: that customer, or nobody -- never another one. */
   initialCustomerId?: string;
+  /** With it, the loan the dispute is about: a conversation's own, not the customer's first. */
+  initialAccountId?: string;
 }
 
-export function NewDisputeSheet({ onClose, onCreated, customers, initialCustomerId }: Props) {
+export function NewDisputeSheet({
+  onClose,
+  onCreated,
+  customers,
+  initialCustomerId,
+  initialAccountId,
+}: Props) {
   const pool = customers;
   const [customerId, setCustomerId] = useState(initialCustomerId ?? pool[0]?.id ?? "");
   const [type, setType] = useState<DisputeType>("paid_already");
@@ -46,6 +55,7 @@ export function NewDisputeSheet({ onClose, onCreated, customers, initialCustomer
   }, [pool, initialCustomerId]);
 
   const selected = useMemo(() => pool.find((c) => c.id === customerId), [pool, customerId]);
+  const accountId = loanFor(selected, initialCustomerId, initialAccountId);
 
   const submit = async () => {
     if (!selected) {
@@ -58,7 +68,7 @@ export function NewDisputeSheet({ onClose, onCreated, customers, initialCustomer
       const res = await createDispute(
         {
           customerId: selected.id,
-          accountId: selected.accountId,
+          accountId,
           type,
           amount: Number(amount) || 0,
           notes: notes.trim() || undefined,
@@ -111,9 +121,15 @@ export function NewDisputeSheet({ onClose, onCreated, customers, initialCustomer
               disabled={pool.length === 0}
               placeholder={pool.length ? undefined : "No customers loaded"}
               size="compact"
-              options={pool.map((c) => ({ value: c.id, label: `${c.name} · ${c.accountId}` }))}
+              options={pool.map((c) => ({ value: c.id, label: c.name }))}
             />
           </div>
+          {selected && (
+            <div>
+              <div className="mb-050 text-body-small font-semibold text-text-subtlest">Loan</div>
+              <p className="text-body text-text">{accountId || "No loan on file"}</p>
+            </div>
+          )}
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">Type</div>
             <SelectField

@@ -1,20 +1,21 @@
 // -----------------------------------------------------------------------------
 // Conversation Inbox — data access.
 //   GET  /conversations               the list: summaries, no transcripts.
-//                                     ?updatedAfter= deltas; ?q= / ?customerId=
-//                                     search the whole inbox on the server
+//                                     ?updatedAfter= deltas; ?q= / ?customerId= /
+//                                     ?view= search the whole inbox on the server
+//   GET  /conversations/counts        threads per view, across the whole inbox
 //   GET  /conversations/{id}          the open thread: transcript, suggestions,
 //                                     customer context. Polled on its own.
 //   POST takeover / return-to-bot / messages / suggestions/refresh
 //
 // "Mine" is derived server-side (assignedUserId === the caller). A write's
-// response is the thread's newest state; it is put into both caches at once.
+// response is the open thread's newest state; the list is read again.
 // -----------------------------------------------------------------------------
 
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import type { Thread, ThreadSummary } from "@/api/types/inbox";
+import type { InboxView, Thread, ThreadSummary } from "@/api/types/inbox";
 import { apiGet, apiPost, apiUpload, retryUnlessClientError } from "./config";
 
 export type CannedResponse = { id: string; label: string; text: string };
@@ -64,12 +65,13 @@ export function mergeThreads(prev: ThreadSummary[], deltas: ThreadSummary[]): Th
 }
 
 export async function fetchConversations(
-  opts: { updatedAfter?: string | null; q?: string; customerId?: string } = {},
+  opts: { updatedAfter?: string | null; q?: string; customerId?: string; view?: InboxView } = {},
 ): Promise<ThreadSummary[]> {
   const params = new URLSearchParams();
   if (opts.updatedAfter) params.set("updatedAfter", opts.updatedAfter);
   if (opts.q?.trim()) params.set("q", opts.q.trim());
   if (opts.customerId) params.set("customerId", opts.customerId);
+  if (opts.view) params.set("view", opts.view);
   const qs = params.toString();
   return apiGet<ThreadSummary[]>(`/conversations${qs ? `?${qs}` : ""}`);
 }
@@ -100,17 +102,21 @@ export function useConversation(threadId: string | null | undefined) {
   });
 }
 
-/** The list; with a search term, the server's matches across the whole inbox. */
-export function useConversations(search = "") {
+/**
+ * The list. With a search term or a view, the server's matches across the
+ * whole inbox -- a view filtered on the loaded page missed every older thread
+ * it should have held. Unfiltered, the newest page kept fresh by deltas.
+ */
+export function useConversations(search = "", view?: InboxView) {
   const queryClient = useQueryClient();
   const q = search.trim();
 
   const query = useQuery({
-    queryKey: ["conversations", q],
+    queryKey: ["conversations", q, view ?? null],
     queryFn: async () => {
-      if (q) return fetchConversations({ q });
+      if (q || view) return fetchConversations({ q, view });
       conversationPollCount += 1;
-      const prev = queryClient.getQueryData<ThreadSummary[]>(["conversations", ""]);
+      const prev = queryClient.getQueryData<ThreadSummary[]>(["conversations", "", null]);
       // Full list on first fetch and every ~15th poll (~60s at 4s interval).
       const after = prev ? maxUpdatedAt(prev) : null;
       if (!prev || !after || conversationPollCount % 15 === 0) return fetchConversations();
@@ -137,17 +143,27 @@ export function useConversations(search = "") {
   return query;
 }
 
-/** Put a write's answer into the thread's cache and its row in every list. */
-export function applyThread(queryClient: QueryClient, thread: Thread) {
-  queryClient.setQueryData(["conversation", thread.id], thread);
-  queryClient.setQueriesData<ThreadSummary[]>({ queryKey: ["conversations"] }, (prev) =>
-    prev?.map((t) => (t.id === thread.id ? { ...t, ...summaryOf(thread) } : t)),
-  );
+/** Threads in each view, across the whole inbox. */
+export function useConversationCounts() {
+  return useQuery({
+    queryKey: ["conversation-counts"],
+    queryFn: () => apiGet<Record<"all" | InboxView, number>>("/conversations/counts"),
+    retry: retryUnlessClientError,
+    refetchInterval: () => (pollEvery(false) === false ? false : 15_000),
+    refetchOnWindowFocus: true,
+  });
 }
 
-function summaryOf(thread: Thread): ThreadSummary {
-  const { messages: _m, ragSuggestions: _r, ragDraftAnswer: _d, context: _c, ...summary } = thread;
-  return summary;
+/**
+ * A write's answer is the open thread; the list is read again rather than
+ * patched. Patching a row in place left it out of order, and carried the
+ * write's newer `updatedAt` into the delta watermark -- the next delta then
+ * skipped every other thread that changed in between.
+ */
+export function applyThread(queryClient: QueryClient, thread: Thread) {
+  queryClient.setQueryData(["conversation", thread.id], thread);
+  void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+  void queryClient.invalidateQueries({ queryKey: ["conversation-counts"] });
 }
 
 export async function fetchCannedResponses(): Promise<CannedResponse[]> {
@@ -190,11 +206,13 @@ export async function sendConversationMessage(
 
 export interface ConversationSuggestionsRefreshResult {
   conversationId: string;
+  /** The customer message these answer; once they write again, they answer nothing. */
+  answersMessageId?: string | null;
   ragSuggestions: string[];
+  /** A reply to the customer, in their language; null when the passages do not answer them. */
   draftAnswer?: string | null;
-  chatModel?: string | null;
-  latencyMs?: number | null;
-  logId?: string | null;
+  /** A draft was asked for and the model could not be reached. */
+  draftFailed?: boolean;
   /** The knowledge base could not be searched; these are last time's passages. */
   stale?: boolean;
 }

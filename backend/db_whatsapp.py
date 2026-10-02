@@ -76,6 +76,18 @@ def _tail10_predicate(column: str) -> str:
     """
 
 
+#: Which of the customer's numbers, as the record stands now, last wrote on
+#: the thread (``i`` its interaction, ``c`` its customer). NULL when that
+#: number is no longer on the record: a WhatsApp service window belongs to the
+#: number that opened it, and an edited phone must not inherit it.
+REPLY_SLOT_SQL = """
+  CASE i.source_payload->>'endpoint_hmac'
+    WHEN encode(c.phone_primary_hmac, 'hex') THEN 'primary'
+    WHEN encode(c.phone_alt_hmac, 'hex') THEN 'alt'
+  END
+"""
+
+
 class AmbiguousSender(Exception):
     """More than one customer is on file at this number."""
 
@@ -436,22 +448,6 @@ def _ingest_inbound_whatsapp_message(
     conversation_id = _open_whatsapp_conversation(conn, customer["id"])
     if recognised:
         _record_endpoint_assurance(conn, conversation_id, customer["id"])
-    # Which of the borrower's numbers wrote. Replies -- the agent's and the
-    # bot's -- go back to that one: the service window Meta opened is that
-    # number's, and a reply to the primary when the customer wrote from the
-    # alternate is a message to a number that never wrote. Kept as the slot,
-    # not the number, so no phone leaves the encrypted customer record.
-    conn.execute(
-        text(
-            """
-            UPDATE interactions
-               SET source_payload = COALESCE(source_payload, '{}'::jsonb)
-                                    || jsonb_build_object('endpoint_slot', CAST(:slot AS text))
-             WHERE id = (SELECT interaction_id FROM conversations WHERE id = :cv)
-            """
-        ),
-        {"slot": customer.get("endpoint_slot") or "primary", "cv": conversation_id},
-    )
     msg_id = _id("MSG")
     try:
         with conn.begin_nested():
@@ -490,6 +486,33 @@ def _ingest_inbound_whatsapp_message(
                 "conversationId": existing["conversation_id"],
             }
         raise
+
+    # Which number wrote. Replies -- the agent's and the bot's -- go back to
+    # it: the service window Meta opened is that number's. Kept as the keyed
+    # digest the customer record already holds, never the number, and only
+    # after the dedupe above: a redelivered older message must not move it.
+    # Only the newest inbound sets it -- the window runs from the newest, so
+    # the number has to be the newest's too.
+    conn.execute(
+        text(
+            """
+            UPDATE interactions i
+               SET source_payload = COALESCE(i.source_payload, '{}'::jsonb)
+                   || jsonb_build_object('endpoint_hmac', encode(
+                        CASE WHEN CAST(:slot AS text) = 'alt' THEN c.phone_alt_hmac
+                             ELSE c.phone_primary_hmac END, 'hex'))
+              FROM conversations cv
+              JOIN customers c ON c.id = cv.customer_id
+             WHERE cv.id = :cv AND i.id = cv.interaction_id
+               AND NOT EXISTS (
+                 SELECT 1 FROM messages m
+                 WHERE m.conversation_id = cv.id AND m.sender = 'customer'
+                   AND m.provider_ref IS NOT NULL AND m.sent_at > :sent_at
+               )
+            """
+        ),
+        {"slot": customer.get("endpoint_slot") or "primary", "cv": conversation_id, "sent_at": sent_at},
+    )
 
     # Pref: inbound stays bot until take-over / escalate (do not flip to needs_human).
     conv_row = _one(
@@ -643,6 +666,16 @@ def _apply_whatsapp_status(
     conn.execute(
         text("UPDATE messages SET delivery_status = :delivery WHERE id = :id"),
         {"delivery": delivery, "id": row["id"]},
+    )
+    # The thread changed: whether the customer is still awaiting an answer
+    # turns on this status. The list's delta poll reads `updated_at`, so
+    # without this the row kept its old count and SLA until a full refresh.
+    conn.execute(
+        text(
+            "UPDATE conversations SET updated_at = now() "
+            "WHERE id = (SELECT conversation_id FROM messages WHERE id = :id)"
+        ),
+        {"id": row["id"]},
     )
     if delivery == "failed" and errors:
         # Persist Meta's reason on the outbound job so operators see 131047

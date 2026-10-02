@@ -14,6 +14,7 @@ from fastapi import APIRouter
 from fastapi import Header, HTTPException, Query, Response
 from schemas import (
     CannedResponseItem,
+    ConversationCountsResponse,
     ConversationMessageCreateRequest,
     ConversationResponse,
     ConversationSuggestionsRefreshRequest,
@@ -23,6 +24,7 @@ from schemas import (
     HandoffDisclosureRequest,
     HandoffQueueResponse,
     HandoffSessionResponse,
+    InboxView,
 )
 
 from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
@@ -67,11 +69,18 @@ def list_conversations(
     updatedAfter: str | None = None,
     customerId: str | None = None,
     q: str | None = Query(default=None, max_length=200),
+    view: InboxView | None = None,
 ):
     try:
-        return db.list_conversations(updated_after=updatedAfter, customer_id=customerId, q=q)
+        return db.list_conversations(
+            updated_after=updatedAfter, customer_id=customerId, q=q, view=view
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@router.get("/conversations/counts", response_model=ConversationCountsResponse)
+def get_conversation_counts():
+    return db.conversation_counts()
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 def get_conversation(conversation_id: str):

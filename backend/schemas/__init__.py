@@ -283,6 +283,8 @@ from schemas.inbox import (
     ConversationSuggestionsRefreshRequest as ConversationSuggestionsRefreshRequest,
     ConversationSuggestionsRefreshResponse as ConversationSuggestionsRefreshResponse,
     ConversationSummaryResponse as ConversationSummaryResponse,
+    ConversationCountsResponse as ConversationCountsResponse,
+    InboxView as InboxView,
     ConversationTakeoverRequest as ConversationTakeoverRequest,
     HandoffDisclosureRequest as HandoffDisclosureRequest,
     InboxDisputeSummaryResponse as InboxDisputeSummaryResponse,

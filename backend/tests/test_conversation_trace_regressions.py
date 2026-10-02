@@ -236,7 +236,9 @@ def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
         ),
         {"id": f"SUG-{tag}", "cv": cv},
     )
-    monkeypatch.setattr(db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: "how do I pay")
+    monkeypatch.setattr(
+        db_inbox_rag, "_conversation_rag_query", lambda _c, _cid: ("how do I pay", f"MSG-{tag}")
+    )
 
     def _down(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
         raise RuntimeError("engine is down")

@@ -14,7 +14,20 @@ Each test pins a defect three reviews of the page found in the code:
 * an ambiguous sender was filed against whichever borrower sorted first, and
   replies went to the primary number whoever wrote.
 
-Every row is created here; nothing depends on the seed.
+And what a review of the fixes found still wrong:
+
+* a thread with a promise failed to load;
+* a queued reply counted as an answer, and a receipt never reached the list;
+* a redelivered webhook moved the reply number, and an edited phone inherited
+  the window another number opened;
+* a Handoff Hub claim left the Inbox thread unheld;
+* an empty search returned last time's passages as fresh, and a stored draft
+  outlived the message it answered;
+* a promise or dispute could name another borrower's loan;
+* the list's views stopped at its first 500 rows.
+
+Every row is created here -- staff, product and bot included; nothing depends
+on the seed.
 """
 
 from __future__ import annotations
@@ -36,8 +49,29 @@ import db_inbox_rag
 import db_whatsapp
 from agent_core.clock import utc_now
 
-AGENT = "sara-khan"
-COLLEAGUE = "arjun-mehta"
+AGENT = "IB-FIXTURE-AGENT"
+COLLEAGUE = "IB-FIXTURE-COLLEAGUE"
+PRODUCT = "IB-FIXTURE-PRODUCT"
+BOT = "IB-FIXTURE-BOT"
+
+
+@pytest.fixture(autouse=True)
+def world(db_tx):
+    """The staff, product and bot every thread here needs."""
+    tenant = db.current_tenant()
+    for uid in (AGENT, COLLEAGUE):
+        db_tx.execute(
+            text("INSERT INTO users (id, tenant_id, name) VALUES (:id, :t, :id)"),
+            {"id": uid, "t": tenant},
+        )
+    db_tx.execute(
+        text("INSERT INTO products (id, tenant_id, name, type) VALUES (:id, :t, 'Fixture loan', 'loan')"),
+        {"id": PRODUCT, "t": tenant},
+    )
+    db_tx.execute(
+        text("INSERT INTO bots (id, tenant_id, name, version) VALUES (:id, :t, 'Fixture bot', '1')"),
+        {"id": BOT, "t": tenant},
+    )
 
 
 @pytest.fixture
@@ -81,9 +115,9 @@ def _customer(conn, *, phone: str | None = None, alt: str | None = None) -> dict
         conn.execute(
             text(
                 "INSERT INTO accounts (id, customer_id, product_id, outstanding, dpd) "
-                "VALUES (:id, :c, (SELECT id FROM products ORDER BY id LIMIT 1), 5000, 12)"
+                "VALUES (:id, :c, :p, 5000, 12)"
             ),
-            {"id": aid, "c": cid},
+            {"id": aid, "c": cid, "p": PRODUCT},
         )
         accounts.append(aid)
     return {"id": cid, "accounts": accounts}
@@ -94,7 +128,7 @@ def _thread(conn, customer: dict, *, channel: str = "whatsapp", status: str = "b
     """A thread on the customer's *second* account: the first is a decoy."""
     ix, cv = _uid("IX"), _uid("CV")
     handler = (
-        "'human', :u, NULL" if assignee else "'bot', NULL, (SELECT id FROM bots ORDER BY id LIMIT 1)"
+        "'human', :u, NULL" if assignee else "'bot', NULL, :bot"
     )
     conn.execute(
         text(
@@ -102,7 +136,7 @@ def _thread(conn, customer: dict, *, channel: str = "whatsapp", status: str = "b
             f"handler_user_id, handler_bot_id, channel, status) VALUES (:id, :t, :c, :a, {handler}, :ch, 'active')"
         ),
         {"id": ix, "t": db.current_tenant(), "c": customer["id"], "a": customer["accounts"][account],
-         "ch": channel, "u": assignee},
+         "ch": channel, "u": assignee, "bot": BOT},
     )
     conn.execute(
         text(
@@ -114,9 +148,25 @@ def _thread(conn, customer: dict, *, channel: str = "whatsapp", status: str = "b
     return cv
 
 
+def _wrote_from(conn, cv: str, slot: str) -> None:
+    """What ingest records when the customer writes: which number it was."""
+    column = "phone_alt_hmac" if slot == "alt" else "phone_primary_hmac"
+    conn.execute(
+        text(
+            "UPDATE interactions i SET source_payload = COALESCE(i.source_payload, '{}'::jsonb) "
+            f"|| jsonb_build_object('endpoint_hmac', encode(c.{column}, 'hex')) "
+            "FROM conversations cv JOIN customers c ON c.id = cv.customer_id "
+            "WHERE cv.id = :cv AND i.id = cv.interaction_id"
+        ),
+        {"cv": cv},
+    )
+
+
 def _message(conn, cv: str, sender: str, *, ago: timedelta, status: str = "delivered",
              real: bool = True, body: str | None = None) -> str:
     mid = _uid("MSG")
+    if real and sender == "customer":
+        _wrote_from(conn, cv, "primary")
     conn.execute(
         text(
             "INSERT INTO messages (id, conversation_id, sender, body, delivery_status, provider_ref, sent_at) "
@@ -174,6 +224,50 @@ def test_a_failed_reply_answered_nobody(db_tx, as_actor) -> None:
     row = _summary(cv)
     # Bot-held threads always read "ok"; a bot that stopped answering never surfaced.
     assert row["awaitingReply"] == 1 and row["sla"] == "warn"
+
+
+def test_a_queued_reply_has_not_answered_anyone(db_tx, as_actor) -> None:
+    cv = _thread(db_tx, _customer(db_tx), status="assigned", assignee=AGENT)
+    _message(db_tx, cv, "customer", ago=timedelta(hours=5))
+    _message(db_tx, cv, "agent", ago=timedelta(hours=4), status="sending")
+    as_actor(AGENT)
+    # With the outbound worker stopped, it never will.
+    row = _summary(cv)
+    assert row["awaitingReply"] == 1 and row["sla"] == "warn"
+
+
+def test_a_delivery_receipt_moves_the_threads_watermark(db_tx) -> None:
+    cv = _thread(db_tx, _customer(db_tx), status="assigned", assignee=AGENT)
+    reply = _message(db_tx, cv, "agent", ago=timedelta(hours=4), status="sent")
+    db_tx.execute(
+        text("UPDATE messages SET provider_ref = :ref WHERE id = :m"), {"ref": f"wamid.{reply}", "m": reply}
+    )
+    # Inside one transaction now() is frozen, so the trigger's new updated_at
+    # equals the old one; the update shows as a new version of the row. The
+    # list's delta poll reads updated_at: an untouched row kept its old
+    # awaiting count and SLA until a full refresh.
+    version = "SELECT ctid::text FROM conversations WHERE id = :cv"
+    before = db_tx.execute(text(version), {"cv": cv}).scalar()
+    db_whatsapp._apply_whatsapp_status(db_tx, wa_message_id=f"wamid.{reply}", status="delivered")
+    assert db_tx.execute(text(version), {"cv": cv}).scalar() != before
+
+
+def test_views_run_on_the_server_and_count_the_whole_inbox(db_tx, as_actor) -> None:
+    customer = _customer(db_tx)
+    mine = [_thread(db_tx, customer, status="assigned", assignee=AGENT) for _ in range(2)]
+    theirs = _thread(db_tx, customer, status="assigned", assignee=COLLEAGUE)
+    waiting = _thread(db_tx, customer, status="needs_human")
+    as_actor(AGENT)
+    assert sorted(r["id"] for r in db.list_conversations(view="mine")) == sorted(mine)
+    others = {r["id"] for r in db.list_conversations(view="others", customer_id=customer["id"])}
+    assert others == {theirs}
+    needs = {r["id"] for r in db.list_conversations(view="needs_human", customer_id=customer["id"])}
+    assert needs == {waiting}
+    counts = db.conversation_counts()
+    assert counts["mine"] == 2
+    assert counts["all"] >= 4 and counts["others"] >= 1 and counts["needs_human"] >= 1
+    with pytest.raises(ValueError, match="invalid_view"):
+        db.list_conversations(view="unread")
 
 
 def test_an_answered_thread_is_not_breached(db_tx, as_actor) -> None:
@@ -248,6 +342,24 @@ def test_the_context_is_the_threads_own_loan_and_its_next_unpaid_emi(db_tx, as_a
     assert ctx["nextEmiOverdue"] is True
 
 
+def test_a_thread_with_a_promise_loads(db_tx, as_actor) -> None:
+    customer = _customer(db_tx)
+    cv = _thread(db_tx, customer)
+    _message(db_tx, cv, "customer", ago=timedelta(hours=1))
+    # 18:30 UTC is midnight in India: the promise falls due on the 2nd.
+    db_tx.execute(
+        text(
+            "INSERT INTO promises (id, customer_id, account_id, owner_kind, owner_user_id, amount, "
+            "promised_at, status, reminder_status) VALUES (:id, :c, :a, 'human', :u, 2500, "
+            "'2026-11-01 18:30:00+00', 'upcoming', 'off')"
+        ),
+        {"id": _uid("PTP"), "c": customer["id"], "a": customer["accounts"][1], "u": AGENT},
+    )
+    as_actor(AGENT)
+    promise = db.get_conversation(cv)["context"]["lastPromise"]
+    assert promise == {"amount": 2500.0, "date": "2026-11-02", "status": "Pending"}
+
+
 def test_the_rail_answers_the_reply_the_send_would_make(db_tx, as_actor, monkeypatch) -> None:
     asked: list[tuple[str, str]] = []
 
@@ -317,6 +429,25 @@ def test_an_agent_claims_an_unheld_thread_and_the_interaction_follows(
     assert _handler(db_tx, cv)["handler_kind"] == "bot"
 
 
+def test_a_handoff_hub_claim_gives_the_claimant_the_thread(db_tx, as_actor) -> None:
+    cv = _thread(db_tx, _customer(db_tx), status="needs_human")
+    ix = db_tx.execute(text("SELECT interaction_id FROM conversations WHERE id = :cv"), {"cv": cv}).scalar()
+    db_tx.execute(
+        text(
+            "INSERT INTO interaction_handoffs (id, interaction_id, from_kind, to_kind, reason, requested_at) "
+            "VALUES (:id, :ix, 'bot', 'human', 'customer_requested', now())"
+        ),
+        {"id": _uid("HO"), "ix": ix},
+    )
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    thread = db.get_conversation(cv)
+    # The Hub moved only the interaction: the Inbox showed it unheld and
+    # refused the claimant's reply.
+    assert thread["isMine"] and thread["status"] == "assigned"
+    assert _handler(db_tx, cv) == {"handler_kind": "human", "handler_user_id": AGENT}
+
+
 def test_taking_a_colleagues_thread_needs_supervisor_rights(db_tx, as_actor, agent_rights) -> None:
     cv = _thread(db_tx, _customer(db_tx), status="assigned", assignee=COLLEAGUE)
     as_actor(AGENT)
@@ -383,13 +514,7 @@ def test_a_reply_goes_to_the_number_the_customer_wrote_from_once(db_tx, as_actor
     customer = _customer(db_tx, phone=primary, alt=alternate)
     cv = _thread(db_tx, customer, status="assigned", assignee=AGENT)
     _message(db_tx, cv, "customer", ago=timedelta(minutes=10))
-    db_tx.execute(
-        text(
-            "UPDATE interactions SET source_payload = jsonb_build_object('endpoint_slot', 'alt') "
-            "WHERE id = (SELECT interaction_id FROM conversations WHERE id = :cv)"
-        ),
-        {"cv": cv},
-    )
+    _wrote_from(db_tx, cv, "alt")
     as_actor(AGENT)
     key = uuid.uuid4().hex
     db.send_conversation_message(cv, {"text": "on its way"}, key)
@@ -404,18 +529,84 @@ def test_a_reply_goes_to_the_number_the_customer_wrote_from_once(db_tx, as_actor
     assert gate_open[-1]["endpoint"] == alternate
 
 
+def test_an_edited_phone_does_not_inherit_the_window_another_number_opened(
+    db_tx, as_actor, gate_open
+) -> None:
+    customer = _customer(db_tx, phone=_phone(), alt=_phone())
+    cv = _thread(db_tx, customer, status="assigned", assignee=AGENT)
+    _message(db_tx, cv, "customer", ago=timedelta(minutes=10))
+    _wrote_from(db_tx, cv, "alt")
+    db_tx.execute(
+        text("UPDATE customers SET phone_alt = :p WHERE id = :c"), {"p": _phone(), "c": customer["id"]}
+    )
+    as_actor(AGENT)
+    ctx = db.get_conversation(cv)["context"]
+    assert ctx["canReply"] is False and ctx["replyBlockedReason"] == "whatsapp_endpoint_changed"
+    with pytest.raises(ValueError, match="whatsapp_endpoint_changed"):
+        db.send_conversation_message(cv, {"text": "hello"})
+    conv = bot_conversation.load_conversation(db.engine, cv)
+    assert conv["endpoint_slot"] is None
+
+
 # --- WhatsApp ingest -------------------------------------------------------
 
 
-def _webhook(from_phone: str, msg: dict) -> dict:
+def _webhook(from_phone: str, msg: dict, *, ago: timedelta = timedelta(0), wamid: str | None = None) -> dict:
     digits = "".join(ch for ch in from_phone if ch.isdigit())
     return {
         "entry": [{"changes": [{"value": {
             "contacts": [{"wa_id": digits, "profile": {"name": "Fixture"}}],
-            "messages": [{"id": f"wamid.{uuid.uuid4().hex}", "from": digits,
-                          "timestamp": str(int(utc_now().timestamp())), **msg}],
+            "messages": [{"id": wamid or f"wamid.{uuid.uuid4().hex}", "from": digits,
+                          "timestamp": str(int((utc_now() - ago).timestamp())), **msg}],
         }}]}]
     }
+
+
+def test_a_redelivered_or_late_message_does_not_move_the_reply_number(db_tx, no_bot) -> None:
+    primary, alternate = _phone(), _phone()
+    _customer(db_tx, phone=primary, alt=alternate)
+    hello = {"type": "text", "text": {"body": "hi"}}
+    early = f"wamid.{uuid.uuid4().hex}"
+    db_whatsapp.process_whatsapp_webhook(_webhook(alternate, hello, ago=timedelta(minutes=10), wamid=early))
+    (latest,) = db_whatsapp.process_whatsapp_webhook(_webhook(primary, hello))["results"]
+    cv = latest["conversationId"]
+
+    # Meta redelivers the older one, and a delayed one from the same number lands late.
+    (dup,) = db_whatsapp.process_whatsapp_webhook(
+        _webhook(alternate, hello, ago=timedelta(minutes=10), wamid=early)
+    )["results"]
+    assert dup["status"] == "duplicate"
+    db_whatsapp.process_whatsapp_webhook(_webhook(alternate, hello, ago=timedelta(minutes=5)))
+
+    conv = bot_conversation.load_conversation(db.engine, cv)
+    assert bot_conversation.reply_phone(conv) == primary
+
+
+def test_a_provider_rejection_moves_the_job_off_succeeded(db_tx) -> None:
+    """WAO-14F8282BF6AC read `succeeded` while carrying "code=131047 ...
+    Message failed to send", and its message read `failed`: anything counting
+    job status over-reported delivery."""
+    cv = _thread(db_tx, _customer(db_tx))
+    reply = _message(db_tx, cv, "bot", ago=timedelta(minutes=1), status="sent")
+    db_tx.execute(
+        text("UPDATE messages SET provider_ref = :ref WHERE id = :m"), {"ref": f"wamid.{reply}", "m": reply}
+    )
+    db_tx.execute(
+        text(
+            "INSERT INTO whatsapp_outbound_jobs (id, message_id, conversation_id, customer_id, to_phone, "
+            "body, purpose, source, status) VALUES (:id, :m, :cv, "
+            "(SELECT customer_id FROM conversations WHERE id = :cv), 'x', 'x', 'in_session', 'bot', 'succeeded')"
+        ),
+        {"id": _uid("WAO"), "m": reply, "cv": cv},
+    )
+    db_whatsapp._apply_whatsapp_status(
+        db_tx, wa_message_id=f"wamid.{reply}", status="failed",
+        errors=[{"code": 131047, "title": "Message failed to send"}],
+    )
+    job = db_tx.execute(
+        text("SELECT status, error FROM whatsapp_outbound_jobs WHERE message_id = :m"), {"m": reply}
+    ).mappings().one()
+    assert job["status"] == "failed" and job["error"].startswith("code=131047")
 
 
 @pytest.fixture
@@ -479,8 +670,13 @@ def test_the_bot_does_not_send_when_admission_cannot_be_established(monkeypatch)
     monkeypatch.setattr(bot_conversation, "whatsapp_opted_in", lambda *_a: True)
     monkeypatch.setattr(contact_policy, "admit", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("down")))
     conv = {"id": "CV-X", "customer_id": "C-X", "status": "bot", "assigned_user_id": None,
-            "channel": "whatsapp", "dnd": False, "last_customer_at": utc_now()}
+            "channel": "whatsapp", "dnd": False, "last_customer_at": utc_now(),
+            "endpoint_slot": "primary"}
     assert bot_conversation.policy_gate(db.engine, conv) == "policy_unavailable"
+    # The number that opened the window has left the record: no reply goes.
+    assert bot_conversation.policy_gate(db.engine, {**conv, "endpoint_slot": None}) == (
+        "whatsapp_endpoint_changed"
+    )
 
 
 # --- suggestions -------------------------------------------------------------
@@ -491,7 +687,7 @@ def test_retrieval_asks_about_the_latest_message_not_an_older_question(db_tx) ->
     _message(db_tx, cv, "customer", ago=timedelta(hours=3), body="how do I pay?")
     _message(db_tx, cv, "agent", ago=timedelta(hours=2), body="Here is the link")
     _message(db_tx, cv, "customer", ago=timedelta(minutes=1), body="please send my statement")
-    query = db_inbox_rag._conversation_rag_query(db_tx, cv)
+    query, _answers = db_inbox_rag._conversation_rag_query(db_tx, cv)
     assert query.splitlines()[0] == "Customer: please send my statement"
     assert "Here is the link" not in query
 
@@ -505,20 +701,59 @@ def test_a_failed_search_says_its_passages_are_stale(db_tx, monkeypatch) -> None
     assert out["stale"] is True
 
 
-def test_a_draft_for_an_earlier_turn_is_not_offered(db_tx, as_actor) -> None:
+def test_an_empty_search_is_empty_not_last_times_passages(db_tx, monkeypatch) -> None:
     cv = _thread(db_tx, _customer(db_tx))
-    _message(db_tx, cv, "customer", ago=timedelta(hours=2))
+    _message(db_tx, cv, "customer", ago=timedelta(hours=2), body="first question")
     db_tx.execute(
         text(
-            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted, created_at) "
-            "VALUES (:id, :cv, 'an answer to the first question', 'kb_draft', false, now() - interval '1 hour')"
+            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted) "
+            "VALUES (:id, :cv, 'a passage about the first question', 'kb', false)"
         ),
         {"id": _uid("SUG"), "cv": cv},
     )
+    latest = _message(db_tx, cv, "customer", ago=timedelta(minutes=1), body="second question")
+    monkeypatch.setattr(db_inbox_rag, "_studio_retrieval",
+                        lambda *_a: {"results": [], "draftAnswer": None, "draftFailed": False})
+    out = db.refresh_conversation_suggestions(cv)
+    assert out["ragSuggestions"] == [] and out["stale"] is False
+    assert out["answersMessageId"] == latest
+    assert db.get_conversation(cv)["ragSuggestions"] == []
+
+
+def test_a_draft_names_the_message_it_answers_and_is_not_kept(db_tx, monkeypatch, as_actor) -> None:
+    cv = _thread(db_tx, _customer(db_tx))
+    latest = _message(db_tx, cv, "customer", ago=timedelta(minutes=1), body="when is my EMI due?")
+    hit = {"score": 0.9, "docTitle": "EMI", "heading": "Dates", "snippet": "EMIs fall due on the 5th."}
+    monkeypatch.setattr(db_inbox_rag, "_studio_retrieval",
+                        lambda *_a: {"results": [hit], "draftAnswer": "It is due on the 5th.",
+                                     "draftFailed": False})
+    out = db.refresh_conversation_suggestions(cv, include_draft_answer=True)
+    assert out["draftAnswer"] == "It is due on the 5th." and out["answersMessageId"] == latest
     as_actor(AGENT)
-    assert db.get_conversation(cv)["ragDraftAnswer"] == "an answer to the first question"
-    _message(db_tx, cv, "customer", ago=timedelta(minutes=1))
-    assert db.get_conversation(cv)["ragDraftAnswer"] is None
+    # A stored draft outlived the message it answered and was offered for the next.
+    assert "ragDraftAnswer" not in db.get_conversation(cv)
+    assert db_tx.execute(
+        text("SELECT count(*) FROM ai_response_suggestions WHERE conversation_id = :cv AND source = 'kb_draft'"),
+        {"cv": cv},
+    ).scalar() == 0
+
+
+# --- records filed from a thread -------------------------------------------
+
+
+def test_a_promise_or_dispute_cannot_name_another_borrowers_loan(db_tx, as_actor) -> None:
+    customer, stranger = _customer(db_tx), _customer(db_tx)
+    as_actor(AGENT)
+    with pytest.raises(ValueError, match="account_not_customers"):
+        db.create_promise({"customerId": customer["id"], "accountId": stranger["accounts"][0],
+                           "amount": 100, "promisedDate": "2026-11-02"})
+    with pytest.raises(ValueError, match="account_not_customers"):
+        db.create_dispute({"customerId": customer["id"], "accountId": stranger["accounts"][0],
+                           "type": "paid_already"})
+    # Their own loan is filed as named, not swapped for their first.
+    assert db_core._customer_account_id(db_tx, customer["id"], customer["accounts"][1]) == (
+        customer["accounts"][1]
+    )
 
 
 def test_a_document_filed_from_a_thread_reads_that_threads_identity(db_tx, as_actor) -> None:
