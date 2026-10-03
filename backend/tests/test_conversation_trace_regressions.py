@@ -197,11 +197,13 @@ def test_a_promise_for_today_is_still_allowed() -> None:
     assert domain._promise_date_is_past((clock.today_local() - timedelta(days=1)).isoformat()) is True
 
 
+@pytest.mark.parametrize("earlier", [False, True], ids=["unlinked", "answering_an_earlier_message"])
 def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
-    db_tx, monkeypatch: pytest.MonkeyPatch,
+    db_tx, monkeypatch: pytest.MonkeyPatch, earlier: bool,
 ) -> None:
     """A knowledge-base outage degrades to the last persisted passages, never an
-    error -- and says they are last time's, not answers to this turn."""
+    error -- and says they are last time's, not answers to this turn: they
+    name the message they answered, never the one just searched for."""
     import uuid
 
     from sqlalchemy import text
@@ -228,12 +230,21 @@ def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
         ),
         {"id": cv, "ix": f"IX-RAG-{tag}", "c": cid},
     )
+    asked = f"MSG-{tag}-0" if earlier else None
+    if asked:
+        db_tx.execute(
+            text(
+                "INSERT INTO messages (id, conversation_id, sender, body, delivery_status, sent_at) "
+                "VALUES (:id, :cv, 'customer', 'what are the fees', 'delivered', now() - interval '1 minute')"
+            ),
+            {"id": asked, "cv": cv},
+        )
     db_tx.execute(
         text(
-            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted) "
-            "VALUES (:id, :cv, 'Payments — How to pay', 'kb', false)"
+            "INSERT INTO ai_response_suggestions (id, conversation_id, suggestion_text, source, accepted, "
+            "answers_message_id) VALUES (:id, :cv, 'Payments — How to pay', 'kb', false, :asked)"
         ),
-        {"id": f"SUG-{tag}", "cv": cv},
+        {"id": f"SUG-{tag}", "cv": cv, "asked": asked},
     )
     db_tx.execute(
         text(
@@ -251,3 +262,4 @@ def test_a_retrieval_outage_shows_the_last_passages_and_says_they_are_stale(
     out = db.refresh_conversation_suggestions(cv)
     assert out["ragSuggestions"] == ["Payments — How to pay"]
     assert out["stale"] is True
+    assert out["answersMessageId"] == asked

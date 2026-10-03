@@ -16,6 +16,7 @@ import { Lozenge } from "@/components/ui/lozenge";
 import { Badge } from "@/components/ui/badge";
 import { ContactabilityPill } from "@/components/customer360/ContactabilityPill";
 import { fmtMoney } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   Accordion,
   AccordionContent,
@@ -77,7 +78,9 @@ export function ContextRail({
             >
               {thread.customer}
             </Link>
-            <div className="font-mono text-body-small text-text-subtlest">
+            <div
+              className={cn("text-body-small text-text-subtlest", thread.accountId && "font-mono")}
+            >
               {thread.accountId || "No account on this thread"}
             </div>
             {/* The reply this thread's composer would send: its own channel,

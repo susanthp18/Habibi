@@ -174,7 +174,8 @@ def refresh_conversation_suggestions(
 
     A search that ran is the truth, empty included: the passages are replaced,
     and none means none. Only a search that could not run returns the last
-    passages, and says so (``stale``). Weak matches below INBOX_RAG_MIN_SCORE
+    passages, and says so (``stale``) -- with the message *they* answered, or
+    None, never the one this search was for. Weak matches below INBOX_RAG_MIN_SCORE
     are dropped (empty chips > junk).
 
     Retrieval takes seconds, and two can overlap. The replace happens under
@@ -220,13 +221,13 @@ def refresh_conversation_suggestions(
         if not latest or latest[0]["id"] != answers:
             superseded = True
         elif retrieval is None:
-            chips = [
-                str(r["suggestion_text"]).strip()
+            stored = [
+                r
                 for r in _rows(
                     conn.execute(
                         text(
                             """
-                            SELECT suggestion_text
+                            SELECT suggestion_text, answers_message_id
                             FROM ai_response_suggestions
                             WHERE conversation_id = :id AND COALESCE(source, '') = 'kb'
                             ORDER BY created_at DESC
@@ -238,6 +239,9 @@ def refresh_conversation_suggestions(
                 )
                 if r.get("suggestion_text")
             ]
+            chips = [str(r["suggestion_text"]).strip() for r in stored]
+            # A search stores its set whole: the newest row speaks for it.
+            answers = stored[0]["answers_message_id"] if stored else answers
         else:
             passed = [
                 item

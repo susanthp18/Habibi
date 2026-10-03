@@ -503,6 +503,19 @@ describe("Inbox page", () => {
     expect(screen.getByText(/written since/)).toBeInTheDocument();
   });
 
+  it("says a failed search's leftovers answer an earlier message, not just that the search failed", async () => {
+    // The server hands back the last stored set under the message it answered.
+    q.refresh.mockResolvedValueOnce({
+      conversationId: "CV-A",
+      answersMessageId: "M-0",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+      stale: true,
+    });
+    open("CV-A");
+    fireEvent.click(await screen.findByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/written since/)).toBeInTheDocument();
+  });
+
   it("says stored passages answer an earlier message when the thread is reopened", async () => {
     // A read-only viewer never searches: what the last search stored is all
     // they see, and it used to look current for as long as it stayed there.
