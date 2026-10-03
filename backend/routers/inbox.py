@@ -6,12 +6,15 @@ included by main.py.
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Any
 
 import db
 
 from fastapi import APIRouter
-from fastapi import Header, HTTPException, Query, Response
+from fastapi import Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from schemas import (
     CannedResponseItem,
     ConversationCountsResponse,
@@ -37,16 +40,39 @@ logger = logging.getLogger(__name__)
 def get_handoff_queue(customerId: str | None = Query(default=None)):
     return db.list_handoff_queue(customer_id=customerId)
 
-@router.get("/handoff/active", response_model=HandoffSessionResponse)
-def get_handoff_active():
-    session = db.get_active_handoff_session()
-    if session is None:
-        return Response(status_code=204)
-    return session
 
 @router.get("/handoff/{interaction_id}", response_model=HandoffSessionResponse)
 def get_handoff_by_id(interaction_id: str):
     return _handle_write(db.get_handoff_session, interaction_id)
+
+# text/event-stream by design: the copilot's pack, then its whisper tokens, as
+# SSE, for whoever may open the case (its holder, or a supervisor watching).
+# Listed in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
+@router.get("/handoff/{interaction_id}/copilot/stream", response_class=StreamingResponse)
+def stream_handoff_copilot(interaction_id: str):
+    from agent_core.copilot import iter_events
+
+    _handle_write(db.assert_handoff_readable, interaction_id)
+    events = iter_events(interaction_id)
+    first = next(events, None)
+    if first is None or first.get("type") == "error":
+        raise HTTPException(status_code=404, detail="interaction_not_found")
+
+    def _sse() -> Any:
+        yield f"event: {first['type']}\ndata: {json.dumps(first, default=str)}\n\n"
+        for event in events:
+            name = str(event.get("type") or "message")
+            yield f"event: {name}\ndata: {json.dumps(event, default=str)}\n\n"
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 @router.post("/handoff/{interaction_id}/claim", response_model=HandoffSessionResponse)
 def claim_handoff(interaction_id: str):

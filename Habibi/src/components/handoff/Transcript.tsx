@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownCircle, Bot, User, Headphones, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TranscriptTurn } from "@/api/types/handoff";
+import type { TranscriptTurn } from "@/api/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
 
 type Props = {
   turns: TranscriptTurn[];
-  streaming: boolean;
-  latestSpeaker?: TranscriptTurn["speaker"];
   speakers?: Record<string, string>;
+  /** The bot leg is still on the line: its turns are filed when it ends. */
+  callLive: boolean;
 };
 
-export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Props) {
+/**
+ * The conversation the bot had before it handed the caller over, as filed
+ * when its call ended. Nothing here is live: the person who takes the caller
+ * speaks on the callback line, which this page does not hear.
+ */
+export function Transcript({ turns, speakers, callLive }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -38,15 +43,7 @@ export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Pr
   return (
     <section className="relative flex min-h-0 flex-1 flex-col bg-surface">
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-surface px-250 py-100">
-        <div className="flex items-center gap-100 text-body-small font-semibold text-text">
-          Live transcript
-          {streaming && (
-            <span className="flex items-center gap-050 text-body-small font-medium text-text-subtle">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-background-success" />
-              streaming
-            </span>
-          )}
-        </div>
+        <h2 className="text-body-small font-semibold text-text">Conversation before the handoff</h2>
         <div className="flex items-center gap-150 text-body-small text-text-subtlest">
           <LegendPill color="var(--background-brand-bold)" label="Agent" />
           <LegendPill color="var(--text-primary)" label="Customer" />
@@ -58,16 +55,18 @@ export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Pr
         ref={scrollRef}
         onScroll={onScroll}
         role="log"
-        aria-live="polite"
-        aria-label="Live transcript"
+        aria-label="Conversation before the handoff"
         className="min-h-0 flex-1 overflow-y-auto px-250 py-200"
       >
         <div className="mx-auto max-w-3xl space-y-150">
-          {turns.map((t) => (
-            <TranscriptBubble key={t.id} turn={t} speakers={speakers} />
-          ))}
-          {streaming && latestSpeaker && latestSpeaker !== "system" && (
-            <TypingIndicator speaker={latestSpeaker} />
+          {turns.length === 0 ? (
+            <p className="py-300 text-center text-body-small text-text-subtlest">
+              {callLive
+                ? "The bot call is still in progress. Its conversation is filed here when it ends."
+                : "No conversation was recorded for this call."}
+            </p>
+          ) : (
+            turns.map((t) => <TranscriptBubble key={t.id} turn={t} speakers={speakers} />)
           )}
         </div>
       </div>
@@ -79,7 +78,7 @@ export function LiveTranscript({ turns, streaming, latestSpeaker, speakers }: Pr
           className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-075 rounded-full bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse shadow-overlay hover:bg-background-brand-bold-hovered"
         >
           <ArrowDownCircle className="h-3.5 w-3.5" />
-          Jump to live
+          Jump to the end
         </button>
       )}
     </section>
@@ -166,7 +165,7 @@ function TranscriptBubble({
 
   const isRight = meta.align === "right";
   return (
-    <div className={cn("flex animate-fade-up gap-100", isRight ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-100", isRight ? "justify-end" : "justify-start")}>
       {!isRight && (
         <div
           className={cn(
@@ -206,31 +205,5 @@ function TranscriptBubble({
         </div>
       )}
     </div>
-  );
-}
-
-function TypingIndicator({ speaker }: { speaker: TranscriptTurn["speaker"] }) {
-  const meta = speakerMeta(speaker);
-  const isRight = meta.align === "right";
-  return (
-    <div className={cn("flex gap-100", isRight ? "justify-end" : "justify-start")}>
-      {!isRight && <div className="h-7 w-7 shrink-0 rounded-full bg-surface-sunken" />}
-      <div className="rounded-large bg-surface px-150 py-100">
-        <div className="flex gap-050">
-          <Dot delay="0ms" />
-          <Dot delay="150ms" />
-          <Dot delay="300ms" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Dot({ delay }: { delay: string }) {
-  return (
-    <span
-      className="h-1.5 w-1.5 typing-dot rounded-full bg-text-subtlest"
-      style={{ animationDelay: delay }}
-    />
   );
 }

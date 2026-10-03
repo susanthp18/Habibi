@@ -5,8 +5,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { ActiveCall, FloorAgent, FloorAlert } from "@/api/types/floor";
-import { apiEventStream, apiGet, apiPost } from "./config";
-import { FloorCopilotResponse } from "./wire/generated";
+import { apiGet, apiPost } from "./config";
 
 export type FloorStats = {
   callsInProgress: number;
@@ -210,106 +209,6 @@ export function useFloorCopilot(interactionId: string | null) {
     enabled: Boolean(interactionId),
     staleTime: 8_000,
   });
-}
-
-export type CopilotStreamState = {
-  whisper: string;
-  engineDraft: string;
-  vetoes: string[];
-  card: FloorCopilot["card"];
-  approvals: FloorApproval[];
-  streaming: boolean;
-  done: boolean;
-  error: string | null;
-};
-
-const EMPTY_STREAM: CopilotStreamState = {
-  whisper: "",
-  engineDraft: "",
-  vetoes: [],
-  card: undefined,
-  approvals: [],
-  streaming: false,
-  done: false,
-  error: null,
-};
-
-export function useCopilotStream(interactionId: string | null) {
-  const [state, setState] = useState<CopilotStreamState>(EMPTY_STREAM);
-
-  useEffect(() => {
-    if (!interactionId) {
-      setState(EMPTY_STREAM);
-      return;
-    }
-    const ac = new AbortController();
-    setState({ ...EMPTY_STREAM, streaming: true });
-
-    void apiEventStream(
-      `/floor/copilot/${interactionId}/stream`,
-      (event, data) => {
-        const payload = (data ?? {}) as Record<string, unknown>;
-        const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
-        if (event === "pack") {
-          // The stream's first event is the GET body; the whisper then follows as tokens.
-          const pack = FloorCopilotResponse.parse(payload);
-          setState({
-            whisper: "",
-            engineDraft: pack.engineDraft || "",
-            vetoes: pack.vetoes ?? [],
-            card: pack.card,
-            approvals: pack.approvals ?? [],
-            streaming: true,
-            done: false,
-            error: null,
-          });
-          return;
-        }
-        if (event === "token") {
-          const chunk = str(payload.text) ?? "";
-          setState((prev) => ({
-            ...prev,
-            whisper: prev.whisper + chunk,
-            streaming: true,
-          }));
-          return;
-        }
-        if (event === "done") {
-          setState((prev) => ({
-            ...prev,
-            whisper: str(payload.whisperDraft) ?? prev.whisper,
-            engineDraft: str(payload.engineDraft) ?? prev.engineDraft,
-            vetoes: Array.isArray(payload.vetoes) ? (payload.vetoes as string[]) : prev.vetoes,
-            streaming: false,
-            done: true,
-          }));
-          return;
-        }
-        if (event === "error") {
-          // The server's own refusal (interaction_not_found); without this
-          // branch the panel stayed "streaming" forever.
-          setState((prev) => ({
-            ...prev,
-            streaming: false,
-            done: true,
-            error: str(payload.detail) ?? "copilot_failed",
-          }));
-        }
-      },
-      { signal: ac.signal },
-    ).catch((err: unknown) => {
-      if (ac.signal.aborted) return;
-      setState((prev) => ({
-        ...prev,
-        streaming: false,
-        error: err instanceof Error ? err.message : "Copilot stream failed",
-      }));
-    });
-
-    return () => ac.abort();
-  }, [interactionId]);
-
-  return state;
 }
 
 export async function fetchFloorApprovals(): Promise<FloorApproval[]> {

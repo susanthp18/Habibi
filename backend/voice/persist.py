@@ -1318,9 +1318,15 @@ def record_handoff(
     interaction_id: str,
     reason: str,
     bot_id: str | None = None,
-    to_team_id: str | None = "retail-collections",
-    queue: str | None = "Retail Collections",
+    transfer_outcome: str | None = None,
 ) -> str:
+    """The agent handed the call to a person: one open handoff per call.
+
+    It goes to the team of the agent who owns the customer, or to the whole
+    tenant's queue when nobody does. ``transfer_outcome`` says what became of
+    the caller ('callback_line' or 'no_one_available'). A repeated hook for the
+    same call returns the handoff already open instead of queueing a duplicate.
+    """
     reasons = {
         "sentiment_drop",
         "verification_failed",
@@ -1332,19 +1338,53 @@ def record_handoff(
         "routing_rule",
     }
     r = reason if reason in reasons else "customer_requested"
-    hid = _sid("HO")
     with db.engine.begin() as conn:
+        route = conn.execute(
+            text(
+                """
+                SELECT t.id AS team_id, t.name AS team_name
+                FROM interactions i
+                JOIN customers c ON c.id = i.customer_id
+                LEFT JOIN users u ON u.id = c.assigned_user_id
+                LEFT JOIN teams t ON t.id = u.team_id
+                WHERE i.id = :id
+                FOR UPDATE OF i
+                """
+            ),
+            {"id": interaction_id},
+        ).mappings().first() or {}
+        open_id = conn.execute(
+            text(
+                """
+                SELECT id FROM interaction_handoffs
+                WHERE interaction_id = :id AND to_kind = 'human' AND completed_at IS NULL
+                ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"id": interaction_id},
+        ).scalar()
+        if open_id:
+            conn.execute(
+                text(
+                    "UPDATE interaction_handoffs "
+                    "SET transfer_outcome = COALESCE(:outcome, transfer_outcome) WHERE id = :id"
+                ),
+                {"id": open_id, "outcome": transfer_outcome},
+            )
+            return str(open_id)
+        hid = _sid("HO")
         conn.execute(
             text(
                 """
                 INSERT INTO interaction_handoffs (
                   id, interaction_id, from_kind, from_user_id, from_bot_id,
                   to_kind, to_user_id, to_bot_id, to_team_id, reason, queue,
-                  requested_at, created_at
+                  transfer_outcome, requested_at, created_at
                 ) VALUES (
                   :id, :interaction_id, 'bot', NULL, :bot_id,
                   'human', NULL, NULL, :to_team_id, :reason, :queue,
-                  now(), now()
+                  :outcome, now(), now()
                 )
                 """
             ),
@@ -1352,9 +1392,10 @@ def record_handoff(
                 "id": hid,
                 "interaction_id": interaction_id,
                 "bot_id": bot_id or db.DEFAULT_BOT_ID,
-                "to_team_id": to_team_id,
+                "to_team_id": route.get("team_id"),
                 "reason": r,
-                "queue": queue,
+                "queue": route.get("team_name"),
+                "outcome": transfer_outcome,
             },
         )
         conn.execute(

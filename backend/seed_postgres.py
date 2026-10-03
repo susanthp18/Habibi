@@ -1053,7 +1053,8 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         upsert(conn, "interaction_participants", {"id": f"{call_id}-handler", "interaction_id": call_id, "participant_kind": handler_kind, "user_id": handler_user_id, "bot_id": handler_bot_id, "role": "primary", "joined_at": call.get("startedAt"), "left_at": None})
 
         if handler_kind == "human":
-            upsert(conn, "interaction_handoffs", {"id": f"handoff-{call_id}", "interaction_id": call_id, "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": handler_user_id, "to_bot_id": None, "to_team_id": "card-collections", "reason": seed_handoff_reason(call, call_id, avg_sentiment), "queue": "Card Collections", "requested_at": call.get("startedAt"), "accepted_at": call.get("startedAt"), "completed_at": None})
+            # A past call that a person took: its escalation was worked and closed.
+            upsert(conn, "interaction_handoffs", {"id": f"handoff-{call_id}", "interaction_id": call_id, "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": handler_user_id, "to_bot_id": None, "to_team_id": "card-collections", "reason": seed_handoff_reason(call, call_id, avg_sentiment), "queue": "Card Collections", "requested_at": call.get("startedAt"), "accepted_at": call.get("startedAt"), "completed_at": call.get("startedAt")})
 
         for idx, turn in enumerate(call.get("transcript", [])):
             upsert(conn, "interaction_transcript", {"id": f"{call_id}-{turn.get('id') or idx}", "interaction_id": call_id, "turn_index": idx, "speaker": turn.get("speaker") or "bot", "at_sec": turn.get("t") or 0, "text": turn.get("text") or "", "sentiment_delta": None})
@@ -1127,6 +1128,12 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
         if avg_sentiment is not None and float(avg_sentiment) < -0.25:
             upsert(conn, "live_alerts", {"id": f"alert-{call_id}", "interaction_id": call_id, "kind": "sentiment_drop", "severity": "high", "reason": "Negative sentiment detected", "acknowledged_by_user_id": "priya-nair", "acknowledged_at": call.get("startedAt")})
         upsert(conn, "retrieval_logs", {"id": f"retrieval-{call_id}", "interaction_id": call_id, "sandbox_run_id": None, "query": call.get("summary") or call_id, "top_chunks": [{"id": "chunk-rbi-disclosures-1", "score": 0.82}], "latency_ms": call.get("latencyMs"), "selected_answer_source": "kb-rbi-disclosures"})
+
+    # Two escalations waiting on the Handoff Hub, as the transfer hook files
+    # them: one caller put through to the callback line, one nobody could take.
+    waiting = [c for c in ctx["calls"] if (c.get("handledBy") or {}).get("kind") != "human" and channel(c.get("channel")) == "voice"][:2]
+    for call, (reason, outcome) in zip(waiting, (("dispute", "callback_line"), ("customer_requested", "no_one_available"))):
+        upsert(conn, "interaction_handoffs", {"id": f"handoff-waiting-{call['id']}", "interaction_id": call["id"], "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": None, "to_bot_id": None, "to_team_id": "card-collections", "reason": reason, "queue": "Card Collections", "transfer_outcome": outcome, "requested_at": call.get("startedAt"), "accepted_at": None, "completed_at": None})
 
     for canned in (
         {

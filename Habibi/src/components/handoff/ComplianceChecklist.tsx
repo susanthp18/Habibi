@@ -1,25 +1,37 @@
 import { CheckCircle2, Circle, Lock, ShieldCheck } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { ComplianceItem } from "@/api/handoff";
+import { useConfirm } from "@/components/ui/use-confirm";
 
 type Props = {
   items: ComplianceItem[];
-  checked: Record<string, boolean>;
-  onToggle: (id: string) => void;
+  /** Record an item read (or unread). The page shows what the server keeps. */
+  onToggle: (item: ComplianceItem, read: boolean) => void;
+  /** The item whose write is in flight. */
+  pendingId?: string | null;
+  readOnly?: boolean;
 };
 
-export function ComplianceChecklist({ items, checked, onToggle }: Props) {
+const IDENTITY_RULE = "rule-identity";
+
+/**
+ * What was read to the customer on this case, as the server has it. A tick is
+ * a recorded disclosure, so it shows only once the write succeeds. Identity
+ * is not a tick: confirming it files a manual verification, and once verified
+ * it cannot be undone.
+ */
+export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Props) {
+  const { confirm, confirmDialog } = useConfirm();
   const total = items.filter((i) => i.required).length;
-  const done = items.filter((i) => i.required && (checked[i.id] || i.checked)).length;
+  const done = items.filter((i) => i.required && i.checked).length;
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
 
   return (
     <div className="rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-150 py-100">
-        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+        <h2 className="flex items-center gap-075 text-body-small font-semibold text-text">
           <ShieldCheck className="h-3.5 w-3.5 text-text-success" />
           Compliance
-        </div>
+        </h2>
         <span className="tabular text-body-small text-text-subtle">
           {done}/{total} required
         </span>
@@ -34,35 +46,59 @@ export function ComplianceChecklist({ items, checked, onToggle }: Props) {
       </div>
       <ul className="px-050 py-050">
         {items.map((item) => {
-          const isDone = !!(checked[item.id] || item.checked);
-          const locked = !!item.locked;
+          const identity = item.ruleId === IDENTITY_RULE;
+          const locked = item.locked;
+          const pending = pendingId === item.id;
+          const disabled = readOnly || locked || pending;
+          const toggle = async () => {
+            if (disabled) return;
+            if (identity && !item.checked) {
+              const ok = await confirm({
+                title: "Record identity verified?",
+                description:
+                  "This files a manual identity verification for this call. Once recorded it can't be undone.",
+                confirmLabel: "Record verification",
+                cancelLabel: "Not yet",
+              });
+              if (!ok) return;
+            }
+            onToggle(item, !item.checked);
+          };
           return (
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => !locked && onToggle(item.id)}
-                disabled={locked}
-                className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                role="checkbox"
+                aria-checked={item.checked}
+                aria-disabled={disabled}
+                onClick={() => void toggle()}
+                title={
+                  locked
+                    ? "Verified on this call. A verification can't be undone."
+                    : identity && !item.checked
+                      ? "Files a manual identity verification"
+                      : undefined
+                }
+                className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent"
               >
-                {isDone ? (
+                {item.checked ? (
                   <CheckCircle2 className="mt-025 h-4 w-4 shrink-0 text-text-success" />
-                ) : locked ? (
-                  <Lock className="mt-025 h-4 w-4 shrink-0 text-text-subtlest" />
                 ) : (
                   <Circle className="mt-025 h-4 w-4 shrink-0 text-text-subtlest" />
                 )}
-                <span
-                  className={cn(
-                    "text-body-small",
-                    isDone ? "text-text-subtle line-through" : "text-text",
-                  )}
-                >
-                  {item.label}
+                <span className="text-body-small text-text">
+                  {identity && !item.checked ? "Record identity verified" : item.label}
                   {!item.required && (
                     <span className="ml-050 text-body-small text-text-subtlest">(optional)</span>
                   )}
+                  {pending && (
+                    <span className="ml-050 text-body-small text-text-subtlest">saving…</span>
+                  )}
                   {locked && (
-                    <span className="ml-050 text-body-small text-text-subtlest">(system)</span>
+                    <span className="ml-050 inline-flex items-center gap-025 text-body-small text-text-subtlest">
+                      <Lock className="h-3 w-3" />
+                      verified
+                    </span>
                   )}
                 </span>
               </button>
@@ -70,6 +106,7 @@ export function ComplianceChecklist({ items, checked, onToggle }: Props) {
           );
         })}
       </ul>
+      {confirmDialog}
     </div>
   );
 }

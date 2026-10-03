@@ -2,7 +2,8 @@ import { cn } from "@/lib/utils";
 
 function initials(name: string) {
   return name
-    .split(" ")
+    .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 2)
     .map((n) => n[0])
     .join("")

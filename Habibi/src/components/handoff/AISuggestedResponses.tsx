@@ -1,90 +1,122 @@
-import { Copy, Send, Sparkles, BookOpen } from "lucide-react";
-import type { Suggestion } from "@/api/types/handoff";
+import { useState } from "react";
+import { BookOpen, Check, Copy, Sparkles } from "lucide-react";
+import type { HandoffSuggestion } from "@/api/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
+import { copyText } from "./handoff-words";
 
 type Canned = { id: string; label: string; text: string };
 
 type Props = {
-  items: Suggestion[];
-  onInsert: (s: Suggestion) => void;
+  items: HandoffSuggestion[];
+  /** A persisted suggestion the agent copied: recorded as used. */
+  onUsed?: (id: string) => void;
   canned?: Canned[];
+  /** The canned list failed to load (not "there are none"). */
+  cannedFailed?: boolean;
 };
 
-export function AISuggestedResponses({ items, onInsert, canned = [] }: Props) {
+export function AISuggestedResponses({ items, onUsed, canned = [], cannedFailed }: Props) {
+  const open = items.filter((s) => !s.accepted);
   return (
     <div className="rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-150 py-100">
-        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+        <h2 className="flex items-center gap-075 text-body-small font-semibold text-text">
           <Sparkles className="h-3.5 w-3.5 text-text-brand" />
-          AI suggestions
-        </div>
-        <Lozenge tone="selected">{items.length} live</Lozenge>
+          Suggested responses
+        </h2>
+        <Lozenge tone="neutral">{open.length}</Lozenge>
       </div>
       <ul className="divide-y divide-border">
-        {items.length === 0 && (
-          <li className="px-150 py-300 text-center text-body-small text-text-subtlest">
-            Listening… suggestions appear as the conversation develops.
+        {open.length === 0 && (
+          <li className="px-150 py-200 text-center text-body-small text-text-subtlest">
+            No suggestions for this case.
           </li>
         )}
-        {items.map((s) => (
-          <li key={s.id} className="animate-fade-up px-150 py-150">
-            <div className="text-body-small font-semibold text-text">{s.title}</div>
-            <p className="mt-050 line-clamp-3 text-body-small leading-snug text-text-subtle">
-              {s.body}
-            </p>
-            <div className="mt-100 flex items-center justify-between">
-              <span className="text-body-small text-text-subtlest">{s.source}</span>
-              <div className="flex items-center gap-050">
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard?.writeText(s.body)}
-                  title="Copy"
-                  className="grid h-7 w-7 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onInsert(s)}
-                  className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered"
-                >
-                  <Send className="h-3 w-3" />
-                  Speak this
-                </button>
-              </div>
-            </div>
-          </li>
+        {open.map((s) => (
+          <SuggestionRow key={s.id} s={s} onUsed={onUsed} />
         ))}
       </ul>
-      {canned.length > 0 && (
+      {(canned.length > 0 || cannedFailed) && (
         <div className="border-t border-border px-150 py-100">
-          <div className="mb-075 flex items-center gap-075 text-body-small font-semibold text-text-subtle">
+          <h3 className="mb-075 flex items-center gap-075 text-body-small font-semibold text-text-subtle">
             <BookOpen className="h-3.5 w-3.5" />
             Playbooks
-          </div>
-          <ul className="space-y-050">
-            {canned.slice(0, 4).map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onInsert({
-                      id: `canned-${c.id}`,
-                      title: c.label,
-                      body: c.text,
-                      source: "Playbook",
-                      showAfter: 0,
-                    })
-                  }
-                  className="w-full truncate rounded-medium px-075 py-050 text-left text-body-small text-text hover:bg-surface-sunken"
-                >
-                  {c.label}
-                </button>
-              </li>
-            ))}
-          </ul>
+          </h3>
+          {cannedFailed ? (
+            <p className="text-body-small text-text-subtlest">Couldn't load the playbooks.</p>
+          ) : (
+            <ul className="space-y-050">
+              {canned.slice(0, 4).map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => void copyText(c.text)}
+                    title={c.text}
+                    className="flex w-full items-center gap-075 truncate rounded-medium px-075 py-050 text-left text-body-small text-text hover:bg-surface-sunken"
+                  >
+                    <Copy className="h-3 w-3 shrink-0 text-text-subtlest" />
+                    <span className="truncate">{c.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function SuggestionRow({ s, onUsed }: { s: HandoffSuggestion; onUsed?: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const long = s.body.length > 180;
+  return (
+    <li className="px-150 py-150">
+      <div className="flex items-center gap-075">
+        <span className="text-body-small font-semibold text-text">{s.title}</span>
+        {s.stale ? (
+          <Lozenge tone="warning" title="Found for an earlier customer message">
+            Earlier message
+          </Lozenge>
+        ) : null}
+      </div>
+      <p
+        className={
+          expanded || !long
+            ? "mt-050 whitespace-pre-wrap text-body-small leading-snug text-text-subtle"
+            : "mt-050 line-clamp-3 text-body-small leading-snug text-text-subtle"
+        }
+      >
+        {s.body}
+      </p>
+      {long ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-025 text-body-small font-medium text-text-brand hover:underline"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+      <div className="mt-100 flex items-center justify-between">
+        <span className="text-body-small text-text-subtlest">{s.source}</span>
+        <button
+          type="button"
+          onClick={() =>
+            void copyText(s.body).then((ok) => {
+              if (!ok) return;
+              setCopied(true);
+              onUsed?.(s.id);
+            })
+          }
+          className="flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small font-semibold text-text hover:bg-surface-sunken"
+        >
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </li>
   );
 }

@@ -1,164 +1,413 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createLazyFileRoute, useNavigate } from "@tanstack/react-router";
-import { CallHeader } from "@/components/handoff/CallHeader";
+import { useState } from "react";
+import { createLazyFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { CaseHeader } from "@/components/handoff/CaseHeader";
 import { SentimentMeter } from "@/components/handoff/SentimentMeter";
-import { LiveTranscript } from "@/components/handoff/LiveTranscript";
+import { Transcript } from "@/components/handoff/Transcript";
 import { AISuggestedResponses } from "@/components/handoff/AISuggestedResponses";
 import { HandoffCopilot } from "@/components/handoff/HandoffCopilot";
 import { CustomerContextPanel } from "@/components/handoff/CustomerContextPanel";
 import { ComplianceChecklist } from "@/components/handoff/ComplianceChecklist";
 import { WrapUpBar } from "@/components/handoff/WrapUpBar";
 import { HandoffAlerts, HandoffQueueList } from "@/components/handoff/HandoffQueue";
+import { handoffErrorWords } from "@/components/handoff/handoff-words";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorBanner } from "@/components/ui/query-state";
-import { toast } from "sonner";
 import { postSupervisorAction } from "@/api/floor";
 import { useCannedResponses } from "@/api/inbox";
-import { usePatchPresence } from "@/api/presence";
+import { can, useMe } from "@/api/me";
 import {
-  acceptHandoffSuggestion,
-  postHandoffDisclosure,
+  useAcceptSuggestion,
   useClaimHandoff,
-  useHandoffActive,
   useHandoffQueue,
   useHandoffSession,
+  useRecordDisclosure,
   useWrapUpHandoff,
+  type ComplianceItem,
   type HandoffSession,
   type WrapUpPayload,
 } from "@/api/handoff";
-import type { Suggestion, TranscriptTurn } from "@/api/types/handoff";
+import { useMinWidth } from "@/hooks/use-min-width";
 import { cn } from "@/lib/utils";
-
-import { useLiveCallTimeline } from "@/components/handoff/useLiveCallTimeline";
 
 export const Route = createLazyFileRoute("/_app/handoff")({
   component: HandoffPage,
 });
 
 type RailTab = "context" | "suggest" | "compliance";
+type ClaimError = { interactionId: string; message: string };
 
 function HandoffPage() {
   const { interactionId, customerId, mode } = Route.useSearch();
   const navigate = useNavigate({ from: "/handoff" });
-  const queue = useHandoffQueue(customerId);
-  const active = useHandoffActive();
   const claimMut = useClaimHandoff();
+  const [claimError, setClaimError] = useState<ClaimError | null>(null);
 
-  useEffect(() => {
-    if (interactionId) return;
-    const mine = active.data?.interactionId ?? queue.data?.activeInteractionId;
-    if (mine) {
-      void navigate({ search: { interactionId: mine, customerId }, replace: true });
-    }
-  }, [interactionId, active.data, queue.data, customerId, navigate]);
-
-  const handleClaim = (id: string) => {
+  const claim = (id: string) => {
+    setClaimError(null);
     claimMut.mutate(id, {
       onSuccess: (session) => {
         void navigate({ search: { interactionId: session.interactionId, customerId } });
       },
+      onError: (e) => setClaimError({ interactionId: id, message: handoffErrorWords(e) }),
     });
   };
 
   if (interactionId) {
     return (
-      <>
-        <HandoffSessionGate
-          interactionId={interactionId}
-          customerId={customerId}
-          monitor={mode === "monitor"}
-          onClaim={handleClaim}
-          claiming={claimMut.isPending}
-          claimError={claimMut.error}
-        />
-      </>
+      <CasePage
+        // A new case starts clean: nothing typed or ticked for one leaks into the next.
+        key={interactionId}
+        interactionId={interactionId}
+        monitor={mode === "monitor"}
+        onClaim={claim}
+        claiming={claimMut.isPending}
+        claimError={claimError?.interactionId === interactionId ? claimError.message : null}
+      />
     );
   }
+  return (
+    <QueuePage
+      customerId={customerId}
+      onClaim={claim}
+      claimingId={claimMut.isPending ? claimMut.variables : null}
+      claimError={claimError}
+    />
+  );
+}
 
-  if (queue.isError) {
+function QueuePage({
+  customerId,
+  onClaim,
+  claimingId,
+  claimError,
+}: {
+  customerId?: string;
+  onClaim: (id: string) => void;
+  claimingId: string | null | undefined;
+  claimError: ClaimError | null;
+}) {
+  const queue = useHandoffQueue(customerId);
+  if (queue.isError && !queue.data) {
     return (
       <div className="grid h-full place-items-center p-400">
         <QueryErrorBanner label="the handoff queue" error={queue.error} />
       </div>
     );
   }
-
+  if (!queue.data) return <HandoffSkeleton />;
+  const mine = queue.data.activeInteractionId;
   return (
-    <>
-      {!queue.data ? (
-        <HandoffSkeleton />
-      ) : (
-        <HandoffQueueList
-          items={queue.data.items}
-          claimingId={claimMut.isPending ? claimMut.variables : null}
-          onClaim={handleClaim}
-        />
-      )}
-    </>
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      {queue.isRefetchError ? <StaleBanner at={queue.dataUpdatedAt} what="the queue" /> : null}
+      {mine ? (
+        <div className="mx-auto mt-200 flex w-full max-w-2xl items-center justify-between gap-150 rounded-large border border-border-brand bg-background-brand-subtlest px-150 py-100">
+          <span className="text-body-small text-text">You have a case open.</span>
+          <Link
+            to="/handoff"
+            search={{ interactionId: mine, customerId }}
+            className="text-body-small font-semibold text-text-brand hover:underline"
+          >
+            Resume it
+          </Link>
+        </div>
+      ) : null}
+      <HandoffQueueList
+        items={queue.data.items}
+        total={queue.data.total}
+        claimingId={claimingId}
+        claimError={claimError}
+        onClaim={onClaim}
+      />
+    </div>
   );
 }
 
-function HandoffSessionGate({
+function CasePage({
   interactionId,
-  customerId,
   monitor: monitorMode,
   onClaim,
   claiming,
   claimError,
 }: {
   interactionId: string;
-  customerId?: string;
-  monitor?: boolean;
+  monitor: boolean;
   onClaim: (id: string) => void;
   claiming: boolean;
-  claimError: Error | null;
+  claimError: string | null;
 }) {
-  const {
-    data: session,
-    isError,
-    error,
-  } = useHandoffSession(interactionId, {
-    poll: true,
-  });
-
-  if (isError) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-surface p-300">
-        <QueryErrorBanner label="the handoff session" error={error} />
-      </div>
-    );
+  const q = useHandoffSession(interactionId);
+  if (!q.data) {
+    if (q.isError) {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-150 bg-surface p-300">
+          <QueryErrorBanner label="the case" error={q.error} />
+          <Link to="/handoff" search={{}} className="text-body-small font-semibold text-text-brand">
+            Back to queue
+          </Link>
+        </div>
+      );
+    }
+    return <HandoffSkeleton />;
   }
+  return (
+    <HandoffCase
+      session={q.data}
+      monitor={monitorMode || q.data.monitor}
+      stale={q.isRefetchError ? q.dataUpdatedAt : null}
+      onClaim={() => onClaim(interactionId)}
+      claiming={claiming}
+      claimError={claimError}
+    />
+  );
+}
 
-  if (!session) return <HandoffSkeleton />;
+function HandoffCase({
+  session,
+  monitor,
+  stale,
+  onClaim,
+  claiming,
+  claimError,
+}: {
+  session: HandoffSession;
+  monitor: boolean;
+  /** When the last good snapshot was read, if the latest refresh failed. */
+  stale: number | null;
+  onClaim: () => void;
+  claiming: boolean;
+  claimError: string | null;
+}) {
+  const { activeCall, customerContext, transcriptScript, suggestions, complianceItems, alerts } =
+    session;
+  const { data: me } = useMe();
+  const canSupervise = can(me, "perm-supervisor-write");
+  const canClaim = can(me, "perm-interactions-write");
+  const open = session.status !== "completed";
+  const pending = session.status === "pending_claim";
+  const mine = session.claimed && !monitor;
+  const readOnly = !mine || !open;
 
-  const monitor = Boolean(monitorMode || session.monitor);
+  const qc = useQueryClient();
+  const navigate = useNavigate({ from: "/handoff" });
+  const canned = useCannedResponses();
+  const wrapMut = useWrapUpHandoff();
+  const disclose = useRecordDisclosure(session.interactionId);
+  const accept = useAcceptSuggestion(session.interactionId);
+  const wide = useMinWidth(1024);
+  const [wrapOpen, setWrapOpen] = useState(false);
+  const [wrapError, setWrapError] = useState<string | null>(null);
+  const [railTab, setRailTab] = useState<RailTab>("context");
 
-  if (!session.claimed && !monitor) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-150 p-400 text-center">
-        <p className="text-sm font-semibold text-text">
-          {session.activeCall.customerName} is waiting in queue
-        </p>
-        <p className="max-w-md text-body text-text-subtlest">
-          {session.activeCall.escalationReason} · {session.activeCall.accountId}
-        </p>
-        {claimError ? (
-          <p className="text-body-small text-text-danger">{claimError.message}</p>
-        ) : null}
-        <button
-          type="button"
-          disabled={claiming}
-          onClick={() => onClaim(interactionId)}
-          className="rounded-medium bg-background-brand-bold px-200 py-100 text-body font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
-        >
-          {claiming ? "Claiming…" : "Claim this call"}
-        </button>
-      </div>
+  const saveWrap = (payload: WrapUpPayload) => {
+    setWrapError(null);
+    wrapMut.mutate(
+      { interactionId: session.interactionId, customerId: session.customerId, ...payload },
+      {
+        onSuccess: () => {
+          toast.success("Wrap-up saved");
+          void navigate({ search: {} });
+        },
+        onError: (e) => setWrapError(handoffErrorWords(e)),
+      },
     );
-  }
+  };
+
+  const toggleDisclosure = (item: ComplianceItem, read: boolean) => {
+    disclose.mutate(
+      { itemId: item.id, ruleId: item.ruleId, label: item.label, read },
+      { onError: (e) => toast.error(handoffErrorWords(e)) },
+    );
+  };
+
+  const takeOver = () => {
+    // The Floor's takeover: the open handoff becomes the supervisor's case.
+    void postSupervisorAction(session.interactionId, "barge")
+      .then(() => {
+        toast.success("Case taken over");
+        void qc.invalidateQueries({ queryKey: ["handoff"] });
+        void navigate({
+          search: { interactionId: session.interactionId, customerId: session.customerId },
+          replace: true,
+        });
+      })
+      .catch((e) => toast.error(handoffErrorWords(e)));
+  };
+
+  const copilot = <HandoffCopilot interactionId={session.interactionId} canSignal={canSupervise} />;
+  const context = (
+    <>
+      <HandoffAlerts items={alerts} canAck={canSupervise} />
+      <CustomerContextPanel call={activeCall} context={customerContext} readOnly={readOnly} />
+    </>
+  );
+  const suggest = (
+    <>
+      {copilot}
+      <AISuggestedResponses
+        items={suggestions}
+        onUsed={
+          readOnly
+            ? undefined
+            : (id) => accept.mutate(id, { onError: (e) => toast.error(handoffErrorWords(e)) })
+        }
+        canned={canned.data}
+        cannedFailed={canned.isError}
+      />
+    </>
+  );
+  const compliance = (
+    <ComplianceChecklist
+      items={complianceItems}
+      onToggle={toggleDisclosure}
+      pendingId={disclose.isPending ? disclose.variables?.itemId : null}
+      readOnly={readOnly}
+    />
+  );
 
   return (
-    <HandoffLive session={session} customerId={customerId} monitor={monitor} onClaim={onClaim} />
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
+      <CaseHeader
+        call={activeCall}
+        monitor={monitor}
+        onWrapUp={mine && open && !wrapOpen ? () => setWrapOpen(true) : undefined}
+      />
+      {stale ? <StaleBanner at={stale} what="this case" /> : null}
+      {pending && !monitor ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-150 border-b border-border bg-background-warning-subtler px-250 py-100">
+          <p className="text-body-small text-text">
+            This case is waiting for an agent. Claim it to work it and wrap it up.
+          </p>
+          <div className="flex items-center gap-150">
+            {claimError ? (
+              <p role="alert" className="text-body-small text-text-danger">
+                {claimError}
+              </p>
+            ) : null}
+            {canClaim ? (
+              <button
+                type="button"
+                disabled={claiming}
+                onClick={onClaim}
+                className="rounded-medium bg-background-brand-bold px-200 py-075 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
+              >
+                {claiming ? "Claiming…" : "Claim this case"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {monitor ? (
+        <div className="flex shrink-0 items-center justify-between gap-150 border-b border-border bg-background-brand-subtlest/50 px-250 py-075">
+          <p className="text-body-small text-text-brand">
+            {session.claimed
+              ? `Watching ${activeCall.agentName}'s case — read-only.`
+              : "Watching an unclaimed case — read-only."}
+          </p>
+          {canSupervise && open ? (
+            <button
+              type="button"
+              onClick={session.claimed ? takeOver : onClaim}
+              className="rounded-medium bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-danger-bold-hovered"
+            >
+              {session.claimed ? "Take over case" : "Claim this case"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <SentimentMeter series={session.sentimentSeries} />
+          <Transcript
+            turns={transcriptScript}
+            speakers={session.speakers}
+            callLive={activeCall.callState === "live"}
+          />
+        </div>
+        {wide ? (
+          <aside className="flex w-[22.5rem] shrink-0 flex-col gap-150 overflow-y-auto border-l border-border bg-surface px-150 py-150 xl:w-[25rem]">
+            {context}
+            {suggest}
+            {compliance}
+          </aside>
+        ) : null}
+      </div>
+
+      {!wide ? (
+        <div className="flex min-h-0 flex-col border-t border-border">
+          <div
+            role="tablist"
+            aria-label="Case details"
+            className="flex shrink-0 gap-050 border-b border-border px-150 py-075"
+          >
+            {(
+              [
+                ["context", "Context"],
+                ["suggest", "Suggest"],
+                ["compliance", "Compliance"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={railTab === key}
+                aria-controls={`handoff-tab-${key}`}
+                onClick={() => setRailTab(key)}
+                className={cn(
+                  "rounded-medium px-100 py-050 text-body-small font-semibold",
+                  railTab === key
+                    ? "bg-background-brand-subtlest text-text-brand"
+                    : "text-text-subtle",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div
+            id={`handoff-tab-${railTab}`}
+            role="tabpanel"
+            className="max-h-[40vh] space-y-150 overflow-y-auto px-150 py-150"
+          >
+            {railTab === "context" && context}
+            {railTab === "suggest" && suggest}
+            {railTab === "compliance" && compliance}
+          </div>
+        </div>
+      ) : null}
+
+      {mine && open ? (
+        <WrapUpBar
+          open={wrapOpen}
+          outcomes={session.outcomes}
+          saving={wrapMut.isPending}
+          error={wrapError}
+          defaultPtpAmount={customerContext.nextEmi?.amount}
+          actorId={me?.id}
+          onClose={() => setWrapOpen(false)}
+          onSave={saveWrap}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function StaleBanner({ at, what }: { at: number; what: string }) {
+  const time = new Date(at).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return (
+    <p
+      role="status"
+      className="shrink-0 border-b border-border bg-background-warning-subtler px-250 py-075 text-body-small text-text"
+    >
+      Couldn't refresh {what} — showing it as of {time}.
+    </p>
   );
 }
 
@@ -180,250 +429,6 @@ function HandoffSkeleton() {
           <Skeleton className="h-40 rounded-large" />
         </div>
       </div>
-    </div>
-  );
-}
-
-function HandoffLive({
-  session,
-  customerId: _customerId,
-  monitor = false,
-  onClaim,
-}: {
-  session: HandoffSession;
-  customerId?: string;
-  monitor?: boolean;
-  onClaim?: (id: string) => void;
-}) {
-  const {
-    activeCall,
-    customerContext,
-    transcriptScript,
-    suggestions,
-    complianceItems,
-    dispositions,
-    speakers,
-    sentimentSeries,
-    alerts,
-  } = session;
-  const mock = Boolean(session.scriptedReplay);
-
-  const wrapMut = useWrapUpHandoff();
-  const presenceMut = usePatchPresence();
-  const canned = useCannedResponses();
-  const navigate = useNavigate({ from: "/handoff" });
-  const [muted, setMuted] = useState(false);
-  const [ended, setEnded] = useState(session.status === "completed");
-  const [wrapOpen, setWrapOpen] = useState(false);
-  const [wrapSaved, setWrapSaved] = useState(false);
-  const [wrapError, setWrapError] = useState<string | null>(null);
-  const [railTab, setRailTab] = useState<RailTab>("context");
-  const {
-    elapsed,
-    allTurns,
-    latestSpeaker,
-    streaming,
-    sentiment,
-    compliance,
-    activeSuggestions,
-    handleInsertSuggestion,
-    handleToggleCompliance,
-  } = useLiveCallTimeline({
-    session,
-    mock,
-    ended,
-  });
-
-  const handleEndCall = () => {
-    setEnded(true);
-    setWrapOpen(true);
-    if (!mock) void presenceMut.mutate("wrap_up");
-  };
-
-  const handleSaveWrap = (payload: WrapUpPayload) => {
-    if (mock) {
-      setWrapOpen(false);
-      setWrapSaved(true);
-      return;
-    }
-    setWrapError(null);
-    wrapMut.mutate(
-      {
-        interactionId: session.interactionId,
-        customerId: session.customerId,
-        ...payload,
-      },
-      {
-        onSuccess: () => {
-          setWrapOpen(false);
-          setWrapSaved(true);
-          void presenceMut.mutate("available");
-        },
-        onError: (e) => {
-          setWrapError(e instanceof Error ? e.message : "Wrap-up failed");
-        },
-      },
-    );
-  };
-
-  const rail = (
-    <>
-      <HandoffAlerts items={alerts} mock={mock} />
-      <HandoffCopilot
-        interactionId={session.interactionId}
-        onInsert={monitor ? () => undefined : handleInsertSuggestion}
-        monitor={monitor}
-      />
-      <CustomerContextPanel call={activeCall} context={customerContext} />
-      <AISuggestedResponses
-        items={activeSuggestions}
-        onInsert={monitor ? () => undefined : handleInsertSuggestion}
-        canned={monitor ? [] : canned.data}
-      />
-      <ComplianceChecklist
-        items={complianceItems}
-        checked={compliance}
-        onToggle={monitor ? () => undefined : handleToggleCompliance}
-      />
-    </>
-  );
-
-  return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface">
-      <CallHeader
-        call={activeCall}
-        elapsed={elapsed}
-        muted={muted}
-        onToggleMute={() => setMuted((m) => !m)}
-        onHold={() => {}}
-        onTransfer={() => {}}
-        onEnd={handleEndCall}
-        ended={ended}
-        mediaEnabled={false}
-        monitor={monitor}
-      />
-      {monitor && (
-        <div className="flex shrink-0 items-center justify-between gap-150 border-b border-border bg-background-brand-subtlest/50 px-250 py-075">
-          <p className="text-body-small text-text-brand">
-            Monitoring — you are not on this call. Transcript is live; media is not.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (!session.claimed && onClaim) {
-                onClaim(session.interactionId);
-                return;
-              }
-              void postSupervisorAction(session.interactionId, "barge")
-                .then(() => {
-                  toast.success("Handoff taken");
-                  void navigate({
-                    search: {
-                      interactionId: session.interactionId,
-                      customerId: session.customerId,
-                      mode: undefined,
-                    },
-                    replace: true,
-                  });
-                })
-                .catch((e) => toast.error(e instanceof Error ? e.message : "Take over failed"));
-            }}
-            className="rounded-medium bg-background-danger-bold px-150 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-danger-bold-hovered"
-          >
-            Take over
-          </button>
-        </div>
-      )}
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <SentimentMeter series={sentiment} />
-          <LiveTranscript
-            turns={allTurns}
-            streaming={streaming}
-            latestSpeaker={latestSpeaker}
-            speakers={speakers}
-          />
-        </div>
-
-        <aside className="hidden w-[22.5rem] shrink-0 flex-col gap-150 overflow-y-auto border-l border-border bg-surface px-150 py-150 lg:flex xl:w-[25rem]">
-          {rail}
-        </aside>
-      </div>
-
-      <div className="flex min-h-0 flex-col border-t border-border lg:hidden">
-        <div className="flex shrink-0 gap-050 border-b border-border px-150 py-075">
-          {(
-            [
-              ["context", "Context"],
-              ["suggest", "Suggest"],
-              ["compliance", "Compliance"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setRailTab(key)}
-              className={cn(
-                "rounded-medium px-100 py-050 text-body-small font-semibold",
-                railTab === key
-                  ? "bg-background-brand-subtlest text-text-brand"
-                  : "text-text-subtle",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="max-h-[40vh] overflow-y-auto px-150 py-150">
-          {railTab === "context" && (
-            <>
-              <HandoffAlerts items={alerts} mock={mock} />
-              <div className="mt-150">
-                <CustomerContextPanel call={activeCall} context={customerContext} />
-              </div>
-            </>
-          )}
-          {railTab === "suggest" && (
-            <div className="space-y-150">
-              <HandoffCopilot
-                interactionId={session.interactionId}
-                onInsert={handleInsertSuggestion}
-                monitor={monitor}
-              />
-              <AISuggestedResponses
-                items={activeSuggestions}
-                onInsert={handleInsertSuggestion}
-                canned={canned.data}
-              />
-            </div>
-          )}
-          {railTab === "compliance" && (
-            <ComplianceChecklist
-              items={complianceItems}
-              checked={compliance}
-              onToggle={monitor ? () => undefined : handleToggleCompliance}
-            />
-          )}
-        </div>
-      </div>
-
-      {!monitor && (
-        <WrapUpBar
-          open={wrapOpen}
-          saved={wrapSaved}
-          saving={wrapMut.isPending}
-          error={wrapError}
-          dispositions={dispositions}
-          defaultNotes={mock ? "Payment gateway failure confirmed. PTP captured." : ""}
-          defaultPtpAmount={customerContext.nextEmi?.amount}
-          onClose={() => {
-            setWrapOpen(false);
-            if (wrapSaved) setWrapSaved(false);
-          }}
-          onSave={handleSaveWrap}
-        />
-      )}
     </div>
   );
 }

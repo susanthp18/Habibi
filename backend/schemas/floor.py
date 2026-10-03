@@ -246,6 +246,9 @@ class CopilotEnginesResponse(BaseModel):
     treatment: CopilotTreatmentResponse
     #: The latest live-QA row of the interaction pack, or nothing yet.
     liveQa: dict[str, Any] | None = None
+    #: Engines that could not be read ("authority", "treatment"): their empty
+    #: snapshot above means unknown, not "no decision".
+    unavailable: list[str] = []
 
 
 class CopilotCardChipResponse(BaseModel):

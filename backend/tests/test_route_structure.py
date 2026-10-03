@@ -26,7 +26,7 @@ _UNTYPED_BY_DESIGN = frozenset(
         "POST /twilio/voice/incoming",  # TwiML (application/xml) for Twilio
         "POST /twilio/voice/fallback",  # TwiML (application/xml) for Twilio
         "POST /twilio/sms/status",  # Twilio status callback: 204, no body
-        "GET /floor/copilot/{interaction_id}/stream",  # SSE (text/event-stream)
+        "GET /handoff/{interaction_id}/copilot/stream",  # SSE (text/event-stream)
         "GET /interactions/{interaction_id}/export",  # JSON/Markdown file download
         "GET /interactions/{interaction_id}/recording",  # WAV stream
         "GET /metrics",  # Prometheus text exposition

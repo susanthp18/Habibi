@@ -131,6 +131,8 @@ _VALUE_ERROR_STATUS: dict[str, int] = {
     "invalid_severity": 422,
     "invalid_updated_after": 422,
     "disclosure_label_required": 422,
+    "unknown_disposition": 422,
+    "disposition_needs": 422,
     "productId_required": 422,
     "loss_reason_required": 422,
     "target_bot_required": 422,

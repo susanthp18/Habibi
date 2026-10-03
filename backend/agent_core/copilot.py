@@ -13,7 +13,6 @@ from collections.abc import Iterator
 from typing import Any
 
 from sqlalchemy import text
-from agent_core.dicts import sub
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +36,16 @@ def assemble(interaction_id: str) -> dict[str, Any] | None:
     customer_id = pack.get("customerId")
     authority = _authority(customer_id, interaction_id)
     treatment = _treatment(customer_id)
+    # An engine that could not be read is not one with nothing to say: the
+    # draft names it instead of reporting that no veto is in force.
+    unavailable = [name for name, got in (("authority", authority), ("treatment", treatment)) if got is None]
+    from agent_core.authority.policy import empty as authority_empty
+
     engines = {
-        "authority": authority,
-        "treatment": treatment,
+        "authority": authority if authority is not None else authority_empty() | {"customerId": customer_id},
+        "treatment": treatment if treatment is not None else dict(_TREATMENT_NONE),
         "liveQa": _latest_qa(pack),
+        "unavailable": unavailable,
     }
     draft = _deterministic_draft(engines)
     return {
@@ -107,7 +112,8 @@ def _approvals_for(customer_id: str | None) -> list[dict[str, Any]]:
         return []
 
 
-def _authority(customer_id: str | None, interaction_id: str) -> dict[str, Any]:
+def _authority(customer_id: str | None, interaction_id: str) -> dict[str, Any] | None:
+    """The authority snapshot; None when it could not be read."""
     if not customer_id:
         from agent_core.authority.policy import empty
 
@@ -125,23 +131,24 @@ def _authority(customer_id: str | None, interaction_id: str) -> dict[str, Any]:
             )
     except Exception:
         logger.exception("copilot authority snapshot failed")
-        from agent_core.authority.policy import empty
-
-        return empty() | {"customerId": customer_id}
+        return None
 
 
-def _treatment(customer_id: str | None) -> dict[str, Any]:
-    empty = {
-        "decisionId": None,
-        "action": None,
-        "channel": None,
-        "rationale": None,
-        "enacted": False,
-        "enactedBy": None,
-        "scheduledAt": None,
-    }
+_TREATMENT_NONE: dict[str, Any] = {
+    "decisionId": None,
+    "action": None,
+    "channel": None,
+    "rationale": None,
+    "enacted": False,
+    "enactedBy": None,
+    "scheduledAt": None,
+}
+
+
+def _treatment(customer_id: str | None) -> dict[str, Any] | None:
+    """The current treatment decision; None when it could not be read."""
     if not customer_id:
-        return empty
+        return dict(_TREATMENT_NONE)
     try:
         import db
 
@@ -153,7 +160,7 @@ def _treatment(customer_id: str | None) -> dict[str, Any]:
         with db.engine.connect() as conn:
             row = decisions.current(conn, customer_id=customer_id, tenant_id=db.current_tenant())
         if not row:
-            return empty
+            return dict(_TREATMENT_NONE)
         return {
             "decisionId": row["id"],
             # A held decision is not a plan: its rationale says why it held.
@@ -166,7 +173,7 @@ def _treatment(customer_id: str | None) -> dict[str, Any]:
         }
     except Exception:
         logger.exception("copilot treatment lookup failed")
-        return empty
+        return None
 
 
 def _latest_qa(pack: dict[str, Any]) -> dict[str, Any] | None:
@@ -178,8 +185,14 @@ def _latest_qa(pack: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+_UNAVAILABLE_WORDS = {"authority": "the authority decision", "treatment": "the treatment plan"}
+
+
 def _deterministic_draft(engines: dict[str, Any]) -> str:
     lines: list[str] = []
+    missing = [_UNAVAILABLE_WORDS[name] for name in engines.get("unavailable") or []]
+    if missing:
+        lines.append(f"Couldn't load {' or '.join(missing)} — check it before offering anything.")
     auth = engines.get("authority") or {}
     talk = (auth.get("talkTrack") or "").strip()
     if talk:
@@ -200,6 +213,8 @@ def _deterministic_draft(engines: dict[str, Any]) -> str:
             lines.append(str(treat["rationale"])[:240])
     if not lines:
         lines.append("Stay with the current script. No engine veto is in force.")
+    elif missing and len(lines) == 1:
+        lines.append("Stay with the current script.")
     return " ".join(lines)
 
 
@@ -218,7 +233,10 @@ def _vetoes(engines: dict[str, Any]) -> list[str]:
 
 
 def _maybe_polish(draft: str, engines: dict[str, Any]) -> str:
-    """Analysis profile may rephrase. It may not drop a veto."""
+    """Analysis profile may rephrase. It may not drop a veto, nor the warning
+    that an engine could not be read."""
+    if engines.get("unavailable"):
+        return draft
     try:
         import azure_openai
 

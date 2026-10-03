@@ -142,7 +142,7 @@ worker is draining it.
 | GET | `/dashboard?range&segment&team` | server-side filtered KPIs |
 | GET | `/calls` | audit trail |
 | GET | `/leads` | upsell pipeline |
-| GET | `/handoff/active` | live-call snapshot |
+| GET | `/handoff/queue`, `/handoff/{id}` | Handoff Hub: open escalations and the case |
 | POST/PATCH | `/interactions`, `/interactions/{id}/wrap-up` | manual call logging and wrap-up |
 | POST/PATCH | `/promises`, `/promises/{id}` | promise-to-pay capture/status |
 | POST | `/payment-plans` | payment plan plus first promise |

@@ -444,12 +444,6 @@ class HandoffNextEmi(BaseModel):
     daysOverdue: int = 0
 
 
-class HandoffDnd(BaseModel):
-    allowed: bool
-    window: str = ""
-    channels: list[str] = []
-
-
 class HandoffActiveCall(BaseModel):
     interactionId: str
     handoffId: str
@@ -467,18 +461,28 @@ class HandoffActiveCall(BaseModel):
     claimed: bool
     risk: str = "medium"
     handlerUserId: str | None = None
+    #: When the agent asked for a person (ISO).
+    requestedAt: str | None = None
+    #: The call, not the case: the bot leg is still on the line, or it ended.
+    callState: Literal["live", "ended"] = "ended"
+    callEndedAt: str | None = None
+    #: What became of the caller: put through to the callback line, or nobody
+    #: could take them. None: not a Voice Studio transfer.
+    transferOutcome: Literal["callback_line", "no_one_available"] | None = None
 
 
 class HandoffCustomerContext(BaseModel):
     risk: str
-    outstanding: float = 0
+    #: The interaction's loan. None: no loan on the call, never a confirmed zero.
+    outstanding: float | None = None
     currency: str = "₹"
+    #: The customer's newest promise on any loan.
     lastPromise: HandoffLastPromise | None = None
     nextEmi: HandoffNextEmi | None = None
     openDisputes: int = 0
-    dnd: HandoffDnd
     tenureMonths: int = 0
     product: str = ""
+    #: None: the policy could not be read just now -- not "no decision".
     offerPolicy: OfferPolicyResponse | None = None
     authorityPolicy: AuthorityPolicyResponse | None = None
 
@@ -496,8 +500,9 @@ class HandoffSuggestion(BaseModel):
     title: str
     body: str
     source: str = ""
-    showAfter: int = 0
     accepted: bool = False
+    #: Found for an earlier customer message than the thread's latest.
+    stale: bool = False
 
 
 class HandoffComplianceItem(BaseModel):
@@ -516,6 +521,13 @@ class HandoffAlertItem(BaseModel):
     reason: str | None = None
 
 
+class HandoffOutcome(BaseModel):
+    """A wrap-up outcome and the evidence it must carry (db_handoff.HANDOFF_OUTCOMES)."""
+
+    label: str
+    needs: Literal["promise", "callback", "dispute", "notes"]
+
+
 class HandoffSessionResponse(BaseModel):
     interactionId: str
     handoffId: str
@@ -531,7 +543,7 @@ class HandoffSessionResponse(BaseModel):
     suggestions: list[HandoffSuggestion] = []
     complianceItems: list[HandoffComplianceItem] = []
     alerts: list[HandoffAlertItem] = []
-    dispositions: list[str] = []
+    outcomes: list[HandoffOutcome] = []
     speakers: dict[str, str] = {}
 
 
@@ -547,10 +559,13 @@ class HandoffQueueItem(BaseModel):
     risk: str = "medium"
     waitSec: int = 0
     requestedAt: str | None = None
+    transferOutcome: Literal["callback_line", "no_one_available"] | None = None
 
 
 class HandoffQueueResponse(BaseModel):
     items: list[HandoffQueueItem] = []
+    #: Every open escalation the actor may claim; ``items`` is the oldest of them.
+    total: int = 0
     activeInteractionId: str | None = None
 
 

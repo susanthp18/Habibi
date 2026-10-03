@@ -600,9 +600,9 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/interactions/{interaction_id}/recording/peaks"): INTERACTIONS_READ,
     ("GET", "/interactions/{interaction_id}/evidence"): INTERACTIONS_READ,
     ("GET", "/interactions/{interaction_id}/trace"): INTERACTIONS_READ,
-    ("GET", "/handoff/active"): INTERACTIONS_READ,
     ("GET", "/handoff/queue"): INTERACTIONS_READ,
     ("GET", "/handoff/{interaction_id}"): INTERACTIONS_READ,
+    ("GET", "/handoff/{interaction_id}/copilot/stream"): INTERACTIONS_READ,
     ("POST", "/handoff/{interaction_id}/claim"): INTERACTIONS_WRITE,
     ("POST", "/handoff/{interaction_id}/disclosures"): INTERACTIONS_WRITE,
     ("POST", "/handoff/{interaction_id}/suggestions/{suggestion_id}/accept"): INTERACTIONS_WRITE,
@@ -668,7 +668,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     # and anyone who could watch could also intervene.
     ("GET", "/floor"): SUPERVISOR_READ,
     ("GET", "/floor/copilot/{interaction_id}"): SUPERVISOR_READ,
-    ("GET", "/floor/copilot/{interaction_id}/stream"): SUPERVISOR_READ,
     ("GET", "/floor/approvals"): SUPERVISOR_READ,
     ("POST", "/floor/approvals/{job_id}/signal"): SUPERVISOR_WRITE,
     ("POST", "/floor/alerts/{alert_id}/ack"): SUPERVISOR_WRITE,

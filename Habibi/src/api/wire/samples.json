@@ -3236,7 +3236,8 @@
  {
   "body": {
    "activeInteractionId": null,
-   "items": []
+   "items": [],
+   "total": 0
   },
   "key": "GET /handoff/queue",
   "path": "/handoff/queue"

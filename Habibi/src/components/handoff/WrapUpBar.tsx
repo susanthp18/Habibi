@@ -1,76 +1,107 @@
 import { useState } from "react";
-import { CheckCircle2, FileText, Save, X } from "lucide-react";
-import type { WrapUpPayload } from "@/api/handoff";
+import { FileText, Save, X } from "lucide-react";
+import type { WrapUpOutcome, WrapUpPayload } from "@/api/handoff";
+import type { DisputeType } from "@/api/types/disputes";
+import type { CbReason } from "@/api/types/callbacks";
 import { SelectField } from "@/components/ui/select";
+import { TYPE_LABELS } from "@/lib/disputes";
+import { REASON_LABELS } from "@/lib/callbacks";
 
 type Props = {
   open: boolean;
-  dispositions: string[];
+  outcomes: WrapUpOutcome[];
   onClose: () => void;
   onSave: (payload: WrapUpPayload) => void;
-  saved: boolean;
   saving?: boolean;
-  defaultNotes?: string;
   defaultPtpAmount?: number;
+  /** The agent wrapping up: a callback booked here is theirs. */
+  actorId?: string;
   error?: string | null;
 };
 
+const fieldClass =
+  "mt-050 h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small text-text";
+const labelClass = "text-body-small font-medium text-text-subtle";
+
+/** Today plus `days`, as the calendar date in India. */
+function istDatePlus(days: number) {
+  return new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+/** Tomorrow 11:00 in the browser's clock, for a datetime-local field. */
+function tomorrowAt11() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(11, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T11:00`;
+}
+
+/**
+ * Closing the case. The outcome is the agent's choice -- there is no default
+ * -- and each one asks for what it claims happened: a promise, a callback or a
+ * dispute is filed with the wrap-up, the rest need a note. Closing the panel
+ * hides it; what was typed stays until it is saved.
+ */
 export function WrapUpBar({
   open,
-  dispositions,
+  outcomes,
   onClose,
   onSave,
-  saved,
   saving,
-  defaultNotes = "",
   defaultPtpAmount,
+  actorId,
   error,
 }: Props) {
-  const [disposition, setDisposition] = useState(dispositions[0] ?? "");
-  const [notes, setNotes] = useState(defaultNotes);
-  const [ptp, setPtp] = useState(false);
+  const [label, setLabel] = useState("");
+  const [notes, setNotes] = useState("");
   const [ptpAmount, setPtpAmount] = useState(defaultPtpAmount ? String(defaultPtpAmount) : "");
-  const [ptpDate, setPtpDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 10);
-  });
+  const [ptpDate, setPtpDate] = useState(() => istDatePlus(7));
+  const [callbackAt, setCallbackAt] = useState(tomorrowAt11);
+  const [callbackReason, setCallbackReason] = useState<CbReason>("payment_discussion");
+  const [disputeType, setDisputeType] = useState<DisputeType | "">("");
 
-  if (!open && !saved) return null;
+  const needs = outcomes.find((o) => o.label === label)?.needs;
+  const amount = Number(ptpAmount);
+  const valid =
+    needs === "promise"
+      ? Number.isFinite(amount) && amount > 0 && Boolean(ptpDate)
+      : needs === "callback"
+        ? Boolean(callbackAt) && !Number.isNaN(new Date(callbackAt).getTime())
+        : needs === "dispute"
+          ? Boolean(disputeType)
+          : needs === "notes"
+            ? notes.trim().length > 0
+            : false;
 
-  if (saved) {
-    return (
-      <div className="shrink-0 border-t border-border bg-background-success px-250 py-150">
-        <div className="flex items-center gap-150">
-          <CheckCircle2 className="h-250 w-250 text-text-success" />
-          <div className="flex-1">
-            <div className="text-body font-semibold text-text-success">
-              Wrap-up saved · pushed to CRM
-            </div>
-            <div className="text-body-small text-text-subtle">
-              Disposition <span className="font-semibold">{disposition}</span>
-              {ptp ? " · PTP flagged for tracking" : ""} · summary written to Audit Trail.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-body-small font-semibold text-text-subtle hover:text-text"
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const save = () => {
+    if (!valid || !needs) return;
+    const payload: WrapUpPayload = { disposition: label, notes };
+    if (needs === "promise") payload.promise = { amount, promisedDate: ptpDate };
+    if (needs === "callback") {
+      payload.callback = {
+        scheduledAt: new Date(callbackAt).toISOString(),
+        reason: callbackReason,
+        assigneeUserId: actorId,
+      };
+    }
+    if (needs === "dispute" && disputeType) payload.dispute = { type: disputeType };
+    onSave(payload);
+  };
 
   return (
-    <div className="shrink-0 border-t border-border bg-surface px-250 py-150">
+    <section
+      hidden={!open}
+      aria-label="Wrap up this case"
+      className="shrink-0 border-t border-border bg-surface px-250 py-150"
+    >
       <div className="mb-100 flex items-center justify-between">
-        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+        <h2 className="flex items-center gap-075 text-body-small font-semibold text-text">
           <FileText className="h-3.5 w-3.5 text-text-brand" />
-          Post-call wrap-up
-        </div>
+          Wrap up
+        </h2>
         <button
           type="button"
           onClick={onClose}
@@ -81,86 +112,145 @@ export function WrapUpBar({
         </button>
       </div>
 
-      <div className="grid gap-150 md:grid-cols-[220px_1fr_auto]">
+      <div className="grid gap-150 md:grid-cols-[240px_1fr_auto]">
         <div>
-          <label
-            htmlFor="wrapup-disposition"
-            className="text-body-small font-medium text-text-subtle"
-          >
-            Disposition
+          <label htmlFor="wrapup-outcome" className={labelClass}>
+            Outcome
           </label>
           <SelectField
-            id="wrapup-disposition"
-            aria-label="Disposition"
-            value={disposition}
-            onChange={setDisposition}
+            id="wrapup-outcome"
+            aria-label="Outcome"
+            value={label}
+            onChange={setLabel}
             size="compact"
             className="mt-050"
-            options={dispositions.map((d) => ({ value: d, label: d }))}
+            placeholder="Choose what happened"
+            options={outcomes.map((o) => ({ value: o.label, label: o.label }))}
           />
-          <label className="mt-100 flex items-center gap-075 text-body-small text-text-subtle">
-            <input
-              type="checkbox"
-              checked={ptp}
-              onChange={(e) => setPtp(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[var(--background-brand-bold)]"
-            />
-            Log Promise-to-Pay
-          </label>
-          {ptp && (
-            <div className="mt-075 grid grid-cols-2 gap-075">
-              <input
-                type="number"
-                min={1}
-                value={ptpAmount}
-                onChange={(e) => setPtpAmount(e.target.value)}
-                placeholder="Amount"
-                className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text"
-              />
-              <input
-                type="date"
-                value={ptpDate}
-                onChange={(e) => setPtpDate(e.target.value)}
-                className="h-400 rounded-medium border border-border bg-surface px-100 text-body-small text-text"
+
+          {needs === "promise" && (
+            <div className="mt-100 grid grid-cols-2 gap-075">
+              <div>
+                <label htmlFor="wrapup-ptp-amount" className={labelClass}>
+                  Amount (₹)
+                </label>
+                <input
+                  id="wrapup-ptp-amount"
+                  type="number"
+                  inputMode="decimal"
+                  min={1}
+                  value={ptpAmount}
+                  onChange={(e) => setPtpAmount(e.target.value)}
+                  className={fieldClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="wrapup-ptp-date" className={labelClass}>
+                  Promised for
+                </label>
+                <input
+                  id="wrapup-ptp-date"
+                  type="date"
+                  min={istDatePlus(0)}
+                  value={ptpDate}
+                  onChange={(e) => setPtpDate(e.target.value)}
+                  className={fieldClass}
+                />
+              </div>
+            </div>
+          )}
+
+          {needs === "callback" && (
+            <div className="mt-100 grid gap-075">
+              <div>
+                <label htmlFor="wrapup-callback-at" className={labelClass}>
+                  Call back at
+                </label>
+                <input
+                  id="wrapup-callback-at"
+                  type="datetime-local"
+                  value={callbackAt}
+                  onChange={(e) => setCallbackAt(e.target.value)}
+                  className={fieldClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="wrapup-callback-reason" className={labelClass}>
+                  About
+                </label>
+                <SelectField
+                  id="wrapup-callback-reason"
+                  aria-label="Callback reason"
+                  value={callbackReason}
+                  onChange={(v) => setCallbackReason(v as CbReason)}
+                  size="compact"
+                  className="mt-050"
+                  options={(Object.keys(REASON_LABELS) as CbReason[]).map((r) => ({
+                    value: r,
+                    label: REASON_LABELS[r],
+                  }))}
+                />
+              </div>
+            </div>
+          )}
+
+          {needs === "dispute" && (
+            <div className="mt-100">
+              <label htmlFor="wrapup-dispute-type" className={labelClass}>
+                Dispute type
+              </label>
+              <SelectField
+                id="wrapup-dispute-type"
+                aria-label="Dispute type"
+                value={disputeType}
+                onChange={(v) => setDisputeType(v as DisputeType)}
+                size="compact"
+                className="mt-050"
+                placeholder="Choose a type"
+                options={(Object.keys(TYPE_LABELS) as DisputeType[]).map((t) => ({
+                  value: t,
+                  label: TYPE_LABELS[t],
+                }))}
               />
             </div>
           )}
         </div>
 
         <div>
-          <label htmlFor="wrapup-notes" className="text-body-small font-medium text-text-subtle">
-            Notes (CRM writeback)
+          <label htmlFor="wrapup-notes" className={labelClass}>
+            Notes{needs === "notes" ? " (required)" : ""}
           </label>
           <textarea
             id="wrapup-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
+            placeholder={
+              label === "Customer says they paid"
+                ? "The payment reference the customer gave (UTR, date, amount)"
+                : undefined
+            }
             className="mt-050 w-full resize-none rounded-medium border border-border bg-surface px-100 py-075 text-body-small text-text focus:border-border-brand focus:outline-none"
           />
-          {error ? <p className="mt-050 text-body-small text-text-danger">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="mt-050 text-body-small text-text-danger">
+              {error}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex items-end">
           <button
             type="button"
-            disabled={saving || (ptp && (!ptpAmount || !ptpDate))}
-            onClick={() =>
-              onSave({
-                disposition,
-                notes,
-                ptp,
-                ptpAmount: ptp ? Number(ptpAmount) : undefined,
-                ptpDate: ptp ? ptpDate : undefined,
-              })
-            }
+            disabled={saving || !valid}
+            onClick={save}
             className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
           >
             <Save className="h-3.5 w-3.5" />
-            {saving ? "Saving…" : "Save & writeback"}
+            {saving ? "Saving…" : "Save wrap-up"}
           </button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

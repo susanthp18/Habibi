@@ -1026,7 +1026,7 @@ from db_qa import (  # noqa: E402
 )
 
 from db_handoff import (  # noqa: E402
-    HANDOFF_DISPOSITIONS as HANDOFF_DISPOSITIONS,
+    HANDOFF_OUTCOMES as HANDOFF_OUTCOMES,
     _HANDOFF_DISCLOSURE_RULES as _HANDOFF_DISCLOSURE_RULES,
     _actor_team_id as _actor_team_id,
     _assert_handoff_assignee as _assert_handoff_assignee,
@@ -1034,7 +1034,6 @@ from db_handoff import (  # noqa: E402
     _handoff_authority_policy as _handoff_authority_policy,
     _handoff_compliance_items as _handoff_compliance_items,
     _handoff_customer_context as _handoff_customer_context,
-    _handoff_live_qa as _handoff_live_qa,
     _handoff_offer_policy as _handoff_offer_policy,
     _handoff_queue_sql_filter as _handoff_queue_sql_filter,
     _handoff_queue_visible as _handoff_queue_visible,
@@ -1042,8 +1041,8 @@ from db_handoff import (  # noqa: E402
     _handoff_status as _handoff_status,
     _iso_ts as _iso_ts,
     accept_handoff_suggestion as accept_handoff_suggestion,
+    assert_handoff_readable as assert_handoff_readable,
     claim_handoff as claim_handoff,
-    get_active_handoff_session as get_active_handoff_session,
     get_handoff_session as get_handoff_session,
     list_handoff_queue as list_handoff_queue,
     record_handoff_disclosure as record_handoff_disclosure,

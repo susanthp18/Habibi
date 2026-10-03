@@ -428,14 +428,30 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
         if cached:
             return cached
         interaction = _ensure_interaction(conn, interaction_id)
+        import db_handoff
+
+        # The Hub's case owner closes the case, and the outcome must carry
+        # what it claims happened. A Voice Studio call still in progress is
+        # the engine's to end and file: the wrap-up closes the case, not it.
+        handed = conn.execute(
+            text("SELECT 1 FROM interaction_handoffs WHERE interaction_id = :id AND to_kind = 'human' LIMIT 1"),
+            {"id": interaction_id},
+        ).first()
+        channel = conn.execute(text("SELECT channel FROM interactions WHERE id = :id"), {"id": interaction_id}).scalar()
+        if handed:
+            db_handoff._assert_handoff_assignee(conn, interaction_id, _actor_user_id())
+        db_handoff.require_outcome_evidence(payload)
+        import voice_studio_supervision
+
+        call_live = voice_studio_supervision.live_run(conn, interaction_id) is not None
         conn.execute(
             text(
                 """
                 UPDATE interactions
                 SET disposition = :disposition,
                     summary = COALESCE(:notes, summary),
-                    status = 'completed',
-                    ended_at = COALESCE(ended_at, now()),
+                    status = CASE WHEN :call_live THEN status ELSE 'completed' END,
+                    ended_at = CASE WHEN :call_live THEN ended_at ELSE COALESCE(ended_at, now()) END,
                     ptp_captured = ptp_captured OR :ptp,
                     updated_at = now()
                 WHERE id = :id
@@ -443,6 +459,7 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
             ),
             {
                 "id": interaction_id,
+                "call_live": call_live,
                 "disposition": payload["disposition"],
                 "notes": payload.get("notes"),
                 "ptp": bool(payload.get("promise")),
@@ -471,7 +488,7 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
         from db_promises import _create_promise
 
         if payload.get("promise"):
-            promise_payload = {**payload["promise"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}
+            promise_payload = {**payload["promise"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id, "channel": channel}
             spawned["promise"] = _create_promise(conn, promise_payload, None, "POST /promises")
         if payload.get("dispute"):
             dispute_payload = {**payload["dispute"], "customerId": interaction["customer_id"], "accountId": interaction["account_id"], "interactionId": interaction_id}

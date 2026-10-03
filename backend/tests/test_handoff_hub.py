@@ -1,4 +1,7 @@
-"""Handoff Hub: assigned session, claim race, wrap-up, disclosures."""
+"""Handoff Hub: the follow-up desk for calls handed to a person.
+
+Claim, ownership, the case's lifecycle against the call's, wrap-up evidence,
+disclosures, and what the transfer hook records."""
 
 from __future__ import annotations
 
@@ -95,9 +98,12 @@ def _seed_unclaimed(conn, *, team: str = "card-collections", suffix: str = "a") 
     return ix, str(cust), str(acct)
 
 
-def test_active_handoff_empty_when_none_claimed(db_tx, as_actor) -> None:
+def test_the_queue_offers_my_open_case_to_resume(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="mine")
     as_actor(AGENT)
-    assert db.get_active_handoff_session() is None
+    assert db.list_handoff_queue()["activeInteractionId"] is None
+    db.claim_handoff(ix)
+    assert db.list_handoff_queue()["activeInteractionId"] == ix
 
 
 def test_queue_scoped_to_actor_team(db_tx, as_actor) -> None:
@@ -168,7 +174,7 @@ def test_wrap_up_completes_handoff_row(db_tx, as_actor) -> None:
     ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="wrap")
     as_actor(AGENT)
     db.claim_handoff(ix)
-    result = db.wrap_up_interaction(ix, {"disposition": "PTP captured", "notes": "cleared"})
+    result = db.wrap_up_interaction(ix, {"disposition": "Info provided", "notes": "explained the charge"})
     assert result["id"] == ix
     row = db_tx.execute(
         text(
@@ -181,8 +187,9 @@ def test_wrap_up_completes_handoff_row(db_tx, as_actor) -> None:
         ),
         {"id": ix},
     ).mappings().one()
+    # No call is live on it, so the wrap-up closes the interaction too.
     assert row["status"] == "completed"
-    assert row["disposition"] == "PTP captured"
+    assert row["disposition"] == "Info provided"
     assert row["completed_at"] is not None
 
 
@@ -272,3 +279,232 @@ def test_cross_tenant_handoff_is_not_found(db_tx, as_actor) -> None:
         db.get_handoff_session("rv-ix")
     with pytest.raises(KeyError):
         db.claim_handoff("rv-ix")
+
+
+# --- the case outlives the call ---------------------------------------------
+
+
+def _handoff_row(conn, ix):
+    return conn.execute(
+        text(
+            "SELECT to_team_id, queue, transfer_outcome, completed_at FROM interaction_handoffs "
+            "WHERE interaction_id = :ix AND to_kind = 'human' ORDER BY created_at"
+        ),
+        {"ix": ix},
+    ).mappings().all()
+
+
+def test_the_call_ending_leaves_the_escalation_on_the_hub(db_tx, as_actor) -> None:
+    import voice_studio
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="end")
+    assert voice_studio.call_ended_disposition(ix, "ptp_captured") == "escalated"
+    db_tx.execute(text("UPDATE interactions SET status = 'completed' WHERE id = :ix"), {"ix": ix})
+    assert _handoff_row(db_tx, ix)[0]["completed_at"] is None
+    as_actor(AGENT)
+    assert ix in {i["interactionId"] for i in db.list_handoff_queue()["items"]}
+
+
+def test_the_call_ending_keeps_a_wrap_up_already_saved(db_tx, as_actor) -> None:
+    import voice_studio
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="kept")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.wrap_up_interaction(ix, {"disposition": "Info provided", "notes": "explained the charge"})
+    assert voice_studio.call_ended_disposition(ix, "escalated") == "Info provided"
+
+
+def test_the_call_ending_closes_a_supervisors_takeover(db_tx) -> None:
+    import voice_studio
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="barge")
+    db_tx.execute(text("UPDATE interaction_handoffs SET queue = 'Supervisor barge' WHERE interaction_id = :ix"), {"ix": ix})
+    voice_studio.call_ended_disposition(ix, None)
+    assert _handoff_row(db_tx, ix)[0]["completed_at"] is not None
+
+
+def test_a_wrap_up_on_a_live_call_leaves_the_call_to_the_engine(db_tx, as_actor, monkeypatch) -> None:
+    import voice_studio_supervision
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="live")
+    monkeypatch.setattr(voice_studio_supervision, "live_run", lambda conn, iid: "77")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.wrap_up_interaction(ix, {"disposition": "Info provided", "notes": "explained the charge"})
+    status = db_tx.execute(text("SELECT status FROM interactions WHERE id = :ix"), {"ix": ix}).scalar()
+    assert status == "active"
+    assert _handoff_row(db_tx, ix)[0]["completed_at"] is not None
+
+
+def test_the_queue_ignores_bot_to_bot_hops(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="hop")
+    db_tx.execute(
+        text("UPDATE interaction_handoffs SET to_kind = 'bot', reason = 'specialist_route' WHERE interaction_id = :ix"),
+        {"ix": ix},
+    )
+    as_actor(ADMIN)
+    assert ix not in {i["interactionId"] for i in db.list_handoff_queue()["items"]}
+
+
+# --- what the transfer hook records -----------------------------------------
+
+
+def test_a_repeated_transfer_files_one_handoff(db_tx) -> None:
+    from voice import persist
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="dup")
+    db_tx.execute(text("DELETE FROM interaction_handoffs WHERE interaction_id = :ix"), {"ix": ix})
+    first = persist.record_handoff(interaction_id=ix, reason="dispute", transfer_outcome="callback_line")
+    again = persist.record_handoff(interaction_id=ix, reason="dispute", transfer_outcome="callback_line")
+    assert first == again
+    assert len(_handoff_row(db_tx, ix)) == 1
+
+
+def test_a_handoff_goes_to_the_team_of_the_customers_agent(db_tx) -> None:
+    from voice import persist
+
+    ix, cust, _acct = _seed_unclaimed(db_tx, suffix="team")
+    db_tx.execute(text("DELETE FROM interaction_handoffs WHERE interaction_id = :ix"), {"ix": ix})
+    team = db_tx.execute(text("SELECT team_id FROM users WHERE id = :u"), {"u": OTHER}).scalar()
+    db_tx.execute(text("UPDATE customers SET assigned_user_id = :u WHERE id = :c"), {"u": OTHER, "c": cust})
+    persist.record_handoff(interaction_id=ix, reason="dispute")
+    assert _handoff_row(db_tx, ix)[0]["to_team_id"] == team
+
+
+def test_an_unowned_customers_handoff_goes_to_the_whole_queue(db_tx) -> None:
+    from voice import persist
+
+    ix, cust, _acct = _seed_unclaimed(db_tx, suffix="pool")
+    db_tx.execute(text("DELETE FROM interaction_handoffs WHERE interaction_id = :ix"), {"ix": ix})
+    db_tx.execute(text("UPDATE customers SET assigned_user_id = NULL WHERE id = :c"), {"c": cust})
+    persist.record_handoff(interaction_id=ix, reason="dispute")
+    row = _handoff_row(db_tx, ix)[0]
+    assert row["to_team_id"] is None and row["queue"] is None
+
+
+@pytest.mark.parametrize(("number", "outcome"), [("+919800000000", "callback_line"), ("", "no_one_available")])
+def test_the_transfer_hook_records_whether_anyone_could_take_the_caller(monkeypatch, number, outcome) -> None:
+    import contextlib
+
+    import voice_studio
+    from voice import persist
+
+    seen: dict = {}
+    monkeypatch.setenv("SUPERVISOR_CALLBACK_PHONE", number)
+    monkeypatch.setattr(voice_studio, "_as_agent", lambda ctx: contextlib.nullcontext())
+    monkeypatch.setattr(voice_studio, "_interaction", lambda ctx: "IX-hook")
+    monkeypatch.setattr(voice_studio, "_ctx_bot_id", lambda ctx: None)
+    monkeypatch.setattr(persist, "record_handoff", lambda **kw: seen.update(kw) or "HO-1")
+    out = voice_studio.transfer_destination({"workflow_run_id": 9, "channel": "voice", "direction": "inbound"})
+    assert seen["transfer_outcome"] == outcome
+    assert bool(out["transfer_context"]["destination"]) == bool(number)
+
+
+# --- wrap-up: the owner, and evidence for the outcome --------------------------
+
+
+def test_only_the_cases_holder_may_wrap_it_up(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="own")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    as_actor(OTHER)
+    with pytest.raises(PermissionError, match="handoff_not_assigned"):
+        db.wrap_up_interaction(ix, {"disposition": "Info provided", "notes": "x"})
+
+
+@pytest.mark.parametrize(
+    ("outcome", "need"),
+    [
+        ("PTP captured", "promise"),
+        ("Callback scheduled", "callback"),
+        ("Dispute - under review", "dispute"),
+        ("Customer says they paid", "notes"),
+        ("Info provided", "notes"),
+        ("Unresolved - retry", "notes"),
+    ],
+)
+def test_an_outcome_is_refused_without_what_it_claims(db_tx, as_actor, outcome, need) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix=f"need-{need}-{len(outcome)}")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    with pytest.raises(ValueError, match=f"disposition_needs:{need}"):
+        db.wrap_up_interaction(ix, {"disposition": outcome, "notes": "   "})
+
+
+def test_an_outcome_outside_the_catalogue_is_refused(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="unknown")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    with pytest.raises(ValueError, match="unknown_disposition"):
+        db.wrap_up_interaction(ix, {"disposition": "Escalated to supervisor", "notes": "x"})
+
+
+def test_a_ptp_wrap_up_files_its_promise_on_the_calls_channel(db_tx, as_actor) -> None:
+    ix, cust, acct = _seed_unclaimed(db_tx, suffix="ptp")
+    db_tx.execute(text("UPDATE interactions SET channel = 'whatsapp' WHERE id = :ix"), {"ix": ix})
+    # One open promise per loan: clear the seeded one so this wrap-up may file.
+    db_tx.execute(
+        text("UPDATE promises SET status = 'broken' WHERE account_id = :a AND status IN ('upcoming', 'due_today')"),
+        {"a": acct},
+    )
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    out = db.wrap_up_interaction(
+        ix,
+        {
+            "disposition": "PTP captured",
+            "promise": {"customerId": cust, "amount": 1500, "promisedDate": "2030-01-15", "channel": "voice"},
+        },
+    )
+    assert out["spawned"]["promise"]
+    channel = db_tx.execute(text("SELECT channel FROM promises WHERE interaction_id = :ix"), {"ix": ix}).scalar()
+    assert channel == "whatsapp"
+
+
+# --- what the case shows -----------------------------------------------------
+
+
+def test_an_unreadable_policy_is_unavailable_not_empty(db_tx, as_actor, monkeypatch) -> None:
+    from agent_core.authority import policy
+
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="pol")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("policy store down")
+
+    monkeypatch.setattr(policy, "snapshot", _boom)
+    as_actor(AGENT)
+    session = db.claim_handoff(ix)
+    assert session["customerContext"]["authorityPolicy"] is None
+
+
+def test_the_case_has_no_invented_consent(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="consent")
+    as_actor(AGENT)
+    session = db.claim_handoff(ix)
+    assert "dnd" not in session["customerContext"]
+    assert "liveQa" not in session["customerContext"]
+
+
+def test_a_disclosure_records_when_in_the_call_it_was_read(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="offset")
+    db_tx.execute(text("UPDATE interactions SET started_at = now() - interval '90 seconds' WHERE id = :ix"), {"ix": ix})
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.record_handoff_disclosure(ix, {"itemId": "rule-recording", "ruleId": "rule-recording"})
+    at = db_tx.execute(
+        text("SELECT read_at_sec FROM interaction_disclosures WHERE interaction_id = :ix AND rule_id = 'rule-recording'"),
+        {"ix": ix},
+    ).scalar()
+    assert at == 90
+
+
+def test_the_copilot_opens_for_the_holder_and_not_a_stranger(db_tx, as_actor) -> None:
+    ix, _cust, _acct = _seed_unclaimed(db_tx, suffix="cop")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.assert_handoff_readable(ix)
+    as_actor(OTHER)
+    with pytest.raises(PermissionError, match="handoff_not_assigned"):
+        db.assert_handoff_readable(ix)

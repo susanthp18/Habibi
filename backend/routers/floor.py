@@ -9,14 +9,12 @@ from __future__ import annotations
 import logging
 
 import db
-import json
 import db_floor
 
 from fastapi import APIRouter
 
 from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
 from fastapi import HTTPException, Query
-from fastapi.responses import StreamingResponse
 from schemas import (
     FloorAlertAckResponse,
     FloorApprovalSignalRequest,
@@ -31,7 +29,7 @@ from schemas import (
     WorkRuntimeJobResponse,
     WorkspaceSummaryResponse,
 )
-from typing import Any, Literal
+from typing import Literal
 
 router = APIRouter(default_response_class=Utf8JSONResponse, dependencies=ROUTER_DEPENDENCIES)
 logger = logging.getLogger(__name__)
@@ -86,34 +84,6 @@ def get_floor_copilot(interaction_id: str):
     if pack is None:
         raise HTTPException(status_code=404, detail="interaction_not_found")
     return pack
-
-# text/event-stream by design: the pack, then whisper tokens, as SSE. Listed
-# in tests/test_route_structure.py::_UNTYPED_BY_DESIGN.
-@router.get("/floor/copilot/{interaction_id}/stream", response_class=StreamingResponse)
-def stream_floor_copilot(interaction_id: str):
-
-    from agent_core.copilot import iter_events
-
-    events = iter_events(interaction_id)
-    first = next(events, None)
-    if first is None or first.get("type") == "error":
-        raise HTTPException(status_code=404, detail="interaction_not_found")
-
-    def _sse() -> Any:
-        yield f"event: {first['type']}\ndata: {json.dumps(first, default=str)}\n\n"
-        for event in events:
-            name = str(event.get("type") or "message")
-            yield f"event: {name}\ndata: {json.dumps(event, default=str)}\n\n"
-
-    return StreamingResponse(
-        _sse(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 @router.get("/floor/approvals", response_model=list[WorkRuntimeJobResponse])
 def list_floor_approvals():

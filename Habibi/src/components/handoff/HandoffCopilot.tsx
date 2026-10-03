@@ -1,99 +1,113 @@
-import { Send, Sparkles } from "lucide-react";
+import { Copy, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { signalFloorApproval, useCopilotStream } from "@/api/floor";
-import type { Suggestion } from "@/api/types/handoff";
+import { signalFloorApproval } from "@/api/floor";
+import { useCopilotStream } from "@/api/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
+import { copyText, handoffErrorWords } from "./handoff-words";
 
 type Props = {
   interactionId: string;
-  onInsert: (s: Suggestion) => void;
-  monitor?: boolean;
+  /** perm-supervisor-write: approving or rejecting what waits on a person. */
+  canSignal: boolean;
 };
 
-export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
+const ENGINE_WORDS: Record<string, string> = {
+  authority: "authority decision",
+  treatment: "treatment plan",
+};
+
+/** The engines' draft for this case: what to say on the call back, and any
+ * approval waiting on a supervisor. Advice to copy, never something said. */
+export function HandoffCopilot({ interactionId, canSignal }: Props) {
   const stream = useCopilotStream(interactionId);
-  const qc = useQueryClient();
-  const whisper = stream.whisper || stream.engineDraft;
   const signal = async (id: string, name: "approve" | "reject") => {
     try {
       await signalFloorApproval(id, name);
-      toast.success(name === "approve" ? "Approved — clerk will resume" : "Rejected");
-      void qc.invalidateQueries({ queryKey: ["floor-approvals"] });
+      toast.success(name === "approve" ? "Approved — the workflow resumes" : "Rejected");
+      stream.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Signal failed");
+      toast.error(handoffErrorWords(e));
     }
   };
 
   return (
     <div className="rounded-large border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-150 py-100">
-        <div className="flex items-center gap-075 text-body-small font-semibold text-text">
+        <h2 className="flex items-center gap-075 text-body-small font-semibold text-text">
           <Sparkles className="h-3.5 w-3.5 text-text-brand" />
           Copilot
+        </h2>
+        <div className="flex items-center gap-075">
+          {stream.streaming ? (
+            <Lozenge tone="selected">drafting</Lozenge>
+          ) : stream.error ? (
+            <Lozenge tone="danger">unavailable</Lozenge>
+          ) : stream.unavailable.length ? (
+            <Lozenge tone="warning">partial</Lozenge>
+          ) : stream.done ? (
+            <Lozenge tone="success">ready</Lozenge>
+          ) : null}
+          <button
+            type="button"
+            onClick={stream.refresh}
+            disabled={stream.streaming}
+            aria-label="Refresh the copilot"
+            title="Refresh"
+            className="grid h-300 w-300 place-items-center rounded-medium text-text-subtle hover:bg-surface-sunken disabled:opacity-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
         </div>
-        {stream.streaming ? (
-          <Lozenge tone="selected">streaming</Lozenge>
-        ) : stream.done ? (
-          <Lozenge tone="success">grounded</Lozenge>
-        ) : (
-          <Lozenge tone="neutral">idle</Lozenge>
-        )}
       </div>
 
       <div className="space-y-100 px-150 py-150">
         {stream.card?.displayName || stream.card?.botId ? (
           <div className="flex flex-wrap gap-050">
             <Lozenge tone="neutral">{stream.card.displayName || stream.card.botId}</Lozenge>
-            {(stream.card.skills ?? []).map((skill) => (
-              <Lozenge key={skill} tone="information">
-                {skill}
-              </Lozenge>
-            ))}
           </div>
         ) : null}
 
-        {whisper ? (
-          <p className="text-body-small leading-snug text-text">
-            {whisper}
-            {stream.streaming ? (
-              <span className="ml-025 inline-block h-3 w-075 animate-pulse bg-background-brand-bold align-middle" />
-            ) : null}
+        {stream.unavailable.length ? (
+          <p role="status" className="text-body-small text-text-warning">
+            Couldn't load the{" "}
+            {stream.unavailable.map((name) => ENGINE_WORDS[name] ?? name).join(" or the ")}. Check
+            it before offering anything.
           </p>
+        ) : null}
+
+        {stream.whisper ? (
+          <p className="whitespace-pre-wrap text-body-small leading-snug text-text">
+            {stream.whisper}
+          </p>
+        ) : stream.error ? (
+          <p className="text-body-small text-text-danger">Couldn't load the copilot.</p>
+        ) : stream.streaming ? (
+          <p className="text-body-small text-text-subtlest">Drafting…</p>
         ) : (
-          <p className="text-body-small text-text-subtlest">Waiting for engine pack…</p>
+          <p className="text-body-small text-text-subtlest">No draft for this case.</p>
         )}
 
         {stream.vetoes.length > 0 ? (
           <p className="text-body-small text-text-danger">Veto: {stream.vetoes.join(" · ")}</p>
         ) : null}
 
-        {stream.error ? <p className="text-body-small text-text-danger">{stream.error}</p> : null}
-
-        {whisper && !monitor ? (
+        {stream.whisper && !stream.streaming ? (
           <button
             type="button"
-            disabled={!whisper}
-            onClick={() =>
-              onInsert({
-                id: `copilot-${interactionId}`,
-                title: "Copilot whisper",
-                body: whisper,
-                source: "Copilot",
-                showAfter: 0,
-              })
-            }
-            className="flex items-center gap-050 rounded-medium bg-background-brand-bold px-100 py-050 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-50"
+            onClick={() => void copyText(stream.whisper)}
+            className="flex items-center gap-050 rounded-medium border border-border px-100 py-050 text-body-small font-semibold text-text hover:bg-surface-sunken"
           >
-            <Send className="h-3 w-3" />
-            Speak this
+            <Copy className="h-3 w-3" />
+            Copy
           </button>
         ) : null}
       </div>
 
       {stream.approvals.length > 0 ? (
         <div className="border-t border-border bg-background-warning-subtler px-150 py-100">
-          <p className="mb-075 text-body-small font-semibold text-text">Pending approval</p>
+          <h3 className="mb-075 text-body-small font-semibold text-text">
+            {canSignal ? "Waiting for your approval" : "Waiting for a supervisor's approval"}
+          </h3>
           <ul className="space-y-050">
             {stream.approvals.map((job) => (
               <li
@@ -106,7 +120,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
                     ? ` · ${job.inputRequiredReason.replace(/_/g, " ")}`
                     : ""}
                 </span>
-                {monitor ? null : (
+                {canSignal ? (
                   <span className="flex shrink-0 gap-050">
                     <button
                       type="button"
@@ -123,7 +137,7 @@ export function HandoffCopilot({ interactionId, onInsert, monitor }: Props) {
                       Reject
                     </button>
                   </span>
-                )}
+                ) : null}
               </li>
             ))}
           </ul>

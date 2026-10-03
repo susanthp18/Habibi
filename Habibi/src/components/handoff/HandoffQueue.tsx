@@ -1,9 +1,13 @@
 import { Headphones, ShieldAlert } from "lucide-react";
 import { Lozenge } from "@/components/ui/lozenge";
-import type { HandoffAlert } from "@/api/handoff";
+import type { HandoffAlert, HandoffQueueItem } from "@/api/handoff";
 import { useAckFloorAlert } from "@/api/floor";
+import { cn } from "@/lib/utils";
+import { TransferLozenge } from "./CaseHeader";
+import { waitWords } from "./handoff-words";
 
-export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: boolean }) {
+/** A supervisor acknowledges (perm-supervisor-write); everyone else reads. */
+export function HandoffAlerts({ items, canAck }: { items: HandoffAlert[]; canAck: boolean }) {
   // The floor's own hook: the alert list is read under both keys, and the
   // component-local copy had no error path at all.
   const ack = useAckFloorAlert([["handoff"]]);
@@ -14,7 +18,7 @@ export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: b
     <div className="rounded-large border border-border-warning bg-background-warning/40">
       <div className="flex items-center gap-075 border-b border-border px-150 py-100 text-body-small font-semibold text-text">
         <ShieldAlert className="h-3.5 w-3.5 text-text-warning" />
-        Live alerts
+        Alerts on this call
       </div>
       <ul className="divide-y divide-border">
         {items.map((a) => (
@@ -25,14 +29,16 @@ export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: b
               </div>
               {a.reason ? <div className="text-body-small text-text-subtle">{a.reason}</div> : null}
             </div>
-            <button
-              type="button"
-              disabled={mock || ack.isPending}
-              onClick={() => ack.mutate(a.id)}
-              className="shrink-0 text-body-small font-semibold text-text-brand hover:underline disabled:opacity-50"
-            >
-              Ack
-            </button>
+            {canAck ? (
+              <button
+                type="button"
+                disabled={ack.isPending}
+                onClick={() => ack.mutate(a.id)}
+                className="shrink-0 text-body-small font-semibold text-text-brand hover:underline disabled:opacity-50"
+              >
+                Ack
+              </button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -40,21 +46,22 @@ export function HandoffAlerts({ items, mock }: { items: HandoffAlert[]; mock?: b
   );
 }
 
+/** How long a caller may wait before the row warns, then alarms (seconds). */
+const WAIT_WARN_S = 120;
+const WAIT_ALARM_S = 600;
+
 export function HandoffQueueList({
   items,
+  total,
   claimingId,
+  claimError,
   onClaim,
 }: {
-  items: {
-    interactionId: string;
-    customerName: string;
-    accountId: string;
-    reason: string;
-    queue: string | null;
-    risk: string;
-    waitSec: number;
-  }[];
+  items: HandoffQueueItem[];
+  total: number;
   claimingId?: string | null;
+  /** The last claim that failed, shown on its row. */
+  claimError?: { interactionId: string; message: string } | null;
   onClaim: (interactionId: string) => void;
 }) {
   if (!items.length) {
@@ -62,9 +69,10 @@ export function HandoffQueueList({
       <div className="grid h-full place-items-center p-400 text-center">
         <div>
           <Headphones className="mx-auto mb-150 h-8 w-8 text-text-subtlest" />
-          <h1 className="text-sm font-semibold text-text">No pending handoffs</h1>
+          <h1 className="text-sm font-semibold text-text">No handoffs waiting</h1>
           <p className="mt-050 max-w-sm text-body text-text-subtlest">
-            Escalated calls for your team will land here. Claim one to open the live cockpit.
+            When a Voice Studio agent hands a caller to a person, the case lands here for your team
+            to claim and follow up.
           </p>
         </div>
       </div>
@@ -72,39 +80,71 @@ export function HandoffQueueList({
   }
 
   return (
-    <ul className="mx-auto w-full max-w-2xl space-y-150 p-200" aria-labelledby="handoff-heading">
-      <h1 id="handoff-heading" className="sr-only">
-        Pending handoffs
-      </h1>
-      {items.map((item) => (
-        <li
-          key={item.interactionId}
-          className="flex items-center gap-150 rounded-large border border-border bg-surface p-150"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-100">
-              <span className="truncate font-semibold text-text">{item.customerName}</span>
-              <RiskLozenge risk={item.risk} />
-            </div>
-            <div className="mt-025 text-body-small text-text-subtle">
-              {item.accountId} · {item.reason.replace(/_/g, " ")}
-              {item.queue ? ` · ${item.queue}` : ""}
-            </div>
-            <div className="mt-025 tabular text-body-small text-text-subtlest">
-              waiting {fmtWait(item.waitSec)}
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={claimingId === item.interactionId}
-            onClick={() => onClaim(item.interactionId)}
-            className="shrink-0 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
-          >
-            {claimingId === item.interactionId ? "Claiming…" : "Claim"}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <section
+      className="mx-auto w-full max-w-2xl space-y-150 p-200"
+      aria-labelledby="handoff-heading"
+    >
+      <div className="flex items-baseline justify-between gap-100">
+        <h1 id="handoff-heading" className="text-body font-semibold text-text">
+          Handoffs waiting
+        </h1>
+        <span className="text-body-small text-text-subtlest">
+          {total > items.length ? `Oldest ${items.length} of ${total}` : `${total} waiting`}
+        </span>
+      </div>
+      <ul className="space-y-150">
+        {items.map((item) => {
+          const failed = claimError?.interactionId === item.interactionId ? claimError : null;
+          return (
+            <li
+              key={item.interactionId}
+              className="rounded-large border border-border bg-surface p-150"
+            >
+              <div className="flex items-center gap-150">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-100">
+                    <span className="truncate font-semibold text-text">{item.customerName}</span>
+                    <RiskLozenge risk={item.risk} />
+                    <TransferLozenge outcome={item.transferOutcome} />
+                  </div>
+                  <div className="mt-025 text-body-small text-text-subtle">
+                    {[item.accountId, item.reason.replace(/_/g, " "), item.queue]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-025 tabular text-body-small",
+                      item.waitSec >= WAIT_ALARM_S
+                        ? "font-semibold text-text-danger"
+                        : item.waitSec >= WAIT_WARN_S
+                          ? "text-text-warning"
+                          : "text-text-subtlest",
+                    )}
+                  >
+                    waiting {waitWords(item.waitSec)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={claimingId === item.interactionId}
+                  onClick={() => onClaim(item.interactionId)}
+                  aria-label={`Claim ${item.customerName}`}
+                  className="shrink-0 rounded-medium bg-background-brand-bold px-150 py-075 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
+                >
+                  {claimingId === item.interactionId ? "Claiming…" : "Claim"}
+                </button>
+              </div>
+              {failed ? (
+                <p role="alert" className="mt-075 text-body-small text-text-danger">
+                  {failed.message}
+                </p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -112,11 +152,4 @@ export function RiskLozenge({ risk }: { risk: string }) {
   const r = risk.toLowerCase();
   const tone = r === "critical" || r === "high" ? "danger" : r === "medium" ? "warning" : "success";
   return <Lozenge tone={tone}>{risk} risk</Lozenge>;
-}
-
-function fmtWait(sec: number) {
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s ? `${m}m ${s}s` : `${m}m`;
 }

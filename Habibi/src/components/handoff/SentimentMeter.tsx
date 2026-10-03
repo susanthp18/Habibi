@@ -8,8 +8,22 @@ type Props = {
 };
 
 export function SentimentMeter({ series }: Props) {
+  if (series.length === 0) {
+    // No score was recorded: say so, never draw a made-up line.
+    return (
+      <section className="shrink-0 border-b border-border bg-surface px-250 py-150">
+        <div className="text-body-small font-semibold text-text-subtlest">Customer sentiment</div>
+        <div className="mt-025 text-body-small text-text-subtle">Not available for this call.</div>
+      </section>
+    );
+  }
+  return <SentimentTrace series={series} />;
+}
+
+function SentimentTrace({ series }: Props) {
   const current = series[series.length - 1] ?? 0;
-  const prev = series[series.length - 6] ?? current;
+  // The trend over the last five samples, or over the whole call when shorter.
+  const prev = series[Math.max(0, series.length - 6)] ?? current;
   const delta = current - prev;
 
   const label = current > 0.25 ? "Positive" : current < -0.2 ? "Negative" : "Neutral";
@@ -29,7 +43,7 @@ export function SentimentMeter({ series }: Props) {
     <section className="shrink-0 border-b border-border bg-surface px-250 py-150">
       <div className="flex items-center gap-300">
         <div className="min-w-0">
-          <div className="text-body-small font-semibold text-text-subtlest">Live sentiment</div>
+          <div className="text-body-small font-semibold text-text-subtlest">Customer sentiment</div>
           <div className="mt-025 flex items-baseline gap-100">
             <span className="heading-medium font-semibold" style={{ color }}>
               {label}

@@ -1396,6 +1396,7 @@ export const CopilotEnginesResponse = z.object({
   "authority": AuthorityPolicyResponse,
   "treatment": CopilotTreatmentResponse,
   "liveQa": z.record(z.string(), z.unknown()).nullable().optional(),
+  "unavailable": z.array(z.string()).optional(),
 }).passthrough();
 export const CopilotCardChipResponse = z.object({
   "botId": z.string().nullable().optional(),
@@ -1436,9 +1437,11 @@ export const HandoffQueueItem = z.object({
   "risk": z.string().optional(),
   "waitSec": z.number().optional(),
   "requestedAt": z.string().nullable().optional(),
+  "transferOutcome": z.enum(["callback_line", "no_one_available"]).nullable().optional(),
 }).passthrough();
 export const HandoffQueueResponse = z.object({
   "items": z.array(HandoffQueueItem).optional(),
+  "total": z.number().optional(),
   "activeInteractionId": z.string().nullable().optional(),
 }).passthrough();
 export const HandoffActiveCall = z.object({
@@ -1458,6 +1461,10 @@ export const HandoffActiveCall = z.object({
   "claimed": z.boolean(),
   "risk": z.string().optional(),
   "handlerUserId": z.string().nullable().optional(),
+  "requestedAt": z.string().nullable().optional(),
+  "callState": z.enum(["live", "ended"]).optional(),
+  "callEndedAt": z.string().nullable().optional(),
+  "transferOutcome": z.enum(["callback_line", "no_one_available"]).nullable().optional(),
 }).passthrough();
 export const HandoffLastPromise = z.object({
   "amount": z.number(),
@@ -1469,19 +1476,13 @@ export const HandoffNextEmi = z.object({
   "dueDate": z.string(),
   "daysOverdue": z.number().optional(),
 }).passthrough();
-export const HandoffDnd = z.object({
-  "allowed": z.boolean(),
-  "window": z.string().optional(),
-  "channels": z.array(z.string()).optional(),
-}).passthrough();
 export const HandoffCustomerContext = z.object({
   "risk": z.string(),
-  "outstanding": z.number().optional(),
+  "outstanding": z.number().nullable().optional(),
   "currency": z.string().optional(),
   "lastPromise": HandoffLastPromise.nullable().optional(),
   "nextEmi": HandoffNextEmi.nullable().optional(),
   "openDisputes": z.number().optional(),
-  "dnd": HandoffDnd,
   "tenureMonths": z.number().optional(),
   "product": z.string().optional(),
   "offerPolicy": OfferPolicyResponse.nullable().optional(),
@@ -1499,8 +1500,8 @@ export const HandoffSuggestion = z.object({
   "title": z.string(),
   "body": z.string(),
   "source": z.string().optional(),
-  "showAfter": z.number().optional(),
   "accepted": z.boolean().optional(),
+  "stale": z.boolean().optional(),
 }).passthrough();
 export const HandoffComplianceItem = z.object({
   "id": z.string(),
@@ -1515,6 +1516,10 @@ export const HandoffAlertItem = z.object({
   "kind": z.string(),
   "severity": z.string().optional(),
   "reason": z.string().nullable().optional(),
+}).passthrough();
+export const HandoffOutcome = z.object({
+  "label": z.string(),
+  "needs": z.enum(["promise", "callback", "dispute", "notes"]),
 }).passthrough();
 export const HandoffSessionResponse = z.object({
   "interactionId": z.string(),
@@ -1531,7 +1536,7 @@ export const HandoffSessionResponse = z.object({
   "suggestions": z.array(HandoffSuggestion).optional(),
   "complianceItems": z.array(HandoffComplianceItem).optional(),
   "alerts": z.array(HandoffAlertItem).optional(),
-  "dispositions": z.array(z.string()).optional(),
+  "outcomes": z.array(HandoffOutcome).optional(),
   "speakers": z.record(z.string(), z.string()).optional(),
 }).passthrough();
 export const ConversationSummaryResponse = z.object({
@@ -3052,7 +3057,6 @@ export const ROUTES: ReadonlyArray<readonly [string, z.ZodTypeAny]> = [
   ["POST /supervisor-actions", SupervisorActionResponse],
   ["POST /floor/alerts/{alert_id}/ack", FloorAlertAckResponse],
   ["GET /handoff/queue", HandoffQueueResponse],
-  ["GET /handoff/active", HandoffSessionResponse],
   ["GET /handoff/{interaction_id}", HandoffSessionResponse],
   ["POST /handoff/{interaction_id}/claim", HandoffSessionResponse],
   ["POST /handoff/{interaction_id}/disclosures", HandoffSessionResponse],

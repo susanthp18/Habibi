@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertOctagon, CalendarClock, HandCoins, ShieldCheck, User2 } from "lucide-react";
+import { AlertOctagon, CalendarClock, ExternalLink, HandCoins, User2 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import type { ActiveCall, CustomerContext } from "@/api/handoff";
@@ -8,15 +8,19 @@ import { useApplyAuthority } from "@/api/authority";
 import { OfferPolicyBlock } from "@/components/offers/OfferPolicyBlock";
 import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge } from "@/components/ui/lozenge";
+import { ContactabilityPill } from "@/components/customer360/ContactabilityPill";
 import { RiskLozenge } from "./HandoffQueue";
 import { fmtShortDate } from "@/lib/format";
 
 export function CustomerContextPanel({
   call: activeCall,
   context: c,
+  readOnly = false,
 }: {
   call: ActiveCall;
   context: CustomerContext;
+  /** Watching someone else's case: nothing here may be applied or captured. */
+  readOnly?: boolean;
 }) {
   const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   const ptpStatus = (c.lastPromise?.status || "").toLowerCase();
@@ -71,15 +75,21 @@ export function CustomerContextPanel({
       </div>
 
       <div className="px-150 py-150">
+        {/* A new tab: the case stays open where the agent left it. */}
         <Link
           to="/customers/$customerId"
           params={{ customerId: activeCall.customerId }}
-          className="text-body-small font-semibold text-text-brand hover:underline"
+          target="_blank"
+          rel="noopener"
+          className="inline-flex items-center gap-050 text-body-small font-semibold text-text-brand hover:underline"
         >
           Open Customer 360
+          <ExternalLink className="h-3 w-3" />
         </Link>
-        <div className="mt-050 text-body-small text-text-subtlest">Outstanding</div>
-        <div className="tabular heading-large font-semibold text-text">{money(c.outstanding)}</div>
+        <div className="mt-050 text-body-small text-text-subtlest">Outstanding · this loan</div>
+        <div className="tabular heading-large font-semibold text-text">
+          {c.outstanding == null ? "—" : money(c.outstanding)}
+        </div>
         <div className="text-body-small text-text-subtle">
           {c.product}
           {c.tenureMonths ? ` · tenure ${c.tenureMonths}m` : ""}
@@ -89,7 +99,7 @@ export function CustomerContextPanel({
       <ul className="divide-y divide-border border-t border-border">
         <Row
           icon={<HandCoins className="h-3.5 w-3.5 text-text-warning" />}
-          label="Last promise"
+          label="Last promise · any loan"
           value={
             c.lastPromise
               ? `${money(c.lastPromise.amount)} · ${fmtShortDate(c.lastPromise.date)}`
@@ -125,46 +135,52 @@ export function CustomerContextPanel({
         />
         <Row
           icon={<AlertOctagon className="h-3.5 w-3.5 text-text-danger" />}
-          label="Open disputes"
+          label="Open disputes · any loan"
           value={`${c.openDisputes} active`}
           badge={{
             text: c.openDisputes > 0 ? "Open" : "Clear",
             tone: c.openDisputes > 0 ? "info" : "success",
           }}
         />
-        <Row
-          icon={<ShieldCheck className="h-3.5 w-3.5 text-text-success" />}
-          label="Consent / DND"
-          value={`${c.dnd.window || "No window"} · ${c.dnd.channels.join(", ")}`}
-          badge={{
-            text: c.dnd.allowed ? "Contactable" : "Blocked",
-            tone: c.dnd.allowed ? "success" : "danger",
-          }}
-        />
       </ul>
 
-      <AuthorityPolicyBlock
-        policy={c.authorityPolicy}
-        onApply={apply}
-        applying={applyMut.isPending}
-      />
-
-      <OfferPolicyBlock
-        policy={c.offerPolicy}
-        onCapture={capture}
-        capturing={captureMut.isPending}
-      />
-
-      <div className="border-t border-border px-150 py-100 text-body-small text-text-subtlest">
-        Escalation: <span className="text-text-subtle">{activeCall.escalationReason}</span>
-        {c.liveQa?.reason ? (
-          <span className="mt-025 block text-text-subtle">
-            Floor: {c.liveQa.reason.replace(/-/g, " ")}
-            {c.liveQa.status === "would_barge" ? " (shadow — would barge)" : ""}
-          </span>
-        ) : null}
+      {/* The contact gate's own verdict for a call back now, not a re-derivation. */}
+      <div className="flex flex-wrap items-center gap-075 border-t border-border px-150 py-100">
+        <span className="text-body-small text-text-subtlest">Calling back now</span>
+        <ContactabilityPill customerId={activeCall.customerId} compact />
       </div>
+
+      {c.authorityPolicy ? (
+        <AuthorityPolicyBlock
+          policy={c.authorityPolicy}
+          onApply={readOnly ? undefined : apply}
+          applying={applyMut.isPending}
+        />
+      ) : (
+        <Unavailable what="authority decision" />
+      )}
+
+      {c.offerPolicy ? (
+        <OfferPolicyBlock
+          policy={c.offerPolicy}
+          onCapture={readOnly ? undefined : capture}
+          capturing={captureMut.isPending}
+        />
+      ) : (
+        <Unavailable what="offer decision" />
+      )}
     </div>
+  );
+}
+
+function Unavailable({ what }: { what: string }) {
+  return (
+    <p
+      role="status"
+      className="border-t border-border px-150 py-100 text-body-small text-text-warning"
+    >
+      Couldn't load the {what}. Check it in Customer 360 before offering anything.
+    </p>
   );
 }
 
