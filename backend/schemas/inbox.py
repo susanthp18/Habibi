@@ -174,6 +174,10 @@ class ConversationResponse(ConversationSummaryResponse):
 
     messages: list[InboxMessageResponse | InboxSystemEventResponse] = []
     ragSuggestions: list[str] = []
+    #: The customer message the stored passages were found for; null when not
+    #: found for one. Once the customer has written since, they answer an
+    #: earlier question.
+    ragAnswersMessageId: str | None = None
     context: InboxThreadContextResponse
 
 

@@ -275,15 +275,25 @@ function InboxPage() {
   // message. Only for someone who could use them: the search is a write, and a
   // read-only viewer's every open thread drew a permission error.
   const answering = latestCustomerMessageId(thread);
-  // Judged against the thread on screen, not when they arrived: a search
-  // answering an earlier message can land after the next one has, and the
-  // passages a search left stop fitting the moment the customer writes again.
+  // This page's own search, else what the thread's last search stored. Both
+  // judged against the thread on screen, not when they arrived: a search
+  // answering an earlier message can land after the next one has, and stored
+  // passages stop fitting the moment the customer writes again -- for a
+  // viewer who never searches, indefinitely.
+  const passages =
+    ragFor.suggestions !== null
+      ? { list: ragFor.suggestions, answers: ragFor.answers, failed: ragFor.stale }
+      : {
+          list: thread?.ragSuggestions ?? [],
+          answers: thread?.ragAnswersMessageId ?? null,
+          failed: false,
+        };
   const ragStale =
-    ragFor.suggestions === null
+    passages.list.length === 0
       ? null
-      : ragFor.answers !== answering
+      : passages.answers !== answering
         ? "customer_wrote"
-        : ragFor.stale
+        : passages.failed
           ? "search_failed"
           : null;
   useEffect(() => {
@@ -467,7 +477,7 @@ function InboxPage() {
             onSend={handleSend}
             onRefreshRag={() => void refreshRag(thread.id, false)}
             onSuggestReply={() => refreshRag(thread.id, true)}
-            ragSuggestions={ragFor.suggestions ?? thread.ragSuggestions ?? []}
+            ragSuggestions={passages.list}
             ragLoading={ragFor.loading}
             ragError={ragFor.error}
             ragStale={ragStale}

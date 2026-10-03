@@ -266,14 +266,16 @@ def refresh_conversation_suggestions(
                     text(
                         """
                         INSERT INTO ai_response_suggestions (
-                          id, conversation_id, suggestion_text, source, accepted, created_at
-                        ) VALUES (:id, :conversation_id, :suggestion_text, 'kb', false, now())
+                          id, conversation_id, suggestion_text, source, accepted, created_at,
+                          answers_message_id
+                        ) VALUES (:id, :conversation_id, :suggestion_text, 'kb', false, now(), :answers)
                         """
                     ),
                     {
                         "id": f"sug-{conversation_id}-{uuid.uuid4().hex[:8]}-{i}",
                         "conversation_id": conversation_id,
                         "suggestion_text": text_value,
+                        "answers": answers,
                     },
                 )
 

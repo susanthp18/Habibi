@@ -453,14 +453,17 @@ def _conversation_messages(
     return grouped
 
 
-def _conversation_suggestions(conn: Any, conversation_id: str, interaction_id: str | None) -> list[str]:
-    """The thread's knowledge-base passages, from its last search; else the
-    passages linked to its interaction."""
+def _conversation_suggestions(
+    conn: Any, conversation_id: str, interaction_id: str | None
+) -> tuple[list[str], str | None]:
+    """The thread's knowledge-base passages, from its last search, and the
+    customer message that search answered; else the passages linked to its
+    interaction, which answer no message."""
     rows = _rows(
         conn.execute(
             text(
                 """
-                SELECT conversation_id, suggestion_text
+                SELECT conversation_id, suggestion_text, answers_message_id
                 FROM ai_response_suggestions
                 WHERE (conversation_id = :cid OR (:iid <> '' AND interaction_id = :iid))
                   AND COALESCE(source, '') <> 'kb_draft'
@@ -472,11 +475,18 @@ def _conversation_suggestions(conn: Any, conversation_id: str, interaction_id: s
     )
     mine: list[str] = []
     linked: list[str] = []
+    answers: str | None = None
     for r in rows:
         text_value = (r["suggestion_text"] or "").strip()
-        if text_value:
-            (mine if r["conversation_id"] == conversation_id else linked).append(text_value)
-    return (mine or linked)[:5]
+        if not text_value:
+            continue
+        if r["conversation_id"] == conversation_id:
+            if not mine:
+                answers = r["answers_message_id"]  # a search stores its set whole
+            mine.append(text_value)
+        else:
+            linked.append(text_value)
+    return (mine[:5], answers) if mine else (linked[:5], None)
 
 
 def _next_emi(conn: Any, account_id: str | None) -> dict[str, Any]:
@@ -678,10 +688,12 @@ def _wire_instant(at: datetime | None) -> str | None:
 def _serialize_thread(conn: Any, row: dict[str, Any], me_id: str) -> dict[str, Any]:
     """The open thread: its row, transcript, suggestions and customer context."""
     typing = _bot_typing_by_conversation(conn, [row["id"]])
+    passages, answers = _conversation_suggestions(conn, row["id"], row.get("interaction_id"))
     return {
         **_serialize_summary(row, me_id, bot_typing=bool(typing.get(row["id"]))),
         "messages": _conversation_messages(conn, [row["id"]], me_id).get(row["id"]) or [],
-        "ragSuggestions": _conversation_suggestions(conn, row["id"], row.get("interaction_id")),
+        "ragSuggestions": passages,
+        "ragAnswersMessageId": answers,
         "context": _thread_context(conn, row),
     }
 

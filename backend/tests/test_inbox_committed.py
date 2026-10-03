@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 import uuid
 from contextlib import contextmanager
+from typing import NamedTuple
 
 from sqlalchemy import event, text
 
@@ -19,9 +20,6 @@ import actor_context
 import bot_conversation
 import db
 import db_core
-
-HUB = "IB-REAL-HUB"
-INBOX = "IB-REAL-INBOX"
 
 
 @contextmanager
@@ -33,17 +31,29 @@ def _acting_as(user_id: str):
         actor_context.reset_actor_user_id(token)
 
 
-def _thread(db_real, *, channel: str = "whatsapp", status: str = "needs_human") -> tuple[str, str, str]:
-    """A customer, a loan and one thread on it, committed. (interaction, conversation, customer)."""
+class _World(NamedTuple):
+    interaction: str
+    conversation: str
+    customer: str
+    #: Two members of staff, made for this test alone: teardown deletes only
+    #: what the test created, never a row someone else -- or a parallel run
+    #: -- already had.
+    hub: str
+    inbox: str
+
+
+def _thread(db_real, *, channel: str = "whatsapp", status: str = "needs_human") -> _World:
+    """Two staff, a customer, a loan and one thread on it, committed."""
     tag = uuid.uuid4().hex[:8].upper()
     product, bot = f"PROD-REAL-{tag}", f"BOT-REAL-{tag}"
     cust, acc = f"CUST-REAL-{tag}", f"ACC-REAL-{tag}"
     ix, cv = f"IX-REAL-{tag}", f"CV-REAL-{tag}"
+    hub, inbox = f"IB-REAL-HUB-{tag}", f"IB-REAL-INBOX-{tag}"
     t = db.current_tenant()
     with db_real.begin() as conn:
-        for uid in (HUB, INBOX):
+        for uid in (hub, inbox):
             conn.execute(
-                text("INSERT INTO users (id, tenant_id, name) VALUES (:id, :t, :id) ON CONFLICT DO NOTHING"),
+                text("INSERT INTO users (id, tenant_id, name) VALUES (:id, :t, :id)"),
                 {"id": uid, "t": t},
             )
         conn.execute(
@@ -77,7 +87,7 @@ def _thread(db_real, *, channel: str = "whatsapp", status: str = "needs_human") 
             {"id": cv, "ix": ix, "c": cust, "s": status, "ch": channel},
         )
     # Torn down in reverse: what refers to a row goes before it.
-    for uid in (HUB, INBOX):
+    for uid in (hub, inbox):
         db_real.track("users", id=uid)
     db_real.track("products", id=product)
     db_real.track("bots", id=bot)
@@ -90,7 +100,7 @@ def _thread(db_real, *, channel: str = "whatsapp", status: str = "needs_human") 
     db_real.track("messages", conversation_id=cv)
     db_real.track("activity_events", entity_id=cv)
     db_real.track("activity_events", entity_id=ix)
-    return ix, cv, cust
+    return _World(ix, cv, cust, hub, inbox)
 
 
 # --- lock order ------------------------------------------------------------
@@ -105,7 +115,8 @@ def test_a_hub_claim_and_an_inbox_takeover_at_once_do_not_deadlock(db_real) -> N
     one order the second blocks on the first's row and never gets there, the
     pause times out, and they run one after the other. In opposite orders both
     get there holding a row each, and Postgres kills one as a deadlock."""
-    ix, cv, _ = _thread(db_real)
+    w = _thread(db_real)
+    ix, cv = w.interaction, w.conversation
     with db_real.begin() as conn:
         conn.execute(
             text(
@@ -138,10 +149,10 @@ def test_a_hub_claim_and_an_inbox_takeover_at_once_do_not_deadlock(db_real) -> N
     event.listen(db_core.engine, "after_cursor_execute", pause_after_first_lock)
     try:
         threads = [
-            threading.Thread(target=run, args=("hub", HUB, lambda: db.claim_handoff(ix))),
+            threading.Thread(target=run, args=("hub", w.hub, lambda: db.claim_handoff(ix))),
             threading.Thread(
                 target=run,
-                args=("inbox", INBOX, lambda: db.takeover_conversation(cv, {"expectedAssigneeId": None})),
+                args=("inbox", w.inbox, lambda: db.takeover_conversation(cv, {"expectedAssigneeId": None})),
             ),
         ]
         for t in threads:
@@ -158,7 +169,7 @@ def test_a_hub_claim_and_an_inbox_takeover_at_once_do_not_deadlock(db_real) -> N
     assert "ok" in outcomes.values(), outcomes
     with db_real.connect() as conn:
         holder = conn.execute(text("SELECT assigned_user_id FROM conversations WHERE id = :cv"), {"cv": cv}).scalar()
-    assert holder in (HUB, INBOX)
+    assert holder in (w.hub, w.inbox)
 
 
 # --- the delta poll --------------------------------------------------------
@@ -177,10 +188,11 @@ def _reply(db_real, cv: str, sender: str, *, provider_ref: str | None = None) ->
     return mid
 
 
-def _polled_after(cv: str, change) -> bool:
+def _polled_after(w: _World, change) -> bool:
     """Is the thread in the delta poll after ``change``, from the watermark
     the browser held before it?"""
-    with _acting_as(INBOX):
+    cv = w.conversation
+    with _acting_as(w.inbox):
         (row,) = [r for r in db.list_conversations(q=cv) if r["id"] == cv]
         watermark = row["updatedAt"]
         assert cv not in {r["id"] for r in db.list_conversations(updated_after=watermark)}
@@ -193,25 +205,25 @@ def test_an_sms_receipt_brings_its_thread_into_the_delta_poll(db_real) -> None:
     thread kept its old awaiting count and SLA until a full refresh."""
     import delivery_receipts
 
-    _, cv, cust = _thread(db_real, channel="sms", status="assigned")
+    w = _thread(db_real, channel="sms", status="assigned")
     sid = f"SM{uuid.uuid4().hex}"
     db_real.track("contact_delivery_events", provider_ref=sid)
-    _reply(db_real, cv, "agent", provider_ref=sid)
+    _reply(db_real, w.conversation, "agent", provider_ref=sid)
     assert _polled_after(
-        cv,
+        w,
         lambda: delivery_receipts.record_twilio_sms_status(
-            sid=sid, state="delivered", reason=None, customer_id=cust
+            sid=sid, state="delivered", reason=None, customer_id=w.customer
         ),
     )
 
 
 def test_the_bots_own_send_brings_its_thread_into_the_delta_poll(db_real) -> None:
-    _, cv, cust = _thread(db_real, status="bot")
-    mid = _reply(db_real, cv, "bot")
+    w = _thread(db_real, status="bot")
+    mid = _reply(db_real, w.conversation, "bot")
     assert _polled_after(
-        cv,
+        w,
         lambda: bot_conversation.finalize_outbound(
             db.engine, message_id=mid, provider_ref=f"wamid.{mid}", delivery_status="sent",
-            customer_id=cust, conversation_id=cv, body="hello",
+            customer_id=w.customer, conversation_id=w.conversation, body="hello",
         ),
     )

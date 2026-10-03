@@ -503,6 +503,33 @@ describe("Inbox page", () => {
     expect(screen.getByText(/written since/)).toBeInTheDocument();
   });
 
+  it("says stored passages answer an earlier message when the thread is reopened", async () => {
+    // A read-only viewer never searches: what the last search stored is all
+    // they see, and it used to look current for as long as it stayed there.
+    q.rights = new Set();
+    q.details["CV-A"] = thread({
+      id: "CV-A",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+      ragAnswersMessageId: "M-0",
+    });
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/written since/)).toBeInTheDocument();
+  });
+
+  it("shows stored passages that answer the latest message as they are", async () => {
+    q.rights = new Set();
+    q.details["CV-A"] = thread({
+      id: "CV-A",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+      ragAnswersMessageId: "M-1",
+    });
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/Fees are waived/)).toBeInTheDocument();
+    expect(screen.queryByText(/written since/)).toBeNull();
+  });
+
   it("keeps a reply's key through a refused retry, until one succeeds", async () => {
     // Lost answer, then a 429 on the retry: the 429 says nothing of whether the
     // first one queued. A new key there let a third try queue it twice.

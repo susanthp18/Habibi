@@ -901,6 +901,23 @@ def test_a_draft_names_the_message_it_answers_and_is_not_kept(db_tx, monkeypatch
     ).scalar() == 0
 
 
+def test_stored_passages_name_the_message_they_answer(db_tx, monkeypatch, as_actor) -> None:
+    """The thread carries its stored passages to whoever opens it. Without the
+    message they answer, a viewer who never searches saw them as current long
+    after the customer had asked something else."""
+    cv = _thread(db_tx, _customer(db_tx))
+    asked = _message(db_tx, cv, "customer", ago=timedelta(minutes=5), body="how do I pay?")
+    hit = {"score": 0.9, "docTitle": "Payments", "heading": "How", "snippet": "Pay by UPI."}
+    monkeypatch.setattr(db_inbox_rag, "_studio_retrieval",
+                        lambda *_a: {"results": [hit], "draftAnswer": None, "draftFailed": False})
+    db.refresh_conversation_suggestions(cv)
+    as_actor(AGENT)
+    opened = db.get_conversation(cv)
+    assert opened["ragSuggestions"] and opened["ragAnswersMessageId"] == asked
+    later = _message(db_tx, cv, "customer", ago=timedelta(minutes=1), body="and the fee?")
+    assert db.get_conversation(cv)["ragAnswersMessageId"] == asked != later
+
+
 def test_a_slower_search_for_an_older_message_does_not_replace_the_newer_ones(db_tx, monkeypatch) -> None:
     cv = _thread(db_tx, _customer(db_tx))
     _message(db_tx, cv, "customer", ago=timedelta(minutes=5), body="first question")
@@ -921,7 +938,7 @@ def test_a_slower_search_for_an_older_message_does_not_replace_the_newer_ones(db
     monkeypatch.setattr(db_inbox_rag, "_studio_retrieval", slow_retrieval)
     out = db.refresh_conversation_suggestions(cv, include_draft_answer=True)
     assert out["superseded"] is True and out["ragSuggestions"] == [] and out["draftAnswer"] is None
-    assert db_inbox._conversation_suggestions(db_tx, cv, None) == ["the passage for the newer question"]
+    assert db_inbox._conversation_suggestions(db_tx, cv, None)[0] == ["the passage for the newer question"]
 
 
 # --- records filed from a thread -------------------------------------------

@@ -1634,6 +1634,7 @@ export const ConversationResponse = z.object({
   "handlerBotId": z.string().nullable().optional(),
   "messages": z.array(z.union([InboxMessageResponse, InboxSystemEventResponse])).optional(),
   "ragSuggestions": z.array(z.string()).optional(),
+  "ragAnswersMessageId": z.string().nullable().optional(),
   "context": InboxThreadContextResponse,
 }).passthrough();
 export const CannedResponseItem = z.object({
