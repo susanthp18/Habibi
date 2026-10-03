@@ -185,8 +185,9 @@ export function Composer({
   ragSuggestions: string[];
   ragLoading: boolean;
   ragError: string | null;
-  /** Why the passages shown may not fit: the search failed, or the customer wrote since. */
-  ragStale: "search_failed" | "customer_wrote" | null;
+  /** Why the passages shown may not fit: the search failed, the customer wrote
+   *  since, or nothing says which message they answer. */
+  ragStale: "search_failed" | "customer_wrote" | "unlinked" | null;
   ragSearched: boolean;
   busy: boolean;
   errorMessage: string | null;
@@ -345,7 +346,9 @@ export function Composer({
             <p className="text-body-small text-text-warning">
               {ragStale === "customer_wrote"
                 ? "The customer has written since — these answer their earlier message."
-                : "Couldn’t search the knowledge base just now — these are from the last search."}
+                : ragStale === "unlinked"
+                  ? "These passages aren’t linked to the customer’s latest message — check they still fit."
+                  : "Couldn’t search the knowledge base just now — these are from the last search."}
             </p>
           )}
           <div

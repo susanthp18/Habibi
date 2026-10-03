@@ -288,14 +288,19 @@ function InboxPage() {
           answers: thread?.ragAnswersMessageId ?? null,
           failed: false,
         };
+  // No link at all is not "the customer wrote since": passages stored before
+  // searches recorded it, or inherited from the interaction (a voice call's),
+  // answer nothing we can name -- in a thread with no customer message too.
   const ragStale =
     passages.list.length === 0
       ? null
-      : passages.answers !== answering
-        ? "customer_wrote"
-        : passages.failed
-          ? "search_failed"
-          : null;
+      : passages.answers === null
+        ? "unlinked"
+        : passages.answers !== answering
+          ? "customer_wrote"
+          : passages.failed
+            ? "search_failed"
+            : null;
   useEffect(() => {
     if (!thread?.id || !answering || !rights.canWrite) return;
     const timer = setTimeout(() => void refreshRag(thread.id, false), 500);

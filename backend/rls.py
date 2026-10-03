@@ -41,6 +41,7 @@ one does not.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -251,11 +252,13 @@ def plan(conn: Any) -> list[TablePolicy]:
 class _AliasCounter:
     """Monotonic subquery aliases, unique within one :func:`plan` call.
 
-    Parent predicates are inlined verbatim and carry the aliases they were built
-    with. Because this only ever counts up, an alias minted for a child can
-    never collide with one already embedded in an ancestor's predicate — which a
+    Parent predicates are inlined and carry the aliases they were built with.
+    Because this only ever counts up, an alias minted for a child can never
+    collide with one already embedded in an ancestor's predicate — which a
     depth-derived name would, whenever a table OR-ed together parents sitting at
-    different depths.
+    different depths. And because :func:`_exists` renumbers a predicate's
+    aliases each time it inlines it, one ancestor reached by two links
+    (``conversations`` directly and through ``messages``) is not declared twice.
     """
 
     def __init__(self) -> None:
@@ -338,6 +341,9 @@ def _build_policy(
     )
 
 
+_ALIAS_RE = re.compile(r"\b_rls_\d+\b")
+
+
 def _exists(
     table: str,
     fk: dict[str, Any],
@@ -359,7 +365,9 @@ def _exists(
         inner_source = parent.check_predicate or parent.predicate
     else:
         inner_source = parent.predicate
-    inner = inner_source.replace(f"{_quote(parent.table)}.", f"{alias}.")
+    fresh: dict[str, str] = {}
+    inner = _ALIAS_RE.sub(lambda m: fresh.setdefault(m.group(0), counter.next()), inner_source)
+    inner = inner.replace(f"{_quote(parent.table)}.", f"{alias}.")
     return f"EXISTS (SELECT 1 FROM {_quote(parent.table)} {alias} WHERE {joins} AND {inner})"
 
 

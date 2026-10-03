@@ -528,6 +528,38 @@ describe("Inbox page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
     expect(screen.getByText(/Fees are waived/)).toBeInTheDocument();
     expect(screen.queryByText(/written since/)).toBeNull();
+    expect(screen.queryByText(/linked/)).toBeNull();
+  });
+
+  it("does not claim the customer wrote since when stored passages name no message", async () => {
+    // Stored before searches recorded what they answered: nothing says
+    // they're stale, and nothing says they're current.
+    q.rights = new Set();
+    q.details["CV-A"] = thread({
+      id: "CV-A",
+      ragSuggestions: ["Fees are waived on the first late payment."],
+      ragAnswersMessageId: null,
+    });
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/aren’t linked to the customer’s latest message/)).toBeInTheDocument();
+    expect(screen.queryByText(/written since/)).toBeNull();
+  });
+
+  it("does not pass a voice call's passages off as current in a thread with no customer message", async () => {
+    // An escalated call keeps its turns off the thread: no customer message
+    // to answer, and the passages are the interaction's. Null against null
+    // used to read as a match.
+    q.rights = new Set();
+    q.details["CV-A"] = thread({
+      id: "CV-A",
+      channel: "voice",
+      messages: [],
+      ragSuggestions: ["Fees are waived on the first late payment."],
+    });
+    open("CV-A");
+    fireEvent.click(screen.getByRole("button", { name: "Sources (1)" }));
+    expect(screen.getByText(/aren’t linked to the customer’s latest message/)).toBeInTheDocument();
   });
 
   it("keeps a reply's key through a refused retry, until one succeeds", async () => {
