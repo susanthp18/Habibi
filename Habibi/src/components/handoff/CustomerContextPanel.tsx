@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertOctagon, CalendarClock, ExternalLink, HandCoins, User2 } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import type { ActiveCall, CustomerContext } from "@/api/handoff";
 import { useCaptureLeadFromPolicy } from "@/api/upsell";
@@ -24,7 +24,7 @@ export function CustomerContextPanel({
 }) {
   const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   const ptpStatus = (c.lastPromise?.status || "").toLowerCase();
-  const navigate = useNavigate();
+  const router = useRouter();
   const captureMut = useCaptureLeadFromPolicy();
   const applyMut = useApplyAuthority(activeCall.customerId);
   const capture = () => {
@@ -44,9 +44,12 @@ export function CustomerContextPanel({
         note: policy.talkTrack,
       },
       {
+        // The case stays open: whatever is typed into the wrap-up stays with it.
         onSuccess: (lead) => {
-          toast.success("Lead captured");
-          void navigate({ to: "/upsell", search: { id: lead.id } });
+          const href = router.buildLocation({ to: "/upsell", search: { id: lead.id } }).href;
+          toast.success("Lead captured", {
+            action: { label: "Open lead", onClick: () => window.open(href, "_blank", "noopener") },
+          });
         },
       },
     );
@@ -121,7 +124,7 @@ export function CustomerContextPanel({
         />
         <Row
           icon={<CalendarClock className="h-3.5 w-3.5 text-text-brand" />}
-          label="Next EMI"
+          label={c.nextEmi && c.nextEmi.daysOverdue > 0 ? "Overdue EMI" : "Next EMI"}
           value={
             c.nextEmi
               ? `${money(c.nextEmi.amount)} · due ${fmtShortDate(c.nextEmi.dueDate)}`

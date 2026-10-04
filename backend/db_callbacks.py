@@ -296,6 +296,21 @@ def create_callback(payload: dict[str, Any], idempotency_key: str | None = None)
     with engine.begin() as conn:
         return _create_callback(conn, payload, idempotency_key, endpoint)
 
+def _refuse_past(conn: Any, scheduled_at: Any, *, callback_id: str | None = None) -> None:
+    """A callback is a call still to make: a time already gone is refused,
+    not filed as instantly overdue. An edit that leaves an overdue callback's
+    time as it was (closing it, say) is not a new time."""
+    past = conn.execute(
+        text(
+            "SELECT CAST(:at AS timestamptz) <= now() AND CAST(:at AS timestamptz) IS DISTINCT FROM "
+            "(SELECT scheduled_at FROM callbacks WHERE id = :id)"
+        ),
+        {"at": scheduled_at, "id": callback_id},
+    ).scalar()
+    if past:
+        raise ValueError("callback_in_past")
+
+
 def _create_callback(
     conn: Any,
     payload: dict[str, Any],
@@ -331,11 +346,29 @@ def _create_callback(
         if not conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": assignee_user_id}).fetchone():
             raise KeyError(f"user_not_found: {assignee_user_id}")
 
-    team_id = payload.get("teamId") or "retail-collections"
-    if not conn.execute(text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}).fetchone():
+    # The queue it lands in: the one asked for, else the team of whoever will
+    # make the call, else the team of the agent who owns the customer. With
+    # none of those it waits for the whole tenant -- never a fixed team that
+    # may not even work this book.
+    team_id = payload.get("teamId") or conn.execute(
+        text(
+            """
+            SELECT COALESCE(
+              (SELECT team_id FROM users WHERE id = :assignee),
+              (SELECT u.team_id FROM customers c JOIN users u ON u.id = c.assigned_user_id
+               WHERE c.id = :customer_id)
+            )
+            """
+        ),
+        {"assignee": assignee_user_id, "customer_id": customer_id},
+    ).scalar()
+    if payload.get("teamId") and not conn.execute(
+        text("SELECT 1 FROM teams WHERE id = :id"), {"id": team_id}
+    ).fetchone():
         raise KeyError(f"team_not_found: {team_id}")
 
     scheduled_at = payload["scheduledAt"]
+    _refuse_past(conn, scheduled_at)
     window_mins = _callback_window(payload.get("windowMins") or 30)
     dnd_active = _callback_dnd_active(
         bool(cust and cust["dnd"]),
@@ -464,6 +497,7 @@ def patch_callback(callback_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
         # Keep dnd_active honest when the slot moves.
         if "scheduledAt" in payload and payload["scheduledAt"] is not None:
+            _refuse_past(conn, payload["scheduledAt"], callback_id=callback_id)
             updates.append("dnd_active = :dnd_active")
             params["dnd_active"] = _callback_dnd_active(
                 bool(row["customer_dnd"]),

@@ -1,4 +1,13 @@
-import { ArrowLeft, FileText, PhoneForwarded, PhoneMissed, Radio } from "lucide-react";
+import {
+  ArrowLeft,
+  FileAudio,
+  FileText,
+  MessagesSquare,
+  PhoneCall,
+  PhoneForwarded,
+  PhoneMissed,
+  Radio,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import type { ActiveCall } from "@/api/handoff";
 import { Lozenge } from "@/components/ui/lozenge";
@@ -15,9 +24,10 @@ type Props = {
 };
 
 /**
- * The case, not a call: this page has no audio. The engine put the caller
- * through to the callback line (or nobody could take them) and its own leg
- * ended or will end; what the operator works here is the follow-up.
+ * The case, not a call: this page has no audio. The engine rang the callback
+ * line (or had none to ring) and its own leg ended or will end; what the
+ * operator works here is the follow-up. The thread and the call's record are
+ * a click away.
  */
 export function CaseHeader({ call, monitor, onWrapUp }: Props) {
   const waited = call.requestedAt
@@ -54,6 +64,26 @@ export function CaseHeader({ call, monitor, onWrapUp }: Props) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-100">
+          {call.conversationId ? (
+            <Link
+              to="/inbox"
+              search={{ conversationId: call.conversationId }}
+              className="inline-flex items-center gap-050 text-body-small font-semibold text-text-brand hover:underline"
+            >
+              <MessagesSquare className="h-3.5 w-3.5" />
+              Inbox thread
+            </Link>
+          ) : null}
+          {call.channel.toLowerCase() === "voice" && call.callState === "ended" ? (
+            <Link
+              to="/audit"
+              search={{ id: call.interactionId }}
+              className="inline-flex items-center gap-050 text-body-small font-semibold text-text-brand hover:underline"
+            >
+              <FileAudio className="h-3.5 w-3.5" />
+              Call record
+            </Link>
+          ) : null}
           <TransferLozenge outcome={call.transferOutcome} />
           {call.callState === "live" ? (
             <Lozenge tone="information">
@@ -89,23 +119,40 @@ function CaseLozenge({ call, monitor }: { call: ActiveCall; monitor: boolean }) 
   return <Lozenge tone="selected">Claimed by you</Lozenge>;
 }
 
+/** What the transfer did, as the engine reported it at the end of the call. */
 export function TransferLozenge({ outcome }: { outcome: ActiveCall["transferOutcome"] }) {
-  if (outcome === "callback_line") {
+  if (outcome === "ringing") {
     return (
-      <Lozenge tone="neutral" title="The caller was put through to the callback line">
+      <Lozenge tone="information" title="The bot is ringing the callback line">
+        <PhoneCall />
+        Ringing the callback line
+      </Lozenge>
+    );
+  }
+  if (outcome === "connected") {
+    return (
+      <Lozenge tone="neutral" title="The callback line answered and the caller was put through">
         <PhoneForwarded />
         Put through to the callback line
       </Lozenge>
     );
   }
-  if (outcome === "no_one_available") {
+  if (outcome === "not_connected") {
     return (
       <Lozenge
         tone="danger"
-        title="Nobody could take the call: the customer is waiting for a call back"
+        title="The callback line was rung but the caller was not put through: call them back"
       >
         <PhoneMissed />
-        No one was available — call back
+        Not put through — call back
+      </Lozenge>
+    );
+  }
+  if (outcome === "no_line") {
+    return (
+      <Lozenge tone="danger" title="No callback line is set up, so nobody was rung: call them back">
+        <PhoneMissed />
+        No callback line — call back
       </Lozenge>
     );
   }

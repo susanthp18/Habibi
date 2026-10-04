@@ -8,7 +8,7 @@ still live there.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -331,6 +331,21 @@ def create_promise(payload: dict[str, Any], idempotency_key: str | None = None) 
         return _create_promise(conn, payload, idempotency_key, endpoint)
 
 
+def promise_date_is_past(date_s: str) -> bool:
+    """Is this promised day already behind us, in the tenant's own timezone?
+
+    The pay link generated for a promise expires at the promised day + 1,
+    23:59 IST. A date in the past therefore mints a link that is already dead,
+    and the CRM records a promise that was unkeepable the moment it was
+    written. Today is still a real promise: the link lives until tomorrow night.
+    """
+    try:
+        promised = date.fromisoformat(date_s[:10])
+    except ValueError:
+        return False
+    return promised < clock.today_local()
+
+
 def _create_promise(
     conn: Any,
     payload: dict[str, Any],
@@ -361,6 +376,8 @@ def _create_promise(
         return cached
     customer_id = payload["customerId"]
     _ensure_customer(conn, customer_id)
+    if promise_date_is_past(str(payload["promisedDate"])):
+        raise ValueError("promise_date_in_past")
     account_id = _customer_account_id(conn, customer_id, payload.get("accountId"))
     if account_id:
         open_id = _open_promise_id(conn, account_id)

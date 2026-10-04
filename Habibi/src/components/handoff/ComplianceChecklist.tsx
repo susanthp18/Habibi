@@ -14,10 +14,11 @@ type Props = {
 const IDENTITY_RULE = "rule-identity";
 
 /**
- * What was read to the customer on this case, as the server has it. A tick is
- * a recorded disclosure, so it shows only once the write succeeds. Identity
- * is not a tick: confirming it files a manual verification, and once verified
- * it cannot be undone.
+ * What the person working the case attests they read to the customer on the
+ * follow-up, as the server has it. A tick is that person's attestation, filed
+ * under their name -- not a disclosure evidenced in the bot's recording -- so
+ * it shows only once the write succeeds. Identity is not a tick: confirming
+ * it files a manual verification, and once verified it cannot be undone.
  */
 export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Props) {
   const { confirm, confirmDialog } = useConfirm();
@@ -36,6 +37,10 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
           {done}/{total} required
         </span>
       </div>
+      <p className="px-150 pt-100 text-body-small text-text-subtlest">
+        Tick what you told the customer on your follow-up. Each tick is your attestation, not
+        evidence from the bot's call recording.
+      </p>
       <div className="px-150 pt-100">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
           <div

@@ -10,7 +10,18 @@ const SERVER_WORDS: Record<string, string> = {
   unknown_disposition: "Pick an outcome.",
   promise_already_open:
     "This loan already has an open promise. Revise that one on the Promises page instead.",
+  handoff_closed: "This case is already wrapped up; nothing more can be saved on it.",
+  handoff_owner_changed:
+    "Someone else took this case a moment ago. Check who holds it now before taking it over.",
+  reassign_requires_supervisor: "Only a supervisor can take over a colleague's case.",
+  promise_date_in_past: "The promise date has passed. Choose today or a later date.",
+  callback_in_past: "That callback time has passed. Choose a later time.",
 };
+
+/** Lost access, not a blip: the case is someone else's now, or gone. */
+export function isAccessLoss(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 403 || error.status === 404);
+}
 
 const NEEDS: Record<string, string> = {
   promise: "This outcome needs the promise: an amount and a date.",
@@ -32,6 +43,27 @@ export function handoffErrorWords(error: unknown): string {
   if (error.status >= 500) return "The server couldn't complete that. Try again in a moment.";
   return error.detail || "The request failed.";
 }
+
+/** Unsaved wrap-up notes, per case, for this browser tab: leaving the case
+ * (a link, the queue) must not lose what was typed. Storage can be missing or
+ * refuse (private windows); the notes then live only while the case is open. */
+export const wrapDraft = {
+  read(handoffId: string): string {
+    try {
+      return sessionStorage.getItem(`handoff-wrap:${handoffId}`) ?? "";
+    } catch {
+      return "";
+    }
+  },
+  write(handoffId: string, notes: string) {
+    try {
+      if (notes) sessionStorage.setItem(`handoff-wrap:${handoffId}`, notes);
+      else sessionStorage.removeItem(`handoff-wrap:${handoffId}`);
+    } catch {
+      /* not kept: see above */
+    }
+  },
+};
 
 /** Copy text for the agent to say or send. Nothing here speaks or writes a turn. */
 export async function copyText(text: string): Promise<boolean> {

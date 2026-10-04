@@ -1437,12 +1437,12 @@ export const HandoffQueueItem = z.object({
   "risk": z.string().optional(),
   "waitSec": z.number().optional(),
   "requestedAt": z.string().nullable().optional(),
-  "transferOutcome": z.enum(["callback_line", "no_one_available"]).nullable().optional(),
+  "transferOutcome": z.enum(["ringing", "connected", "not_connected", "no_line"]).nullable().optional(),
 }).passthrough();
 export const HandoffQueueResponse = z.object({
   "items": z.array(HandoffQueueItem).optional(),
   "total": z.number().optional(),
-  "activeInteractionId": z.string().nullable().optional(),
+  "mine": z.array(HandoffQueueItem).optional(),
 }).passthrough();
 export const HandoffActiveCall = z.object({
   "interactionId": z.string(),
@@ -1464,7 +1464,7 @@ export const HandoffActiveCall = z.object({
   "requestedAt": z.string().nullable().optional(),
   "callState": z.enum(["live", "ended"]).optional(),
   "callEndedAt": z.string().nullable().optional(),
-  "transferOutcome": z.enum(["callback_line", "no_one_available"]).nullable().optional(),
+  "transferOutcome": z.enum(["ringing", "connected", "not_connected", "no_line"]).nullable().optional(),
 }).passthrough();
 export const HandoffLastPromise = z.object({
   "amount": z.number(),
@@ -1521,6 +1521,16 @@ export const HandoffOutcome = z.object({
   "label": z.string(),
   "needs": z.enum(["promise", "callback", "dispute", "notes"]),
 }).passthrough();
+export const HandoffWrapUp = z.object({
+  "outcome": z.string().nullable().optional(),
+  "notes": z.string().nullable().optional(),
+  "at": z.string().nullable().optional(),
+  "byUserId": z.string().nullable().optional(),
+}).passthrough();
+export const HandoffFiledRecord = z.object({
+  "kind": z.enum(["promise", "dispute", "callback"]),
+  "id": z.string(),
+}).passthrough();
 export const HandoffSessionResponse = z.object({
   "interactionId": z.string(),
   "handoffId": z.string(),
@@ -1538,6 +1548,9 @@ export const HandoffSessionResponse = z.object({
   "alerts": z.array(HandoffAlertItem).optional(),
   "outcomes": z.array(HandoffOutcome).optional(),
   "speakers": z.record(z.string(), z.string()).optional(),
+  "wrapUp": HandoffWrapUp.nullable().optional(),
+  "filed": z.array(HandoffFiledRecord).optional(),
+  "copilotEvidence": z.string().optional(),
 }).passthrough();
 export const ConversationSummaryResponse = z.object({
   "id": z.string(),

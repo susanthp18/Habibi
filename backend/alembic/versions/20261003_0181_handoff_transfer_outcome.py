@@ -1,4 +1,4 @@
-"""A handoff records what became of the transferred caller (sql/85).
+"""A handoff records what became of the transferred caller, and its wrap-up notes (sql/85).
 
 Revision ID: 20261003_0181
 Revises: 20261003_0180

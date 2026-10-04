@@ -137,7 +137,7 @@ export async function rejectDispute(d: Dispute, notes: string): Promise<void> {
 
 // ---------- mutations ----------
 
-function invalidateDisputeReads(qc: QueryClient, customerId?: string) {
+export function invalidateDisputeReads(qc: QueryClient, customerId?: string) {
   void qc.invalidateQueries({ queryKey: ["disputes"] });
   void qc.invalidateQueries({ queryKey: ["customers"] });
   if (customerId) {

@@ -1129,10 +1129,11 @@ def seed_interactions(conn: psycopg.Connection, ctx: dict[str, Any]) -> None:
             upsert(conn, "live_alerts", {"id": f"alert-{call_id}", "interaction_id": call_id, "kind": "sentiment_drop", "severity": "high", "reason": "Negative sentiment detected", "acknowledged_by_user_id": "priya-nair", "acknowledged_at": call.get("startedAt")})
         upsert(conn, "retrieval_logs", {"id": f"retrieval-{call_id}", "interaction_id": call_id, "sandbox_run_id": None, "query": call.get("summary") or call_id, "top_chunks": [{"id": "chunk-rbi-disclosures-1", "score": 0.82}], "latency_ms": call.get("latencyMs"), "selected_answer_source": "kb-rbi-disclosures"})
 
-    # Two escalations waiting on the Handoff Hub, as the transfer hook files
-    # them: one caller put through to the callback line, one nobody could take.
-    waiting = [c for c in ctx["calls"] if (c.get("handledBy") or {}).get("kind") != "human" and channel(c.get("channel")) == "voice"][:2]
-    for call, (reason, outcome) in zip(waiting, (("dispute", "callback_line"), ("customer_requested", "no_one_available"))):
+    # Escalations waiting on the Handoff Hub, as the transfer hook and the end
+    # of the call file them: a caller put through to the callback line, one
+    # whose transfer nobody answered, and one with no line to ring.
+    waiting = [c for c in ctx["calls"] if (c.get("handledBy") or {}).get("kind") != "human" and channel(c.get("channel")) == "voice"][:3]
+    for call, (reason, outcome) in zip(waiting, (("dispute", "connected"), ("hardship", "not_connected"), ("customer_requested", "no_line"))):
         upsert(conn, "interaction_handoffs", {"id": f"handoff-waiting-{call['id']}", "interaction_id": call["id"], "from_kind": "bot", "from_user_id": None, "from_bot_id": "kaia-v2-4", "to_kind": "human", "to_user_id": None, "to_bot_id": None, "to_team_id": "card-collections", "reason": reason, "queue": "Card Collections", "transfer_outcome": outcome, "requested_at": call.get("startedAt"), "accepted_at": None, "completed_at": None})
 
     for canned in (

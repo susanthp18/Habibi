@@ -59,13 +59,8 @@ _AUTH_EXEMPT_PREFIXES = (
     # the internet — anyone could dial arbitrary PSTN numbers on our account —
     # and leaked the phone number / media-stream URL via /twilio/voice/status.
     "/twilio/voice/incoming",
-    # Signature-validated Twilio callbacks (not control-plane /outbound|/status).
+    # Signature-validated Twilio callback (not control-plane /outbound).
     "/twilio/voice/fallback",
-    "/twilio/voice/stream-status",
-    "/twilio/voice/call-status",
-    # Outbound TwiML document. Signature-checked. Not /twilio/voice/outbound,
-    # which places a call and stays behind the API key.
-    "/twilio/voice/connect",
     # Delivery receipts. Twilio carries no API key; the handler HMAC is the
     # authentication — same as the voice callbacks above. This path lived in
     # authz.PUBLIC_ROUTES and not here, so ApiKeyMiddleware 401'd it first.

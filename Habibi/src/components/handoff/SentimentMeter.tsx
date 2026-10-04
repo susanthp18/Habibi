@@ -53,6 +53,8 @@ function SentimentTrace({ series }: Props) {
               {current.toFixed(2)}
             </span>
             <span
+              // A change in the -1..+1 score, not a percentage of anything.
+              title="Change in the score over the last five readings"
               className={cn(
                 "flex items-center gap-025 text-body-small font-medium",
                 trend === "up" && "text-text-success",
@@ -63,7 +65,7 @@ function SentimentTrace({ series }: Props) {
               {trend === "up" && <TrendingUp className="h-3 w-3" />}
               {trend === "down" && <TrendingDown className="h-3 w-3" />}
               {trend === "flat" && <Minus className="h-3 w-3" />}
-              {trend !== "flat" && `${(delta * 100).toFixed(0)}%`}
+              {trend !== "flat" && `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`}
               {trend === "flat" && "stable"}
             </span>
           </div>

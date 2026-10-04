@@ -248,6 +248,7 @@ def _floor_reads(st: FloorBuild) -> None:
                     LEFT JOIN LATERAL (
                       SELECT id, requested_at, created_at FROM interaction_handoffs
                       WHERE interaction_id = i.id
+                        AND to_kind = 'human'
                         AND completed_at IS NULL
                         AND accepted_at IS NULL
                       ORDER BY requested_at DESC NULLS LAST, created_at DESC
@@ -407,6 +408,7 @@ def _floor_reads(st: FloorBuild) -> None:
                 FROM interaction_handoffs h
                 JOIN interactions i ON i.id = h.interaction_id
                 WHERE i.tenant_id = :tenant
+                  AND h.to_kind = 'human'
                   AND h.accepted_at IS NULL
                   AND h.completed_at IS NULL
                 """
@@ -675,9 +677,35 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                 "note": note,
             },
         )
-        # Audit-only for listen/whisper. Barge / force_handoff reassigns handler
-        # and ensures a handoff row exists so /handoff/{id} can open.
+        # Audit-only for listen/whisper. Barge / force_handoff on a live call
+        # puts the supervisor on the call, with a 'Supervisor barge' handoff
+        # row that ends with the call (or the takeover); an escalation case
+        # open on it keeps its holder. With no live call (a chat thread, or a
+        # call already ended) there is nothing to join: taking an open case
+        # is then a reassignment, made below through the Hub's canonical
+        # takeover so the case, the interaction and the text thread move
+        # together.
+        case_holder: Any = None
+        reassign_case = False
         if action in {"barge", "force_handoff"}:
+            import voice_studio_supervision
+
+            open_case = conn.execute(
+                text(
+                    """
+                    SELECT id, to_user_id, accepted_at FROM interaction_handoffs
+                    WHERE interaction_id = :iid AND to_kind = 'human' AND completed_at IS NULL
+                      AND queue IS DISTINCT FROM 'Supervisor barge'
+                    ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"iid": interaction_id},
+            ).mappings().first()
+            reassign_case = open_case is not None and voice_studio_supervision.live_run(conn, interaction_id) is None
+            if open_case is not None and open_case["accepted_at"]:
+                case_holder = open_case["to_user_id"]
+        if action in {"barge", "force_handoff"} and not reassign_case:
             uid = db._actor_user_id()
             mapping = row._mapping
             conn.execute(
@@ -693,28 +721,21 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                 ),
                 {"id": interaction_id, "uid": uid, "tenant": tenant},
             )
-            open_ho = conn.execute(
+            barging = conn.execute(
                 text(
                     """
                     SELECT id FROM interaction_handoffs
                     WHERE interaction_id = :iid AND completed_at IS NULL
-                    ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                      AND queue = 'Supervisor barge'
                     LIMIT 1
                     """
                 ),
                 {"iid": interaction_id},
             ).fetchone()
-            if open_ho is not None:
+            if barging is not None:
                 conn.execute(
-                    text(
-                        """
-                        UPDATE interaction_handoffs
-                        SET to_user_id = :uid,
-                            accepted_at = COALESCE(accepted_at, now())
-                        WHERE id = :id
-                        """
-                    ),
-                    {"uid": uid, "id": open_ho._mapping["id"]},
+                    text("UPDATE interaction_handoffs SET to_user_id = :uid WHERE id = :id"),
+                    {"uid": uid, "id": barging._mapping["id"]},
                 )
             else:
                 from_kind = "bot" if mapping["handler_bot_id"] else "human"
@@ -741,6 +762,12 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                         "uid": uid,
                     },
                 )
+    if reassign_case:
+        import db_handoff
+
+        # The supervisor's own permission and the holder they saw are checked
+        # there, under the thread's and the case's locks.
+        db_handoff.claim_handoff(interaction_id, {"expectedAssigneeId": case_holder})
     audio_joined = False
     engine_run_id = None
     if action == "whisper" and note:

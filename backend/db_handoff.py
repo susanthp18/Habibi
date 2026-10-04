@@ -143,12 +143,64 @@ def _handoff_queue_sql_filter() -> str:
       )
     """
 
-#: The queue shows the oldest escalations first, this many at a time, and says
-#: how many more are waiting.
+#: The case on an interaction: its escalation, ahead of a supervisor's
+#: temporary call takeover (a 'Supervisor barge' row, closed with the call),
+#: which must never stand in for the case.
+_CASE_ORDER = (
+    "ORDER BY queue IS NOT DISTINCT FROM 'Supervisor barge', "
+    "requested_at DESC NULLS LAST, created_at DESC"
+)
+
+#: The queue shows the oldest escalations first, this many unless the page asks
+#: for more, and says how many are waiting.
 HANDOFF_QUEUE_LIMIT = 50
 
+_QUEUE_COLUMNS = """
+  i.id AS interaction_id,
+  h.id AS handoff_id,
+  i.customer_id,
+  c.name AS customer_name,
+  COALESCE(i.account_id, '') AS account_id,
+  h.reason,
+  h.queue,
+  COALESCE(c.risk, 'medium') AS risk,
+  h.requested_at,
+  h.transfer_outcome,
+  EXTRACT(EPOCH FROM (now() - COALESCE(h.requested_at, h.created_at)))::int AS wait_sec
+"""
 
-def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
+
+def _queue_item(r: dict[str, Any]) -> dict[str, Any]:
+    return _dump(
+        HandoffQueueItem(
+            interactionId=r["interaction_id"],
+            handoffId=r["handoff_id"],
+            customerId=r["customer_id"],
+            customerName=r["customer_name"],
+            accountId=r["account_id"] or "",
+            reason=r["reason"],
+            queue=r["queue"],
+            risk=str(r["risk"] or "medium"),
+            waitSec=max(0, int(r["wait_sec"] or 0)),
+            requestedAt=_iso_ts(r["requested_at"]),
+            transferOutcome=r["transfer_outcome"],
+        )
+    )
+
+
+def _like(term: str) -> str:
+    """A substring pattern for ILIKE ... ESCAPE '\\', the term taken literally."""
+    return "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def list_handoff_queue(
+    *,
+    customer_id: str | None = None,
+    search: str | None = None,
+    limit: int = HANDOFF_QUEUE_LIMIT,
+) -> dict[str, Any]:
+    """The cases waiting for someone, oldest first, and the actor's own open
+    cases. ``search`` matches the customer's name or id, or the loan account."""
     engine = _db().engine
     actor = _actor_user_id()
     vis = visibility.resolve(actor)
@@ -156,34 +208,29 @@ def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
         actor_team = _actor_team_id(conn)
         params: dict[str, Any] = {
             "tenant_id": _tenant(),
-            "limit": HANDOFF_QUEUE_LIMIT,
+            "limit": max(1, min(int(limit), 500)),
             "actor": actor,
             "actor_team": actor_team,
             "vis_all": vis.is_unrestricted,
             "vis_team": vis.scope == visibility.TEAM,
             "vis_actor": actor,
         }
-        customer_sql = ""
+        filters = ""
         if customer_id:
-            customer_sql = "AND i.customer_id = :customer_id"
+            filters += " AND i.customer_id = :customer_id"
             params["customer_id"] = customer_id
+        term = (search or "").strip()
+        if term:
+            filters += (
+                " AND (c.name ILIKE :term ESCAPE '\\' OR i.customer_id ILIKE :term ESCAPE '\\'"
+                " OR i.account_id ILIKE :term ESCAPE '\\')"
+            )
+            params["term"] = _like(term)
         rows = _rows(
             conn.execute(
                 text(
                     f"""
-                    SELECT
-                      i.id AS interaction_id,
-                      h.id AS handoff_id,
-                      i.customer_id,
-                      c.name AS customer_name,
-                      COALESCE(i.account_id, '') AS account_id,
-                      h.reason,
-                      h.queue,
-                      COALESCE(c.risk, 'medium') AS risk,
-                      h.requested_at,
-                      h.transfer_outcome,
-                      EXTRACT(EPOCH FROM (now() - COALESCE(h.requested_at, h.created_at)))::int AS wait_sec,
-                      count(*) OVER ()::int AS total
+                    SELECT {_QUEUE_COLUMNS}, count(*) OVER ()::int AS total
                     FROM interaction_handoffs h
                     JOIN interactions i ON i.id = h.interaction_id
                     JOIN customers c ON c.id = i.customer_id
@@ -192,7 +239,7 @@ def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
                       AND h.to_user_id IS NULL
                       AND h.accepted_at IS NULL
                       AND h.completed_at IS NULL
-                      {customer_sql}
+                      {filters}
                       {_handoff_queue_sql_filter()}
                     ORDER BY h.requested_at ASC NULLS LAST, h.created_at ASC
                     LIMIT :limit
@@ -201,52 +248,32 @@ def list_handoff_queue(*, customer_id: str | None = None) -> dict[str, Any]:
                 params,
             )
         )
-        mine = _one(
+        # The caseload: every open case the actor holds, not only the newest.
+        mine = _rows(
             conn.execute(
                 text(
-                    """
-                    SELECT i.id
+                    f"""
+                    SELECT {_QUEUE_COLUMNS}
                     FROM interaction_handoffs h
                     JOIN interactions i ON i.id = h.interaction_id
+                    JOIN customers c ON c.id = i.customer_id
                     WHERE i.tenant_id = :tenant_id
                       AND h.to_kind = 'human'
+                      AND h.to_user_id = :actor
                       AND h.completed_at IS NULL
-                      AND h.accepted_at IS NOT NULL
-                      AND (
-                        h.to_user_id = :actor
-                        OR i.handler_user_id = :actor
-                      )
-                    ORDER BY h.accepted_at DESC
-                    LIMIT 1
+                      AND h.queue IS DISTINCT FROM 'Supervisor barge'
+                    ORDER BY h.requested_at ASC NULLS LAST, h.created_at ASC
                     """
                 ),
                 {"tenant_id": _tenant(), "actor": actor},
             )
         )
-    items = [
-        _dump(
-            HandoffQueueItem(
-                interactionId=r["interaction_id"],
-                handoffId=r["handoff_id"],
-                customerId=r["customer_id"],
-                customerName=r["customer_name"],
-                accountId=r["account_id"] or "",
-                reason=r["reason"],
-                queue=r["queue"],
-                risk=str(r["risk"] or "medium"),
-                waitSec=max(0, int(r["wait_sec"] or 0)),
-                requestedAt=_iso_ts(r["requested_at"]),
-                transferOutcome=r["transfer_outcome"],
-            )
-        )
-        for r in rows
-    ]
     return _dump(
         HandoffQueueResponse.model_validate(
             {
-                "items": items,
+                "items": [_queue_item(r) for r in rows],
                 "total": rows[0]["total"] if rows else 0,
-                "activeInteractionId": mine["id"] if mine else None,
+                "mine": [_queue_item(r) for r in mine],
             }
         )
     )
@@ -258,8 +285,8 @@ def _assert_handoff_readable(conn: Any, row: dict[str, Any]) -> tuple[bool, bool
     import authz
 
     actor = _actor_user_id()
-    claimed = bool(row["accepted_at"] and (row["to_user_id"] or row["handler_user_id"]))
-    is_mine = row["to_user_id"] == actor or row["handler_user_id"] == actor
+    claimed = bool(row["accepted_at"] and row["to_user_id"])
+    is_mine = claimed and row["to_user_id"] == actor
     is_supervisor = authz.has_permission(actor, authz.SUPERVISOR_READ)
     if claimed and not is_mine and not is_supervisor:
         raise PermissionError("handoff_not_assigned")
@@ -275,13 +302,13 @@ def assert_handoff_readable(interaction_id: str) -> None:
         row = _one(
             conn.execute(
                 text(
-                    """
-                    SELECT i.handler_user_id, h.to_user_id, h.accepted_at, h.to_team_id
+                    f"""
+                    SELECT h.to_user_id, h.accepted_at, h.to_team_id
                     FROM interactions i
                     JOIN LATERAL (
                       SELECT to_user_id, accepted_at, to_team_id FROM interaction_handoffs
                       WHERE interaction_id = i.id AND to_kind = 'human'
-                      ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                      {_CASE_ORDER}
                       LIMIT 1
                     ) h ON true
                     WHERE i.id = :id
@@ -302,7 +329,7 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         row = _one(
             conn.execute(
                 text(
-                    """
+                    f"""
                     SELECT
                       i.id,
                       i.customer_id,
@@ -311,8 +338,8 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
                       i.channel,
                       i.status,
                       i.started_at,
-                      i.handler_user_id,
                       i.transferred_from_bot_id,
+                      i.disposition,
                       COALESCE(u.name, '') AS handler_name,
                       COALESCE(tb.name, fb.name, '') AS transferred_from,
                       c.risk,
@@ -329,23 +356,24 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
                       h.to_team_id,
                       h.requested_at,
                       h.transfer_outcome,
+                      h.wrap_up_notes,
                       i.ended_at,
                       conv.id AS conversation_id
                     FROM interactions i
                     JOIN customers c ON c.id = i.customer_id
-                    LEFT JOIN users u ON u.id = i.handler_user_id
+                    LEFT JOIN LATERAL (
+                      SELECT id, reason, to_user_id, accepted_at, completed_at, to_team_id,
+                             requested_at, transfer_outcome, wrap_up_notes
+                      FROM interaction_handoffs
+                      WHERE interaction_id = i.id AND to_kind = 'human'
+                      {_CASE_ORDER}
+                      LIMIT 1
+                    ) h ON true
+                    LEFT JOIN users u ON u.id = h.to_user_id
                     LEFT JOIN bots tb ON tb.id = i.transferred_from_bot_id
                     LEFT JOIN bots fb ON fb.id = i.handler_bot_id
                     LEFT JOIN accounts a ON a.id = i.account_id
                     LEFT JOIN products p ON p.id = a.product_id
-                    LEFT JOIN LATERAL (
-                      SELECT id, reason, to_user_id, accepted_at, completed_at, to_team_id,
-                             requested_at, transfer_outcome
-                      FROM interaction_handoffs
-                      WHERE interaction_id = i.id AND to_kind = 'human'
-                      ORDER BY requested_at DESC NULLS LAST, created_at DESC
-                      LIMIT 1
-                    ) h ON true
                     LEFT JOIN LATERAL (
                       SELECT id FROM conversations
                       WHERE interaction_id = i.id
@@ -363,8 +391,8 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
 
         is_mine, is_supervisor = _assert_handoff_readable(conn, row)
 
-        status = _handoff_status(row["completed_at"] is not None, bool(row["accepted_at"] or is_mine))
-        claimed_flag = bool(row["accepted_at"] or is_mine)
+        claimed_flag = bool(row["accepted_at"] and row["to_user_id"])
+        status = _handoff_status(row["completed_at"] is not None, claimed_flag)
         monitor = bool(is_supervisor and not is_mine)
 
         transcript = _rows(
@@ -452,6 +480,31 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         import voice_studio_supervision
 
         call_live = voice_studio_supervision.live_run(conn, interaction_id) is not None
+        # What the wrap-up filed, not every record on the interaction: the
+        # wrap-up writes its records in the transaction that closes the case,
+        # and now() is that transaction's start, so they carry its instant.
+        filed = _rows(
+            conn.execute(
+                text(
+                    """
+                    SELECT 'promise' AS kind, id FROM promises WHERE interaction_id = :ix AND created_at = :done
+                    UNION ALL
+                    SELECT 'dispute', id FROM disputes WHERE interaction_id = :ix AND created_at = :done
+                    UNION ALL
+                    SELECT 'callback', id FROM callbacks WHERE interaction_id = :ix AND created_at = :done
+                    """
+                ),
+                {"ix": interaction_id, "done": row["completed_at"]},
+            )
+        ) if row["completed_at"] is not None else []
+    wrap_up = None
+    if row["completed_at"] is not None:
+        wrap_up = {
+            "outcome": row["disposition"],
+            "notes": row["wrap_up_notes"],
+            "at": _iso_ts(row["completed_at"]),
+            "byUserId": row["to_user_id"],
+        }
 
     # The builders assemble dicts; the response model validates them into shape.
     session = HandoffSessionResponse.model_validate(dict(
@@ -478,7 +531,8 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
             "status": status,
             "claimed": claimed_flag,
             "risk": str(row["risk"] or "medium"),
-            "handlerUserId": row["handler_user_id"],
+            # The case's holder, whom a takeover expects to replace.
+            "handlerUserId": row["to_user_id"] if claimed_flag else None,
             "requestedAt": _iso_ts(row["requested_at"]),
             "callState": "live" if call_live else "ended",
             "callEndedAt": None if call_live else _iso_ts(row["ended_at"]),
@@ -510,8 +564,41 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         ],
         outcomes=[{"label": label, "needs": needs} for label, needs in HANDOFF_OUTCOMES.items()],
         speakers=speakers,
+        wrapUp=wrap_up,
+        filed=[{"kind": f["kind"], "id": f["id"]} for f in filed],
+        copilotEvidence=_copilot_evidence(row, transcript, context, call_live),
     ))
     return _dump(session)
+
+def _copilot_evidence(
+    row: dict[str, Any], transcript: list[dict[str, Any]], context: dict[str, Any], call_live: bool
+) -> str:
+    """A version of what the copilot drafts from: the conversation, the two
+    policy decisions and the approvals waiting on the customer. The page
+    redrafts when it changes, and only then."""
+    import hashlib
+    import json
+
+    try:
+        from work_runtime import list_jobs
+
+        approvals = sorted(
+            str(j.get("id"))
+            for j in list_jobs(status="input_required", customer_id=row["customer_id"], limit=20)
+        )
+    except Exception:
+        logger.exception("approvals lookup failed for handoff %s", row.get("id"))
+        approvals = ["unavailable"]
+    basis = [
+        len(transcript),
+        transcript[-1]["id"] if transcript else None,
+        call_live,
+        context.get("offerPolicy"),
+        context.get("authorityPolicy"),
+        approvals,
+    ]
+    return hashlib.sha1(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
 
 def _handoff_sentiment_series(
     sentiment_rows: list[dict[str, Any]],
@@ -717,26 +804,36 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
     )
     return items
 
-def claim_handoff(interaction_id: str) -> dict[str, Any]:
+def claim_handoff(interaction_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Make the case the caller's: from the queue, or from a colleague.
+
+    Claiming a waiting case is an agent's ordinary work. Taking one a colleague
+    holds is a reassignment -- the Inbox's rule (db_inbox.takeover_conversation):
+    it needs supervisor rights and ``expectedAssigneeId``, whom the caller saw
+    holding it, and is refused if that changed meanwhile. Either way the case,
+    the interaction and its text thread move together.
+    """
+    import authz
     import db_inbox
 
+    expected = (payload or {}).get("expectedAssigneeId", db_inbox._UNSTATED)
     engine = _db().engine
     actor = _actor_user_id()
     with engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
+        # Lock order: conversation, interaction, handoff (db_inbox.lock_interaction_thread).
         thread = db_inbox.lock_interaction_thread(conn, interaction_id)
+        conn.execute(text("SELECT 1 FROM interactions WHERE id = :id FOR UPDATE"), {"id": interaction_id})
         ho = _one(
             conn.execute(
                 text(
-                    """
-                    SELECT h.id, h.to_user_id, h.accepted_at, h.completed_at, h.to_team_id,
-                           i.status, i.handler_user_id
-                    FROM interaction_handoffs h
-                    JOIN interactions i ON i.id = h.interaction_id
-                    WHERE h.interaction_id = :iid AND h.to_kind = 'human'
-                    ORDER BY h.requested_at DESC NULLS LAST, h.created_at DESC
+                    f"""
+                    SELECT id, to_user_id, accepted_at, completed_at, to_team_id
+                    FROM interaction_handoffs
+                    WHERE interaction_id = :iid AND to_kind = 'human'
+                    {_CASE_ORDER}
                     LIMIT 1
-                    FOR UPDATE OF h
+                    FOR UPDATE
                     """
                 ),
                 {"iid": interaction_id},
@@ -746,28 +843,28 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
             raise KeyError("handoff_not_found")
         if ho["completed_at"] is not None:
             raise ValueError("handoff_already_completed")
-        if ho["to_user_id"] and ho["to_user_id"] != actor:
-            raise ValueError("handoff_already_claimed")
-        if ho["accepted_at"] and ho["to_user_id"] == actor:
-            pass  # idempotent re-claim
-        else:
-            if not _handoff_queue_visible(conn, ho.get("to_team_id")):
+        holder = ho["to_user_id"] if ho["accepted_at"] else None
+        reassign = holder is not None and holder != actor
+        if holder != actor:
+            if expected is not db_inbox._UNSTATED and holder != expected:
+                raise ValueError("handoff_owner_changed")
+            if reassign:
+                if expected is db_inbox._UNSTATED:
+                    raise ValueError("handoff_already_claimed")
+                if not authz.has_permission(actor, authz.SUPERVISOR_WRITE):
+                    raise PermissionError("reassign_requires_supervisor")
+            elif not _handoff_queue_visible(conn, ho.get("to_team_id")):
                 raise PermissionError("handoff_not_assigned")
-            updated = conn.execute(
+            conn.execute(
                 text(
                     """
                     UPDATE interaction_handoffs
                     SET to_user_id = :uid, accepted_at = COALESCE(accepted_at, now())
                     WHERE id = :id
-                      AND (to_user_id IS NULL OR to_user_id = :uid)
-                      AND completed_at IS NULL
-                    RETURNING id
                     """
                 ),
                 {"id": ho["id"], "uid": actor},
-            ).fetchone()
-            if updated is None:
-                raise ValueError("handoff_already_claimed")
+            )
         conn.execute(
             text(
                 """
@@ -781,7 +878,11 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
             ),
             {"id": interaction_id, "uid": actor},
         )
-        db_inbox.claim_interaction_thread(conn, thread, actor)
+        if reassign:
+            if thread is not None and thread["assigned_user_id"] != actor:
+                db_inbox._assign_conversation(conn, thread, actor, "Took over from the Handoff Hub")
+        else:
+            db_inbox.claim_interaction_thread(conn, thread, actor)
         existing = _one(
             conn.execute(
                 text(
@@ -810,14 +911,15 @@ def claim_handoff(interaction_id: str) -> dict[str, Any]:
                 ),
                 {"id": _id("IP"), "iid": interaction_id, "uid": actor},
             )
-        _activity(
-            conn,
-            "interaction",
-            interaction_id,
-            "handoff_claimed",
-            "Handoff claimed",
-            None,
-        )
+        if holder != actor:
+            _activity(
+                conn,
+                "interaction",
+                interaction_id,
+                "handoff_taken_over" if reassign else "handoff_claimed",
+                "Case taken over" if reassign else "Handoff claimed",
+                None,
+            )
     return get_handoff_session(interaction_id)
 
 def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -970,27 +1072,30 @@ def accept_handoff_suggestion(interaction_id: str, suggestion_id: str) -> dict[s
         )
     return get_handoff_session(interaction_id)
 
-def _assert_handoff_assignee(conn: Any, interaction_id: str, actor: str) -> None:
+def _assert_handoff_assignee(
+    conn: Any, interaction_id: str, actor: str, *, open_only: bool = True
+) -> dict[str, Any]:
+    """The actor holds this interaction's case; and, unless ``open_only`` is
+    off, the case is still open -- a wrapped-up case takes no more writes.
+    Returns the case row."""
     row = _one(
         conn.execute(
             text(
-                """
-                SELECT i.handler_user_id, h.to_user_id
-                FROM interactions i
-                LEFT JOIN LATERAL (
-                  SELECT to_user_id FROM interaction_handoffs
-                  WHERE interaction_id = i.id AND to_kind = 'human'
-                  ORDER BY requested_at DESC NULLS LAST, created_at DESC
-                  LIMIT 1
-                ) h ON true
-                WHERE i.id = :id
+                f"""
+                SELECT id, to_user_id, accepted_at, completed_at
+                FROM interaction_handoffs
+                WHERE interaction_id = :id AND to_kind = 'human'
+                {_CASE_ORDER}
+                LIMIT 1
                 """
             ),
             {"id": interaction_id},
         )
     )
     if row is None:
-        raise KeyError("interaction_not_found")
-    if row["handler_user_id"] != actor and row["to_user_id"] != actor:
+        raise KeyError("handoff_not_found")
+    if not row["accepted_at"] or row["to_user_id"] != actor:
         raise PermissionError("handoff_not_assigned")
-
+    if open_only and row["completed_at"] is not None:
+        raise ValueError("handoff_closed")
+    return row

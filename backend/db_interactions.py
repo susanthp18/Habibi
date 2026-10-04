@@ -16,7 +16,6 @@ from db_core import (
     _dump,
     _duration,
     _ensure_customer,
-    _ensure_interaction,
     _customer_account_id,
     _id,
     _idempotent_response,
@@ -421,35 +420,50 @@ def create_interaction(payload: dict[str, Any], idempotency_key: str | None = No
 
 
 def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotency_key: str | None = None) -> dict[str, Any]:
+    """Close the Handoff Hub's case on this interaction with the person's outcome.
+
+    Only the case's holder closes it, and only once: a replay of the same
+    request (its idempotency key) returns what it filed, after the holder is
+    checked again; any other write to a closed case is refused. The outcome
+    must carry what it claims happened. The notes are the person's and stay
+    on the case: the interaction's summary is the conversation's.
+    """
     endpoint = f"POST /interactions/{interaction_id}/wrap-up"
+    import db_handoff
+    import db_inbox
+    import voice_studio_supervision
+
     with _db().engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
+        # Lock order: conversation, interaction, handoff. The call's completion
+        # (voice.persist.complete_voice_call) takes the same interaction lock,
+        # so the two never interleave: whichever is second sees the first.
+        db_inbox.lock_interaction_thread(conn, interaction_id)
+        interaction = _one(
+            conn.execute(
+                text("SELECT id, customer_id, account_id, channel FROM interactions WHERE id = :id FOR UPDATE"),
+                {"id": interaction_id},
+            )
+        )
+        if interaction is None:
+            raise KeyError("interaction_not_found")
+        case = db_handoff._assert_handoff_assignee(conn, interaction_id, _actor_user_id(), open_only=False)
         cached = _idempotent_response(conn, idempotency_key, endpoint)
         if cached:
             return cached
-        interaction = _ensure_interaction(conn, interaction_id)
-        import db_handoff
-
-        # The Hub's case owner closes the case, and the outcome must carry
-        # what it claims happened. A Voice Studio call still in progress is
-        # the engine's to end and file: the wrap-up closes the case, not it.
-        handed = conn.execute(
-            text("SELECT 1 FROM interaction_handoffs WHERE interaction_id = :id AND to_kind = 'human' LIMIT 1"),
-            {"id": interaction_id},
-        ).first()
-        channel = conn.execute(text("SELECT channel FROM interactions WHERE id = :id"), {"id": interaction_id}).scalar()
-        if handed:
-            db_handoff._assert_handoff_assignee(conn, interaction_id, _actor_user_id())
+        if case["completed_at"] is not None:
+            raise ValueError("handoff_closed")
         db_handoff.require_outcome_evidence(payload)
-        import voice_studio_supervision
+        channel = interaction["channel"]
 
+        # A Voice Studio call still in progress is the engine's to end and
+        # file: the wrap-up closes the case, not the call.
         call_live = voice_studio_supervision.live_run(conn, interaction_id) is not None
         conn.execute(
             text(
                 """
                 UPDATE interactions
                 SET disposition = :disposition,
-                    summary = COALESCE(:notes, summary),
                     status = CASE WHEN :call_live THEN status ELSE 'completed' END,
                     ended_at = CASE WHEN :call_live THEN ended_at ELSE COALESCE(ended_at, now()) END,
                     ptp_captured = ptp_captured OR :ptp,
@@ -461,7 +475,6 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
                 "id": interaction_id,
                 "call_live": call_live,
                 "disposition": payload["disposition"],
-                "notes": payload.get("notes"),
                 "ptp": bool(payload.get("promise")),
             },
         )
@@ -469,11 +482,11 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
             text(
                 """
                 UPDATE interaction_handoffs
-                SET completed_at = now()
-                WHERE interaction_id = :id AND completed_at IS NULL
+                SET completed_at = now(), wrap_up_notes = :notes
+                WHERE id = :id
                 """
             ),
-            {"id": interaction_id},
+            {"id": case["id"], "notes": (payload.get("notes") or "").strip() or None},
         )
         for flag in payload.get("flags") or []:
             conn.execute(text("INSERT INTO interaction_flags (id, interaction_id, flag, severity) VALUES (:id, :interaction_id, :flag, 'medium')"), {"id": _id("FLAG"), "interaction_id": interaction_id, "flag": flag})

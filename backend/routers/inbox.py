@@ -24,6 +24,7 @@ from schemas import (
     ConversationSuggestionsRefreshResponse,
     ConversationSummaryResponse,
     ConversationTakeoverRequest,
+    HandoffClaimRequest,
     HandoffDisclosureRequest,
     HandoffQueueResponse,
     HandoffSessionResponse,
@@ -37,8 +38,12 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/handoff/queue", response_model=HandoffQueueResponse)
-def get_handoff_queue(customerId: str | None = Query(default=None)):
-    return db.list_handoff_queue(customer_id=customerId)
+def get_handoff_queue(
+    customerId: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    return db.list_handoff_queue(customer_id=customerId, search=q, limit=limit)
 
 
 @router.get("/handoff/{interaction_id}", response_model=HandoffSessionResponse)
@@ -75,8 +80,12 @@ def stream_handoff_copilot(interaction_id: str):
     )
 
 @router.post("/handoff/{interaction_id}/claim", response_model=HandoffSessionResponse)
-def claim_handoff(interaction_id: str):
-    return _handle_write(db.claim_handoff, interaction_id)
+def claim_handoff(interaction_id: str, payload: HandoffClaimRequest | None = None):
+    return _handle_write(
+        db.claim_handoff,
+        interaction_id,
+        payload.model_dump(exclude_unset=True) if payload else None,
+    )
 
 @router.post("/handoff/{interaction_id}/disclosures", response_model=HandoffSessionResponse)
 def post_handoff_disclosure(interaction_id: str, payload: HandoffDisclosureRequest):

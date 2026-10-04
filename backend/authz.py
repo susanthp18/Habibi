@@ -294,9 +294,6 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/webhook/whatsapp"),
         ("POST", "/twilio/voice/incoming"),
         ("POST", "/twilio/voice/fallback"),
-        ("POST", "/twilio/voice/stream-status"),
-        ("POST", "/twilio/voice/call-status"),
-        ("POST", "/twilio/voice/connect"),
         # Delivery receipts. Twilio carries no API key, so the signature check
         # inside the handler is the authentication — same as every other
         # callback above.
@@ -697,7 +694,6 @@ ROUTE_PERMISSIONS: dict[tuple[str, str], str] = {
     ("GET", "/platform/switches"): BOT_READ,
     ("PATCH", "/platform/switches/{key}"): ADMIN_WRITE,
     # --- voice operation ---------------------------------------------------
-    ("GET", "/twilio/voice/status"): BOT_READ,
     ("POST", "/twilio/voice/outbound"): VOICE_OPERATE,
 }
 

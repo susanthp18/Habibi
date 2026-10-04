@@ -114,9 +114,12 @@ def closed(ctx: dict[str, Any]) -> None:
             "UPDATE interactions SET handler_kind = 'bot', handler_bot_id = :bot, handler_user_id = NULL, "
             "updated_at = now() WHERE id = :ix AND status = 'active'"
         ), {"ix": ix, "bot": bot})
+        # Only the takeover's own row: an escalation case the supervisor also
+        # holds is closed by its wrap-up, not by hanging up the call.
         conn.execute(text(
             "UPDATE interaction_handoffs SET completed_at = now() "
-            "WHERE interaction_id = :ix AND to_user_id = :sup AND completed_at IS NULL"
+            "WHERE interaction_id = :ix AND to_user_id = :sup AND completed_at IS NULL "
+            "AND queue = 'Supervisor barge'"
         ), {"ix": ix, "sup": ctx["actor"]})
 
 

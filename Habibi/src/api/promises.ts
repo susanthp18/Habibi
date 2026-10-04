@@ -252,7 +252,7 @@ export async function createPlan(input: PlanInput): Promise<{ id: string }> {
 // other's reads. Errors toast through the mutation cache unless a screen says
 // it handles them (`caller`).
 
-function invalidatePromiseReads(qc: QueryClient, customerId?: string) {
+export function invalidatePromiseReads(qc: QueryClient, customerId?: string) {
   void qc.invalidateQueries({ queryKey: ["promises"] });
   void qc.invalidateQueries({ queryKey: ["payment-plans"] });
   void qc.invalidateQueries({ queryKey: ["customers"] });

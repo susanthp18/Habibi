@@ -201,6 +201,14 @@ class ConversationTakeoverRequest(BaseModel):
     expectedAssigneeId: str | None = None
 
 
+class HandoffClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Taking over a colleague's case: whom the caller saw holding it. When the
+    #: holder has changed since, the takeover is refused, not applied.
+    expectedAssigneeId: str | None = None
+
+
 class ConversationSuggestionsRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

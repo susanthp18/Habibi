@@ -444,6 +444,9 @@ class HandoffNextEmi(BaseModel):
     daysOverdue: int = 0
 
 
+TransferOutcome = Literal["ringing", "connected", "not_connected", "no_line"]
+
+
 class HandoffActiveCall(BaseModel):
     interactionId: str
     handoffId: str
@@ -466,9 +469,10 @@ class HandoffActiveCall(BaseModel):
     #: The call, not the case: the bot leg is still on the line, or it ended.
     callState: Literal["live", "ended"] = "ended"
     callEndedAt: str | None = None
-    #: What became of the caller: put through to the callback line, or nobody
-    #: could take them. None: not a Voice Studio transfer.
-    transferOutcome: Literal["callback_line", "no_one_available"] | None = None
+    #: What the transfer did (sql/85): ringing the callback line until the call
+    #: ends, then connected or not; no_line when there was none to ring.
+    #: None: not a Voice Studio call transfer.
+    transferOutcome: TransferOutcome | None = None
 
 
 class HandoffCustomerContext(BaseModel):
@@ -528,6 +532,22 @@ class HandoffOutcome(BaseModel):
     needs: Literal["promise", "callback", "dispute", "notes"]
 
 
+class HandoffWrapUp(BaseModel):
+    """How the case was closed: the person's outcome and their own words."""
+
+    outcome: str | None = None
+    notes: str | None = None
+    at: str | None = None
+    byUserId: str | None = None
+
+
+class HandoffFiledRecord(BaseModel):
+    """A record the wrap-up filed against this interaction."""
+
+    kind: Literal["promise", "dispute", "callback"]
+    id: str
+
+
 class HandoffSessionResponse(BaseModel):
     interactionId: str
     handoffId: str
@@ -545,6 +565,12 @@ class HandoffSessionResponse(BaseModel):
     alerts: list[HandoffAlertItem] = []
     outcomes: list[HandoffOutcome] = []
     speakers: dict[str, str] = {}
+    #: Set once the case is wrapped up.
+    wrapUp: HandoffWrapUp | None = None
+    filed: list[HandoffFiledRecord] = []
+    #: Changes whenever what the copilot drafts from changes (the transcript,
+    #: the policies, the approvals waiting): the page redrafts on a new value.
+    copilotEvidence: str = ""
 
 
 
@@ -559,14 +585,16 @@ class HandoffQueueItem(BaseModel):
     risk: str = "medium"
     waitSec: int = 0
     requestedAt: str | None = None
-    transferOutcome: Literal["callback_line", "no_one_available"] | None = None
+    transferOutcome: TransferOutcome | None = None
 
 
 class HandoffQueueResponse(BaseModel):
     items: list[HandoffQueueItem] = []
-    #: Every open escalation the actor may claim; ``items`` is the oldest of them.
+    #: Every open escalation the actor may claim (and the search matches);
+    #: ``items`` is the oldest of them.
     total: int = 0
-    activeInteractionId: str | None = None
+    #: The actor's own open cases, oldest request first: their caseload.
+    mine: list[HandoffQueueItem] = []
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,10 @@ const q = vi.hoisted(() => ({
   search: {} as { interactionId?: string; mode?: "monitor" },
   navigate: vi.fn(),
   sessions: {} as Record<string, unknown>,
+  sessionError: null as unknown,
   queue: undefined as unknown,
+  wide: true,
+  copilotEvidence: [] as string[],
   rights: new Set(["perm-interactions-write"]),
   claim: vi.fn(),
   disclose: vi.fn(),
@@ -30,9 +33,10 @@ vi.mock("@tanstack/react-router", () => ({
   }),
   Link: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   useNavigate: () => q.navigate,
+  useRouter: () => ({ buildLocation: () => ({ href: "/upsell" }) }),
 }));
 vi.mock("sonner", () => ({ toast: { error: q.toastError, success: q.toastSuccess } }));
-vi.mock("@/hooks/use-min-width", () => ({ useMinWidth: () => true }));
+vi.mock("@/hooks/use-min-width", () => ({ useMinWidth: () => q.wide }));
 vi.mock("@/api/me", () => ({
   useMe: () => ({ data: { id: "me" } }),
   can: (_me: unknown, perm: string) => q.rights.has(perm),
@@ -54,23 +58,28 @@ vi.mock("@/api/handoff", () => ({
   useHandoffQueue: () => ({ data: q.queue, isError: false, isRefetchError: false }),
   useHandoffSession: (id: string) => ({
     data: q.sessions[id],
-    isError: false,
-    isRefetchError: false,
+    isError: q.sessionError != null,
+    error: q.sessionError,
+    isRefetchError: q.sessionError != null,
+    dataUpdatedAt: 0,
   }),
   useClaimHandoff: () => ({ mutate: q.claim, isPending: false, variables: undefined }),
   useRecordDisclosure: () => ({ mutate: q.disclose, isPending: false }),
   useAcceptSuggestion: () => ({ mutate: q.accept }),
   useWrapUpHandoff: () => ({ mutate: q.wrap, isPending: false }),
-  useCopilotStream: () => ({
-    whisper: "",
-    vetoes: [],
-    unavailable: [],
-    approvals: [],
-    streaming: false,
-    done: true,
-    error: null,
-    refresh: vi.fn(),
-  }),
+  useCopilotStream: (_id: string, evidence: string) => (
+    q.copilotEvidence.push(evidence),
+    {
+      whisper: "",
+      vetoes: [],
+      unavailable: [],
+      approvals: [],
+      streaming: false,
+      done: true,
+      error: null,
+      refresh: vi.fn(),
+    }
+  ),
 }));
 
 const { Route } = await import("@/routes/_app.handoff.lazy");
@@ -105,7 +114,7 @@ function session(over: Partial<HandoffSession> = {}, id = "IX-1"): HandoffSessio
       requestedAt: "2026-10-03T10:00:00Z",
       callState: "ended",
       callEndedAt: "2026-10-03T10:05:00Z",
-      transferOutcome: "no_one_available",
+      transferOutcome: "no_line",
     },
     customerContext: {
       risk: "Medium",
@@ -149,6 +158,9 @@ function session(over: Partial<HandoffSession> = {}, id = "IX-1"): HandoffSessio
       { label: "Info provided", needs: "notes" },
     ],
     speakers: { customer: "Synthetic Borrower" },
+    wrapUp: null,
+    filed: [],
+    copilotEvidence: "ev-1",
     ...over,
   };
 }
@@ -166,6 +178,10 @@ beforeEach(() => {
   q.search = { interactionId: "IX-1" };
   q.sessions = { "IX-1": session(), "IX-2": session({}, "IX-2") };
   q.rights = new Set(["perm-interactions-write"]);
+  q.sessionError = null;
+  q.wide = true;
+  q.copilotEvidence = [];
+  sessionStorage.clear();
   for (const fn of [q.claim, q.disclose, q.accept, q.wrap, q.toastError, q.navigate])
     fn.mockReset();
 });
@@ -178,7 +194,7 @@ describe("Handoff Hub — the case, not a call", () => {
     }
     expect(screen.queryByText(/^Live$/)).toBeNull();
     expect(screen.queryByText(/streaming/i)).toBeNull();
-    expect(screen.getByText(/No one was available — call back/)).toBeTruthy();
+    expect(screen.getByText(/No callback line — call back/)).toBeTruthy();
   });
 
   it("says sentiment is not available instead of drawing one", () => {
@@ -282,14 +298,14 @@ describe("Handoff Hub — watching and claiming", () => {
           risk: "low",
           waitSec: 700,
           requestedAt: null,
-          transferOutcome: "callback_line",
+          transferOutcome: "connected",
         },
       ],
       total: 51,
-      activeInteractionId: null,
+      mine: [],
     };
     q.queue = queue;
-    q.claim.mockImplementation((_id, opts: { onError: (e: unknown) => void }) =>
+    q.claim.mockImplementation((_vars, opts: { onError: (e: unknown) => void }) =>
       opts.onError(new ApiError("POST", "/handoff/IX-9/claim", 409, "handoff_already_claimed")),
     );
     mount();
@@ -307,5 +323,154 @@ describe("waitWords", () => {
     expect(waitWords(125)).toBe("2m 5s");
     expect(waitWords(3 * 3600 + 600)).toBe("3h 10m");
     expect(waitWords(74 * 86400 + 5 * 3600)).toBe("74d 5h");
+  });
+});
+
+function queueItem(id: string, name: string) {
+  return {
+    interactionId: id,
+    handoffId: `HO-${id}`,
+    customerId: `C-${id}`,
+    customerName: name,
+    accountId: "",
+    reason: "dispute",
+    queue: null,
+    risk: "low",
+    waitSec: 30,
+    requestedAt: null,
+    transferOutcome: null,
+  };
+}
+
+describe("Handoff Hub — who may act", () => {
+  it("offers no Claim to a viewer who can't change cases", () => {
+    q.search = {};
+    q.rights = new Set();
+    q.queue = { items: [queueItem("IX-9", "Synthetic Caller")], total: 1, mine: [] };
+    mount();
+    expect(screen.getByText("Synthetic Caller")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Claim/ })).toBeNull();
+  });
+
+  it("lists every open case the agent holds, not only the newest", () => {
+    q.search = {};
+    q.queue = {
+      items: [],
+      total: 0,
+      mine: [queueItem("IX-1", "First Borrower"), queueItem("IX-2", "Second Borrower")],
+    };
+    mount();
+    expect(screen.getByText("Your open cases (2)")).toBeTruthy();
+    expect(screen.getByText("First Borrower")).toBeTruthy();
+    expect(screen.getByText("Second Borrower")).toBeTruthy();
+    expect(screen.getAllByText("Resume")).toHaveLength(2);
+  });
+
+  it("makes the holder's case read-only once their role loses write", () => {
+    q.rights = new Set();
+    mount();
+    expect(screen.getByText(/can no longer change cases/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wrap up" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Recording disclosure read/ }));
+    expect(q.disclose).not.toHaveBeenCalled();
+  });
+
+  it("says access is lost instead of showing the stale case as yours", () => {
+    q.sessionError = new ApiError("GET", "/handoff/IX-1", 403, "handoff_not_assigned");
+    mount();
+    expect(screen.getByText(/no longer have access to this case/)).toBeTruthy();
+    expect(screen.queryByText("Claimed by you")).toBeNull();
+  });
+
+  it("keeps the last snapshot through a server blip", () => {
+    q.sessionError = new ApiError("GET", "/handoff/IX-1", 503, "unavailable");
+    mount();
+    expect(screen.getByText(/Couldn't refresh this case/)).toBeTruthy();
+    expect(screen.getByText("Claimed by you")).toBeTruthy();
+  });
+
+  it("takes over a colleague's case naming whom it saw holding it", () => {
+    q.rights = new Set([
+      "perm-interactions-write",
+      "perm-supervisor-read",
+      "perm-supervisor-write",
+    ]);
+    q.sessions = {
+      "IX-1": session({
+        monitor: true,
+        activeCall: { ...session().activeCall, agentName: "Asha", handlerUserId: "asha" },
+      }),
+    };
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Take over case" }));
+    expect(q.claim).toHaveBeenCalledWith(
+      { interactionId: "IX-1", expectedAssigneeId: "asha" },
+      expect.anything(),
+    );
+  });
+});
+
+describe("Handoff Hub — closing and after", () => {
+  it("refuses a promise dated before today and a callback already past", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    const save = screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
+    fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
+    fireEvent.change(screen.getByLabelText("Amount (₹)"), { target: { value: "1500" } });
+    fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2020-01-01" } });
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
+    expect(save.disabled).toBe(false);
+  });
+
+  it("keeps unsaved notes when the agent leaves the case and comes back", () => {
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: "customer will call" } });
+    first.unmount();
+    mount();
+    expect(screen.getByDisplayValue("customer will call")).toBeTruthy();
+  });
+
+  it("shows how a closed case was wrapped up and what it filed", () => {
+    q.sessions = {
+      "IX-1": session({
+        status: "completed",
+        wrapUp: { outcome: "PTP captured", notes: "pays Friday", at: null, byUserId: "me" },
+        filed: [{ kind: "promise", id: "PTP-7" }],
+      }),
+    };
+    mount();
+    expect(screen.getByText("Wrapped up: PTP captured")).toBeTruthy();
+    expect(screen.getByText("pays Friday")).toBeTruthy();
+    expect(screen.getByText("Promise PTP-7")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wrap up" })).toBeNull();
+  });
+
+  it("redrafts the copilot from the case's evidence version", () => {
+    mount();
+    expect(q.copilotEvidence).toContain("ev-1");
+  });
+
+  it("moves between the narrow-screen tabs with the arrow keys", () => {
+    q.wide = false;
+    mount();
+    const context = screen.getByRole("tab", { name: "Context" });
+    fireEvent.keyDown(context, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Suggest" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(context, { key: "End" });
+    expect(screen.getByRole("tab", { name: "Compliance" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+  });
+});
+
+describe("SentimentMeter", () => {
+  it("shows movement as a change in score, not a percentage", async () => {
+    const { SentimentMeter } = await import("./SentimentMeter");
+    render(<SentimentMeter series={[-0.5, -0.2]} />);
+    expect(screen.getByText("+0.30")).toBeTruthy();
+    expect(screen.queryByText(/%/)).toBeNull();
   });
 });

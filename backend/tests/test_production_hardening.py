@@ -24,9 +24,10 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
     # numbers for anyone on the internet.
     assert "/twilio/voice/incoming" in prefixes
     assert "/twilio/voice/fallback" in prefixes
-    assert "/twilio/voice/stream-status" in prefixes
-    assert "/twilio/voice/call-status" in prefixes
-    assert "/twilio/voice/connect" in prefixes
+    # The retired media-stream runtime's callbacks have no handler any more;
+    # an exemption for them would only open a path to whatever lands there.
+    for retired in ("/twilio/voice/stream-status", "/twilio/voice/call-status", "/twilio/voice/connect"):
+        assert retired not in prefixes
     assert "/twilio/sms/status" in prefixes
     assert "/webhooks/collections/payment-events" in prefixes
     assert "/twilio" not in prefixes
@@ -51,9 +52,7 @@ def test_twilio_auth_exempt_matches_voice_paths(monkeypatch: pytest.MonkeyPatch)
         assert res.status_code == 403, res.text
         assert res.json()["detail"] == "invalid_twilio_signature"
         assert client.post("/twilio/voice/fallback", data={}).status_code == 403
-        assert client.post("/twilio/voice/stream-status", data={}).status_code == 403
-        assert client.post("/twilio/voice/call-status", data={}).status_code == 403
-        assert client.post("/twilio/voice/connect", data={"Digits": "1"}).status_code == 403
+        assert client.post("/twilio/voice/connect", data={"Digits": "1"}).status_code == 401
 
         # A path that merely shares the prefix is NOT exempt.
         res = client.get("/twilio-admin/secrets")

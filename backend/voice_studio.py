@@ -1112,13 +1112,13 @@ def transfer_destination(body: dict[str, Any]) -> dict[str, Any]:
     if ctx.get("workflow_run_id"):
         with _as_agent(ctx):
             interaction_id = _interaction(ctx)
-            # The Hub works the handoff after the call: it must say whether the
-            # caller was put through or nobody could take them.
+            # The Hub works the handoff after the call. Whether the callback
+            # line answers is known only when the run ends (_complete_run).
             persist.record_handoff(
                 interaction_id=interaction_id,
                 reason=str(body.get("reason") or "customer_requested"),
                 bot_id=_ctx_bot_id(ctx),
-                transfer_outcome=None if whatsapp else ("callback_line" if destination else "no_one_available"),
+                transfer_outcome=None if whatsapp else ("ringing" if destination else "no_line"),
             )
     if whatsapp:  # whatsapp_studio escalates the thread to the Inbox
         return {"transfer_context": {"destination": "", "custom_message": "Connecting you to a colleague."}}
@@ -1168,34 +1168,9 @@ def precall(body: dict[str, Any]) -> dict[str, Any]:
 # After the call
 # ---------------------------------------------------------------------------
 
-def call_ended_disposition(interaction_id: str, engine_disposition: str | None) -> str | None:
-    """The call's disposition at completion, and what its end does to handoffs.
-
-    A call the agent handed to a person was escalated, whatever its exit node
-    called it (a supervisor's takeover it got back is not). The escalation
-    outlives the call -- the engine put the caller through to the callback
-    line, or nobody was there -- and stays on the Hub until a person wraps it
-    up: only a supervisor's takeover ends with the call. A wrap-up already
-    saved is the person's outcome, and the call's completion keeps it.
-    """
-    import db
-
-    with db.engine.begin() as conn:
-        handoff = conn.execute(text(
-            "SELECT bool_or(h.completed_at IS NOT NULL) AS wrapped, max(i.disposition) AS disposition "
-            "FROM interaction_handoffs h JOIN interactions i ON i.id = h.interaction_id "
-            "WHERE h.interaction_id = :ix AND h.to_kind = 'human' "
-            "AND h.queue IS DISTINCT FROM 'Supervisor barge'"
-        ), {"ix": interaction_id}).mappings().one()
-        conn.execute(text(
-            "UPDATE interaction_handoffs SET completed_at = now() "
-            "WHERE interaction_id = :ix AND completed_at IS NULL AND queue = 'Supervisor barge'"
-        ), {"ix": interaction_id})
-    if handoff["wrapped"]:
-        return handoff["disposition"]
-    if handoff["wrapped"] is False:
-        return "escalated"
-    return engine_disposition
+#: The engine's call status when the transfer's destination answered and the
+#: caller was bridged to it (a conference, or an external PBX taking the leg).
+_PUT_THROUGH = {"transfer_call", "call_transferred"}
 
 
 _UNCONNECTED = {"busy", "no-answer", "failed", "canceled", "error"}
@@ -2003,15 +1978,12 @@ def _complete_run(body: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             logger.exception("voice studio: evidence chain link not written for %s", interaction_id)
         spoken = [v for v in latency_ms.values() if v > 0]
-        disposition = call_ended_disposition(
-            interaction_id,
-            str(gathered.get("mapped_call_disposition") or gathered.get("call_disposition") or "") or None,
-        )
         persist.complete_voice_call(
             session_id=session_id,
             interaction_id=interaction_id,
             status="completed",
-            disposition=disposition,
+            disposition=str(gathered.get("mapped_call_disposition") or gathered.get("call_disposition") or "") or None,
+            transferred=status in _PUT_THROUGH,
             providers=(ctx.get("runtime_configuration") or None),
             duration_sec=duration,
             latency_ms=int(sorted(spoken)[len(spoken) // 2]) if spoken else None,

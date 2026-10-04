@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { FileText, Save, X } from "lucide-react";
 import type { WrapUpOutcome, WrapUpPayload } from "@/api/handoff";
 import type { DisputeType } from "@/api/types/disputes";
@@ -6,9 +6,12 @@ import type { CbReason } from "@/api/types/callbacks";
 import { SelectField } from "@/components/ui/select";
 import { TYPE_LABELS } from "@/lib/disputes";
 import { REASON_LABELS } from "@/lib/callbacks";
+import { wrapDraft } from "./handoff-words";
 
 type Props = {
   open: boolean;
+  /** The case: its unsaved notes are kept under it until the wrap-up saves. */
+  handoffId: string;
   outcomes: WrapUpOutcome[];
   onClose: () => void;
   onSave: (payload: WrapUpPayload) => void;
@@ -30,13 +33,18 @@ function istDatePlus(days: number) {
   });
 }
 
-/** Tomorrow 11:00 in the browser's clock, for a datetime-local field. */
-function tomorrowAt11() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(11, 0, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T11:00`;
+/** Now, as a datetime-local value on India's clock. */
+function istNowLocal() {
+  return new Date()
+    .toLocaleString("sv-SE", { timeZone: "Asia/Kolkata", hour12: false })
+    .slice(0, 16)
+    .replace(" ", "T");
+}
+
+/** A datetime-local value read as India's time -- the zone the field says --
+ * whatever the browser's own zone is. */
+function istInstant(local: string) {
+  return new Date(`${local}:00+05:30`);
 }
 
 /**
@@ -47,6 +55,7 @@ function tomorrowAt11() {
  */
 export function WrapUpBar({
   open,
+  handoffId,
   outcomes,
   onClose,
   onSave,
@@ -56,33 +65,42 @@ export function WrapUpBar({
   error,
 }: Props) {
   const [label, setLabel] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotesState] = useState(() => wrapDraft.read(handoffId));
+  const setNotes = (value: string) => {
+    setNotesState(value);
+    wrapDraft.write(handoffId, value);
+  };
   const [ptpAmount, setPtpAmount] = useState(defaultPtpAmount ? String(defaultPtpAmount) : "");
   const [ptpDate, setPtpDate] = useState(() => istDatePlus(7));
-  const [callbackAt, setCallbackAt] = useState(tomorrowAt11);
+  const [callbackAt, setCallbackAt] = useState(() => `${istDatePlus(1)}T11:00`);
   const [callbackReason, setCallbackReason] = useState<CbReason>("payment_discussion");
   const [disputeType, setDisputeType] = useState<DisputeType | "">("");
 
   const needs = outcomes.find((o) => o.label === label)?.needs;
   const amount = Number(ptpAmount);
+  const today = istDatePlus(0);
+  const callbackTime = callbackAt ? istInstant(callbackAt).getTime() : Number.NaN;
+  // The server refuses the same (promise_date_in_past, callback_in_past); the
+  // form says so before the round trip.
   const valid =
     needs === "promise"
-      ? Number.isFinite(amount) && amount > 0 && Boolean(ptpDate)
+      ? Number.isFinite(amount) && amount > 0 && Boolean(ptpDate) && ptpDate >= today
       : needs === "callback"
-        ? Boolean(callbackAt) && !Number.isNaN(new Date(callbackAt).getTime())
+        ? !Number.isNaN(callbackTime) && callbackTime > Date.now()
         : needs === "dispute"
           ? Boolean(disputeType)
           : needs === "notes"
             ? notes.trim().length > 0
             : false;
 
-  const save = () => {
+  const save = (e: FormEvent) => {
+    e.preventDefault();
     if (!valid || !needs) return;
     const payload: WrapUpPayload = { disposition: label, notes };
     if (needs === "promise") payload.promise = { amount, promisedDate: ptpDate };
     if (needs === "callback") {
       payload.callback = {
-        scheduledAt: new Date(callbackAt).toISOString(),
+        scheduledAt: istInstant(callbackAt).toISOString(),
         reason: callbackReason,
         assigneeUserId: actorId,
       };
@@ -112,7 +130,7 @@ export function WrapUpBar({
         </button>
       </div>
 
-      <div className="grid gap-150 md:grid-cols-[240px_1fr_auto]">
+      <form onSubmit={save} className="grid gap-150 md:grid-cols-[240px_1fr_auto]">
         <div>
           <label htmlFor="wrapup-outcome" className={labelClass}>
             Outcome
@@ -138,6 +156,7 @@ export function WrapUpBar({
                   id="wrapup-ptp-amount"
                   type="number"
                   inputMode="decimal"
+                  required
                   min={1}
                   value={ptpAmount}
                   onChange={(e) => setPtpAmount(e.target.value)}
@@ -151,7 +170,8 @@ export function WrapUpBar({
                 <input
                   id="wrapup-ptp-date"
                   type="date"
-                  min={istDatePlus(0)}
+                  required
+                  min={today}
                   value={ptpDate}
                   onChange={(e) => setPtpDate(e.target.value)}
                   className={fieldClass}
@@ -164,11 +184,13 @@ export function WrapUpBar({
             <div className="mt-100 grid gap-075">
               <div>
                 <label htmlFor="wrapup-callback-at" className={labelClass}>
-                  Call back at
+                  Call back at (IST)
                 </label>
                 <input
                   id="wrapup-callback-at"
                   type="datetime-local"
+                  required
+                  min={istNowLocal()}
                   value={callbackAt}
                   onChange={(e) => setCallbackAt(e.target.value)}
                   className={fieldClass}
@@ -241,16 +263,15 @@ export function WrapUpBar({
 
         <div className="flex items-end">
           <button
-            type="button"
+            type="submit"
             disabled={saving || !valid}
-            onClick={save}
             className="flex h-400 items-center gap-075 rounded-medium bg-background-brand-bold px-150 text-body-small font-semibold text-text-inverse hover:bg-background-brand-bold-hovered disabled:opacity-60"
           >
             <Save className="h-3.5 w-3.5" />
             {saving ? "Saving…" : "Save wrap-up"}
           </button>
         </div>
-      </div>
+      </form>
     </section>
   );
 }

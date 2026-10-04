@@ -768,19 +768,31 @@ def complete_voice_call(
     avg_sentiment: float | None = None,
     providers: dict[str, Any] | None = None,
     duration_sec: int | None = None,
+    transferred: bool = False,
 ) -> None:
     """``duration_sec``: the call's measured length, when the channel knows it.
     Without it the duration is started_at to now, which for a call filed after
-    the fact (the Voice Studio webhook) includes the post-call delay."""
+    the fact (the Voice Studio webhook) includes the post-call delay.
+
+    ``transferred``: the engine put the caller through to the callback line.
+    """
     ended = _now()
     st = status if status in ("completed", "abandoned", "failed") else "completed"
     sent_label = sentiment_label(avg_sentiment) if avg_sentiment is not None else None
 
     with db.engine.begin() as conn:
         row = conn.execute(
-            text("SELECT started_at, status FROM interactions WHERE id = :id FOR UPDATE"),
+            text("SELECT started_at, status, disposition FROM interactions WHERE id = :id FOR UPDATE"),
             {"id": interaction_id},
         ).mappings().first()
+        # Under the interaction's lock, which the wrap-up takes too: a person's
+        # outcome saved a moment before this read is kept, one saved after it
+        # waits and then replaces the call's.
+        wrapped = _settle_call_case(conn, interaction_id, transferred=transferred)
+        if wrapped and row:
+            disposition = row["disposition"]  # the person's outcome is the call's
+        elif wrapped is False:
+            disposition = "escalated"
         duration = duration_sec
         if duration is None and row and row.get("started_at"):
             started = row["started_at"]
@@ -832,7 +844,7 @@ def complete_voice_call(
                     interaction_id,
                     channel_hint="voice",
                     force_summary=not bool(summary),
-                    keep_disposition=bool(disposition),
+                    keep_disposition=bool(disposition) or bool(wrapped),
                 )
         except Exception:
             logger.exception("capture rollup failed for %s", interaction_id)
@@ -867,6 +879,39 @@ def complete_voice_call(
         score_completed_interaction(interaction_id)
     except Exception:
         logger.exception("live_qa scorecard-on-complete failed for %s", interaction_id)
+
+
+def _settle_call_case(conn: Any, interaction_id: str, *, transferred: bool) -> bool | None:
+    """What the call's end does to the Hub's case on it; the caller holds the
+    interaction's row lock.
+
+    The escalation outlives the call and stays open until a person wraps it
+    up; only a supervisor's takeover ends with the call. A transfer still
+    ringing is settled by what the engine saw. Returns whether the case was
+    already wrapped up, or None when the call was never handed to a person.
+    """
+    conn.execute(
+        text(
+            "UPDATE interaction_handoffs SET completed_at = now() "
+            "WHERE interaction_id = :ix AND completed_at IS NULL AND queue = 'Supervisor barge'"
+        ),
+        {"ix": interaction_id},
+    )
+    conn.execute(
+        text(
+            "UPDATE interaction_handoffs SET transfer_outcome = :outcome "
+            "WHERE interaction_id = :ix AND transfer_outcome = 'ringing'"
+        ),
+        {"ix": interaction_id, "outcome": "connected" if transferred else "not_connected"},
+    )
+    return conn.execute(
+        text(
+            "SELECT bool_or(completed_at IS NOT NULL) FROM interaction_handoffs "
+            "WHERE interaction_id = :ix AND to_kind = 'human' "
+            "AND queue IS DISTINCT FROM 'Supervisor barge'"
+        ),
+        {"ix": interaction_id},
+    ).scalar()
 
 
 _LIVE_ALERT_FLAGS = frozenset(
@@ -1320,12 +1365,14 @@ def record_handoff(
     bot_id: str | None = None,
     transfer_outcome: str | None = None,
 ) -> str:
-    """The agent handed the call to a person: one open handoff per call.
+    """The agent handed the call to a person: one case per call.
 
     It goes to the team of the agent who owns the customer, or to the whole
-    tenant's queue when nobody does. ``transfer_outcome`` says what became of
-    the caller ('callback_line' or 'no_one_available'). A repeated hook for the
-    same call returns the handoff already open instead of queueing a duplicate.
+    tenant's queue when nobody does. ``transfer_outcome`` is what the transfer
+    did ('ringing' the callback line, or 'no_line' to ring); the end of the run
+    settles 'ringing' (:func:`complete_voice_call`). The hook carries no
+    transfer id, so the call is the key: a repeated or late hook returns the
+    call's case -- even one already wrapped up, which it never reopens.
     """
     reasons = {
         "sentiment_drop",
@@ -1353,26 +1400,28 @@ def record_handoff(
             ),
             {"id": interaction_id},
         ).mappings().first() or {}
-        open_id = conn.execute(
+        case = conn.execute(
             text(
                 """
-                SELECT id FROM interaction_handoffs
-                WHERE interaction_id = :id AND to_kind = 'human' AND completed_at IS NULL
+                SELECT id, completed_at FROM interaction_handoffs
+                WHERE interaction_id = :id AND to_kind = 'human' AND from_kind = 'bot'
+                  AND queue IS DISTINCT FROM 'Supervisor barge'
                 ORDER BY requested_at DESC NULLS LAST, created_at DESC
                 LIMIT 1
                 """
             ),
             {"id": interaction_id},
-        ).scalar()
-        if open_id:
-            conn.execute(
-                text(
-                    "UPDATE interaction_handoffs "
-                    "SET transfer_outcome = COALESCE(:outcome, transfer_outcome) WHERE id = :id"
-                ),
-                {"id": open_id, "outcome": transfer_outcome},
-            )
-            return str(open_id)
+        ).mappings().first()
+        if case:
+            if case["completed_at"] is None:
+                conn.execute(
+                    text(
+                        "UPDATE interaction_handoffs "
+                        "SET transfer_outcome = COALESCE(:outcome, transfer_outcome) WHERE id = :id"
+                    ),
+                    {"id": case["id"], "outcome": transfer_outcome},
+                )
+            return str(case["id"])
         hid = _sid("HO")
         conn.execute(
             text(

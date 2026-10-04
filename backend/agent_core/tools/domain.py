@@ -143,21 +143,11 @@ def _parse_promise_date(raw: str) -> str | None:
 
 
 def _promise_date_is_past(date_s: str) -> bool:
-    """Is this promised day already behind us, in the tenant's own timezone?
+    """The promise writer's own rule (db_promises.promise_date_is_past), asked
+    before the write so the agent hears it as this tool's refusal."""
+    import db_promises
 
-    The pay link generated for a promise expires at the promised day + 1,
-    23:59 IST. A date in the past therefore mints a link that is already dead —
-    the customer receives a URL the next settle tick breaks, and the CRM
-    records a promise that was unkeepable the moment it was written. Today is
-    still a real promise: the link lives until tomorrow night.
-    """
-    from agent_core import clock
-
-    try:
-        promised = date.fromisoformat(date_s)
-    except ValueError:
-        return False
-    return promised < clock.today_local()
+    return db_promises.promise_date_is_past(date_s)
 
 
 def _parse_scheduled_at(raw: str) -> str | None:
@@ -1242,6 +1232,20 @@ def request_callback(
 
     try:
         row = db.create_callback(payload, idempotency_key=idempotency_key)
+    except ValueError as exc:
+        if str(exc) == "callback_in_past":
+            return ToolResult(
+                ok=False,
+                error="callback_in_past",
+                spoken_summary="that time has already passed; ask for a later time",
+            )
+        logger.exception("create_callback failed account=%s interaction=%s", account_id, interaction_id)
+        return ToolResult(
+            ok=False,
+            error="crm_write_failed",
+            data={"detail": "crm_write_failed"},
+            spoken_summary="apologise and offer to try again or connect to an agent",
+        )
     except Exception:
         logger.exception("create_callback failed account=%s interaction=%s", account_id, interaction_id)
         return ToolResult(

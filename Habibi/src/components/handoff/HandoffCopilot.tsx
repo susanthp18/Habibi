@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Copy, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { signalFloorApproval } from "@/api/floor";
@@ -7,6 +8,8 @@ import { copyText, handoffErrorWords } from "./handoff-words";
 
 type Props = {
   interactionId: string;
+  /** The session's version of what the draft is built from; a new one redrafts. */
+  evidence: string;
   /** perm-supervisor-write: approving or rejecting what waits on a person. */
   canSignal: boolean;
 };
@@ -18,15 +21,21 @@ const ENGINE_WORDS: Record<string, string> = {
 
 /** The engines' draft for this case: what to say on the call back, and any
  * approval waiting on a supervisor. Advice to copy, never something said. */
-export function HandoffCopilot({ interactionId, canSignal }: Props) {
-  const stream = useCopilotStream(interactionId);
+export function HandoffCopilot({ interactionId, evidence, canSignal }: Props) {
+  const stream = useCopilotStream(interactionId, evidence);
+  // One decision at a time: a second click must not signal the job twice.
+  const [signalling, setSignalling] = useState<string | null>(null);
   const signal = async (id: string, name: "approve" | "reject") => {
+    if (signalling) return;
+    setSignalling(id);
     try {
       await signalFloorApproval(id, name);
       toast.success(name === "approve" ? "Approved — the workflow resumes" : "Rejected");
       stream.refresh();
     } catch (e) {
       toast.error(handoffErrorWords(e));
+    } finally {
+      setSignalling(null);
     }
   };
 
@@ -124,14 +133,16 @@ export function HandoffCopilot({ interactionId, canSignal }: Props) {
                   <span className="flex shrink-0 gap-050">
                     <button
                       type="button"
-                      className="rounded px-075 py-025 font-medium text-text-brand"
+                      disabled={signalling !== null}
+                      className="rounded px-075 py-025 font-medium text-text-brand disabled:opacity-50"
                       onClick={() => void signal(job.id, "approve")}
                     >
-                      Approve
+                      {signalling === job.id ? "Saving…" : "Approve"}
                     </button>
                     <button
                       type="button"
-                      className="rounded px-075 py-025 text-text-subtle"
+                      disabled={signalling !== null}
+                      className="rounded px-075 py-025 text-text-subtle disabled:opacity-50"
                       onClick={() => void signal(job.id, "reject")}
                     >
                       Reject

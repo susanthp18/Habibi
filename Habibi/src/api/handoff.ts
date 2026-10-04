@@ -3,10 +3,10 @@
 // person. The engine bridges the caller to the callback line and its own leg
 // ends, so a handoff is a case worked after (or beside) the call, not a live
 // call in this page.
-//   GET  /handoff/queue                       open cases the actor may claim
+//   GET  /handoff/queue                       open cases to claim, and the actor's own
 //   GET  /handoff/{interactionId}             the case
 //   GET  /handoff/{interactionId}/copilot/stream
-//   POST /handoff/{id}/claim
+//   POST /handoff/{id}/claim                  claim, or take over (expectedAssigneeId)
 //   POST /handoff/{id}/disclosures
 //   POST /handoff/{id}/suggestions/{sid}/accept
 //   POST /interactions/{id}/wrap-up
@@ -19,7 +19,10 @@ import { z } from "zod";
 import type { DisputeType } from "@/api/types/disputes";
 import type { CbReason } from "@/api/types/callbacks";
 import type { FloorApproval, FloorCopilot } from "@/api/floor";
-import { apiEventStream, apiGet, apiPost } from "./config";
+import { invalidateCustomer } from "./customers";
+import { invalidateDisputeReads } from "./disputes";
+import { invalidatePromiseReads } from "./promises";
+import { ApiError, apiEventStream, apiGet, apiPost } from "./config";
 import { FloorCopilotResponse } from "./wire/generated";
 import { disputeSchema, ptpPromiseSchema } from "./customers";
 import { offerPolicySchema } from "@/lib/offer-policy";
@@ -32,7 +35,9 @@ import { authorityPolicySchema } from "@/lib/authority-policy";
 // -----------------------------------------------------------------------------
 
 const caseStatusSchema = z.enum(["pending_claim", "active", "completed"]);
-const transferOutcomeSchema = z.enum(["callback_line", "no_one_available"]).nullable();
+const transferOutcomeSchema = z
+  .enum(["ringing", "connected", "not_connected", "no_line"])
+  .nullable();
 
 /** HandoffSessionResponse — GET /handoff/:id and the three POSTs. */
 const handoffSessionSchema = z.object({
@@ -121,27 +126,37 @@ const handoffSessionSchema = z.object({
     z.object({ label: z.string(), needs: z.enum(["promise", "callback", "dispute", "notes"]) }),
   ),
   speakers: z.record(z.string()),
+  wrapUp: z
+    .object({
+      outcome: z.string().nullable(),
+      notes: z.string().nullable(),
+      at: z.string().nullable(),
+      byUserId: z.string().nullable(),
+    })
+    .nullable(),
+  filed: z.array(z.object({ kind: z.enum(["promise", "dispute", "callback"]), id: z.string() })),
+  copilotEvidence: z.string(),
+});
+
+const queueItemSchema = z.object({
+  interactionId: z.string(),
+  handoffId: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  accountId: z.string(),
+  reason: z.string(),
+  queue: z.string().nullable(),
+  risk: z.string(),
+  waitSec: z.number(),
+  requestedAt: z.string().nullable(),
+  transferOutcome: transferOutcomeSchema,
 });
 
 /** HandoffQueueResponse — GET /handoff/queue. */
 const handoffQueueSchema = z.object({
-  items: z.array(
-    z.object({
-      interactionId: z.string(),
-      handoffId: z.string(),
-      customerId: z.string(),
-      customerName: z.string(),
-      accountId: z.string(),
-      reason: z.string(),
-      queue: z.string().nullable(),
-      risk: z.string(),
-      waitSec: z.number(),
-      requestedAt: z.string().nullable(),
-      transferOutcome: transferOutcomeSchema,
-    }),
-  ),
+  items: z.array(queueItemSchema),
   total: z.number(),
-  activeInteractionId: z.string().nullable(),
+  mine: z.array(queueItemSchema),
 });
 
 /** WrapUpResponse — POST /interactions/:id/wrap-up, response_model_exclude_unset. */
@@ -166,23 +181,38 @@ export type HandoffQueue = z.infer<typeof handoffQueueSchema>;
 export type HandoffQueueItem = HandoffQueue["items"][number];
 export type TransferOutcome = NonNullable<ActiveCall["transferOutcome"]>;
 export type WrapUpOutcome = HandoffSession["outcomes"][number];
+export type FiledRecord = HandoffSession["filed"][number];
 
 const sessionKey = (interactionId: string) => ["handoff", "session", interactionId] as const;
 
-export async function fetchHandoffQueue(customerId?: string): Promise<HandoffQueue> {
-  const q = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
-  return apiGet<HandoffQueue>(`/handoff/queue${q}`, { schema: handoffQueueSchema });
+export type QueueParams = { customerId?: string; search?: string; limit?: number };
+
+export async function fetchHandoffQueue(params: QueueParams = {}): Promise<HandoffQueue> {
+  const q = new URLSearchParams();
+  if (params.customerId) q.set("customerId", params.customerId);
+  if (params.search?.trim()) q.set("q", params.search.trim());
+  if (params.limit) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return apiGet<HandoffQueue>(`/handoff/queue${qs ? `?${qs}` : ""}`, {
+    schema: handoffQueueSchema,
+  });
 }
 
-/** Polled only while the queue is on screen. `activeInteractionId` is the
- * actor's own open case, offered to resume. */
-export function useHandoffQueue(customerId?: string, opts?: { enabled?: boolean }) {
+/** Polled only while the queue is on screen. `mine` is the actor's caseload. */
+export function useHandoffQueue(params: QueueParams = {}) {
   return useQuery({
-    queryKey: ["handoff", "queue", customerId ?? ""],
-    queryFn: () => fetchHandoffQueue(customerId),
-    enabled: opts?.enabled ?? true,
+    queryKey: [
+      "handoff",
+      "queue",
+      params.customerId ?? "",
+      params.search?.trim() ?? "",
+      params.limit ?? 0,
+    ],
+    queryFn: () => fetchHandoffQueue(params),
     staleTime: 2_000,
     refetchInterval: 5_000,
+    // A new search or a longer page keeps the last list up while it loads.
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -203,14 +233,25 @@ export function useHandoffSession(interactionId: string | undefined) {
     queryFn: () => fetchHandoffSession(interactionId!),
     enabled: Boolean(interactionId),
     staleTime: 1_000,
-    refetchInterval: (q) => (q.state.data?.status === "completed" ? false : 5_000),
+    // Closed, or no longer the reader's to see (403/404): nothing left to poll.
+    refetchInterval: (q) => {
+      const lost = q.state.error instanceof ApiError && [403, 404].includes(q.state.error.status);
+      return q.state.data?.status === "completed" || lost ? false : 5_000;
+    },
   });
 }
 
-export async function claimHandoff(interactionId: string): Promise<HandoffSession> {
+/** Claim a waiting case or -- a supervisor, with `expectedAssigneeId` --
+ * take over a colleague's; refused if the holder changed meanwhile. */
+export async function claimHandoff(input: {
+  interactionId: string;
+  expectedAssigneeId?: string | null;
+}): Promise<HandoffSession> {
+  const body =
+    input.expectedAssigneeId === undefined ? {} : { expectedAssigneeId: input.expectedAssigneeId };
   return apiPost<HandoffSession>(
-    `/handoff/${encodeURIComponent(interactionId)}/claim`,
-    {},
+    `/handoff/${encodeURIComponent(input.interactionId)}/claim`,
+    body,
     { schema: handoffSessionSchema },
   );
 }
@@ -273,6 +314,7 @@ export type WrapUpPayload = {
 
 export async function wrapUpHandoff(
   interactionId: string,
+  handoffId: string,
   customerId: string,
   payload: WrapUpPayload,
 ): Promise<WrapUpResult> {
@@ -286,11 +328,11 @@ export async function wrapUpHandoff(
   if (payload.promise) body.promise = { ...record, ...payload.promise };
   if (payload.callback) body.callback = { ...record, ...payload.callback };
   if (payload.dispute) body.dispute = { ...record, ...payload.dispute };
-  // One key per interaction: a retry of the same wrap-up must carry the same
-  // key, or the server sees two requests and files two wrap-ups. A refused
-  // wrap-up stores nothing under it, so a corrected retry still goes through.
+  // One key per case: a retry of the same wrap-up carries the same key and
+  // gets the first answer back. A refused wrap-up stores nothing under it, so
+  // a corrected retry still goes through; a closed case refuses any other.
   return apiPost(`/interactions/${encodeURIComponent(interactionId)}/wrap-up`, body, {
-    headers: { "Idempotency-Key": `wrap-${interactionId}` },
+    headers: { "Idempotency-Key": `wrap-${handoffId}` },
     schema: wrapUpSchema,
   });
 }
@@ -299,16 +341,31 @@ export function useWrapUpHandoff() {
   const qc = useQueryClient();
   return useMutation({
     meta: { errors: "caller" },
-    mutationFn: (input: { interactionId: string; customerId: string } & WrapUpPayload) =>
-      wrapUpHandoff(input.interactionId, input.customerId, input),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["handoff"] }),
+    mutationFn: (
+      input: { interactionId: string; handoffId: string; customerId: string } & WrapUpPayload,
+    ) => wrapUpHandoff(input.interactionId, input.handoffId, input.customerId, input),
+    // The records it filed are read on their own pages and in the 360.
+    onSuccess: (result, input) => {
+      // The queue page shows its cache while it refetches: the closed case
+      // must not flash back into the caseload.
+      qc.setQueriesData<HandoffQueue>(
+        { queryKey: ["handoff", "queue"] },
+        (q) => q && { ...q, mine: q.mine.filter((c) => c.interactionId !== input.interactionId) },
+      );
+      void qc.invalidateQueries({ queryKey: ["handoff"] });
+      if (result.spawned.promise) invalidatePromiseReads(qc, input.customerId);
+      if (result.spawned.dispute) invalidateDisputeReads(qc, input.customerId);
+      if (result.spawned.callback) void qc.invalidateQueries({ queryKey: ["callbacks"] });
+      invalidateCustomer(qc, input.customerId);
+    },
   });
 }
 
 // -----------------------------------------------------------------------------
 // Copilot — the engines' draft for this case, streamed: the pack, then the
-// whisper as tokens. One finite stream per open; `refresh()` reopens it (after
-// an approval is signalled, or when the agent asks).
+// whisper as tokens. One finite stream per open. It reopens when the case's
+// evidence changes (the transcript, a policy, the approvals waiting: the
+// session's `copilotEvidence`) and on `refresh()`, never on an unchanged poll.
 // -----------------------------------------------------------------------------
 
 export type CopilotStreamState = {
@@ -334,7 +391,7 @@ const EMPTY_STREAM: CopilotStreamState = {
   error: null,
 };
 
-export function useCopilotStream(interactionId: string) {
+export function useCopilotStream(interactionId: string, evidence: string) {
   const [state, setState] = useState<CopilotStreamState>(EMPTY_STREAM);
   const [opened, setOpened] = useState(0);
 
@@ -395,7 +452,7 @@ export function useCopilotStream(interactionId: string) {
     });
 
     return () => ac.abort();
-  }, [interactionId, opened]);
+  }, [interactionId, evidence, opened]);
 
   return { ...state, refresh: () => setOpened((n) => n + 1) };
 }
