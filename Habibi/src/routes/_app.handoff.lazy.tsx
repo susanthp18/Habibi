@@ -1,11 +1,12 @@
-import { useDeferredValue, useState } from "react";
+import { useEffect, useState } from "react";
 import { createLazyFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { HandoffCase, StaleBanner } from "@/components/handoff/HandoffCase";
 import { HandoffCaseload, HandoffQueueList } from "@/components/handoff/HandoffQueue";
-import { handoffErrorWords, isAccessLoss } from "@/components/handoff/handoff-words";
+import { handoffErrorWords, isAccessLoss, wrapDraft } from "@/components/handoff/handoff-words";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorBanner } from "@/components/ui/query-state";
 import { can, useMe } from "@/api/me";
+import { useDebounced } from "@/lib/use-debounced";
 import { useClaimHandoff, useHandoffQueue, useHandoffSession } from "@/api/handoff";
 
 export const Route = createLazyFileRoute("/_app/handoff")({
@@ -74,7 +75,11 @@ function QueuePage({
   const { data: me } = useMe();
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(PAGE);
-  const queue = useHandoffQueue({ customerId, search: useDeferredValue(search), limit });
+  // The server is asked when typing pauses; until its answer the list says
+  // it is the previous one.
+  const query = useDebounced(search);
+  const queue = useHandoffQueue({ customerId, search: query, limit });
+  const searching = search.trim() !== query.trim() || queue.isPlaceholderData;
   if (queue.isError && !queue.data) {
     return (
       <div className="grid h-full place-items-center p-400">
@@ -92,6 +97,7 @@ function QueuePage({
           items={queue.data.items}
           total={queue.data.total}
           search={search}
+          searching={searching}
           onSearch={(value) => {
             setSearch(value);
             setLimit(PAGE);
@@ -123,9 +129,15 @@ function CasePage({
   claimError: string | null;
 }) {
   const q = useHandoffSession(interactionId);
+  const { data: me } = useMe();
   // Taken over, reassigned or gone is not a blip: the last snapshot would
-  // still say the case is the reader's.
+  // still say the case is the reader's -- and its unsaved notes go too.
   const lost = q.isError && isAccessLoss(q.error);
+  const handoffId = q.data?.handoffId;
+  useEffect(() => {
+    if (lost && handoffId && me)
+      wrapDraft.write({ id: me.id, tenantId: me.tenantId }, handoffId, "");
+  }, [lost, handoffId, me]);
   if (!q.data || lost) {
     if (q.isError) {
       return (

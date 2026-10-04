@@ -16,6 +16,9 @@ const SERVER_WORDS: Record<string, string> = {
   reassign_requires_supervisor: "Only a supervisor can take over a colleague's case.",
   promise_date_in_past: "The promise date has passed. Choose today or a later date.",
   callback_in_past: "That callback time has passed. Choose a later time.",
+  records_need_collections_write:
+    "Your role can't file promises, disputes or callbacks. Choose an outcome that needs only a note.",
+  disclosure_said_by_bot: "The bot said this on the call; its evidence can't be changed here.",
 };
 
 /** Lost access, not a blip: the case is someone else's now, or gone. */
@@ -44,21 +47,33 @@ export function handoffErrorWords(error: unknown): string {
   return error.detail || "The request failed.";
 }
 
-/** Unsaved wrap-up notes, per case, for this browser tab: leaving the case
- * (a link, the queue) must not lose what was typed. Storage can be missing or
- * refuse (private windows); the notes then live only while the case is open. */
+/** Whose draft: the signed-in operator in their tenant. */
+export type DraftOwner = { id: string; tenantId: string } | undefined;
+
+const draftKey = (owner: NonNullable<DraftOwner>, handoffId: string) =>
+  `handoff-wrap:${owner.tenantId}:${owner.id}:${handoffId}`;
+
+/** Unsaved wrap-up notes for this browser tab, kept per operator and case:
+ * leaving the case (a link, the queue) must not lose what was typed, and
+ * nobody else signed in to the tab ever reads them. They go when the
+ * wrap-up saves, when the case stops being the operator's (taken over,
+ * closed by someone else, access lost), and with the tab. Storage can be
+ * missing or refuse (private windows); the notes then live only while the
+ * case is open. */
 export const wrapDraft = {
-  read(handoffId: string): string {
+  read(owner: DraftOwner, handoffId: string): string {
+    if (!owner) return "";
     try {
-      return sessionStorage.getItem(`handoff-wrap:${handoffId}`) ?? "";
+      return sessionStorage.getItem(draftKey(owner, handoffId)) ?? "";
     } catch {
       return "";
     }
   },
-  write(handoffId: string, notes: string) {
+  write(owner: DraftOwner, handoffId: string, notes: string) {
+    if (!owner) return;
     try {
-      if (notes) sessionStorage.setItem(`handoff-wrap:${handoffId}`, notes);
-      else sessionStorage.removeItem(`handoff-wrap:${handoffId}`);
+      if (notes) sessionStorage.setItem(draftKey(owner, handoffId), notes);
+      else sessionStorage.removeItem(draftKey(owner, handoffId));
     } catch {
       /* not kept: see above */
     }

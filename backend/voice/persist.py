@@ -1372,7 +1372,8 @@ def record_handoff(
     did ('ringing' the callback line, or 'no_line' to ring); the end of the run
     settles 'ringing' (:func:`complete_voice_call`). The hook carries no
     transfer id, so the call is the key: a repeated or late hook returns the
-    call's case -- even one already wrapped up, which it never reopens.
+    call's case -- even one already wrapped up, which it never reopens -- and
+    once the call has ended, what its end settled stands.
     """
     reasons = {
         "sentiment_drop",
@@ -1389,7 +1390,7 @@ def record_handoff(
         route = conn.execute(
             text(
                 """
-                SELECT t.id AS team_id, t.name AS team_name
+                SELECT t.id AS team_id, t.name AS team_name, i.ended_at
                 FROM interactions i
                 JOIN customers c ON c.id = i.customer_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
@@ -1413,7 +1414,9 @@ def record_handoff(
             {"id": interaction_id},
         ).mappings().first()
         if case:
-            if case["completed_at"] is None:
+            # A transfer still in progress on a live call; after the call's
+            # end (which set ended_at under this same lock) a hook is late.
+            if case["completed_at"] is None and route.get("ended_at") is None:
                 conn.execute(
                     text(
                         "UPDATE interaction_handoffs "

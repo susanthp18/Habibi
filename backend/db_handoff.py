@@ -43,7 +43,8 @@ def _db():
 HANDOFF_OUTCOMES: dict[str, str] = {
     "PTP captured": "promise",
     "Callback scheduled": "callback",
-    "Dispute - under review": "dispute",
+    # Filed as a new dispute: review is the disputes desk's next step.
+    "Dispute raised": "dispute",
     "Customer says they paid": "notes",
     "Info provided": "notes",
     "Unresolved - retry": "notes",
@@ -323,6 +324,8 @@ def assert_handoff_readable(interaction_id: str) -> None:
 
 
 def get_handoff_session(interaction_id: str) -> dict[str, Any]:
+    from agent_core import copilot
+
     engine = _db().engine
     with engine.connect() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
@@ -566,39 +569,14 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         speakers=speakers,
         wrapUp=wrap_up,
         filed=[{"kind": f["kind"], "id": f["id"]} for f in filed],
-        copilotEvidence=_copilot_evidence(row, transcript, context, call_live),
+        copilotEvidence=copilot.evidence(
+            conn,
+            interaction_id=interaction_id,
+            customer_id=row["customer_id"],
+            authority=context.get("authorityPolicy"),
+        ),
     ))
     return _dump(session)
-
-def _copilot_evidence(
-    row: dict[str, Any], transcript: list[dict[str, Any]], context: dict[str, Any], call_live: bool
-) -> str:
-    """A version of what the copilot drafts from: the conversation, the two
-    policy decisions and the approvals waiting on the customer. The page
-    redrafts when it changes, and only then."""
-    import hashlib
-    import json
-
-    try:
-        from work_runtime import list_jobs
-
-        approvals = sorted(
-            str(j.get("id"))
-            for j in list_jobs(status="input_required", customer_id=row["customer_id"], limit=20)
-        )
-    except Exception:
-        logger.exception("approvals lookup failed for handoff %s", row.get("id"))
-        approvals = ["unavailable"]
-    basis = [
-        len(transcript),
-        transcript[-1]["id"] if transcript else None,
-        call_live,
-        context.get("offerPolicy"),
-        context.get("authorityPolicy"),
-        approvals,
-    ]
-    return hashlib.sha1(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()[:16]
-
 
 def _handoff_sentiment_series(
     sentiment_rows: list[dict[str, Any]],
@@ -736,12 +714,25 @@ def _handoff_authority_policy(conn: Any, row: dict[str, Any]) -> dict[str, Any] 
         return None
 
 
+def _disclosure_rule_aliases() -> dict[str, str]:
+    """Catalogue rule id -> the checklist's disclosure rule. The call's own
+    evidence (call_intel) files the recording notice under the catalogue rule;
+    Violations reads the two as one (db_violations._RULE_ID_SCREEN), so does
+    the Hub."""
+    from db_violations import _RULE_ID_SCREEN
+
+    return {catalogue: rule for rule, catalogue in _RULE_ID_SCREEN.items()}
+
+
 def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, Any]]:
+    """The checklist: what the bot said on the call, and what the person here
+    attests. Each keeps its own row -- a person's tick never rewrites the
+    bot's evidence, and the bot's is shown as the bot's, locked."""
     disclosures = _rows(
         conn.execute(
             text(
                 """
-                SELECT id, rule_id, label, read
+                SELECT id, rule_id, label, read, read_by_kind
                 FROM interaction_disclosures
                 WHERE interaction_id = :iid
                 ORDER BY created_at
@@ -750,12 +741,18 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
             {"iid": interaction_id},
         )
     )
-    by_rule: dict[str, dict[str, Any]] = {}
-    by_label: dict[str, dict[str, Any]] = {}
+    aliases = _disclosure_rule_aliases()
+    said: dict[str, dict[str, Any]] = {}
+    attested: dict[str, dict[str, Any]] = {}
     for d in disclosures:
-        if d.get("rule_id"):
-            by_rule[d["rule_id"]] = d
-        by_label[(d.get("label") or "").lower()] = d
+        bot = d.get("read_by_kind") == "bot"
+        if bot and not d.get("read"):
+            continue  # the call's record that it was not said: no evidence
+        into = said if bot else attested
+        rule = aliases.get(d.get("rule_id") or "", d.get("rule_id"))
+        if rule:
+            into[rule] = d
+        into[(d.get("label") or "").lower()] = d
     identity = _one(
         conn.execute(
             text(
@@ -770,38 +767,33 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
             {"iid": interaction_id},
         )
     )
+
+    def item(key: str, label: str, rule_id: str | None, required: bool, default_id: str) -> dict[str, Any]:
+        bot = said.get(key) or said.get(label.lower())
+        human = attested.get(key) or attested.get(label.lower())
+        ticked = bool(human and human.get("read"))
+        return {
+            "id": human["id"] if human else default_id,
+            "label": label,
+            "required": required,
+            "checked": bool(bot) or ticked,
+            "locked": bool(bot),
+            "ruleId": rule_id,
+            "source": "bot" if bot else ("human" if ticked else None),
+        }
+
     items: list[dict[str, Any]] = []
     for rule_id, label in _HANDOFF_DISCLOSURE_RULES:
-        row = by_rule.get(rule_id) or by_label.get(label.lower())
-        checked = bool(row and row.get("read"))
-        locked = False
-        item_id = row["id"] if row else rule_id
+        entry = item(rule_id, label, rule_id, rule_id != "rule-payment", rule_id)
         if rule_id == "rule-identity":
-            verified = bool(identity and identity.get("status") == "verified")
-            checked = checked or verified
-            locked = verified
-            item_id = "identity" if not row else row["id"]
-        items.append(
-            {
-                "id": item_id,
-                "label": label,
-                "required": rule_id != "rule-payment",
-                "checked": checked,
-                "locked": locked,
-                "ruleId": rule_id,
-            }
-        )
-    dnd_row = by_label.get("dnd & consent window checked")
-    items.append(
-        {
-            "id": dnd_row["id"] if dnd_row else "dnd-consent",
-            "label": "DND & consent window checked",
-            "required": True,
-            "checked": bool(dnd_row and dnd_row.get("read")),
-            "locked": False,
-            "ruleId": None,
-        }
-    )
+            if entry["id"] == rule_id:
+                entry["id"] = "identity"
+            if identity and identity.get("status") == "verified":
+                # Verified on this call -- by the bot's check, or recorded here.
+                entry["checked"] = entry["locked"] = True
+                entry["source"] = "human" if identity.get("method") == "manual" else "bot"
+        items.append(entry)
+    items.append(item("dnd & consent window checked", "DND & consent window checked", None, True, "dnd-consent"))
     return items
 
 def claim_handoff(interaction_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -983,6 +975,22 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
                 label = "DND & consent window checked"
         if not label:
             raise ValueError("disclosure_label_required")
+        # What the bot said on the call is its evidence, not the person's to
+        # tick or untick: the person's attestation is a row of its own.
+        catalogue = {rule: alias for alias, rule in _disclosure_rule_aliases().items()}.get(rule_id or "")
+        said_by_bot = conn.execute(
+            text(
+                """
+                SELECT 1 FROM interaction_disclosures
+                WHERE interaction_id = :iid AND read_by_kind = 'bot' AND read
+                  AND (id = :item OR rule_id IN (:rule, :catalogue) OR lower(label) = lower(:label))
+                LIMIT 1
+                """
+            ),
+            {"iid": interaction_id, "item": item_id, "rule": rule_id, "catalogue": catalogue, "label": label},
+        ).first()
+        if said_by_bot:
+            raise ValueError("disclosure_said_by_bot")
         existing = None
         if item_id and not item_id.startswith("rule-") and item_id not in {"identity", "dnd-consent"}:
             existing = _one(
@@ -991,6 +999,7 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
                         """
                         SELECT id FROM interaction_disclosures
                         WHERE id = :id AND interaction_id = :iid
+                          AND read_by_kind IS DISTINCT FROM 'bot'
                         """
                     ),
                     {"id": item_id, "iid": interaction_id},
@@ -1004,7 +1013,7 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
                     SET read = :read,
                         read_at_sec = COALESCE(read_at_sec, (SELECT GREATEST(0, EXTRACT(EPOCH FROM (now() - started_at)))::int
                        FROM interactions WHERE id = :iid)),
-                        read_by_kind = 'human', read_by_user_id = :uid, read_by_bot_id = NULL
+                        read_by_kind = 'human', read_by_user_id = :uid
                     WHERE id = :id
                     """
                 ),
@@ -1077,7 +1086,16 @@ def _assert_handoff_assignee(
 ) -> dict[str, Any]:
     """The actor holds this interaction's case; and, unless ``open_only`` is
     off, the case is still open -- a wrapped-up case takes no more writes.
-    Returns the case row."""
+    Returns the case row.
+
+    Checked under the case's locks, taken in the claim's order (conversation,
+    interaction, handoff): a takeover or a wrap-up committed meanwhile is
+    seen here, and the caller's write never lands past it.
+    """
+    import db_inbox
+
+    db_inbox.lock_interaction_thread(conn, interaction_id)
+    conn.execute(text("SELECT 1 FROM interactions WHERE id = :id FOR UPDATE"), {"id": interaction_id})
     row = _one(
         conn.execute(
             text(
@@ -1087,6 +1105,7 @@ def _assert_handoff_assignee(
                 WHERE interaction_id = :id AND to_kind = 'human'
                 {_CASE_ORDER}
                 LIMIT 1
+                FOR UPDATE
                 """
             ),
             {"id": interaction_id},

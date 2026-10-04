@@ -14,11 +14,11 @@ type Props = {
 const IDENTITY_RULE = "rule-identity";
 
 /**
- * What the person working the case attests they read to the customer on the
- * follow-up, as the server has it. A tick is that person's attestation, filed
- * under their name -- not a disclosure evidenced in the bot's recording -- so
- * it shows only once the write succeeds. Identity is not a tick: confirming
- * it files a manual verification, and once verified it cannot be undone.
+ * The checklist as the server has it: what the bot said on the call (its
+ * evidence, locked) and what the person working the case attests they told
+ * the customer on the follow-up -- a tick filed under their name, shown only
+ * once the write succeeds. Identity is not a tick: confirming it files a
+ * manual verification, and once verified it cannot be undone.
  */
 export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Props) {
   const { confirm, confirmDialog } = useConfirm();
@@ -38,8 +38,8 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
         </span>
       </div>
       <p className="px-150 pt-100 text-body-small text-text-subtlest">
-        Tick what you told the customer on your follow-up. Each tick is your attestation, not
-        evidence from the bot's call recording.
+        Tick what you told the customer on your follow-up: each tick is your attestation. What the
+        bot said on the call is shown as the bot's and can't be changed here.
       </p>
       <div className="px-150 pt-100">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
@@ -53,6 +53,7 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
         {items.map((item) => {
           const identity = item.ruleId === IDENTITY_RULE;
           const locked = item.locked;
+          const byBot = item.source === "bot";
           const pending = pendingId === item.id;
           const disabled = readOnly || locked || pending;
           const toggle = async () => {
@@ -78,11 +79,13 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
                 aria-disabled={disabled}
                 onClick={() => void toggle()}
                 title={
-                  locked
+                  locked && identity
                     ? "Verified on this call. A verification can't be undone."
-                    : identity && !item.checked
-                      ? "Files a manual identity verification"
-                      : undefined
+                    : locked && byBot
+                      ? "The bot said this on the call. Its evidence can't be changed here."
+                      : identity && !item.checked
+                        ? "Files a manual identity verification"
+                        : undefined
                 }
                 className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent"
               >
@@ -99,12 +102,14 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
                   {pending && (
                     <span className="ml-050 text-body-small text-text-subtlest">saving…</span>
                   )}
-                  {locked && (
+                  {locked ? (
                     <span className="ml-050 inline-flex items-center gap-025 text-body-small text-text-subtlest">
                       <Lock className="h-3 w-3" />
-                      verified
+                      {identity ? "verified" : "said by the bot"}
                     </span>
-                  )}
+                  ) : item.source === "human" ? (
+                    <span className="ml-050 text-body-small text-text-subtlest">attested</span>
+                  ) : null}
                 </span>
               </button>
             </li>

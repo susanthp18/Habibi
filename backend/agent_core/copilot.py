@@ -152,28 +152,72 @@ def _treatment(customer_id: str | None) -> dict[str, Any] | None:
     try:
         import db
 
-        from agent_core.treatment import decisions
-
-        # The same next best action the customer card shows: real, recent,
-        # collections only. The latest row of any kind used to be read here,
-        # simulated and weeks-old ones included.
         with db.engine.connect() as conn:
-            row = decisions.current(conn, customer_id=customer_id, tenant_id=db.current_tenant())
-        if not row:
-            return dict(_TREATMENT_NONE)
-        return {
-            "decisionId": row["id"],
-            # A held decision is not a plan: its rationale says why it held.
-            "action": "wait" if row.get("suppression_reason") else row.get("chosen_action"),
-            "channel": None if row.get("suppression_reason") else row.get("chosen_channel"),
-            "rationale": row.get("rationale"),
-            "enacted": bool(row.get("enacted")),
-            "enactedBy": row.get("enacted_by"),
-            "scheduledAt": str(row["scheduled_at"]) if row.get("scheduled_at") else None,
-        }
+            return _treatment_on(conn, customer_id)
     except Exception:
         logger.exception("copilot treatment lookup failed")
         return None
+
+
+def _treatment_on(conn: Any, customer_id: str) -> dict[str, Any]:
+    import db
+
+    from agent_core.treatment import decisions
+
+    # The same next best action the customer card shows: real, recent,
+    # collections only. The latest row of any kind used to be read here,
+    # simulated and weeks-old ones included.
+    row = decisions.current(conn, customer_id=customer_id, tenant_id=db.current_tenant())
+    if not row:
+        return dict(_TREATMENT_NONE)
+    return {
+        "decisionId": row["id"],
+        # A held decision is not a plan: its rationale says why it held.
+        "action": "wait" if row.get("suppression_reason") else row.get("chosen_action"),
+        "channel": None if row.get("suppression_reason") else row.get("chosen_channel"),
+        "rationale": row.get("rationale"),
+        "enacted": bool(row.get("enacted")),
+        "enactedBy": row.get("enacted_by"),
+        "scheduledAt": str(row["scheduled_at"]) if row.get("scheduled_at") else None,
+    }
+
+
+def evidence(
+    conn: Any, *, interaction_id: str, customer_id: str | None, authority: dict[str, Any] | None
+) -> str:
+    """A version of what :func:`assemble` drafts from -- the authority and
+    treatment decisions, the latest live-QA verdict and the approvals waiting
+    on the customer, each as read -- so a page redrafts when one changes and
+    never on an unchanged poll. Cheap: one connection, no examiner pack.
+    ``authority`` is the caller's snapshot of the same decision."""
+    import hashlib
+    import json
+
+    def read(what: str, fn: Any) -> Any:
+        try:
+            with conn.begin_nested():
+                return fn()
+        except Exception:
+            logger.exception("copilot evidence: %s unreadable", what)
+            return "unavailable"
+
+    qa = read(
+        "live QA",
+        lambda: conn.execute(
+            text(
+                "SELECT id, verdict, recommended_action, reason, enacted FROM live_qa_decisions"
+                " WHERE interaction_id = :id ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"id": interaction_id},
+        ).mappings().first(),
+    )
+    basis = [
+        authority,
+        read("treatment", lambda: _treatment_on(conn, customer_id)) if customer_id else None,
+        dict(qa) if qa and qa != "unavailable" else qa,
+        _approvals_for(customer_id),
+    ]
+    return hashlib.sha1(json.dumps(basis, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
 def _latest_qa(pack: dict[str, Any]) -> dict[str, Any] | None:

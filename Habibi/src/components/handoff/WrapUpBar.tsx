@@ -6,7 +6,7 @@ import type { CbReason } from "@/api/types/callbacks";
 import { SelectField } from "@/components/ui/select";
 import { TYPE_LABELS } from "@/lib/disputes";
 import { REASON_LABELS } from "@/lib/callbacks";
-import { wrapDraft } from "./handoff-words";
+import { wrapDraft, type DraftOwner } from "./handoff-words";
 
 type Props = {
   open: boolean;
@@ -17,10 +17,16 @@ type Props = {
   onSave: (payload: WrapUpPayload) => void;
   saving?: boolean;
   defaultPtpAmount?: number;
-  /** The agent wrapping up: a callback booked here is theirs. */
-  actorId?: string;
+  /** The operator wrapping up: their draft, and a callback booked here is theirs. */
+  owner: DraftOwner;
+  /** perm-collections-write: filing a promise, a dispute or a callback. */
+  canFile: boolean;
   error?: string | null;
 };
+
+const FILES_RECORD = new Set(["promise", "callback", "dispute"]);
+/** Rupees to the paisa: what the amount field's step allows. */
+const RUPEES = /^\d+(\.\d{1,2})?$/;
 
 const fieldClass =
   "mt-050 h-400 w-full rounded-medium border border-border bg-surface px-100 text-body-small text-text";
@@ -61,14 +67,15 @@ export function WrapUpBar({
   onSave,
   saving,
   defaultPtpAmount,
-  actorId,
+  owner,
+  canFile,
   error,
 }: Props) {
   const [label, setLabel] = useState("");
-  const [notes, setNotesState] = useState(() => wrapDraft.read(handoffId));
+  const [notes, setNotesState] = useState(() => wrapDraft.read(owner, handoffId));
   const setNotes = (value: string) => {
     setNotesState(value);
-    wrapDraft.write(handoffId, value);
+    wrapDraft.write(owner, handoffId, value);
   };
   const [ptpAmount, setPtpAmount] = useState(defaultPtpAmount ? String(defaultPtpAmount) : "");
   const [ptpDate, setPtpDate] = useState(() => istDatePlus(7));
@@ -84,7 +91,7 @@ export function WrapUpBar({
   // form says so before the round trip.
   const valid =
     needs === "promise"
-      ? Number.isFinite(amount) && amount > 0 && Boolean(ptpDate) && ptpDate >= today
+      ? RUPEES.test(ptpAmount) && amount > 0 && Boolean(ptpDate) && ptpDate >= today
       : needs === "callback"
         ? !Number.isNaN(callbackTime) && callbackTime > Date.now()
         : needs === "dispute"
@@ -102,7 +109,7 @@ export function WrapUpBar({
       payload.callback = {
         scheduledAt: istInstant(callbackAt).toISOString(),
         reason: callbackReason,
-        assigneeUserId: actorId,
+        assigneeUserId: owner?.id,
       };
     }
     if (needs === "dispute" && disputeType) payload.dispute = { type: disputeType };
@@ -143,7 +150,15 @@ export function WrapUpBar({
             size="compact"
             className="mt-050"
             placeholder="Choose what happened"
-            options={outcomes.map((o) => ({ value: o.label, label: o.label }))}
+            // The records an outcome files need the rights their own pages need.
+            options={outcomes.map((o) => {
+              const blocked = !canFile && FILES_RECORD.has(o.needs);
+              return {
+                value: o.label,
+                label: blocked ? `${o.label} (your role can't file it)` : o.label,
+                disabled: blocked,
+              };
+            })}
           />
 
           {needs === "promise" && (
@@ -157,7 +172,8 @@ export function WrapUpBar({
                   type="number"
                   inputMode="decimal"
                   required
-                  min={1}
+                  min={0.01}
+                  step={0.01}
                   value={ptpAmount}
                   onChange={(e) => setPtpAmount(e.target.value)}
                   className={fieldClass}

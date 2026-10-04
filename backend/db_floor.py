@@ -655,6 +655,38 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         if row is None:
             raise KeyError("interaction_not_found")
+        # Audit-only for listen/whisper. Barge / force_handoff on a live call
+        # puts the supervisor on the call, with a 'Supervisor barge' handoff
+        # row that ends with the call (or the takeover); an escalation case
+        # open on it keeps its holder. With no live call (a chat thread, or a
+        # call already ended) there is nothing to join: taking an open case
+        # is then a reassignment, made below through the Hub's canonical
+        # takeover so the case, the interaction and the text thread move
+        # together. With neither, there is nothing to take over -- a barge
+        # row then would never be closed by a call's end.
+        case_holder: Any = None
+        reassign_case = False
+        if action in {"barge", "force_handoff"}:
+            import voice_studio_supervision
+
+            open_case = conn.execute(
+                text(
+                    """
+                    SELECT id, to_user_id, accepted_at FROM interaction_handoffs
+                    WHERE interaction_id = :iid AND to_kind = 'human' AND completed_at IS NULL
+                      AND queue IS DISTINCT FROM 'Supervisor barge'
+                    ORDER BY requested_at DESC NULLS LAST, created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"iid": interaction_id},
+            ).mappings().first()
+            live = voice_studio_supervision.live_run(conn, interaction_id) is not None
+            if not live and open_case is None:
+                raise ValueError("nothing_to_take_over")
+            reassign_case = not live
+            if open_case is not None and open_case["accepted_at"]:
+                case_holder = open_case["to_user_id"]
         aid = _id("sup")
         conn.execute(
             text(
@@ -677,34 +709,6 @@ def create_supervisor_action(payload: dict[str, Any]) -> dict[str, Any]:
                 "note": note,
             },
         )
-        # Audit-only for listen/whisper. Barge / force_handoff on a live call
-        # puts the supervisor on the call, with a 'Supervisor barge' handoff
-        # row that ends with the call (or the takeover); an escalation case
-        # open on it keeps its holder. With no live call (a chat thread, or a
-        # call already ended) there is nothing to join: taking an open case
-        # is then a reassignment, made below through the Hub's canonical
-        # takeover so the case, the interaction and the text thread move
-        # together.
-        case_holder: Any = None
-        reassign_case = False
-        if action in {"barge", "force_handoff"}:
-            import voice_studio_supervision
-
-            open_case = conn.execute(
-                text(
-                    """
-                    SELECT id, to_user_id, accepted_at FROM interaction_handoffs
-                    WHERE interaction_id = :iid AND to_kind = 'human' AND completed_at IS NULL
-                      AND queue IS DISTINCT FROM 'Supervisor barge'
-                    ORDER BY requested_at DESC NULLS LAST, created_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"iid": interaction_id},
-            ).mappings().first()
-            reassign_case = open_case is not None and voice_studio_supervision.live_run(conn, interaction_id) is None
-            if open_case is not None and open_case["accepted_at"]:
-                case_holder = open_case["to_user_id"]
         if action in {"barge", "force_handoff"} and not reassign_case:
             uid = db._actor_user_id()
             mapping = row._mapping

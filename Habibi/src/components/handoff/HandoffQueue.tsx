@@ -59,7 +59,9 @@ function waitTone(sec: number) {
       : "text-text-subtlest";
 }
 
-function CaseSummary({ item }: { item: HandoffQueueItem }) {
+/** A waiting case says how long it has waited; one already held says how
+ * old the case is -- its clock runs from the escalation, not the claim. */
+function CaseSummary({ item, held = false }: { item: HandoffQueueItem; held?: boolean }) {
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-100">
@@ -70,9 +72,15 @@ function CaseSummary({ item }: { item: HandoffQueueItem }) {
       <div className="mt-025 text-body-small text-text-subtle">
         {[item.accountId, item.reason.replace(/_/g, " "), item.queue].filter(Boolean).join(" · ")}
       </div>
-      <div className={cn("mt-025 tabular text-body-small", waitTone(item.waitSec))}>
-        waiting {waitWords(item.waitSec)}
-      </div>
+      {held ? (
+        <div className="mt-025 tabular text-body-small text-text-subtlest">
+          case open {waitWords(item.waitSec)}
+        </div>
+      ) : (
+        <div className={cn("mt-025 tabular text-body-small", waitTone(item.waitSec))}>
+          waiting {waitWords(item.waitSec)}
+        </div>
+      )}
     </div>
   );
 }
@@ -97,7 +105,7 @@ export function HandoffCaseload({
             key={item.interactionId}
             className="flex items-center gap-150 rounded-large border border-border-brand bg-background-brand-subtlest/40 p-150"
           >
-            <CaseSummary item={item} />
+            <CaseSummary item={item} held />
             <Link
               to="/handoff"
               search={{ interactionId: item.interactionId, customerId }}
@@ -117,6 +125,7 @@ export function HandoffQueueList({
   items,
   total,
   search,
+  searching = false,
   onSearch,
   onShowMore,
   canClaim,
@@ -127,6 +136,8 @@ export function HandoffQueueList({
   items: HandoffQueueItem[];
   total: number;
   search: string;
+  /** The list shown is the previous search's while the new one loads. */
+  searching?: boolean;
   onSearch: (value: string) => void;
   /** Offered while more cases wait than are shown. */
   onShowMore?: () => void;
@@ -172,11 +183,16 @@ export function HandoffQueueList({
           placeholder="Customer name, customer id or account"
           className="h-400 min-w-0 flex-1 bg-transparent text-body-small text-text outline-none"
         />
+        {searching ? (
+          <span role="status" className="shrink-0 text-body-small text-text-subtlest">
+            Searching…
+          </span>
+        ) : null}
       </label>
-      {!items.length ? (
+      {!items.length && !searching ? (
         <p className="text-body-small text-text-subtlest">No waiting case matches “{search}”.</p>
       ) : null}
-      <ul className="space-y-150">
+      <ul className={cn("space-y-150", searching && "opacity-60")} aria-busy={searching}>
         {items.map((item) => {
           const failed = claimError?.interactionId === item.interactionId ? claimError : null;
           return (
@@ -186,6 +202,15 @@ export function HandoffQueueList({
             >
               <div className="flex items-center gap-150">
                 <CaseSummary item={item} />
+                {/* Anyone who may read the queue may look before claiming. */}
+                <Link
+                  to="/handoff"
+                  search={{ interactionId: item.interactionId }}
+                  aria-label={`View ${item.customerName}`}
+                  className="shrink-0 rounded-medium border border-border px-150 py-075 text-body-small font-semibold text-text-brand hover:bg-surface-sunken"
+                >
+                  View
+                </Link>
                 {canClaim ? (
                   <button
                     type="button"

@@ -425,35 +425,42 @@ def wrap_up_interaction(interaction_id: str, payload: dict[str, Any], idempotenc
     Only the case's holder closes it, and only once: a replay of the same
     request (its idempotency key) returns what it filed, after the holder is
     checked again; any other write to a closed case is refused. The outcome
-    must carry what it claims happened. The notes are the person's and stay
-    on the case: the interaction's summary is the conversation's.
+    must carry what it claims happened, and the records it files (a promise,
+    a dispute, a callback) need the rights their own pages need. The notes are
+    the person's and stay on the case: the interaction's summary is the
+    conversation's.
     """
     endpoint = f"POST /interactions/{interaction_id}/wrap-up"
+    import authz
     import db_handoff
-    import db_inbox
     import voice_studio_supervision
 
+    actor = _actor_user_id()
     with _db().engine.begin() as conn:
         _assert_tenant_owns(conn, "interactions", interaction_id)
-        # Lock order: conversation, interaction, handoff. The call's completion
-        # (voice.persist.complete_voice_call) takes the same interaction lock,
-        # so the two never interleave: whichever is second sees the first.
-        db_inbox.lock_interaction_thread(conn, interaction_id)
+        # Under the case's locks (conversation, interaction, handoff). The
+        # call's completion (voice.persist.complete_voice_call) takes the same
+        # interaction lock, so the two never interleave: whichever is second
+        # sees the first.
+        case = db_handoff._assert_handoff_assignee(conn, interaction_id, actor, open_only=False)
         interaction = _one(
             conn.execute(
-                text("SELECT id, customer_id, account_id, channel FROM interactions WHERE id = :id FOR UPDATE"),
+                text("SELECT id, customer_id, account_id, channel FROM interactions WHERE id = :id"),
                 {"id": interaction_id},
             )
         )
-        if interaction is None:
-            raise KeyError("interaction_not_found")
-        case = db_handoff._assert_handoff_assignee(conn, interaction_id, _actor_user_id(), open_only=False)
         cached = _idempotent_response(conn, idempotency_key, endpoint)
         if cached:
             return cached
         if case["completed_at"] is not None:
             raise ValueError("handoff_closed")
         db_handoff.require_outcome_evidence(payload)
+        # POST /promises, /disputes and /callbacks need COLLECTIONS_WRITE
+        # (authz.PERMISSION_RULES); filing one here is the same write.
+        if any(payload.get(k) for k in ("promise", "dispute", "callback")) and not authz.has_permission(
+            actor, authz.COLLECTIONS_WRITE
+        ):
+            raise PermissionError("records_need_collections_write")
         channel = interaction["channel"]
 
         # A Voice Studio call still in progress is the engine's to end and

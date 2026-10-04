@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 
+import pytest
 from sqlalchemy import text
 
 import db
@@ -106,3 +107,52 @@ def test_a_wrap_up_saved_while_the_call_is_filed_is_kept(db_real, monkeypatch) -
     assert row["status"] == "completed"
     assert row["disposition"] == "Info provided"
     assert row["completed_at"] is not None and row["wrap_up_notes"] == "explained"
+
+
+@pytest.mark.parametrize(
+    ("meanwhile", "refusal"),
+    [
+        ("UPDATE interaction_handoffs SET completed_at = now() WHERE id = :ho", (ValueError, "handoff_closed")),
+        ("UPDATE interaction_handoffs SET to_user_id = :other WHERE id = :ho", (PermissionError, "handoff_not_assigned")),
+    ],
+    ids=["wrapped-up", "taken-over"],
+)
+def test_a_disclosure_waits_for_a_wrap_up_or_takeover_in_flight(db_real, meanwhile, refusal) -> None:
+    """The holder was checked on an unlocked read: a wrap-up or a takeover
+    committed after that check, and the disclosure was written anyway. It
+    must wait on the case's lock and then see who holds it."""
+    import actor_context
+
+    ix, ho = _case(db_real)
+    db_real.track("interaction_disclosures", interaction_id=ix)
+    other_user = f"HUB-OTHER-{uuid.uuid4().hex[:8].upper()}"
+    with db_real.begin() as conn:
+        conn.execute(text("INSERT INTO users (id, tenant_id, name) VALUES (:id, :t, :id)"), {"id": other_user, "t": db.current_tenant()})
+    db_real.track("users", id=other_user)
+    with db_real.connect() as conn:
+        holder = conn.execute(text("SELECT to_user_id FROM interaction_handoffs WHERE id = :ho"), {"ho": ho}).scalar()
+    errors: list[BaseException] = []
+
+    def disclose() -> None:
+        token = actor_context.set_actor_user_id(holder)
+        try:
+            db.record_handoff_disclosure(ix, {"itemId": "rule-recording", "ruleId": "rule-recording"})
+        except BaseException as exc:  # noqa: BLE001 -- judged in the main thread
+            errors.append(exc)
+        finally:
+            actor_context.reset_actor_user_id(token)
+
+    with db_real.begin() as other:
+        other.execute(text("SELECT 1 FROM interactions WHERE id = :ix FOR UPDATE"), {"ix": ix})
+        worker = threading.Thread(target=disclose)
+        worker.start()
+        time.sleep(1.0)  # the disclosure is now waiting on the case's lock
+        assert worker.is_alive(), "the disclosure did not wait for the case's lock"
+        other.execute(text(meanwhile), {"ho": ho, "other": other_user})
+    worker.join(timeout=30)
+    assert not worker.is_alive()
+    kind, code = refusal
+    assert len(errors) == 1 and isinstance(errors[0], kind) and code in str(errors[0]), errors
+    with db_real.connect() as conn:
+        written = conn.execute(text("SELECT count(*) FROM interaction_disclosures WHERE interaction_id = :ix"), {"ix": ix}).scalar()
+    assert written == 0

@@ -1510,6 +1510,7 @@ export const HandoffComplianceItem = z.object({
   "checked": z.boolean().optional(),
   "locked": z.boolean().optional(),
   "ruleId": z.string().nullable().optional(),
+  "source": z.enum(["bot", "human"]).nullable().optional(),
 }).passthrough();
 export const HandoffAlertItem = z.object({
   "id": z.string(),

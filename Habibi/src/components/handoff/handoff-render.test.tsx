@@ -18,6 +18,7 @@ const q = vi.hoisted(() => ({
   wide: true,
   copilotEvidence: [] as string[],
   rights: new Set(["perm-interactions-write"]),
+  me: { id: "me", tenantId: "t-1" },
   claim: vi.fn(),
   disclose: vi.fn(),
   accept: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("sonner", () => ({ toast: { error: q.toastError, success: q.toastSuccess } }));
 vi.mock("@/hooks/use-min-width", () => ({ useMinWidth: () => q.wide }));
 vi.mock("@/api/me", () => ({
-  useMe: () => ({ data: { id: "me" } }),
+  useMe: () => ({ data: q.me }),
   can: (_me: unknown, perm: string) => q.rights.has(perm),
 }));
 vi.mock("@/api/contact-policy", () => ({
@@ -55,7 +56,12 @@ vi.mock("@/api/floor", () => ({
 vi.mock("@/api/upsell", () => ({ useCaptureLeadFromPolicy: () => ({ mutate: vi.fn() }) }));
 vi.mock("@/api/authority", () => ({ useApplyAuthority: () => ({ mutate: vi.fn() }) }));
 vi.mock("@/api/handoff", () => ({
-  useHandoffQueue: () => ({ data: q.queue, isError: false, isRefetchError: false }),
+  useHandoffQueue: () => ({
+    data: q.queue,
+    isError: false,
+    isRefetchError: false,
+    isPlaceholderData: false,
+  }),
   useHandoffSession: (id: string) => ({
     data: q.sessions[id],
     isError: q.sessionError != null,
@@ -150,6 +156,7 @@ function session(over: Partial<HandoffSession> = {}, id = "IX-1"): HandoffSessio
         checked: false,
         locked: false,
         ruleId: "rule-recording",
+        source: null,
       },
     ],
     alerts: [],
@@ -177,7 +184,8 @@ function mount() {
 beforeEach(() => {
   q.search = { interactionId: "IX-1" };
   q.sessions = { "IX-1": session(), "IX-2": session({}, "IX-2") };
-  q.rights = new Set(["perm-interactions-write"]);
+  q.rights = new Set(["perm-interactions-write", "perm-collections-write"]);
+  q.me = { id: "me", tenantId: "t-1" };
   q.sessionError = null;
   q.wide = true;
   q.copilotEvidence = [];
@@ -463,6 +471,108 @@ describe("Handoff Hub — closing and after", () => {
     expect(screen.getByRole("tab", { name: "Compliance" }).getAttribute("aria-selected")).toBe(
       "true",
     );
+  });
+});
+
+describe("Handoff Hub — round three", () => {
+  it("shows the bot's disclosure as the bot's evidence, which can't be unticked", () => {
+    q.sessions = {
+      "IX-1": session({
+        complianceItems: [
+          {
+            id: "rule-recording",
+            label: "Recording disclosure read",
+            required: true,
+            checked: true,
+            locked: true,
+            ruleId: "rule-recording",
+            source: "bot",
+          },
+        ],
+      }),
+    };
+    mount();
+    expect(screen.getByText("said by the bot")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Recording disclosure read/ }));
+    expect(q.disclose).not.toHaveBeenCalled();
+  });
+
+  it("offers no outcome that files a record to a role that can't file one", () => {
+    q.rights = new Set(["perm-interactions-write"]);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
+    const ptp = screen.getByRole("option", { name: /PTP captured/ });
+    expect(ptp.getAttribute("aria-disabled") ?? ptp.getAttribute("data-disabled")).not.toBeNull();
+    expect(
+      screen.getByRole("option", { name: "Info provided" }).getAttribute("aria-disabled"),
+    ).not.toBe("true");
+  });
+
+  it("accepts a promise in rupees and paise, and nothing finer", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
+    fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
+    const amount = screen.getByLabelText("Amount (₹)") as HTMLInputElement;
+    const save = screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
+    fireEvent.change(amount, { target: { value: "1500.50" } });
+    expect(save.disabled).toBe(false);
+    expect(amount.validity.stepMismatch).toBe(false);
+    fireEvent.change(amount, { target: { value: "1500.555" } });
+    expect(save.disabled).toBe(true);
+  });
+
+  it("never shows one operator's unsaved notes to another in the same tab", () => {
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: "private note" } });
+    first.unmount();
+    q.me = { id: "someone-else", tenantId: "t-1" };
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    expect(screen.queryByDisplayValue("private note")).toBeNull();
+  });
+
+  it("drops the unsaved notes once the case is no longer the operator's", () => {
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: "half a note" } });
+    first.unmount();
+    q.sessionError = new ApiError("GET", "/handoff/IX-1", 403, "handoff_not_assigned");
+    mount().unmount();
+    q.sessionError = null;
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    expect(screen.queryByDisplayValue("half a note")).toBeNull();
+  });
+
+  it("lets anyone on the queue look at a waiting case before claiming", () => {
+    q.search = {};
+    q.rights = new Set();
+    q.queue = { items: [queueItem("IX-9", "Synthetic Caller")], total: 1, mine: [] };
+    mount();
+    expect(
+      within(screen.getByText("Synthetic Caller").closest("li")!).getByText("View"),
+    ).toBeTruthy();
+  });
+
+  it("gives a held case its age, not a wait", () => {
+    q.search = {};
+    q.queue = { items: [], total: 0, mine: [queueItem("IX-1", "First Borrower")] };
+    mount();
+    expect(screen.getByText("case open 30s")).toBeTruthy();
+    expect(screen.queryByText(/waiting 30s/)).toBeNull();
+  });
+
+  it("says the list is the previous one while a new search loads", () => {
+    q.search = {};
+    q.queue = { items: [queueItem("IX-9", "Synthetic Caller")], total: 1, mine: [] };
+    mount();
+    fireEvent.change(screen.getByPlaceholderText(/Customer name/), { target: { value: "asha" } });
+    expect(screen.getByText("Searching…")).toBeTruthy();
+    expect(screen.queryByText(/No waiting case matches/)).toBeNull();
   });
 });
 

@@ -516,6 +516,9 @@ class HandoffComplianceItem(BaseModel):
     checked: bool = False
     locked: bool = False
     ruleId: str | None = None
+    #: Who the record says did it: the bot on the call, or a person here.
+    #: The bot's evidence is never the person's to untick.
+    source: Literal["bot", "human"] | None = None
 
 
 class HandoffAlertItem(BaseModel):
@@ -568,8 +571,9 @@ class HandoffSessionResponse(BaseModel):
     #: Set once the case is wrapped up.
     wrapUp: HandoffWrapUp | None = None
     filed: list[HandoffFiledRecord] = []
-    #: Changes whenever what the copilot drafts from changes (the transcript,
-    #: the policies, the approvals waiting): the page redrafts on a new value.
+    #: Changes whenever what the copilot drafts from changes (the authority
+    #: and treatment decisions, live QA, the approvals waiting): the page
+    #: redrafts on a new value, and only then.
     copilotEvidence: str = ""
 
 

@@ -134,6 +134,7 @@ _VALUE_ERROR_STATUS: dict[str, int] = {
     "unknown_disposition": 422,
     "disposition_needs": 422,
     "promise_date_in_past": 422,
+    "interactionId_and_action_required": 422,
     "callback_in_past": 422,
     "productId_required": 422,
     "loss_reason_required": 422,

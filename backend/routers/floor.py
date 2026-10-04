@@ -13,7 +13,7 @@ import db_floor
 
 from fastapi import APIRouter
 
-from api_support import Utf8JSONResponse, ROUTER_DEPENDENCIES
+from api_support import _handle_write, Utf8JSONResponse, ROUTER_DEPENDENCIES
 from fastapi import HTTPException, Query
 from schemas import (
     FloorAlertAckResponse,
@@ -105,10 +105,9 @@ def signal_floor_approval(job_id: str, payload: FloorApprovalSignalRequest):
 
 @router.post("/supervisor-actions", response_model=SupervisorActionResponse)
 def post_supervisor_action(payload: SupervisorActionRequest):
-    try:
-        return db_floor.create_supervisor_action(payload.model_dump())
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # A takeover is refused, not failed: the case moved meanwhile, the caller
+    # may not reassign it, or there is nothing to take over.
+    return _handle_write(db_floor.create_supervisor_action, payload.model_dump())
 
 @router.post("/floor/alerts/{alert_id}/ack", response_model=FloorAlertAckResponse)
 def ack_floor_alert(alert_id: str):

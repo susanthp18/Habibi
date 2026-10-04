@@ -15,12 +15,16 @@ import { fmtShortDate } from "@/lib/format";
 export function CustomerContextPanel({
   call: activeCall,
   context: c,
-  readOnly = false,
+  canApply = false,
+  canCapture = false,
 }: {
   call: ActiveCall;
   context: CustomerContext;
-  /** Watching someone else's case: nothing here may be applied or captured. */
-  readOnly?: boolean;
+  /** The holder working the case with perm-collections-write, which
+   * POST /authority/apply needs. Anyone else reads the decision. */
+  canApply?: boolean;
+  /** The holder working the case with perm-leads-write (POST /leads). */
+  canCapture?: boolean;
 }) {
   const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   const ptpStatus = (c.lastPromise?.status || "").toLowerCase();
@@ -156,7 +160,7 @@ export function CustomerContextPanel({
       {c.authorityPolicy ? (
         <AuthorityPolicyBlock
           policy={c.authorityPolicy}
-          onApply={readOnly ? undefined : apply}
+          onApply={canApply ? apply : undefined}
           applying={applyMut.isPending}
         />
       ) : (
@@ -166,7 +170,7 @@ export function CustomerContextPanel({
       {c.offerPolicy ? (
         <OfferPolicyBlock
           policy={c.offerPolicy}
-          onCapture={readOnly ? undefined : capture}
+          onCapture={canCapture ? capture : undefined}
           capturing={captureMut.isPending}
         />
       ) : (

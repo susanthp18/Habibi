@@ -69,6 +69,7 @@ def hub(db_tx):
     for rule_id, code, label in (
         ("rule-recording", "recording", "Recording disclosure"),
         ("rule-identity", "identity", "Identity verified"),
+        ("r-rec", "RBI-DISC-01", "Missed call recording notice"),
     ):
         db_tx.execute(
             text(
@@ -348,6 +349,54 @@ def test_barging_with_no_call_takes_the_case_and_its_thread(hub, as_actor, monke
     assert hub.execute(text("SELECT assigned_user_id FROM conversations WHERE id = :cv"), {"cv": cv}).scalar() == SUP
 
 
+def test_barging_with_no_call_and_no_open_case_is_refused(hub, as_actor, monkeypatch) -> None:
+    """No call to join and no case to take: a barge row would never be closed."""
+    import db_floor
+    import voice_studio_supervision
+
+    monkeypatch.setattr(voice_studio_supervision, "live_run", lambda conn, iid: None)
+    ix = _case(hub, suffix="bargenone")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.wrap_up_interaction(ix, INFO)
+    as_actor(SUP)
+    with pytest.raises(ValueError, match="nothing_to_take_over"):
+        db_floor.create_supervisor_action({"interactionId": ix, "action": "barge"})
+    assert len(_handoffs(hub, ix)) == 1
+    assert _interaction(hub, ix)["handler_user_id"] == AGENT
+    assert hub.execute(text("SELECT count(*) FROM supervisor_actions WHERE interaction_id = :ix"), {"ix": ix}).scalar() == 0
+
+
+@pytest.fixture
+def client(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import main as app_main
+
+    monkeypatch.setenv("API_KEY", "hub-test-key")
+    monkeypatch.delenv("API_KEY_MAP", raising=False)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("ALLOW_ACTOR_HEADER", "true")
+    actor_context.reload_api_key_map()
+    return TestClient(app_main.app)
+
+
+def test_a_refused_floor_takeover_is_a_conflict_not_a_server_error(hub, as_actor, client, monkeypatch) -> None:
+    import voice_studio_supervision
+
+    monkeypatch.setattr(voice_studio_supervision, "live_run", lambda conn, iid: None)
+    ix = _case(hub, suffix="bargehttp")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    db.wrap_up_interaction(ix, INFO)
+    res = client.post(
+        "/supervisor-actions",
+        json={"interactionId": ix, "action": "barge"},
+        headers={"X-API-Key": "hub-test-key", "X-Actor-User-Id": SUP},
+    )
+    assert (res.status_code, res.json()["detail"]) == (409, "nothing_to_take_over")
+
+
 def test_hanging_up_a_takeover_does_not_close_the_case(hub, as_actor) -> None:
     import voice_studio_supervision
 
@@ -485,6 +534,22 @@ def test_a_late_transfer_retry_never_reopens_a_wrapped_case(hub, as_actor) -> No
     assert ix not in {i["interactionId"] for i in db.list_handoff_queue()["items"]}
 
 
+@pytest.mark.parametrize(
+    ("rang", "transferred", "settled"),
+    [("ringing", True, "connected"), ("ringing", False, "not_connected"), ("no_line", False, "no_line")],
+)
+def test_a_transfer_hook_after_the_call_ended_leaves_what_it_settled(
+    hub, _quiet_completion, rang, transferred, settled
+) -> None:
+    from voice import persist
+
+    ix = _case(hub, suffix=f"lateset-{settled}")
+    hub.execute(text("UPDATE interaction_handoffs SET transfer_outcome = :o WHERE interaction_id = :ix"), {"o": rang, "ix": ix})
+    _complete(ix, transferred=transferred)
+    persist.record_handoff(interaction_id=ix, reason="dispute", bot_id=BOT, transfer_outcome="ringing")
+    assert _handoffs(hub, ix)[0]["transfer_outcome"] == settled
+
+
 def test_a_handoff_goes_to_the_team_of_the_customers_agent(hub) -> None:
     from voice import persist
 
@@ -587,7 +652,7 @@ def test_a_wrap_up_replay_answers_only_the_holder(hub, as_actor) -> None:
     [
         ("PTP captured", "promise"),
         ("Callback scheduled", "callback"),
-        ("Dispute - under review", "dispute"),
+        ("Dispute raised", "dispute"),
         ("Customer says they paid", "notes"),
         ("Info provided", "notes"),
         ("Unresolved - retry", "notes"),
@@ -631,6 +696,30 @@ def test_a_ptp_wrap_up_files_its_promise_on_the_calls_channel(hub, as_actor) -> 
     assert out["spawned"]["promise"]
     assert hub.execute(text("SELECT channel FROM promises WHERE interaction_id = :ix"), {"ix": ix}).scalar() == "whatsapp"
     assert [f["kind"] for f in db.get_handoff_session(ix)["filed"]] == ["promise"]
+
+
+def test_a_wrap_up_files_records_only_with_collections_rights(hub, as_actor) -> None:
+    """A role that works cases but may not write collections records (as
+    POST /promises refuses it) cannot file one through the wrap-up either."""
+    t = db.current_tenant()
+    hub.execute(
+        text("INSERT INTO roles (id, tenant_id, name, configured_at) VALUES ('hub-role-casework', :t, 'casework', now())"),
+        {"t": t},
+    )
+    for perm in (authz.INTERACTIONS_READ, authz.INTERACTIONS_WRITE):
+        hub.execute(
+            text("INSERT INTO role_permissions (role_id, permission_id) VALUES ('hub-role-casework', :p)"), {"p": perm}
+        )
+    hub.execute(text("UPDATE user_roles SET role_id = 'hub-role-casework' WHERE user_id = :u"), {"u": AGENT})
+    authz.invalidate_permission_cache()
+    ix = _case(hub, suffix="noperm")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    with pytest.raises(PermissionError, match="records_need_collections_write"):
+        db.wrap_up_interaction(ix, {"disposition": "PTP captured", "promise": _ptp(CUST)})
+    assert hub.execute(text("SELECT count(*) FROM promises WHERE interaction_id = :ix"), {"ix": ix}).scalar() == 0
+    db.wrap_up_interaction(ix, INFO)  # a note-only outcome is the case's own
+    assert _handoffs(hub, ix)[0]["completed_at"] is not None
 
 
 def test_a_promise_dated_before_today_is_refused(hub, as_actor) -> None:
@@ -697,6 +786,50 @@ def test_disclosure_write_and_identity_lock(hub, as_actor) -> None:
         db.record_handoff_disclosure(ix, {"itemId": "identity", "ruleId": "rule-identity"})
 
 
+def _item(session, rule_id):
+    return next(i for i in session["complianceItems"] if i["ruleId"] == rule_id)
+
+
+@pytest.mark.parametrize(
+    ("rule", "label"),
+    [("r-rec", "Call recording notice"), ("rule-recording", "Recording disclosure read")],
+)
+def test_the_bots_disclosure_stays_the_bots_evidence(hub, as_actor, rule, label) -> None:
+    """Unticking what the bot said used to rewrite its row as the person's."""
+    ix = _case(hub, suffix=f"botsaid-{rule}")
+    hub.execute(
+        text(
+            "INSERT INTO interaction_disclosures (id, interaction_id, rule_id, label, read, read_at_sec, read_by_kind, read_by_bot_id) "
+            "VALUES (:id, :ix, :rule, :label, true, 3, 'bot', :bot)"
+        ),
+        {"id": f"DISC-{rule}", "ix": ix, "rule": rule, "label": label, "bot": BOT},
+    )
+    as_actor(AGENT)
+    rec = _item(db.claim_handoff(ix), "rule-recording")
+    assert (rec["checked"], rec["locked"], rec["source"]) == (True, True, "bot")
+    for item_id in (rec["id"], f"DISC-{rule}"):
+        with pytest.raises(ValueError, match="disclosure_said_by_bot"):
+            db.record_handoff_disclosure(ix, {"itemId": item_id, "ruleId": "rule-recording", "read": False})
+    row = hub.execute(
+        text("SELECT read, read_by_kind, read_by_bot_id, read_by_user_id FROM interaction_disclosures WHERE id = :id"),
+        {"id": f"DISC-{rule}"},
+    ).one()
+    assert tuple(row) == (True, "bot", BOT, None)
+
+
+def test_a_persons_tick_is_their_own_attestation(hub, as_actor) -> None:
+    ix = _case(hub, suffix="attest")
+    as_actor(AGENT)
+    db.claim_handoff(ix)
+    rec = _item(db.record_handoff_disclosure(ix, {"itemId": "rule-recording", "ruleId": "rule-recording"}), "rule-recording")
+    assert (rec["checked"], rec["locked"], rec["source"]) == (True, False, "human")
+    rec = _item(
+        db.record_handoff_disclosure(ix, {"itemId": rec["id"], "ruleId": "rule-recording", "read": False}),
+        "rule-recording",
+    )
+    assert (rec["checked"], rec["source"]) == (False, None)
+
+
 def test_suggestion_accept(hub, as_actor) -> None:
     ix = _case(hub, suffix="sug")
     hub.execute(
@@ -752,13 +885,60 @@ def test_the_copilot_opens_for_the_holder_and_not_a_stranger(hub, as_actor) -> N
         db.assert_handoff_readable(ix)
 
 
-def test_the_copilot_evidence_moves_with_the_conversation(hub, as_actor) -> None:
+def _treatment(conn, action):
+    conn.execute(
+        text(
+            "INSERT INTO treatment_decisions (id, tenant_id, customer_id, trigger_kind, mode, recommender, "
+            "recommender_version, feature_schema_version, chosen_action, chosen_channel) "
+            "VALUES (:id, :t, :c, 'manual', 'live', 'hub-test', '1', '1', :a, :a)"
+        ),
+        {"id": f"TD-hub-{action}", "t": db.current_tenant(), "c": CUST, "a": action},
+    )
+
+
+def _live_qa(conn, ix, action):
+    conn.execute(
+        text(
+            "INSERT INTO live_qa_decisions (id, tenant_id, interaction_id, mode, feature_schema_version, verdict, recommended_action) "
+            "VALUES (:id, :t, :ix, 'live', '1', 'fail_soft', :a)"
+        ),
+        {"id": f"LQ-hub-{action}", "t": db.current_tenant(), "ix": ix, "a": action},
+    )
+
+
+def _approval(monkeypatch, note):
+    import work_runtime
+
+    monkeypatch.setattr(work_runtime, "list_jobs", lambda **_kw: [{"id": "job-1", "note": note}])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda hub, ix, mp: _treatment(hub, "sms"),
+        lambda hub, ix, mp: _live_qa(hub, ix, "whisper"),
+        lambda hub, ix, mp: _approval(mp, "waive the late fee"),
+    ],
+    ids=["treatment", "live-qa", "approval"],
+)
+def test_the_copilot_evidence_moves_with_what_the_draft_reads(hub, as_actor, monkeypatch, change) -> None:
     ix = _case(hub, suffix="evid")
+    _approval(monkeypatch, "first ask")
     as_actor(AGENT)
     before = db.claim_handoff(ix)["copilotEvidence"]
     assert db.get_handoff_session(ix)["copilotEvidence"] == before  # an unchanged poll
+    change(hub, ix, monkeypatch)
+    assert db.get_handoff_session(ix)["copilotEvidence"] != before
+
+
+def test_the_copilot_evidence_ignores_what_the_draft_does_not_read(hub, as_actor) -> None:
+    """The draft is the engines' decisions, not the conversation: a new turn
+    used to redraft it on every poll of a live call."""
+    ix = _case(hub, suffix="evidturn")
+    as_actor(AGENT)
+    before = db.claim_handoff(ix)["copilotEvidence"]
     hub.execute(
         text("INSERT INTO interaction_transcript (id, interaction_id, turn_index, speaker, at_sec, text) VALUES ('T-evid-2', :ix, 1, 'bot', 9, 'Noted')"),
         {"ix": ix},
     )
-    assert db.get_handoff_session(ix)["copilotEvidence"] != before
+    assert db.get_handoff_session(ix)["copilotEvidence"] == before

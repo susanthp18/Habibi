@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
@@ -66,6 +66,16 @@ export function HandoffCase({
   const pending = session.status === "pending_claim";
   const mine = session.claimed && !monitor;
   const working = mine && open && canWrite;
+  const owner = me ? { id: me.id, tenantId: me.tenantId } : undefined;
+
+  // Unsaved notes are the holder's while the case is theirs and open: taken
+  // over, or closed by someone else, they go.
+  const meId = me?.id;
+  const meTenant = me?.tenantId;
+  useEffect(() => {
+    if ((mine && open) || !meId || !meTenant) return;
+    wrapDraft.write({ id: meId, tenantId: meTenant }, session.handoffId, "");
+  }, [mine, open, meId, meTenant, session.handoffId]);
 
   const navigate = useNavigate({ from: "/handoff" });
   const canned = useCannedResponses();
@@ -89,7 +99,7 @@ export function HandoffCase({
       },
       {
         onSuccess: () => {
-          wrapDraft.write(session.handoffId, "");
+          wrapDraft.write(owner, session.handoffId, "");
           toast.success("Wrap-up saved", {
             action: {
               label: "View case",
@@ -156,7 +166,12 @@ export function HandoffCase({
   const context = (
     <>
       <HandoffAlerts items={alerts} canAck={canSupervise} />
-      <CustomerContextPanel call={activeCall} context={customerContext} readOnly={!working} />
+      <CustomerContextPanel
+        call={activeCall}
+        context={customerContext}
+        canApply={working && can(me, "perm-collections-write")}
+        canCapture={working && can(me, "perm-leads-write")}
+      />
     </>
   );
   const suggest = (
@@ -311,7 +326,8 @@ export function HandoffCase({
           saving={wrapMut.isPending}
           error={wrapError}
           defaultPtpAmount={customerContext.nextEmi?.amount}
-          actorId={me?.id}
+          owner={owner}
+          canFile={can(me, "perm-collections-write")}
           onClose={() => setWrapOpen(false)}
           onSave={saveWrap}
         />

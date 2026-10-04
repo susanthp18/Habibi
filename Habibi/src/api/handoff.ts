@@ -13,7 +13,7 @@
 // -----------------------------------------------------------------------------
 
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
 import type { DisputeType } from "@/api/types/disputes";
@@ -112,6 +112,8 @@ const handoffSessionSchema = z.object({
       checked: z.boolean(),
       locked: z.boolean(),
       ruleId: z.string().nullable(),
+      /** The bot's evidence from the call, or a person's attestation here. */
+      source: z.enum(["bot", "human"]).nullable(),
     }),
   ),
   alerts: z.array(
@@ -223,8 +225,9 @@ export async function fetchHandoffSession(interactionId: string): Promise<Handof
 }
 
 /**
- * The case, kept fresh while it is open: someone else may claim it, the bot
- * call may end, the transcript is filed when it does. A refresh that fails
+ * The case, kept fresh while it is open or its call is live: someone else may
+ * claim it, the bot call may end, the transcript is filed when it does -- a
+ * case wrapped up mid-call still has a call to finish. A refresh that fails
  * keeps the last snapshot (`isRefetchError`); the page says how old it is.
  */
 export function useHandoffSession(interactionId: string | undefined) {
@@ -233,12 +236,16 @@ export function useHandoffSession(interactionId: string | undefined) {
     queryFn: () => fetchHandoffSession(interactionId!),
     enabled: Boolean(interactionId),
     staleTime: 1_000,
-    // Closed, or no longer the reader's to see (403/404): nothing left to poll.
-    refetchInterval: (q) => {
-      const lost = q.state.error instanceof ApiError && [403, 404].includes(q.state.error.status);
-      return q.state.data?.status === "completed" || lost ? false : 5_000;
-    },
+    refetchInterval: (q) => pollCase(q.state.data, q.state.error),
   });
+}
+
+/** How often to read the case again: not once it is closed with its call
+ * over, nor once it is no longer the reader's to see (403/404). */
+export function pollCase(data: HandoffSession | undefined, error: unknown): number | false {
+  const lost = error instanceof ApiError && [403, 404].includes(error.status);
+  const settled = data?.status === "completed" && data.activeCall.callState !== "live";
+  return settled || lost ? false : 5_000;
 }
 
 /** Claim a waiting case or -- a supervisor, with `expectedAssigneeId` --
@@ -256,6 +263,15 @@ export async function claimHandoff(input: {
   );
 }
 
+/** A claim, a takeover or a wrap-up moves the case's text thread and its
+ * handler: the Inbox and the Floor read both. (My Workspace refreshes after
+ * every write: router.tsx.) */
+function invalidateCaseReaders(qc: QueryClient) {
+  for (const key of ["conversations", "conversation-counts", "conversation", "floor"]) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
+}
+
 export function useClaimHandoff() {
   const qc = useQueryClient();
   return useMutation({
@@ -263,6 +279,7 @@ export function useClaimHandoff() {
     mutationFn: claimHandoff,
     onSuccess: (session) => {
       qc.setQueryData(sessionKey(session.interactionId), session);
+      invalidateCaseReaders(qc);
     },
     // Taken by someone else, or gone: the queue must stop offering it.
     onSettled: () => void qc.invalidateQueries({ queryKey: ["handoff", "queue"] }),
@@ -357,6 +374,7 @@ export function useWrapUpHandoff() {
       if (result.spawned.dispute) invalidateDisputeReads(qc, input.customerId);
       if (result.spawned.callback) void qc.invalidateQueries({ queryKey: ["callbacks"] });
       invalidateCustomer(qc, input.customerId);
+      invalidateCaseReaders(qc);
     },
   });
 }
@@ -397,6 +415,9 @@ export function useCopilotStream(interactionId: string, evidence: string) {
 
   useEffect(() => {
     const ac = new AbortController();
+    // The pack carries the engines' own draft: it shows at once, and the
+    // polished wording replaces it as its tokens arrive.
+    let polished = "";
     setState({ ...EMPTY_STREAM, streaming: true });
     const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
@@ -408,7 +429,7 @@ export function useCopilotStream(interactionId: string, evidence: string) {
           const pack = FloorCopilotResponse.parse(payload);
           setState({
             ...EMPTY_STREAM,
-            whisper: "",
+            whisper: str(payload.engineDraft) ?? "",
             vetoes: pack.vetoes ?? [],
             unavailable: pack.engines.unavailable ?? [],
             card: pack.card,
@@ -418,8 +439,8 @@ export function useCopilotStream(interactionId: string, evidence: string) {
           return;
         }
         if (event === "token") {
-          const chunk = str(payload.text) ?? "";
-          setState((prev) => ({ ...prev, whisper: prev.whisper + chunk }));
+          polished += str(payload.text) ?? "";
+          setState((prev) => ({ ...prev, whisper: polished }));
           return;
         }
         if (event === "done") {
