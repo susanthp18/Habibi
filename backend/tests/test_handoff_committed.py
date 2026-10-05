@@ -156,3 +156,90 @@ def test_a_disclosure_waits_for_a_wrap_up_or_takeover_in_flight(db_real, meanwhi
     with db_real.connect() as conn:
         written = conn.execute(text("SELECT count(*) FROM interaction_disclosures WHERE interaction_id = :ix"), {"ix": ix}).scalar()
     assert written == 0
+
+
+def _as(user_id: str):
+    import actor_context
+
+    return actor_context.set_actor_user_id(user_id)
+
+
+def _holder(db_real, ho: str) -> str:
+    with db_real.connect() as conn:
+        return conn.execute(text("SELECT to_user_id FROM interaction_handoffs WHERE id = :ho"), {"ho": ho}).scalar()
+
+
+def test_the_copilot_evidence_is_read_while_the_session_is_open(db_real) -> None:
+    """The evidence was computed after the session's connection had closed:
+    every read failed into "unavailable", so a new live-QA verdict never moved
+    it. ``db_tx`` keeps its one connection open and hid that; this runs on
+    real connections, closed after each read."""
+    import actor_context
+
+    ix, ho = _case(db_real)
+    db_real.track("live_qa_decisions", interaction_id=ix)
+    token = _as(_holder(db_real, ho))
+    try:
+        before = db.get_handoff_session(ix)["copilotEvidence"]
+        assert db.get_handoff_session(ix)["copilotEvidence"] == before  # an unchanged poll
+        with db_real.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO live_qa_decisions (id, tenant_id, interaction_id, mode, feature_schema_version, "
+                    "verdict, recommended_action) VALUES (:id, :t, :ix, 'live', '1', 'fail_soft', 'whisper')"
+                ),
+                {"id": f"LQ-{ix}", "t": db.current_tenant(), "ix": ix},
+            )
+        assert db.get_handoff_session(ix)["copilotEvidence"] != before
+    finally:
+        actor_context.reset_actor_user_id(token)
+
+
+def test_a_takeover_keeps_the_previous_holders_attestation(db_real) -> None:
+    """Operator A attests; B takes the case over and unticks it. That used to
+    rewrite A's row as B's, unread, under A's timestamp."""
+    import actor_context
+
+    ix, ho = _case(db_real)
+    db_real.track("interaction_disclosures", interaction_id=ix)
+    first = _holder(db_real, ho)
+    second = f"HUB-NEXT-{uuid.uuid4().hex[:8].upper()}"
+    with db_real.begin() as conn:
+        conn.execute(text("INSERT INTO users (id, tenant_id, name) VALUES (:id, :t, 'Second Holder')"), {"id": second, "t": db.current_tenant()})
+    db_real.track("users", id=second)
+    with db_real.begin() as conn:
+        conn.execute(text("UPDATE users SET name = 'First Holder' WHERE id = :id"), {"id": first})
+
+    token = _as(first)
+    try:
+        db.record_handoff_disclosure(ix, {"itemId": "rule-recording", "ruleId": "rule-recording"})
+    finally:
+        actor_context.reset_actor_user_id(token)
+    with db_real.begin() as conn:  # the takeover
+        conn.execute(text("UPDATE interaction_handoffs SET to_user_id = :u WHERE id = :ho"), {"u": second, "ho": ho})
+
+    token = _as(second)
+    try:
+        with pytest.raises(ValueError, match="disclosure_attested_by_other"):
+            db.record_handoff_disclosure(ix, {"itemId": "rule-recording", "ruleId": "rule-recording", "read": False})
+        rec = next(i for i in db.get_handoff_session(ix)["complianceItems"] if i["ruleId"] == "rule-recording")
+        assert (rec["checked"], rec["locked"], rec["source"], rec["attestedBy"]) == (True, True, "human", "First Holder")
+        with pytest.raises(ValueError, match="disclosure_attested_by_other"):
+            db.record_handoff_disclosure(ix, {"itemId": rec["id"], "ruleId": "rule-recording", "read": False})
+        # What B attests is B's own row, under B's name.
+        session = db.record_handoff_disclosure(ix, {"itemId": "dnd-consent", "label": "DND & consent window checked"})
+        dnd = next(i for i in session["complianceItems"] if i["label"] == "DND & consent window checked")
+        assert (dnd["checked"], dnd["locked"], dnd["attestedBy"]) == (True, False, "Second Holder")
+    finally:
+        actor_context.reset_actor_user_id(token)
+    with db_real.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT label, read, read_by_user_id FROM interaction_disclosures WHERE interaction_id = :ix ORDER BY created_at"
+            ),
+            {"ix": ix},
+        ).all()
+    assert [tuple(r) for r in rows] == [
+        ("Recording disclosure read", True, first),
+        ("DND & consent window checked", True, second),
+    ]

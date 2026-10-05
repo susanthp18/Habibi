@@ -6,7 +6,7 @@ import type { CbReason } from "@/api/types/callbacks";
 import { SelectField } from "@/components/ui/select";
 import { TYPE_LABELS } from "@/lib/disputes";
 import { REASON_LABELS } from "@/lib/callbacks";
-import { wrapDraft, type DraftOwner } from "./handoff-words";
+import { wrapDraft, type DraftOwner } from "@/lib/wrap-draft";
 
 type Props = {
   open: boolean;
@@ -84,13 +84,17 @@ export function WrapUpBar({
   const [disputeType, setDisputeType] = useState<DisputeType | "">("");
 
   const needs = outcomes.find((o) => o.label === label)?.needs;
+  // The rights can go while the form is open (the session refreshes): an
+  // outcome chosen before then no longer saves.
+  const blocked = Boolean(needs && FILES_RECORD.has(needs) && !canFile);
   const amount = Number(ptpAmount);
   const today = istDatePlus(0);
   const callbackTime = callbackAt ? istInstant(callbackAt).getTime() : Number.NaN;
   // The server refuses the same (promise_date_in_past, callback_in_past); the
   // form says so before the round trip.
-  const valid =
-    needs === "promise"
+  const valid = blocked
+    ? false
+    : needs === "promise"
       ? RUPEES.test(ptpAmount) && amount > 0 && Boolean(ptpDate) && ptpDate >= today
       : needs === "callback"
         ? !Number.isNaN(callbackTime) && callbackTime > Date.now()
@@ -161,7 +165,14 @@ export function WrapUpBar({
             })}
           />
 
-          {needs === "promise" && (
+          {blocked ? (
+            <p role="alert" className="mt-100 text-body-small text-text-danger">
+              Your role can no longer file this outcome&apos;s record. Choose an outcome that needs
+              only a note.
+            </p>
+          ) : null}
+
+          {needs === "promise" && !blocked && (
             <div className="mt-100 grid grid-cols-2 gap-075">
               <div>
                 <label htmlFor="wrapup-ptp-amount" className={labelClass}>
@@ -196,7 +207,7 @@ export function WrapUpBar({
             </div>
           )}
 
-          {needs === "callback" && (
+          {needs === "callback" && !blocked && (
             <div className="mt-100 grid gap-075">
               <div>
                 <label htmlFor="wrapup-callback-at" className={labelClass}>
@@ -232,7 +243,7 @@ export function WrapUpBar({
             </div>
           )}
 
-          {needs === "dispute" && (
+          {needs === "dispute" && !blocked && (
             <div className="mt-100">
               <label htmlFor="wrapup-dispute-type" className={labelClass}>
                 Dispute type

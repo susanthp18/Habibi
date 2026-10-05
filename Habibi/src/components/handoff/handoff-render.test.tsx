@@ -157,6 +157,7 @@ function session(over: Partial<HandoffSession> = {}, id = "IX-1"): HandoffSessio
         locked: false,
         ruleId: "rule-recording",
         source: null,
+        attestedBy: null,
       },
     ],
     alerts: [],
@@ -487,6 +488,7 @@ describe("Handoff Hub — round three", () => {
             locked: true,
             ruleId: "rule-recording",
             source: "bot",
+            attestedBy: null,
           },
         ],
       }),
@@ -573,6 +575,52 @@ describe("Handoff Hub — round three", () => {
     fireEvent.change(screen.getByPlaceholderText(/Customer name/), { target: { value: "asha" } });
     expect(screen.getByText("Searching…")).toBeTruthy();
     expect(screen.queryByText(/No waiting case matches/)).toBeNull();
+  });
+});
+
+describe("Handoff Hub — round four", () => {
+  it("shows a colleague's attestation as theirs, which the new holder can't untick", () => {
+    q.sessions = {
+      "IX-1": session({
+        complianceItems: [
+          {
+            id: "rule-recording",
+            label: "Recording disclosure read",
+            required: true,
+            checked: true,
+            locked: true,
+            ruleId: "rule-recording",
+            source: "human",
+            attestedBy: "Asha",
+          },
+        ],
+      }),
+    };
+    mount();
+    expect(screen.getByText("attested by Asha")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Recording disclosure read/ }));
+    expect(q.disclose).not.toHaveBeenCalled();
+  });
+
+  it("stops a chosen outcome from saving once the role loses filing rights", () => {
+    const view = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
+    fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
+    fireEvent.change(screen.getByLabelText("Amount (₹)"), { target: { value: "1500" } });
+    fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
+    const save = () => screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
+    expect(save().disabled).toBe(false);
+    q.rights = new Set(["perm-interactions-write"]);
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <Page />
+      </QueryClientProvider>,
+    );
+    expect(save().disabled).toBe(true);
+    expect(screen.getByText(/can no longer file this outcome's record/)).toBeTruthy();
+    fireEvent.submit(save().closest("form")!);
+    expect(q.wrap).not.toHaveBeenCalled();
   });
 });
 

@@ -500,6 +500,12 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
                 {"ix": interaction_id, "done": row["completed_at"]},
             )
         ) if row["completed_at"] is not None else []
+        evidence = copilot.evidence(
+            conn,
+            interaction_id=interaction_id,
+            customer_id=row["customer_id"],
+            authority=context.get("authorityPolicy"),
+        )
     wrap_up = None
     if row["completed_at"] is not None:
         wrap_up = {
@@ -569,12 +575,7 @@ def get_handoff_session(interaction_id: str) -> dict[str, Any]:
         speakers=speakers,
         wrapUp=wrap_up,
         filed=[{"kind": f["kind"], "id": f["id"]} for f in filed],
-        copilotEvidence=copilot.evidence(
-            conn,
-            interaction_id=interaction_id,
-            customer_id=row["customer_id"],
-            authority=context.get("authorityPolicy"),
-        ),
+        copilotEvidence=evidence,
     ))
     return _dump(session)
 
@@ -725,17 +726,21 @@ def _disclosure_rule_aliases() -> dict[str, str]:
 
 
 def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, Any]]:
-    """The checklist: what the bot said on the call, and what the person here
-    attests. Each keeps its own row -- a person's tick never rewrites the
-    bot's evidence, and the bot's is shown as the bot's, locked."""
+    """The checklist: what the bot said on the call, and what each person who
+    held the case attests. Every one keeps its own row: a tick never rewrites
+    the bot's evidence or a colleague's attestation, and both are shown as
+    theirs, locked, to whoever holds the case now."""
+    actor = _actor_user_id()
     disclosures = _rows(
         conn.execute(
             text(
                 """
-                SELECT id, rule_id, label, read, read_by_kind
-                FROM interaction_disclosures
-                WHERE interaction_id = :iid
-                ORDER BY created_at
+                SELECT d.id, d.rule_id, d.label, d.read, d.read_by_kind, d.read_by_user_id,
+                       u.name AS reader_name
+                FROM interaction_disclosures d
+                LEFT JOIN users u ON u.id = d.read_by_user_id
+                WHERE d.interaction_id = :iid
+                ORDER BY d.created_at
                 """
             ),
             {"iid": interaction_id},
@@ -743,16 +748,18 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
     )
     aliases = _disclosure_rule_aliases()
     said: dict[str, dict[str, Any]] = {}
-    attested: dict[str, dict[str, Any]] = {}
+    # key -> the operator -> their latest row for it
+    attested: dict[str, dict[str | None, dict[str, Any]]] = {}
     for d in disclosures:
         bot = d.get("read_by_kind") == "bot"
         if bot and not d.get("read"):
             continue  # the call's record that it was not said: no evidence
-        into = said if bot else attested
         rule = aliases.get(d.get("rule_id") or "", d.get("rule_id"))
-        if rule:
-            into[rule] = d
-        into[(d.get("label") or "").lower()] = d
+        for key in filter(None, (rule, (d.get("label") or "").lower())):
+            if bot:
+                said[key] = d
+            else:
+                attested.setdefault(key, {})[d.get("read_by_user_id")] = d
     identity = _one(
         conn.execute(
             text(
@@ -770,16 +777,23 @@ def _handoff_compliance_items(conn: Any, interaction_id: str) -> list[dict[str, 
 
     def item(key: str, label: str, rule_id: str | None, required: bool, default_id: str) -> dict[str, Any]:
         bot = said.get(key) or said.get(label.lower())
-        human = attested.get(key) or attested.get(label.lower())
-        ticked = bool(human and human.get("read"))
+        by_operator = attested.get(key) or attested.get(label.lower()) or {}
+        mine = by_operator.get(actor)
+        theirs = [r for uid, r in by_operator.items() if uid != actor and r.get("read")]
+        if mine and mine.get("read"):
+            who = mine
+        else:
+            who = theirs[-1] if theirs else None
         return {
-            "id": human["id"] if human else default_id,
+            # The holder's own row is the one they toggle; a colleague's is not.
+            "id": mine["id"] if mine else default_id,
             "label": label,
             "required": required,
-            "checked": bool(bot) or ticked,
-            "locked": bool(bot),
+            "checked": bool(bot or who),
+            "locked": bool(bot) or (who is not None and who is not mine),
             "ruleId": rule_id,
-            "source": "bot" if bot else ("human" if ticked else None),
+            "source": "bot" if bot else ("human" if who else None),
+            "attestedBy": None if bot or who is None else (who.get("reader_name") or None),
         }
 
     items: list[dict[str, Any]] = []
@@ -991,20 +1005,32 @@ def record_handoff_disclosure(interaction_id: str, payload: dict[str, Any]) -> d
         ).first()
         if said_by_bot:
             raise ValueError("disclosure_said_by_bot")
-        existing = None
-        if item_id and not item_id.startswith("rule-") and item_id not in {"identity", "dnd-consent"}:
-            existing = _one(
-                conn.execute(
-                    text(
-                        """
-                        SELECT id FROM interaction_disclosures
-                        WHERE id = :id AND interaction_id = :iid
-                          AND read_by_kind IS DISTINCT FROM 'bot'
-                        """
-                    ),
-                    {"id": item_id, "iid": interaction_id},
-                )
+        # A person changes only their own attestation. A colleague's -- who
+        # held the case before a takeover -- stays theirs, under their name.
+        match = """
+            interaction_id = :iid AND read_by_kind IS DISTINCT FROM 'bot'
+              AND (id = :item OR rule_id IN (:rule, :catalogue) OR lower(label) = lower(:label))
+        """
+        keys = {"iid": interaction_id, "item": item_id, "rule": rule_id, "catalogue": catalogue, "label": label}
+        existing = _one(
+            conn.execute(
+                text(
+                    f"SELECT id FROM interaction_disclosures WHERE {match} AND read_by_user_id = :uid "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {**keys, "uid": actor},
             )
+        )
+        if existing is None and not read:
+            if conn.execute(
+                text(
+                    f"SELECT 1 FROM interaction_disclosures WHERE {match} AND read "
+                    "AND read_by_user_id IS DISTINCT FROM :uid LIMIT 1"
+                ),
+                {**keys, "uid": actor},
+            ).first():
+                raise ValueError("disclosure_attested_by_other")
+            return get_handoff_session(interaction_id)  # nothing of theirs to untick
         if existing:
             conn.execute(
                 text(

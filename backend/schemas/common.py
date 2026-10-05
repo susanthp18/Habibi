@@ -519,6 +519,8 @@ class HandoffComplianceItem(BaseModel):
     #: Who the record says did it: the bot on the call, or a person here.
     #: The bot's evidence is never the person's to untick.
     source: Literal["bot", "human"] | None = None
+    #: The person whose attestation it is, when a person's.
+    attestedBy: str | None = None
 
 
 class HandoffAlertItem(BaseModel):

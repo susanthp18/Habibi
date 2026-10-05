@@ -114,6 +114,8 @@ const handoffSessionSchema = z.object({
       ruleId: z.string().nullable(),
       /** The bot's evidence from the call, or a person's attestation here. */
       source: z.enum(["bot", "human"]).nullable(),
+      /** Whose attestation, when a person's: a colleague's is theirs, locked. */
+      attestedBy: z.string().nullable(),
     }),
   ),
   alerts: z.array(
@@ -381,9 +383,11 @@ export function useWrapUpHandoff() {
 
 // -----------------------------------------------------------------------------
 // Copilot — the engines' draft for this case, streamed: the pack, then the
-// whisper as tokens. One finite stream per open. It reopens when the case's
-// evidence changes (the transcript, a policy, the approvals waiting: the
-// session's `copilotEvidence`) and on `refresh()`, never on an unchanged poll.
+// whisper as tokens. One finite stream per open. It reopens when what the
+// draft reads changes -- the authority and treatment decisions, the latest
+// live-QA verdict, the approvals waiting (the session's `copilotEvidence`;
+// a new transcript turn is not one) -- and on `refresh()`, never on an
+// unchanged poll.
 // -----------------------------------------------------------------------------
 
 export type CopilotStreamState = {

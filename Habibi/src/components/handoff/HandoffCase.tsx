@@ -11,7 +11,8 @@ import { CustomerContextPanel } from "./CustomerContextPanel";
 import { ComplianceChecklist } from "./ComplianceChecklist";
 import { WrapUpBar } from "./WrapUpBar";
 import { HandoffAlerts } from "./HandoffQueue";
-import { handoffErrorWords, wrapDraft } from "./handoff-words";
+import { handoffErrorWords } from "./handoff-words";
+import { wrapDraft } from "@/lib/wrap-draft";
 import { useCannedResponses } from "@/api/inbox";
 import { can, useMe } from "@/api/me";
 import {

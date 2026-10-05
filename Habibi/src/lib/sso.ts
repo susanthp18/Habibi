@@ -8,6 +8,7 @@ import {
   type AccountInfo,
   type RedirectRequest,
 } from "@azure/msal-browser";
+import { clearWrapDrafts } from "@/lib/wrap-draft";
 
 function clientId(): string {
   return (import.meta.env.VITE_ENTRA_CLIENT_ID as string | undefined)?.trim() ?? "";
@@ -213,6 +214,8 @@ export async function signInWithMicrosoft(): Promise<{ ok: true } | { ok: false;
 
 export async function signOut(): Promise<void> {
   tokenCache = null;
+  // Unsaved Hub notes are plaintext in this tab: none outlive the session.
+  clearWrapDrafts();
   const pca = await getMsal();
   activeAccount = null;
   if (!pca) {

@@ -8,6 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import { mountAt } from "@/test/mount";
 
 vi.mock("@/api/voice-studio", () => ({
+  // Read per agent only: under "All agents" the page asks for nothing.
+  useReleaseQuality: () => ({ status: "pending", isPending: true, fetchStatus: "idle" }),
   useStudioAgents: () => ({ data: [{ id: 4, name: "Collections - overdue reminder" }] }),
   useReleases: () => ({
     status: "success",

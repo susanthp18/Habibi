@@ -19,6 +19,8 @@ const SERVER_WORDS: Record<string, string> = {
   records_need_collections_write:
     "Your role can't file promises, disputes or callbacks. Choose an outcome that needs only a note.",
   disclosure_said_by_bot: "The bot said this on the call; its evidence can't be changed here.",
+  disclosure_attested_by_other:
+    "A colleague attested this before you held the case; their attestation stays theirs.",
 };
 
 /** Lost access, not a blip: the case is someone else's now, or gone. */
@@ -46,39 +48,6 @@ export function handoffErrorWords(error: unknown): string {
   if (error.status >= 500) return "The server couldn't complete that. Try again in a moment.";
   return error.detail || "The request failed.";
 }
-
-/** Whose draft: the signed-in operator in their tenant. */
-export type DraftOwner = { id: string; tenantId: string } | undefined;
-
-const draftKey = (owner: NonNullable<DraftOwner>, handoffId: string) =>
-  `handoff-wrap:${owner.tenantId}:${owner.id}:${handoffId}`;
-
-/** Unsaved wrap-up notes for this browser tab, kept per operator and case:
- * leaving the case (a link, the queue) must not lose what was typed, and
- * nobody else signed in to the tab ever reads them. They go when the
- * wrap-up saves, when the case stops being the operator's (taken over,
- * closed by someone else, access lost), and with the tab. Storage can be
- * missing or refuse (private windows); the notes then live only while the
- * case is open. */
-export const wrapDraft = {
-  read(owner: DraftOwner, handoffId: string): string {
-    if (!owner) return "";
-    try {
-      return sessionStorage.getItem(draftKey(owner, handoffId)) ?? "";
-    } catch {
-      return "";
-    }
-  },
-  write(owner: DraftOwner, handoffId: string, notes: string) {
-    if (!owner) return;
-    try {
-      if (notes) sessionStorage.setItem(draftKey(owner, handoffId), notes);
-      else sessionStorage.removeItem(draftKey(owner, handoffId));
-    } catch {
-      /* not kept: see above */
-    }
-  },
-};
 
 /** Copy text for the agent to say or send. Nothing here speaks or writes a turn. */
 export async function copyText(text: string): Promise<boolean> {

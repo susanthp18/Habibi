@@ -83,9 +83,11 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
                     ? "Verified on this call. A verification can't be undone."
                     : locked && byBot
                       ? "The bot said this on the call. Its evidence can't be changed here."
-                      : identity && !item.checked
-                        ? "Files a manual identity verification"
-                        : undefined
+                      : locked
+                        ? `Attested by ${item.attestedBy ?? "a colleague"}. Only they can change it.`
+                        : identity && !item.checked
+                          ? "Files a manual identity verification"
+                          : undefined
                 }
                 className="flex w-full items-start gap-100 rounded-medium px-100 py-075 text-left hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent"
               >
@@ -105,10 +107,16 @@ export function ComplianceChecklist({ items, onToggle, pendingId, readOnly }: Pr
                   {locked ? (
                     <span className="ml-050 inline-flex items-center gap-025 text-body-small text-text-subtlest">
                       <Lock className="h-3 w-3" />
-                      {identity ? "verified" : "said by the bot"}
+                      {identity
+                        ? "verified"
+                        : byBot
+                          ? "said by the bot"
+                          : `attested by ${item.attestedBy ?? "a colleague"}`}
                     </span>
                   ) : item.source === "human" ? (
-                    <span className="ml-050 text-body-small text-text-subtlest">attested</span>
+                    <span className="ml-050 text-body-small text-text-subtlest">
+                      attested by you
+                    </span>
                   ) : null}
                 </span>
               </button>
