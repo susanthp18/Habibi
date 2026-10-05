@@ -7,15 +7,15 @@
 # (~2.5 GB) for a box with no GPU. gliner needs it for its pre/post-processing;
 # the models themselves run in onnxruntime (int8).
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.14.0+cpu
+torch==2.14.1+cpu
 gliner==0.2.29
 onnxruntime==1.30.0
 faster-whisper==1.2.1
 tokenizers==0.23.2
 huggingface_hub==1.33.0
 # Time-boxed matching for tenants' custom redaction patterns.
-regex==2026.9.10
+regex==2026.9.29
 # Evidence exports (call_intel/exports.py): watermarked PDF transcripts,
 # shaped with HarfBuzz so Hindi, Tamil and Arabic render correctly.
-fpdf2==2.8.8
+fpdf2==2.8.9
 uharfbuzz==0.56.2
