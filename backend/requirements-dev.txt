@@ -5,7 +5,7 @@
 pytest==9.1.1
 # Coverage: CI gates on the measured number (--cov-fail-under in backend-pytest.yml).
 pytest-cov==7.1.0
-ruff==0.6.9
+ruff==0.16.10
 # The compose and container tests parse YAML; it used to arrive with the
 # retired voice runtime's dependencies.
-pyyaml==6.0.2
+pyyaml==6.0.3
