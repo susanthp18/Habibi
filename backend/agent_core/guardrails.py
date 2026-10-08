@@ -165,8 +165,15 @@ def evaluate_guardrails(
             flags.append("waiver-blocked")
 
     if max_waiver_inr is not None and intent in {"waiver_request", "dispute"}:
-        for match in re.finditer(r"₹\s*([\d,]+(?:\.\d+)?)|(\d[\d,]{2,})\s*(?:rupees|rs\.?)\b", bot_l):
-            raw = (match.group(1) or match.group(2) or "").replace(",", "")
+        # Rupees or đồng, either side of the number: "₹500", "500 rupees",
+        # "VND 45,000" (what spoken_money says), "45.000 ₫" (vi-VN writes dots).
+        for match in re.finditer(
+            r"(?:₹|₫|\bvnd\b)\s*(\d[\d.,]*)|(\d[\d.,]{2,})\s*(?:₫|(?:rupees|rs\.?|vnd|dong|đồng)\b)",
+            bot_l,
+        ):
+            raw = (match.group(1) or match.group(2) or "").rstrip(".,").replace(",", "")
+            if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):  # vi-VN thousands dots
+                raw = raw.replace(".", "")
             try:
                 quoted = float(raw)
             except ValueError:

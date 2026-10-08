@@ -27,6 +27,7 @@ from typing import Any, Callable
 
 from sqlalchemy import text
 
+import money_inr
 import voice_studio
 from agent_core.guardrails import evaluate_guardrails
 
@@ -140,7 +141,7 @@ def _position(persona: dict[str, Any]) -> dict[str, Any]:
     """The persona's account, as account_position reports it."""
     return {
         "rehearsal": True,
-        "currency": persona.get("currency") or "INR",
+        "currency": persona.get("currency") or money_inr.CURRENCY,
         "outstanding_amount": _money(persona.get("overdue"), persona.get("currency")),
         "days_past_due": persona.get("dpd"),
         "minimum_due": _money(persona.get("minimumDue"), persona.get("currency")),

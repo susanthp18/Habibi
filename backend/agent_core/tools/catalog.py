@@ -248,7 +248,7 @@ CREATE_PROMISE_TO_PAY = _r(
             ArgSpec(
                 name="amount",
                 type="number",
-                description="Amount in INR the customer commits to pay.",
+                description="Amount the customer commits to pay, in the account's currency.",
                 required=True,
                 minimum=0.01,
             ),
@@ -322,7 +322,7 @@ REVISE_PROMISE_TO_PAY = _r(
             ArgSpec(
                 name="amount",
                 type="number",
-                description="New amount in INR, if the amount is changing.",
+                description="New amount in the account's currency, if the amount is changing.",
                 minimum=0.01,
             ),
             ArgSpec(
@@ -358,7 +358,7 @@ FLAG_DISPUTE = _r(
                 enum=DISPUTE_TYPES,
                 aliases=("type",),
             ),
-            ArgSpec(name="amount", type="number", description="Optional disputed amount in INR."),
+            ArgSpec(name="amount", type="number", description="Optional disputed amount, in the account's currency."),
             ArgSpec(
                 name="summary",
                 type="string",
@@ -487,7 +487,7 @@ EVALUATE_AUTHORITY = _r(
             "Ask the authority matrix what — if anything — may close on this call "
             "for a fee waiver, bounce-charge reversal, settlement or restructuring. "
             "Returns a verdict (auto_approve, cap_inr, or escalate) and an approved "
-            "rupee amount that is already inside policy. Never invent a figure this "
+            "amount that is already inside policy. Never invent a figure this "
             "tool did not return. Call it before quoting any waiver or settlement "
             "amount, and before apply_goodwill."
         ),
@@ -857,7 +857,7 @@ CAPTURE_LEAD = _r(
             ArgSpec(
                 name="offer_amount",
                 type="number",
-                description="Optional offer amount in INR.",
+                description="Optional offer amount, in the account's currency.",
                 minimum=1,
                 aliases=("offerAmount",),
             ),

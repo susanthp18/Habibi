@@ -397,7 +397,7 @@ def allocate_to_promises(
             "promise",
             row["id"],
             "promise_payment",
-            f"Payment of ₹{take} allocated",
+            f"Payment of {money_inr.inr(float(take))} allocated",
             next_status,
             row["customer_id"],
         )
@@ -474,7 +474,7 @@ def _record_second_settlement(
         intent["id"],
         "duplicate_settlement",
         "Second settlement received",
-        f"{provider_ref}: {paid} INR on an intent already paid under {intent.get('provider_ref')}; refund or apply",
+        f"{provider_ref}: {money_inr.inr(float(paid))} on an intent already paid under {intent.get('provider_ref')}; refund or apply",
         intent["customer_id"],
     )
     logger.warning(
@@ -602,7 +602,7 @@ def render_pay_page(intent: dict[str, Any]) -> str:
     from html import escape
 
     tenant = escape(str(intent.get("tenant_name") or "Collections"))
-    amount = escape(f"{float(intent.get('amount') or 0):,.2f}")
+    amount = escape(money_inr.inr(float(intent.get('amount') or 0)))
     from db_core import _account_tail
 
     tail = escape(_account_tail(intent.get("account_id")) or "")
@@ -646,7 +646,7 @@ def render_pay_page(intent: dict[str, Any]) -> str:
   <div class="card">
     <h1>{heading}</h1>
     <div class="meta">{tenant}{" · account ending " + tail if tail else ""}</div>
-    <div class="amt">₹{amount}</div>
+    <div class="amt">{amount}</div>
     <div class="meta">UPI / net-banking amount as shown. Status: {status}{" · expires " + expiry if expiry else ""}</div>
     {action}
   </div>

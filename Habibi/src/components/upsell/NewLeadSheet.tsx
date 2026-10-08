@@ -148,7 +148,7 @@ export function NewLeadSheet({ onClose }: Props) {
             </div>
             <div>
               <div className="mb-050 text-body-small font-semibold text-text-subtlest">
-                Indicative amount (₹)
+                Indicative amount (₫)
               </div>
               <Input value={amount} onChange={(e) => setAmount(e.target.value)} size="compact" />
             </div>

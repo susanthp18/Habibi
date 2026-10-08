@@ -22,6 +22,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { inr, inrCompact } from "@/lib/format";
 import { apiGet, apiPost } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -589,15 +590,10 @@ export function fmtRate(value: number | null | undefined, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-/** Indian digit grouping, no paise unless the figure is small enough to need it. */
+/** Money in the deployment's currency; decimals only when the figure is small enough to need them. */
 export function fmtInr(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  const abs = Math.abs(value);
-  const body =
-    abs >= 100
-      ? Math.round(value).toLocaleString("en-IN")
-      : value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `₹${body}`;
+  return Math.abs(value) >= 100 ? inr(value) : inrCompact(value);
 }
 
 export function fmtNum(value: number | null | undefined, digits = 0): string {

@@ -176,7 +176,7 @@ export function WrapUpBar({
             <div className="mt-100 grid grid-cols-2 gap-075">
               <div>
                 <label htmlFor="wrapup-ptp-amount" className={labelClass}>
-                  Amount (₹)
+                  Amount (₫)
                 </label>
                 <input
                   id="wrapup-ptp-amount"

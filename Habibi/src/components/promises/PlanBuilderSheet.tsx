@@ -138,7 +138,7 @@ export function PlanBuilderSheet({
           </Field>
 
           <div className="grid grid-cols-2 gap-150">
-            <Field label="Plan total (₹)">
+            <Field label="Plan total (₫)">
               <Input type="number" value={total} onChange={(e) => setTotal(e.target.value)} />
             </Field>
             <Field label="Owner">

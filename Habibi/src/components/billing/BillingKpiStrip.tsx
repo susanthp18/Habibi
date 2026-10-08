@@ -102,12 +102,12 @@ export function BillingKpiStrip({
           icon: Coins,
           value: (
             <span className="flex items-baseline gap-100">
-              ₹{(measured ? attributedCostPerCall : costPerCall).toFixed(2)}
+              {inrCompact(measured ? attributedCostPerCall : costPerCall)}
               {!measured && <DeltaChip pct={cpcDelta} />}
             </span>
           ),
           sub: measured
-            ? `Metered across ${attributedCalls.toLocaleString("en-IN")} call${attributedCalls === 1 ? "" : "s"} · allocated ₹${costPerCall.toFixed(2)}`
+            ? `Metered across ${attributedCalls.toLocaleString("en-IN")} call${attributedCalls === 1 ? "" : "s"} · allocated ${inrCompact(costPerCall)}`
             : "Allocated — total spend ÷ resolved calls",
         },
         {

@@ -479,7 +479,7 @@ class HandoffCustomerContext(BaseModel):
     risk: str
     #: The interaction's loan. None: no loan on the call, never a confirmed zero.
     outstanding: float | None = None
-    currency: str = "₹"
+    currency: str = "₫"
     #: The customer's newest promise on any loan.
     lastPromise: HandoffLastPromise | None = None
     nextEmi: HandoffNextEmi | None = None

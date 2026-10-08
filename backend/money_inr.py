@@ -1,4 +1,9 @@
-"""Indian rupee formatting. One implementation, imported from both sides.
+"""Money formatting. One implementation, imported from both sides.
+
+The deployment shows, writes and speaks Vietnamese đồng (``CURRENCY``). It was
+Indian rupees until the Vietnam deployment (2026-10-08); stored amounts were not
+converted, only their rendering changed. The module keeps its historical name,
+and the rupee notes below explain why there is a single owner at all.
 
 A leaf module on purpose: it imports nothing from this repo, so ``db.py`` and
 ``agent_core`` can both take it at module level without closing a cycle.
@@ -27,8 +32,16 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 
-#: What a null amount reads as. Not "₹0" — an amount nobody has is not zero.
+#: What a null amount reads as. Not "0 ₫" — an amount nobody has is not zero.
 NULL_DISPLAY = "—"
+
+#: The deployment's currency. Mirrors Habibi/src/lib/format.ts::CURRENCY:
+#: change one, change both.
+CURRENCY = "VND"
+SYMBOL = "₫"
+#: vi-VN writes the symbol after the number behind a no-break space, and so
+#: does the client's Intl.NumberFormat("vi-VN"): "45.000 ₫".
+_NBSP = "\u00a0"
 
 PAISA = Decimal("0.01")
 
@@ -62,7 +75,12 @@ def group_indian(digits: str) -> str:
     return ",".join(groups + [tail])
 
 
-def spoken_money(amount: object, currency: str | None = "INR") -> str | None:
+def group_vi(digits: str) -> str:
+    """Vietnamese digit separators: a dot every three (1234567 -> 1.234.567)."""
+    return f"{int(digits):,}".replace(",", ".")
+
+
+def spoken_money(amount: object, currency: str | None = CURRENCY) -> str | None:
     """A whole amount with its currency, as an agent says it to the customer.
 
     Rupees keep the symbol and lakh grouping (₹12,50,000); any other currency
@@ -73,24 +91,19 @@ def spoken_money(amount: object, currency: str | None = "INR") -> str | None:
         whole = abs(int(round(float(amount))))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    code = (currency or "INR").upper()
+    code = (currency or CURRENCY).upper()
     if code == "INR":
         return f"₹{group_indian(str(whole))}"
     return f"{code} {whole:,}"
 
 
 def inr(amount: float | None, *, none: str = NULL_DISPLAY) -> str:
-    """Indian digit grouping — ₹12,34,567, not Python's Western ₹1,234,567.
+    """Whole đồng the way vi-VN writes it: "1.234.567 ₫", "-500 ₫".
 
-    ``f"{x:,.0f}"`` cannot express lakh/crore grouping at all, so a work-item's
-    detail column printed "Promised ₹1,234,567" directly beside an amount
-    column the client renders with ``toLocaleString("en-IN")`` as "₹12,34,567":
-    the same number, grouped two different ways, one row apart.
-
-    The sign sits *inside* the symbol ("₹-500") because that is exactly what
-    ``"₹" + (-500).toLocaleString("en-IN")`` yields on the client, and the point
-    of this function is that the two agree. Collections balances go negative
-    after an overpay, so the case is reachable rather than theoretical.
+    Character for character what the client's ``fmtMoney`` prints with
+    ``Intl.NumberFormat("vi-VN", {style: "currency", currency: "VND"})``, so a
+    work item's detail line and the amount column beside it agree. Collections
+    balances go negative after an overpay, so the sign case is reachable.
 
     ``none`` exists because the call sites genuinely disagree about the empty
     case and both are right: a table cell wants an em dash, while a sentence
@@ -103,7 +116,7 @@ def inr(amount: float | None, *, none: str = NULL_DISPLAY) -> str:
     except (TypeError, ValueError):
         return none
     sign = "-" if whole < 0 else ""
-    return f"₹{sign}{group_indian(str(abs(whole)))}"
+    return f"{sign}{group_vi(str(abs(whole)))}{_NBSP}{SYMBOL}"
 
 
 # --- compact ---------------------------------------------------------------
@@ -117,63 +130,76 @@ COMPACT_EPSILON = 0.0001
 
 
 def template_amount(amount: object) -> str:
-    """Rupees for an SMS or a pay-link template, without the symbol (the copy
-    carries it). Indian grouping -- "12,34,567", not Python's "1,234,567" --
-    because this is the number the borrower reads. Paise kept only when there
-    are any; a template slot reads better as "1,500" than "1,500.00".
+    """Đồng for an SMS or a pay-link template, without the symbol (the copy
+    carries it). vi-VN grouping -- "1.234.567" -- because this is the number
+    the borrower reads. A fraction is kept only when there is one, after a
+    decimal comma ("1.500,50"); a template slot reads better as "1.500" than
+    "1.500,00".
     """
     try:
         n = Decimal(str(amount)).quantize(PAISA)
     except Exception:
         return str(amount)
-    whole = group_indian(str(abs(int(n))))
+    whole = group_vi(str(abs(int(n))))
     sign = "-" if n < 0 else ""
     if n == n.to_integral():
         return f"{sign}{whole}"
-    paise = f"{abs(n) % 1:.2f}"[1:]
-    return f"{sign}{whole}{paise}"
+    fraction = f"{abs(n) % 1:.2f}"[2:]
+    return f"{sign}{whole},{fraction}"
+
+
+#: vi-VN's compact suffixes: nghìn, triệu, tỷ, nghìn tỷ.
+_COMPACT_STEPS = ((10**12, "NT"), (10**9, "T"), (10**6, "Tr"), (10**3, "N"))
+
+
+def _compact_magnitude(value: float) -> str:
+    """One decimal, half away from zero, trailing ",0" dropped, and a value
+    that rounds up to 1000 of a suffix promoted to the next one -- what
+    ``Intl.NumberFormat("vi-VN", {notation: "compact",
+    maximumFractionDigits: 1})`` does: 999_960 -> "1 Tr", not "1000 N"."""
+    exact = Decimal(value)
+    for i, (div, suffix) in enumerate(_COMPACT_STEPS):
+        if exact < div:
+            continue
+        q = (exact / div).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        if q >= 1000 and i > 0:
+            up_div, suffix = _COMPACT_STEPS[i - 1]
+            q = (exact / up_div).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        text = f"{q:f}".removesuffix(".0").replace(".", ",")
+        return f"{text}{_NBSP}{suffix}{_NBSP}{SYMBOL}"
+    raise ValueError("below the compact range")
 
 
 def inr_compact(amount: float | None) -> str:
-    """Compact Indian money. The canonical ladder, matching the client exactly.
+    """Compact đồng. The canonical ladder, matching the client exactly.
 
     ::
 
-        0                     -> "₹0"
-        0 < n < 0.0001        -> "<₹0.0001"
-        0.0001 <= n < 1       -> "₹0.0040"     (4 dp)
-        1 <= n < 1_000        -> "₹12.50"      (2 dp)
-        1_000 <= n < 1_00_000 -> "₹1.5k"       (lowercase k, no space)
-        1_00_000 <= n < 1cr   -> "₹12.3L"
-        n >= 1_00_00_000      -> "₹4.5Cr"
-        negative              -> "-" + the same
+        0                 -> "0 ₫"
+        0 < n < 0.0001    -> "<0,0001 ₫"
+        0.0001 <= n < 1   -> "0,0040 ₫"   (4 dp)
+        1 <= n < 1_000    -> "12,50 ₫"    (2 dp)
+        n >= 1_000        -> "1,5 N ₫", "12,3 Tr ₫", "4,5 T ₫" (vi-VN compact)
+        negative          -> "-" + the same
 
-    One decimal on every magnitude suffix, so the three read as one ladder
-    rather than three conventions. Two decimals on a crore figure is six
-    significant digits of precision in a label whose whole job is to be
-    glanceable.
+    (Every space above is a no-break space, as Intl prints it.)
 
-    The sub-rupee branches are the reason this is not a one-liner. Per-call
+    The sub-1 branches are the reason this is not a one-liner. Per-call
     metering produces genuinely tiny amounts, and ``main.py`` says in as many
-    words that a call with no attributed usage "must not be shown as a genuine
-    ₹0.00". The old Python ladder did exactly that: it formatted anything under
-    ₹1000 with ``f"₹{value:,.0f}"``, so ₹0.0040 of real, billed LLM spend
-    rendered as "₹0" — indistinguishable from a call that cost nothing.
+    words that a call with no attributed usage must not be shown as a genuine
+    zero. Rounding a real, billed 0.0040 of LLM spend to "0" would make it
+    indistinguishable from a call that cost nothing.
     """
     value = float(amount or 0)
     if value < 0:
         return f"-{inr_compact(-value)}"
-    if value >= 1_00_00_000:
-        return f"₹{value / 1_00_00_000:.1f}Cr"
-    if value >= 1_00_000:
-        return f"₹{value / 1_00_000:.1f}L"
     if value >= 1_000:
-        return f"₹{value / 1_000:.1f}k"
+        return _compact_magnitude(value)
     if value >= 1:
-        return f"₹{value:.2f}"
+        return f"{value:.2f}".replace(".", ",") + f"{_NBSP}{SYMBOL}"
     if value >= COMPACT_EPSILON:
-        return f"₹{value:.4f}"
+        return f"{value:.4f}".replace(".", ",") + f"{_NBSP}{SYMBOL}"
     if value > 0:
         # Real spend, too small to render. Saying so beats rounding it away.
-        return f"<₹{COMPACT_EPSILON:.4f}"
-    return "₹0"
+        return f"<{COMPACT_EPSILON:.4f}".replace(".", ",") + f"{_NBSP}{SYMBOL}"
+    return f"0{_NBSP}{SYMBOL}"

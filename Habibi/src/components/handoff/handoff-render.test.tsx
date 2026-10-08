@@ -426,7 +426,7 @@ describe("Handoff Hub — closing and after", () => {
     const save = screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
     fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
     fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
-    fireEvent.change(screen.getByLabelText("Amount (₹)"), { target: { value: "1500" } });
+    fireEvent.change(screen.getByLabelText("Amount (₫)"), { target: { value: "1500" } });
     fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2020-01-01" } });
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
@@ -516,7 +516,7 @@ describe("Handoff Hub — round three", () => {
     fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
     fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
     fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
-    const amount = screen.getByLabelText("Amount (₹)") as HTMLInputElement;
+    const amount = screen.getByLabelText("Amount (₫)") as HTMLInputElement;
     const save = screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
     fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
     fireEvent.change(amount, { target: { value: "1500.50" } });
@@ -607,7 +607,7 @@ describe("Handoff Hub — round four", () => {
     fireEvent.click(screen.getByRole("button", { name: "Wrap up" }));
     fireEvent.click(screen.getByRole("combobox", { name: "Outcome" }));
     fireEvent.click(screen.getByRole("option", { name: "PTP captured" }));
-    fireEvent.change(screen.getByLabelText("Amount (₹)"), { target: { value: "1500" } });
+    fireEvent.change(screen.getByLabelText("Amount (₫)"), { target: { value: "1500" } });
     fireEvent.change(screen.getByLabelText("Promised for"), { target: { value: "2999-01-01" } });
     const save = () => screen.getByRole("button", { name: "Save wrap-up" }) as HTMLButtonElement;
     expect(save().disabled).toBe(false);

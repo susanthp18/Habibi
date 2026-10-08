@@ -197,7 +197,7 @@ export function InsightsTab({ days }: { days: number }) {
                     hint={`${fmtNum(m.efficiency.voiceCalls)} calls`}
                   />
                   <Stat
-                    label="Voice minutes per ₹1L"
+                    label="Voice minutes per 100.000 ₫"
                     value={fmtNum(m.efficiency.voiceMinutesPerLakhRecovered, 1)}
                   />
                   <Stat label="Recovered" value={fmtInr(m.efficiency.recoveredInr)} />

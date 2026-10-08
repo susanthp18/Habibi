@@ -117,7 +117,7 @@ function PtpForm({
         </div>
       }
     >
-      <Field label="Promised amount (₹)">
+      <Field label="Promised amount (₫)">
         <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Promised date">
@@ -191,7 +191,7 @@ function DisputeForm({
           </SelectContent>
         </Select>
       </Field>
-      <Field label="Amount in dispute (₹)">
+      <Field label="Amount in dispute (₫)">
         <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Customer statement">

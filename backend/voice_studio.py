@@ -195,9 +195,9 @@ def save_guardrails(workflow_id: int, guardrails: dict[str, Any], actor: str | N
 
 
 def _position_context(position: dict[str, Any]) -> dict[str, Any]:
-    from money_inr import spoken_money
+    from money_inr import CURRENCY, spoken_money
 
-    currency = position.get("currency") or "INR"
+    currency = position.get("currency") or CURRENCY
     return {
         "account_id": position.get("accountId"),
         "account_tail": position.get("accountTail"),

@@ -370,7 +370,7 @@ def _copy(conn: Any, decision: dict[str, Any], *, tenant_id: str | None = None) 
     account = f"the account ending {tail}" if tail else "your account"
     money = ""
     if amount is not None:
-        money = f" of ₹{money_inr.template_amount(amount)}"
+        money = f" of VND {money_inr.template_amount(amount)}"
     brand = (tenant_id or dbmod.current_tenant()).split(".")[0].upper()
     ask = (
         f"Pay securely here: {pay_url}. Do not share this link."

@@ -40,6 +40,7 @@ from datetime import timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
+import money_inr
 from agent_core import clock
 from agent_core.clock import utc_now as _now
 
@@ -144,7 +145,7 @@ def _account_position(conn: Any, account_id: str | None) -> dict[str, Any]:
         "status": row["status"],
         "productName": row["product_name"],
         # The amounts above are in this currency, whatever their key says.
-        "currency": row["currency"] or "INR",
+        "currency": row["currency"] or money_inr.CURRENCY,
     }
 
 

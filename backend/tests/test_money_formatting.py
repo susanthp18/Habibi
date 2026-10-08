@@ -1,17 +1,19 @@
-"""One rupee format across the server/client seam.
+"""One money format across the server/client seam.
 
 The AssignedQueue row is the reason this file exists. Its amount column is
-rendered by the client as ``"₹" + amount.toLocaleString("en-IN")``; its detail
-column is a *string the server already baked* ("Promised …", "Disputed …").
-Those two cells sit one column apart on the same row, so any disagreement
-between Python's formatting and ICU's en-IN grouping is visible without
-scrolling — and ``f"{x:,.0f}"`` disagrees on every number above 99,999, because
-Python's ``,`` only knows Western thousands grouping.
+rendered by the client with ``Intl.NumberFormat("vi-VN", {style: "currency",
+currency: "VND"})``; its detail column is a *string the server already baked*
+("Promised …", "Disputed …"). Those two cells sit one column apart on the same
+row, so any disagreement between Python's formatting and ICU's is visible
+without scrolling — and Python's ``f"{x:,}"`` knows neither the vi-VN dot
+grouping nor where the symbol goes.
 
 The ``expected`` strings below are not hand-derived. They are the literal
-output of ``"₹" + Number(v).toLocaleString("en-IN")`` in node, which is the
-same ICU data the browser uses, so a passing test here is a statement about
-the two renderings agreeing rather than about one implementation's opinion.
+output of the client's ``fmtMoney`` / ``inrCompact`` in node, which is the same
+ICU data the browser uses, so a passing test here is a statement about the two
+renderings agreeing rather than about one implementation's opinion. ``_`` in a
+table stands for the no-break space ICU puts before the symbol and the
+compact suffix.
 """
 
 from __future__ import annotations
@@ -21,25 +23,30 @@ import pytest
 import db
 
 
+def v(text: str) -> str:
+    """A table string with ``_`` for the no-break space ICU prints."""
+    return text.replace("_", " ")
+
+
 # (value, exactly what the client prints for the same value)
 GROUPING_CASES = [
-    (0, "₹0"),
-    (999, "₹999"),
-    (1_000, "₹1,000"),
-    (9_999, "₹9,999"),
-    (100_000, "₹1,00,000"),
-    (999_999, "₹9,99,999"),
-    (1_000_000, "₹10,00,000"),
-    (1_234_567, "₹12,34,567"),
-    (10_000_000, "₹1,00,00,000"),
-    (-999, "₹-999"),
-    (-1_234_567, "₹-12,34,567"),
+    (0, v("0_₫")),
+    (999, v("999_₫")),
+    (1_000, v("1.000_₫")),
+    (9_999, v("9.999_₫")),
+    (100_000, v("100.000_₫")),
+    (999_999, v("999.999_₫")),
+    (1_000_000, v("1.000.000_₫")),
+    (1_234_567, v("1.234.567_₫")),
+    (10_000_000, v("10.000.000_₫")),
+    (-999, v("-999_₫")),
+    (-1_234_567, v("-1.234.567_₫")),
 ]
 
 
 @pytest.mark.parametrize("value, expected", GROUPING_CASES)
-def test_inr_groups_the_indian_way(value, expected):
-    """Lakh/crore grouping at every place-value boundary that changes shape."""
+def test_inr_groups_the_vietnamese_way(value, expected):
+    """Dot grouping and a trailing symbol at every boundary that changes shape."""
     assert db._inr(value) == expected
 
 
@@ -48,54 +55,49 @@ def test_inr_keeps_the_em_dash_for_a_missing_amount():
     assert db._inr(None) == "—"
 
 
-def test_inr_rounds_to_whole_rupees():
-    """The detail column is prose, not a ledger — paise would only add noise."""
-    assert db._inr(1_234_567.4) == "₹12,34,567"
-    assert db._inr(99_999.6) == "₹1,00,000"
+def test_inr_rounds_to_whole_dong():
+    """The detail column is prose, not a ledger."""
+    assert db._inr(1_234_567.4) == v("1.234.567_₫")
+    assert db._inr(99_999.6) == v("100.000_₫")
 
 
 def test_inr_does_not_render_negative_zero():
-    """A balance that rounds away to nothing is "₹0", never "₹-0"."""
-    assert db._inr(-0.4) == "₹0"
+    """A balance that rounds away to nothing is "0 ₫", never "-0 ₫"."""
+    assert db._inr(-0.4) == v("0_₫")
 
 
-def test_inr_carries_the_sign_inside_the_symbol():
-    """Matches ``"₹" + (-500).toLocaleString("en-IN")`` → "₹-500".
-
-    Typographically "-₹500" reads better, but the client builds its string by
-    concatenating the symbol onto the formatted number and this module is not
-    allowed to disagree with it. Overpaid accounts make this reachable.
-    """
-    assert db._inr(-500).startswith("₹-")
+def test_inr_puts_the_sign_before_the_number():
+    """Matches the client's ``fmtMoney(-500)`` → "-500 ₫". Overpaid accounts
+    make this reachable."""
+    assert db._inr(-500) == v("-500_₫")
 
 
 def test_work_item_detail_strings_group_the_same_way_as_the_amount_column():
     """The original defect, at the level the user actually sees it.
 
     Both halves of the row are built here from one value: the detail string the
-    server ships, and the client's rendering of the amount alongside it. Before
-    the fix these read "Promised ₹1,234,567" and "₹12,34,567".
+    server ships, and the client's rendering of the amount alongside it.
     """
     amount = 1_234_567.0
-    client_amount_cell = "₹12,34,567"  # node: "₹" + (1234567).toLocaleString("en-IN")
+    client_amount_cell = v("1.234.567_₫")  # node: fmtMoney(1234567)
 
     assert f"Promised {db._inr(amount)}" == f"Promised {client_amount_cell}"
     assert f"Disputed {db._inr(amount)}" == f"Disputed {client_amount_cell}"
     assert (
         f"Paid {db._inr(200_000.0)} of {db._inr(amount)} promised"
-        == f"Paid ₹2,00,000 of {client_amount_cell} promised"
+        == f"Paid {v('200.000_₫')} of {client_amount_cell} promised"
     )
 
 
 # ---------------------------------------------------------------------------
 # The shared module, and the call sites that used to disagree with it.
 #
-# Six modules carried their own _inr, five of them emitting Western grouping,
-# and two of those five feed text a customer hears: the agent's system prompt
-# (agent_core/context.py) and the goodwill-waiver line it speaks
-# (agent_core/authority/talk.py). money_inr is the single implementation they
-# all now delegate to; these assert each seam separately, because a shared
-# helper that one caller has quietly stopped using is not shared.
+# Six modules carried their own _inr, and two of them feed text a customer
+# hears: the agent's system prompt (agent_core/context.py) and the
+# goodwill-waiver line it speaks (agent_core/authority/talk.py). money_inr is
+# the single implementation they all now delegate to; these assert each seam
+# separately, because a shared helper that one caller has quietly stopped using
+# is not shared.
 # ---------------------------------------------------------------------------
 
 
@@ -125,7 +127,7 @@ def test_the_shared_module_is_a_leaf():
             imported += [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.append(node.module)
-    # Standard library only: __future__ and decimal (the paisa quantizer).
+    # Standard library only: __future__ and decimal (the quantizer).
     assert [m for m in imported if m not in {"__future__", "decimal"}] == []
 
 
@@ -137,17 +139,17 @@ def test_the_null_reading_is_per_call_site():
     assert money_inr.inr(None, none="") == ""
 
 
-def test_the_agent_prompt_card_groups_the_indian_way():
+def test_the_agent_prompt_card_uses_the_shared_format():
     """This string goes into the model's system prompt and gets spoken."""
     from agent_core import context
 
-    assert context._inr(1_234_567) == "₹12,34,567"
+    assert context._inr(1_234_567) == v("1.234.567_₫")
     # Unusable values are dropped from the card rather than rendered as a dash.
     assert context._inr(None) is None
     assert context._inr("not a number") is None
 
 
-def test_the_goodwill_talk_track_groups_the_indian_way():
+def test_the_goodwill_talk_track_uses_the_shared_format():
     """The agent quotes this figure to the customer."""
     from agent_core.authority import talk
     from agent_core.authority.matrix import MatrixDecision, VERDICT_AUTO
@@ -161,15 +163,15 @@ def test_the_goodwill_talk_track_groups_the_indian_way():
             reason_codes=(),
         )
     )
-    assert "₹12,34,567" in line
+    assert v("1.234.567_₫") in line
     assert "1,234,567" not in line
 
 
-def test_the_customer_insight_label_groups_the_indian_way():
+def test_the_customer_insight_label_uses_the_shared_format():
     """Also the site of a no-op ``.replace(",", ",")`` that did nothing."""
     import customer_insights
 
-    assert customer_insights._inr(1_234_567) == "₹12,34,567"
+    assert customer_insights._inr(1_234_567) == v("1.234.567_₫")
 
 
 def test_the_offer_insight_label_uses_the_shared_formatter():
@@ -179,17 +181,17 @@ def test_the_offer_insight_label_uses_the_shared_formatter():
         {"status": "ready", "productName": "Top-up loan", "suggestedAmount": 1_234_567}
     )
     assert nba is not None
-    assert "₹12,34,567" in nba["title"]
+    assert v("1.234.567_₫") in nba["title"]
 
 
 def test_the_treatment_narration_carries_one_money_format():
     """The decision log's explanation of why an action was taken.
 
-    It used to print ``₹4.50`` and ``₹1,234,567`` inside a single sentence.
+    It used to print two money formats inside a single sentence.
     """
     from agent_core.treatment import narrate
 
-    assert narrate._inr(1_234_567) == "₹12,34,567"
+    assert narrate._inr(1_234_567) == v("1.234.567_₫")
 
 
 def test_the_scoring_explanation_carries_one_money_format():
@@ -204,8 +206,8 @@ def test_the_scoring_explanation_carries_one_money_format():
         cost=4.5,
         fatigue=0.0,
     )
-    assert "₹12,34,567" in line
-    assert "₹4.50" in line
+    assert v("1.234.567_₫") in line
+    assert v("4,50_₫") in line
     assert "1,234,567" not in line
 
 
@@ -215,22 +217,23 @@ def test_the_scoring_explanation_carries_one_money_format():
 # ---------------------------------------------------------------------------
 
 COMPACT_CASES = [
-    (0, "₹0"),
-    (0.00004, "<₹0.0001"),
-    (0.0001, "₹0.0001"),
-    (0.004, "₹0.0040"),
-    (0.9999, "₹0.9999"),
-    (1, "₹1.00"),
-    (12.5, "₹12.50"),
-    (999.99, "₹999.99"),
-    (1_000, "₹1.0k"),
-    (1_500, "₹1.5k"),
-    (99_999, "₹100.0k"),
-    (1_00_000, "₹1.0L"),
-    (12_34_567, "₹12.3L"),
-    (99_99_999, "₹100.0L"),
-    (1_00_00_000, "₹1.0Cr"),
-    (4_50_00_000, "₹4.5Cr"),
+    (0, v("0_₫")),
+    (0.00004, v("<0,0001_₫")),
+    (0.0001, v("0,0001_₫")),
+    (0.004, v("0,0040_₫")),
+    (0.9999, v("0,9999_₫")),
+    (1, v("1,00_₫")),
+    (12.5, v("12,50_₫")),
+    (999.99, v("999,99_₫")),
+    (1_000, v("1_N_₫")),
+    (1_500, v("1,5_N_₫")),
+    (99_999, v("100_N_₫")),
+    (100_000, v("100_N_₫")),
+    (1_234_567, v("1,2_Tr_₫")),
+    (9_999_999, v("10_Tr_₫")),
+    (10_000_000, v("10_Tr_₫")),
+    (45_000_000, v("45_Tr_₫")),
+    (4_500_000_000, v("4,5_T_₫")),
 ]
 
 
@@ -251,26 +254,24 @@ def test_inr_compact_mirrors_the_ladder_for_negatives(value, expected):
 
 @pytest.mark.parametrize("tiny", [0.00009, 0.000001, 1e-12])
 def test_inr_compact_never_shows_real_spend_as_a_genuine_zero(tiny):
-    """main.py says a metering gap "must not be shown as a genuine ₹0.00".
+    """main.py says a metering gap must not be shown as a genuine zero.
 
-    The old ladder formatted everything under ₹1000 with ``f"₹{v:,.0f}"``, so a
-    call that really cost ₹0.004 of LLM tokens rendered as "₹0" — the same
-    string as a call that was never metered at all.
+    The old ladder formatted everything under 1000 as a whole number, so a call
+    that really cost 0.004 of LLM tokens rendered as "0" — the same string as a
+    call that was never metered at all.
     """
     import money_inr
 
-    assert money_inr.inr_compact(tiny) == "<₹0.0001"
-    assert money_inr.inr_compact(tiny) != "₹0"
+    assert money_inr.inr_compact(tiny) == v("<0,0001_₫")
+    assert money_inr.inr_compact(tiny) != v("0_₫")
 
 
-def test_inr_compact_uses_lowercase_k_and_no_spaces():
-    """The client prints "₹1.5k"; this side used to print "₹1.5 K"."""
+def test_inr_compact_promotes_a_suffix_that_rounds_up_to_a_thousand():
+    """999,96 N rounds to 1000,0 N; ICU prints it as "1 Tr", and so must we."""
     import money_inr
 
-    for value in (1_500, 12_34_567, 4_50_00_000):
-        rendered = money_inr.inr_compact(value)
-        assert " " not in rendered, rendered
-    assert money_inr.inr_compact(1_500).endswith("k")
+    assert money_inr.inr_compact(999_940) == v("999,9_N_₫")
+    assert money_inr.inr_compact(999_960) == v("1_Tr_₫")
 
 
 def test_spoken_money_follows_the_account_currency():
@@ -278,5 +279,7 @@ def test_spoken_money_follows_the_account_currency():
 
     assert spoken_money(1_250_000, "INR") == "₹12,50,000"
     assert spoken_money(12_500, "AED") == "AED 12,500"
-    assert spoken_money(12_500.4, None) == "₹12,500"
+    assert spoken_money(12_500, "VND") == "VND 12,500"
+    # No account currency: the deployment's.
+    assert spoken_money(12_500.4, None) == "VND 12,500"
     assert spoken_money(None, "AED") is None

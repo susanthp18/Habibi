@@ -9,6 +9,7 @@ engine``: the ``db_tx`` fixture wraps ``db.engine``, and a name bound from
 from __future__ import annotations
 
 import logging
+import money_inr
 import visibility
 from datetime import date, datetime, timezone
 from schemas import HandoffQueueItem, HandoffQueueResponse, HandoffSessionResponse
@@ -671,7 +672,7 @@ def _handoff_customer_context(conn: Any, row: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "risk": str(row.get("risk") or "medium").title(),
-        "currency": "₹",
+        "currency": money_inr.SYMBOL,
         "lastPromise": last,
         "nextEmi": emi,
         "openDisputes": int((open_disputes or {}).get("n") or 0),

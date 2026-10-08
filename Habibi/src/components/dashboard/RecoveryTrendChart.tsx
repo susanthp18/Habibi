@@ -1,4 +1,5 @@
 import type { Trend } from "@/api/types/dashboard";
+import { inrCompact } from "@/lib/format";
 import {
   ChartCard,
   ChartEmpty,
@@ -10,13 +11,6 @@ import {
 function fmtDate(d: string) {
   const dt = new Date(d);
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function fmtMoney(n: number) {
-  if (Math.abs(n) >= 10_000_000) return `₹${(n / 10_000_000).toFixed(1)} Cr`;
-  if (Math.abs(n) >= 100_000) return `₹${(n / 100_000).toFixed(1)} L`;
-  if (Math.abs(n) >= 1_000) return `₹${(n / 1_000).toFixed(0)}K`;
-  return `₹${n.toFixed(0)}`;
 }
 
 export function RecoveryTrendChart({ data }: { data: Trend[] }) {
@@ -31,7 +25,7 @@ export function RecoveryTrendChart({ data }: { data: Trend[] }) {
       action={
         <div className="text-right">
           <div className="text-body-micro text-text-subtlest">Period total</div>
-          <div className="text-body font-semibold text-text tabular-nums">{fmtMoney(total)}</div>
+          <div className="text-body font-semibold text-text tabular-nums">{inrCompact(total)}</div>
         </div>
       }
     >
@@ -52,7 +46,7 @@ export function RecoveryTrendChart({ data }: { data: Trend[] }) {
             labels={labels}
             color="#1868db"
             height={200}
-            formatValue={fmtMoney}
+            formatValue={inrCompact}
             formatTime={(i) => fmtDate(labels[i] ?? "")}
             fill
             grid={false}

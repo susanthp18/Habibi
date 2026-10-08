@@ -81,9 +81,9 @@ export function FiltersBar({ filters, onChange, owners, counts }: Props) {
         className="w-[8.75rem]"
         options={[
           { value: "any", label: "Any amount" },
-          { value: "lt5", label: "Under ₹5,000" },
-          { value: "5to25", label: "₹5,000 – ₹25,000" },
-          { value: "gt25", label: "Over ₹25,000" },
+          { value: "lt5", label: "Under 5.000 ₫" },
+          { value: "5to25", label: "5.000 – 25.000 ₫" },
+          { value: "gt25", label: "Over 25.000 ₫" },
         ]}
       />
 

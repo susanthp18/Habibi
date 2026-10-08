@@ -294,7 +294,7 @@ def _confirm_copy(
 ) -> str:
     """The written confirmation: the terms as recorded, parts and all, and the link.
 
-    GSM-7 only ("Rs", not the rupee sign): one non-GSM character makes the whole
+    GSM-7 only ("VND", not the ₫ sign): one non-GSM character makes the whole
     message UCS-2, 67 characters a segment, and run 88's four-segment SMS was
     refused by the carrier (Twilio 30044). Kept to two segments with a real pay
     URL; see tests/test_promise_sms_copy.py.
@@ -308,12 +308,12 @@ def _confirm_copy(
 
 
 def _terms(*, amount: Any, promised_at: datetime, parts: list[dict[str, Any]] | None = None) -> str:
-    """"Rs 5,000 by 06 Oct (Rs 2,500 by 02 Oct, Rs 2,500 by 06 Oct)": the terms
+    """"VND 5.000 by 06 Oct (VND 2.500 by 02 Oct, VND 2.500 by 06 Oct)": the terms
     as both the composed copy and the approved template state them."""
-    terms = f"Rs {money_inr.template_amount(amount)} by {_day_s(promised_at)}"
+    terms = f"VND {money_inr.template_amount(amount)} by {_day_s(promised_at)}"
     if parts:
         terms += " (" + ", ".join(
-            f"Rs {money_inr.template_amount(p['amount'])} by {_day_s(p['date'])}" for p in parts
+            f"VND {money_inr.template_amount(p['amount'])} by {_day_s(p['date'])}" for p in parts
         ) + ")"
     return terms
 
@@ -327,7 +327,7 @@ def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None)
     """The due-day reminder: what is due today (this part, if paid in parts)."""
     which = f" (part {part[0]} of {part[1]})" if part else ""
     return (
-        f"Reminder: Rs {money_inr.template_amount(amount)} is due today on your promise{which}. "
+        f"Reminder: VND {money_inr.template_amount(amount)} is due today on your promise{which}. "
         f"Pay: {pay_url} Do not share this link."
     )
 
@@ -335,36 +335,36 @@ def _due_copy(*, amount: Any, pay_url: str, part: tuple[int, int] | None = None)
 def _spoken(*, amount: Any, promised_at: datetime, channel: str | None, last4: str | None, suppressed: bool,
             deferred: bool = False, after_call: bool = False) -> str:
     date_s = _promised_date_ist(promised_at).strftime("%d %B")
-    rupees = money_inr.template_amount(amount)
+    said = money_inr.spoken_money(amount)
     if after_call:
         dest = f"WhatsApp ending {last4}" if channel == "whatsapp" and last4 else (
             f"the number ending {last4}" if last4 else "your number on file")
         return (
-            f"I've updated it to {rupees} rupees by {date_s}. The same payment link stays valid, "
+            f"I've updated it to {said} by {date_s}. The same payment link stays valid, "
             f"and the updated terms will be sent to {dest} after our call."
         )
     if deferred:
         return (
-            f"I've recorded a promise of {rupees} rupees by {date_s}. "
+            f"I've recorded a promise of {said} by {date_s}. "
             "The written confirmation with the payment link will be sent in the morning, "
             "within messaging hours."
         )
     if suppressed or not channel:
         return (
-            f"I've recorded a promise of {rupees} rupees by {date_s}. "
+            f"I've recorded a promise of {said} by {date_s}. "
             "I could not send a payment link because messaging is opted out. "
             "An agent will follow up."
         )
     dest = f"ending {last4}" if last4 else "on file"
     if channel == "whatsapp":
         return (
-            f"I've recorded {rupees} rupees by {date_s}, and a payment link is on its way "
+            f"I've recorded {said} by {date_s}, and a payment link is on its way "
             f"to WhatsApp {dest}."
         )
     # "On its way", not "sent": it is queued here and delivered (or refused by
     # the carrier) after the call has moved on; run 88's SMS never arrived.
     return (
-        f"I've recorded {rupees} rupees by {date_s}, and a payment link is on its way "
+        f"I've recorded {said} by {date_s}, and a payment link is on its way "
         f"by SMS to the number {dest}."
     )
 
@@ -429,13 +429,14 @@ def create_pay_intent(
                   pay_url, expires_at
                 ) VALUES (
                   :id, :tenant_id, :customer_id, :account_id, :promise_id, :interaction_id,
-                  :payment_event_id, :amount, 'INR', :public_token, 'created', :provider,
+                  :payment_event_id, :amount, :currency, :public_token, 'created', :provider,
                   :pay_url, :expires_at
                 )
                 """
             ),
             {
                 "id": intent_id,
+                "currency": money_inr.CURRENCY,
                 "tenant_id": tenant_id,
                 "customer_id": customer_id,
                 "account_id": account_id,

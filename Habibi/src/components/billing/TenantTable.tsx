@@ -89,7 +89,7 @@ export function TenantTable({
         sortValue: (r) => r.costPerCall,
         align: "right",
         className: "min-w-[6.5rem] whitespace-nowrap",
-        cell: (r) => <span className="tabular-nums text-text">₹{r.costPerCall.toFixed(1)}</span>,
+        cell: (r) => <span className="tabular-nums text-text">{inrCompact(r.costPerCall)}</span>,
       },
       {
         id: "delta",

@@ -10,7 +10,7 @@ import { AuthorityPolicyBlock } from "@/components/offers/AuthorityPolicyBlock";
 import { Lozenge } from "@/components/ui/lozenge";
 import { ContactabilityPill } from "@/components/customer360/ContactabilityPill";
 import { RiskLozenge } from "./HandoffQueue";
-import { fmtShortDate } from "@/lib/format";
+import { fmtMoney, fmtShortDate } from "@/lib/format";
 
 export function CustomerContextPanel({
   call: activeCall,
@@ -26,7 +26,6 @@ export function CustomerContextPanel({
   /** The holder working the case with perm-leads-write (POST /leads). */
   canCapture?: boolean;
 }) {
-  const money = (n: number) => `${c.currency}${n.toLocaleString("en-IN")}`;
   const ptpStatus = (c.lastPromise?.status || "").toLowerCase();
   const router = useRouter();
   const captureMut = useCaptureLeadFromPolicy();
@@ -95,7 +94,7 @@ export function CustomerContextPanel({
         </Link>
         <div className="mt-050 text-body-small text-text-subtlest">Outstanding · this loan</div>
         <div className="tabular heading-large font-semibold text-text">
-          {c.outstanding == null ? "—" : money(c.outstanding)}
+          {c.outstanding == null ? "—" : fmtMoney(c.outstanding)}
         </div>
         <div className="text-body-small text-text-subtle">
           {c.product}
@@ -109,7 +108,7 @@ export function CustomerContextPanel({
           label="Last promise · any loan"
           value={
             c.lastPromise
-              ? `${money(c.lastPromise.amount)} · ${fmtShortDate(c.lastPromise.date)}`
+              ? `${fmtMoney(c.lastPromise.amount)} · ${fmtShortDate(c.lastPromise.date)}`
               : "None on file"
           }
           badge={
@@ -131,7 +130,7 @@ export function CustomerContextPanel({
           label={c.nextEmi && c.nextEmi.daysOverdue > 0 ? "Overdue EMI" : "Next EMI"}
           value={
             c.nextEmi
-              ? `${money(c.nextEmi.amount)} · due ${fmtShortDate(c.nextEmi.dueDate)}`
+              ? `${fmtMoney(c.nextEmi.amount)} · due ${fmtShortDate(c.nextEmi.dueDate)}`
               : "No upcoming EMI"
           }
           badge={

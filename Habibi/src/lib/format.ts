@@ -1,15 +1,38 @@
 /**
- * The display formatters every screen shares: rupees with Indian grouping,
- * dates in the tenant's zone, relative times, mm:ss durations. One owner --
- * these used to live in the mock seed files and were copied into components
- * (three `fmtMoney`, four `fmtDate`, two `formatDuration`).
+ * The display formatters every screen shares: money in the deployment's
+ * currency, dates in the tenant's zone, relative times, mm:ss durations. One
+ * owner -- these used to live in the mock seed files and were copied into
+ * components (three `fmtMoney`, four `fmtDate`, two `formatDuration`).
  */
+
+/**
+ * The deployment's currency: Vietnamese đồng, written the vi-VN way
+ * ("45.000 ₫"). It was Indian rupees until the Vietnam deployment
+ * (2026-10-08); stored amounts were not converted, only their rendering.
+ * Mirrors backend/money_inr.py::CURRENCY. Change one, change both.
+ */
+export const CURRENCY = "VND";
+export const CURRENCY_SYMBOL = "₫";
+const MONEY_LOCALE = "vi-VN";
+const money = new Intl.NumberFormat(MONEY_LOCALE, { style: "currency", currency: CURRENCY });
+const moneyCompact = new Intl.NumberFormat(MONEY_LOCALE, {
+  style: "currency",
+  currency: CURRENCY,
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+/** What Intl puts between a number and its symbol: a no-break space. */
+const NBSP = "\u00a0";
 
 export function fmtMoney(n: number | null | undefined) {
   const value = typeof n === "number" && Number.isFinite(n) ? n : 0;
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  return `${sign}₹${abs.toLocaleString("en-IN")}`;
+  return money.format(value);
+}
+
+/** A plain number in the money locale's grouping ("1.234.567"), for inputs and
+ * axis labels that carry the symbol separately. */
+export function fmtMoneyNumber(n: number): string {
+  return Math.round(n).toLocaleString(MONEY_LOCALE);
 }
 
 export function fmtDate(iso: string | null | undefined, opts?: Intl.DateTimeFormatOptions) {
@@ -54,7 +77,7 @@ export function fmtRelative(iso: string | null | undefined) {
 }
 
 export function inr(n: number): string {
-  return "₹" + Math.round(n).toLocaleString("en-IN");
+  return money.format(Math.round(n));
 }
 
 /**
@@ -63,24 +86,24 @@ export function inr(n: number): string {
  */
 const COMPACT_EPSILON = 0.0001;
 
+/** Fixed decimals with the vi-VN decimal comma, and the symbol. */
+function fixedMoney(n: number, digits: number): string {
+  return `${n.toFixed(digits).replace(".", ",")}${NBSP}${CURRENCY_SYMBOL}`;
+}
+
 /**
- * Compact Indian money. The canonical ladder, shared with the backend.
+ * Compact money. The canonical ladder, shared with the backend.
  *
  * ```
- * 0                     -> "₹0"
- * 0 < n < 0.0001        -> "<₹0.0001"
- * 0.0001 <= n < 1       -> "₹0.0040"     (4 dp)
- * 1 <= n < 1_000        -> "₹12.50"      (2 dp)
- * 1_000 <= n < 1_00_000 -> "₹1.5k"       (lowercase k, no space)
- * 1_00_000 <= n < 1cr   -> "₹12.3L"
- * n >= 1_00_00_000      -> "₹4.5Cr"
- * negative              -> "-" + the same
+ * 0                 -> "0 ₫"
+ * 0 < n < 0.0001    -> "<0,0001 ₫"
+ * 0.0001 <= n < 1   -> "0,0040 ₫"   (4 dp)
+ * 1 <= n < 1_000    -> "12,50 ₫"    (2 dp)
+ * n >= 1_000        -> "1,5 N ₫", "12,3 Tr ₫", "4,5 T ₫" (vi-VN compact)
+ * negative          -> "-" + the same
  * ```
  *
- * One decimal on every magnitude suffix, so the three read as one ladder
- * rather than three conventions. This used to print "₹12.35L" beside "₹1.5k"
- * — two and one decimals in the same column — and to space the Cr and L
- * suffixes but not the k.
+ * (Every space is a no-break space, as Intl prints it.)
  *
  * Mirrors backend/money_inr.py::inr_compact exactly. Change one, change both:
  * they are read side by side on the billing screen, where a Python value
@@ -88,15 +111,13 @@ const COMPACT_EPSILON = 0.0001;
  */
 export function inrCompact(n: number): string {
   if (n < 0) return `-${inrCompact(-n)}`;
-  if (n >= 1_00_00_000) return `₹${(n / 1_00_00_000).toFixed(1)}Cr`;
-  if (n >= 1_00_000) return `₹${(n / 1_00_000).toFixed(1)}L`;
-  if (n >= 1_000) return `₹${(n / 1_000).toFixed(1)}k`;
-  if (n >= 1) return `₹${n.toFixed(2)}`;
-  if (n >= COMPACT_EPSILON) return `₹${n.toFixed(4)}`;
+  if (n >= 1_000) return moneyCompact.format(n);
+  if (n >= 1) return fixedMoney(n, 2);
+  if (n >= COMPACT_EPSILON) return fixedMoney(n, 4);
   // Real spend, too small to render. Saying so beats rounding it away — a
-  // metered call that cost a fraction of a paisa is not a free call.
-  if (n > 0) return `<₹${COMPACT_EPSILON.toFixed(4)}`;
-  return "₹0";
+  // metered call that cost a fraction of a đồng is not a free call.
+  if (n > 0) return `<${fixedMoney(COMPACT_EPSILON, 4)}`;
+  return `0${NBSP}${CURRENCY_SYMBOL}`;
 }
 
 export function formatDuration(sec: number): string {

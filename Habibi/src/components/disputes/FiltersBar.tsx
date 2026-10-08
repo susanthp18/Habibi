@@ -21,9 +21,9 @@ interface Props {
 
 const AMOUNT_OPTIONS = [
   { value: "any", label: "Any amount" },
-  { value: "lt5", label: "Under ₹5k" },
-  { value: "5to25", label: "₹5k – ₹25k" },
-  { value: "gt25", label: "Over ₹25k" },
+  { value: "lt5", label: "Under 5.000 ₫" },
+  { value: "5to25", label: "5.000 – 25.000 ₫" },
+  { value: "gt25", label: "Over 25.000 ₫" },
 ];
 
 const SLA: { value: DisputeFilters["sla"]; label: string; tone: ChipTone }[] = [

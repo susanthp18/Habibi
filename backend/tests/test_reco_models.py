@@ -437,11 +437,11 @@ def test_reranker_skips_the_round_trip_for_a_single_offer(monkeypatch):
     [
         (None, "", ""),
         (0, "", ""),
-        (500, "500 rupees", "₹500"),
-        (45_000, "45 thousand rupees", "₹45,000"),
-        (150_000, "1.5 lakh rupees", "₹1,50,000"),
-        (1_523_000, "15.23 lakh rupees", "₹15,23,000"),
-        (25_000_000, "2.5 crore rupees", "₹2,50,00,000"),
+        (500, "500 dong", "500\u00a0₫"),
+        (45_000, "45 thousand dong", "45.000\u00a0₫"),
+        (1_500_000, "1.5 million dong", "1.500.000\u00a0₫"),
+        (15_230_000, "15.23 million dong", "15.230.000\u00a0₫"),
+        (2_500_000_000, "2.5 billion dong", "2.500.000.000\u00a0₫"),
     ],
 )
 def test_money_renders_per_channel(amount, spoken, written):

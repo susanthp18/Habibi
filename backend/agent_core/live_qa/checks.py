@@ -30,7 +30,7 @@ VERDICT_CRITICAL = "fail_critical"
 # identity. Deliberately requires a currency marker or a collections noun so
 # "I'll wait a minute" does not trip it.
 _DUES_RE = re.compile(
-    r"(?:₹\s*[\d,]+|(?:\d[\d,]{2,})\s*(?:rupees|rs\.?)|"
+    r"(?:(?:₹|₫|\bvnd\b)\s*\d[\d.,]*|(?:\d[\d.,]{2,})\s*(?:rupees|rs\.?|₫|vnd|dong|đồng)|"
     r"\b(?:outstanding|overdue|emi|minimum due|bounce charge|late fee)\b)",
     re.I,
 )

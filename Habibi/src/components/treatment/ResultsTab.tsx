@@ -46,7 +46,7 @@ export function ResultsTab({ days }: { days: number }) {
                     value={fmtInr(m.causal.attributableRecoveryInr ?? null)}
                     hint={
                       m.causal.incrementalRecoveryPerRupee != null
-                        ? `₹${m.causal.incrementalRecoveryPerRupee} per ₹1 spent`
+                        ? `${m.causal.incrementalRecoveryPerRupee} ₫ per 1 ₫ spent`
                         : undefined
                     }
                   />

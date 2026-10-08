@@ -105,13 +105,13 @@ def test_whatsapp_volume_is_not_the_literal_13() -> None:
     assert counts != {13}
 
 
-def test_money_is_rendered_in_rupees() -> None:
-    """These are INR balances; the tile rendered them as $X.XXM."""
+def test_money_is_rendered_in_dong() -> None:
+    """These are VND balances; the tile once rendered them as $X.XXM."""
     payload = db.get_dashboard(range="qtd")
     recovered = next(k for k in payload["kpis"] if k["key"] == "recovered")
 
     assert "$" not in recovered["value"]
-    assert "₹" in recovered["value"]
+    assert "₫" in recovered["value"]
 
 
 def test_recovery_rate_states_its_own_formula() -> None:

@@ -148,14 +148,14 @@ def _bounce_copy(
     tz: ZoneInfo,
 ) -> str:
 
-    rupees = money_inr.template_amount(amount)
+    owed = money_inr.template_amount(amount)
     why = REASON_LABELS.get(reason, reason.replace("_", " "))
     date_s = "the due date"
     if due_at is not None:
         due = due_at if due_at.tzinfo else due_at.replace(tzinfo=timezone.utc)
         date_s = due.astimezone(tz).strftime("%d %b %Y")
     return (
-        f"Your EMI of ₹{rupees} due {date_s} did not go through ({why}). "
+        f"Your EMI of VND {owed} due {date_s} did not go through ({why}). "
         f"Pay securely here: {pay_url}. Do not share this link."
     )
 

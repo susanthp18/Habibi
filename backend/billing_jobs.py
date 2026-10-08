@@ -22,6 +22,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Callable
 
+import money_inr
+
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -84,7 +86,7 @@ def evaluate(conn: Any, tenant: str, as_of: date) -> list[dict[str, Any]]:
         pct = spend[r["environment"]] * 100 / Decimal(r["amount_inr"])
         if pct < Decimal(r["threshold_pct"]):
             continue
-        message = (f"{r['environment'].title()} spend is {pct:.0f}% of this month's ₹{Decimal(r['amount_inr']):,.0f} "
+        message = (f"{r['environment'].title()} spend is {pct:.0f}% of this month's {money_inr.inr(float(r['amount_inr']))} "
                    f"budget (rule: {Decimal(r['threshold_pct']):.0f}%, {r['action']}).")
         inserted = conn.execute(text(
             "INSERT INTO budget_alert_events (id, budget_rule_id, spend_inr, message, budget_month) "

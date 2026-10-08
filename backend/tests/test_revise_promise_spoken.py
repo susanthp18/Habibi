@@ -18,7 +18,7 @@ def test_a_date_only_move_says_the_amount_is_unchanged() -> None:
         {"amount": 4000.0, "promisedDate": "2026-09-29"},
         {"amount": 4000.0, "promisedDate": "2026-10-04"},
     )
-    assert "existing promise of ₹4,000" in line
+    assert "existing promise of 4.000\u00a0₫" in line
     assert f"{sd('2026-09-29')} to {sd('2026-10-04')}" in line
     assert "2026-" not in line, "an ISO date is read to the caller digit by digit"
     assert "amount is unchanged" in line
@@ -30,7 +30,7 @@ def test_an_amount_only_move_names_both_figures() -> None:
         {"amount": 4000.0, "promisedDate": "2026-10-04"},
         {"amount": 4800.0, "promisedDate": "2026-10-04"},
     )
-    assert "₹4,800 instead of ₹4,000" in line
+    assert "4.800\u00a0₫ instead of 4.000\u00a0₫" in line
     assert f"still due on {sd('2026-10-04')}" in line
 
 
@@ -39,12 +39,12 @@ def test_both_moving_names_before_and_after() -> None:
         {"amount": 4000.0, "promisedDate": "2026-09-29"},
         {"amount": 4800.0, "promisedDate": "2026-10-04"},
     )
-    assert f"from ₹4,000 on {sd('2026-09-29')} to ₹4,800 on {sd('2026-10-04')}" in line
+    assert f"from 4.000\u00a0₫ on {sd('2026-09-29')} to 4.800\u00a0₫ on {sd('2026-10-04')}" in line
 
 
 def test_an_unreadable_before_falls_back_to_the_plain_confirmation() -> None:
     line = _revision_spoken({}, {"amount": 4000.0, "promisedDate": "2026-10-04"})
-    assert line == f"confirm the promise now stands at ₹4,000 on {sd('2026-10-04')}"
+    assert line == f"confirm the promise now stands at 4.000\u00a0₫ on {sd('2026-10-04')}"
 
 
 def test_an_unreadable_after_never_invents_a_figure() -> None:

@@ -141,7 +141,7 @@ export function CreatePromiseSheet({
             </Field>
           )}
           <div className="grid grid-cols-2 gap-150">
-            <Field label="Amount (₹)">
+            <Field label="Amount (₫)">
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </Field>
             <Field label="Promised date">
@@ -452,7 +452,7 @@ export function PromiseDetailSheet({
                       htmlFor={`${uid}-revise-amount`}
                       className="text-body-small text-text-subtlest"
                     >
-                      New amount (₹)
+                      New amount (₫)
                     </Label>
                     <Input
                       id={`${uid}-revise-amount`}

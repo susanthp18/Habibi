@@ -119,7 +119,7 @@ function SettingsEditor({ rows }: { rows: StrategySetting[] }) {
             id="strategy-reason"
             rows={2}
             value={reason}
-            placeholder="e.g. WhatsApp now costs ₹0.60 per message on the new contract."
+            placeholder="e.g. WhatsApp now costs 1.500 ₫ per message on the new contract."
             onChange={(e) => setReason(e.target.value)}
           />
           <div>

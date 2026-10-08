@@ -97,11 +97,11 @@ def test_a_promise_in_parts_is_written_as_the_agent_and_reminded_on_each_day(db_
     confirm = db_tx.execute(text("SELECT id, kind, due_on FROM promise_reminders WHERE promise_id = :p "
                                  "AND kind = 'confirm' AND status = 'queued'"), {"p": pid}).mappings().one()
     body = pf._prepare_reminder(db_tx, {**confirm, "promise_id": pid, "channel": "sms"})["body"]
-    assert "Rs 5,000 by" in body and body.count("Rs 2,500 by") == 2 and url in body
+    assert "VND 5.000 by" in body and body.count("VND 2.500 by") == 2 and url in body
     first = db_tx.execute(text("SELECT id, kind, due_on FROM promise_reminders WHERE promise_id = :p "
                                "AND kind = 'due' AND due_on = :d"), {"p": pid, "d": _day(2)}).mappings().one()
     due = pf._prepare_reminder(db_tx, {**first, "promise_id": pid, "channel": "sms"})["body"]
-    assert due.startswith("Reminder: Rs 2,500 is due today") and "part 1 of 2" in due
+    assert due.startswith("Reminder: VND 2.500 is due today") and "part 1 of 2" in due
 
 
 def test_a_failed_sms_receipt_stops_the_confirmation_reading_sent(db_tx, by_sms) -> None:

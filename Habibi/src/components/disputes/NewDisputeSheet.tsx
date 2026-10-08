@@ -146,7 +146,7 @@ export function NewDisputeSheet({
           </div>
           <div>
             <div className="mb-050 text-body-small font-semibold text-text-subtlest">
-              Amount (₹)
+              Amount (₫)
             </div>
             <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>

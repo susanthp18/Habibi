@@ -284,7 +284,7 @@ def test_a_template_confirmation_records_what_the_template_said_parts_and_all(db
                            {"m": mid}).scalar()
     assert body == pf._TEMPLATE_BODIES["confirm"].format(*params)  # the record is the transmission
     terms = pf._terms(amount=intent["amount"], promised_at=promise["promised_at"], parts=parts)
-    assert "(Rs 300 by" in params[1] and pf._terms_said(body, terms)
+    assert "(VND 300 by" in params[1] and pf._terms_said(body, terms)
     assert not pf._terms_said(body, pf._terms(amount=intent["amount"], promised_at=promise["promised_at"]))
 
 

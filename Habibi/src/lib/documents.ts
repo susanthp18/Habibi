@@ -110,7 +110,7 @@ export const TEMPLATES: Template[] = [
     previewLines: [
       "Interest Paid Certificate · FY 2025-26",
       "Customer: {{name}} · Account: {{account}}",
-      "Principal repaid: ₹— · Interest paid: ₹—",
+      "Principal repaid: — ₫ · Interest paid: — ₫",
       "Eligible under Section 24(b) / 80C as applicable.",
     ],
   },
@@ -121,8 +121,8 @@ export const TEMPLATES: Template[] = [
     description: "Foreclosure amount, valid for 7 days from date of issue.",
     previewLines: [
       "Foreclosure Quote · {{account}}",
-      "Principal outstanding: ₹— · Interest till date: ₹—",
-      "Foreclosure charges: ₹— · Total payable: ₹—",
+      "Principal outstanding: — ₫ · Interest till date: — ₫",
+      "Foreclosure charges: — ₫ · Total payable: — ₫",
       "Quote valid till {{plus7}}.",
     ],
   },
@@ -133,7 +133,7 @@ export const TEMPLATES: Template[] = [
     description: "Full amortisation schedule with EMI breakup.",
     previewLines: [
       "Loan Repayment Schedule · {{account}}",
-      "EMI: ₹— · Tenure: — months · ROI: —%",
+      "EMI: — ₫ · Tenure: — months · ROI: —%",
       "Month-wise principal, interest, and balance.",
     ],
   },
@@ -144,7 +144,7 @@ export const TEMPLATES: Template[] = [
     description: "Confirms a specific payment with reference number.",
     previewLines: [
       "Payment Receipt · {{account}}",
-      "Amount: ₹— · Mode: — · Ref: —",
+      "Amount: — ₫ · Mode: — · Ref: —",
       "Received on {{today}}. Thank you.",
     ],
   },

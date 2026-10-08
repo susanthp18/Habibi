@@ -31,6 +31,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
+import money_inr
+
 from sqlalchemy import text
 
 from agent_core.treatment import evaluation_seal, models, prereg
@@ -382,7 +384,7 @@ def value_margin(conn: Any, *, tenant_id: str) -> tuple[float | None, str]:
         return None, "the measured per-borrower recovery SD is not a positive finite number"
     return (
         VALUE_MARGIN_SD_MULTIPLE * sd,
-        f"{VALUE_MARGIN_SD_MULTIPLE} × ₹{sd:,.2f}, the measured per-borrower "
+        f"{VALUE_MARGIN_SD_MULTIPLE} × {money_inr.inr(sd)}, the measured per-borrower "
         f"recovery SD over {borrowers} borrowers with mature panel rewards",
     )
 

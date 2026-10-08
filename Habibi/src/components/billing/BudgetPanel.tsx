@@ -235,7 +235,7 @@ function CapEditor({ budgetId, cap }: { budgetId: string; cap: number }) {
   return (
     <span className="inline-flex items-center gap-050">
       <Input
-        aria-label="Monthly cap in rupees"
+        aria-label="Monthly cap in đồng"
         type="number"
         min={0}
         className="h-300 w-28"

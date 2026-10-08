@@ -47,7 +47,7 @@ export function CallCostPanel({ interactionId }: Props) {
         <div className="text-body font-medium text-text">Not metered</div>
         <p className="mt-050 text-body-small leading-relaxed text-text-subtlest">
           This call carries no usage events. Calls handled before per-call metering was enabled have
-          no recorded cost — this is not a ₹0 call.
+          no recorded cost — this is not a 0 ₫ call.
         </p>
       </div>
     );

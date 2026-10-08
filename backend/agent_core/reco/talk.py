@@ -9,9 +9,9 @@ That said, this is a suggestion, not a script. The tool payload carries it as
 ``talkTrack`` and the node instruction tells the model it may rephrase for flow
 — what it may not do is change the product, the amount, or add a promise.
 
-Channel matters more than it looks. Voice TTS reads "150000" as "one hundred
-fifty thousand" at best and digit-by-digit at worst, so the spoken form is
-"one point five lakh rupees". Chat is read, not heard, and there "₹1,50,000" is
+Channel matters more than it looks. Voice TTS reads "1500000" as "one million
+five hundred thousand" at best and digit-by-digit at worst, so the spoken form
+is "1.5 million dong". Chat is read, not heard, and there "1.500.000 ₫" is
 clearer and looks like a real quote. Same number, two renderings, one place
 that knows the difference.
 """
@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import money_inr
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from agent_core.reco.scoring import ScoredOffer
 
@@ -27,34 +29,23 @@ VOICE_CHANNELS = frozenset({"voice", "voice_mesh", "phone"})
 
 
 def speakable_amount(amount: float | None) -> str:
-    """Indian-format an amount the way a person says it out loud."""
+    """An amount in đồng the way a person says it out loud."""
     if not amount or amount <= 0:
         return ""
-    if amount >= 10_000_000:
-        return f"{amount / 10_000_000:.2f}".rstrip("0").rstrip(".") + " crore rupees"
-    if amount >= 100_000:
-        return f"{amount / 100_000:.2f}".rstrip("0").rstrip(".") + " lakh rupees"
+    if amount >= 1_000_000_000:
+        return f"{amount / 1_000_000_000:.2f}".rstrip("0").rstrip(".") + " billion dong"
+    if amount >= 1_000_000:
+        return f"{amount / 1_000_000:.2f}".rstrip("0").rstrip(".") + " million dong"
     if amount >= 1_000:
-        return f"{int(round(amount / 1_000))} thousand rupees"
-    return f"{int(round(amount))} rupees"
+        return f"{int(round(amount / 1_000))} thousand dong"
+    return f"{int(round(amount))} dong"
 
 
 def written_amount(amount: float | None) -> str:
-    """Indian digit grouping (1,50,000) for channels that are read."""
+    """vi-VN money ("1.500.000 ₫") for channels that are read."""
     if not amount or amount <= 0:
         return ""
-    whole = int(round(amount))
-    s = str(whole)
-    if len(s) <= 3:
-        return f"₹{s}"
-    head, tail = s[:-3], s[-3:]
-    groups = []
-    while len(head) > 2:
-        groups.insert(0, head[-2:])
-        head = head[:-2]
-    if head:
-        groups.insert(0, head)
-    return "₹" + ",".join(groups + [tail])
+    return money_inr.inr(amount)
 
 
 def format_amount(amount: float | None, channel: str) -> str:
