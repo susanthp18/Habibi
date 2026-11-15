@@ -25,6 +25,19 @@ from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
 
+def _llm_factory(responses):
+    """The conversation models in order. The write guard builds its own
+    confirmation model each turn; it gets one of its own, not the next reply."""
+    queue = iter(responses)
+
+    def create(*_args, usage_context=None, **_kwargs):
+        if usage_context == "action_confirmation":
+            return MockLLMService(mock_steps=[], chunk_delay=0.001)
+        return next(queue)
+
+    return create
+
+
 def _log_texts(logs: dict | None, event_type: str) -> list[str]:
     events = (logs or {}).get("realtime_feedback_events") or []
     return [
@@ -54,6 +67,20 @@ def test_a_step_that_hands_on_is_withdrawn_from_the_reply_and_context():
     assert [m["content"] for m in context.get_messages()] == [
         "Hi Azr.", "What is my pending due",
     ]
+
+
+def test_a_hand_off_that_runs_before_its_text_lands_still_withdraws_it():
+    # The second hop of a turn: the transition ran first, then the text of
+    # the generation that called it arrived.
+    window = _ResponseWindowState()
+    window.answering = True
+    window.note_assistant_turn_started()
+    window.leave_step()
+    assert window.note_assistant_turn_stopped("Moving to agent two.") == "Moving to agent two."
+    window.note_assistant_turn_started()
+    assert window.note_assistant_turn_stopped("Agent two here.") is None
+
+    assert window.outputs == ["Agent two here."]
 
 
 def test_a_step_handed_a_message_that_writes_nothing_leaves_the_withdrawn_reply():
@@ -453,7 +480,7 @@ async def test_text_chat_pre_call_fetch_hydrates_initial_context_once(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.execute_pre_call_fetch",
@@ -600,7 +627,7 @@ async def test_text_chat_message_executes_assistant_turn(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -743,7 +770,7 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -907,7 +934,7 @@ async def test_text_chat_end_transition_persists_synchronous_variable_extraction
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -1074,7 +1101,7 @@ async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -1180,7 +1207,7 @@ async def test_text_chat_greeting_only_plays_on_fresh_node_entry(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
@@ -1354,7 +1381,7 @@ async def test_text_chat_rewind_reuses_checkpoint_snapshot(
         with (
             patch(
                 "api.services.workflow.text_chat_runner.create_llm_service",
-                side_effect=llm_responses,
+                side_effect=_llm_factory(llm_responses),
             ),
             patch(
                 "api.services.workflow.text_chat_runner.db_client.has_active_recordings",

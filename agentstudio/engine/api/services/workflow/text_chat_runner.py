@@ -165,6 +165,10 @@ class _ResponseWindowState:
     step_replies: list[str] = field(default_factory=list)
     #: Replies withdrawn when their step handed on (see ``leave_step``).
     withdrawn: list[str] = field(default_factory=list)
+    #: Hand-offs so far this turn, and how many there had been when the
+    #: open generation started: one that started before a hand-off made it.
+    handoffs: int = 0
+    generation_handoffs: int | None = None
 
     def note_direct_context_request(self) -> None:
         self.pending_context_requests += 1
@@ -183,15 +187,27 @@ class _ResponseWindowState:
 
     def note_assistant_turn_started(self) -> None:
         self.active_assistant_segments += 1
+        self.generation_handoffs = self.handoffs
 
-    def note_assistant_turn_stopped(self, content: str) -> None:
+    def note_assistant_turn_stopped(self, content: str) -> str | None:
+        """Record a generation's text; return it if it is withdrawn at once.
+
+        The hand-off can run before or after its generation's text lands, so
+        a generation that started before a hand-off is withdrawn here too.
+        """
         if self.active_assistant_segments > 0:
             self.active_assistant_segments -= 1
+        started_at, self.generation_handoffs = self.generation_handoffs, None
         normalized_content = content.strip()
-        if normalized_content:
-            self.outputs.append(normalized_content)
-            if self.answering:
-                self.step_replies.append(normalized_content)
+        if not normalized_content:
+            return None
+        if self.answering and started_at is not None and started_at < self.handoffs:
+            self.withdrawn.append(normalized_content)
+            return normalized_content
+        self.outputs.append(normalized_content)
+        if self.answering:
+            self.step_replies.append(normalized_content)
+        return None
 
     def leave_step(self) -> list[str]:
         """Withdraw what the step wrote while it handed the message on.
@@ -201,6 +217,7 @@ class _ResponseWindowState:
         "I can't access your account details" while routing to Verify
         identity, which then asked for the digits in the same message.
         """
+        self.handoffs += 1
         left, self.step_replies = self.step_replies, []
         for text in left:
             # The last copy: an earlier identical line may be the greeting.
@@ -706,13 +723,20 @@ async def execute_text_chat_pending_turn(
     assistant_context_aggregator = context_aggregator.assistant()
     engine.set_assistant_aggregator(assistant_context_aggregator)
 
+    # Inline, as on calls (register_turn_log_handlers): run as tasks, a
+    # generation's start or stop was read after the hand-off it made.
+    for event in ("on_assistant_turn_started", "on_assistant_turn_stopped"):
+        assistant_context_aggregator._event_handlers[event].is_sync = True
+
     @assistant_context_aggregator.event_handler("on_assistant_turn_started")
     async def on_assistant_turn_started(_aggregator):
         response_window.note_assistant_turn_started()
 
     @assistant_context_aggregator.event_handler("on_assistant_turn_stopped")
     async def on_assistant_turn_stopped(_aggregator, message):
-        response_window.note_assistant_turn_stopped(message.content or "")
+        withdrawn = response_window.note_assistant_turn_stopped(message.content or "")
+        if withdrawn:
+            _drop_assistant_lines(context, [withdrawn])
 
     # Text chat has no wire transport; reuse the neutral 16 kHz config shape
     # from the browser pipeline so TTS/recording helpers still have sane defaults.
