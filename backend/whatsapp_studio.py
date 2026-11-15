@@ -247,7 +247,8 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         temperature=0.0, max_completion_tokens=0, turn_started_at=utc_now(),
     )
     if lexicon.is_abusive(customer_text):
-        bot_turn.notify_then_escalate(engine, t, reason="Customer used abusive language — escalated to human")
+        bot_turn.notify_then_escalate(engine, t, reason="Customer used abusive language — escalated to human",
+                                      handoff_reason="sentiment_drop")
         return
     max_turns = int(voice_studio.guardrails_for(state.get("studio_workflow_id")).get("maxTurns") or 20)
     if _session_current(state) and int(state.get("studio_turns") or 0) >= max_turns:
@@ -273,7 +274,8 @@ def handle_turn(engine: Engine, job: dict[str, Any]) -> None:
         state["last_trigger_message_id"] = latest_msg_id
         bot_conversation.save_bot_state(engine, conversation_id, state)
         if wants_person:
-            bot_turn.notify_then_escalate(engine, t, reason="Customer requested a human agent")
+            bot_turn.notify_then_escalate(engine, t, reason="Customer requested a human agent",
+                                          handoff_reason="customer_requested")
             _meter(conv.get("interaction_id"), *answered_by)
             return
         if not t.final_text:

@@ -1445,13 +1445,28 @@ def save_context_summary(
     return row
 
 
-def escalate_conversation_to_human(conversation_id: str, *, reason: str = "escalated") -> dict[str, Any]:
-    """Bot / routing path → needs_human. Cancels pending bot jobs."""
+def escalate_conversation_to_human(
+    conversation_id: str, *, reason: str = "escalated", handoff_reason: str = "routing_rule"
+) -> dict[str, Any]:
+    """Bot / routing path → needs_human. Cancels pending bot jobs.
+
+    Opens the interaction's handoff too (``handoff_reason`` is its CHECKed
+    reason; ``reason`` is free text for the activity line). The Handoff Hub
+    and the containment figures read only handoffs, so a WhatsApp escalation
+    without one never reached the Hub and counted as contained (run 97).
+    """
     with _engine().begin() as conn:
         _assert_tenant_owns(conn, "conversations", conversation_id)
         row = _one(
             conn.execute(
-                text("SELECT id, customer_id, status FROM conversations WHERE id = :id"),
+                text(
+                    """
+                    SELECT c.id, c.customer_id, c.status, c.interaction_id, i.handler_bot_id
+                    FROM conversations c
+                    LEFT JOIN interactions i ON i.id = c.interaction_id
+                    WHERE c.id = :id
+                    """
+                ),
                 {"id": conversation_id},
             )
         )
@@ -1483,6 +1498,28 @@ def escalate_conversation_to_human(conversation_id: str, *, reason: str = "escal
             ),
             {"id": conversation_id, "error": f"escalated:{reason}"[:500]},
         )
+        if row["interaction_id"]:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO interaction_handoffs (
+                      id, interaction_id, from_kind, from_bot_id, to_kind, reason,
+                      requested_at, created_at
+                    )
+                    SELECT :id, :ix, 'bot', :bot, 'human', :reason, now(), now()
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM interaction_handoffs
+                      WHERE interaction_id = :ix AND to_kind = 'human' AND completed_at IS NULL
+                    )
+                    """
+                ),
+                {
+                    "id": f"HO-{uuid.uuid4().hex[:10].upper()}",
+                    "ix": row["interaction_id"],
+                    "bot": row["handler_bot_id"],
+                    "reason": handoff_reason,
+                },
+            )
         _activity(
             conn,
             "conversation",

@@ -496,6 +496,45 @@ def test_a_handoff_hub_claim_gives_the_claimant_the_thread(db_tx, as_actor) -> N
     assert _handler(db_tx, cv) == {"handler_kind": "human", "handler_user_id": AGENT}
 
 
+def _handoffs(conn, cv: str) -> list[dict]:
+    return [
+        dict(r)
+        for r in conn.execute(
+            text(
+                "SELECT h.reason, h.from_bot_id, h.to_user_id, h.accepted_at IS NOT NULL AS accepted, "
+                "h.completed_at IS NOT NULL AS completed FROM interaction_handoffs h "
+                "JOIN conversations cv ON cv.interaction_id = h.interaction_id WHERE cv.id = :cv"
+            ),
+            {"cv": cv},
+        ).mappings()
+    ]
+
+
+def test_a_bot_escalation_opens_a_handoff_case_that_follows_the_thread(
+    db_tx, as_actor, agent_rights
+) -> None:
+    # Run 97: "Please escalate to a human agent" on WhatsApp flipped the
+    # thread to needs_human with no handoff, so the Hub never showed it and
+    # the containment figures counted it as contained.
+    cv = _thread(db_tx, _customer(db_tx))
+    db.escalate_conversation_to_human(
+        cv, reason="Customer requested a human agent", handoff_reason="customer_requested"
+    )
+    # A second escalation of the same open case is not a second case.
+    db.escalate_conversation_to_human(cv, reason="max_turns_exceeded")
+    assert _handoffs(db_tx, cv) == [
+        {"reason": "customer_requested", "from_bot_id": BOT, "to_user_id": None,
+         "accepted": False, "completed": False}
+    ]
+
+    as_actor(AGENT)
+    db.takeover_conversation(cv, {"expectedAssigneeId": None})
+    (case,) = _handoffs(db_tx, cv)
+    assert (case["to_user_id"], case["accepted"], case["completed"]) == (AGENT, True, False)
+    db.return_conversation_to_bot(cv)
+    assert _handoffs(db_tx, cv)[0]["completed"] is True
+
+
 def test_taking_a_colleagues_thread_needs_supervisor_rights(db_tx, as_actor, agent_rights) -> None:
     cv = _thread(db_tx, _customer(db_tx), status="assigned", assignee=COLLEAGUE)
     as_actor(AGENT)

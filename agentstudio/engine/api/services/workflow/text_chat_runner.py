@@ -159,6 +159,12 @@ class _ResponseWindowState:
     pending_context_requests: int = 0
     blocking_tool_call_ids: set[str] = field(default_factory=set)
     outputs: list[str] = field(default_factory=list)
+    #: Set once the customer's message is in: replies after it answer it.
+    answering: bool = False
+    #: What the model wrote in the current step since the customer's message.
+    step_replies: list[str] = field(default_factory=list)
+    #: Replies withdrawn when their step handed on (see ``leave_step``).
+    withdrawn: list[str] = field(default_factory=list)
 
     def note_direct_context_request(self) -> None:
         self.pending_context_requests += 1
@@ -184,6 +190,24 @@ class _ResponseWindowState:
         normalized_content = content.strip()
         if normalized_content:
             self.outputs.append(normalized_content)
+            if self.answering:
+                self.step_replies.append(normalized_content)
+
+    def leave_step(self) -> list[str]:
+        """Withdraw what the step wrote while it handed the message on.
+
+        A written reply goes out whole at the end of the turn, so the step
+        the conversation moved to answers alone: run 97's Welcome wrote
+        "I can't access your account details" while routing to Verify
+        identity, which then asked for the digits in the same message.
+        """
+        left, self.step_replies = self.step_replies, []
+        for text in left:
+            # The last copy: an earlier identical line may be the greeting.
+            index = len(self.outputs) - 1 - self.outputs[::-1].index(text)
+            del self.outputs[index]
+        self.withdrawn.extend(left)
+        return left
 
     def note_function_call_in_progress(self, tool_call_id: str, blocking: bool) -> None:
         if blocking:
@@ -204,6 +228,25 @@ class _ResponseWindowState:
             and self.active_assistant_segments == 0
             and not self.has_blocking_tool_calls
         )
+
+
+def _drop_assistant_lines(context: LLMContext, lines: list[str]) -> None:
+    """Remove the latest assistant text message matching each line."""
+    if not lines:
+        return
+    messages = context.get_messages()
+    for line in lines:
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
+            if (
+                isinstance(message, dict)
+                and message.get("role") == "assistant"
+                and isinstance(message.get("content"), str)
+                and message["content"].strip() == line
+            ):
+                del messages[index]
+                break
+    context.set_messages(messages)
 
 
 class _TaskQueueProxy:
@@ -580,6 +623,11 @@ async def execute_text_chat_pending_turn(
         previous_node_name: str | None,
         allow_interrupt: bool = False,
     ) -> None:
+        if response_window.answering:
+            # The transition runs after its response ended, so those lines are
+            # in the context already. Out of it too: the next step answers
+            # the message as though nothing had been said.
+            _drop_assistant_lines(context, response_window.leave_step())
         node_transition_events.append(
             {
                 "type": "node_transition",
@@ -750,6 +798,7 @@ async def execute_text_chat_pending_turn(
             )
 
         if pending_user_message is not None:
+            response_window.answering = True
             context.add_message({"role": "user", "content": pending_user_message})
             engine.on_customer_message()
             generation_marker = capture_processor.activity_count
@@ -771,10 +820,11 @@ async def execute_text_chat_pending_turn(
             await engine.cleanup()
 
     gathered_context = await engine.get_gathered_context()
+    # A step that took the message on and then said nothing still owes the
+    # customer a reply: send what was withdrawn rather than silence.
+    outputs = response_window.outputs or response_window.withdrawn
     assistant_text = (
-        "\n\n".join(part for part in response_window.outputs if part).strip()
-        if response_window.outputs
-        else None
+        "\n\n".join(part for part in outputs if part).strip() if outputs else None
     )
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()

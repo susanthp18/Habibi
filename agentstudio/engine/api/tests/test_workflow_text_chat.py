@@ -15,8 +15,11 @@ from api.services.configuration.ai_model_configuration import (
 )
 from api.services.workflow.text_chat_runner import (
     _deserialize_text_chat_checkpoint_messages,
+    _drop_assistant_lines,
+    _ResponseWindowState,
     _serialize_text_chat_checkpoint_messages,
 )
+from pipecat.processors.aggregators.llm_context import LLMContext
 from api.tasks.function_names import FunctionNames
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
@@ -29,6 +32,39 @@ def _log_texts(logs: dict | None, event_type: str) -> list[str]:
         for event in events
         if event.get("type") == event_type
     ]
+
+
+def test_a_step_that_hands_on_is_withdrawn_from_the_reply_and_context():
+    # Run 97: the greeting, then Welcome routed while writing a refusal.
+    window = _ResponseWindowState(outputs=["Hi Azr."])
+    context = LLMContext(messages=[
+        {"role": "assistant", "content": "Hi Azr."},
+        {"role": "user", "content": "What is my pending due"},
+        {"role": "assistant", "content": "Sorry, I can't access your account."},
+    ])
+    window.answering = True
+    window.note_assistant_turn_started()
+    window.note_assistant_turn_stopped("Sorry, I can't access your account. ")
+
+    _drop_assistant_lines(context, window.leave_step())
+    window.note_assistant_turn_started()
+    window.note_assistant_turn_stopped("Please share the last four digits.")
+
+    assert window.outputs == ["Hi Azr.", "Please share the last four digits."]
+    assert [m["content"] for m in context.get_messages()] == [
+        "Hi Azr.", "What is my pending due",
+    ]
+
+
+def test_a_step_handed_a_message_that_writes_nothing_leaves_the_withdrawn_reply():
+    window = _ResponseWindowState()
+    window.answering = True
+    window.note_assistant_turn_started()
+    window.note_assistant_turn_stopped("Your due is $0.")
+    window.leave_step()
+
+    assert window.outputs == []
+    assert window.withdrawn == ["Your due is $0."]
 
 
 def test_text_chat_checkpoint_messages_round_trip_google_thought_signature():
@@ -743,8 +779,11 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
     run_payload = run_response.json()
     assistant_text = payload["session_data"]["turns"][1]["assistant_message"]["text"]
 
-    assert "Let me transfer you." in assistant_text
-    assert "Agent one here." in assistant_text
+    # A written reply goes out whole, so the step that took the message on
+    # answers it alone: the routing step's line is withdrawn from the reply
+    # and from the context the next step answered from.
+    assert assistant_text == "Agent one here."
+    assert "Let me transfer you." not in json.dumps(payload["checkpoint"]["messages"])
     assert extraction_completed.is_set()
     assert payload["checkpoint"]["current_node_id"] == "agent1"
     assert payload["checkpoint"]["gathered_context"]["customer_age"] == "45"
@@ -1061,9 +1100,7 @@ async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
     payload = message_response.json()
     assistant_text = payload["session_data"]["turns"][1]["assistant_message"]["text"]
 
-    assert "Moving to agent one." in assistant_text
-    assert "Moving to agent two." in assistant_text
-    assert "Agent two here." in assistant_text
+    assert assistant_text == "Agent two here."
     assert payload["checkpoint"]["current_node_id"] == "agent2"
     assert (
         sum(

@@ -168,6 +168,7 @@ def notify_then_escalate(
     t: Turn | None = None,
     *,
     reason: str,
+    handoff_reason: str = "routing_rule",
     conversation_id: str | None = None,
     job_id: str | None = None,
     mark_job: bool = True,
@@ -194,7 +195,7 @@ def notify_then_escalate(
         except Exception:
             logger.exception("escalate notice send failed conversation=%s", cid)
     if cid:
-        db.escalate_conversation_to_human(cid, reason=reason)
+        db.escalate_conversation_to_human(cid, reason=reason, handoff_reason=handoff_reason)
     if t is not None:
         t.state.update(
             {
